@@ -1,0 +1,19 @@
+####################################################
+#
+# List of approvers for <project-name> project
+#
+#####################################################
+#
+# Learn about CODEOWNERS file format:
+#  https://help.github.com/en/articles/about-code-owners
+#
+
+# These owners will be the default owners for everything in
+# the repository. Unless a later match takes precedence,
+# the following users/teams will be requested for
+# review when someone opens a pull request.
+* @agntcy/<maintainer-team-name>
+
+# Enforces admin protections for repo configuration via probot settings app.
+# ref: https://github.com/probot/settings#security-implications
+.github/settings.yml @agntcy/<admin-team-name>
