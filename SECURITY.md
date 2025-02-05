@@ -31,6 +31,10 @@ A maintainer will acknowledge the report within three (3) business days, and
 will send a more detailed response within an additional three (3) business days
 indicating the next steps in handling your report.
 
+If you've been unable to successfully draft a vulnerability report via GitHub or
+have not received a response during the alloted response window, please reach out via
+[security@agntcy.ai](mailto:security@agntcy.ai) contact email.
+
 After the initial reply to your report, the maintainers will endeavor to keep
 you informed of the progress towards a fix and full announcement, and may ask
 for additional information or guidance.
