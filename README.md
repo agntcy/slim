@@ -66,7 +66,6 @@ instructions in the golang website.
 ## Copyright Notice
 
 [Copyright Notice and License](./LICENSE.md)
-
 Copyright (c) 2025 Cisco and/or its affiliates.
 
 Licensed under the Apache License, Version 2.0 (the "License");
