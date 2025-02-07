@@ -27,4 +27,4 @@ jobs:
       working-directory: ./control-plane
 
     secrets:
-      github-token: ${{ secrets.GH_TOKEN }}
+      github-token: ${{ secrets.GITHUB_TOKEN }}
