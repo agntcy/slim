@@ -15,20 +15,7 @@ function "get_tag" {
 
 group "default" {
   targets = [
-    "gateway-tks",
-    "gateway",
-  ]
-}
-
-group "golang" {
-  targets = [
-    "gateway-tks",
-  ]
-}
-
-group "rust" {
-  targets = [
-    "gateway",
+    "gw",
   ]
 }
 
@@ -46,22 +33,12 @@ target "docker-metadata-action" {
   tags = []
 }
 
-target "gateway-tks" {
-  context = "."
-  dockerfile = "./control-plane/token-service/Dockerfile"
-  inherits = [
-    "_common",
-    "docker-metadata-action",
-  ]
-  tags = get_tag(target.docker-metadata-action.tags, "${target.gateway-tks.name}")
-}
-
-target "gateway" {
+target "gw" {
   context = "."
   dockerfile = "./data-plane/Dockerfile"
   inherits = [
     "_common",
     "docker-metadata-action",
   ]
-  tags = get_tag(target.docker-metadata-action.tags, "${target.gateway.name}")
+  tags = get_tag(target.docker-metadata-action.tags, "${target.gw.name}")
 }

@@ -50,6 +50,10 @@ jobs:
       matrix:
         target: ${{ fromJson(needs.prepare-build.outputs.targets) }}
     uses: ./.github/workflows/reusable-docker-build-push.yaml
+    permissions:
+      contents: 'read'
+      packages: 'write'
+      attestations: 'write'
     with:
       bake-target: ${{ matrix.target }}
       image-name: ${{ matrix.target }}
