@@ -1,0 +1,36 @@
+[package]
+name = "gateway"
+version = "0.1.0"
+publish = false
+edition = "2021"
+description = "The main gateway executable"
+
+[[bin]]
+name = "gateway"
+path = "src/bin/main.rs"
+
+[features]
+default = ["multicore"]
+multicore = ["tokio/rt-multi-thread", "num_cpus"]
+
+[dependencies]
+clap = { version = "4.5.23", features = ["derive", "env"] }
+duration-str = "0.12.0"
+gateway-component = { path = "../component" }
+gateway-config-provider = { path = "../config/provider" }
+gateway-service = { path = "../service" }
+gateway-signal = { path = "../signal" }
+gateway-tracing = { path = "../tracing" }
+lazy_static = "1.5.0"
+num_cpus = { version = "1.16.0", optional = true }
+serde = "1.0.217"
+serde_yaml = "0.9.34"
+thiserror = "2.0.6"
+tokio = "1.42.0"
+tracing = "0.1.41"
+
+[dev-dependencies]
+tracing-test = "0.2.5"
+
+[target.x86_64-unknown-linux-gnu.dependencies]
+jemallocator = { version = "0.5" }

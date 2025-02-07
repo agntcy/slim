@@ -1,0 +1,295 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025 Cisco and/or its affiliates.
+# SPDX-License-Identifier: Apache-2.0
+
+---
+name: go-build-and-test
+on:
+  workflow_call:
+    inputs:
+      runner:
+        description: Github hosted runner or Self hosted runner
+        required: false
+        type: string
+        default: ubuntu-latest
+      continue-on-error:
+        description: Whether to skip the status update for this job
+        required: false
+        type: boolean
+        default: false
+      go-version:
+        description: Go version to use
+        required: false
+        type: string
+        default: 1.23.6
+      go-lint:
+        description: Whether to run "task golint"
+        required: false
+        type: boolean
+        default: true
+      go-vuln:
+        description: Whether to run "task govuln"
+        required: false
+        type: boolean
+        default: true
+      go-check-deps:
+        description: Whether to check for go mod dependency changes
+        required: false
+        type: boolean
+        default: true
+      go-check-gencode:
+        description: Whether to check for gencode changes
+        required: false
+        type: boolean
+        default: true
+      go-check-multimod:
+        description: Whether to check for multimod changes
+        required: false
+        type: boolean
+        default: true
+      go-test:
+        description: Whether to run "task coverage"
+        required: false
+        type: boolean
+        default: true
+      go-test-coverage:
+        description: Whether to run "task coverage"
+        required: false
+        type: boolean
+        default: true
+      go-cross-build:
+        description: Whether to run "task build"
+        required: false
+        type: boolean
+        default: true
+      cgo-enabled:
+        description: Whether to enable CGO
+        required: false
+        type: string
+        default: '0'
+      go-fips:
+        description: Whether to install GoFIPS
+        required: false
+        type: boolean
+        default: false
+      working-directory:
+        description: The working directory to run the task
+        required: false
+        type: string
+        default: .
+
+jobs:
+  setup-environment:
+    runs-on: ${{ inputs.runner }}
+
+    defaults:
+      run:
+        shell: bash
+        working-directory: ${{ inputs.working-directory }}
+
+    steps:
+      - name: Checkout Repo
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: ./.github/actions/setup-go
+
+      - name: Install dependencies
+        if: steps.setup-go.outputs.cache-hit != 'true'
+        run: |
+          which go
+          go env
+
+          task control-plane:fetch
+
+  lint:
+    runs-on: ${{ inputs.runner }}
+
+    defaults:
+      run:
+        shell: bash
+        working-directory: ${{ inputs.working-directory }}
+
+    if: ${{ inputs.go-lint }}
+
+    needs: [setup-environment]
+
+    steps:
+      - name: Checkout Repo
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: ./.github/actions/setup-go
+
+      - name: golint
+        run: |
+          which go
+          go env
+
+          task control-plane:lint control-plane:impi
+
+  govulncheck:
+    runs-on: ${{ inputs.runner }}
+
+    defaults:
+      run:
+        shell: bash
+        working-directory: ${{ inputs.working-directory }}
+
+    if: ${{ inputs.go-vuln }}
+
+    needs: [setup-environment]
+
+    timeout-minutes: 30
+    steps:
+      - name: Checkout Repo
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Go
+        uses: ./.github/actions/setup-go
+
+      - name: Run `govuln`
+        run: |
+          which go
+          go env
+
+          task control-plane:vuln
+
+  unittest-matrix:
+    runs-on: ${{ inputs.runner }}
+
+    defaults:
+      run:
+        shell: bash
+        working-directory: ${{ inputs.working-directory }}
+
+    if: ${{ inputs.go-test }}
+    needs: [setup-environment]
+    steps:
+      - name: Checkout Repo
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Go
+        uses: ./.github/actions/setup-go
+
+      - name: Cache Build
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/go-build
+          key: unittest-${{ runner.os }}-go-build-${{ hashFiles('**/go.sum') }}
+      - name: Run Unit Tests
+        run: |
+          which go
+          go env
+
+          task control-plane:test
+
+  unittest:
+    runs-on: ${{ inputs.runner }}
+
+    if: ${{ inputs.go-test }}
+
+    needs: [setup-environment, unittest-matrix]
+    steps:
+      - name: Print result
+        run: echo ${{ needs.unittest-matrix.result }}
+      - name: Interpret result
+        run: |
+          if [[ "success" == "${{ needs.unittest-matrix.result }}" ]]
+          then
+            echo "All matrix jobs passed!"
+          else
+            echo "One or more matrix jobs failed."
+            false
+          fi
+
+  test-coverage:
+    runs-on: ${{ inputs.runner }}
+
+    defaults:
+      run:
+        shell: bash
+        working-directory: ${{ inputs.working-directory }}
+
+    if: ${{ inputs.go-test-coverage }}
+
+    needs: [setup-environment]
+
+    steps:
+      - name: Checkout Repo
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Go
+        uses: ./.github/actions/setup-go
+
+      - name: Cache Build
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/go-build
+          key: coverage-${{ runner.os }}-go-build-${{ hashFiles('**/go.sum') }}
+
+      - name: Run Unit Tests With Coverage
+        run: |
+          which go
+          go env
+
+          task control-plane:coverage
+
+  cross-build:
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        shell: bash
+        working-directory: ${{ inputs.working-directory }}
+
+    if: ${{ inputs.go-cross-build }}
+
+    needs: [setup-environment]
+
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [darwin, linux]
+        arch: [amd64, arm64]
+        go-fips: ["${{ inputs.go-fips }}"]
+        exclude:
+          - go-fips: true
+            os: darwin
+            arch: arm64
+          - go-fips: true
+            os: linux
+            arch: arm64
+          - go-fips: true
+            os: darwin
+            arch: amd64
+
+    steps:
+      - name: Checkout Repo
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Go
+        uses: ./.github/actions/setup-go
+
+      - name: Check go executable
+        run: |
+          which go
+      - name: Build
+        env:
+          GOOS: ${{matrix.os}}
+          GOARCH: ${{matrix.arch}}
+          GOARM: ${{matrix.goarm}}
+          CGO_ENABLED: ${{ inputs.cgo-enabled }}
+        run: |
+          which go
+          go env
+
+          task control-plane:build

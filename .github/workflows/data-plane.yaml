@@ -1,0 +1,25 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025 Cisco and/or its affiliates.
+# SPDX-License-Identifier: Apache-2.0
+
+name: ci-test-and-build-data-plane
+
+on:
+  push:
+    paths:
+      - 'data-plane/**'
+    branches:
+      - main
+  pull_request:
+    paths:
+      - 'data-plane/**'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ !contains(github.ref, 'release/')}}
+
+jobs:
+  data-plane-build-and-test:
+    name: Data plane - build & test
+    uses: ./.github/workflows/reusable-rust-build-and-test.yaml
+    with:
+      working-directory: ./data-plane

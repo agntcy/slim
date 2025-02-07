@@ -1,0 +1,23 @@
+[package]
+name = "gateway-service"
+edition = "2021"
+publish = false
+version = "0.1.0"
+
+[dependencies]
+drain = { version = "0.1", features = ["retain"] }
+gateway-component = { path = "../component" }
+gateway-config-grpc = { path = "../config/grpc" }
+gateway-config-tls = { path = "../config/tls" }
+gateway-data-path = { path = "../data-path" }
+gateway-messages = { path = "../messages" }
+gateway-pubsub-proto = { path = "../pubsub-proto" }
+serde = "1.0.217"
+thiserror = "2.0.9"
+tokio = "1.42.0"
+tokio-util = "0.7.13"
+tonic = "0.12"
+tracing = "0.1.41"
+
+[dev-dependencies]
+tracing-test = "0.2.5"
