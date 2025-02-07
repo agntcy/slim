@@ -1,0 +1,9 @@
+[package]
+name = "gateway-signal"
+edition = "2021"
+publish = false
+version = "0.1.0"
+
+[dependencies]
+tokio = { version = "1", features = ["macros", "signal"] }
+tracing = "0.1"

@@ -1,0 +1,55 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025 Cisco and/or its affiliates.
+# SPDX-License-Identifier: Apache-2.0
+
+---
+
+name: Setup Environment
+description: setup environment to build/test/lint go applications
+inputs:
+  go-version:
+    description: 'Go version to install'
+    required: false
+    default: ~1.23
+  check-latest:
+    description: 'Check if the cached Go version is the latest one. If the locally cached version is not the most up-to-date, a relevant Go version will then be downloaded.'
+    required: false
+    default: true
+  github-token:
+    description: 'github token'
+    required: false
+    default: ''
+outputs:
+  cache-hit:
+    description: "Whether we hit the cache"
+    value: ${{ steps.go-cache.outputs.cache-hit }}
+runs:
+  using: "composite"
+  steps:
+    - name: Setup Go
+      if: ${{ inputs.go-fips != 'true' }}
+      uses: actions/setup-go@v5
+      with:
+        go-version: ${{ inputs.go-version }}
+        check-latest: ${{ inputs.check-latest }}
+        cache: false
+
+    - name: Setup Taskfile
+      shell: bash
+      run: sh -c "$(curl --location https://taskfile.dev/install.sh)" -- -d -b ~/.local/bin
+
+    - name: Cache Go
+      id: go-cache
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/go/bin
+          ~/go/pkg/mod
+        key: go-cache-${{ runner.os }}-${{ hashFiles('**/go.sum') }}
+
+    - id: set-cache-hit
+      run: echo "cache-hit=${{ steps.go-cache.outputs.cache-hit }}" >> $GITHUB_OUTPUT
+      shell: bash
+
+    - name: Update GITHUB_PATH
+      run: echo "$HOME/.local/bin" >> $GITHUB_PATH
+      shell: bash

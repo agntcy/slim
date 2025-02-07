@@ -1,0 +1,68 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025 Cisco and/or its affiliates.
+# SPDX-License-Identifier: Apache-2.0
+
+---
+version: '3'
+
+silent: true
+set: [pipefail]
+shopt: [globstar]
+
+verbose: false
+
+tasks:
+  default:
+    cmds:
+      - task -l
+
+  python-bindings:build:
+    desc: "Build the Python bindings"
+    cmds:
+      - uv run maturin develop --uv
+
+  python-bindings:build:release:
+    desc: "Release the Python bindings"
+    cmds:
+      - uv run maturin develop --uv --release
+
+  python-bindings:lint:
+    desc: "Lint the Python bindings"
+    cmds:
+      - uv run ruff check
+      - uv run ruff format --check
+      - uv run mypy gateway_bindings
+
+  python-bindings:test:
+    desc: "Test the Python bindings"
+    deps:
+      - python-bindings:build
+    cmds:
+      - uv run pytest -s
+
+  python-bindings:example:server:
+    desc: "Run the server example"
+    cmds:
+      - uv run python ./examples/gateway.py
+
+  python-bindings:example:alice:
+    desc: "Run the Alice example"
+    cmds:
+      - |
+        uv run python ./examples/agent.py \
+          -l cisco/default/alice          \
+          -g http://localhost:12345
+
+  python-bindings:example:bob:
+    desc: "Run the Bob example"
+    cmds:
+      - |
+        uv run python ./examples/agent.py   \
+          -l cisco/default/bob              \
+          -r cisco/default/alice            \
+          -g http://localhost:12345         \
+          -m "The city of the big ben"
+
+  python-bindings:generate-stub:
+    desc: "Generate stub file for the Python bindings"
+    cmds:
+      - cargo run --bin stub_gen

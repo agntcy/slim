@@ -1,0 +1,19 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025 Cisco and/or its affiliates.
+# SPDX-License-Identifier: Apache-2.0
+
+tracing:
+  log_level: debug
+  display_thread_names: true
+  display_thread_ids: true
+
+runtime:
+  n_cores: 0
+  thread_name: "data-plane-gateway"
+  drain_timeout: 10s
+
+services:
+  gateway/0:
+    clients:
+      - endpoint: "http://localhost:46357"
+        tls:
+          insecure: true

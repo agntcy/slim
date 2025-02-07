@@ -1,0 +1,143 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025 Cisco and/or its affiliates.
+# SPDX-License-Identifier: Apache-2.0
+
+---
+
+version: "3"
+
+silent: true
+
+includes:
+  tools:
+    taskfile: ../tasks/tools.yaml
+    flatten: true
+
+vars:
+  REPO_ROOT:
+    sh: git rev-parse --show-toplevel
+
+  OUTPUT_DIR: "{{.REPO_ROOT}}/.dist"
+
+  CONTROL_PLANE_DIR: control-plane
+
+  MAIN_MODULE: github.com/agntcy/agp
+
+  MODULES:
+    sh: |
+      find {{.REPO_ROOT}} -type f -name "go.mod" ! -path "./third-party/*" -exec dirname {} \; | \
+        sort | \
+        tr '\n' ' '
+
+tasks:
+  control-plane:foreach-module:
+    internal: true
+    desc: Run task for each module
+    cmds:
+      - |
+        for dir in {{.MODULES}}; do
+          pushd ${dir} > /dev/null
+          echo "${dir}: running {{.CMD}}"
+          {{.CMD}}
+          popd > /dev/null
+        done
+
+  control-plane:modtidy:
+    desc: Install go modules
+    cmds:
+      - task: control-plane:foreach-module
+        vars:
+          CMD: go mod tidy
+
+  control-plane:lint:
+    desc: Run go linter
+    deps:
+      - tools
+    cmds:
+      - task: control-plane:foreach-module
+        vars:
+          CMD: "echo ${PWD} && {{.TOOLS_INSTALL_DIR}}/golangci-lint run"
+
+  control-plane:impi:
+    desc: Run go impi
+    deps:
+      - tools
+    cmds:
+      - task: control-plane:foreach-module
+        vars:
+          CMD: |
+            {{.TOOLS_INSTALL_DIR}}/impi \
+              --local github.com/agntcy/agp \
+              --ignore-generated=true \
+              --scheme stdThirdPartyLocal \
+              ./...
+
+  control-plane:vuln:
+    desc: Run go govulncheck
+    deps:
+      - tools
+    cmds:
+      - task: control-plane:foreach-module
+        vars:
+          CMD: "{{.TOOLS_INSTALL_DIR}}/govulncheck ./..."
+
+  control-plane:coverage-reports:
+    desc: Check test coverage
+    deps:
+      - tools
+    cmds:
+      - task: control-plane:foreach-module
+        vars:
+          CMD: |
+            {{.TOOLS_INSTALL_DIR}}/go-acc --output=$(basename  ${dir})-coverage.out ./...
+
+  control-plane:coverage:
+    desc: Show coverage in browser
+    deps:
+      - control-plane:coverage-reports
+    cmds:
+      - echo find . -name '*coverage.out' -execdir go tool cover -html=./{} \;
+
+  control-plane:test:
+    desc: Run go tests
+    deps:
+      - tools
+    cmds:
+      - task: control-plane:foreach-module
+        vars:
+          CMD: go test --tags=test -failfast -v 2>&1 ./...
+
+  control-plane:fetch:
+    desc: Download go modules
+    deps:
+      - tools
+    cmds:
+      - task: control-plane:foreach-module
+        vars:
+          CMD: "echo ${PWD} && go env && go mod download"
+
+  control-plane:token-service:build:
+    internal: false
+    dir: token-service/cmd
+    cmds:
+      - |
+        go build -o \
+          {{.OUTPUT_DIR}}/bin/gateway-tks \
+          -ldflags \
+          " \
+            -X '{{.MAIN_MODULE}}/control-plane/internal/cmd/version.semVersion={{.VERSION}}'
+            -X '{{.MAIN_MODULE}}/control-plane/internal/cmd/version.gitCommit={{.GIT_COMMIT}}'
+            -X '{{.MAIN_MODULE}}/control-plane/internal/cmd/version.buildDate={{.BUILD_DATE}}'
+            {{.FLAGS}} \
+          "
+    vars:
+      GIT_COMMIT:
+        sh: git log -n 1 --format=%h
+      BUILD_DATE:
+        sh: date -u +'%Y-%m-%dT%H:%M:%SZ'
+      VERSION:
+         sh: pushd {{.REPO_ROOT}} > /dev/null && task version && popd > /dev/null
+
+  control-plane:build:
+    desc: Build go binaries
+    cmds:
+      - task: control-plane:token-service:build

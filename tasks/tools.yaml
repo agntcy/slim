@@ -1,0 +1,102 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025 Cisco and/or its affiliates.
+# SPDX-License-Identifier: Apache-2.0
+
+version: "3"
+
+silent: true
+
+vars:
+  REPO_ROOT:
+    sh: git rev-parse --show-toplevel
+
+  TOOLS_MODULE_DIR: "{{.REPO_ROOT}}/internal/tools"
+
+  TOOLS_INSTALL_DIR: "{{.REPO_ROOT}}/.tools"
+
+  TOOLS_PACKAGES:
+    sh: |
+      grep -E '\s+_\s+".*"' {{.TOOLS_MODULE_DIR}}/tools.go | \
+        tr -d " _\"" | \
+        grep -vE '/v[0-9]+$$' | \
+        tr '\n' ' '
+
+  ADDITIONAL_TOOLS: "protoc"
+
+  TMP_FOLDER: ".tmp"
+
+  PROTOC_URL: "https://github.com/protocolbuffers/protobuf/releases/download"
+
+  PROTOC_VERSION: "29.0"
+
+tasks:
+  tools:foreach:
+    internal: true
+    desc: Run task for each tool
+    cmds:
+      - |
+        for tool in {{.TOOLS_PACKAGES}}; do
+          echo "Tool: ${tool}"
+          {{.CMD}}
+        done
+
+  tools:dir:
+    internal: true
+    cmds:
+      - mkdir -p {{.TOOLS_INSTALL_DIR}}
+    status:
+      - test -d {{.TOOLS_INSTALL_DIR}}
+
+  tools:gomodtidy:
+    internal: true
+    desc: Install go modules in tools
+    cmds:
+      - cd {{.TOOLS_MODULE_DIR}} && go mod tidy
+
+  tools:protoc:
+    deps:
+      - tools:dir
+    dir: "{{.TMP_FOLDER}}"
+    cmds:
+      - |
+        A="{{ARCH}}"
+        O="{{OS}}"
+        [[ "{{ARCH}}" == "amd64" ]] && A="x86_64"
+        [[ "{{ARCH}}" == "arm64" ]] && A="aarch_64"
+        [[ "{{OS}}" == "darwin" ]] && O="osx"
+        curl -L {{.PROTOC_URL}}/v{{.PROTOC_VERSION}}/protoc-{{.PROTOC_VERSION}}-$O-$A.zip -o protoc.zip
+        unzip -o protoc.zip
+        mv bin/protoc {{.TOOLS_INSTALL_DIR}}
+        mv include {{.TOOLS_INSTALL_DIR}}
+        rm -f protoc.zip
+    status:
+      - |
+        for tool in {{.ADDITIONAL_TOOLS}}; do
+          test -f {{.TOOLS_INSTALL_DIR}}/${tool}
+        done
+
+  # Download packages
+  tools:go-tools:
+    internal: true
+    deps:
+      - tools:dir
+      - tools:gomodtidy
+    cmds:
+      - task: tools:foreach
+        vars:
+          CMD: |
+            unset GOOS
+            unset GOARCH
+            bin_name="$(basename ${tool})"
+            cd {{.TOOLS_MODULE_DIR}} && go build -o {{.TOOLS_INSTALL_DIR}}/${bin_name} -trimpath ${tool}
+    status:
+      - |
+        for tool in {{.TOOLS_PACKAGES}}; do
+          bin_name="$(basename ${tool})"
+          test -f {{.TOOLS_INSTALL_DIR}}/${bin_name}
+        done
+
+  tools:
+    desc: Download tools
+    cmds:
+      - task: tools:protoc
+      - task: tools:go-tools

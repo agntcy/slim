@@ -1,0 +1,14 @@
+[ req ]
+prompt             = no
+default_md         = sha256
+req_extensions     = req_ext
+distinguished_name = dn
+days               = 3650
+
+[ dn ]
+C  = FR
+ST = Ile De France
+L  = Paris
+O  = Cisco
+OU = Outshift
+CN = localhost

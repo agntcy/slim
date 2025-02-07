@@ -1,0 +1,34 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025 Cisco and/or its affiliates.
+# SPDX-License-Identifier: Apache-2.0
+
+---
+version: '3'
+
+silent: true
+set: [pipefail]
+shopt: [globstar]
+
+verbose: false
+
+tasks:
+  default:
+    cmds:
+      - task -l
+
+  run:server:
+    desc: "Run the server"
+    dir: "../gateway/gateway"
+    cmds:
+      - cargo run --bin gateway -- --config ./config/config-base.yaml
+
+  run:mock-agent:server:
+    desc: "Run the mock agent server"
+    dir: src/sdk-mock
+    cmds:
+      - cargo run -- --config ./config/config.yaml --local-agent server --remote-agent client
+
+  run:mock-agent:client:
+    desc: "Run the mock agent client"
+    dir: src/sdk-mock
+    cmds:
+      - cargo run -- --config ./config/config.yaml --local-agent client --remote-agent server --message "hey there!"

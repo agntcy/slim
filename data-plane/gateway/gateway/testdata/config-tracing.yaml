@@ -1,0 +1,10 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025 Cisco and/or its affiliates.
+# SPDX-License-Identifier: Apache-2.0
+
+tracing:
+  log_level: debug
+
+services:
+  gateway/0:
+    server:
+      endpoint: "1.2.3.4:54321"

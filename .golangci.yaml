@@ -1,0 +1,109 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025 Cisco and/or its affiliates.
+# SPDX-License-Identifier: Apache-2.0
+
+run:
+  # concurrency when linting
+  concurrency: 4
+
+  # 10 min seems enough to run the linter
+  timeout: 10m
+
+  # exit code
+  issues-exit-code: 1
+
+  # also format test files
+  tests: true
+
+  skip-files: []
+
+  # this will gguarantees that go.mod does not need updates
+  modules-download-mode: readonly
+
+  # parallel golangci-lint instances running.
+  allow-parallel-runners: true
+
+issues:
+  exclude-dirs:
+    - third-party
+  # do not skip anything
+  skip-dirs-use-default: false
+
+
+# output configuration
+output:
+  formats:
+    - format: colored-line-number
+      path: stdout
+  print-issued-lines: true
+  print-linter-name: true
+
+# settings of specific linters
+linters-settings:
+  govet:
+    shadow: true
+
+    settings:
+      printf:
+        funcs:
+          - (github.com/golangci/golangci-lint/pkg/logutils.Log).Infof
+          - (github.com/golangci/golangci-lint/pkg/logutils.Log).Warnf
+          - (github.com/golangci/golangci-lint/pkg/logutils.Log).Errorf
+          - (github.com/golangci/golangci-lint/pkg/logutils.Log).Fatalf
+
+    enable-all: true
+    disable:
+      - fieldalignment
+
+  revive:
+    # minimal confidence for issues, default is 0.8
+    min-confidence: 0.8
+
+  gofmt:
+    # simplify code: gofmt with `-s` option, true by default
+    simplify: true
+
+  goimports:
+    # put imports beginning with prefix after 3rd-party packages;
+    # it's a comma-separated list of prefixes
+    local-prefixes: github.com/agntcy/agp
+  misspell:
+    # US locale
+    locale: US
+
+  depguard:
+    rules:
+      denied-deps:
+        deny:
+          - pkg: go.uber.org/atomic
+            desc: "Use 'sync/atomic' instead of go.uber.org/atomic"
+          - pkg: github.com/pkg/errors
+            desc: "Use 'errors' or 'fmt' instead of github.com/pkg/errors"
+          - pkg: github.com/hashicorp/go-multierror
+            desc: "Use go.uber.org/multierr instead of github.com/hashicorp/go-multierror"
+
+  lll:
+    # max line length, lines longer will be reported. Default is 120.
+    # '\t' is counted as 1 character by default, and can be changed with the tab-width option
+    line-length: 80
+    # tab width in spaces. Default to 1.
+    tab-width: 1
+
+linters:
+  enable:
+    - depguard
+    - errcheck
+    - errorlint
+    - copyloopvar
+    - gocritic
+    - gofmt
+    - goimports
+    - gosec
+    - govet
+    - misspell
+    - revive
+    - staticcheck
+    - tenv
+    - unconvert
+    - unused
+    - unparam
+    - lll

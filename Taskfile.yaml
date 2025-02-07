@@ -1,0 +1,22 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025 Cisco and/or its affiliates.
+# SPDX-License-Identifier: Apache-2.0
+
+version: "3"
+
+includes:
+  control-plane:
+    taskfile: control-plane/Taskfile.yaml
+    flatten: true
+    dir: ./control-plane
+  data-plane:
+    taskfile: data-plane/Taskfile.yml
+    flatten: true
+    dir: ./data-plane
+
+silent: true
+
+tasks:
+  version:
+    desc: Get version
+    cmds:
+      - git describe --tags --match "v*" | cut -c 2-

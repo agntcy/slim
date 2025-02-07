@@ -1,0 +1,292 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025 Cisco and/or its affiliates.
+# SPDX-License-Identifier: Apache-2.0
+
+---
+version: '3'
+
+set: [pipefail]
+shopt: [globstar]
+
+vars:
+  PROFILE: '{{.PROFILE | default "debug"}}'
+  RELEASE:
+    sh: '[[ {{.PROFILE}} == "release" ]] && echo "--release" || echo ""'
+  TARGET: '{{.TARGET | default ""}}'
+  TARGET_ARGS:
+    sh: "[[ -z \"{{.TARGET}}\" ]] && echo '' || echo '--target {{.TARGET}}'"
+  TARGET_ARCH:
+    sh: "echo {{.TARGET}} | cut -d'-' -f1"
+
+  TOOLCHAIN: ''
+  OSTYPE:
+    sh: bash -c 'echo $OSTYPE'
+  LLVM_VERSION: '{{ .LLVM_VERSION | default "14" }}'
+  CLANG:
+    sh: "[[ {{.OSTYPE}} == darwin* ]] && xcrun --sdk macosx --find clang || echo 'clang-{{.LLVM_VERSION}}'"
+  STRIP:
+    sh: "[[ {{.OSTYPE}} == darwin* ]] && xcrun --sdk macosx --find strip || echo 'llvm-strip-{{.LLVM_VERSION}}'"
+  AR:
+    sh: "[[ {{.OSTYPE}} == darwin* ]] && xcrun --sdk macosx --find ar || echo 'llvm-ar-{{.LLVM_VERSION}}'"
+  OBJCOPY:
+    sh: "echo 'llvm-objcopy-{{.LLVM_VERSION}}'"
+  RUSTFLAGS_SELF_CONTAINED: "-Clink-self-contained=yes -Clinker=rust-lld -Clink-arg=-fuse-ld=lld -Clink-arg=-Wl,--no-rosegment"
+  LINKER:
+    sh: '[[ "$(uname -m)" == "{{.TARGET_ARCH}}" ]] && echo "/usr/bin/ld" || echo "/usr/{{.TARGET_ARCH}}-linux-gnu/bin/ld"'
+
+env:
+  # linux/arm64 + gnu
+  AR_aarch64_unknown_linux_gnu: "{{.AR}}"
+  CC_aarch64_unknown_linux_gnu: "{{.CLANG}}"
+  CFLAGS_aarch64_unknown_linux_gnu: "-fuse-ld={{.LINKER}}"
+  STRIP_aarch64_unknown_linux_gnu: "{{.STRIP}}"
+  CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: "aarch64-linux-gnu-gcc"
+  CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_RUSTFLAGS: "--codegen linker=aarch64-linux-gnu-gcc"
+
+  # linux/amd64 + gnu
+  AR_x86_64_unknown_linux_gnu: "{{.AR}}"
+  CC_x86_64_unknown_linux_gnu: "{{.CLANG}}"
+  CFLAGS_x86_64_unknown_linux_gnu: "-fuse-ld={{.LINKER}}"
+  STRIP_x86_64_unknown_linux_gnu: "{{.STRIP}}"
+  CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER: "x86_64-linux-gnu-gcc"
+
+tasks:
+  print-vars:
+    desc: "Print the variables"
+    cmds:
+      - |
+        echo "Variables:"
+        echo "  PROFILE: {{.PROFILE}}"
+        echo "  RELEASE: {{.RELEASE}}"
+        echo "  TARGET: {{.TARGET}}"
+        echo "  TARGET_ARGS: {{.TARGET_ARGS}}"
+        echo "  TARGET_ARCH: {{.TARGET_ARCH}}"
+        echo "  TOOLCHAIN: {{.TOOLCHAIN}}"
+        echo "  OSTYPE: {{.OSTYPE}}"
+        echo "  LLVM_VERSION: {{.LLVM_VERSION}}"
+        echo "  CLANG: {{.CLANG}}"
+        echo "  STRIP: {{.STRIP}}"
+        echo "  AR: {{.AR}}"
+        echo "  OBJCOPY: {{.OBJCOPY}}"
+        echo "  RUSTFLAGS_SELF_CONTAINED: {{.RUSTFLAGS_SELF_CONTAINED}}"
+        echo "  LINKER: {{.LINKER}}"
+        echo "  AR_aarch64_unknown_linux_gnu: ${AR_aarch64_unknown_linux_gnu}"
+        echo "  CC_aarch64_unknown_linux_gnu: ${CC_aarch64_unknown_linux_gnu}"
+        echo "  CFLAGS_aarch64_unknown_linux_gnu: ${CFLAGS_aarch64_unknown_linux_gnu}"
+        echo "  STRIP_aarch64_unknown_linux_gnu: ${STRIP_aarch64_unknown_linux_gnu}"
+        echo "  CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: ${CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER}"
+        echo "  CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_RUSTFLAGS: ${CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_RUSTFLAGS}"
+        echo "  AR_x86_64_unknown_linux_gnu: ${AR_x86_64_unknown_linux_gnu}"
+        echo "  CC_x86_64_unknown_linux_gnu: ${CC_x86_64_unknown_linux_gnu}"
+        echo "  CFLAGS_x86_64_unknown_linux_gnu: ${CFLAGS_x86_64_unknown_linux_gnu}"
+        echo "  STRIP_x86_64_unknown_linux_gnu: ${STRIP_x86_64_unknown_linux_gnu}"
+        echo "  CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER: ${CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER}"
+        echo ""
+
+  build:install-target:
+    desc: "Install the target"
+    internal: true
+    cmds:
+      - rustup target add {{.TARGET}}
+
+  build:install-cargo-components:
+    desc: "Install the components"
+    internal: true
+    cmds:
+      - cargo install {{.COMPONENTS}} --locked
+    vars:
+      COMPONENTS: '{{ .COMPONENTS | default "" }}'
+
+  clean:
+    desc: "Clean the project"
+    internal: true
+    cmds:
+      - cargo clean {{.ARGS}}
+    vars:
+      ARGS: '{{ .ARGS | default "" }}'
+
+  fetch:
+    desc: "Fetch the dependencies"
+    internal: true
+    deps:
+      - task: build:install-target
+    cmds:
+      - cargo fetch {{.TARGET_ARGS}} {{.ARGS}}
+    vars:
+      ARGS: '{{ .ARGS | default "" }}'
+
+  build:
+    desc: "Build the project"
+    internal: true
+    deps:
+      - task: build:install-target
+    cmds:
+      - cargo build {{.RELEASE}} {{.TARGET_ARGS}} {{.ARGS}}
+    vars:
+      ARGS: '{{ .ARGS | default "" }}'
+
+  check:
+    desc: "Check the project"
+    internal: true
+    deps:
+      - task: build:install-target
+    cmds:
+      - cargo check {{.RELEASE}} {{.TARGET_ARGS}} {{.ARGS}}
+    vars:
+      ARGS: '{{ .ARGS | default "" }}'
+
+  clippy:
+    desc: "Run clippy"
+    internal: true
+    deps:
+      - task: build:install-target
+    cmds:
+      - cargo clippy {{.RELEASE}} {{.TARGET_ARGS}} {{.ARGS}} -- -D warnings
+    vars:
+      ARGS: '{{ .ARGS | default "" }}'
+
+  sort:
+    desc: "Install cargo-sort to sort dependencies"
+    internal: true
+    deps:
+      - task: build:install-cargo-components
+        vars:
+          COMPONENTS: "cargo-sort"
+    cmds:
+      - cargo sort {{.ARGS}}
+    vars:
+      ARGS: '{{ .ARGS | default "" }}'
+
+  unused:
+    desc: "Install cargo-machete and check for unused dependencies"
+    internal: true
+    deps:
+      - task: build:install-cargo-components
+        vars:
+          COMPONENTS: "cargo-machete"
+    cmds:
+      - cargo machete {{.ARGS}}
+    vars:
+      ARGS: '{{ .ARGS | default "" }}'
+
+  vuln:
+    desc: "Check for vulnerabilities"
+    internal: true
+    deps:
+      - task: build:install-cargo-components
+        vars:
+          COMPONENTS: "cargo-audit"
+    cmds:
+      - cargo audit {{.ARGS}}
+    vars:
+      ARGS: '{{ .ARGS | default "" }}'
+
+  licenses:
+    desc: "Check for licenses"
+    internal: true
+    deps:
+      - task: build:install-cargo-components
+        vars:
+          COMPONENTS: "cargo-deny"
+    cmds:
+      - cargo deny check {{.ARGS}}
+    vars:
+      ARGS: '{{ .ARGS | default "" }}'
+
+  fmt:
+    desc: "Format the code"
+    internal: true
+    cmds:
+      - cargo fmt {{.ARGS}}
+    vars:
+      ARGS: '{{ .ARGS | default "" }}'
+
+  fmt:
+    desc: ""
+    internal: true
+    cmds:
+      - cargo fmt {{.ARGS}}
+    vars:
+      ARGS: '{{ .ARGS | default "" }}'
+
+  typos:
+    desc: "Check for typos"
+    internal: true
+    deps:
+      - task: build:install-cargo-components
+        vars:
+          COMPONENTS: "typos-cli"
+    cmds:
+      - typos
+    vars:
+      ARGS: '{{ .ARGS | default "" }}'
+
+  doc:
+    desc: "Generate the documentation"
+    internal: true
+    cmds:
+      - cargo doc {{.RELEASE}} {{.TARGET_ARGS}}
+
+  test:build:
+    desc: "Build the tests"
+    internal: true
+    deps:
+      - task: build:install-target
+    cmds:
+      - cargo test --no-run {{.RELEASE}} {{.TARGET_ARGS}} {{.ARGS}}
+    vars:
+      ARGS: '{{ .ARGS | default "" }}'
+
+  test:coverage:
+    desc: "Run the tests"
+    internal: true
+    deps:
+      - task: build:install-cargo-components
+        vars:
+          COMPONENTS: "cargo-llvm-cov"
+    cmds:
+      - cargo llvm-cov {{.ARGS}}
+    vars:
+      ARGS: '{{ .ARGS | default "" }}'
+
+  test:
+    desc: "Run the tests"
+    internal: true
+    cmds:
+      - cargo test {{.RELEASE}} {{.TARGET_ARGS}} {{.ARGS}}
+    vars:
+      ARGS: '{{ .ARGS | default "" }}'
+
+  strip:
+    desc: "Strip the binary"
+    internal: true
+    cmds:
+      - "{{.OBJCOPY}} --only-keep-debug {{.TARGET_BIN}} {{.TARGET_BIN}}.dbg"
+      - "{{.OBJCOPY}} --strip-unneeded {{.TARGET_BIN}}"
+      - "{{.OBJCOPY}} --add-gnu-debuglink={{.TARGET_BIN}} {{.TARGET_BIN}}.dbg"
+    vars:
+      TARGET_BIN: '{{.TARGET_BIN | default ""}}'
+
+  run:
+    desc: "Run a binary"
+    internal: true
+    cmds:
+      - "cargo run {{.RELEASE}} --bin {{.BIN}} {{.ARGS}} -- {{.BIN_ARGS}}"
+    vars:
+      BIN: '{{.BIN | default "gateway"}}'
+      ARGS: '{{ .ARGS | default "" }}'
+      BIN_ARGS: '{{ .BIN_ARGS | default "" }}'
+
+  bindings:python:
+    desc: "Generate the Python bindings for python versions 3.9, 3.10, 3.11, 3.12 and 3.13"
+    internal: true
+    dir: ./python-bindings
+    cmds:
+      - for:
+          matrix:
+            PYTHON: ["3.11", "3.12", "3.13"]
+        cmd: |
+          rustup target add {{.TARGET}}
+          uv python install {{.ITEM.PYTHON}}
+          uv python pin {{.ITEM.PYTHON}}
+          uv sync
+          uv run maturin build {{.RELEASE}} --target {{.TARGET}} --frozen
