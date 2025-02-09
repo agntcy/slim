@@ -1,17 +1,17 @@
 [package]
-name = "gateway-service"
+name = "agp-gw-service"
 edition = "2021"
 publish = false
 version = "0.1.0"
 
 [dependencies]
 drain = { version = "0.1", features = ["retain"] }
-gateway-component = { path = "../component" }
-gateway-config-grpc = { path = "../config/grpc" }
-gateway-config-tls = { path = "../config/tls" }
-gateway-data-path = { path = "../data-path" }
-gateway-messages = { path = "../messages" }
-gateway-pubsub-proto = { path = "../pubsub-proto" }
+agp-gw-component = { path = "../component", version = "0.1.0" }
+agp-gw-config-grpc = { path = "../config/grpc", version = "0.1.0" }
+agp-gw-config-tls = { path = "../config/tls", version = "0.1.0" }
+agp-gw-data-path = { path = "../data-path", version = "0.1.0" }
+agp-gw-messages = { path = "../messages", version = "0.1.0" }
+agp-gw-pubsub-proto = { path = "../pubsub-proto", version = "0.1.0" }
 serde = "1.0.217"
 thiserror = "2.0.9"
 tokio = "1.42.0"

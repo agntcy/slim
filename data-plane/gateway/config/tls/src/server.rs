@@ -12,7 +12,7 @@ use serde::Deserialize;
 use std::path::Path;
 
 use crate::common::{Config, ConfigError, RustlsConfigLoader};
-use gateway_component::configuration::{Configuration, ConfigurationError};
+use agp_gw_component::configuration::{Configuration, ConfigurationError};
 
 #[derive(Debug, Deserialize, PartialEq, Clone)]
 pub struct TlsServerConfig {

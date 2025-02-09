@@ -5,7 +5,7 @@ pub mod connection_table;
 pub mod pool;
 pub mod subscription_table;
 
-use gateway_messages::encoder::AgentClass;
+use agp_gw_messages::encoder::AgentClass;
 use thiserror::Error;
 
 #[derive(Error, Debug, PartialEq)]

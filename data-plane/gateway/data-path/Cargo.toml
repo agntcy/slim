@@ -1,15 +1,14 @@
 [package]
-name = "gateway-data-path"
+name = "agp-gw-data-path"
 version = "0.1.0"
 edition = "2021"
-publish = false
 
 [dependencies]
 bytes = { version = "1.9.0" }
 drain = { version = "0.1", features = ["retain"] }
-gateway-messages = { path = "../messages" }
-gateway-pubsub-proto = { path = "../pubsub-proto" }
-gateway-tables = { path = "../tables" }
+agp-gw-messages = { path = "../messages", version = "0.1.0" }
+agp-gw-pubsub-proto = { path = "../pubsub-proto", version = "0.1.0" }
+agp-gw-tables = { path = "../tables", version = "0.1.0" }
 h2 = "0.4.7"
 thiserror = "2.0.5"
 tokio = { version = "1.0", features = ["macros", "rt-multi-thread"] }
@@ -20,7 +19,7 @@ tracing = "0.1.41"
 tracing-test = { version = "0.2.5", features = ["no-env-filter"] }
 
 [dev-dependencies]
-gateway-config-grpc = { path = "../config/grpc" }
+agp-gw-config-grpc = { path = "../config/grpc" }
 
 [build-dependencies]
 tonic-build = "0.12"

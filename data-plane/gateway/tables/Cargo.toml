@@ -1,12 +1,11 @@
 [package]
-name = "gateway-tables"
+name = "agp-gw-tables"
 edition = "2021"
-publish = false
 version = "0.1.0"
 
 [dependencies]
 bit-vec = "0.8"
-gateway-messages = { path = "../messages" }
+agp-gw-messages = { path = "../messages", version = "0.1.0" }
 parking_lot = "0.12"
 rand = "0.9.0"
 thiserror = "2.0.5"

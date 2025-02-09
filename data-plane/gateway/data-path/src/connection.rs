@@ -5,7 +5,7 @@ use std::net::SocketAddr;
 use tokio::sync::mpsc;
 use tonic::Status;
 
-use gateway_pubsub_proto::proto::pubsub::v1::Message;
+use agp_gw_pubsub_proto::proto::pubsub::v1::Message;
 
 #[derive(Debug, Clone, Default)]
 pub(crate) enum Channel {

@@ -1,10 +1,10 @@
 // SPDX-FileCopyrightText: Copyright (c) 2025 Cisco and/or its affiliates.
 // SPDX-License-Identifier: Apache-2.0
 
-use gateway_messages::encoder::AgentClass;
-use gateway_tables::connection_table::ConnectionTable;
-use gateway_tables::subscription_table::SubscriptionTableImpl;
-use gateway_tables::{SubscriptionTable, SubscriptionTableError};
+use agp_gw_messages::encoder::AgentClass;
+use agp_gw_tables::connection_table::ConnectionTable;
+use agp_gw_tables::subscription_table::SubscriptionTableImpl;
+use agp_gw_tables::{SubscriptionTable, SubscriptionTableError};
 use std::sync::Arc;
 
 #[derive(Debug)]
@@ -97,7 +97,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use gateway_messages::encoder::encode_agent_class;
+    use agp_gw_messages::encoder::encode_agent_class;
     use tracing_test::traced_test;
 
     #[test]

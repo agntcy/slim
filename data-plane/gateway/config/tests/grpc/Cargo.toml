@@ -1,16 +1,15 @@
 [package]
 name = "gateway-config-tests-grpc"
 version = "0.1.0"
-publish = false
 edition = "2021"
 description = """
 TLS configuration utilities.
 """
 
 [dependencies]
-gateway-config-auth = { path = "../../auth" }
-gateway-config-grpc = { path = "../../grpc" }
-gateway-config-tls = { path = "../../tls" }
+agp-gw-config-auth = { path = "../../auth" }
+agp-gw-config-grpc = { path = "../../grpc" }
+agp-gw-config-tls = { path = "../../tls" }
 rustls = "0.23.20"
 tokio = "1.42.0"
 tonic = { version = "0.12" }

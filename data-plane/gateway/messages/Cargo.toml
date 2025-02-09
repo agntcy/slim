@@ -1,11 +1,10 @@
 [package]
-name = "gateway-messages"
+name = "agp-gw-messages"
 description = "The main gateway executable"
 edition = "2021"
-publish = false
 version = "0.1.0"
 
 [dependencies]
-gateway-pubsub-proto = { path = "../pubsub-proto" }
+agp-gw-pubsub-proto = { path = "../pubsub-proto" }
 thiserror = "2.0.5"
 tracing = "0.1.41"

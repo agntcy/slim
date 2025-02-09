@@ -1,5 +1,5 @@
 [package]
-name = "gateway"
+name = "agp-gw"
 version = "0.1.0"
 publish = false
 edition = "2021"
@@ -16,11 +16,11 @@ multicore = ["tokio/rt-multi-thread", "num_cpus"]
 [dependencies]
 clap = { version = "4.5.23", features = ["derive", "env"] }
 duration-str = "0.12.0"
-gateway-component = { path = "../component" }
-gateway-config-provider = { path = "../config/provider" }
-gateway-service = { path = "../service" }
-gateway-signal = { path = "../signal" }
-gateway-tracing = { path = "../tracing" }
+agp-gw-component = { path = "../component" }
+agp-gw-config-provider = { path = "../config/provider" }
+agp-gw-service = { path = "../service" }
+agp-gw-signal = { path = "../signal" }
+agp-gw-tracing = { path = "../tracing" }
 lazy_static = "1.5.0"
 num_cpus = { version = "1.16.0", optional = true }
 serde = "1.0.217"

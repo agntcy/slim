@@ -3,7 +3,7 @@
 
 use crate::pool::Pool;
 use crate::{SubscriptionTable, SubscriptionTableError};
-use gateway_messages::encoder::{Agent, AgentClass};
+use agp_gw_messages::encoder::{Agent, AgentClass};
 use parking_lot::{lock_api::RwLockWriteGuard, RawRwLock, RwLock};
 use rand::Rng;
 use std::collections::{HashMap, HashSet};
@@ -533,7 +533,7 @@ impl SubscriptionTable for SubscriptionTableImpl {
 mod tests {
     use super::*;
 
-    use gateway_messages::encoder::encode_agent_class;
+    use agp_gw_messages::encoder::encode_agent_class;
     use tracing_test::traced_test;
 
     #[test]

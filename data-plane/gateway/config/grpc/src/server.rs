@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use duration_str::deserialize_duration;
-use gateway_config_auth::ServerAuthenticator;
+use agp_gw_config_auth::ServerAuthenticator;
 use std::convert::Infallible;
 use std::future::Future;
 use std::pin::Pin;
@@ -14,10 +14,10 @@ use std::{net::SocketAddr, str::FromStr, time::Duration};
 use tonic::transport::server::TcpIncoming;
 
 use crate::errors::ConfigError;
-use gateway_component::configuration::{Configuration, ConfigurationError};
-use gateway_config_auth::basic::Config as BasicAuthenticationConfig;
-use gateway_config_auth::bearer::Config as BearerAuthenticationConfig;
-use gateway_config_tls::{common::RustlsConfigLoader, server::TlsServerConfig as TLSSetting};
+use agp_gw_component::configuration::{Configuration, ConfigurationError};
+use agp_gw_config_auth::basic::Config as BasicAuthenticationConfig;
+use agp_gw_config_auth::bearer::Config as BearerAuthenticationConfig;
+use agp_gw_config_tls::{common::RustlsConfigLoader, server::TlsServerConfig as TLSSetting};
 
 #[derive(Debug, Deserialize, PartialEq, Clone)]
 pub struct KeepaliveServerParameters {

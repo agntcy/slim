@@ -1,5 +1,5 @@
 [package]
-name = "gateway-bindings"
+name = "agp-gw-bindings"
 edition = "2021"
 publish = false
 version = "0.1.0"
@@ -9,14 +9,14 @@ name = "gateway_bindings"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-gateway-component = { path = "../gateway/component" }
-gateway-config-auth = { path = "../gateway/config/auth" }
-gateway-config-grpc = { path = "../gateway/config/grpc" }
-gateway-config-tls = { path = "../gateway/config/tls" }
-gateway-messages = { path = "../gateway/messages" }
-gateway-pubsub-proto = { path = "../gateway/pubsub-proto" }
-gateway-service = { path = "../gateway/service" }
-gateway-tracing = { path = "../gateway/tracing" }
+agp-gw-component = { path = "../gateway/component" }
+agp-gw-config-auth = { path = "../gateway/config/auth" }
+agp-gw-config-grpc = { path = "../gateway/config/grpc" }
+agp-gw-config-tls = { path = "../gateway/config/tls" }
+agp-gw-messages = { path = "../gateway/messages" }
+agp-gw-pubsub-proto = { path = "../gateway/pubsub-proto" }
+agp-gw-service = { path = "../gateway/service" }
+agp-gw-tracing = { path = "../gateway/tracing" }
 pyo3 = "0.23.3"
 pyo3-async-runtimes = { version = "0.23.0", features = ["tokio-runtime"] }
 pyo3-stub-gen = "0.7.0"

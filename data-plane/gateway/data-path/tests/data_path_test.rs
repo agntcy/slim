@@ -1,10 +1,10 @@
 // SPDX-FileCopyrightText: Copyright (c) 2025 Cisco and/or its affiliates.
 // SPDX-License-Identifier: Apache-2.0
 
-use gateway_data_path::message_processing::MessageProcessor;
-use gateway_messages::encoder::encode_agent_class;
-use gateway_messages::encoder::encode_agent_from_string;
-use gateway_messages::messages::{
+use agp_gw_data_path::message_processing::MessageProcessor;
+use agp_gw_messages::encoder::encode_agent_class;
+use agp_gw_messages::encoder::encode_agent_from_string;
+use agp_gw_messages::messages::{
     create_subscription, create_subscription_from, create_subscription_to_forward,
 };
 use std::collections::HashMap;
@@ -15,8 +15,8 @@ mod tests {
     use tracing::info;
     use tracing_test::traced_test;
 
-    use gateway_config_grpc::{client::ClientConfig, server::ServerConfig};
-    use gateway_pubsub_proto::proto::pubsub::v1::{
+    use agp_gw_config_grpc::{client::ClientConfig, server::ServerConfig};
+    use agp_gw_pubsub_proto::proto::pubsub::v1::{
         pub_sub_service_server::PubSubServiceServer, Message,
     };
 

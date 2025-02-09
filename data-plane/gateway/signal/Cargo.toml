@@ -1,5 +1,5 @@
 [package]
-name = "gateway-signal"
+name = "agp-gw-signal"
 edition = "2021"
 publish = false
 version = "0.1.0"

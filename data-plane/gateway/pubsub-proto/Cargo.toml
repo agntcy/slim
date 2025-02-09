@@ -1,7 +1,6 @@
 [package]
-name = "gateway-pubsub-proto"
+name = "agp-gw-pubsub-proto"
 edition = "2021"
-publish = false
 version = "0.1.0"
 
 [dependencies]

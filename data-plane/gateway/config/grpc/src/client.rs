@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use duration_str::deserialize_duration;
-use gateway_config_auth::ClientAuthenticator;
+use agp_gw_config_auth::ClientAuthenticator;
 use std::time::Duration;
 use std::{collections::HashMap, str::FromStr};
 use tower::ServiceExt;
@@ -18,10 +18,10 @@ use tracing::warn;
 use crate::compression::CompressionType;
 use crate::errors::ConfigError;
 use crate::headers_middleware::SetRequestHeaderLayer;
-use gateway_component::configuration::{Configuration, ConfigurationError};
-use gateway_config_auth::basic::Config as BasicAuthenticationConfig;
-use gateway_config_auth::bearer::Config as BearerAuthenticationConfig;
-use gateway_config_tls::{client::TlsClientConfig as TLSSetting, common::RustlsConfigLoader};
+use agp_gw_component::configuration::{Configuration, ConfigurationError};
+use agp_gw_config_auth::basic::Config as BasicAuthenticationConfig;
+use agp_gw_config_auth::bearer::Config as BearerAuthenticationConfig;
+use agp_gw_config_tls::{client::TlsClientConfig as TLSSetting, common::RustlsConfigLoader};
 
 /// Keepalive configuration for the client.
 /// This struct contains the keepalive time for TCP and HTTP2,

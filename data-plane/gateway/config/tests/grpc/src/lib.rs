@@ -4,9 +4,9 @@
 use tonic::{metadata::KeyAndValueRef, Request, Response, Status};
 use tracing::info;
 
-use gateway_config_grpc::client::ClientConfig;
-use gateway_config_grpc::testutils::helloworld::greeter_server::Greeter;
-use gateway_config_grpc::testutils::helloworld::{HelloReply, HelloRequest};
+use agp_gw_config_grpc::client::ClientConfig;
+use agp_gw_config_grpc::testutils::helloworld::greeter_server::Greeter;
+use agp_gw_config_grpc::testutils::helloworld::{HelloReply, HelloRequest};
 
 #[derive(Default)]
 pub struct TestGreeter {
@@ -64,21 +64,21 @@ mod tests {
     use std::collections::HashMap;
 
     use super::*;
-    use gateway_config_auth::basic::Config as BasicAuthConfig;
-    use gateway_config_auth::bearer::Config as BearerAuthConfig;
-    use gateway_config_grpc::client::AuthenticationConfig as ClientAuthenticationConfig;
-    use gateway_config_grpc::server::AuthenticationConfig as ServerAuthenticationConfig;
-    use gateway_config_tls::client::TlsClientConfig;
-    use gateway_config_tls::server::TlsServerConfig;
+    use agp_gw_config_auth::basic::Config as BasicAuthConfig;
+    use agp_gw_config_auth::bearer::Config as BearerAuthConfig;
+    use agp_gw_config_grpc::client::AuthenticationConfig as ClientAuthenticationConfig;
+    use agp_gw_config_grpc::server::AuthenticationConfig as ServerAuthenticationConfig;
+    use agp_gw_config_tls::client::TlsClientConfig;
+    use agp_gw_config_tls::server::TlsServerConfig;
     use tracing::debug;
     use tracing::info;
     use tracing_test::traced_test;
 
-    // use gateway_config_grpc::headers_middleware::SetRequestHeader;
-    use gateway_config_grpc::testutils::helloworld::greeter_client::GreeterClient;
-    use gateway_config_grpc::testutils::helloworld::greeter_server::GreeterServer;
-    use gateway_config_grpc::testutils::helloworld::HelloRequest;
-    use gateway_config_grpc::{client::ClientConfig, server::ServerConfig};
+    // use agp_gw_config_grpc::headers_middleware::SetRequestHeader;
+    use agp_gw_config_grpc::testutils::helloworld::greeter_client::GreeterClient;
+    use agp_gw_config_grpc::testutils::helloworld::greeter_server::GreeterServer;
+    use agp_gw_config_grpc::testutils::helloworld::HelloRequest;
+    use agp_gw_config_grpc::{client::ClientConfig, server::ServerConfig};
 
     static TEST_DATA_PATH: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/data");
 

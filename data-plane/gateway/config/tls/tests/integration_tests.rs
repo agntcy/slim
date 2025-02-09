@@ -3,9 +3,9 @@
 
 use tracing::info;
 
-use gateway_config_tls::client::TlsClientConfig;
-use gateway_config_tls::common::{Config, RustlsConfigLoader};
-use gateway_config_tls::server::TlsServerConfig;
+use agp_gw_config_tls::client::TlsClientConfig;
+use agp_gw_config_tls::common::{Config, RustlsConfigLoader};
+use agp_gw_config_tls::server::TlsServerConfig;
 
 static TEST_PATH: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests");
 
