@@ -36,7 +36,7 @@ async fn main() {
 
     // create local agent
     let agent_name =
-    agp_gw_messages::encoder::encode_agent_from_string("cisco", "default", local_agent, 0);
+        agp_gw_messages::encoder::encode_agent_from_string("cisco", "default", local_agent, 0);
     let mut rx = svc.create_agent(agent_name.clone());
 
     // connect to the remote gateway

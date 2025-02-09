@@ -2,13 +2,14 @@
 name = "agp-gw-data-path"
 version = "0.1.0"
 edition = "2021"
+license = { workspace = true }
 
 [dependencies]
-bytes = { version = "1.9.0" }
-drain = { version = "0.1", features = ["retain"] }
 agp-gw-messages = { path = "../messages", version = "0.1.0" }
 agp-gw-pubsub-proto = { path = "../pubsub-proto", version = "0.1.0" }
 agp-gw-tables = { path = "../tables", version = "0.1.0" }
+bytes = { version = "1.9.0" }
+drain = { version = "0.1", features = ["retain"] }
 h2 = "0.4.7"
 thiserror = "2.0.5"
 tokio = { version = "1.0", features = ["macros", "rt-multi-thread"] }

@@ -2,9 +2,8 @@
 name = "agp-gw-config-auth"
 version = "0.1.0"
 edition = "2021"
-description = """
-Config for authenticators.
-"""
+license = { workspace = true }
+description = "Config for authenticator layers."
 
 [dependencies]
 agp-gw-tracing = { path = "../../tracing", version = "0.1.0" }

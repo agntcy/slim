@@ -1,6 +1,7 @@
 [package]
 name = "agp-gw-bindings"
 edition = "2021"
+license = { workspace = true }
 publish = false
 version = "0.1.0"
 

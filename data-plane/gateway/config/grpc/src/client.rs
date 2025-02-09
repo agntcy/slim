@@ -1,8 +1,8 @@
 // SPDX-FileCopyrightText: Copyright (c) 2025 Cisco and/or its affiliates.
 // SPDX-License-Identifier: Apache-2.0
 
-use duration_str::deserialize_duration;
 use agp_gw_config_auth::ClientAuthenticator;
+use duration_str::deserialize_duration;
 use std::time::Duration;
 use std::{collections::HashMap, str::FromStr};
 use tower::ServiceExt;

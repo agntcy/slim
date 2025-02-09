@@ -153,12 +153,8 @@ async fn create_agent_impl(
     };
 
     // create local agent
-    let agent_name = agp_gw_messages::encoder::encode_agent_from_string(
-        &agent_org,
-        &agent_ns,
-        &agent_class,
-        id,
-    );
+    let agent_name =
+        agp_gw_messages::encoder::encode_agent_from_string(&agent_org, &agent_ns, &agent_class, id);
     let mut service = svc.sdk.write().await;
     let rx = service.service.create_agent(agent_name);
     service.rx = Some(rx);

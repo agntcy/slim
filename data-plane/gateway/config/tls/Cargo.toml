@@ -2,9 +2,8 @@
 name = "agp-gw-config-tls"
 version = "0.1.0"
 edition = "2021"
-description = """
-TLS configuration utilities.
-"""
+license = { workspace = true }
+description = "TLS configuration utilities"
 
 [dependencies]
 agp-gw-component = { path = "../../component" }
