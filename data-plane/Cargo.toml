@@ -1,4 +1,5 @@
 [workspace]
+
 members = [
     "examples",
     "gateway/component",
@@ -39,3 +40,6 @@ default-members = [
 ]
 
 resolver = "2"
+
+[workspace.package]
+license = "Apache-2.0"

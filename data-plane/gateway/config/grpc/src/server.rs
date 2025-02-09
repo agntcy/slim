@@ -1,8 +1,8 @@
 // SPDX-FileCopyrightText: Copyright (c) 2025 Cisco and/or its affiliates.
 // SPDX-License-Identifier: Apache-2.0
 
-use duration_str::deserialize_duration;
 use agp_gw_config_auth::ServerAuthenticator;
+use duration_str::deserialize_duration;
 use std::convert::Infallible;
 use std::future::Future;
 use std::pin::Pin;

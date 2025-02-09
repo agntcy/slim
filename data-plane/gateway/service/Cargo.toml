@@ -1,16 +1,17 @@
 [package]
 name = "agp-gw-service"
 edition = "2021"
+license = { workspace = true }
 version = "0.1.0"
 
 [dependencies]
-drain = { version = "0.1", features = ["retain"] }
 agp-gw-component = { path = "../component", version = "0.1.0" }
 agp-gw-config-grpc = { path = "../config/grpc", version = "0.1.0" }
 agp-gw-config-tls = { path = "../config/tls", version = "0.1.0" }
 agp-gw-data-path = { path = "../data-path", version = "0.1.0" }
 agp-gw-messages = { path = "../messages", version = "0.1.0" }
 agp-gw-pubsub-proto = { path = "../pubsub-proto", version = "0.1.0" }
+drain = { version = "0.1", features = ["retain"] }
 serde = "1.0.217"
 thiserror = "2.0.9"
 tokio = "1.42.0"

@@ -3,6 +3,7 @@ name = "agp-gw-nop-component"
 version = "0.1.0"
 publish = false
 edition = "2021"
+license = { workspace = true }
 
 [dependencies]
 agp-gw-component = { path = "../component", version = "0.1.0" }

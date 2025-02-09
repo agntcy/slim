@@ -9,9 +9,9 @@ name = "sdk-mock"
 path = "src/sdk-mock/main.rs"
 
 [dependencies]
-clap = "4.5"
 agp-gw = { path = "../gateway/gateway", version = "0.1.0" }
 agp-gw-component = { path = "../gateway/component", version = "0.1.0" }
 agp-gw-messages = { path = "../gateway/messages", version = "0.1.0" }
+clap = "4.5"
 tokio = "1"
 tracing = "0.1.41"
