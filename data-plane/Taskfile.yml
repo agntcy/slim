@@ -50,7 +50,7 @@ tasks:
     cmds:
       - task: toolchain:build:install-cargo-components
         vars:
-          COMPONENTS: "cargo-sort cargo-audit cargo-llvm-cov cargo-machete cargo-deny typos-cli"
+          COMPONENTS: "cargo-sort cargo-audit cargo-llvm-cov cargo-machete cargo-deny typos-cli release-plz"
 
   data-plane:check:
     desc: "Check the project"
@@ -176,3 +176,13 @@ tasks:
     desc: "Generate the Python bindings"
     cmds:
       - task: toolchain:bindings:python
+
+  data-plane:release:
+    desc: "Prepare the release PR"
+    deps:
+      - task: toolchain:build:install-cargo-components
+        vars:
+          COMPONENTS: "release-plz"
+    cmds:
+      # - release-plz update
+      - release-plz release-pr
