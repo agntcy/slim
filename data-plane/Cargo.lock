@@ -225,6 +225,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "agp-gw-tests-grpc"
+version = "0.1.0"
+dependencies = [
+ "agp-gw-config-auth",
+ "agp-gw-config-grpc",
+ "agp-gw-config-tls",
+ "rustls",
+ "tokio",
+ "tonic",
+ "tonic-build",
+ "tracing",
+ "tracing-test",
+]
+
+[[package]]
 name = "agp-gw-tracing"
 version = "0.1.0"
 dependencies = [
@@ -825,21 +840,6 @@ dependencies = [
  "pin-project-lite",
  "pin-utils",
  "slab",
-]
-
-[[package]]
-name = "gateway-config-tests-grpc"
-version = "0.1.0"
-dependencies = [
- "agp-gw-config-auth",
- "agp-gw-config-grpc",
- "agp-gw-config-tls",
- "rustls",
- "tokio",
- "tonic",
- "tonic-build",
- "tracing",
- "tracing-test",
 ]
 
 [[package]]

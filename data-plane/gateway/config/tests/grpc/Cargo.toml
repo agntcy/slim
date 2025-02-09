@@ -1,7 +1,8 @@
 [package]
-name = "gateway-config-tests-grpc"
+name = "agp-gw-tests-grpc"
 version = "0.1.0"
 edition = "2021"
+publish = false
 description = """
 TLS configuration utilities.
 """
