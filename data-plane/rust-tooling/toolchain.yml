@@ -289,4 +289,4 @@ tasks:
           uv python install {{.ITEM.PYTHON}}
           uv python pin {{.ITEM.PYTHON}}
           uv sync
-          uv run maturin build {{.RELEASE}} --target {{.TARGET}} --frozen
+          uv run maturin build {{.RELEASE}} --out dist --target {{.TARGET}} --frozen
