@@ -39,14 +39,14 @@ runs:
       run: sh -c "$(curl --location https://taskfile.dev/install.sh)" -- -d -b ~/.local/bin
 
     - name: Load cached Poetry Binary
-      if: ${{ inputs.py-poetry }}
+      if: ${{ inputs.poetry-install }}
       uses: actions/cache@v4
       with:
         path: ~/.local
         key: venv-${{ runner.os }}-${{ steps.setup-python.outputs.python-version }}-${{ inputs.poetry-version }}
 
     - name: Install Poetry
-      if: ${{ inputs.py-poetry }}
+      if: ${{ inputs.poetry-install }}
       shell: bash
       run: |
         if [[ -f ~/.local/bin/poetry ]]; then
@@ -56,19 +56,19 @@ runs:
         fi
 
     - name: Install uv (unix)
-      if: ${{ inputs.py-uv && runner.os != 'Windows' }}
+      if: ${{ inputs.uv-install && runner.os != 'Windows' }}
       shell: bash
       run: |
         curl -LsSf https://astral.sh/uv/install.sh | env UV_INSTALL_DIR="${HOME}/.local/bin" sh
 
     - name: Install uv (windows)
-      if: ${{ inputs.py-uv && runner.os == 'Windows' }}
+      if: ${{ inputs.uv-install && runner.os == 'Windows' }}
       shell: bash
       run: |
         powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
 
     - name: Load cached venv
-      if: ${{ inputs.py-poetry }}
+      if: ${{ inputs.poetry-install }}
       uses: actions/cache@v4
       with:
         path: ~/.cache/pypoetry/virtualenvs
