@@ -18,6 +18,142 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "512761e0bb2578dd7380c6baaa0f4ce03e84f95e960231d1dec8bf4d7d6e2627"
 
 [[package]]
+name = "agp-bindings"
+version = "0.1.0"
+dependencies = [
+ "agp-config",
+ "agp-datapath",
+ "agp-service",
+ "agp-tracing",
+ "pyo3",
+ "pyo3-async-runtimes",
+ "pyo3-stub-gen",
+ "rand 0.9.0",
+ "tokio",
+ "tonic",
+]
+
+[[package]]
+name = "agp-config"
+version = "0.1.0"
+dependencies = [
+ "agp-tracing",
+ "duration-str",
+ "futures",
+ "http",
+ "hyper-rustls",
+ "hyper-util",
+ "lazy_static",
+ "prost",
+ "protoc-bin-vendored",
+ "regex",
+ "rustls",
+ "rustls-native-certs",
+ "rustls-pki-types",
+ "serde",
+ "serde_yaml",
+ "thiserror",
+ "tokio",
+ "tonic",
+ "tonic-build",
+ "tonic-tls",
+ "tower 0.5.2",
+ "tower-http",
+ "tower-layer",
+ "tower-reqwest",
+ "tower-service",
+ "tracing",
+ "tracing-test",
+]
+
+[[package]]
+name = "agp-datapath"
+version = "0.1.0"
+dependencies = [
+ "agp-config",
+ "bit-vec",
+ "bytes",
+ "drain",
+ "h2",
+ "parking_lot",
+ "prost",
+ "protoc-bin-vendored",
+ "rand 0.9.0",
+ "thiserror",
+ "tokio",
+ "tokio-stream",
+ "tokio-util",
+ "tonic",
+ "tonic-build",
+ "tracing",
+ "tracing-test",
+]
+
+[[package]]
+name = "agp-gw"
+version = "0.1.0"
+dependencies = [
+ "agp-config",
+ "agp-service",
+ "agp-signal",
+ "agp-tracing",
+ "clap",
+ "duration-str",
+ "jemallocator",
+ "lazy_static",
+ "num_cpus",
+ "serde",
+ "serde_yaml",
+ "thiserror",
+ "tokio",
+ "tracing",
+ "tracing-test",
+]
+
+[[package]]
+name = "agp-nop-component"
+version = "0.1.0"
+dependencies = [
+ "agp-config",
+ "serde",
+ "serde_yaml",
+]
+
+[[package]]
+name = "agp-service"
+version = "0.1.0"
+dependencies = [
+ "agp-config",
+ "agp-datapath",
+ "drain",
+ "serde",
+ "thiserror",
+ "tokio",
+ "tokio-util",
+ "tonic",
+ "tracing",
+ "tracing-test",
+]
+
+[[package]]
+name = "agp-signal"
+version = "0.1.0"
+dependencies = [
+ "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "agp-tracing"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "aho-corasick"
 version = "1.1.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -611,247 +747,15 @@ dependencies = [
 ]
 
 [[package]]
-name = "gateway"
-version = "0.1.0"
-dependencies = [
- "clap",
- "duration-str",
- "gateway-component",
- "gateway-config-provider",
- "gateway-service",
- "gateway-signal",
- "gateway-tracing",
- "jemallocator",
- "lazy_static",
- "num_cpus",
- "serde",
- "serde_yaml",
- "thiserror",
- "tokio",
- "tracing",
- "tracing-test",
-]
-
-[[package]]
-name = "gateway-bindings"
-version = "0.1.0"
-dependencies = [
- "gateway-component",
- "gateway-config-auth",
- "gateway-config-grpc",
- "gateway-config-tls",
- "gateway-messages",
- "gateway-pubsub-proto",
- "gateway-service",
- "gateway-tracing",
- "pyo3",
- "pyo3-async-runtimes",
- "pyo3-stub-gen",
- "rand 0.9.0",
- "tokio",
- "tonic",
-]
-
-[[package]]
-name = "gateway-component"
-version = "0.1.0"
-dependencies = [
- "lazy_static",
- "regex",
- "thiserror",
-]
-
-[[package]]
-name = "gateway-config-auth"
-version = "0.1.0"
-dependencies = [
- "gateway-tracing",
- "http",
- "serde",
- "thiserror",
- "tokio",
- "tower 0.5.2",
- "tower-http",
- "tower-reqwest",
-]
-
-[[package]]
-name = "gateway-config-grpc"
-version = "0.1.0"
-dependencies = [
- "duration-str",
- "futures",
- "gateway-component",
- "gateway-config-auth",
- "gateway-config-tls",
- "http",
- "hyper-rustls",
- "hyper-util",
- "prost",
- "protoc-bin-vendored",
- "serde",
- "serde_yaml",
- "thiserror",
- "tokio",
- "tonic",
- "tonic-build",
- "tonic-tls",
- "tower 0.5.2",
- "tower-layer",
- "tower-service",
- "tracing",
- "tracing-test",
-]
-
-[[package]]
-name = "gateway-config-provider"
-version = "0.1.0"
-dependencies = [
- "serde_yaml",
- "thiserror",
- "tracing",
- "tracing-test",
-]
-
-[[package]]
-name = "gateway-config-tests-grpc"
-version = "0.1.0"
-dependencies = [
- "gateway-config-auth",
- "gateway-config-grpc",
- "gateway-config-tls",
- "rustls",
- "tokio",
- "tonic",
- "tonic-build",
- "tracing",
- "tracing-test",
-]
-
-[[package]]
-name = "gateway-config-tls"
-version = "0.1.0"
-dependencies = [
- "gateway-component",
- "rustls",
- "rustls-native-certs",
- "rustls-pki-types",
- "serde",
- "thiserror",
- "tracing",
-]
-
-[[package]]
-name = "gateway-data-path"
-version = "0.1.0"
-dependencies = [
- "bytes",
- "drain",
- "gateway-config-grpc",
- "gateway-messages",
- "gateway-pubsub-proto",
- "gateway-tables",
- "h2",
- "thiserror",
- "tokio",
- "tokio-stream",
- "tokio-util",
- "tonic",
- "tonic-build",
- "tracing",
- "tracing-test",
-]
-
-[[package]]
 name = "gateway-examples"
 version = "0.1.0"
 dependencies = [
+ "agp-config",
+ "agp-datapath",
+ "agp-gw",
  "clap",
- "gateway",
- "gateway-component",
- "gateway-messages",
  "tokio",
  "tracing",
-]
-
-[[package]]
-name = "gateway-messages"
-version = "0.1.0"
-dependencies = [
- "gateway-pubsub-proto",
- "thiserror",
- "tracing",
-]
-
-[[package]]
-name = "gateway-nop-component"
-version = "0.1.0"
-dependencies = [
- "gateway-component",
- "gateway-config-grpc",
- "serde",
- "serde_yaml",
-]
-
-[[package]]
-name = "gateway-pubsub-proto"
-version = "0.1.0"
-dependencies = [
- "prost",
- "protoc-bin-vendored",
- "tonic",
- "tonic-build",
-]
-
-[[package]]
-name = "gateway-service"
-version = "0.1.0"
-dependencies = [
- "drain",
- "gateway-component",
- "gateway-config-grpc",
- "gateway-config-tls",
- "gateway-data-path",
- "gateway-messages",
- "gateway-pubsub-proto",
- "serde",
- "thiserror",
- "tokio",
- "tokio-util",
- "tonic",
- "tracing",
- "tracing-test",
-]
-
-[[package]]
-name = "gateway-signal"
-version = "0.1.0"
-dependencies = [
- "tokio",
- "tracing",
-]
-
-[[package]]
-name = "gateway-tables"
-version = "0.1.0"
-dependencies = [
- "bit-vec",
- "gateway-messages",
- "parking_lot",
- "rand 0.9.0",
- "thiserror",
- "tracing",
- "tracing-test",
-]
-
-[[package]]
-name = "gateway-tracing"
-version = "0.1.0"
-dependencies = [
- "serde",
- "serde_json",
- "tracing",
- "tracing-subscriber",
 ]
 
 [[package]]

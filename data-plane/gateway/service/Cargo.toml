@@ -1,17 +1,13 @@
 [package]
-name = "gateway-service"
+name = "agp-service"
 edition = "2021"
-publish = false
+license = { workspace = true }
 version = "0.1.0"
 
 [dependencies]
+agp-config = { path = "../config", version = "0.1.0" }
+agp-datapath = { path = "../datapath", version = "0.1.0" }
 drain = { version = "0.1", features = ["retain"] }
-gateway-component = { path = "../component" }
-gateway-config-grpc = { path = "../config/grpc" }
-gateway-config-tls = { path = "../config/tls" }
-gateway-data-path = { path = "../data-path" }
-gateway-messages = { path = "../messages" }
-gateway-pubsub-proto = { path = "../pubsub-proto" }
 serde = "1.0.217"
 thiserror = "2.0.9"
 tokio = "1.42.0"

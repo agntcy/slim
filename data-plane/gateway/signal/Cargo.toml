@@ -1,7 +1,7 @@
 [package]
-name = "gateway-signal"
+name = "agp-signal"
 edition = "2021"
-publish = false
+license = { workspace = true }
 version = "0.1.0"
 
 [dependencies]

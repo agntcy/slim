@@ -1,12 +1,12 @@
 [package]
-name = "gateway-nop-component"
+name = "agp-nop-component"
 version = "0.1.0"
 publish = false
 edition = "2021"
+license = { workspace = true }
 
 [dependencies]
-gateway-component = { path = "../component" }
-gateway-config-grpc = { path = "../config/grpc" }
+agp-config = { path = "../config", version = "0.1.0" }
 serde = { version = "1.0", features = ["derive"] }
 
 [dev-dependencies]

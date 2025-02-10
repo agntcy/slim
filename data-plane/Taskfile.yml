@@ -19,7 +19,6 @@ env:
   PROFILE: 'debug'
   TARGET:
     sh: 'rustc -vV | sed -n "s|host: ||p"'
-  PROTOC: '{{.TOOLS_INSTALL_DIR}}/protoc'
 
 tasks:
   default:
@@ -110,8 +109,6 @@ tasks:
 
   data-plane:lint:
     desc: "Run the linter"
-    deps:
-      - task: tools:tools:protoc
     cmds:
       - task: data-plane:fmt:check
       - task: data-plane:clippy
@@ -129,8 +126,6 @@ tasks:
 
   data-plane:test:
     desc: "Run the tests"
-    deps:
-      - task: tools:tools:protoc
     cmds:
       - task: toolchain:test
         vars:
@@ -138,8 +133,6 @@ tasks:
 
   data-plane:test:coverage:
     desc: "Run tests coverage"
-    deps:
-      - task: tools:tools:protoc
     cmds:
       - task: toolchain:test:coverage
         vars:
@@ -147,8 +140,6 @@ tasks:
 
   data-plane:build:
     desc: "Build the project"
-    deps:
-      - task: tools:tools:protoc
     cmds:
       - rm -f {{.TARGET_BIN}} {{.TARGET_BIN}}.dbg
       - task: toolchain:build
@@ -183,7 +174,5 @@ tasks:
 
   data-plane:bindings:python:
     desc: "Generate the Python bindings"
-    deps:
-      - task: tools:tools:protoc
     cmds:
       - task: toolchain:bindings:python

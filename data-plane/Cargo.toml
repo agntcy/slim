@@ -1,41 +1,29 @@
 [workspace]
+
 members = [
     "examples",
-    "gateway/component",
-    "gateway/config/auth",
-    "gateway/config/grpc",
-    "gateway/config/provider",
-    "gateway/config/tests/grpc",
-    "gateway/config/tls",
-    "gateway/data-path",
+    "gateway/config",
+    "gateway/datapath",
     "gateway/gateway",
-    "gateway/messages",
     "gateway/nop_component",
-    "gateway/pubsub-proto",
     "gateway/service",
     "gateway/signal",
-    "gateway/tables",
     "gateway/tracing",
     "python-bindings",
 ]
 
 default-members = [
     "examples",
-    "gateway/component",
-    "gateway/config/auth",
-    "gateway/config/grpc",
-    "gateway/config/provider",
-    "gateway/config/tests/grpc",
-    "gateway/config/tls",
-    "gateway/data-path",
+    "gateway/config",
+    "gateway/datapath",
     "gateway/gateway",
-    "gateway/messages",
     "gateway/nop_component",
-    "gateway/pubsub-proto",
     "gateway/service",
     "gateway/signal",
-    "gateway/tables",
     "gateway/tracing",
 ]
 
 resolver = "2"
+
+[workspace.package]
+license = "Apache-2.0"

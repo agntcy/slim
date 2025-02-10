@@ -1,11 +1,11 @@
 // SPDX-FileCopyrightText: Copyright (c) 2025 Cisco and/or its affiliates.
 // SPDX-License-Identifier: Apache-2.0
 
-use gateway_messages::encoder::{Agent, AgentClass};
-use gateway_messages::messages::{
+use agp_datapath::messages::utils::{
     create_publication, create_subscription_from, create_subscription_to_forward,
     create_unsubscription_from, create_unsubscription_to_forward,
 };
+use agp_datapath::messages::{Agent, AgentClass};
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -15,14 +15,14 @@ use tokio_util::sync::CancellationToken;
 use tonic::Status;
 use tracing::{debug, error, info};
 
-use gateway_component::configuration::{Configuration, ConfigurationError};
-use gateway_component::id::{Kind, ID};
-use gateway_component::{Component, ComponentBuilder, ComponentError};
-use gateway_config_grpc::client::ClientConfig;
-use gateway_config_grpc::server::ServerConfig;
-use gateway_data_path::message_processing::MessageProcessor;
-use gateway_pubsub_proto::proto::pubsub::v1::pub_sub_service_server::PubSubServiceServer;
-use gateway_pubsub_proto::proto::pubsub::v1::Message;
+use agp_config::component::configuration::{Configuration, ConfigurationError};
+use agp_config::component::id::{Kind, ID};
+use agp_config::component::{Component, ComponentBuilder, ComponentError};
+use agp_config::grpc::client::ClientConfig;
+use agp_config::grpc::server::ServerConfig;
+use agp_datapath::message_processing::MessageProcessor;
+use agp_datapath::pubsub::proto::pubsub::v1::pub_sub_service_server::PubSubServiceServer;
+use agp_datapath::pubsub::proto::pubsub::v1::Message;
 
 // Define the kind of the component as static string
 pub const KIND: &str = "gateway";
@@ -531,8 +531,8 @@ impl ComponentBuilder for ServiceBuilder {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use gateway_config_grpc::server::ServerConfig;
-    use gateway_config_tls::server::TlsServerConfig;
+    use agp_config::grpc::server::ServerConfig;
+    use agp_config::tls::server::TlsServerConfig;
     use std::time::Duration;
     use tokio::time;
     use tracing_test::traced_test;

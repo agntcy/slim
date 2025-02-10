@@ -3,10 +3,10 @@
 
 use serde::Deserialize;
 
-use gateway_component::configuration::{Configuration, ConfigurationError};
-use gateway_component::id::{Kind, ID};
-use gateway_component::{Component, ComponentBuilder, ComponentError};
-use gateway_config_grpc::client::ClientConfig;
+use agp_config::component::configuration::{Configuration, ConfigurationError};
+use agp_config::component::id::{Kind, ID};
+use agp_config::component::{Component, ComponentBuilder, ComponentError};
+use agp_config::grpc::client::ClientConfig;
 
 // Define the kind of the component as static string
 pub const KIND: &str = "nop_component";

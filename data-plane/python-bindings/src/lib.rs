@@ -3,7 +3,6 @@
 
 use std::sync::Arc;
 
-use gateway_messages::ProtoAgentId;
 use pyo3::exceptions::PyException;
 use pyo3::prelude::*;
 use pyo3_stub_gen::define_stub_info_gatherer;
@@ -15,16 +14,17 @@ use tokio::sync::mpsc;
 use tokio::sync::RwLock;
 use tonic::Status;
 
-use gateway_config_auth::basic::Config as BasicAuthConfig;
-use gateway_config_grpc::{
+use agp_config::auth::basic::Config as BasicAuthConfig;
+use agp_config::grpc::{
     client::AuthenticationConfig as ClientAuthenticationConfig, client::ClientConfig,
     server::AuthenticationConfig as ServerAuthenticationConfig, server::ServerConfig,
 };
-use gateway_config_tls::{client::TlsClientConfig, server::TlsServerConfig};
-use gateway_messages::encoder::{encode_agent_class, AgentClass};
-use gateway_messages::messages::get_incoming_connection;
-use gateway_pubsub_proto::proto::pubsub::v1::Message;
-use gateway_service::{Service, ServiceError};
+use agp_config::tls::{client::TlsClientConfig, server::TlsServerConfig};
+use agp_datapath::messages::encoder::{encode_agent_class, encode_agent_from_string, AgentClass};
+use agp_datapath::messages::utils::get_incoming_connection;
+use agp_datapath::pubsub::proto::pubsub::v1::Message;
+use agp_datapath::pubsub::ProtoAgentId;
+use agp_service::{Service, ServiceError};
 
 /// agent class
 #[gen_stub_pyclass]
@@ -116,7 +116,7 @@ struct PyServiceInternal {
 impl PyService {
     #[new]
     pub fn new(id: &str) -> Self {
-        let svc_id = gateway_component::id::ID::new_with_str(id).unwrap();
+        let svc_id = agp_config::component::id::ID::new_with_str(id).unwrap();
         PyService {
             sdk: Arc::new(RwLock::new(PyServiceInternal {
                 service: Service::new(svc_id),
@@ -132,7 +132,7 @@ impl PyService {
 ))]
 fn init_tracing(log_level: String) {
     // Configure tracing
-    gateway_tracing::TracingConfiguration::default()
+    agp_tracing::TracingConfiguration::default()
         .with_log_level(log_level)
         .setup_tracing_subscriber();
 }
@@ -153,12 +153,7 @@ async fn create_agent_impl(
     };
 
     // create local agent
-    let agent_name = gateway_messages::encoder::encode_agent_from_string(
-        &agent_org,
-        &agent_ns,
-        &agent_class,
-        id,
-    );
+    let agent_name = encode_agent_from_string(&agent_org, &agent_ns, &agent_class, id);
     let mut service = svc.sdk.write().await;
     let rx = service.service.create_agent(agent_name);
     service.rx = Some(rx);
@@ -657,12 +652,14 @@ async fn receive_impl(svc: PyService) -> Result<(PyAgentSource, Vec<u8>), Servic
     // extract agent and payload
     let (source, content) = match msg.message_type {
         Some(msg_type) => match msg_type {
-            gateway_messages::ProtoPublishType(publish) => match (publish.source, publish.msg) {
-                (Some(source), Some(content)) => (source, content.blob),
-                _ => Err(ServiceError::ReceiveError(
-                    "no content received".to_string(),
-                ))?,
-            },
+            agp_datapath::pubsub::ProtoPublishType(publish) => {
+                match (publish.source, publish.msg) {
+                    (Some(source), Some(content)) => (source, content.blob),
+                    _ => Err(ServiceError::ReceiveError(
+                        "no content received".to_string(),
+                    ))?,
+                }
+            }
             _ => Err(ServiceError::ReceiveError(
                 "receive publish message type".to_string(),
             ))?,
@@ -689,7 +686,7 @@ fn receive(py: Python, svc: PyService) -> PyResult<Bound<PyAny>> {
 }
 
 #[pymodule]
-fn gateway_bindings(_py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
+fn agp_bindings(_py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyService>()?;
     m.add_class::<PyAgentClass>()?;
     m.add_function(wrap_pyfunction!(init_tracing, m)?)?;

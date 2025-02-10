@@ -7,7 +7,7 @@ use std::time;
 use tokio::runtime::{Builder, Runtime};
 use tracing::{info, warn};
 
-use gateway_component::configuration::ConfigurationError;
+use agp_config::component::configuration::ConfigurationError;
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct RuntimeConfiguration {

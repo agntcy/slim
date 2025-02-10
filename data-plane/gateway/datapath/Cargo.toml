@@ -1,0 +1,28 @@
+[package]
+name = "agp-datapath"
+version = "0.1.0"
+edition = "2021"
+license = { workspace = true }
+
+[dependencies]
+bit-vec = "0.8"
+bytes = { version = "1.9.0" }
+drain = { version = "0.1", features = ["retain"] }
+h2 = "0.4.7"
+parking_lot = "0.12"
+prost = "0.13"
+rand = "0.9.0"
+thiserror = "2.0.5"
+tokio = { version = "1.0", features = ["macros", "rt-multi-thread"] }
+tokio-stream = "0.1"
+tokio-util = "0.7.13"
+tonic = "0.12"
+tracing = "0.1.41"
+tracing-test = { version = "0.2.5", features = ["no-env-filter"] }
+
+[dev-dependencies]
+agp-config = { path = "../config" }
+
+[build-dependencies]
+protoc-bin-vendored = "3.1.0"
+tonic-build = { version = "0.12.3", features = ["prost"] }
