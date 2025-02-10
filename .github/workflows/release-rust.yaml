@@ -14,7 +14,7 @@ concurrency:
   cancel-in-progress: ${{ !contains(github.ref, 'release/')}}
 
 jobs:
-  Release unpublished packages.
+  # Release unpublished packages.
   release-plz-release:
     name: Release-plz release
     runs-on: ubuntu-latest
