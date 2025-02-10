@@ -6,8 +6,7 @@ name: release
 on:
   push:
     branches:
-      - test-release
-  pull_request:
+      - main
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
