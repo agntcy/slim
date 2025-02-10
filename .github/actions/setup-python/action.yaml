@@ -23,10 +23,6 @@ inputs:
     description: 'Poetry version to use'
     required: false
     default: "1.7.1"
-  py-poetry:
-    description: 'Install poetry'
-    required: false
-    default: true
   py-uv:
     description: 'Install uv'
     required: false
