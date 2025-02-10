@@ -41,6 +41,12 @@ jobs:
           py-install: false
           poetry-install: false
           uv-install: true
+      - name: Setup Rust
+        uses: ./.github/actions/setup-rust
+        with:
+          cache-workspaces: ./data-plane
+          cache-directories: |
+            .tools
       - name: Build wheels
         run: |
           task data-plane:bindings:python
