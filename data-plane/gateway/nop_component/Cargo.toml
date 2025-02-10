@@ -7,7 +7,7 @@ license = { workspace = true }
 
 [dependencies]
 agp-gw-component = { path = "../component", version = "0.1.0" }
-agp-gw-config-grpc = { path = "../config/grpc", version = "0.1.0" }
+agp-gw-config = { path = "../config", version = "0.1.0" }
 serde = { version = "1.0", features = ["derive"] }
 
 [dev-dependencies]

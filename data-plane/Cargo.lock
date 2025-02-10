@@ -22,7 +22,7 @@ name = "agp-gw"
 version = "0.1.0"
 dependencies = [
  "agp-gw-component",
- "agp-gw-config-provider",
+ "agp-gw-config",
  "agp-gw-service",
  "agp-gw-signal",
  "agp-gw-tracing",
@@ -44,10 +44,7 @@ name = "agp-gw-bindings"
 version = "0.1.0"
 dependencies = [
  "agp-gw-component",
- "agp-gw-config-auth",
- "agp-gw-config-grpc",
- "agp-gw-config-tls",
- "agp-gw-messages",
+ "agp-gw-config",
  "agp-gw-pubsub-proto",
  "agp-gw-service",
  "agp-gw-tracing",
@@ -69,26 +66,11 @@ dependencies = [
 ]
 
 [[package]]
-name = "agp-gw-config-auth"
-version = "0.1.0"
-dependencies = [
- "agp-gw-tracing",
- "http",
- "serde",
- "thiserror",
- "tokio",
- "tower 0.5.2",
- "tower-http",
- "tower-reqwest",
-]
-
-[[package]]
-name = "agp-gw-config-grpc"
+name = "agp-gw-config"
 version = "0.1.0"
 dependencies = [
  "agp-gw-component",
- "agp-gw-config-auth",
- "agp-gw-config-tls",
+ "agp-gw-tracing",
  "duration-str",
  "futures",
  "http",
@@ -96,6 +78,9 @@ dependencies = [
  "hyper-util",
  "prost",
  "protoc-bin-vendored",
+ "rustls",
+ "rustls-native-certs",
+ "rustls-pki-types",
  "serde",
  "serde_yaml",
  "thiserror",
@@ -104,46 +89,26 @@ dependencies = [
  "tonic-build",
  "tonic-tls",
  "tower 0.5.2",
+ "tower-http",
  "tower-layer",
+ "tower-reqwest",
  "tower-service",
  "tracing",
  "tracing-test",
 ]
 
 [[package]]
-name = "agp-gw-config-provider"
+name = "agp-gw-datapath"
 version = "0.1.0"
 dependencies = [
- "serde_yaml",
- "thiserror",
- "tracing",
- "tracing-test",
-]
-
-[[package]]
-name = "agp-gw-config-tls"
-version = "0.1.0"
-dependencies = [
- "agp-gw-component",
- "rustls",
- "rustls-native-certs",
- "rustls-pki-types",
- "serde",
- "thiserror",
- "tracing",
-]
-
-[[package]]
-name = "agp-gw-data-path"
-version = "0.1.0"
-dependencies = [
- "agp-gw-config-grpc",
- "agp-gw-messages",
+ "agp-gw-config",
  "agp-gw-pubsub-proto",
- "agp-gw-tables",
+ "bit-vec",
  "bytes",
  "drain",
  "h2",
+ "parking_lot",
+ "rand 0.9.0",
  "thiserror",
  "tokio",
  "tokio-stream",
@@ -155,20 +120,11 @@ dependencies = [
 ]
 
 [[package]]
-name = "agp-gw-messages"
-version = "0.1.0"
-dependencies = [
- "agp-gw-pubsub-proto",
- "thiserror",
- "tracing",
-]
-
-[[package]]
 name = "agp-gw-nop-component"
 version = "0.1.0"
 dependencies = [
  "agp-gw-component",
- "agp-gw-config-grpc",
+ "agp-gw-config",
  "serde",
  "serde_yaml",
 ]
@@ -179,8 +135,10 @@ version = "0.1.0"
 dependencies = [
  "prost",
  "protoc-bin-vendored",
+ "thiserror",
  "tonic",
  "tonic-build",
+ "tracing",
 ]
 
 [[package]]
@@ -188,10 +146,8 @@ name = "agp-gw-service"
 version = "0.1.0"
 dependencies = [
  "agp-gw-component",
- "agp-gw-config-grpc",
- "agp-gw-config-tls",
- "agp-gw-data-path",
- "agp-gw-messages",
+ "agp-gw-config",
+ "agp-gw-datapath",
  "agp-gw-pubsub-proto",
  "drain",
  "serde",
@@ -209,34 +165,6 @@ version = "0.1.0"
 dependencies = [
  "tokio",
  "tracing",
-]
-
-[[package]]
-name = "agp-gw-tables"
-version = "0.1.0"
-dependencies = [
- "agp-gw-messages",
- "bit-vec",
- "parking_lot",
- "rand 0.9.0",
- "thiserror",
- "tracing",
- "tracing-test",
-]
-
-[[package]]
-name = "agp-gw-tests-grpc"
-version = "0.1.0"
-dependencies = [
- "agp-gw-config-auth",
- "agp-gw-config-grpc",
- "agp-gw-config-tls",
- "rustls",
- "tokio",
- "tonic",
- "tonic-build",
- "tracing",
- "tracing-test",
 ]
 
 [[package]]
@@ -848,7 +776,7 @@ version = "0.1.0"
 dependencies = [
  "agp-gw",
  "agp-gw-component",
- "agp-gw-messages",
+ "agp-gw-pubsub-proto",
  "clap",
  "tokio",
  "tracing",

@@ -6,15 +6,12 @@ publish = false
 version = "0.1.0"
 
 [lib]
-name = "gateway_bindings"
+name = "agp_gw_bindings"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 agp-gw-component = { path = "../gateway/component" }
-agp-gw-config-auth = { path = "../gateway/config/auth" }
-agp-gw-config-grpc = { path = "../gateway/config/grpc" }
-agp-gw-config-tls = { path = "../gateway/config/tls" }
-agp-gw-messages = { path = "../gateway/messages" }
+agp-gw-config = { path = "../gateway/config" }
 agp-gw-pubsub-proto = { path = "../gateway/pubsub-proto" }
 agp-gw-service = { path = "../gateway/service" }
 agp-gw-tracing = { path = "../gateway/tracing" }

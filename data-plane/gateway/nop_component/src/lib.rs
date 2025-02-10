@@ -6,7 +6,7 @@ use serde::Deserialize;
 use agp_gw_component::configuration::{Configuration, ConfigurationError};
 use agp_gw_component::id::{Kind, ID};
 use agp_gw_component::{Component, ComponentBuilder, ComponentError};
-use agp_gw_config_grpc::client::ClientConfig;
+use agp_gw_config::grpc::client::ClientConfig;
 
 // Define the kind of the component as static string
 pub const KIND: &str = "nop_component";

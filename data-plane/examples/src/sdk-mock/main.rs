@@ -5,6 +5,7 @@ use clap::Parser;
 use tracing::info;
 
 use agp_gw::config;
+use agp_gw_pubsub_proto::messages::encoder::{encode_agent_class, encode_agent_from_string};
 
 mod args;
 
@@ -35,15 +36,14 @@ async fn main() {
     let svc = config.services.get_mut(&id).unwrap();
 
     // create local agent
-    let agent_name =
-        agp_gw_messages::encoder::encode_agent_from_string("cisco", "default", local_agent, 0);
+    let agent_name = encode_agent_from_string("cisco", "default", local_agent, 0);
     let mut rx = svc.create_agent(agent_name.clone());
 
     // connect to the remote gateway
     let conn_id = svc.connect(None).await.unwrap();
 
     // Set a route for the remote agent
-    let route = agp_gw_messages::encoder::encode_agent_class("cisco", "default", remote_agent);
+    let route = encode_agent_class("cisco", "default", remote_agent);
     info!("allowing messages to remote agent: {:?}", route);
     svc.set_route(&route, None, conn_id).await.unwrap();
 
@@ -60,8 +60,8 @@ async fn main() {
     loop {
         let msg = rx.recv().await.unwrap().unwrap();
         match &msg.message_type.unwrap() {
-            agp_gw_messages::ProtoPublishType(msg) => {
-                let payload = agp_gw_messages::messages::get_payload(msg);
+            agp_gw_pubsub_proto::ProtoPublishType(msg) => {
+                let payload = agp_gw_pubsub_proto::messages::utils::get_payload(msg);
                 info!(
                     "received message: {}",
                     std::str::from_utf8(payload).unwrap()

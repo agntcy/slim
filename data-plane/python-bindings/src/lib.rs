@@ -3,7 +3,6 @@
 
 use std::sync::Arc;
 
-use agp_gw_messages::ProtoAgentId;
 use pyo3::exceptions::PyException;
 use pyo3::prelude::*;
 use pyo3_stub_gen::define_stub_info_gatherer;
@@ -15,15 +14,18 @@ use tokio::sync::mpsc;
 use tokio::sync::RwLock;
 use tonic::Status;
 
-use agp_gw_config_auth::basic::Config as BasicAuthConfig;
-use agp_gw_config_grpc::{
+use agp_gw_config::auth::basic::Config as BasicAuthConfig;
+use agp_gw_config::grpc::{
     client::AuthenticationConfig as ClientAuthenticationConfig, client::ClientConfig,
     server::AuthenticationConfig as ServerAuthenticationConfig, server::ServerConfig,
 };
-use agp_gw_config_tls::{client::TlsClientConfig, server::TlsServerConfig};
-use agp_gw_messages::encoder::{encode_agent_class, AgentClass};
-use agp_gw_messages::messages::get_incoming_connection;
+use agp_gw_config::tls::{client::TlsClientConfig, server::TlsServerConfig};
+use agp_gw_pubsub_proto::messages::encoder::{
+    encode_agent_class, encode_agent_from_string, AgentClass,
+};
+use agp_gw_pubsub_proto::messages::utils::get_incoming_connection;
 use agp_gw_pubsub_proto::proto::pubsub::v1::Message;
+use agp_gw_pubsub_proto::ProtoAgentId;
 use agp_gw_service::{Service, ServiceError};
 
 /// agent class
@@ -153,8 +155,7 @@ async fn create_agent_impl(
     };
 
     // create local agent
-    let agent_name =
-        agp_gw_messages::encoder::encode_agent_from_string(&agent_org, &agent_ns, &agent_class, id);
+    let agent_name = encode_agent_from_string(&agent_org, &agent_ns, &agent_class, id);
     let mut service = svc.sdk.write().await;
     let rx = service.service.create_agent(agent_name);
     service.rx = Some(rx);
@@ -653,7 +654,7 @@ async fn receive_impl(svc: PyService) -> Result<(PyAgentSource, Vec<u8>), Servic
     // extract agent and payload
     let (source, content) = match msg.message_type {
         Some(msg_type) => match msg_type {
-            agp_gw_messages::ProtoPublishType(publish) => match (publish.source, publish.msg) {
+            agp_gw_pubsub_proto::ProtoPublishType(publish) => match (publish.source, publish.msg) {
                 (Some(source), Some(content)) => (source, content.blob),
                 _ => Err(ServiceError::ReceiveError(
                     "no content received".to_string(),

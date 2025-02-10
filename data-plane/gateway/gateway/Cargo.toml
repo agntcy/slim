@@ -15,7 +15,7 @@ multicore = ["tokio/rt-multi-thread", "num_cpus"]
 
 [dependencies]
 agp-gw-component = { path = "../component" }
-agp-gw-config-provider = { path = "../config/provider" }
+agp-gw-config = { path = "../config" }
 agp-gw-service = { path = "../service" }
 agp-gw-signal = { path = "../signal" }
 agp-gw-tracing = { path = "../tracing" }

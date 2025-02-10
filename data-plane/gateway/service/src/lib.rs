@@ -1,8 +1,8 @@
 // SPDX-FileCopyrightText: Copyright (c) 2025 Cisco and/or its affiliates.
 // SPDX-License-Identifier: Apache-2.0
 
-use agp_gw_messages::encoder::{Agent, AgentClass};
-use agp_gw_messages::messages::{
+use agp_gw_pubsub_proto::{Agent, AgentClass};
+use agp_gw_pubsub_proto::messages::utils::{
     create_publication, create_subscription_from, create_subscription_to_forward,
     create_unsubscription_from, create_unsubscription_to_forward,
 };
@@ -18,9 +18,9 @@ use tracing::{debug, error, info};
 use agp_gw_component::configuration::{Configuration, ConfigurationError};
 use agp_gw_component::id::{Kind, ID};
 use agp_gw_component::{Component, ComponentBuilder, ComponentError};
-use agp_gw_config_grpc::client::ClientConfig;
-use agp_gw_config_grpc::server::ServerConfig;
-use agp_gw_data_path::message_processing::MessageProcessor;
+use agp_gw_config::grpc::client::ClientConfig;
+use agp_gw_config::grpc::server::ServerConfig;
+use agp_gw_datapath::message_processing::MessageProcessor;
 use agp_gw_pubsub_proto::proto::pubsub::v1::pub_sub_service_server::PubSubServiceServer;
 use agp_gw_pubsub_proto::proto::pubsub::v1::Message;
 
@@ -531,8 +531,8 @@ impl ComponentBuilder for ServiceBuilder {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use agp_gw_config_grpc::server::ServerConfig;
-    use agp_gw_config_tls::server::TlsServerConfig;
+    use agp_gw_config::grpc::server::ServerConfig;
+    use agp_gw_config::tls::server::TlsServerConfig;
     use std::time::Duration;
     use tokio::time;
     use tracing_test::traced_test;
