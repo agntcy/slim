@@ -15,7 +15,7 @@ on:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: ${{ !contains(github.ref, 'release/')}}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' )}}
 
 jobs:
   control-plane-build-and-test:
