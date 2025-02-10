@@ -11,19 +11,15 @@ inputs:
     description: 'Python version to install'
     required: false
     default: "3.12"
-  py-package-manager:
-    description: 'Python package manager to use'
-    required: false
-    default: "poetry"
-  py-poetry:
+  poetry-install:
     description: 'Install poetry'
     required: false
     default: true
-  py-poetry-version:
+  poetry-version:
     description: 'Poetry version to use'
     required: false
     default: "1.7.1"
-  py-uv:
+  uv-install:
     description: 'Install uv'
     required: false
     default: true
@@ -47,7 +43,7 @@ runs:
       uses: actions/cache@v4
       with:
         path: ~/.local
-        key: venv-${{ runner.os }}-${{ steps.setup-python.outputs.python-version }}-${{ inputs.py-poetry-version }}
+        key: venv-${{ runner.os }}-${{ steps.setup-python.outputs.python-version }}-${{ inputs.poetry-version }}
 
     - name: Install Poetry
       if: ${{ inputs.py-poetry }}
@@ -56,7 +52,7 @@ runs:
         if [[ -f ~/.local/bin/poetry ]]; then
           echo "Poetry already installed"
         else
-          curl -sSL https://install.python-poetry.org | POETRY_VERSION=${{ inputs.py-poetry-version }} python3 -
+          curl -sSL https://install.python-poetry.org | POETRY_VERSION=${{ inputs.poetry-version }} python3 -
         fi
 
     - name: Install uv (unix)
