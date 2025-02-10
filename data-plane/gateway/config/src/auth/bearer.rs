@@ -33,11 +33,6 @@ impl Config {
     pub fn token(&self) -> &OpaqueString {
         &self.token
     }
-
-    /// Set the token
-    pub fn set_token(&mut self, token: &str) {
-        self.token = OpaqueString::new(token);
-    }
 }
 
 impl ClientAuthenticator for Config {
