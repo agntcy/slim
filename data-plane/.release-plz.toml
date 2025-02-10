@@ -1,0 +1,56 @@
+[workspace]
+release_always = false
+release = false
+
+[[package]]
+name = "agp-examples"
+publish = false
+release = true
+changelog_update = true
+
+[[package]]
+name = "agp-config"
+publish = true
+release = true
+changelog_update = true
+
+[[package]]
+name = "agp-datapath"
+publish = true
+release = true
+changelog_update = true
+
+[[package]]
+name = "agp-gw"
+publish = true
+release = true
+changelog_update = true
+
+[[package]]
+name = "agp-nop-component"
+publish = false
+changelog_update = false
+
+[[package]]
+name = "agp-service"
+publish = true
+release = true
+changelog_update = true
+
+[[package]]
+name = "agp-signal"
+publish = true
+release = true
+changelog_update = true
+
+[[package]]
+name = "agp-tracing"
+publish = true
+release = true
+changelog_update = true
+
+[[package]]
+name = "agp-bindings"
+publish = false
+release = true
+changelog_update = true

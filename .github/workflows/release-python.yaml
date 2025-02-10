@@ -5,9 +5,13 @@ name: release
 
 on:
   push:
+    paths:
+      - 'data-plane/**'
     branches:
       - main
   pull_request:
+    paths:
+      - 'data-plane/**'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -96,9 +100,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Install protoc
-        run: |
-          sudo apt update && sudo apt install -y protobuf-compiler
       - name: Build sdist
         uses: PyO3/maturin-action@v1
         with:

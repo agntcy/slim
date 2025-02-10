@@ -1,5 +1,5 @@
 [package]
-name = "gateway-examples"
+name = "agp-examples"
 version = "0.1.0"
 edition = "2021"
 publish = false
