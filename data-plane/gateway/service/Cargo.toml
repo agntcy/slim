@@ -1,13 +1,13 @@
 [package]
-name = "agp-gw-service"
+name = "agp-service"
 edition = "2021"
 license = { workspace = true }
 version = "0.1.0"
 
 [dependencies]
-agp-gw-config = { path = "../config", version = "0.1.0" }
-agp-gw-datapath = { path = "../datapath", version = "0.1.0" }
-agp-gw-pubsub-proto = { path = "../pubsub-proto", version = "0.1.0" }
+agp-config = { path = "../config", version = "0.1.0" }
+agp-datapath = { path = "../datapath", version = "0.1.0" }
+agp-pubsub-proto = { path = "../pubsub-proto", version = "0.1.0" }
 drain = { version = "0.1", features = ["retain"] }
 serde = "1.0.217"
 thiserror = "2.0.9"

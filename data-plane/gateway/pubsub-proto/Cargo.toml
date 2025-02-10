@@ -1,5 +1,5 @@
 [package]
-name = "agp-gw-pubsub-proto"
+name = "agp-pubsub-proto"
 edition = "2021"
 license = { workspace = true }
 version = "0.1.0"

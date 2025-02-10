@@ -6,7 +6,7 @@ use tower_http::auth::{require_authorization::Basic, AddAuthorizationLayer};
 use tower_http::validate_request::ValidateRequestHeaderLayer;
 
 use super::{AuthError, ClientAuthenticator, ServerAuthenticator};
-use agp_gw_tracing::opaque::OpaqueString;
+use agp_tracing::opaque::OpaqueString;
 
 #[derive(Debug, Deserialize, Clone, PartialEq)]
 pub struct Config {

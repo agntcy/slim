@@ -1,12 +1,12 @@
 [package]
-name = "agp-gw-config"
+name = "agp-config"
 version = "0.1.0"
 edition = "2021"
 license = { workspace = true }
 description = "Configuration utilities"
 
 [dependencies]
-agp-gw-tracing = { path = "../tracing", version = "0.1.0" }
+agp-tracing = { path = "../tracing", version = "0.1.0" }
 duration-str = "0.12.0"
 futures = "0.3.31"
 http = "1.2.0"

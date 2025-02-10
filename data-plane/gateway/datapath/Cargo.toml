@@ -1,11 +1,11 @@
 [package]
-name = "agp-gw-datapath"
+name = "agp-datapath"
 version = "0.1.0"
 edition = "2021"
 license = { workspace = true }
 
 [dependencies]
-agp-gw-pubsub-proto = { path = "../pubsub-proto", version = "0.1.0" }
+agp-pubsub-proto = { path = "../pubsub-proto", version = "0.1.0" }
 bit-vec = "0.8"
 bytes = { version = "1.9.0" }
 drain = { version = "0.1", features = ["retain"] }
@@ -21,7 +21,7 @@ tracing = "0.1.41"
 tracing-test = { version = "0.2.5", features = ["no-env-filter"] }
 
 [dev-dependencies]
-agp-gw-config = { path = "../config" }
+agp-config = { path = "../config" }
 
 [build-dependencies]
 tonic-build = "0.12"

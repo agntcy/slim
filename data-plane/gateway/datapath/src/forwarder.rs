@@ -6,7 +6,7 @@ use std::sync::Arc;
 use super::tables::connection_table::ConnectionTable;
 use super::tables::subscription_table::SubscriptionTableImpl;
 use super::tables::{errors::SubscriptionTableError, SubscriptionTable};
-use agp_gw_pubsub_proto::AgentClass;
+use agp_pubsub_proto::AgentClass;
 
 #[derive(Debug)]
 pub struct Forwarder<T>
@@ -98,7 +98,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use agp_gw_pubsub_proto::messages::encoder::encode_agent_class;
+    use agp_pubsub_proto::messages::encoder::encode_agent_class;
     use tracing_test::traced_test;
 
     #[test]

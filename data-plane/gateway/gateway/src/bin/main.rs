@@ -5,11 +5,11 @@ use clap::Parser;
 use tokio::time;
 use tracing::info;
 
+use agp_config::component::Component;
 use agp_gw::args;
 use agp_gw::build_info;
 use agp_gw::config;
 use agp_gw::runtime;
-use agp_gw_config::component::Component;
 
 fn main() {
     let args = args::Args::parse();
@@ -36,7 +36,7 @@ fn main() {
 
         // wait for shutdown signal
         tokio::select! {
-            _ = agp_gw_signal::shutdown() => {
+            _ = agp_signal::shutdown() => {
                 info!("Received shutdown signal");
             }
         }

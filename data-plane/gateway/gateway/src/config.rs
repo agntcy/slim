@@ -10,12 +10,12 @@ use thiserror::Error;
 use tracing::debug;
 
 use crate::runtime::RuntimeConfiguration;
-use agp_gw_config::component::configuration::Configuration;
-use agp_gw_config::component::id::ID;
-use agp_gw_config::component::{Component, ComponentBuilder};
-use agp_gw_config::provider::ConfigResolver;
-use agp_gw_service::{Service, ServiceBuilder};
-use agp_gw_tracing::TracingConfiguration;
+use agp_config::component::configuration::Configuration;
+use agp_config::component::id::ID;
+use agp_config::component::{Component, ComponentBuilder};
+use agp_config::provider::ConfigResolver;
+use agp_service::{Service, ServiceBuilder};
+use agp_tracing::TracingConfiguration;
 
 pub struct ConfigResult {
     /// tracing configuration
@@ -86,7 +86,7 @@ fn build_service(name: &Value, config: &Value) -> Result<Service, ConfigError> {
     let id = ID::new_with_str(id_string).map_err(|e| ConfigError::InvalidKey(e.to_string()))?;
     let component_config = config;
 
-    if id.kind().to_string().as_str() == agp_gw_service::KIND {
+    if id.kind().to_string().as_str() == agp_service::KIND {
         return resolve_component(&id, ServiceBuilder::new(), component_config.clone());
     }
 

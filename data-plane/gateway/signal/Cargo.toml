@@ -1,5 +1,5 @@
 [package]
-name = "agp-gw-signal"
+name = "agp-signal"
 edition = "2021"
 license = { workspace = true }
 version = "0.1.0"

@@ -4,9 +4,9 @@
 use std::fs::File;
 use std::io::Read;
 
-use agp_gw_config::component::id::{Kind, ID};
-use agp_gw_config::component::Component;
-use agp_gw_nop_component::{NopComponent, NopComponentBuilder, NopComponentConfig};
+use agp_config::component::id::{Kind, ID};
+use agp_config::component::Component;
+use agp_nop_component::{NopComponent, NopComponentBuilder, NopComponentConfig};
 use serde_yaml::Error;
 
 static TEST_PATH: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests");

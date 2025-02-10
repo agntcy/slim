@@ -8,13 +8,13 @@ mod tests {
     use tracing::info;
     use tracing_test::traced_test;
 
-    use agp_gw_config::grpc::{client::ClientConfig, server::ServerConfig};
-    use agp_gw_datapath::message_processing::MessageProcessor;
-    use agp_gw_pubsub_proto::messages::encoder::{encode_agent_class, encode_agent_from_string};
-    use agp_gw_pubsub_proto::messages::utils::{
+    use agp_config::grpc::{client::ClientConfig, server::ServerConfig};
+    use agp_datapath::message_processing::MessageProcessor;
+    use agp_pubsub_proto::messages::encoder::{encode_agent_class, encode_agent_from_string};
+    use agp_pubsub_proto::messages::utils::{
         create_subscription, create_subscription_from, create_subscription_to_forward,
     };
-    use agp_gw_pubsub_proto::proto::pubsub::v1::{
+    use agp_pubsub_proto::proto::pubsub::v1::{
         pub_sub_service_server::PubSubServiceServer, Message,
     };
 

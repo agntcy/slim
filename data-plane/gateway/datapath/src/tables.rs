@@ -10,7 +10,7 @@ pub mod subscription_table;
 
 mod pool;
 
-use agp_gw_pubsub_proto::AgentClass;
+use agp_pubsub_proto::AgentClass;
 use errors::SubscriptionTableError;
 
 pub trait SubscriptionTable {

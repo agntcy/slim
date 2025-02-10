@@ -5,7 +5,7 @@ use clap::Parser;
 use tracing::info;
 
 use agp_gw::config;
-use agp_gw_pubsub_proto::messages::encoder::{encode_agent_class, encode_agent_from_string};
+use agp_pubsub_proto::messages::encoder::{encode_agent_class, encode_agent_from_string};
 
 mod args;
 
@@ -32,7 +32,7 @@ async fn main() {
     info!(%config_file, %local_agent, %remote_agent, "starting client");
 
     // get service
-    let id = agp_gw_config::component::id::ID::new_with_str("gateway/0").unwrap();
+    let id = agp_config::component::id::ID::new_with_str("gateway/0").unwrap();
     let svc = config.services.get_mut(&id).unwrap();
 
     // create local agent
@@ -60,8 +60,8 @@ async fn main() {
     loop {
         let msg = rx.recv().await.unwrap().unwrap();
         match &msg.message_type.unwrap() {
-            agp_gw_pubsub_proto::ProtoPublishType(msg) => {
-                let payload = agp_gw_pubsub_proto::messages::utils::get_payload(msg);
+            agp_pubsub_proto::ProtoPublishType(msg) => {
+                let payload = agp_pubsub_proto::messages::utils::get_payload(msg);
                 info!(
                     "received message: {}",
                     std::str::from_utf8(payload).unwrap()

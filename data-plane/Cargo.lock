@@ -18,34 +18,13 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "512761e0bb2578dd7380c6baaa0f4ce03e84f95e960231d1dec8bf4d7d6e2627"
 
 [[package]]
-name = "agp-gw"
+name = "agp-bindings"
 version = "0.1.0"
 dependencies = [
- "agp-gw-config",
- "agp-gw-service",
- "agp-gw-signal",
- "agp-gw-tracing",
- "clap",
- "duration-str",
- "jemallocator",
- "lazy_static",
- "num_cpus",
- "serde",
- "serde_yaml",
- "thiserror",
- "tokio",
- "tracing",
- "tracing-test",
-]
-
-[[package]]
-name = "agp-gw-bindings"
-version = "0.1.0"
-dependencies = [
- "agp-gw-config",
- "agp-gw-pubsub-proto",
- "agp-gw-service",
- "agp-gw-tracing",
+ "agp-config",
+ "agp-pubsub-proto",
+ "agp-service",
+ "agp-tracing",
  "pyo3",
  "pyo3-async-runtimes",
  "pyo3-stub-gen",
@@ -55,10 +34,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "agp-gw-config"
+name = "agp-config"
 version = "0.1.0"
 dependencies = [
- "agp-gw-tracing",
+ "agp-tracing",
  "duration-str",
  "futures",
  "http",
@@ -88,11 +67,11 @@ dependencies = [
 ]
 
 [[package]]
-name = "agp-gw-datapath"
+name = "agp-datapath"
 version = "0.1.0"
 dependencies = [
- "agp-gw-config",
- "agp-gw-pubsub-proto",
+ "agp-config",
+ "agp-pubsub-proto",
  "bit-vec",
  "bytes",
  "drain",
@@ -110,16 +89,37 @@ dependencies = [
 ]
 
 [[package]]
-name = "agp-gw-nop-component"
+name = "agp-gw"
 version = "0.1.0"
 dependencies = [
- "agp-gw-config",
+ "agp-config",
+ "agp-service",
+ "agp-signal",
+ "agp-tracing",
+ "clap",
+ "duration-str",
+ "jemallocator",
+ "lazy_static",
+ "num_cpus",
+ "serde",
+ "serde_yaml",
+ "thiserror",
+ "tokio",
+ "tracing",
+ "tracing-test",
+]
+
+[[package]]
+name = "agp-nop-component"
+version = "0.1.0"
+dependencies = [
+ "agp-config",
  "serde",
  "serde_yaml",
 ]
 
 [[package]]
-name = "agp-gw-pubsub-proto"
+name = "agp-pubsub-proto"
 version = "0.1.0"
 dependencies = [
  "prost",
@@ -131,12 +131,12 @@ dependencies = [
 ]
 
 [[package]]
-name = "agp-gw-service"
+name = "agp-service"
 version = "0.1.0"
 dependencies = [
- "agp-gw-config",
- "agp-gw-datapath",
- "agp-gw-pubsub-proto",
+ "agp-config",
+ "agp-datapath",
+ "agp-pubsub-proto",
  "drain",
  "serde",
  "thiserror",
@@ -148,7 +148,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "agp-gw-signal"
+name = "agp-signal"
 version = "0.1.0"
 dependencies = [
  "tokio",
@@ -156,7 +156,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "agp-gw-tracing"
+name = "agp-tracing"
 version = "0.1.0"
 dependencies = [
  "serde",
@@ -762,9 +762,9 @@ dependencies = [
 name = "gateway-examples"
 version = "0.1.0"
 dependencies = [
+ "agp-config",
  "agp-gw",
- "agp-gw-config",
- "agp-gw-pubsub-proto",
+ "agp-pubsub-proto",
  "clap",
  "tokio",
  "tracing",
