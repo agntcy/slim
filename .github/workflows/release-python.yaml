@@ -19,7 +19,7 @@ jobs:
     defaults:
       run:
         shell: bash
-        working-directory: ./data-plane/python-bindings
+        working-directory: ./data-plane
     strategy:
       matrix:
         platform:
@@ -48,7 +48,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: wheels-linux-${{ matrix.platform.target }}
-          path: dist
+          path: python-bindings/dist
 
   python-bindings-sdist:
     runs-on: ubuntu-latest
