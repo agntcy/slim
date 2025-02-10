@@ -14,7 +14,7 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  python-bindings-wheel:
+  python-bindings-wheels:
     runs-on: ${{ matrix.platform.runner }}
     defaults:
       run:
@@ -74,9 +74,7 @@ jobs:
     runs-on: ubuntu-latest
     if: ${{ startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch' }}
     needs:
-      - python-bindings-linux
-      - python-bindings-windows
-      - python-bindings-macos
+      - python-bindings-wheels
       - python-bindings-sdist
     permissions:
       # Use to sign the release artifacts
