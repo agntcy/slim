@@ -281,12 +281,20 @@ tasks:
     internal: true
     dir: ./python-bindings
     cmds:
+      - rustup target add {{.TARGET}}
       - for:
           matrix:
             PYTHON: ["3.11", "3.12", "3.13"]
         cmd: |
-          rustup target add {{.TARGET}}
           uv python install {{.ITEM.PYTHON}}
           uv python pin {{.ITEM.PYTHON}}
-          uv sync
-          uv run maturin build {{.RELEASE}} --out dist --target {{.TARGET}} --frozen
+      - |
+        uv sync
+        uv run maturin build {{.RELEASE}} \
+          --out dist                      \
+          --target {{.TARGET}}            \
+          --frozen                        \
+          -i \
+          $(uv python find 3.11)  \
+          $(uv python find 3.12)  \
+          $(uv python find 3.13)
