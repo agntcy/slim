@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025 Cisco and/or its affiliates.
 # SPDX-License-Identifier: Apache-2.0
 
-name: release
+name: ci-release-python
 
 on:
   push:
@@ -14,83 +14,52 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  python-bindings-linux:
+  python-bindings-wheels:
     runs-on: ${{ matrix.platform.runner }}
+    defaults:
+      run:
+        shell: bash
+        working-directory: ./data-plane
     strategy:
       matrix:
         platform:
-          - runner: ubuntu-latest
+          - runner: ubuntu-24.04
+            os: linux
             target: x86_64
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: 3.11
-      - name: Build wheels
-        uses: PyO3/maturin-action@v1
-        with:
-          target: ${{ matrix.platform.target }}
-          args: --release --out dist --find-interpreter
-          sccache: 'true'
-          working-directory: ./data-plane/python-bindings
-      - name: Upload wheels
-        uses: actions/upload-artifact@v4
-        with:
-          name: wheels-linux-${{ matrix.platform.target }}
-          path: dist
-
-  python-bindings-windows:
-    runs-on: ${{ matrix.platform.runner }}
-    strategy:
-      matrix:
-        platform:
+          # - runner: ubuntu-24.04-arm
+          #   os: linux
+          #   target: aarch64
           - runner: windows-latest
+            os: windows
             target: x64
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: 3.11
-          architecture: ${{ matrix.platform.target }}
-      - name: Build wheels
-        uses: PyO3/maturin-action@v1
-        with:
-          target: ${{ matrix.platform.target }}
-          args: --release --out dist --find-interpreter
-          sccache: 'true'
-          working-directory: ./data-plane/python-bindings
-      - name: Upload wheels
-        uses: actions/upload-artifact@v4
-        with:
-          name: wheels-windows-${{ matrix.platform.target }}
-          path: dist
-
-  python-bindings-macos:
-    runs-on: ${{ matrix.platform.runner }}
-    strategy:
-      matrix:
-        platform:
           - runner: macos-15
+            os: macos
             target: x86_64
           - runner: macos-15
+            os: macos
             target: aarch64
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - name: Setup Python
+        uses: ./.github/actions/setup-python
         with:
-          python-version: 3.11
+          py-install: false
+          poetry-install: false
+          uv-install: true
+      - name: Setup Rust
+        uses: ./.github/actions/setup-rust
+        with:
+          cache-workspaces: ./data-plane
+          cache-directories: |
+            .tools
       - name: Build wheels
-        uses: PyO3/maturin-action@v1
-        with:
-          target: ${{ matrix.platform.target }}
-          args: --release --out dist --find-interpreter
-          sccache: 'true'
-          working-directory: ./data-plane/python-bindings
+        run: |
+          task data-plane:bindings:python PROFILE=release
       - name: Upload wheels
         uses: actions/upload-artifact@v4
         with:
-          name: wheels-macos-${{ matrix.platform.target }}
-          path: dist
+          name: wheels-${{ matrix.platform.os }}-${{ matrix.platform.target }}
+          path: ./data-plane/python-bindings/dist
 
   python-bindings-sdist:
     runs-on: ubuntu-latest
@@ -109,16 +78,14 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: wheels-sdist
-          path: dist
+          path: ./data-plane/python-bindings/dist
 
   release:
     name: Release
     runs-on: ubuntu-latest
     if: ${{ startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch' }}
     needs:
-      - python-bindings-linux
-      - python-bindings-windows
-      - python-bindings-macos
+      - python-bindings-wheels
       - python-bindings-sdist
     permissions:
       # Use to sign the release artifacts
@@ -129,10 +96,13 @@ jobs:
       attestations: write
     steps:
       - uses: actions/download-artifact@v4
+        with:
+          merge-multiple: true
+          path: dist
       - name: Generate artifact attestation
         uses: actions/attest-build-provenance@v1
         with:
-          subject-path: 'wheels-*/*'
+          subject-path: 'dist/wheels-*'
       - name: Publish to PyPI
         if: ${{ startsWith(github.ref, 'refs/tags/') }}
         uses: PyO3/maturin-action@v1
