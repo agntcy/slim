@@ -6,8 +6,8 @@
 pub mod messages;
 pub mod proto;
 
-pub use messages::encoder::AgentClass;
 pub use messages::encoder::Agent;
+pub use messages::encoder::AgentClass;
 
 pub use proto::pubsub::v1::message::MessageType;
 pub use proto::pubsub::v1::message::MessageType::Publish as ProtoPublishType;

@@ -6,7 +6,6 @@ license = { workspace = true }
 description = "Configuration utilities"
 
 [dependencies]
-agp-gw-component = { path = "../component", version = "0.1.0" }
 agp-gw-tracing = { path = "../tracing", version = "0.1.0" }
 duration-str = "0.12.0"
 futures = "0.3.31"
@@ -16,7 +15,9 @@ hyper-rustls = { version = "0.27", features = [
     "aws-lc-rs",
 ], default-features = false }
 hyper-util = "0.1.10"
+lazy_static = "1.5.0"
 prost = "0.13.4"
+regex = "1.11.1"
 rustls = "0.23.19"
 rustls-native-certs = "0.8.1"
 rustls-pki-types = "1.10.0"
@@ -29,7 +30,7 @@ tonic-tls = { version = "0.2.1", default-features = false, features = [
     "rustls",
 ] }
 tower = "0.5.2"
-tower-http =  { version = "0.6", features = ["auth"] }
+tower-http = { version = "0.6", features = ["auth"] }
 tower-layer = "0.3.3"
 tower-service = "0.3.3"
 tracing = "0.1.41"

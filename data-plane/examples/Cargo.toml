@@ -10,7 +10,7 @@ path = "src/sdk-mock/main.rs"
 
 [dependencies]
 agp-gw = { path = "../gateway/gateway", version = "0.1.0" }
-agp-gw-component = { path = "../gateway/component", version = "0.1.0" }
+agp-gw-config = { path = "../gateway/config", version = "0.1.0" }
 agp-gw-pubsub-proto = { path = "../gateway/pubsub-proto", version = "0.1.0" }
 clap = "4.5"
 tokio = "1"

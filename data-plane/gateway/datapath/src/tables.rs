@@ -5,8 +5,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 pub mod connection_table;
-pub mod subscription_table;
 pub mod errors;
+pub mod subscription_table;
 
 mod pool;
 

@@ -10,7 +10,6 @@ name = "agp_gw_bindings"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-agp-gw-component = { path = "../gateway/component" }
 agp-gw-config = { path = "../gateway/config" }
 agp-gw-pubsub-proto = { path = "../gateway/pubsub-proto" }
 agp-gw-service = { path = "../gateway/service" }

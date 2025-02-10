@@ -20,8 +20,8 @@ use super::headers_middleware::SetRequestHeaderLayer;
 use crate::auth::basic::Config as BasicAuthenticationConfig;
 use crate::auth::bearer::Config as BearerAuthenticationConfig;
 use crate::auth::ClientAuthenticator;
+use crate::component::configuration::{Configuration, ConfigurationError};
 use crate::tls::{client::TlsClientConfig as TLSSetting, common::RustlsConfigLoader};
-use agp_gw_component::configuration::{Configuration, ConfigurationError};
 
 /// Keepalive configuration for the client.
 /// This struct contains the keepalive time for TCP and HTTP2,
@@ -529,7 +529,7 @@ mod test {
         // Set the tls settings
         client.tls_setting = {
             let mut tls = TLSSetting::default();
-            tls.config.ca_file = Some(format!("{}/testdata/{}", test_path, "ca.crt"));
+            tls.config.ca_file = Some(format!("{}/testdata/grpc/{}", test_path, "ca.crt"));
             tls.insecure = false;
             tls
         };

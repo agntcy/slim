@@ -2,7 +2,6 @@
 
 members = [
     "examples",
-    "gateway/component",
     "gateway/config",
     "gateway/datapath",
     "gateway/gateway",
@@ -16,7 +15,6 @@ members = [
 
 default-members = [
     "examples",
-    "gateway/component",
     "gateway/config",
     "gateway/datapath",
     "gateway/gateway",

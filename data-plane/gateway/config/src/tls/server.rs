@@ -13,7 +13,7 @@ use rustls_pki_types::{CertificateDer, PrivateKeyDer};
 use serde::Deserialize;
 
 use super::common::{Config, ConfigError, RustlsConfigLoader};
-use agp_gw_component::configuration::{Configuration, ConfigurationError};
+use crate::component::configuration::{Configuration, ConfigurationError};
 
 #[derive(Debug, Deserialize, PartialEq, Clone)]
 pub struct TlsServerConfig {

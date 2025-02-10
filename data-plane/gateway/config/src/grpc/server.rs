@@ -16,8 +16,8 @@ use super::errors::ConfigError;
 use crate::auth::basic::Config as BasicAuthenticationConfig;
 use crate::auth::bearer::Config as BearerAuthenticationConfig;
 use crate::auth::ServerAuthenticator;
+use crate::component::configuration::{Configuration, ConfigurationError};
 use crate::tls::{common::RustlsConfigLoader, server::TlsServerConfig as TLSSetting};
-use agp_gw_component::configuration::{Configuration, ConfigurationError};
 
 #[derive(Debug, Deserialize, PartialEq, Clone)]
 pub struct KeepaliveServerParameters {
@@ -398,7 +398,7 @@ mod tests {
     use super::*;
     use crate::testutils::{helloworld::greeter_server::GreeterServer, Empty};
 
-    static TEST_DATA_PATH: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/testdata");
+    static TEST_DATA_PATH: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/testdata/grpc");
 
     #[test]
     fn test_default_keepalive_server_parameters() {

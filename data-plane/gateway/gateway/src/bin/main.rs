@@ -9,7 +9,7 @@ use agp_gw::args;
 use agp_gw::build_info;
 use agp_gw::config;
 use agp_gw::runtime;
-use agp_gw_component::Component;
+use agp_gw_config::component::Component;
 
 fn main() {
     let args = args::Args::parse();

@@ -9,7 +9,7 @@ use rand::Rng;
 use tracing::{debug, error, warn};
 
 use super::pool::Pool;
-use super::{SubscriptionTable, errors::SubscriptionTableError};
+use super::{errors::SubscriptionTableError, SubscriptionTable};
 use agp_gw_pubsub_proto::{Agent, AgentClass};
 
 #[derive(Debug, Default, Clone)]

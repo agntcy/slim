@@ -10,9 +10,9 @@ use thiserror::Error;
 use tracing::debug;
 
 use crate::runtime::RuntimeConfiguration;
-use agp_gw_component::configuration::Configuration;
-use agp_gw_component::id::ID;
-use agp_gw_component::{Component, ComponentBuilder};
+use agp_gw_config::component::configuration::Configuration;
+use agp_gw_config::component::id::ID;
+use agp_gw_config::component::{Component, ComponentBuilder};
 use agp_gw_config::provider::ConfigResolver;
 use agp_gw_service::{Service, ServiceBuilder};
 use agp_gw_tracing::TracingConfiguration;

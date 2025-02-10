@@ -5,7 +5,6 @@ license = { workspace = true }
 version = "0.1.0"
 
 [dependencies]
-agp-gw-component = { path = "../component", version = "0.1.0" }
 agp-gw-config = { path = "../config", version = "0.1.0" }
 agp-gw-datapath = { path = "../datapath", version = "0.1.0" }
 agp-gw-pubsub-proto = { path = "../pubsub-proto", version = "0.1.0" }

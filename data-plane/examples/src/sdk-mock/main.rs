@@ -32,7 +32,7 @@ async fn main() {
     info!(%config_file, %local_agent, %remote_agent, "starting client");
 
     // get service
-    let id = agp_gw_component::id::ID::new_with_str("gateway/0").unwrap();
+    let id = agp_gw_config::component::id::ID::new_with_str("gateway/0").unwrap();
     let svc = config.services.get_mut(&id).unwrap();
 
     // create local agent

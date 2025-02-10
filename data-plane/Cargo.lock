@@ -21,7 +21,6 @@ checksum = "512761e0bb2578dd7380c6baaa0f4ce03e84f95e960231d1dec8bf4d7d6e2627"
 name = "agp-gw"
 version = "0.1.0"
 dependencies = [
- "agp-gw-component",
  "agp-gw-config",
  "agp-gw-service",
  "agp-gw-signal",
@@ -43,7 +42,6 @@ dependencies = [
 name = "agp-gw-bindings"
 version = "0.1.0"
 dependencies = [
- "agp-gw-component",
  "agp-gw-config",
  "agp-gw-pubsub-proto",
  "agp-gw-service",
@@ -57,27 +55,19 @@ dependencies = [
 ]
 
 [[package]]
-name = "agp-gw-component"
-version = "0.1.0"
-dependencies = [
- "lazy_static",
- "regex",
- "thiserror",
-]
-
-[[package]]
 name = "agp-gw-config"
 version = "0.1.0"
 dependencies = [
- "agp-gw-component",
  "agp-gw-tracing",
  "duration-str",
  "futures",
  "http",
  "hyper-rustls",
  "hyper-util",
+ "lazy_static",
  "prost",
  "protoc-bin-vendored",
+ "regex",
  "rustls",
  "rustls-native-certs",
  "rustls-pki-types",
@@ -123,7 +113,6 @@ dependencies = [
 name = "agp-gw-nop-component"
 version = "0.1.0"
 dependencies = [
- "agp-gw-component",
  "agp-gw-config",
  "serde",
  "serde_yaml",
@@ -145,7 +134,6 @@ dependencies = [
 name = "agp-gw-service"
 version = "0.1.0"
 dependencies = [
- "agp-gw-component",
  "agp-gw-config",
  "agp-gw-datapath",
  "agp-gw-pubsub-proto",
@@ -775,7 +763,7 @@ name = "gateway-examples"
 version = "0.1.0"
 dependencies = [
  "agp-gw",
- "agp-gw-component",
+ "agp-gw-config",
  "agp-gw-pubsub-proto",
  "clap",
  "tokio",
