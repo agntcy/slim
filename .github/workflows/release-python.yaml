@@ -49,7 +49,7 @@ jobs:
             .tools
       - name: Build wheels
         run: |
-          task data-plane:bindings:python
+          task data-plane:bindings:python PROFILE=release
       - name: Upload wheels
         uses: actions/upload-artifact@v4
         with:
