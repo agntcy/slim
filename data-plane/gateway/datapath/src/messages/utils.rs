@@ -5,7 +5,10 @@ use core::fmt;
 use std::collections::HashMap;
 
 use super::encoder::{Agent, AgentClass};
-use crate::*;
+use crate::pubsub::{
+    Content, ProtoAgentClass, ProtoAgentGroup, ProtoAgentId, ProtoMessage, ProtoPublish,
+    ProtoPublishType, ProtoSubscribe, ProtoSubscribeType, ProtoUnsubscribe, ProtoUnsubscribeType,
+};
 
 use thiserror::Error;
 use tracing::error;

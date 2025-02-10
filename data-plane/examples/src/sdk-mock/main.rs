@@ -4,8 +4,8 @@
 use clap::Parser;
 use tracing::info;
 
+use agp_datapath::messages::encoder::{encode_agent_class, encode_agent_from_string};
 use agp_gw::config;
-use agp_pubsub_proto::messages::encoder::{encode_agent_class, encode_agent_from_string};
 
 mod args;
 
@@ -60,8 +60,8 @@ async fn main() {
     loop {
         let msg = rx.recv().await.unwrap().unwrap();
         match &msg.message_type.unwrap() {
-            agp_pubsub_proto::ProtoPublishType(msg) => {
-                let payload = agp_pubsub_proto::messages::utils::get_payload(msg);
+            agp_datapath::pubsub::ProtoPublishType(msg) => {
+                let payload = agp_datapath::messages::utils::get_payload(msg);
                 info!(
                     "received message: {}",
                     std::str::from_utf8(payload).unwrap()

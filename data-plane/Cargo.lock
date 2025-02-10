@@ -22,7 +22,7 @@ name = "agp-bindings"
 version = "0.1.0"
 dependencies = [
  "agp-config",
- "agp-pubsub-proto",
+ "agp-datapath",
  "agp-service",
  "agp-tracing",
  "pyo3",
@@ -71,12 +71,13 @@ name = "agp-datapath"
 version = "0.1.0"
 dependencies = [
  "agp-config",
- "agp-pubsub-proto",
  "bit-vec",
  "bytes",
  "drain",
  "h2",
  "parking_lot",
+ "prost",
+ "protoc-bin-vendored",
  "rand 0.9.0",
  "thiserror",
  "tokio",
@@ -119,24 +120,11 @@ dependencies = [
 ]
 
 [[package]]
-name = "agp-pubsub-proto"
-version = "0.1.0"
-dependencies = [
- "prost",
- "protoc-bin-vendored",
- "thiserror",
- "tonic",
- "tonic-build",
- "tracing",
-]
-
-[[package]]
 name = "agp-service"
 version = "0.1.0"
 dependencies = [
  "agp-config",
  "agp-datapath",
- "agp-pubsub-proto",
  "drain",
  "serde",
  "thiserror",
@@ -763,8 +751,8 @@ name = "gateway-examples"
 version = "0.1.0"
 dependencies = [
  "agp-config",
+ "agp-datapath",
  "agp-gw",
- "agp-pubsub-proto",
  "clap",
  "tokio",
  "tracing",

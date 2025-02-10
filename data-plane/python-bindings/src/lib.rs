@@ -20,12 +20,10 @@ use agp_config::grpc::{
     server::AuthenticationConfig as ServerAuthenticationConfig, server::ServerConfig,
 };
 use agp_config::tls::{client::TlsClientConfig, server::TlsServerConfig};
-use agp_pubsub_proto::messages::encoder::{
-    encode_agent_class, encode_agent_from_string, AgentClass,
-};
-use agp_pubsub_proto::messages::utils::get_incoming_connection;
-use agp_pubsub_proto::proto::pubsub::v1::Message;
-use agp_pubsub_proto::ProtoAgentId;
+use agp_datapath::messages::encoder::{encode_agent_class, encode_agent_from_string, AgentClass};
+use agp_datapath::messages::utils::get_incoming_connection;
+use agp_datapath::pubsub::proto::pubsub::v1::Message;
+use agp_datapath::pubsub::ProtoAgentId;
 use agp_service::{Service, ServiceError};
 
 /// agent class
@@ -118,7 +116,7 @@ struct PyServiceInternal {
 impl PyService {
     #[new]
     pub fn new(id: &str) -> Self {
-        let svc_id = agp_component::id::ID::new_with_str(id).unwrap();
+        let svc_id = agp_config::component::id::ID::new_with_str(id).unwrap();
         PyService {
             sdk: Arc::new(RwLock::new(PyServiceInternal {
                 service: Service::new(svc_id),
@@ -654,12 +652,14 @@ async fn receive_impl(svc: PyService) -> Result<(PyAgentSource, Vec<u8>), Servic
     // extract agent and payload
     let (source, content) = match msg.message_type {
         Some(msg_type) => match msg_type {
-            agp_pubsub_proto::ProtoPublishType(publish) => match (publish.source, publish.msg) {
-                (Some(source), Some(content)) => (source, content.blob),
-                _ => Err(ServiceError::ReceiveError(
-                    "no content received".to_string(),
-                ))?,
-            },
+            agp_datapath::pubsub::ProtoPublishType(publish) => {
+                match (publish.source, publish.msg) {
+                    (Some(source), Some(content)) => (source, content.blob),
+                    _ => Err(ServiceError::ReceiveError(
+                        "no content received".to_string(),
+                    ))?,
+                }
+            }
             _ => Err(ServiceError::ReceiveError(
                 "receive publish message type".to_string(),
             ))?,

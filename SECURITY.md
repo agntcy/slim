@@ -5,25 +5,21 @@ providing prompt attention to security issues. Security issues should be
 reported privately via [security@agntcy.ai](mailto:security@agntcy.ai).
 Security issues should not be reported via the public GitHub Issue tracker.
 
-
 ## Vulnerability coordination
 
 Remediation of security vulnerabilities is prioritized by the project team. The
 project team coordinates remediation with third-party project stakeholders via
-[GitHub Security Advisories](https://help.github.com/en/github/
-managing-security-vulnerabilities/about-github-security-advisories). Third-party
-stakeholders may include the reporter of the issue, affected direct or indirect
+[GitHub Security Advisories](https://help.github.com/en/github/managing-security-vulnerabilities/about-github-security-advisories).
+Third-party stakeholders may include the reporter of the issue, affected direct or indirect
 users of AGP, and maintainers of upstream dependencies if applicable.
 
 Downstream project maintainers and AGP users can request participation in
 coordination of applicable security issues by sending your contact email address,
-GitHub username(s) and any other salient information to [security@agntcy.ai]
-(mailto:security@agncty.ai). Participation in security issue coordination
-processes is at the discretion of the AGP team.
+GitHub username(s) and any other salient information to [security@agntcy.ai](mailto:security@agntcy.ai).
+Participation in security issue coordination processes is at the discretion of the AGP team.
 
 ## Security advisories
 
 The project team is committed to transparency in the security issue disclosure
-process. The AGP team announces security issues via [project GitHub Release
-notes](https://github.com/agtncy/agp/releases) and the [RustSec advisory
-database](https://github.com/RustSec/advisory-db) (i.e. `cargo-audit`).
+process. The AGP team announces security issues via [project GitHub Release notes](https://github.com/agtncy/agp/releases)
+and the [RustSec advisory database](https://github.com/RustSec/advisory-db) (i.e. `cargo-audit`).

@@ -15,15 +15,15 @@ use tracing::{debug, error, info, trace};
 use crate::connection::{Channel, Connection, Type as ConnectionType};
 use crate::errors::DataPathError;
 use crate::forwarder::Forwarder;
-use agp_pubsub_proto::messages::utils::{
+use crate::messages::utils::{
     add_incoming_connection, get_agent_id, get_fanout, process_name, CommandType,
 };
-use agp_pubsub_proto::proto::pubsub::v1::message::MessageType::Publish as PublishType;
-use agp_pubsub_proto::proto::pubsub::v1::message::MessageType::Subscribe as SubscribeType;
-use agp_pubsub_proto::proto::pubsub::v1::message::MessageType::Unsubscribe as UnsubscribeType;
-use agp_pubsub_proto::proto::pubsub::v1::pub_sub_service_client::PubSubServiceClient;
-use agp_pubsub_proto::proto::pubsub::v1::{pub_sub_service_server::PubSubService, Message};
-use agp_pubsub_proto::AgentClass;
+use crate::messages::AgentClass;
+use crate::pubsub::proto::pubsub::v1::message::MessageType::Publish as PublishType;
+use crate::pubsub::proto::pubsub::v1::message::MessageType::Subscribe as SubscribeType;
+use crate::pubsub::proto::pubsub::v1::message::MessageType::Unsubscribe as UnsubscribeType;
+use crate::pubsub::proto::pubsub::v1::pub_sub_service_client::PubSubServiceClient;
+use crate::pubsub::proto::pubsub::v1::{pub_sub_service_server::PubSubService, Message};
 
 #[derive(Debug)]
 struct MessageProcessorInternal {

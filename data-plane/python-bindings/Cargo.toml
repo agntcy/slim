@@ -11,7 +11,7 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 agp-config = { path = "../gateway/config" }
-agp-pubsub-proto = { path = "../gateway/pubsub-proto" }
+agp-datapath = { path = "../gateway/datapath" }
 agp-service = { path = "../gateway/service" }
 agp-tracing = { path = "../gateway/tracing" }
 pyo3 = "0.23.3"

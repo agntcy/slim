@@ -10,7 +10,7 @@ use tracing::{debug, error, warn};
 
 use super::pool::Pool;
 use super::{errors::SubscriptionTableError, SubscriptionTable};
-use agp_pubsub_proto::{Agent, AgentClass};
+use crate::messages::{Agent, AgentClass};
 
 #[derive(Debug, Default, Clone)]
 struct ConnId {
@@ -536,7 +536,7 @@ impl SubscriptionTable for SubscriptionTableImpl {
 mod tests {
     use super::*;
 
-    use agp_pubsub_proto::messages::encoder::encode_agent_class;
+    use crate::messages::encoder::encode_agent_class;
     use tracing_test::traced_test;
 
     #[test]

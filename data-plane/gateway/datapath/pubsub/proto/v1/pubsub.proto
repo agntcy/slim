@@ -53,5 +53,3 @@ message Message {
   }
   map<string, string> metadata = 4;
 }
-
-

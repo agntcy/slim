@@ -5,12 +5,12 @@ edition = "2021"
 license = { workspace = true }
 
 [dependencies]
-agp-pubsub-proto = { path = "../pubsub-proto", version = "0.1.0" }
 bit-vec = "0.8"
 bytes = { version = "1.9.0" }
 drain = { version = "0.1", features = ["retain"] }
 h2 = "0.4.7"
 parking_lot = "0.12"
+prost = "0.13"
 rand = "0.9.0"
 thiserror = "2.0.5"
 tokio = { version = "1.0", features = ["macros", "rt-multi-thread"] }
@@ -24,4 +24,5 @@ tracing-test = { version = "0.2.5", features = ["no-env-filter"] }
 agp-config = { path = "../config" }
 
 [build-dependencies]
-tonic-build = "0.12"
+protoc-bin-vendored = "3.1.0"
+tonic-build = { version = "0.12.3", features = ["prost"] }
