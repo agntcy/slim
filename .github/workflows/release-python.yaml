@@ -54,7 +54,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: wheels-linux-${{ matrix.platform.target }}
-          path: python-bindings/dist
+          path: ./data-plane/python-bindings/dist
 
   python-bindings-sdist:
     runs-on: ubuntu-latest
@@ -73,7 +73,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: wheels-sdist
-          path: dist
+          path: ./data-plane/python-bindings/dist
 
   release:
     name: Release
