@@ -64,7 +64,7 @@ jobs:
         uses: release-plz/action@v0.5
         with:
           command: release-pr
-          manifest-path: ./data-plane/Cargo.toml
+          manifest_path: ./data-plane/Cargo.toml
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CARGO_REGISTRY_TOKEN: ${{ secrets.CRATES_TEST }}
