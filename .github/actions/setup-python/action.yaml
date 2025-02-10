@@ -67,6 +67,7 @@ runs:
 
     - name: Install uv (windows)
       if: ${{ inputs.py-uv && runner.os == 'Windows' }}
+      shell: bash
       run: |
         powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
 
