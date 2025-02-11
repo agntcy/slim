@@ -3,15 +3,15 @@
 
 name: ci-release-python
 
-on:
-  push:
-    paths:
-      - 'data-plane/**'
-    branches:
-      - main
-  pull_request:
-    paths:
-      - 'data-plane/**'
+# on:
+#   push:
+#     paths:
+#       - 'data-plane/**'
+#     branches:
+#       - main
+#   pull_request:
+#     paths:
+#       - 'data-plane/**'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
