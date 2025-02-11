@@ -11,7 +11,7 @@ on:
     paths:
       - 'data-plane/**'
     tags:
-      - 'refs/tags/agp-bindings-*'
+      - 'agp-bindings-*'
   pull_request:
     paths:
       - 'data-plane/**'
