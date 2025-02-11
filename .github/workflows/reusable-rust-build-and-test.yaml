@@ -75,7 +75,6 @@ jobs:
         if: steps.setup-rust.outputs.cache-hit != 'true'
         run: |
           task data-plane:fetch
-          task data-plane:tools:fetch
 
   lint:
     runs-on: ${{ inputs.runner }}
