@@ -5,8 +5,10 @@ name: ci-release-python
 
 on:
   push:
-    tags:
-      - 'agp-bindings-*'
+    branches:
+      - main
+    paths:
+      - 'data-plane/**'
   pull_request:
     paths:
       - 'data-plane/**'
