@@ -5,19 +5,19 @@ import asyncio
 import time
 import pytest
 import pytest_asyncio
-import gateway_bindings
+import agp_bindings
 
 # create svcs
-svc_server = gateway_bindings.PyService("gateway/server")
+svc_server = agp_bindings.PyService("gateway/server")
 
 
 @pytest_asyncio.fixture(scope="module")
 async def server():
     # init tracing
-    gateway_bindings.init_tracing()
+    agp_bindings.init_tracing()
 
     # run gateway server in background
-    await gateway_bindings.serve(svc_server, "0.0.0.0:12345", insecure=True)
+    await agp_bindings.serve(svc_server, "0.0.0.0:12345", insecure=True)
 
     # wait for the server to start
     await asyncio.sleep(1)
@@ -26,42 +26,42 @@ async def server():
 @pytest.mark.asyncio
 async def test_end_to_end(server):
     # create 2 clients, Alice and Bob
-    svc_alice = gateway_bindings.PyService("gateway/alice")
-    svc_bob = gateway_bindings.PyService("gateway/bob")
+    svc_alice = agp_bindings.PyService("gateway/alice")
+    svc_bob = agp_bindings.PyService("gateway/bob")
 
     # connect to the gateway server
-    await gateway_bindings.create_agent(svc_alice, "cisco", "default", "alice", 1234)
-    await gateway_bindings.create_agent(svc_bob, "cisco", "default", "bob", 1234)
+    await agp_bindings.create_agent(svc_alice, "cisco", "default", "alice", 1234)
+    await agp_bindings.create_agent(svc_bob, "cisco", "default", "bob", 1234)
 
     # connect to the service
-    conn_id_alice = await gateway_bindings.connect(svc_alice, "http://127.0.0.1:12345")
-    conn_id_bob = await gateway_bindings.connect(svc_bob, "http://127.0.0.1:12345")
+    conn_id_alice = await agp_bindings.connect(svc_alice, "http://127.0.0.1:12345")
+    conn_id_bob = await agp_bindings.connect(svc_bob, "http://127.0.0.1:12345")
 
     # subscribe alice and bob
-    alice_class = gateway_bindings.PyAgentClass("cisco", "default", "alice")
-    bob_class = gateway_bindings.PyAgentClass("cisco", "default", "bob")
-    await gateway_bindings.subscribe(svc_alice, conn_id_alice, alice_class, 1234)
-    await gateway_bindings.subscribe(svc_bob, conn_id_bob, bob_class, 1234)
+    alice_class = agp_bindings.PyAgentClass("cisco", "default", "alice")
+    bob_class = agp_bindings.PyAgentClass("cisco", "default", "bob")
+    await agp_bindings.subscribe(svc_alice, conn_id_alice, alice_class, 1234)
+    await agp_bindings.subscribe(svc_bob, conn_id_bob, bob_class, 1234)
 
     # set routes
-    await gateway_bindings.set_route(svc_alice, conn_id_alice, bob_class, None)
+    await agp_bindings.set_route(svc_alice, conn_id_alice, bob_class, None)
 
     # send msg from Alice to Bob
     msg = [1, 2, 3, 4, 5, 6, 7, 8, 9]
-    dest = gateway_bindings.PyAgentClass("cisco", "default", "bob")
-    await gateway_bindings.publish(svc_alice, 1, msg, dest, None)
+    dest = agp_bindings.PyAgentClass("cisco", "default", "bob")
+    await agp_bindings.publish(svc_alice, 1, msg, dest, None)
 
     # receive message from Alice
-    source, msg_rcv = await gateway_bindings.receive(svc_bob)
+    source, msg_rcv = await agp_bindings.receive(svc_bob)
 
     # check if the message is correct
     assert msg_rcv == bytes(msg)
 
     # reply to Alice
-    await gateway_bindings.publish(svc_bob, 1, msg_rcv, agent=source)
+    await agp_bindings.publish(svc_bob, 1, msg_rcv, agent=source)
 
     # wait for message
-    source, msg_rcv = await gateway_bindings.receive(svc_alice)
+    source, msg_rcv = await agp_bindings.receive(svc_alice)
 
     print(msg_rcv)
 
@@ -72,7 +72,7 @@ async def test_end_to_end(server):
 @pytest.mark.asyncio
 async def test_gateway_wrapper(server):
     # create new gateway object
-    gateway1 = gateway_bindings.Gateway("gateway/gateway1")
+    gateway1 = agp_bindings.Gateway("gateway/gateway1")
 
     org = "cisco"
     ns = "default"
@@ -96,7 +96,7 @@ async def test_gateway_wrapper(server):
     await gateway1.subscribe(org, ns, agent1, local_agent_id1)
 
     # create second local agent
-    gateway2 = gateway_bindings.Gateway("gateway/gateway2")
+    gateway2 = agp_bindings.Gateway("gateway/gateway2")
 
     agent2 = "gateway2"
 

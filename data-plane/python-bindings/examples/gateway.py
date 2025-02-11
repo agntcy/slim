@@ -5,15 +5,15 @@ import argparse
 import asyncio
 from signal import SIGINT
 
-import gateway_bindings
+import agp_bindings
 
 # Create a service
-gateway = gateway_bindings.Gateway()
+gateway = agp_bindings.Gateway()
 
 
 async def run_server(address: str):
     # init tracing
-    gateway_bindings.init_tracing(log_level="debug")
+    agp_bindings.init_tracing(log_level="debug")
 
     # Run as server
     await gateway.serve(address, insecure=True)

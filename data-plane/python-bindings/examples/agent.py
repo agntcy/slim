@@ -5,7 +5,7 @@ import argparse
 import asyncio
 import time
 
-import gateway_bindings
+import agp_bindings
 
 
 class color:
@@ -27,7 +27,7 @@ def format_message(message1, message2):
 
 async def run_client(local_id, remote_id, message, address):
     # init tracing
-    gateway_bindings.init_tracing()
+    agp_bindings.init_tracing()
 
     # Split the IDs into their respective components
     try:
@@ -37,7 +37,7 @@ async def run_client(local_id, remote_id, message, address):
         return
 
     # Define the service based on the local agent
-    gateway = gateway_bindings.Gateway()
+    gateway = agp_bindings.Gateway()
 
     # Connect to the gateway server
     local_agent_id = await gateway.create_agent(
