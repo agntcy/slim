@@ -10,6 +10,8 @@ on:
       - main
     paths:
       - 'data-plane/**'
+    tags:
+      - 'agp-bindings-*'
   pull_request:
     paths:
       - 'data-plane/**'
