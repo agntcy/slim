@@ -1,6 +1,5 @@
 [workspace]
-# release only when release PR is merged
-release_always = false
+release_always = true
 # do not release packages by default
 release = false
 

@@ -81,34 +81,25 @@ jobs:
           name: wheels-sdist
           path: ./data-plane/python-bindings/dist
 
-  release:
-    name: Release
+  pypi-publish:
+    name: Upload release to PyPI
     runs-on: ubuntu-latest
-    if: ${{ startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch' }}
-    needs:
-      - python-bindings-wheels
-      - python-bindings-sdist
+    environment: pypi
     permissions:
-      # Use to sign the release artifacts
+      # IMPORTANT: this permission is mandatory for Trusted Publishing
       id-token: write
-      # Used to upload release artifacts
-      contents: write
-      # Used to generate artifact attestation
-      attestations: write
+      contents: read
     steps:
-      - uses: actions/download-artifact@v4
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
         with:
           merge-multiple: true
           path: dist
-      - name: Generate artifact attestation
-        uses: actions/attest-build-provenance@v1
-        with:
-          subject-path: 'dist/wheels-*'
-      - name: Publish to PyPI
-        if: ${{ startsWith(github.ref, 'refs/tags/') }}
-        uses: PyO3/maturin-action@v1
-        env:
-          MATURIN_PYPI_TOKEN: ${{ secrets.PYPI_API_TOKEN }}
-        with:
-          command: upload
-          args: --non-interactive --skip-existing wheels-*/*
+
+      - name: Show files
+        run: ls -l dist
+
+      # - name: Publish package distributions to PyPI
+      #   uses: pypa/gh-action-pypi-publish@release/v1
+      #   with:
+      #     password: ${{ secrets.PYPI_API_TOKEN }}

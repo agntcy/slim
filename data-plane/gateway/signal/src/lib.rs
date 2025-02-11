@@ -1,9 +1,6 @@
 // SPDX-FileCopyrightText: Copyright (c) 2025 Cisco and/or its affiliates.
 // SPDX-License-Identifier: Apache-2.0
 
-#![deny(rust_2018_idioms, clippy::disallowed_methods, clippy::disallowed_types)]
-#![forbid(unsafe_code)]
-
 /// Returns a `Future` that completes when the gateway should start to shutdown.
 pub async fn shutdown() {
     imp::shutdown().await
