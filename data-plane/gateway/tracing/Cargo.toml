@@ -3,6 +3,7 @@ name = "agp-tracing"
 edition = "2021"
 license = { workspace = true }
 version = "0.1.0"
+description = "Observability for AGP data plane: logs, traces and metrics infrastructure."
 
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }
