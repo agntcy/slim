@@ -28,3 +28,21 @@ jobs:
   data-plane-build-python-wheels:
     name: Data plane - Python wheels
     uses: ./.github/workflows/reusable-python-build-wheels.yaml
+
+  data-plane-test-release:
+    name: Data plane - test release
+    runs-on: ubuntu-latest
+    needs: [data-plane-build-python-wheels]
+    permissions:
+      # IMPORTANT: this permission is mandatory for Trusted Publishing
+      id-token: write
+      contents: read
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          merge-multiple: true
+          path: dist
+
+      - name: Show files
+        run: ls -l dist
