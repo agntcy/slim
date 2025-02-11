@@ -6,7 +6,7 @@ publish = false
 version = "0.1.0"
 
 [lib]
-name = "agp_bindings"
+name = "_agp_bindings"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
