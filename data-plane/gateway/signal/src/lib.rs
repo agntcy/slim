@@ -1,7 +1,6 @@
 // SPDX-FileCopyrightText: Copyright (c) 2025 Cisco and/or its affiliates.
 // SPDX-License-Identifier: Apache-2.0
 
-/// Returns a `Future` that completes when the gateway should start to shutdown.
 pub async fn shutdown() {
     imp::shutdown().await
 }
@@ -13,24 +12,22 @@ mod imp {
 
     pub(super) async fn shutdown() {
         tokio::select! {
-            // SIGINT  - To allow Ctrl-c to emulate SIGTERM while developing.
-            () = sig(SignalKind::interrupt(), "SIGINT") => {}
-            // SIGTERM - Kubernetes sends this to start a graceful shutdown.
-            () = sig(SignalKind::terminate(), "SIGTERM") => {}
+            // this will handle interrupt signal by users
+            _ = sig(SignalKind::interrupt(), "SIGINT") => {}
+            // this will handle SIGTERM signal
+            // e.g. k8s send this signal to stop the container
+            _ = sig(SignalKind::terminate(), "SIGTERM") => {}
         };
     }
 
-    async fn sig(kind: SignalKind, name: &'static str) {
-        // Create a Future that completes the first
-        // time the process receives 'sig'.
+    async fn sig(kind: SignalKind, name: &str) {
         signal(kind)
             .expect("Failed to register signal handler")
             .recv()
             .await;
         info!(
-            // use target to remove 'imp' from output
             target: "gateway::signal",
-            "received {}, starting shutdown",
+            "received signal {}, starting shutdown",
             name,
         );
     }
@@ -41,17 +38,13 @@ mod imp {
     use tracing::info;
 
     pub(super) async fn shutdown() {
-        // On Windows, we don't have all the signals. This implementation allows
-        // developers on Windows to simulate gateway graceful shutdown
-        // by pressing Ctrl-C.
         tokio::signal::windows::ctrl_c()
             .expect("Failed to register signal handler")
             .recv()
             .await;
         info!(
-            // use target to remove 'imp' from output
             target: "gateway::signal",
-            "received Ctrl-C, starting shutdown",
+            "received signal Ctrl-C, starting shutdown",
         );
     }
 }
