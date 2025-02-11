@@ -1,0 +1,14 @@
+{
+    "bump-patch-for-minor-pre-major": true,
+    "separate-pull-requests": true,
+    "sequential-calls": true,
+    "include-component-in-tag": true,
+    "release-type": "python",
+    "skip-github-release": false,
+    "packages": {
+        "data-plane/python-bindings": {
+            "package-name": "agp-bindings",
+            "release-type": "python"
+        }
+    }
+}

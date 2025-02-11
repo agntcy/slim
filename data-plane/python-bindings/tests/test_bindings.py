@@ -86,13 +86,13 @@ async def test_gateway_wrapper(server):
 
     # Connect to the service and subscribe for the local name
     _ = await gateway1.connect("http://127.0.0.1:12345", insecure=True)
-    
+
     # disconnect and reconnect
     await gateway1.disconnect()
     time.sleep(1)
-    
+
     _ = await gateway1.connect("http://127.0.0.1:12345", insecure=True)
-    
+
     await gateway1.subscribe(org, ns, agent1, local_agent_id1)
 
     # create second local agent

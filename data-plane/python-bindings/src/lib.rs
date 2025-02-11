@@ -686,7 +686,7 @@ fn receive(py: Python, svc: PyService) -> PyResult<Bound<PyAny>> {
 }
 
 #[pymodule]
-fn agp_bindings(_py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
+fn _agp_bindings(_py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyService>()?;
     m.add_class::<PyAgentClass>()?;
     m.add_function(wrap_pyfunction!(init_tracing, m)?)?;
