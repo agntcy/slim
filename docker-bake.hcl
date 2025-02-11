@@ -19,6 +19,12 @@ group "default" {
   ]
 }
 
+group "data-plane" {
+  targets = [
+    "gw",
+  ]
+}
+
 target "_common" {
   output = [
     "type=image",

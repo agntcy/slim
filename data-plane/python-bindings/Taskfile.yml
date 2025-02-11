@@ -30,7 +30,7 @@ tasks:
     cmds:
       - uv run ruff check
       - uv run ruff format --check
-      - uv run mypy gateway_bindings
+      - uv run mypy agp_bindings
 
   python-bindings:test:
     desc: "Test the Python bindings"

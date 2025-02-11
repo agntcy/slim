@@ -90,6 +90,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "agp-examples"
+version = "0.1.0"
+dependencies = [
+ "agp-config",
+ "agp-datapath",
+ "agp-gw",
+ "clap",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "agp-gw"
 version = "0.1.0"
 dependencies = [
@@ -744,18 +756,6 @@ dependencies = [
  "pin-project-lite",
  "pin-utils",
  "slab",
-]
-
-[[package]]
-name = "gateway-examples"
-version = "0.1.0"
-dependencies = [
- "agp-config",
- "agp-datapath",
- "agp-gw",
- "clap",
- "tokio",
- "tracing",
 ]
 
 [[package]]
