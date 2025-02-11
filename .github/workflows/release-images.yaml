@@ -55,7 +55,7 @@ jobs:
       packages: 'write'
       attestations: 'write'
     with:
-      bake-target: data-plane
+      bake-target: ${{ matrix.target }}
       image-name: ${{ matrix.target }}
       image-tag: ${{ needs.prepare-build.outputs.image-tag }}
     secrets:
