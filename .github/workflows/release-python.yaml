@@ -84,6 +84,7 @@ jobs:
   pypi-publish:
     name: Upload release to PyPI
     runs-on: ubuntu-latest
+    needs: [python-bindings-wheels, python-bindings-sdist]
     environment: pypi
     permissions:
       # IMPORTANT: this permission is mandatory for Trusted Publishing
