@@ -45,7 +45,8 @@ jobs:
             os: macos
             target: aarch64
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout code
+        uses: actions/checkout@v4
       - name: Setup Python
         uses: ./.github/actions/setup-python
         with:
@@ -60,6 +61,7 @@ jobs:
             .tools
       - name: Build wheels
         run: |
+          git status
           task data-plane:bindings:python PROFILE=release
       - name: Upload wheels
         uses: actions/upload-artifact@v4
