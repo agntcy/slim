@@ -23,3 +23,7 @@ jobs:
     uses: ./.github/workflows/reusable-rust-build-and-test.yaml
     with:
       working-directory: ./data-plane
+
+  data-plane-build-python-wheels:
+    name: Data plane - Python wheels
+    uses: ./.github/workflows/reusable-python-build-wheels.yaml
