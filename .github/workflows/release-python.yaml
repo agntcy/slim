@@ -7,10 +7,6 @@ on:
   push:
     tags:
       - 'agp-bindings-*'
-    paths:
-      - 'data-plane/**'
-    branches:
-      - main
   pull_request:
     paths:
       - 'data-plane/**'
