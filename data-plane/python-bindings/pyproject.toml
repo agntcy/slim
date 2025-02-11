@@ -6,7 +6,7 @@ build-backend = "maturin"
 name = "agp-bindings"
 version = "0.1.0"
 description = "AGP Rust bindings for Python"
-requires-python = ">=3.9, <4.0"
+requires-python = ">=3.9"
 
 [dependency-groups]
 building = [
