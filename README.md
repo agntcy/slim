@@ -70,10 +70,10 @@ See https://crates.io/users/artifacts-agntcy
 cargo add agp-datapath
 
 ### Container images
-docker pull ghcr.io/agntcy/agp/gw
+docker pull ghcr.io/agntcy/agp/gw:latest
 
 ### Helm charts
-helm pull ghcr.io/agntcy/agp/helm/agp
+helm pull ghcr.io/agntcy/agp/helm/agp:latest
 
 ### Pypi packages
 pip install agp-bindings
