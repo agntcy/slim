@@ -63,6 +63,21 @@ curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 The control-plane components are implemented in golang. Follow the installation
 instructions in the golang website.
 
+## Artifacts distribution
+### Crates
+See https://crates.io/users/artifacts-agntcy
+
+cargo add agp-datapath
+
+### Container images
+docker pull ghcr.io/agntcy/agp/gw:latest
+
+### Helm charts
+helm pull ghcr.io/agntcy/agp/helm/agp:latest
+
+### Pypi packages
+pip install agp-bindings
+
 ## Copyright Notice
 
 [Copyright Notice and License](./LICENSE.md)
