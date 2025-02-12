@@ -42,17 +42,6 @@ tasks:
   python-bindings:packaging:
     desc: "Generate the Python bindings for python versions 3.9, 3.10, 3.11, 3.12 and 3.13"
     cmds:
-      - |
-        unameOut="$(uname -s)"
-        case "${unameOut}" in
-            Linux*)     machine=Linux;;
-            Darwin*)    machine=Mac;;
-            CYGWIN*)    machine=Cygwin;;
-            MINGW*)     machine=MinGw;;
-            MSYS_NT*)   machine=MSys;;
-            *)          machine="UNKNOWN:${unameOut}"
-        esac
-        echo running on ${machine}
       - rustup target add {{.TARGET}}
       - for:
           matrix:
@@ -65,7 +54,19 @@ tasks:
 
         PYTHONS=(3.9 3.10 3.11 3.12)
 
-        if [[ ${OSTYPE} != "win32" ]]; then
+      - |
+        unameOut="$(uname -s)"
+        case "${unameOut}" in
+            Linux*)     machine=Linux;;
+            Darwin*)    machine=Mac;;
+            CYGWIN*)    machine=Cygwin;;
+            MINGW*)     machine=MinGw;;
+            MSYS_NT*)   machine=MSys;;
+            *)          machine="UNKNOWN:${unameOut}"
+        esac
+
+        # TODO(msardara) figure out why this fails on windows with python 3.13
+        if [[ $machine == "Linux" || $machine == "Mac" ]]; then
           PYTHONS+=(3.13)
         fi
 
