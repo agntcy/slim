@@ -5,6 +5,8 @@ tracing:
   log_level: debug
   display_thread_names: true
   display_thread_ids: true
+  opentelemetry:
+    enabled: true
 
 runtime:
   n_cores: 0
