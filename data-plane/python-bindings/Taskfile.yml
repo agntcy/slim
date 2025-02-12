@@ -42,6 +42,7 @@ tasks:
   python-bindings:packaging:
     desc: "Generate the Python bindings for python versions 3.9, 3.10, 3.11, 3.12 and 3.13"
     cmds:
+      - echo ${OSTYPE}
       - rustup target add {{.TARGET}}
       - for:
           matrix:
@@ -53,6 +54,8 @@ tasks:
         uv sync
 
         PYTHONS=(3.9 3.10 3.11 3.12)
+
+        echo ${OSTYPE}
 
         if [[ ${OSTYPE} != "win32" ]]; then
           PYTHONS+=(3.13)
