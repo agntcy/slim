@@ -24,7 +24,7 @@ fn main() {
     let config_file = args.config().expect("config file is required");
 
     // create configured components
-    let config = config::load_config(&config_file).expect("failed to load configuration");
+    let config = config::load_config(config_file).expect("failed to load configuration");
 
     // print build info
     info!("{}", build_info::BUILD_INFO);
