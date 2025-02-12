@@ -36,5 +36,3 @@ jobs:
       bake-target: gw
       image-name: gw
       image-tag: ${{ github.sha }}
-    secrets:
-      github-token: ${{ secrets.GITHUB_TOKEN }}
