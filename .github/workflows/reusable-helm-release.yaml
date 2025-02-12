@@ -66,4 +66,4 @@ jobs:
         shell: bash
         run: |
           echo "🚧 Pushing ${{ steps.build.outputs.package }} to GHCR OCI registry"
-          helm push ${{ steps.build.outputs.package }} oci://${{ inputs.registry }}/helm-charts
+          helm push ${{ steps.build.outputs.package }} oci://${{ inputs.registry }}/helm
