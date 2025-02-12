@@ -8,7 +8,6 @@ on:
   push:
     tags:
       - 'agp-gw-*'
-  pull_request:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -19,7 +18,7 @@ jobs:
     name: Prepare Build
     outputs:
       targets: ${{ steps.all-targets.outputs.targets }}
-      image-tag: ${{ steps.resolve.outputs.image_tag }}
+      image-tag: ${{ steps.resolve.outputs.version }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -27,20 +26,34 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Setup Taskfile
-        shell: bash
-        run: sh -c "$(curl --location https://taskfile.dev/install.sh)" -- -d -b ~/.local/bin
-
-      - name: Container image
+      - name: Filter target
         id: resolve
         run: |
-          # Export vars
-          tag=$(task version)
-          echo "image_tag=${tag}" >> "$GITHUB_OUTPUT"
+          # This assumes tags are in this form
+          # agp-<component1>-<component2>-v<version>
+
+          # strip agp- prefix from the tag
+          _target=${GITHUB_REF_NAME#agp-}
+
+          # remove version to only get the component
+          target=${_target%%-*}
+
+          # get version only
+          version=${_target#*v}
+
+          # set target and version as output
+          echo target=${target} >> ${GITHUB_OUTPUT}
+          echo version=${version} >> ${GITHUB_OUTPUT}
+
+          # Print the target and version
+          echo "Target: $target"
+          echo "Version: $version"
 
       - name: List all targets
         id: all-targets
         uses: docker/bake-action/subaction/list-targets@a4d7f0b5b91c14a296d792d4ec53a9db17f02e67 # v5.5.0
+        with:
+          target: ${{ steps.resolve.outputs.target }}
 
   build-push:
     name: Build docker image - ${{ matrix.target }}
