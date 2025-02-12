@@ -28,7 +28,6 @@ on:
       github-token:
         description: "github token"
         required: false
-        default: ""
 
 jobs:
   build-and-push:
