@@ -281,22 +281,11 @@ tasks:
     internal: true
     dir: ./python-bindings
     cmds:
-      - rustup target add {{.TARGET}}
-      - for:
-          matrix:
-            PYTHON: ["3.9", "3.10", "3.11", "3.12", "3.13"]
-        cmd: |
-          uv python install {{.ITEM.PYTHON}}
-          uv python pin {{.ITEM.PYTHON}}
-      - |
-        uv sync
-        uv run maturin build {{.RELEASE}} \
-          --out dist                      \
-          --target {{.TARGET}}            \
-          --frozen                        \
-          -i                              \
-          $(uv python find 3.9)           \
-          $(uv python find 3.10)          \
-          $(uv python find 3.11)          \
-          $(uv python find 3.12)          \
-          $(uv python find 3.13)
+      - task python-bindings:packaging
+
+  bindings:python:test:
+    desc: "Test the Python bindings"
+    internal: true
+    dir: ./python-bindings
+    cmds:
+      - task python-bindings:test

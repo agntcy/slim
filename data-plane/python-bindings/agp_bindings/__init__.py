@@ -3,7 +3,7 @@
 
 # import the contents of the Rust library into the Python extension
 from typing import Optional, Tuple
-from .agp_bindings import (
+from ._agp_bindings import (
     PyService,
     PyAgentClass,
     create_agent,
@@ -18,10 +18,10 @@ from .agp_bindings import (
     set_route,
     remove_route,
 )
-from .agp_bindings import __all__
+from ._agp_bindings import __all__
 
 # optional: include the documentation from the Rust module
-from .agp_bindings import __doc__  # noqa: F401
+from ._agp_bindings import __doc__  # noqa: F401
 
 
 class Gateway:
