@@ -51,16 +51,19 @@ tasks:
           uv python pin {{.ITEM.PYTHON}}
       - |
         uv sync
-        uv run maturin build {{.RELEASE}} \
+
+        PYTHONS=(3.9 3.10 3.11 3.12)
+
+        if [[ ${OSTYPE} != "win32" ]]; then
+          PYTHONS+=(3.13)
+        fi
+
+        echo uv run maturin build {{.RELEASE}} \
           --out dist                      \
           --target {{.TARGET}}            \
           --frozen                        \
           -i                              \
-          $(uv python find 3.9)           \
-          $(uv python find 3.10)          \
-          $(uv python find 3.11)          \
-          $(uv python find 3.12)          \
-          $(uv python find 3.13)
+          ${PYTHONS[@]}
 
   python-bindings:example:server:
     desc: "Run the server example"
