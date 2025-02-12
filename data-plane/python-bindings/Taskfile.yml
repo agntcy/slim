@@ -51,10 +51,8 @@ tasks:
           uv python pin {{.ITEM.PYTHON}}
       - |
         uv sync
-
         PYTHONS=(3.9 3.10 3.11 3.12)
 
-      - |
         unameOut="$(uname -s)"
         case "${unameOut}" in
             Linux*)     machine=Linux;;
