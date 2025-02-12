@@ -8,7 +8,6 @@ on:
   push:
     tags:
       - 'agp-gw-*'
-  pull_request:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -29,7 +28,7 @@ jobs:
 
       - name: Filter target
         id: resolve
-        run:
+        run: |
           # This assumes tags are in this form
           # agp-<component1>-<component2>-v<version>
 
