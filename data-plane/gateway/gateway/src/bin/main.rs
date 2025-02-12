@@ -14,11 +14,17 @@ use agp_gw::runtime;
 fn main() {
     let args = args::Args::parse();
 
+    // If the version flag is set, print the build info and exit
+    if args.version() {
+        println!("{}", build_info::BUILD_INFO);
+        return;
+    }
+
     // get config file
-    let config_file = args.config();
+    let config_file = args.config().expect("config file is required");
 
     // create configured components
-    let config = config::load_config(config_file).expect("failed to load configuration");
+    let config = config::load_config(&config_file).expect("failed to load configuration");
 
     // print build info
     info!("{}", build_info::BUILD_INFO);
