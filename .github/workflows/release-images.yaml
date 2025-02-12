@@ -34,9 +34,25 @@ jobs:
       - name: Container image
         id: resolve
         run: |
-          # Export vars
-          tag=$(task version)
-          echo "image_tag=${tag}" >> "$GITHUB_OUTPUT"
+          # This assumes tags are in this form
+          # agp-<component1>-<component2>-v<version>
+
+          # strip agp- prefix from the tag
+          _target=${GITHUB_REF_NAME#agp-}
+
+          # remove version to only get the component
+          target=${_target%-v*}
+
+          # get version only
+          version=${_target##*-v}
+
+          # set target and version as output
+          echo target=${target} >> ${GITHUB_OUTPUT}
+          echo version=${version} >> ${GITHUB_OUTPUT}
+
+          # Print the target and version
+          echo "Target: $target"
+          echo "Version: $version"
 
       - name: List all targets
         id: all-targets
