@@ -13,7 +13,7 @@ on:
 
 jobs:
   # Release unpublished packages.
-  release-plz-release:
+  release-crates:
     name: Release agp crates
     runs-on: ubuntu-latest
     permissions:
@@ -37,12 +37,12 @@ jobs:
           manifest_path: ./data-plane/Cargo.toml
           config: ./data-plane/.release-plz.toml
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.AGNTCY_BUILD_BOT_GH_TOKEN }}
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
 
   # Create a PR with the new versions and changelog, preparing the next release.
-  release-plz-pr:
-    name: Release-plz PR
+  release-crates-pr:
+    name: Release agp crates - PR
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -68,5 +68,5 @@ jobs:
           manifest_path: ./data-plane/Cargo.toml
           config: ./data-plane/.release-plz.toml
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.AGNTCY_BUILD_BOT_GH_TOKEN }}
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
