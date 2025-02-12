@@ -13,13 +13,6 @@ pub struct Args {
     #[arg(short, long, value_name = "FILE")]
     #[clap(long, env, required = true)]
     config: String,
-
-    /// Set log level
-    /// Possible values: "trace", "debug", "info", "warn", "error"
-    /// Default: "info"
-    #[arg(short, long, value_name = "LEVEL")]
-    #[clap(long, env, default_value = "info")]
-    log_level: Option<String>,
 }
 
 impl Args {
@@ -31,10 +24,5 @@ impl Args {
 
     pub fn config(&self) -> &String {
         &self.config
-    }
-
-    #[allow(dead_code)]
-    pub fn log_level(&self) -> &str {
-        self.log_level.as_deref().unwrap_or("info")
     }
 }

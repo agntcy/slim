@@ -36,10 +36,10 @@ jobs:
           _target=${GITHUB_REF_NAME#agp-}
 
           # remove version to only get the component
-          target=${_target%%-*}
+          target=${_target%-v*}
 
           # get version only
-          version=${_target#*v}
+          version=${_target##*-v}
 
           # set target and version as output
           echo target=${target} >> ${GITHUB_OUTPUT}
