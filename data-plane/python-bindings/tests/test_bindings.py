@@ -46,6 +46,10 @@ async def test_end_to_end(server):
     # set routes
     await agp_bindings.set_route(svc_alice, conn_id_alice, bob_class, None)
 
+    # wait for the routes to be set
+    # TODO remove this sleep
+    await asyncio.sleep(1)
+
     # send msg from Alice to Bob
     msg = [1, 2, 3, 4, 5, 6, 7, 8, 9]
     dest = agp_bindings.PyAgentClass("cisco", "default", "bob")
@@ -108,6 +112,10 @@ async def test_gateway_wrapper(server):
 
     # set route
     await gateway2.set_route("cisco", "default", agent1)
+
+    # wait for the routes to be set
+    # TODO remove this sleep
+    await asyncio.sleep(1)
 
     # publish message
     msg = [1, 2, 3, 4, 5, 6, 7, 8, 9]

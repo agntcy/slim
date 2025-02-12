@@ -4,7 +4,7 @@ build-backend = "maturin"
 
 [project]
 name = "agp-bindings"
-version = "0.1.1"
+version = "0.1.2"
 description = "AGP Rust bindings for Python"
 requires-python = ">=3.9, <4.0"
 readme = "README.md"
@@ -36,6 +36,7 @@ default-groups = [
 [tool.maturin]
 bindings = 'pyo3'
 features = ["pyo3/extension-module"]
+module-name = "agp_bindings._agp_bindings"
 
 [tool.ruff.format]
 quote-style = 'single'
@@ -54,4 +55,4 @@ extend-ignore = [
 ]
 flake8-quotes = {inline-quotes = 'double', multiline-quotes = 'double'}
 mccabe = { max-complexity = 13 }
-isort = { known-first-party = ['pydantic_core', 'tests'] }
+isort = { known-first-party = ['agp_bindings', 'tests'] }

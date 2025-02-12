@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.2](https://github.com/agntcy/agp/compare/agp-bindings-v0.1.1...agp-bindings-v0.1.2) (2025-02-12)
+
+
+### Bug Fixes
+
+* python bindings import name ([#24](https://github.com/agntcy/agp/issues/24)) ([5f5e7c6](https://github.com/agntcy/agp/commit/5f5e7c6a823a3e842d13d326436cbdc73c64bacf))
+
 ## [0.1.1](https://github.com/agntcy/agp/compare/agp-bindings-v0.1.0...agp-bindings-v0.1.1) (2025-02-11)
 
 

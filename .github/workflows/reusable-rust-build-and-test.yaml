@@ -175,6 +175,14 @@ jobs:
           cache-directories: |
             .tools
 
+      - name: Setup Python
+        uses: ./.github/actions/setup-python
+        with:
+          py-install: true
+          py-version: 3.x
+          uv-install: true
+          poetry-install: false
+
       - name: Run Unit Tests
         run: |
           task data-plane:test

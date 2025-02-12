@@ -83,5 +83,5 @@ FROM gcr.io/distroless/cc-debian12:nonroot AS release
 
 ARG TARGETARCH
 
-# copy the build artifacts from the build stage
+# copy the artifacts from the build stage
 COPY --from=rust /app/data-plane/target/${TARGETARCH}-unknown-linux-gnu/release/gateway /gateway
