@@ -58,7 +58,7 @@ tasks:
           PYTHONS+=(3.13)
         fi
 
-        echo uv run maturin build {{.RELEASE}} \
+        uv run maturin build {{.RELEASE}} \
           --out dist                      \
           --target {{.TARGET}}            \
           --frozen                        \
