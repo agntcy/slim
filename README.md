@@ -65,16 +65,18 @@ instructions in the golang website.
 
 ## Artifacts distribution
 ### Crates
-https://crates.io/users/artifacts-agntcy
+See https://crates.io/users/artifacts-agntcy
+
+cargo add agp-datapath
 
 ### Container images
-docker pull ghcr.io/agntcy/agp/gw:0.1.0
+docker pull ghcr.io/agntcy/agp/gw
 
 ### Helm charts
-Coming Soon
+helm pull ghcr.io/agntcy/agp/helm/agp
 
 ### Pypi packages
-https://pypi.org/project/agp-bindings/
+pip install agp-bindings
 
 ## Copyright Notice
 
