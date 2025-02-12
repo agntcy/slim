@@ -62,7 +62,7 @@ jobs:
             ghcr.io/agntcy/agp/${{ inputs.image-name }}
           tags: |
             type=raw,value=${{ inputs.image-tag }}
-            type=raw,value=latest,enable={{is_default_branch}}
+            type=raw,value=latest,enable=${{ github.ref == format('refs/heads/{0}', 'main') }}
 
       - name: Build and push
         uses: docker/bake-action@a4d7f0b5b91c14a296d792d4ec53a9db17f02e67 # v5.5.0
