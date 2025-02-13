@@ -55,7 +55,7 @@ gateway = agp_bindings.Gateway()
 
 
 async def run_server(address: str):
-    # init tracing
+    # init tracing with debug
     agp_bindings.init_tracing(log_level="debug")
 
     # Run as server
