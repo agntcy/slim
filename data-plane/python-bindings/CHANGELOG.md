@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.1.3](https://github.com/agntcy/agp/compare/agp-bindings-v0.1.2...agp-bindings-v0.1.3) (2025-02-13)
+
+
+### Features
+
+* **python-wheels:** add aarch64 build ([#37](https://github.com/agntcy/agp/issues/37)) ([7631f4e](https://github.com/agntcy/agp/commit/7631f4ea1425b40fd8139270ea51785463fad22e))
+
+## [0.1.2](https://github.com/agntcy/agp/compare/agp-bindings-v0.1.1...agp-bindings-v0.1.2) (2025-02-12)
+
+
+### Bug Fixes
+
+* python bindings import name ([#24](https://github.com/agntcy/agp/issues/24)) ([5f5e7c6](https://github.com/agntcy/agp/commit/5f5e7c6a823a3e842d13d326436cbdc73c64bacf))
+
 ## [0.1.1](https://github.com/agntcy/agp/compare/agp-bindings-v0.1.0...agp-bindings-v0.1.1) (2025-02-11)
 
 

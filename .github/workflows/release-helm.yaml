@@ -1,0 +1,46 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025 Cisco and/or its affiliates.
+# SPDX-License-Identifier: Apache-2.0
+
+---
+name: ci-release-helm
+
+on:
+  push:
+    tags:
+      - 'agp-helm-*'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  prepare-build:
+    name: Prepare Build
+    outputs:
+      release_tag: ${{ steps.resolve.outputs.release_tag }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@d632683dd7b4114ad314bca15554477dd762a938 # v4.2.0
+        with:
+          fetch-depth: 0
+
+      - name: Relesae
+        id: resolve
+        run: |
+          echo "release_tag=$(echo ${GITHUB_REF#refs/*/} | sed 's/^agp-helm-//')" >> $GITHUB_OUTPUT
+
+  release:
+    name: Release Helm charts
+    needs: [ prepare-build ]
+    if: ${{ needs.prepare-build.outputs.release_tag != '' }}
+    uses: ./.github/workflows/reusable-helm-release.yaml
+    permissions:
+      contents: 'read'
+      packages: 'write'
+      attestations: 'write'
+    with:
+      registry: ghcr.io/agntcy/agp
+      release_tag: ${{ needs.prepare-build.outputs.release_tag }}
+    secrets:
+      github-token: ${{ secrets.GITHUB_TOKEN }}

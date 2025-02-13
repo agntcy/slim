@@ -63,9 +63,38 @@ curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 The control-plane components are implemented in golang. Follow the installation
 instructions in the golang website.
 
+## Artifacts distribution
+
+### [Crates](./data-plane/gateway)
+
+See https://crates.io/users/artifacts-agntcy
+
+```bash
+cargo install agp-gw
+```
+
+### [Container images](./data-plane/Dockerfile)
+
+```bash
+docker pull ghcr.io/agntcy/agp/gw:latest
+```
+
+### [Helm charts](./deploy/charts/agp)
+
+```bash
+helm pull ghcr.io/agntcy/agp/helm/agp:latest
+```
+
+### [Pypi packages](./data-plane/python-bindings)
+
+```bash
+pip install agp-bindings
+```
+
 ## Copyright Notice
 
 [Copyright Notice and License](./LICENSE.md)
+
 Copyright (c) 2025 Cisco and/or its affiliates.
 
 Licensed under the Apache License, Version 2.0 (the "License");

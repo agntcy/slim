@@ -130,6 +130,7 @@ tasks:
       - task: toolchain:test
         vars:
           ARGS: "--workspace --all-targets --locked --all-features -- --nocapture"
+      - task: data-plane:bindings:test
 
   data-plane:test:coverage:
     desc: "Run tests coverage"
@@ -176,3 +177,13 @@ tasks:
     desc: "Generate the Python bindings"
     cmds:
       - task: toolchain:bindings:python
+
+  data-plane:bindings:test:
+    desc: "Test the Python bindings"
+    cmds:
+      - task: toolchain:bindings:python:test
+
+  data-plane:gw:version:
+    desc: "Get version from corresponding git tag"
+    cmds:
+      - git describe --tags --match "agp-gw-v*" | cut -d 'v' -f 2

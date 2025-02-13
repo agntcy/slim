@@ -12,9 +12,6 @@ on:
       - 'data-plane/**'
     tags:
       - 'agp-bindings-*'
-  pull_request:
-    paths:
-      - 'data-plane/**'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
