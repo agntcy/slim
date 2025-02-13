@@ -66,6 +66,7 @@ instructions in the golang website.
 ## Artifacts distribution
 
 ### [Crates](./data-plane/gateway)
+
 See https://crates.io/users/artifacts-agntcy
 
 ```bash
