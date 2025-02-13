@@ -1,7 +1,8 @@
 // SPDX-FileCopyrightText: Copyright (c) 2025 Cisco and/or its affiliates.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
+use lazy_static::lazy_static;
 
 use pyo3::exceptions::PyException;
 use pyo3::prelude::*;
@@ -25,6 +26,10 @@ use agp_datapath::messages::utils::get_incoming_connection;
 use agp_datapath::pubsub::proto::pubsub::v1::Message;
 use agp_datapath::pubsub::ProtoAgentId;
 use agp_service::{Service, ServiceError};
+
+lazy_static! {
+    static ref TRACING_GUARD: Mutex<Option<agp_tracing::OtelGuard>> = Mutex::new(None);
+}
 
 /// agent class
 #[gen_stub_pyclass]
@@ -127,14 +132,18 @@ impl PyService {
 }
 
 #[pyfunction]
-#[pyo3(signature = (
-    log_level="info".to_string(),
-))]
-fn init_tracing(log_level: String) {
-    // Configure tracing
-    agp_tracing::TracingConfiguration::default()
-        .with_log_level(log_level)
-        .setup_tracing_subscriber();
+#[pyo3(signature = (log_level="info".to_string(),))]
+fn init_tracing(py: Python, log_level: String) {
+    let _ = pyo3_async_runtimes::tokio::future_into_py(py, async move {
+        let otel_guard = agp_tracing::TracingConfiguration::default()
+            .with_log_level(log_level)
+            .setup_tracing_subscriber();
+        
+        let mut global_guard = TRACING_GUARD.lock().unwrap();
+        *global_guard = Some(otel_guard);
+
+        Ok(())
+    });
 }
 
 async fn create_agent_impl(

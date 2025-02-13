@@ -1,15 +1,15 @@
 // SPDX-FileCopyrightText: Copyright (c) 2025 Cisco and/or its affiliates.
 // SPDX-License-Identifier: Apache-2.0
 
+
 use opentelemetry::{global, trace::TracerProvider as _, KeyValue};
 use opentelemetry_sdk::{
     metrics::{MeterProviderBuilder, PeriodicReader, SdkMeterProvider},
-    runtime,
-    trace::{RandomIdGenerator, Sampler, TracerProvider},
+    trace::{RandomIdGenerator, Sampler, SdkTracerProvider},
     Resource,
 };
 use opentelemetry_semantic_conventions::{
-    attribute::{SERVICE_NAME, SERVICE_VERSION},
+    attribute::{DEPLOYMENT_ENVIRONMENT_NAME, SERVICE_NAME, SERVICE_VERSION},
     SCHEMA_URL,
 };
 use opentelemetry_stdout;
@@ -58,11 +58,14 @@ pub struct OpenTelemetryConfig {
     #[serde(default)]
     enabled: bool,
 
-    #[serde(default)]
-    service_name: Option<String>,
+    #[serde(default = "default_service_name")]
+    service_name: String,
 
-    #[serde(default)]
-    service_version: Option<String>,
+    #[serde(default = "default_service_version")]
+    service_version: String,
+
+    #[serde(default = "default_environment")]
+    environment: String,
 
     #[serde(default = "default_metrics_interval")]
     metrics_interval_secs: u64,
@@ -73,8 +76,9 @@ impl Default for OpenTelemetryConfig {
     fn default() -> Self {
         OpenTelemetryConfig {
             enabled: false,
-            service_name: None,
-            service_version: None,
+            service_name: default_service_name(),
+            service_version: default_service_version(),
+            environment: default_environment(),
             metrics_interval_secs: default_metrics_interval(),
         }
     }
@@ -96,6 +100,18 @@ fn default_filter() -> String {
     "info".to_string()
 }
 
+fn default_service_name() -> String {
+    "agp-data-plane".to_string()
+}
+
+fn default_service_version() -> String {
+    "v0.1.0".to_string()
+}
+
+fn default_environment() -> String {
+    "development".to_string()
+}
+
 fn default_metrics_interval() -> u64 {
     30 // default to 30 seconds
 }
@@ -114,7 +130,7 @@ fn resolve_level(level: &str) -> tracing::Level {
 }
 
 pub struct OtelGuard {
-    tracer_provider: Option<TracerProvider>,
+    tracer_provider: Option<SdkTracerProvider>,
     meter_provider: Option<SdkMeterProvider>,
 }
 
@@ -161,10 +177,8 @@ impl TracingConfiguration {
         self
     }
 
-    pub fn enable_opentelemetry(mut self, service_name: String, service_version: String) -> Self {
+    pub fn enable_opentelemetry(mut self) -> Self {
         self.opentelemetry.enabled = true;
-        self.opentelemetry.service_name = Some(service_name);
-        self.opentelemetry.service_version = Some(service_version);
         self
     }
 
@@ -191,7 +205,6 @@ impl TracingConfiguration {
 
     /// Set up a subscriber
     pub fn setup_tracing_subscriber(&self) -> OtelGuard {
-        // Format layer with configured options
         let fmt_layer = fmt::layer()
             .with_thread_ids(self.display_thread_ids)
             .with_thread_names(self.display_thread_names)
@@ -200,60 +213,56 @@ impl TracingConfiguration {
         let level_filter = LevelFilter::from_level(resolve_level(&self.log_level));
 
         if self.opentelemetry.enabled {
-            // Create resource with default crate information
-            let resource = Resource::from_schema_url(
-                [
-                    KeyValue::new(SERVICE_NAME, env!("CARGO_PKG_NAME")),
-                    KeyValue::new(SERVICE_VERSION, env!("CARGO_PKG_VERSION")),
-                ],
-                SCHEMA_URL,
-            );
+            // resource
+            let resource = Resource::builder()
+                .with_schema_url(
+                    [
+                        KeyValue::new(SERVICE_NAME, self.opentelemetry.service_name.clone()),
+                        KeyValue::new(SERVICE_VERSION, self.opentelemetry.service_version.clone()),
+                        KeyValue::new(DEPLOYMENT_ENVIRONMENT_NAME, self.opentelemetry.environment.clone()),
+                    ],
+                    SCHEMA_URL,
+                )
+                .build();
 
-            // Initialize tracer provider
-            let tracer_provider = TracerProvider::builder()
+            // init tracer provider
+            let exporter = opentelemetry_otlp::SpanExporter::builder()
+                .with_tonic()
+                .build()
+                .unwrap();
+
+            let tracer_provider = SdkTracerProvider::builder()
+                // TODO(zkacsand): customize sampling strategy
                 .with_sampler(Sampler::ParentBased(Box::new(Sampler::TraceIdRatioBased(
                     1.0,
                 ))))
                 .with_id_generator(RandomIdGenerator::default())
                 .with_resource(resource.clone())
-                .with_batch_exporter(
-                    opentelemetry_otlp::SpanExporter::builder()
-                        .with_tonic()
-                        .build()
-                        .unwrap(),
-                    runtime::Tokio,
-                )
+                .with_batch_exporter(exporter)
                 .build();
 
-            // Initialize meter provider
-            let meter_provider = {
-                let exporter = opentelemetry_otlp::MetricExporter::builder()
-                    .with_tonic()
-                    .with_temporality(opentelemetry_sdk::metrics::Temporality::default())
-                    .build()
-                    .unwrap();
+            // init meter provider
+            let exporter = opentelemetry_otlp::MetricExporter::builder()
+                .with_tonic()
+                .with_temporality(opentelemetry_sdk::metrics::Temporality::default())
+                .build()
+                .unwrap();
 
-                let reader = PeriodicReader::builder(exporter, runtime::Tokio)
-                    .with_interval(std::time::Duration::from_secs(
-                        self.opentelemetry.metrics_interval_secs,
-                    ))
-                    .build();
-
-                let stdout_reader = PeriodicReader::builder(
-                    opentelemetry_stdout::MetricExporter::default(),
-                    runtime::Tokio,
-                )
+            let reader = PeriodicReader::builder(exporter)
+                .with_interval(std::time::Duration::from_secs(self.opentelemetry.metrics_interval_secs))
                 .build();
 
-                let provider = MeterProviderBuilder::default()
-                    .with_resource(resource)
-                    .with_reader(reader)
-                    .with_reader(stdout_reader)
-                    .build();
+            let stdout_reader =
+                PeriodicReader::builder(opentelemetry_stdout::MetricExporter::default()).build();
 
-                global::set_meter_provider(provider.clone());
-                provider
-            };
+            let meter_provider = MeterProviderBuilder::default()
+                .with_resource(resource.clone())
+                .with_reader(reader)
+                .with_reader(stdout_reader)
+                .build();
+
+            // set global meter provider
+            global::set_meter_provider(meter_provider.clone());
 
             let tracer = tracer_provider.tracer("tracing-otel-subscriber");
 

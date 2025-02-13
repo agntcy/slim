@@ -7,6 +7,8 @@ tracing:
   display_thread_ids: true
   opentelemetry:
     enabled: true
+    service_name: "data-plane-gateway"
+    service_version: "v.0.1.0"
 
 runtime:
   n_cores: 0
