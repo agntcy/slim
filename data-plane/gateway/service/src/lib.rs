@@ -117,7 +117,6 @@ struct LocalAgent {
     tx_channel: tokio::sync::mpsc::Sender<Result<Message, Status>>,
 }
 
-
 #[derive(Debug)]
 pub struct Service {
     /// id of the service

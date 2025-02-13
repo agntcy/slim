@@ -1,8 +1,8 @@
 // SPDX-FileCopyrightText: Copyright (c) 2025 Cisco and/or its affiliates.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::sync::{Arc, Mutex};
 use lazy_static::lazy_static;
+use std::sync::{Arc, Mutex};
 
 use pyo3::exceptions::PyException;
 use pyo3::prelude::*;
@@ -138,7 +138,7 @@ fn init_tracing(py: Python, log_level: String) {
         let otel_guard = agp_tracing::TracingConfiguration::default()
             .with_log_level(log_level)
             .setup_tracing_subscriber();
-        
+
         let mut global_guard = TRACING_GUARD.lock().unwrap();
         *global_guard = Some(otel_guard);
 

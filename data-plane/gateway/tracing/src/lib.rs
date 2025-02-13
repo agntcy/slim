@@ -1,7 +1,6 @@
 // SPDX-FileCopyrightText: Copyright (c) 2025 Cisco and/or its affiliates.
 // SPDX-License-Identifier: Apache-2.0
 
-
 use opentelemetry::{global, trace::TracerProvider as _, KeyValue};
 use opentelemetry_sdk::{
     metrics::{MeterProviderBuilder, PeriodicReader, SdkMeterProvider},
@@ -12,7 +11,6 @@ use opentelemetry_semantic_conventions::{
     attribute::{DEPLOYMENT_ENVIRONMENT_NAME, SERVICE_NAME, SERVICE_VERSION},
     SCHEMA_URL,
 };
-use opentelemetry_stdout;
 use serde::{Deserialize, Serialize};
 use tracing::Level;
 use tracing_opentelemetry::{MetricsLayer, OpenTelemetryLayer};
@@ -219,7 +217,10 @@ impl TracingConfiguration {
                     [
                         KeyValue::new(SERVICE_NAME, self.opentelemetry.service_name.clone()),
                         KeyValue::new(SERVICE_VERSION, self.opentelemetry.service_version.clone()),
-                        KeyValue::new(DEPLOYMENT_ENVIRONMENT_NAME, self.opentelemetry.environment.clone()),
+                        KeyValue::new(
+                            DEPLOYMENT_ENVIRONMENT_NAME,
+                            self.opentelemetry.environment.clone(),
+                        ),
                     ],
                     SCHEMA_URL,
                 )
@@ -249,7 +250,9 @@ impl TracingConfiguration {
                 .unwrap();
 
             let reader = PeriodicReader::builder(exporter)
-                .with_interval(std::time::Duration::from_secs(self.opentelemetry.metrics_interval_secs))
+                .with_interval(std::time::Duration::from_secs(
+                    self.opentelemetry.metrics_interval_secs,
+                ))
                 .build();
 
             let stdout_reader =
