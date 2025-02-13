@@ -64,19 +64,31 @@ The control-plane components are implemented in golang. Follow the installation
 instructions in the golang website.
 
 ## Artifacts distribution
-### Crates
+
+### [Crates](./data-plane/gateway)
 See https://crates.io/users/artifacts-agntcy
 
-cargo add agp-datapath
+```bash
+cargo install agp-gw
+```
 
-### Container images
+### [Container images](./data-plane/Dockerfile)
+
+```bash
 docker pull ghcr.io/agntcy/agp/gw:latest
+```
 
-### Helm charts
+### [Helm charts](./deploy/charts/agp)
+
+```bash
 helm pull ghcr.io/agntcy/agp/helm/agp:latest
+```
 
-### Pypi packages
+### [Pypi packages](./data-plane/python-bindings)
+
+```bash
 pip install agp-bindings
+```
 
 ## Copyright Notice
 
