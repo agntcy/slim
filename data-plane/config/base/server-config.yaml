@@ -8,7 +8,7 @@ tracing:
   opentelemetry:
     enabled: true
     service_name: "data-plane-gateway"
-    service_version: "v.0.1.0"
+    service_version: "v0.1.0"
 
 runtime:
   n_cores: 0
