@@ -35,7 +35,7 @@ dependencies = [
 
 [[package]]
 name = "agp-config"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "agp-tracing",
  "duration-str",
@@ -103,7 +103,7 @@ dependencies = [
 
 [[package]]
 name = "agp-gw"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "agp-config",
  "agp-service",
@@ -133,7 +133,7 @@ dependencies = [
 
 [[package]]
 name = "agp-service"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "agp-config",
  "agp-datapath",
@@ -157,7 +157,7 @@ dependencies = [
 
 [[package]]
 name = "agp-tracing"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "opentelemetry",
  "opentelemetry-otlp",
