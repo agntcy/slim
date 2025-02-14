@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0](https://github.com/agntcy/agp/compare/agp-gw-v0.2.1...agp-gw-v0.3.0) - 2025-02-14
+
+### Added
+
+- add build info to main gateway executable (#35)
+
 ## [0.2.1](https://github.com/agntcy/agp/compare/agp-gw-v0.2.0...agp-gw-v0.2.1) - 2025-02-14
 
 ### Added

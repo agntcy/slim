@@ -1,6 +1,6 @@
 [package]
 name = "agp-gw"
-version = "0.2.1"
+version = "0.3.0"
 edition = "2021"
 license = { workspace = true }
 description = "The main gateway executable"
