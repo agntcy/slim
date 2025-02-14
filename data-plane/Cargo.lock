@@ -25,7 +25,6 @@ dependencies = [
  "agp-datapath",
  "agp-service",
  "agp-tracing",
- "lazy_static",
  "pyo3",
  "pyo3-async-runtimes",
  "pyo3-stub-gen",
