@@ -58,7 +58,7 @@ jobs:
 
       - name: Run chart-testing (lint & test)
         run: |
-          args = (
+          args=(
             --upgrade
             --debug
             --target-branch=${{ github.base_ref }}
@@ -66,7 +66,7 @@ jobs:
           )
 
           if [[ -f "${{ inputs.config-file }}" ]]; then
-            args += "--config ${{ inputs.config-file }}"
+            args+="--config ${{ inputs.config-file }}"
           fi
 
           ct lint-and-install ${args[@]}
