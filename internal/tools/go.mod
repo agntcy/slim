@@ -11,7 +11,7 @@ require (
 	golang.org/x/vuln v1.1.2
 	google.golang.org/grpc/cmd/protoc-gen-go-grpc v1.4.0
 	helm.sh/helm/v3 v3.16.3
-	k8s.io/kubernetes v1.31.3
+	k8s.io/kubernetes v1.31.6
 	sigs.k8s.io/kind v0.25.0
 )
 
