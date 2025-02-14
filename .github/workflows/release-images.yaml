@@ -7,7 +7,7 @@ name: ci-release-images
 on:
   push:
     tags:
-      - 'agp-gw-*'
+      - 'agp-*'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
