@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.4](https://github.com/agntcy/agp/compare/agp-bindings-v0.1.3...agp-bindings-v0.1.4) (2025-02-14)
+
+
+### Features
+
+* implement opentelemetry tracing subscriber ([5a0ec9e](https://github.com/agntcy/agp/commit/5a0ec9e876a73d90724f0a83cb0925de1c8d0af4))
+
 ## [0.1.3](https://github.com/agntcy/agp/compare/agp-bindings-v0.1.2...agp-bindings-v0.1.3) (2025-02-13)
 
 
