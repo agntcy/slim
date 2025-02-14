@@ -12,7 +12,7 @@ on:
         description: "Path to the chart-testing config file"
         required: false
         type: string
-        default: "ct.yaml"
+        default: ""
       dependencies:
         description: "List of dependencies to add"
         required: false
@@ -58,9 +58,15 @@ jobs:
 
       - name: Run chart-testing (lint & test)
         run: |
-          ct lint-and-install                       \
-            --upgrade                               \
-            --debug                                 \
-            --target-branch=${{ github.base_ref }}  \
-            --config ${{ inputs.config-file }}      \
+          args = (
+            --upgrade
+            --debug
+            --target-branch=${{ github.base_ref }}
             --chart-dirs ${{ inputs.chart-path }}
+          )
+
+          if [[ -f "${{ inputs.config-file }}" ]]; then
+            args += "--config ${{ inputs.config-file }}"
+          fi
+
+          ct lint-and-install ${args[@]}
