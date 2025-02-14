@@ -1,0 +1,77 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025 Cisco and/or its affiliates.
+# SPDX-License-Identifier: Apache-2.0
+
+---
+name: Lint / Test Helm Chart
+
+on:
+  workflow_call:
+    inputs:
+      chart-path:
+        description: "Path to the chart to lint"
+        required: true
+        type: string
+      config-file:
+        description: "Path to the chart-testing config file"
+        required: false
+        type: string
+        default: ""
+      dependencies:
+        description: "List of dependencies to add"
+        required: false
+        default: ""
+        type: string
+
+
+jobs:
+  lint-test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: "true"
+
+      - name: Print chart path
+        run: |
+          echo "Chart path: ${{ inputs.chart-path }}"
+
+      - name: Setup K8s
+        uses: ./.github/actions/setup-k8s
+        with:
+          kind-create-cluster: true
+
+      - name: Add dependencies
+        shell: bash
+        run: |
+          IFS='\n' readarray -t dependencies <<< "${{ inputs.dependencies }}"
+          for dependency in "${dependencies[@]}"; do
+            # Skip line if it is empty
+            if [[ -z "${dependency//[[:space:]]/}" ]]; then
+              continue
+            fi
+
+            # Split the dependency into name and repo
+            IFS='@' read -r name repo <<< "${dependency}"
+
+            echo helm repo add ${name} ${repo}
+          done
+
+      - name: Run chart-testing (lint & test)
+        run: |
+          args=(
+            --upgrade
+            --debug
+            --target-branch=${{ github.base_ref }}
+            --chart-dirs ${{ inputs.chart-path }}
+            --validate-maintainers=false
+            --check-version-increment=false
+          )
+
+          if [[ -f "${{ inputs.config-file }}" ]]; then
+            args+="--config ${{ inputs.config-file }}"
+          fi
+
+          ct lint-and-install ${args[@]}

@@ -25,7 +25,7 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Relesae
+      - name: Resolve release tag
         id: resolve
         run: |
           echo "release_tag=$(echo ${GITHUB_REF#refs/*/} | sed 's/^agp-helm-//')" >> $GITHUB_OUTPUT

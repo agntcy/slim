@@ -18,23 +18,6 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  release:
-    runs-on: ubuntu-latest
-    if: github.event_name == 'push'
-    permissions:
-      contents: write
-      pull-requests: write
-    outputs:
-      releases_created: ${{ steps.release-please.outputs.releases_created }}
-      released_paths: ${{ steps.release-please.outputs.paths_released }}
-    steps:
-      - uses: googleapis/release-please-action@v4
-        id: release-please
-        with:
-          token: ${{ secrets.AGNTCY_BUILD_BOT_GH_TOKEN }}
-          config-file: .github/release-config.json
-          manifest-file: .github/release-manifest.json
-
   build-wheels:
     name: Data plane - Python wheels
     uses: ./.github/workflows/reusable-python-build-wheels.yaml
