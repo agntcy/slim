@@ -7,4 +7,4 @@ This describes the minimum behavior expected from all contributors.
 ## Enforcement
 
 Instances of violations of the Code of Conduct can be reported by contacting
-the project team at [moderation@agntcy.ai](mailto:moderation@agntcy.ai).
+the project team at [moderation@agntcy.org](mailto:moderation@agntcy.org).
