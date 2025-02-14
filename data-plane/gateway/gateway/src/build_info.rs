@@ -21,7 +21,7 @@ impl std::fmt::Display for BuildInfo {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "Version: {} Build Date: {} Git SHA: {} Profile: {}",
+            "Version:\t{}\nBuild Date:\t{}\nGit SHA:\t{}\nProfile:\t{}",
             self.version, self.date, self.git_sha, self.profile
         )
     }

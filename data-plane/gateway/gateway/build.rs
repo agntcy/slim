@@ -14,16 +14,6 @@ fn set_env(name: &str, cmd: &mut Command) {
     println!("cargo:rustc-env={}={}", name, value);
 }
 
-fn version() -> String {
-    if let Ok(v) = std::env::var("VERSION") {
-        if !v.is_empty() {
-            return v;
-        }
-    }
-
-    "0.1.0-dev".to_string()
-}
-
 fn main() {
     set_env(
         "GIT_SHA",
@@ -36,7 +26,10 @@ fn main() {
         Command::new("date").args(["-u", "+%Y-%m-%dT%H:%M:%SZ"]),
     );
 
-    println!("cargo:rustc-env=VERSION={}", version());
+    set_env(
+        "VERSION",
+        Command::new("git").args(["describe", "--tags", "--always", "--match", "agp-gw-v*"]),
+    );
 
     let profile = std::env::var("PROFILE").expect("PROFILE must be set");
     println!("cargo:rustc-env=PROFILE={profile}");
