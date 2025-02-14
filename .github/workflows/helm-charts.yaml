@@ -23,5 +23,5 @@ jobs:
     name: Helm charts lint & test
     uses: ./.github/workflows/reusable-helm-lint-test.yaml
     with:
-      chart-path: charts
+      chart-path: ./deploy/charts
       dependencies: ""
