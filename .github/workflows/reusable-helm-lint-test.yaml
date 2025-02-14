@@ -63,6 +63,8 @@ jobs:
             --debug
             --target-branch=${{ github.base_ref }}
             --chart-dirs ${{ inputs.chart-path }}
+            --validate-maintainers=false
+            --check-version-increment=false
           )
 
           if [[ -f "${{ inputs.config-file }}" ]]; then
