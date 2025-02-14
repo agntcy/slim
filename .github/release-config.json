@@ -10,7 +10,7 @@
             "release-type": "python"
         },
         "charts/agp": {
-            "package-name": "agp",
+            "package-name": "agp-helm",
             "release-type": "helm"
         }
     }
