@@ -4,4 +4,4 @@ The Agent Gateway Protocol (AGP) project adheres to the [Rust Code of Conduct](h
 
 ## Enforcement
 
-Instances of violations of the Code of Conduct can be reported by contacting the project team at [moderation@agntcy.ai](mailto:moderation@agtncy.ai).
+Instances of violations of the Code of Conduct can be reported by contacting the project team at [moderation@agntcy.ai](mailto:moderation@agntcy.ai).
