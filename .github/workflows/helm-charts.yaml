@@ -1,0 +1,27 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025 Cisco and/or its affiliates.
+# SPDX-License-Identifier: Apache-2.0
+
+---
+name: ci-test-and-build-helm-charts
+
+on:
+  push:
+    paths:
+      - 'deploy/charts/**'
+    branches:
+      - main
+  pull_request:
+    paths:
+      - 'deploy/charts/**'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  helm-chart-lint-test:
+    name: Helm charts lint & test
+    uses: ./.github/workflows/reusable-helm-lint-test.yaml
+    with:
+      chart-path: charts
+      dependencies: ""

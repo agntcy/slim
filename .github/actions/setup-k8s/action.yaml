@@ -1,0 +1,74 @@
+---
+
+name: Setup Kubernetes tooling
+description: Setup Kubernetes tooling
+inputs:
+  helm-version:
+    description: 'Helm version'
+    required: false
+    default: "3.12.1"
+  helm-ct-version:
+    description: 'Helm chart-testing version'
+    required: false
+    default: "3.11.0"
+  kind-version:
+    description: 'Kind version'
+    required: false
+    default: "0.24.0"
+  kind-create-cluster:
+    description: 'Create kind K8s cluster'
+    required: false
+    default: "false"
+  kind-cluster-name:
+    description: 'Kind K8s cluster name to create'
+    required: false
+    default: "kind"
+  kind-cluster-gateway:
+    description: 'Gateway IP to use for kind server nodes. Useful when running actions inside containers.'
+    required: false
+    default: "127.0.0.1"
+runs:
+  using: "composite"
+  steps:
+    #
+    # Install kubernetes tools
+    #
+    - name: Setup Helm
+      uses: azure/setup-helm@fe7b79cd5ee1e45176fcad797de68ecaf3ca4814 # v4.2.0
+      with:
+        version: ${{ inputs.helm-version }}
+
+    - name: Set up Helm chart-testing
+      uses: helm/chart-testing-action@e6669bcd63d7cb57cb4380c33043eebe5d111992 # v2.6.1
+      with:
+        version: ${{ inputs.helm-ct-version }}
+
+    - name: Setup kind
+      uses: helm/kind-action@0025e74a8c7512023d06dc019c617aa3cf561fde # v1.10.0
+      with:
+        version: v${{ inputs.kind-version }}
+        install_only: true
+
+    - name: Setup kubectl
+      uses: azure/setup-kubectl@3e0aec4d80787158d308d7b364cb1b702e7feb7f # v4.0.0
+
+    #
+    # Setup cluster
+    #
+    - name: Setup Kind cluster
+      if: ${{ inputs.kind-create-cluster == 'true' }}
+      shell: bash
+      run: |
+        # Create cluster config
+        KIND_CONFIG_FILE=$(mktemp -p /tmp)
+        cat <<EOF > $KIND_CONFIG_FILE
+        kind: Cluster
+        apiVersion: kind.x-k8s.io/v1alpha4
+        networking:
+          apiServerAddress: "${{ inputs.kind-cluster-gateway }}"
+          apiServerPort: 6443
+        EOF
+
+        # Create cluster
+        kind create cluster --config $KIND_CONFIG_FILE --name ${{ inputs.kind-cluster-name }}
+        kubectl cluster-info
