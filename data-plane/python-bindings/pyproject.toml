@@ -4,10 +4,30 @@ build-backend = "maturin"
 
 [project]
 name = "agp-bindings"
-version = "0.1.4"
+version = "0.1.5"
 description = "AGP Rust bindings for Python"
 requires-python = ">=3.9, <4.0"
 readme = "README.md"
+license = "Apache-2.0"
+classifiers = [
+  "Development Status :: 3 - Alpha",
+
+  # Indicate who your project is intended for
+  "Intended Audience :: Developers",
+  "Topic :: Software Development :: Libraries",
+
+  # Specify the Python versions you support here.
+  "Programming Language :: Python :: 3.9",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+]
+
+[project.urls]
+Repository = "https://github.com/agntcy/agp"
+Issues = "https://github.com/agntcy/agp/issues"
+Changelog = "https://github.com/agntcy/agp/blob/main/data-plane/python-bindings/CHANGELOG.md"
 
 [dependency-groups]
 building = [
