@@ -171,7 +171,7 @@ tasks:
         vars:
           ARGS: ""
           BIN: "gateway"
-          BIN_ARGS: "--config ./gateway/gateway/config/config-base.yaml"
+          BIN_ARGS: "--config ./config/base/server-config.yaml"
 
   data-plane:bindings:python:
     desc: "Generate the Python bindings"

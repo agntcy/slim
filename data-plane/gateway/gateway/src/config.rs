@@ -120,14 +120,6 @@ pub fn load_config(config_file: &str) -> Result<ConfigResult, ConfigError> {
         None => TracingConfiguration::default(),
     };
 
-    // setup tracing if not running as test
-    if !cfg!(test) {
-        tracing.setup_tracing_subscriber();
-    }
-
-    // log the tracing configuration
-    debug!(?tracing);
-
     // configure runtime
     let runtime = match config.get("runtime") {
         Some(runtime) => serde_yaml::from_value(runtime.clone())

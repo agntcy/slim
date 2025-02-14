@@ -3,7 +3,7 @@
 
 use clap::Parser;
 use tokio::time;
-use tracing::info;
+use tracing::{debug, info, span};
 
 use agp_config::component::Component;
 use agp_gw::args;
@@ -26,6 +26,15 @@ fn main() {
     // start runtime
     let runtime = runtime::build(&config.runtime).expect("failed to build runtime");
     runtime.runtime.block_on(async move {
+        // tracing subscriber initialization must be called from the runtime
+        let _guard = config.tracing.setup_tracing_subscriber();
+
+        let root_span = span!(tracing::Level::INFO, "application_lifecycle");
+        let _enter = root_span.enter();
+
+        // log the tracing configuration
+        debug!(?config.tracing);
+
         info!("Runtime started");
 
         // start services

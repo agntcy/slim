@@ -108,6 +108,7 @@ impl Configuration for ServiceConfiguration {
 }
 
 #[allow(dead_code)]
+#[derive(Debug)]
 struct LocalAgent {
     /// name of the agent
     name: Agent,
@@ -116,6 +117,7 @@ struct LocalAgent {
     tx_channel: tokio::sync::mpsc::Sender<Result<Message, Status>>,
 }
 
+#[derive(Debug)]
 pub struct Service {
     /// id of the service
     id: ID,
@@ -175,6 +177,7 @@ impl Service {
     }
 
     /// Run the service
+    #[tracing::instrument]
     pub async fn run(&self) -> Result<(), ServiceError> {
         // Check that at least one client or server is configured
         if self.config.server().is_none() && self.config.clients.is_empty() {
@@ -471,6 +474,7 @@ impl Component for Service {
         &self.id
     }
 
+    #[tracing::instrument]
     async fn start(&self) -> Result<(), ComponentError> {
         info!("starting service");
         self.run()
