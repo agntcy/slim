@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.1.5](https://github.com/agntcy/agp/compare/agp-bindings-v0.1.4...agp-bindings-v0.1.5) (2025-02-14)
+
+
+### Features
+
+* add metadata for pypi ([#48](https://github.com/agntcy/agp/issues/48)) ([26d0e60](https://github.com/agntcy/agp/commit/26d0e6055f4d2a81f5dc20f71668f004502ed6a1))
+
+
+### Bug Fixes
+
+* **python-bindings:** propagate build PROFILE up to  task target ([#45](https://github.com/agntcy/agp/issues/45)) ([ac4e3a0](https://github.com/agntcy/agp/commit/ac4e3a00ee9ac0c8e738b97657be9a7fc25b7b56))
+
 ## [0.1.4](https://github.com/agntcy/agp/compare/agp-bindings-v0.1.3...agp-bindings-v0.1.4) (2025-02-14)
 
 
