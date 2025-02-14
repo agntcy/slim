@@ -281,7 +281,7 @@ tasks:
     internal: true
     dir: ./python-bindings
     cmds:
-      - task python-bindings:packaging
+      - task python-bindings:packaging PROFILE={{.PROFILE}} TARGET={{.TARGET}}
 
   bindings:python:test:
     desc: "Test the Python bindings"

@@ -41,6 +41,11 @@ tasks:
 
   python-bindings:packaging:
     desc: "Generate the Python bindings for python versions 3.9, 3.10, 3.11, 3.12 and 3.13"
+    vars:
+      PROFILE: '{{.PROFILE | default "debug"}}'
+      RELEASE:
+        sh: '[[ {{.PROFILE}} == "release" ]] && echo "--release" || echo ""'
+      TARGET: '{{.TARGET | default ""}}'
     cmds:
       - rustup target add {{.TARGET}}
       - for:
