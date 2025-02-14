@@ -7,12 +7,12 @@ name: ci-test-and-build-helm-charts
 on:
   push:
     paths:
-      - 'deploy/charts/**'
+      - 'charts/**'
     branches:
       - main
   pull_request:
     paths:
-      - 'deploy/charts/**'
+      - 'charts/**'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -23,5 +23,5 @@ jobs:
     name: Helm charts lint & test
     uses: ./.github/workflows/reusable-helm-lint-test.yaml
     with:
-      chart-path: ./deploy/charts
+      chart-path: charts
       dependencies: ""
