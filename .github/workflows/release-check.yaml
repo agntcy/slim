@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 ---
-name: ci-release-python
+name: ci-release-please-check
 
 on:
   push:
