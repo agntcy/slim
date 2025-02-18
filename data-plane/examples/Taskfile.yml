@@ -17,18 +17,18 @@ tasks:
 
   run:server:
     desc: "Run the server"
-    dir: "../gateway/gateway"
+    dir: ".."
     cmds:
-      - cargo run --bin gateway -- --config ./config/config-base.yaml
+      - cargo run --bin gateway -- --config ./config/base/server-config.yaml
 
   run:mock-agent:server:
     desc: "Run the mock agent server"
     dir: src/sdk-mock
     cmds:
-      - cargo run -- --config ./config/config.yaml --local-agent server --remote-agent client
+      - cargo run -- --config ../../../config/base/client-config.yaml --local-agent server --remote-agent client
 
   run:mock-agent:client:
     desc: "Run the mock agent client"
     dir: src/sdk-mock
     cmds:
-      - cargo run -- --config ./config/config.yaml --local-agent client --remote-agent server --message "hey there!"
+      - cargo run -- --config ../../../config/base/client-config.yaml --local-agent client --remote-agent server --message "hey there!"
