@@ -94,4 +94,9 @@ impl Connection {
     pub(crate) fn connection_type(&self) -> &Type {
         &self.connection_type
     }
+
+    /// Return true if is a local connection
+    pub(crate) fn is_local_connection(&self) -> bool {
+        matches!(self.connection_type, Type::Local)
+    }
 }

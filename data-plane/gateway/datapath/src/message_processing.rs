@@ -104,12 +104,10 @@ impl MessageProcessor {
         );
 
         // insert connection into connection table
-        let conn_index = self
-            .forwarder()
-            .on_connection_established(connection, false);
+        let conn_index = self.forwarder().on_connection_established(connection);
 
         // Start loop to process messages
-        let ret = self.process_stream(stream, conn_index);
+        let ret = self.process_stream(stream, conn_index, false);
         Ok((ret.0, ret.1, conn_index))
     }
 
@@ -131,12 +129,12 @@ impl MessageProcessor {
         let connection = Connection::new(ConnectionType::Local).with_channel(Channel::Server(tx2));
 
         // add it to the connection table
-        let conn_id = self.forwarder().on_connection_established(connection, true);
+        let conn_id = self.forwarder().on_connection_established(connection);
 
         debug!("local connection established with id: {:?}", conn_id);
 
         // this loop will process messages from the local app
-        self.process_stream(ReceiverStream::new(rx1), conn_id);
+        self.process_stream(ReceiverStream::new(rx1), conn_id, true);
 
         // return the handles to be used to send and receive messages
         (tx1, rx2)
@@ -236,15 +234,7 @@ impl MessageProcessor {
                 );
 
                 // add incoming connection to the metadata
-                let connection = self.forwarder().get_connection(in_connection);
-                match connection {
-                    None => {
-                        error!("incoming connection does not exists");
-                    }
-                    Some(_) => {
-                        add_incoming_connection(&mut msg, in_connection);
-                    }
-                }
+                add_incoming_connection(&mut msg, in_connection);
 
                 // if we get valid class also the name is valid so we can safely unwrap
                 return self
@@ -324,11 +314,19 @@ impl MessageProcessor {
                         _ => {}
                     },
                 }
-                // if we get valid class also the name is valid so we can safely unwrap
+                let connection = self.forwarder().get_connection(in_connection);
+                if connection.is_none() {
+                    // this should never happen
+                    error!("incoming connection does not exists");
+                    return Err(DataPathError::SubscriptionError(
+                        "incoming connection does not exists".to_string(),
+                    ));
+                }
                 match self.forwarder().on_unsubscription_msg(
                     class,
                     get_agent_id(&unsubmsg.name),
                     conn,
+                    connection.unwrap().is_local_connection(),
                 ) {
                     Ok(_) => {}
                     Err(e) => {
@@ -398,11 +396,20 @@ impl MessageProcessor {
                         _ => {}
                     },
                 }
-
-                match self
-                    .forwarder()
-                    .on_subscription_msg(class, get_agent_id(&submsg.name), conn)
-                {
+                let connection = self.forwarder().get_connection(in_connection);
+                if connection.is_none() {
+                    // this should never happen
+                    error!("incoming connection does not exists");
+                    return Err(DataPathError::SubscriptionError(
+                        "incoming connection does not exists".to_string(),
+                    ));
+                }
+                match self.forwarder().on_subscription_msg(
+                    class,
+                    get_agent_id(&submsg.name),
+                    conn,
+                    connection.unwrap().is_local_connection(),
+                ) {
                     Ok(_) => {}
                     Err(e) => {
                         return Err(DataPathError::SubscriptionError(e.to_string()));
@@ -536,6 +543,7 @@ impl MessageProcessor {
         &self,
         mut stream: impl Stream<Item = Result<Message, Status>> + Unpin + Send + 'static,
         conn_index: u64,
+        is_local: bool,
     ) -> (tokio::task::JoinHandle<()>, CancellationToken) {
         // Clone self to be able to move it into the spawned task
         let self_clone = self.clone();
@@ -569,8 +577,9 @@ impl MessageProcessor {
                 }
             }
 
-            // clean up tables
-            self_clone.forwarder().on_connection_drop(conn_index);
+            self_clone
+                .forwarder()
+                .on_connection_drop(conn_index, is_local);
         });
 
         (handle, token)
@@ -623,11 +632,9 @@ impl PubSubService for MessageProcessor {
         );
 
         // insert connection into connection table
-        let conn_index = self
-            .forwarder()
-            .on_connection_established(connection, false);
+        let conn_index = self.forwarder().on_connection_established(connection);
 
-        self.process_stream(stream, conn_index);
+        self.process_stream(stream, conn_index, false);
 
         let out_stream = ReceiverStream::new(rx);
         Ok(Response::new(

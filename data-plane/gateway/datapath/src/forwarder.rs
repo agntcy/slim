@@ -37,17 +37,15 @@ where
         }
     }
 
-    pub fn on_connection_established(&self, conn: T, is_local: bool) -> u64 {
-        let conn_id = self.connection_table.insert(conn) as u64;
-        if is_local {
-            self.subscription_table.add_local_connection(conn_id);
-        }
-        conn_id
+    pub fn on_connection_established(&self, conn: T) -> u64 {
+        self.connection_table.insert(conn) as u64
     }
 
-    pub fn on_connection_drop(&self, conn_index: u64) {
+    pub fn on_connection_drop(&self, conn_index: u64, is_local: bool) {
         self.connection_table.remove(conn_index as usize);
-        let _ = self.subscription_table.remove_connection(conn_index);
+        let _ = self
+            .subscription_table
+            .remove_connection(conn_index, is_local);
     }
 
     pub fn get_connection(&self, conn_index: u64) -> Option<Arc<T>> {
@@ -59,9 +57,10 @@ where
         class: AgentClass,
         agent_id: Option<u64>,
         conn_index: u64,
+        is_local: bool,
     ) -> Result<(), SubscriptionTableError> {
         self.subscription_table
-            .add_subscription(class, agent_id, conn_index)
+            .add_subscription(class, agent_id, conn_index, is_local)
     }
 
     pub fn on_unsubscription_msg(
@@ -69,9 +68,10 @@ where
         class: AgentClass,
         agent_id: Option<u64>,
         conn_index: u64,
+        is_local: bool,
     ) -> Result<(), SubscriptionTableError> {
         self.subscription_table
-            .remove_subscription(class, agent_id, conn_index)
+            .remove_subscription(class, agent_id, conn_index, is_local)
     }
 
     pub fn on_publish_msg_match_one(
@@ -109,15 +109,15 @@ mod tests {
         let fwd = Forwarder::<u32>::new();
 
         assert_eq!(
-            fwd.on_subscription_msg(agent_class.clone(), None, 10),
+            fwd.on_subscription_msg(agent_class.clone(), None, 10, false),
             Ok(())
         );
         assert_eq!(
-            fwd.on_subscription_msg(agent_class.clone(), Some(1), 12),
+            fwd.on_subscription_msg(agent_class.clone(), Some(1), 12, false),
             Ok(())
         );
         assert_eq!(
-            fwd.on_subscription_msg(agent_class.clone(), Some(1), 12),
+            fwd.on_subscription_msg(agent_class.clone(), Some(1), 12, false),
             Err(SubscriptionTableError::SubscriptionExists)
         );
         assert_eq!(
@@ -130,11 +130,11 @@ mod tests {
         );
 
         assert_eq!(
-            fwd.on_unsubscription_msg(agent_class.clone(), None, 10),
+            fwd.on_unsubscription_msg(agent_class.clone(), None, 10, false),
             Ok(())
         );
         assert_eq!(
-            fwd.on_unsubscription_msg(agent_class.clone(), None, 10),
+            fwd.on_unsubscription_msg(agent_class.clone(), None, 10, false),
             Err(SubscriptionTableError::AgentIdNotFound)
         );
     }
