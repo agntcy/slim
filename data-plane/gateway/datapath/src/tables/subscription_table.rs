@@ -782,7 +782,6 @@ mod tests {
             t.add_subscription(agent_class1.clone(), None, 2, true),
             Ok(())
         );
-        println!("{}", t);
 
         // returns one match on connection 2
         let out = t.match_all(agent_class1.clone(), None, 100).unwrap();
