@@ -15,7 +15,7 @@ multicore = ["tokio/rt-multi-thread", "num_cpus"]
 
 [dependencies]
 agp-config = { path = "../config", version = "0.1.1" }
-agp-service = { path = "../service", version = "0.1.1" }
+agp-service = { path = "../service", version = "0.1.2" }
 agp-signal = { path = "../signal", version = "0.1.0" }
 agp-tracing = { path = "../tracing", version = "0.1.1" }
 clap = { version = "4.5.23", features = ["derive", "env"] }

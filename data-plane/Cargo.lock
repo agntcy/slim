@@ -68,7 +68,7 @@ dependencies = [
 
 [[package]]
 name = "agp-datapath"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "agp-config",
  "bit-vec",
@@ -133,7 +133,7 @@ dependencies = [
 
 [[package]]
 name = "agp-service"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "agp-config",
  "agp-datapath",
