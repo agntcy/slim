@@ -28,128 +28,320 @@ impl ConnId {
 }
 
 #[derive(Debug)]
-struct ClassState {
-    // map agent_id -> vec<connection>
-    // the number of connections per agent id should be small
-    ids: HashMap<u64, Vec<u64>>,
-    // map from connection id to position in connections
-    // to be used in the insertion/remove
-    connections_index: HashMap<u64, usize>,
-    // list of all connections for this class
-    // to be used in the match
-    connections: Pool<ConnId>,
+struct Connections {
+    // map from connection id to the position in the connections pool
+    // this is used in the insertion/remove
+    index: HashMap<u64, usize>,
+    // pool of all connections ids that can to be used in the match
+    pool: Pool<ConnId>,
 }
 
-impl Default for ClassState {
+impl Default for Connections {
     fn default() -> Self {
-        ClassState {
-            ids: HashMap::new(),
-            connections_index: HashMap::new(),
-            connections: Pool::with_capacity(8),
+        Connections {
+            index: HashMap::new(),
+            pool: Pool::with_capacity(2),
         }
     }
+}
+
+impl Connections {
+    fn insert(&mut self, conn: u64) {
+        match self.index.get(&conn) {
+            None => {
+                let conn_id = ConnId::new(conn);
+                match self.pool.insert(conn_id) {
+                    None => {
+                        error!("error adding a connection in the pool");
+                    }
+                    Some(pos) => {
+                        self.index.insert(conn, pos);
+                    }
+                }
+            }
+            Some(pos) => match self.pool.get_mut(*pos) {
+                None => {
+                    error!("error retrieving the connection from the pool");
+                }
+                Some(conn_id) => {
+                    conn_id.counter += 1;
+                }
+            },
+        }
+    }
+
+    fn remove(&mut self, conn: u64) -> Result<(), SubscriptionTableError> {
+        let conn_index_opt = self.index.get(&conn);
+        if conn_index_opt.is_none() {
+            error!("cannot find the index for connection {}", conn);
+            return Err(SubscriptionTableError::ConnectionIdNotFound);
+        }
+        let conn_index = conn_index_opt.unwrap();
+        let conn_id_opt = self.pool.get_mut(*conn_index);
+        if conn_id_opt.is_none() {
+            error!("cannot find the connection {} in the pool", conn);
+            return Err(SubscriptionTableError::ConnectionIdNotFound);
+        }
+        let conn_id = conn_id_opt.unwrap();
+        if conn_id.counter == 1 {
+            // remove connection
+            self.pool.remove(*conn_index);
+            self.index.remove(&conn);
+        } else {
+            conn_id.counter -= 1;
+        }
+        Ok(())
+    }
+
+    fn get_one(&self, except_conn: u64) -> Option<u64> {
+        if self.index.len() == 1 {
+            if self.index.contains_key(&except_conn) {
+                debug!("the only available connection cannot be used");
+                return None;
+            } else {
+                let val = self.index.iter().next().unwrap();
+                return Some(*val.0);
+            }
+        }
+
+        // we need to iterate and find a value starting from a random point in the pool
+        let mut rng = rand::rng();
+        let index = rng.random_range(0..self.pool.max_set() + 1);
+        let mut stop = false;
+        let mut i = index;
+        while !stop {
+            let opt = self.pool.get(i);
+            if opt.is_some() {
+                let out = opt.unwrap().conn_id;
+                if out != except_conn {
+                    return Some(out);
+                }
+            }
+            i = (i + 1) % (self.pool.max_set() + 1);
+            if i == index {
+                stop = true;
+            }
+        }
+        debug!("no output connection available");
+        None
+    }
+
+    fn get_all(&self, except_conn: u64) -> Option<Vec<u64>> {
+        if self.index.len() == 1 {
+            if self.index.contains_key(&except_conn) {
+                debug!("the only available connection cannot be used");
+                return None;
+            } else {
+                let val = self.index.iter().next().unwrap();
+                return Some(vec![*val.0]);
+            }
+        }
+        let mut out = Vec::new();
+        for val in self.index.iter() {
+            if *val.0 != except_conn {
+                out.push(*val.0);
+            }
+        }
+        if out.is_empty() {
+            debug!("no output connection available");
+            None
+        } else {
+            Some(out)
+        }
+    }
+}
+
+#[derive(Debug, Default)]
+struct ClassState {
+    // map agent id -> [local connection ids, remote connection ids]
+    // the array contains the local connections at position 0 and the
+    // remote ones at position 1
+    // the number of connections per agent id is expected to be small
+    ids: HashMap<u64, [Vec<u64>; 2]>,
+    // List of all the connections that are available for this agent class
+    // as for the ids map position 0 stores local connections and position
+    // 1 store remotes ones
+    connections: [Connections; 2],
 }
 
 impl ClassState {
-    fn new(agent_id: u64, conn: u64) -> Self {
+    fn new(agent_id: u64, conn: u64, is_local: bool) -> Self {
         let mut class_state = ClassState::default();
-        let conn_id = ConnId::new(conn);
-        let pos = class_state.connections.insert(conn_id);
-        if pos.is_none() {
-            panic!("error adding a connection in the pool");
-        }
-        class_state.connections_index.insert(conn, pos.unwrap());
         let v = vec![conn];
-        class_state.ids.insert(agent_id, v);
+        if is_local {
+            class_state.connections[0].insert(conn);
+            class_state.ids.insert(agent_id, [v, vec![]]);
+        } else {
+            class_state.connections[1].insert(conn);
+            class_state.ids.insert(agent_id, [vec![], v]);
+        }
         class_state
     }
 
-    fn insert(&mut self, agent_id: u64, conn: u64) {
-        self.insert_connection(conn);
+    fn insert(&mut self, agent_id: u64, conn: u64, is_local: bool) {
+        let mut index = 0;
+        if !is_local {
+            index = 1;
+        }
+        self.connections[index].insert(conn);
+
         match self.ids.get_mut(&agent_id) {
             None => {
                 // the agent id does not exists
-                let v = vec![conn];
-                self.ids.insert(agent_id, v);
+                let mut connections = [vec![], vec![]];
+                connections[index].push(conn);
+                self.ids.insert(agent_id, connections);
             }
             Some(v) => {
-                v.push(conn);
+                v[index].push(conn);
             }
         }
     }
 
-    fn insert_connection(&mut self, conn: u64) {
-        match self.connections_index.get(&conn) {
-            None => {
-                // add new connections
-                let conn_id = ConnId::new(conn);
-                let pos = self.connections.insert(conn_id);
-                if pos.is_none() {
-                    panic!("error adding a connection in the pool");
-                }
-                self.connections_index.insert(conn, pos.unwrap());
-            }
-            Some(pos) => {
-                // the connection is in the list no need to add it again
-                // we just increase the counter
-                let conn_id = self.connections.get_mut(*pos);
-                if conn_id.is_none() {
-                    panic!("error retrieving the connection from the pool");
-                }
-                conn_id.unwrap().counter += 1;
-            }
-        }
-    }
-
-    fn remove(&mut self, agent_id: u64, conn: u64) -> Result<(), SubscriptionTableError> {
+    fn remove(
+        &mut self,
+        agent_id: u64,
+        conn: u64,
+        is_local: bool,
+    ) -> Result<(), SubscriptionTableError> {
         match self.ids.get_mut(&agent_id) {
             None => {
                 warn!("agent id {} not found", agent_id);
                 Err(SubscriptionTableError::AgentIdNotFound)
             }
-            Some(v) => {
-                let mut i = 0;
-                let mut found = false;
-                for c in v.iter() {
+            Some(connection_ids) => {
+                let mut index = 0;
+                if !is_local {
+                    index = 1;
+                }
+                self.connections[index].remove(conn)?;
+                for (i, c) in connection_ids[index].iter().enumerate() {
                     if *c == conn {
-                        found = true;
-                        // connection found, remove it
-                        let conn_index_opt = self.connections_index.get(&conn);
-                        if conn_index_opt.is_none() {
-                            error!("cannot find the index for connection {}", conn);
-                            return Err(SubscriptionTableError::ConnectionIdNotFound);
+                        connection_ids[index].swap_remove(i);
+                        // if both vectors are empty remove the agent id from the tabales
+                        if connection_ids[0].is_empty() && connection_ids[1].is_empty() {
+                            self.ids.remove(&agent_id);
                         }
-                        let conn_index = conn_index_opt.unwrap();
-                        let conn_id_opt = self.connections.get_mut(*conn_index);
-                        if conn_id_opt.is_none() {
-                            error!("cannot find the connection {} in the pool", conn);
-                            return Err(SubscriptionTableError::ConnectionIdNotFound);
-                        }
-                        let conn_id = conn_id_opt.unwrap();
-                        if conn_id.counter == 1 {
-                            // remove connection
-                            self.connections.remove(*conn_index);
-                            self.connections_index.remove(&conn);
-                        } else {
-                            conn_id.counter -= 1;
-                        }
-                        // all done
                         break;
                     }
-                    i += 1;
-                }
-                if found {
-                    // remove entry in v at position i
-                    v.swap_remove(i);
-                    // if v is empty after the removal we need to remove the agent from the table
-                    if v.is_empty() {
-                        self.ids.remove(&agent_id);
-                    }
-                } else {
-                    warn!("connection id {} not found for agent id {}", conn, agent_id);
-                    return Err(SubscriptionTableError::ConnectionIdNotFound);
                 }
                 Ok(())
+            }
+        }
+    }
+
+    fn get_one_connection(
+        &self,
+        agent_id: Option<u64>,
+        incoming_conn: u64,
+        get_local_connection: bool,
+    ) -> Option<u64> {
+        let mut index = 0;
+        if !get_local_connection {
+            index = 1;
+        }
+        match agent_id {
+            None => self.connections[index].get_one(incoming_conn),
+            Some(id) => {
+                let val = self.ids.get(&id);
+                match val {
+                    None => {
+                        debug!(
+                            "cannot find out connection, agent id does not exists {:?}",
+                            id
+                        );
+                        None
+                    }
+                    Some(vec) => {
+                        if vec[index].is_empty() {
+                            // no connections available
+                            return None;
+                        }
+
+                        if vec[index].len() == 1 {
+                            if vec[index][0] == incoming_conn {
+                                // cannot return the incoming interface d
+                                debug!("the only available connection cannot be used");
+                                return None;
+                            } else {
+                                return Some(vec[index][0]);
+                            }
+                        }
+
+                        // we need to iterate an find a value starting from a random point in the vec
+                        let mut rng = rand::rng();
+                        let pos = rng.random_range(0..vec.len());
+                        let mut stop = false;
+                        let mut i = pos;
+                        while !stop {
+                            if vec[index][pos] != incoming_conn {
+                                return Some(vec[index][pos]);
+                            }
+                            i = (i + 1) % vec[index].len();
+                            if i == pos {
+                                stop = true;
+                            }
+                        }
+                        debug!("no output connection available");
+                        None
+                    }
+                }
+            }
+        }
+    }
+
+    fn get_all_connections(
+        &self,
+        agent_id: Option<u64>,
+        incoming_conn: u64,
+        get_local_connection: bool,
+    ) -> Option<Vec<u64>> {
+        let mut index = 0;
+        if !get_local_connection {
+            index = 1;
+        }
+        match agent_id {
+            None => self.connections[index].get_all(incoming_conn),
+            Some(id) => {
+                let val = self.ids.get(&id);
+                match val {
+                    None => {
+                        debug!(
+                            "cannot find out connection, agent id does not exists {:?}",
+                            id
+                        );
+                        None
+                    }
+                    Some(vec) => {
+                        if vec[index].is_empty() {
+                            // should never happen
+                            return None;
+                        }
+
+                        if vec[index].len() == 1 {
+                            if vec[index][0] == incoming_conn {
+                                // cannot return the incoming interface d
+                                debug!("the only available connection cannot be used");
+                                return None;
+                            } else {
+                                return Some(vec[index].clone());
+                            }
+                        }
+
+                        // we need to iterate over the vector and remove the incoming connection
+                        let mut out = Vec::new();
+                        for c in vec[index].iter() {
+                            if *c != incoming_conn {
+                                out.push(*c);
+                            }
+                        }
+                        if out.is_empty() {
+                            None
+                        } else {
+                            Some(out)
+                        }
+                    }
+                }
             }
         }
     }
@@ -166,8 +358,6 @@ pub struct SubscriptionTableImpl {
     // connections tables
     // conn_index -> set(agent)
     connections: RwLock<HashMap<u64, HashSet<Agent>>>,
-    // local connections (only one is supporterd at the moment)
-    local_connections: RwLock<Vec<u64>>,
 }
 
 impl Display for SubscriptionTableImpl {
@@ -180,8 +370,23 @@ impl Display for SubscriptionTableImpl {
             writeln!(f, "  Agents:")?;
             for (id, conn) in v.ids.iter() {
                 writeln!(f, "    Agent id: {}", id)?;
-                for c in conn {
-                    writeln!(f, "      Connection: {}", c)?;
+                if conn[0].is_empty() {
+                    writeln!(f, "       Local Connections:")?;
+                    writeln!(f, "         None")?;
+                } else {
+                    writeln!(f, "       Local Connections:")?;
+                    for c in conn[0].iter() {
+                        writeln!(f, "         Connection: {}", c)?;
+                    }
+                }
+                if conn[1].is_empty() {
+                    writeln!(f, "       Remote Connections:")?;
+                    writeln!(f, "         None")?;
+                } else {
+                    writeln!(f, "       Remote Connections:")?;
+                    for c in conn[1].iter() {
+                        writeln!(f, "         Connection: {}", c)?;
+                    }
                 }
             }
         }
@@ -193,6 +398,7 @@ impl Display for SubscriptionTableImpl {
 fn add_subscription_to_sub_table(
     agent: &Agent,
     conn: u64,
+    is_local: bool,
     mut table: RwLockWriteGuard<'_, RawRwLock, HashMap<AgentClass, ClassState>>,
 ) {
     match table.get_mut(&agent.agent_class) {
@@ -203,13 +409,13 @@ fn add_subscription_to_sub_table(
             );
             // the subscription does not exists, init
             // create and init class state
-            let class_state = ClassState::new(agent.agent_id, conn);
+            let class_state = ClassState::new(agent.agent_id, conn, is_local);
 
             // insert the map in the table
             table.insert(agent.agent_class.clone(), class_state);
         }
         Some(state) => {
-            state.insert(agent.agent_id, conn);
+            state.insert(agent.agent_id, conn, is_local);
         }
     }
 }
@@ -250,6 +456,7 @@ fn add_subscription_to_connection(
 fn remove_subscription_from_sub_table(
     agent: &Agent,
     conn_index: u64,
+    is_local: bool,
     mut table: RwLockWriteGuard<'_, RawRwLock, HashMap<AgentClass, ClassState>>,
 ) -> Result<(), SubscriptionTableError> {
     match table.get_mut(&agent.agent_class) {
@@ -258,7 +465,7 @@ fn remove_subscription_from_sub_table(
             Err(SubscriptionTableError::SubscriptionNotFound)
         }
         Some(state) => {
-            state.remove(agent.agent_id, conn_index)?;
+            state.remove(agent.agent_id, conn_index, is_local)?;
             // we may need to remove the state
             if state.ids.is_empty() {
                 table.remove(&agent.agent_class);
@@ -299,28 +506,13 @@ fn remove_subscription_from_connection(
     Ok(())
 }
 
-impl SubscriptionTableImpl {
-    pub fn add_local_connection(&self, conn: u64) {
-        let mut lock = self.local_connections.write();
-        lock.push(conn);
-    }
-
-    #[allow(dead_code)]
-    pub fn get_local_connection(&self) -> Option<u64> {
-        let local_conn = self.local_connections.read();
-        if !local_conn.is_empty() {
-            return Some(local_conn[0]);
-        }
-        None
-    }
-}
-
 impl SubscriptionTable for SubscriptionTableImpl {
     fn add_subscription(
         &self,
         class: AgentClass,
         agent_id: Option<u64>,
         conn: u64,
+        is_local: bool,
     ) -> Result<(), SubscriptionTableError> {
         let agent = Agent {
             agent_class: class,
@@ -343,7 +535,7 @@ impl SubscriptionTable for SubscriptionTableImpl {
         }
         {
             let table = self.table.write();
-            add_subscription_to_sub_table(&agent, conn, table);
+            add_subscription_to_sub_table(&agent, conn, is_local, table);
         }
         {
             let conn_table = self.connections.write();
@@ -357,6 +549,7 @@ impl SubscriptionTable for SubscriptionTableImpl {
         class: AgentClass,
         agent_id: Option<u64>,
         conn: u64,
+        is_local: bool,
     ) -> Result<(), SubscriptionTableError> {
         let agent = Agent {
             agent_class: class,
@@ -364,7 +557,8 @@ impl SubscriptionTable for SubscriptionTableImpl {
         };
         {
             let table = self.table.write();
-            remove_subscription_from_sub_table(&agent, conn, table)?
+
+            remove_subscription_from_sub_table(&agent, conn, is_local, table)?
         }
         {
             let conn_table = self.connections.write();
@@ -373,7 +567,7 @@ impl SubscriptionTable for SubscriptionTableImpl {
         Ok(())
     }
 
-    fn remove_connection(&self, conn: u64) -> Result<(), SubscriptionTableError> {
+    fn remove_connection(&self, conn: u64, is_local: bool) -> Result<(), SubscriptionTableError> {
         {
             let conn_map = self.connections.read();
             let set = conn_map.get(&conn);
@@ -382,7 +576,7 @@ impl SubscriptionTable for SubscriptionTableImpl {
             }
             for agent in set.unwrap() {
                 let table = self.table.write();
-                remove_subscription_from_sub_table(agent, conn, table)?;
+                remove_subscription_from_sub_table(agent, conn, is_local, table)?;
             }
         }
         {
@@ -406,87 +600,19 @@ impl SubscriptionTable for SubscriptionTableImpl {
                 Err(SubscriptionTableError::MatchNotFound)
             }
             Some(class_state) => {
-                match agent_id {
-                    None => {
-                        // we can get a random value in class_state.
-                        if class_state.connections.is_empty() {
-                            // should never happen
-                            error!("the connection pool is empty");
-                            return Err(SubscriptionTableError::MatchNotFound);
-                        }
-                        if class_state.connections.len() == 1 {
-                            if class_state.connections_index.contains_key(&incoming_conn) {
-                                error!("the only available connection cannot be used");
-                                return Err(SubscriptionTableError::MatchNotFound);
-                            } else {
-                                let val = class_state.connections_index.iter().next().unwrap();
-                                return Ok(*val.0);
-                            }
-                        }
-
-                        // we need to iterate and find a value starting from a random point in the pool
-                        let mut rng = rand::rng();
-                        let index = rng.random_range(0..class_state.connections.max_set() + 1);
-                        let mut stop = false;
-                        let mut i = index;
-                        while !stop {
-                            let opt = class_state.connections.get(i);
-                            if opt.is_some() {
-                                let out = opt.unwrap().conn_id;
-                                if out != incoming_conn {
-                                    return Ok(out);
-                                }
-                            }
-                            i = (i + 1) % (class_state.connections.max_set() + 1);
-                            if i == index {
-                                stop = true;
-                            }
-                        }
-                        error!("no output connection available");
-                        Err(SubscriptionTableError::MatchNotFound)
-                    }
-                    Some(id) => {
-                        // match the id. if it exists get a random value in the set
-                        let val = class_state.ids.get(&id);
-                        match val {
-                            None => {
-                                debug!("match not found for class {:?} and id {:?}", class, id);
-                                Err(SubscriptionTableError::MatchNotFound)
-                            }
-                            Some(vec) => {
-                                if vec.is_empty() {
-                                    // should never happen
-                                    error!("the connection list is empty");
-                                    return Err(SubscriptionTableError::MatchNotFound);
-                                }
-                                if vec.len() == 1 {
-                                    if vec[0] == incoming_conn {
-                                        error!("the only available connection cannot be used");
-                                        return Err(SubscriptionTableError::MatchNotFound);
-                                    } else {
-                                        return Ok(vec[0]);
-                                    }
-                                }
-                                // we need to iterate an find a value starting from a random point in the vec
-                                let mut rng = rand::rng();
-                                let index = rng.random_range(0..vec.len());
-                                let mut stop = false;
-                                let mut i = index;
-                                while !stop {
-                                    if vec[i] != incoming_conn {
-                                        return Ok(vec[index]);
-                                    }
-                                    i = (i + 1) % vec.len();
-                                    if i == index {
-                                        stop = true;
-                                    }
-                                }
-                                error!("no output connection available");
-                                Err(SubscriptionTableError::MatchNotFound)
-                            }
-                        }
-                    }
+                // first try to send the message to the local connections
+                // if no local connection exists or the message cannot
+                // be sent try on remote ones
+                let local_out = class_state.get_one_connection(agent_id, incoming_conn, true);
+                if let Some(out) = local_out {
+                    return Ok(out);
                 }
+                let remote_out = class_state.get_one_connection(agent_id, incoming_conn, false);
+                if let Some(out) = remote_out {
+                    return Ok(out);
+                }
+                error!("no output connection available");
+                Err(SubscriptionTableError::MatchNotFound)
             }
         }
     }
@@ -504,29 +630,20 @@ impl SubscriptionTable for SubscriptionTableImpl {
                 debug!("match not found for class {:?}", class);
                 Err(SubscriptionTableError::MatchNotFound)
             }
-            Some(state) => {
-                let id = agent_id.unwrap_or(Self::DEFAULT_AGENT_ID);
-                let vec = state.ids.get(&id);
-                match vec {
-                    None => {
-                        debug!("match not found for class {:?} and id {:?}", class, id);
-                        Err(SubscriptionTableError::MatchNotFound)
-                    }
-                    Some(conn_vec) => {
-                        // remove incoming conn from the vector and return
-                        let mut out = Vec::new();
-                        for conn in conn_vec {
-                            if *conn != incoming_conn {
-                                out.push(*conn);
-                            }
-                        }
-                        if out.is_empty() {
-                            debug!("match not found for class {:?} and id {:?}", class, id);
-                            return Err(SubscriptionTableError::MatchNotFound);
-                        }
-                        Ok(out)
-                    }
+            Some(class_state) => {
+                // first try to send the message to the local connections
+                // if no local connection exists or the message cannot
+                // be sent try on remote ones
+                let local_out = class_state.get_all_connections(agent_id, incoming_conn, true);
+                if let Some(out) = local_out {
+                    return Ok(out);
                 }
+                let remote_out = class_state.get_all_connections(agent_id, incoming_conn, false);
+                if let Some(out) = remote_out {
+                    return Ok(out);
+                }
+                error!("no output connection available");
+                Err(SubscriptionTableError::MatchNotFound)
             }
         }
     }
@@ -548,25 +665,53 @@ mod tests {
 
         let t = SubscriptionTableImpl::default();
 
-        assert_eq!(t.add_subscription(agent_class1.clone(), None, 1), Ok(()));
-        assert_eq!(t.add_subscription(agent_class1.clone(), None, 2), Ok(()));
-        assert_eq!(t.add_subscription(agent_class1.clone(), Some(1), 2), Ok(()));
-        assert_eq!(t.add_subscription(agent_class2.clone(), Some(2), 3), Ok(()));
+        assert_eq!(
+            t.add_subscription(agent_class1.clone(), None, 1, false),
+            Ok(())
+        );
+        assert_eq!(
+            t.add_subscription(agent_class1.clone(), None, 2, false),
+            Ok(())
+        );
+        assert_eq!(
+            t.add_subscription(agent_class1.clone(), Some(1), 3, false),
+            Ok(())
+        );
+        assert_eq!(
+            t.add_subscription(agent_class2.clone(), Some(2), 3, false),
+            Ok(())
+        );
 
-        // returns 2 matches on connection 1 and 2
+        // returns three matches on connection 1,2,3
+        let out = t.match_all(agent_class1.clone(), None, 100).unwrap();
+        assert_eq!(out.len(), 3);
+        assert!(out.contains(&1));
+        assert!(out.contains(&2));
+        assert!(out.contains(&3));
+
+        // return two matches on connection 2,3
+        let out = t.match_all(agent_class1.clone(), None, 1).unwrap();
+        assert_eq!(out.len(), 2);
+        assert!(out.contains(&2));
+        assert!(out.contains(&3));
+
+        assert_eq!(
+            t.remove_subscription(agent_class1.clone(), None, 2, false),
+            Ok(())
+        );
+
+        // return two matches on connection 1,3
         let out = t.match_all(agent_class1.clone(), None, 100).unwrap();
         assert_eq!(out.len(), 2);
         assert!(out.contains(&1));
-        assert!(out.contains(&2));
+        assert!(out.contains(&3));
 
-        // return 1 match on connection 2
-        let out = t.match_all(agent_class1.clone(), None, 1).unwrap();
-        assert_eq!(out.len(), 1);
-        assert!(out.contains(&2));
+        assert_eq!(
+            t.remove_subscription(agent_class1.clone(), Some(1), 3, false),
+            Ok(())
+        );
 
-        assert_eq!(t.remove_subscription(agent_class1.clone(), None, 2), Ok(()));
-
-        // return 1 match on connection 1
+        // return one matches on connection 1
         let out = t.match_all(agent_class1.clone(), None, 100).unwrap();
         assert_eq!(out.len(), 1);
         assert!(out.contains(&1));
@@ -578,9 +723,12 @@ mod tests {
         );
 
         // add subscription again
-        assert_eq!(t.add_subscription(agent_class1.clone(), None, 2), Ok(()));
+        assert_eq!(
+            t.add_subscription(agent_class1.clone(), Some(1), 2, false),
+            Ok(())
+        );
 
-        // returns 2 matches on connection 1 and 2
+        // returns two matches on connection 1 and 2
         let out = t.match_all(agent_class1.clone(), None, 100).unwrap();
         assert_eq!(out.len(), 2);
         assert!(out.contains(&1));
@@ -603,14 +751,18 @@ mod tests {
         let out = t.match_one(agent_class2.clone(), Some(2), 100).unwrap();
         assert_eq!(out, 3);
 
-        assert_eq!(t.remove_connection(2), Ok(()));
+        assert_eq!(t.remove_connection(2, false), Ok(()));
 
-        // returns 1 match on connection 1
+        // returns one match on connection 1
         let out = t.match_all(agent_class1.clone(), None, 100).unwrap();
         assert_eq!(out.len(), 1);
         assert!(out.contains(&1));
 
-        assert_eq!(t.add_subscription(agent_class2.clone(), Some(2), 4), Ok(()));
+        assert_eq!(
+            t.add_subscription(agent_class2.clone(), Some(2), 4, false),
+            Ok(())
+        );
+
         // run multiple times for randomenes
         for _ in 0..20 {
             let out = t.match_one(agent_class2.clone(), Some(2), 100).unwrap();
@@ -621,13 +773,37 @@ mod tests {
         }
 
         assert_eq!(
-            t.remove_subscription(agent_class2.clone(), Some(2), 4),
+            t.remove_subscription(agent_class2.clone(), Some(2), 4, false),
             Ok(())
         );
 
+        // test local vs remote
+        assert_eq!(
+            t.add_subscription(agent_class1.clone(), None, 2, true),
+            Ok(())
+        );
+
+        // returns one match on connection 2
+        let out = t.match_all(agent_class1.clone(), None, 100).unwrap();
+        assert_eq!(out.len(), 1);
+        assert!(out.contains(&2));
+
+        // returns one match on connection 2
+        let out = t.match_one(agent_class1.clone(), None, 100).unwrap();
+        assert_eq!(out, 2);
+
+        // fallback on remote connection and return one match on connection 1
+        let out = t.match_all(agent_class1.clone(), None, 2).unwrap();
+        assert_eq!(out.len(), 1);
+        assert!(out.contains(&1));
+
+        // same here
+        let out = t.match_one(agent_class1.clone(), None, 2).unwrap();
+        assert_eq!(out, 1);
+
         // test errors
         assert_eq!(
-            t.remove_connection(2),
+            t.remove_connection(4, false),
             Err(SubscriptionTableError::ConnectionIdNotFound)
         );
         assert_eq!(
@@ -635,15 +811,15 @@ mod tests {
             Err(SubscriptionTableError::MatchNotFound)
         );
         assert_eq!(
-            t.add_subscription(agent_class2.clone(), Some(2), 3),
+            t.add_subscription(agent_class2.clone(), Some(2), 3, false),
             Err(SubscriptionTableError::SubscriptionExists)
         );
         assert_eq!(
-            t.remove_subscription(agent_class3.clone(), None, 2),
+            t.remove_subscription(agent_class3.clone(), None, 2, false),
             Err(SubscriptionTableError::SubscriptionNotFound)
         );
         assert_eq!(
-            t.remove_subscription(agent_class2.clone(), None, 2),
+            t.remove_subscription(agent_class2.clone(), None, 2, false),
             Err(SubscriptionTableError::AgentIdNotFound)
         );
     }

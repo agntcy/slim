@@ -21,6 +21,7 @@ pub trait SubscriptionTable {
         class: AgentClass,
         agent_id: Option<u64>,
         conn: u64,
+        is_local: bool,
     ) -> Result<(), SubscriptionTableError>;
 
     fn remove_subscription(
@@ -28,9 +29,10 @@ pub trait SubscriptionTable {
         class: AgentClass,
         agent_id: Option<u64>,
         conn: u64,
+        is_local: bool,
     ) -> Result<(), SubscriptionTableError>;
 
-    fn remove_connection(&self, conn: u64) -> Result<(), SubscriptionTableError>;
+    fn remove_connection(&self, conn: u64, is_local: bool) -> Result<(), SubscriptionTableError>;
 
     fn match_one(
         &self,
