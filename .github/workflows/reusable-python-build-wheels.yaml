@@ -66,6 +66,8 @@ jobs:
           command: sdist
           args: --out dist
           working-directory: ./data-plane/python-bindings
+      - name: twine check
+        run: twine check --strict ./data-plane/python-bindings/dist
       - name: Upload sdist
         uses: actions/upload-artifact@v4
         with:
