@@ -28,6 +28,7 @@ async fn main() {
 
     // create configured components
     let mut config = config::load_config(config_file).expect("failed to load configuration");
+    let _guard = config.tracing.setup_tracing_subscriber();
 
     info!(%config_file, %local_agent, %remote_agent, "starting client");
 
@@ -36,11 +37,18 @@ async fn main() {
     let svc = config.services.get_mut(&id).unwrap();
 
     // create local agent
-    let agent_name = encode_agent_from_string("cisco", "default", local_agent, 0);
+    let agent_id = 0;
+    let agent_name = encode_agent_from_string("cisco", "default", local_agent, agent_id);
     let mut rx = svc.create_agent(agent_name.clone());
 
     // connect to the remote gateway
     let conn_id = svc.connect(None).await.unwrap();
+    info!("remote connection id = {}", conn_id);
+
+    let local_agent_class = encode_agent_class("cisco", "default", local_agent);
+    svc.subscribe(&local_agent_class, Some(agent_id), conn_id)
+        .await
+        .unwrap();
 
     // Set a route for the remote agent
     let route = encode_agent_class("cisco", "default", remote_agent);
@@ -74,10 +82,10 @@ async fn main() {
         }
 
         // send a message back
-        let msg = "hello from the other side";
+        let msg = format!("hello from the {}", local_agent);
         svc.publish(&route, None, 1, msg.into()).await.unwrap();
 
         // sleep
-        tokio::time::sleep(tokio::time::Duration::from_secs(10)).await;
+        tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
     }
 }
