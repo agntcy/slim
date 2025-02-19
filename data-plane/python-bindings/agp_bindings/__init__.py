@@ -82,7 +82,7 @@ class Gateway:
             None
         """
 
-        await agp_bindings.serve(
+        await serve(
             self.svc,
             address,
             insecure,
