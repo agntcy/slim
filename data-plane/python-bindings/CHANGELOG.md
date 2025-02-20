@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.7](https://github.com/agntcy/agp/compare/agp-bindings-v0.1.6...agp-bindings-v0.1.7) (2025-02-20)
+
+
+### Features
+
+* **tables:** distinguish local and remote connections in the subscription table ([#55](https://github.com/agntcy/agp/issues/55)) ([143520f](https://github.com/agntcy/agp/commit/143520f89cee8b29eb8e575b04d887458099ac2e))
+
 ## [0.1.6](https://github.com/agntcy/agp/compare/agp-bindings-v0.1.5...agp-bindings-v0.1.6) (2025-02-19)
 
 
