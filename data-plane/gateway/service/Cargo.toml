@@ -2,12 +2,12 @@
 name = "agp-service"
 edition = "2021"
 license = { workspace = true }
-version = "0.1.1"
+version = "0.1.2"
 description = "Main service and public API to interact with AGP data plane."
 
 [dependencies]
 agp-config = { path = "../config", version = "0.1.1" }
-agp-datapath = { path = "../datapath", version = "0.1.0" }
+agp-datapath = { path = "../datapath", version = "0.1.1" }
 drain = { version = "0.1", features = ["retain"] }
 serde = "1.0.217"
 thiserror = "2.0.9"

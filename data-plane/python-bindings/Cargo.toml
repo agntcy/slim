@@ -11,8 +11,8 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 agp-config = { path = "../gateway/config", version = "0.1.1" }
-agp-datapath = { path = "../gateway/datapath", version = "0.1.0" }
-agp-service = { path = "../gateway/service", version = "0.1.1" }
+agp-datapath = { path = "../gateway/datapath", version = "0.1.1" }
+agp-service = { path = "../gateway/service", version = "0.1.2" }
 agp-tracing = { path = "../gateway/tracing", version = "0.1.1" }
 pyo3 = "0.23.3"
 pyo3-async-runtimes = { version = "0.23.0", features = ["tokio-runtime"] }

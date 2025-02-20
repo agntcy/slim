@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.2](https://github.com/agntcy/agp/compare/agp-service-v0.1.1...agp-service-v0.1.2) - 2025-02-19
+
+### Other
+
+- updated the following local packages: agp-datapath
+
 ## [0.1.1](https://github.com/agntcy/agp/compare/agp-service-v0.1.0...agp-service-v0.1.1) - 2025-02-14
 
 ### Added
