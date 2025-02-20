@@ -7,7 +7,7 @@ name: ci-release-images
 on:
   push:
     tags:
-      - 'agp-*'
+      - 'agp-gw-v[0-9]+.[0-9]+.[0-9]+'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -32,21 +32,13 @@ jobs:
           # This assumes tags are in this form
           # agp-<component1>-<component2>-v<version>
 
-          # strip agp- prefix from the tag
-          _target=${GITHUB_REF_NAME#agp-}
-
-          # remove version to only get the component
-          target=${_target%-v*}
-
           # get version only
-          version=${_target##*-v}
+          version=${GITHUB_REF_NAME##*-v}
 
-          # set target and version as output
-          echo target=${target} >> ${GITHUB_OUTPUT}
+          # set version as output
           echo version=${version} >> ${GITHUB_OUTPUT}
 
-          # Print the target and version
-          echo "Target: $target"
+          # Print version
           echo "Version: $version"
 
       - name: List all targets
