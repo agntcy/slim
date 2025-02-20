@@ -186,7 +186,7 @@ tasks:
     deps:
       - task: build:install-cargo-components
         vars:
-          COMPONENTS: "cargo-deny"
+          COMPONENTS: "cargo-deny@0.17.0"
     cmds:
       - cargo deny check {{.ARGS}}
     vars:
