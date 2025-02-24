@@ -1,0 +1,58 @@
+version: '3'
+
+silent: true
+set: [pipefail]
+shopt: [globstar]
+
+verbose: false
+
+env:
+  CONFIG_CLIENT: ../config/base/client-config.yaml
+  CONFIG_SERVER: ./config/base/server-config.yaml
+  SUB: 1000000
+  PUB: 3000000
+  SUB_AGENTS: 10
+  PUB_AGENTS: 1
+
+tasks:
+  default:
+    cmds:
+      - task -l
+
+  run:workload-gen:
+    desc: "Run workload generator"
+    cmds:
+      - cargo run --release --bin workload-gen -- -s $SUB -p $PUB -i $SUB_AGENTS -a $SUB_AGENTS
+
+  run:agp:
+    desc: "Run the AGP server"
+    dir: ".."
+    cmds:
+      - cargo run --release --bin gateway -- --config $CONFIG_SERVER
+
+  run:subscribers:
+    desc: "Run subscriber applications"
+    cmds:
+      - |
+        for ((i = 0 ; i < $SUB_AGENTS ; i++ )); do
+          cargo run --release --bin subscriber -- -w sub${SUB}_pub${PUB}_i${SUB_AGENTS}_s${SUB_AGENTS}.dat -c $CONFIG_CLIENT -i $i &
+          sleep 1
+        done
+
+  run:publisher:
+    desc: "Run publisher application"
+    cmds:
+      - cargo run --release --bin publisher -- -w sub${SUB}_pub${PUB}_i${SUB_AGENTS}_s${SUB_AGENTS}.dat -c $CONFIG_CLIENT -i 0
+
+  run:shutdown:
+    desc: "Shutdown test"
+    cmds:
+      - | 
+        echo "stop all subscribers"
+        killall subscriber || true
+        echo "stop all publishers"
+        killall publisher || true
+        echo "stop gateway"
+        killall gateway || true
+  
+

@@ -10,6 +10,7 @@ members = [
     "gateway/signal",
     "gateway/tracing",
     "python-bindings",
+    "testing", 
 ]
 
 default-members = [
@@ -21,6 +22,7 @@ default-members = [
     "gateway/service",
     "gateway/signal",
     "gateway/tracing",
+    "testing",
 ]
 
 resolver = "2"
