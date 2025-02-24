@@ -37,14 +37,12 @@ struct PyGatewayConfig {
     endpoint: String,
     insecure: bool,
     insecure_skip_verify: bool,
-    
     tls_ca_path: Option<String>,
     tls_ca_pem: Option<String>,
     tls_cert_path: Option<String>,
     tls_key_path: Option<String>,
     tls_cert_pem: Option<String>,
     tls_key_pem: Option<String>,
-    
     basic_auth_username: Option<String>,
     basic_auth_password: Option<String>,
 }
@@ -98,9 +96,7 @@ impl PyGatewayConfig {
 impl PyGatewayConfig {
     fn to_server_config(&self) -> Result<ServerConfig, ServiceError> {
         let config = ServerConfig::with_endpoint(&self.endpoint);
-        
         let tls_settings = TlsServerConfig::new().with_insecure(self.insecure);
-        
         let tls_settings = match (&self.tls_cert_path, &self.tls_key_path) {
             (Some(cert_path), Some(key_path)) => tls_settings
                 .with_cert_file(cert_path)
@@ -117,7 +113,7 @@ impl PyGatewayConfig {
             }
             (_, _) => tls_settings,
         };
-        
+
         let tls_settings = match (&self.tls_cert_pem, &self.tls_key_pem) {
             (Some(cert_pem), Some(key_pem)) => {
                 tls_settings.with_cert_pem(cert_pem).with_key_pem(key_pem)
@@ -134,13 +130,13 @@ impl PyGatewayConfig {
             }
             (_, _) => tls_settings,
         };
-        
+
         let config = config.with_tls_settings(tls_settings);
-        
+
         let config = match (&self.basic_auth_username, &self.basic_auth_password) {
-            (Some(username), Some(password)) => config.with_auth(ServerAuthenticationConfig::Basic(
-                BasicAuthConfig::new(username, password),
-            )),
+            (Some(username), Some(password)) => config.with_auth(
+                ServerAuthenticationConfig::Basic(BasicAuthConfig::new(username, password)),
+            ),
             (Some(_), None) => {
                 return Err(ServiceError::ConfigError(
                     "cannot use basic auth without password".to_string(),
@@ -153,27 +149,27 @@ impl PyGatewayConfig {
             }
             (_, _) => config,
         };
-        
+
         Ok(config)
     }
-    
+
     fn to_client_config(&self) -> Result<ClientConfig, ServiceError> {
         let config = ClientConfig::with_endpoint(&self.endpoint);
-        
+
         let tls_settings = TlsClientConfig::new()
             .with_insecure(self.insecure)
             .with_insecure_skip_verify(self.insecure_skip_verify);
-        
+
         let tls_settings = match &self.tls_ca_path {
             Some(ca_path) => tls_settings.with_ca_file(ca_path),
             None => tls_settings,
         };
-        
+
         let tls_settings = match &self.tls_ca_pem {
             Some(ca_pem) => tls_settings.with_ca_pem(ca_pem),
             None => tls_settings,
         };
-        
+
         let tls_settings = match (&self.tls_cert_path, &self.tls_key_path) {
             (Some(cert_path), Some(key_path)) => tls_settings
                 .with_cert_file(cert_path)
@@ -190,7 +186,7 @@ impl PyGatewayConfig {
             }
             (_, _) => tls_settings,
         };
-        
+
         let tls_settings = match (&self.tls_cert_pem, &self.tls_key_pem) {
             (Some(cert_pem), Some(key_pem)) => {
                 tls_settings.with_cert_pem(cert_pem).with_key_pem(key_pem)
@@ -207,13 +203,13 @@ impl PyGatewayConfig {
             }
             (_, _) => tls_settings,
         };
-        
+
         let config = config.with_tls_setting(tls_settings);
-        
+
         let config = match (&self.basic_auth_username, &self.basic_auth_password) {
-            (Some(username), Some(password)) => config.with_auth(ClientAuthenticationConfig::Basic(
-                BasicAuthConfig::new(username, password),
-            )),
+            (Some(username), Some(password)) => config.with_auth(
+                ClientAuthenticationConfig::Basic(BasicAuthConfig::new(username, password)),
+            ),
             (Some(_), None) => {
                 return Err(ServiceError::ConfigError(
                     "cannot use basic auth without password".to_string(),
@@ -226,11 +222,10 @@ impl PyGatewayConfig {
             }
             (_, _) => config,
         };
-        
+
         Ok(config)
     }
 }
-
 
 /// agent class
 #[gen_stub_pyclass]
@@ -329,7 +324,7 @@ impl PyService {
                 service: Service::new(svc_id),
                 rx: None,
             })),
-            config: None
+            config: None,
         }
     }
 
@@ -382,16 +377,18 @@ fn create_agent(
     })
 }
 
-async fn serve_impl(
-    svc: PyService,
-) -> Result<(), ServiceError> {
+async fn serve_impl(svc: PyService) -> Result<(), ServiceError> {
     let config = match svc.config {
         Some(config) => config,
-        None => return Err(ServiceError::ConfigError("No configuration set on service".to_string())),
+        None => {
+            return Err(ServiceError::ConfigError(
+                "No configuration set on service".to_string(),
+            ))
+        }
     };
-    
+
     let server_config = config.to_server_config()?;
-    
+
     let service = svc.sdk.write().await;
     service.service.serve(Some(server_config))
 }
@@ -401,29 +398,28 @@ async fn serve_impl(
 #[pyo3(signature = (
     svc,
 ))]
-fn serve(
-    py: Python,
-    svc: PyService,
-) -> PyResult<Bound<PyAny>> {
+fn serve(py: Python, svc: PyService) -> PyResult<Bound<PyAny>> {
     pyo3_async_runtimes::tokio::future_into_py(py, async move {
         serve_impl(svc.clone())
-        .await
-        .map_err(|e| PyErr::new::<PyException, _>(format!("{}", e.to_string())))
+            .await
+            .map_err(|e| PyErr::new::<PyException, _>(format!("{}", e.to_string())))
     })
 }
 
-async fn connect_impl(
-    svc: PyService,
-) -> Result<u64, ServiceError> {
+async fn connect_impl(svc: PyService) -> Result<u64, ServiceError> {
     // Get the service's configuration
     let config = match svc.config {
         Some(config) => config,
-        None => return Err(ServiceError::ConfigError("No configuration set on service".to_string())),
+        None => {
+            return Err(ServiceError::ConfigError(
+                "No configuration set on service".to_string(),
+            ))
+        }
     };
-    
+
     // Convert PyGatewayConfig to ClientConfig
     let client_config = config.to_client_config()?;
-    
+
     // Get service and connect
     let mut service = svc.sdk.write().await;
     service.service.connect(Some(client_config)).await
@@ -434,16 +430,11 @@ async fn connect_impl(
 #[pyo3(signature = (
     svc,
 ))]
-fn connect(
-    py: Python,
-    svc: PyService,
-) -> PyResult<Bound<PyAny>> {
+fn connect(py: Python, svc: PyService) -> PyResult<Bound<PyAny>> {
     pyo3_async_runtimes::tokio::future_into_py(py, async move {
-        connect_impl(
-            svc.clone(),
-        )
-        .await
-        .map_err(|e| PyErr::new::<PyException, _>(format!("{}", e.to_string())))
+        connect_impl(svc.clone())
+            .await
+            .map_err(|e| PyErr::new::<PyException, _>(format!("{}", e.to_string())))
     })
 }
 
