@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.2](https://github.com/agntcy/agp/compare/agp-gw-v0.3.1...agp-gw-v0.3.2) - 2025-02-24
+
+### Other
+
+- update Cargo.lock dependencies
+
 ## [0.3.1](https://github.com/agntcy/agp/compare/agp-gw-v0.3.0...agp-gw-v0.3.1) - 2025-02-20
 
 ### Other
