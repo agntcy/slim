@@ -39,13 +39,16 @@ async def run_client(local_id, remote_id, message, address):
     # Define the service based on the local agent
     gateway = agp_bindings.Gateway()
 
+    # Configure gateway
+    gateway.configure(endpoint=address, insecure=True)
+
     # Connect to the gateway server
     local_agent_id = await gateway.create_agent(
         local_organization, local_namespace, local_agent
     )
 
     # Connect to the service and subscribe for the local name
-    _ = await gateway.connect(address, insecure=True)
+    _ = await gateway.connect()
     await gateway.subscribe(
         local_organization, local_namespace, local_agent, local_agent_id
     )

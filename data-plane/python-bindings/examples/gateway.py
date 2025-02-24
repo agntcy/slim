@@ -15,8 +15,11 @@ async def run_server(address: str):
     # init tracing
     agp_bindings.init_tracing(log_level="debug")
 
+    # Configure gateway
+    gateway.configure(endpoint=address, insecure=True)
+
     # Run as server
-    await gateway.serve(address, insecure=True)
+    await gateway.serve()
 
 
 async def main():
