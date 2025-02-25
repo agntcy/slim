@@ -120,7 +120,7 @@ where
     pub fn insert_at(&mut self, element: T, index: usize) -> bool {
         if self.capacity < index {
             // position index cannot be accessed
-            return false
+            return false;
         }
         // put T at position index
         self.pool[index] = element;

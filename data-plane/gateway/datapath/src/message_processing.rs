@@ -79,8 +79,9 @@ impl MessageProcessor {
         client_config: Option<ClientConfig>,
         local: Option<SocketAddr>,
         remote: Option<SocketAddr>,
+        existing_conn_index: Option<u64>,
         max_retry: u32,
-    ) -> Result<(tokio::task::JoinHandle<()>, CancellationToken, u64), DataPathError>
+    ) -> Result<(tokio::task::JoinHandle<()>, u64), DataPathError>
     where
         C: tonic::client::GrpcService<tonic::body::BoxBody>,
         C::Error: Into<StdError>,
@@ -96,10 +97,12 @@ impl MessageProcessor {
                 .await
             {
                 Ok(stream) => {
+                    let cancellation_token = CancellationToken::new();
                     let connection = Connection::new(ConnectionType::Remote)
                         .with_local_addr(local)
                         .with_remote_addr(remote)
-                        .with_channel(Channel::Client(tx));
+                        .with_channel(Channel::Client(tx))
+                        .with_cancellation_token(Some(cancellation_token.clone()));
 
                     info!(
                         "new connection initiated locally: (remote: {:?} - local: {:?})",
@@ -108,12 +111,28 @@ impl MessageProcessor {
                     );
 
                     // insert connection into connection table
-                    let conn_index = self.forwarder().on_connection_established(connection);
+                    let opt = self
+                        .forwarder()
+                        .on_connection_established(connection, existing_conn_index);
+                    if opt.is_none() {
+                        error!("error adding connection to the connection table");
+                        return Err(DataPathError::ConnectionError(
+                            "rror adding connection to the connection tables".to_string(),
+                        ));
+                    }
+
+                    let conn_index = opt.unwrap();
+                    info!("connection index = {:?}", conn_index);
 
                     // Start loop to process messages
-                    let ret =
-                        self.process_stream(stream.into_inner(), conn_index, client_config, false);
-                    return Ok((ret.0, ret.1, conn_index));
+                    let ret = self.process_stream(
+                        stream.into_inner(),
+                        conn_index,
+                        client_config,
+                        cancellation_token,
+                        false,
+                    );
+                    return Ok((ret, conn_index));
                 }
                 Err(e) => {
                     error!("connection error: {:?}.", e.to_string());
@@ -126,7 +145,9 @@ impl MessageProcessor {
         }
 
         error!("unable to connect to the endpoint");
-        Err(DataPathError::ConnectionError("reached max connection retries".to_string()))
+        Err(DataPathError::ConnectionError(
+            "reached max connection retries".to_string(),
+        ))
     }
 
     pub async fn connect<C>(
@@ -135,89 +156,41 @@ impl MessageProcessor {
         client_config: Option<ClientConfig>,
         local: Option<SocketAddr>,
         remote: Option<SocketAddr>,
-    ) -> Result<(tokio::task::JoinHandle<()>, CancellationToken, u64), DataPathError>
+    ) -> Result<(tokio::task::JoinHandle<()>, u64), DataPathError>
     where
         C: tonic::client::GrpcService<tonic::body::BoxBody>,
         C::Error: Into<StdError>,
         C::ResponseBody: Body<Data = bytes::Bytes> + std::marker::Send + 'static,
         <C::ResponseBody as Body>::Error: Into<StdError> + std::marker::Send,
     {
-        self.try_to_connect(channel, client_config, local, remote, 10)
+        self.try_to_connect(channel, client_config, local, remote, None, 10)
             .await
-        //let mut client = PubSubServiceClient::new(channel);
-        //let (tx, rx) = mpsc::channel(128);
-        /*let x =  client.open_channel(Request::new(ReceiverStream::new(rx))).await.map_err(|e| DataPathError::ConnectionError(e.to_string()))?.into_inner();
-        let stream;
-        loop {
-            match client.open_channel(Request::new(ReceiverStream::new(rx))).await? {
-                Ok(s) => {
-                    stream = s;
-                    break;
-                }
-                Err(e) => {
-                    error!("cannot connect to the endpoint {:?}", e.to_string());
+    }
+
+    pub fn disconnect(&self, conn: u64) -> Result<(), DataPathError> {
+        match self.forwarder().get_connection(conn) {
+            None => {
+                error!("error handling disconnect: connection unknown");
+                return Err(DataPathError::DisconnectionError(
+                    "connection not found".to_string(),
+                ));
+            }
+            Some(c) => {
+                match c.cancellation_token() {
+                    None => {
+                        error!("error handling disconnect: missing cancellation token");
+                    }
+                    Some(t) => {
+                        // here token cancell will stop the receiving loop on
+                        // conn and this will cause the delition of the state
+                        // for this connection
+                        t.cancel();
+                    }
                 }
             }
-        }*/
+        }
 
-        //let stream;
-
-        /*let mut client = PubSubServiceClient::new(channel);
-        loop {
-
-            let (tx, rx) = mpsc::channel(128);
-            match  client.open_channel(Request::new(ReceiverStream::new(rx))).await  {
-                Ok(stream) => {
-                    //stream = s;
-                    //break;
-                    let connection = Connection::new(ConnectionType::Remote)
-            .with_local_addr(local)
-            .with_remote_addr(remote)
-            .with_channel(Channel::Client(tx));
-
-            info!(
-                "new connection initiated locally: (remote: {:?} - local: {:?})",
-                connection.remote_addr(),
-                connection.local_addr()
-            );
-
-            // insert connection into connection table
-        let conn_index = self.forwarder().on_connection_established(connection);
-
-        // Start loop to process messages
-        let ret = self.process_stream(stream.into_inner(), conn_index, client_config, false);
-        return Ok((ret.0, ret.1, conn_index));
-
-                }
-                Err(e) => {
-                    error!("connection error: {:?}. try again", e.to_string());
-                }
-            }
-        }*/
-
-        /*let stream = client
-        .open_channel(Request::new(ReceiverStream::new(rx)))
-        .await
-        .map_err(|e| DataPathError::ConnectionError(e.to_string()))?
-        .into_inner();*/
-
-        /*let connection = Connection::new(ConnectionType::Remote)
-            .with_local_addr(local)
-            .with_remote_addr(remote)
-            .with_channel(Channel::Client(tx));
-
-        info!(
-            "new connection initiated locally: (remote: {:?} - local: {:?})",
-            connection.remote_addr(),
-            connection.local_addr()
-        );
-
-        // insert connection into connection table
-        let conn_index = self.forwarder().on_connection_established(connection);
-
-        // Start loop to process messages
-        let ret = self.process_stream(stream.into_inner(), conn_index, client_config, false);
-        Ok((ret.0, ret.1, conn_index))*/
+        Ok(())
     }
 
     pub fn register_local_connection(
@@ -238,12 +211,21 @@ impl MessageProcessor {
         let connection = Connection::new(ConnectionType::Local).with_channel(Channel::Server(tx2));
 
         // add it to the connection table
-        let conn_id = self.forwarder().on_connection_established(connection);
+        let conn_id = self
+            .forwarder()
+            .on_connection_established(connection, None)
+            .unwrap();
 
         debug!("local connection established with id: {:?}", conn_id);
 
         // this loop will process messages from the local app
-        self.process_stream(ReceiverStream::new(rx1), conn_id, None, true);
+        self.process_stream(
+            ReceiverStream::new(rx1),
+            conn_id,
+            None,
+            CancellationToken::new(),
+            true,
+        );
 
         // return the handles to be used to send and receive messages
         (tx1, rx2)
@@ -653,14 +635,15 @@ impl MessageProcessor {
         mut stream: impl Stream<Item = Result<Message, Status>> + Unpin + Send + 'static,
         conn_index: u64,
         client_config: Option<ClientConfig>,
+        cancellation_token: CancellationToken,
         is_local: bool,
-    ) -> (tokio::task::JoinHandle<()>, CancellationToken) {
+    ) -> tokio::task::JoinHandle<()> {
         // Clone self to be able to move it into the spawned task
         let self_clone = self.clone();
-        let token = CancellationToken::new();
-        let token_clone = token.clone();
+        let token_clone = cancellation_token.clone();
         let client_conf_clone = client_config.clone();
         let handle = tokio::spawn(async move {
+            let mut try_to_reconnect = true;
             loop {
                 tokio::select! {
                     res = stream.next() => {
@@ -679,10 +662,12 @@ impl MessageProcessor {
                     }
                     _ = self_clone.get_drain_watch().signaled() => {
                         info!("shutting down stream on drain: {}", conn_index);
+                        try_to_reconnect = false;
                         break;
                     }
                     _ = token_clone.cancelled() => {
                         info!("shutting down stream cancellation token: {}", conn_index);
+                        try_to_reconnect = false;
                         break;
                     }
                 }
@@ -699,24 +684,33 @@ impl MessageProcessor {
                 .forwarder()
                 .on_connection_drop(conn_index, is_local);
 
-            match client_conf_clone {
-                None => {
-                    debug!("connection lost, no need to reconnect");
-                }
-                Some(config) => {
-                    match config.to_channel() {
-                        Err(e) => {
-                            error!("cannot parse connection config, unable to reconnect {:?}", e.to_string());
-                        }
-                        Ok(channel) => {
-                            info!("connection lost with remote endpoint, try to reconnect");
-                            match self_clone.try_to_connect(channel, Some(config), None, None, 120).await {
-                                Ok(_) => {
-                                    info!("connection re-established");
-                                }
-                                Err(e) => {
-                                    error!("unable to connect to remote node {:?}", e.to_string());
-                                }
+            if try_to_reconnect && client_conf_clone.is_some() {
+                let config = client_conf_clone.unwrap();
+                match config.to_channel() {
+                    Err(e) => {
+                        error!(
+                            "cannot parse connection config, unable to reconnect {:?}",
+                            e.to_string()
+                        );
+                    }
+                    Ok(channel) => {
+                        info!("connection lost with remote endpoint, try to reconnect");
+                        match self_clone
+                            .try_to_connect(
+                                channel,
+                                Some(config),
+                                None,
+                                None,
+                                Some(conn_index),
+                                120,
+                            )
+                            .await
+                        {
+                            Ok(_) => {
+                                info!("connection re-established");
+                            }
+                            Err(e) => {
+                                error!("unable to connect to remote node {:?}", e.to_string());
                             }
                         }
                     }
@@ -724,7 +718,7 @@ impl MessageProcessor {
             }
         });
 
-        (handle, token)
+        handle
     }
 
     fn match_for_io_error(err_status: &Status) -> Option<&std::io::Error> {
@@ -774,9 +768,12 @@ impl PubSubService for MessageProcessor {
         );
 
         // insert connection into connection table
-        let conn_index = self.forwarder().on_connection_established(connection);
+        let conn_index = self
+            .forwarder()
+            .on_connection_established(connection, None)
+            .unwrap();
 
-        self.process_stream(stream, conn_index, None, false);
+        self.process_stream(stream, conn_index, None, CancellationToken::new(), false);
 
         let out_stream = ReceiverStream::new(rx);
         Ok(Response::new(

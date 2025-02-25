@@ -3,6 +3,7 @@
 
 use std::net::SocketAddr;
 use tokio::sync::mpsc;
+use tokio_util::sync::CancellationToken;
 use tonic::Status;
 
 use crate::pubsub::proto::pubsub::v1::Message;
@@ -44,6 +45,9 @@ pub struct Connection {
 
     /// Connection type
     connection_type: Type,
+
+    /// cancellation token to stop the receiving loop on this connection
+    cancellation_token: Option<CancellationToken>,
 }
 
 /// Implementation of Connection
@@ -98,5 +102,21 @@ impl Connection {
     /// Return true if is a local connection
     pub(crate) fn is_local_connection(&self) -> bool {
         matches!(self.connection_type, Type::Local)
+    }
+
+    /// Set cancellation token
+    pub(crate) fn with_cancellation_token(
+        self,
+        cancellation_token: Option<CancellationToken>,
+    ) -> Self {
+        Self {
+            cancellation_token,
+            ..self
+        }
+    }
+
+    /// Get cancellation token
+    pub(crate) fn cancellation_token(&self) -> Option<&CancellationToken> {
+        self.cancellation_token.as_ref()
     }
 }

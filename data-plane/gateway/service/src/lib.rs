@@ -136,9 +136,8 @@ pub struct Service {
 
     /// signal to shutdown the service
     signal: drain::Signal,
-
-    /// map connection id to a cancellation token
-    connections: HashMap<u64, CancellationToken>,
+    /*/// map connection id to a cancellation token
+    connections: HashMap<u64, CancellationToken>,*/
 }
 
 impl Service {
@@ -153,7 +152,6 @@ impl Service {
             config: ServiceConfiguration::new(),
             watch,
             signal,
-            connections: HashMap::new(),
         }
     }
 
@@ -315,10 +313,7 @@ impl Service {
                         error!("connection error: {:?}", e);
                         Err(ServiceError::ConnectionError(e.to_string()))
                     }
-                    Ok(conn_id) => {
-                        self.connections.insert(conn_id.2, conn_id.1);
-                        Ok(conn_id.2)
-                    }
+                    Ok(conn_id) => Ok(conn_id.1),
                 }
             }
         }
@@ -326,15 +321,17 @@ impl Service {
 
     pub fn disconnect(&mut self, conn: u64) -> Result<(), ServiceError> {
         info!("disconnect from conn {}", conn);
-        match self.connections.remove(&conn) {
-            None => {
-                error!("error handling disconnect: connection unknoen");
+        if self.message_processor.disconnect(conn).is_err() {
+            return Err(ServiceError::DisconnectError);
+        }
+        /*             match self.message_processor.disconnect(conn) {
+            Err(e) => {
                 return Err(ServiceError::DisconnectError);
             }
             Some(token) => {
                 token.cancel();
             }
-        }
+        }*/
         Ok(())
     }
 

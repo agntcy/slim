@@ -37,8 +37,20 @@ where
         }
     }
 
-    pub fn on_connection_established(&self, conn: T) -> u64 {
-        self.connection_table.insert(conn) as u64
+    pub fn on_connection_established(&self, conn: T, existing_index: Option<u64>) -> Option<u64> {
+        match existing_index {
+            None => {
+                let x = self.connection_table.insert(conn) as u64;
+                Some(x)
+            }
+            Some(x) => {
+                if self.connection_table.insert_at(conn, x as usize) {
+                    return existing_index;
+                } else {
+                    None
+                }
+            }
+        }
     }
 
     pub fn on_connection_drop(&self, conn_index: u64, is_local: bool) {
