@@ -199,7 +199,7 @@ impl Service {
                 .map_err(|e| ServiceError::ConfigError(e.to_string()))?;
 
             self.message_processor
-                .connect(channel, None, None)
+                .connect(channel, None, None, None)
                 .await
                 .expect("error connecting client");
         }
@@ -303,9 +303,10 @@ impl Service {
                 Err(ServiceError::ConfigError(e.to_string()))
             }
             Ok(channel) => {
+                //let client_config = config.clone();
                 let ret = self
                     .message_processor
-                    .connect(channel, None, None)
+                    .connect(channel, Some(config.clone()), None, None)
                     .await
                     .map_err(|e| ServiceError::ConnectionError(e.to_string()));
 

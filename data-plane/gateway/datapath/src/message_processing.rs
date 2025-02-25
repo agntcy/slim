@@ -4,12 +4,13 @@
 use std::net::SocketAddr;
 use std::{pin::Pin, sync::Arc};
 
+use agp_config::grpc::client::ClientConfig;
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
 use tokio_stream::{Stream, StreamExt};
 use tokio_util::sync::CancellationToken;
 use tonic::codegen::{Body, StdError};
-use tonic::{Request, Response, Status};
+use tonic::{Request, Response, Status, Streaming};
 use tracing::{debug, error, info, trace};
 
 use crate::connection::{Channel, Connection, Type as ConnectionType};
@@ -72,9 +73,66 @@ impl MessageProcessor {
         self.internal.drain_channel.clone()
     }
 
+    async fn try_to_connect<C>(
+        &self,
+        channel: C,
+        client_config: Option<ClientConfig>,
+        local: Option<SocketAddr>,
+        remote: Option<SocketAddr>,
+        max_retry: u32,
+    ) -> Result<(tokio::task::JoinHandle<()>, CancellationToken, u64), DataPathError>
+    where
+        C: tonic::client::GrpcService<tonic::body::BoxBody>,
+        C::Error: Into<StdError>,
+        C::ResponseBody: Body<Data = bytes::Bytes> + std::marker::Send + 'static,
+        <C::ResponseBody as Body>::Error: Into<StdError> + std::marker::Send,
+    {
+        let mut client: PubSubServiceClient<C> = PubSubServiceClient::new(channel);
+        let mut i = 0;
+        while i < max_retry {
+            let (tx, rx) = mpsc::channel(128);
+            match client
+                .open_channel(Request::new(ReceiverStream::new(rx)))
+                .await
+            {
+                Ok(stream) => {
+                    let connection = Connection::new(ConnectionType::Remote)
+                        .with_local_addr(local)
+                        .with_remote_addr(remote)
+                        .with_channel(Channel::Client(tx));
+
+                    info!(
+                        "new connection initiated locally: (remote: {:?} - local: {:?})",
+                        connection.remote_addr(),
+                        connection.local_addr()
+                    );
+
+                    // insert connection into connection table
+                    let conn_index = self.forwarder().on_connection_established(connection);
+
+                    // Start loop to process messages
+                    let ret =
+                        self.process_stream(stream.into_inner(), conn_index, client_config, false);
+                    return Ok((ret.0, ret.1, conn_index));
+                }
+                Err(e) => {
+                    error!("connection error: {:?}.", e.to_string());
+                }
+            }
+            i += 1;
+
+            // sleep 1 sec between each connection retry
+            tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+        }
+
+        error!("unable to connect to the endpoint");
+        Err(DataPathError::ConnectionError("reached max connection retries".to_string()))
+    }
+
     pub async fn connect<C>(
         &self,
         channel: C,
+        client_config: Option<ClientConfig>,
         local: Option<SocketAddr>,
         remote: Option<SocketAddr>,
     ) -> Result<(tokio::task::JoinHandle<()>, CancellationToken, u64), DataPathError>
@@ -84,15 +142,66 @@ impl MessageProcessor {
         C::ResponseBody: Body<Data = bytes::Bytes> + std::marker::Send + 'static,
         <C::ResponseBody as Body>::Error: Into<StdError> + std::marker::Send,
     {
-        let mut client = PubSubServiceClient::new(channel);
-        let (tx, rx) = mpsc::channel(128);
-        let stream = client
-            .open_channel(Request::new(ReceiverStream::new(rx)))
+        self.try_to_connect(channel, client_config, local, remote, 10)
             .await
-            .map_err(|e| DataPathError::ConnectionError(e.to_string()))?
-            .into_inner();
+        //let mut client = PubSubServiceClient::new(channel);
+        //let (tx, rx) = mpsc::channel(128);
+        /*let x =  client.open_channel(Request::new(ReceiverStream::new(rx))).await.map_err(|e| DataPathError::ConnectionError(e.to_string()))?.into_inner();
+        let stream;
+        loop {
+            match client.open_channel(Request::new(ReceiverStream::new(rx))).await? {
+                Ok(s) => {
+                    stream = s;
+                    break;
+                }
+                Err(e) => {
+                    error!("cannot connect to the endpoint {:?}", e.to_string());
+                }
+            }
+        }*/
 
-        let connection = Connection::new(ConnectionType::Remote)
+        //let stream;
+
+        /*let mut client = PubSubServiceClient::new(channel);
+        loop {
+
+            let (tx, rx) = mpsc::channel(128);
+            match  client.open_channel(Request::new(ReceiverStream::new(rx))).await  {
+                Ok(stream) => {
+                    //stream = s;
+                    //break;
+                    let connection = Connection::new(ConnectionType::Remote)
+            .with_local_addr(local)
+            .with_remote_addr(remote)
+            .with_channel(Channel::Client(tx));
+
+            info!(
+                "new connection initiated locally: (remote: {:?} - local: {:?})",
+                connection.remote_addr(),
+                connection.local_addr()
+            );
+
+            // insert connection into connection table
+        let conn_index = self.forwarder().on_connection_established(connection);
+
+        // Start loop to process messages
+        let ret = self.process_stream(stream.into_inner(), conn_index, client_config, false);
+        return Ok((ret.0, ret.1, conn_index));
+
+                }
+                Err(e) => {
+                    error!("connection error: {:?}. try again", e.to_string());
+                }
+            }
+        }*/
+
+        /*let stream = client
+        .open_channel(Request::new(ReceiverStream::new(rx)))
+        .await
+        .map_err(|e| DataPathError::ConnectionError(e.to_string()))?
+        .into_inner();*/
+
+        /*let connection = Connection::new(ConnectionType::Remote)
             .with_local_addr(local)
             .with_remote_addr(remote)
             .with_channel(Channel::Client(tx));
@@ -107,8 +216,8 @@ impl MessageProcessor {
         let conn_index = self.forwarder().on_connection_established(connection);
 
         // Start loop to process messages
-        let ret = self.process_stream(stream, conn_index, false);
-        Ok((ret.0, ret.1, conn_index))
+        let ret = self.process_stream(stream.into_inner(), conn_index, client_config, false);
+        Ok((ret.0, ret.1, conn_index))*/
     }
 
     pub fn register_local_connection(
@@ -134,7 +243,7 @@ impl MessageProcessor {
         debug!("local connection established with id: {:?}", conn_id);
 
         // this loop will process messages from the local app
-        self.process_stream(ReceiverStream::new(rx1), conn_id, true);
+        self.process_stream(ReceiverStream::new(rx1), conn_id, None, true);
 
         // return the handles to be used to send and receive messages
         (tx1, rx2)
@@ -543,12 +652,14 @@ impl MessageProcessor {
         &self,
         mut stream: impl Stream<Item = Result<Message, Status>> + Unpin + Send + 'static,
         conn_index: u64,
+        client_config: Option<ClientConfig>,
         is_local: bool,
     ) -> (tokio::task::JoinHandle<()>, CancellationToken) {
         // Clone self to be able to move it into the spawned task
         let self_clone = self.clone();
         let token = CancellationToken::new();
         let token_clone = token.clone();
+        let client_conf_clone = client_config.clone();
         let handle = tokio::spawn(async move {
             loop {
                 tokio::select! {
@@ -577,9 +688,40 @@ impl MessageProcessor {
                 }
             }
 
+            // TODO:
+            // if client config is None-> done
+            // store all the subscription on this connection
+            // remove state
+            // call connect
+            // subcribe
+
             self_clone
                 .forwarder()
                 .on_connection_drop(conn_index, is_local);
+
+            match client_conf_clone {
+                None => {
+                    debug!("connection lost, no need to reconnect");
+                }
+                Some(config) => {
+                    match config.to_channel() {
+                        Err(e) => {
+                            error!("cannot parse connection config, unable to reconnect {:?}", e.to_string());
+                        }
+                        Ok(channel) => {
+                            info!("connection lost with remote endpoint, try to reconnect");
+                            match self_clone.try_to_connect(channel, Some(config), None, None, 120).await {
+                                Ok(_) => {
+                                    info!("connection re-established");
+                                }
+                                Err(e) => {
+                                    error!("unable to connect to remote node {:?}", e.to_string());
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         });
 
         (handle, token)
@@ -634,7 +776,7 @@ impl PubSubService for MessageProcessor {
         // insert connection into connection table
         let conn_index = self.forwarder().on_connection_established(connection);
 
-        self.process_stream(stream, conn_index, false);
+        self.process_stream(stream, conn_index, None, false);
 
         let out_stream = ReceiverStream::new(rx);
         Ok(Response::new(
