@@ -447,6 +447,7 @@ impl MessageProcessor {
                     "received message without message type from connection {}: {:?}",
                     in_connection, msg
                 );
+                info!(monotonic_counter.num_messages_by_type = 1, method = "none");
                 Err(DataPathError::UnknownMsgType("".to_string()))
             }
             Some(msg_type) => match msg_type {
@@ -455,6 +456,7 @@ impl MessageProcessor {
                         "received subscription from connection {}: {:?}",
                         in_connection, s
                     );
+                    info!(monotonic_counter.num_messages_by_type = 1, method = "subscribe");
                     match self.process_subscription(msg, in_connection).await {
                         Err(e) => {
                             error! {"error processing subscription {:?}", e}
@@ -468,6 +470,7 @@ impl MessageProcessor {
                         "Received ubsubscription from client {}: {:?}",
                         in_connection, u
                     );
+                    info!(monotonic_counter.num_messages_by_type = 1, method = "unsubscribe");
                     match self.process_unsubscription(msg, in_connection).await {
                         Err(e) => {
                             error! {"error processing unsubscription {:?}", e}
@@ -478,6 +481,7 @@ impl MessageProcessor {
                 }
                 PublishType(p) => {
                     debug!("Received publish from client {}: {:?}", in_connection, p);
+                    info!(monotonic_counter.num_messages_by_type = 1, method = "publish");
                     match self.process_publish(msg, in_connection).await {
                         Err(e) => {
                             error! {"error processing publication {:?}", e}
@@ -496,6 +500,7 @@ impl MessageProcessor {
         result: Result<Message, Status>,
     ) -> Result<(), DataPathError> {
         debug!(%conn_index, "Received message from connection");
+        info!(monotonic_counter.num_processed_messages = 1);
 
         match result {
             Ok(msg) => {
@@ -507,6 +512,7 @@ impl MessageProcessor {
                             "error processing message from connection {:?}: {:?}",
                             conn_index, e
                         );
+                        info!(monotonic_counter.num_message_process_errors = 1);
                         Ok(())
                     }
                 }
@@ -630,6 +636,8 @@ impl PubSubService for MessageProcessor {
             connection.remote_addr(),
             connection.local_addr()
         );
+        // TODO(zkacsand): decrease on disconnect
+        info!(counter.num_active_connections = 1);
 
         // insert connection into connection table
         let conn_index = self.forwarder().on_connection_established(connection);
