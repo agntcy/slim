@@ -447,7 +447,7 @@ impl MessageProcessor {
                     "received message without message type from connection {}: {:?}",
                     in_connection, msg
                 );
-                info!(monotonic_counter.num_messages_by_type = 1, method = "none");
+                info!(monotonic_counter.num_messages_by_type = 1, message_type = "none");
                 Err(DataPathError::UnknownMsgType("".to_string()))
             }
             Some(msg_type) => match msg_type {
@@ -456,7 +456,7 @@ impl MessageProcessor {
                         "received subscription from connection {}: {:?}",
                         in_connection, s
                     );
-                    info!(monotonic_counter.num_messages_by_type = 1, method = "subscribe");
+                    info!(monotonic_counter.num_messages_by_type = 1, message_type = "subscribe");
                     match self.process_subscription(msg, in_connection).await {
                         Err(e) => {
                             error! {"error processing subscription {:?}", e}
@@ -470,7 +470,7 @@ impl MessageProcessor {
                         "Received ubsubscription from client {}: {:?}",
                         in_connection, u
                     );
-                    info!(monotonic_counter.num_messages_by_type = 1, method = "unsubscribe");
+                    info!(monotonic_counter.num_messages_by_type = 1, message_type = "unsubscribe");
                     match self.process_unsubscription(msg, in_connection).await {
                         Err(e) => {
                             error! {"error processing unsubscription {:?}", e}

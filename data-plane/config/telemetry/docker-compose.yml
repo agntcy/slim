@@ -3,7 +3,7 @@ services:
     image: jaegertracing/all-in-one:latest
     ports:
       - "16686:16686"  # Jaeger UI
-      - "14317:14317"    # gRPC collector for OTEL Collector
+      - "14317:14317"  # gRPC collector for OTEL Collector
     environment:
       - COLLECTOR_OTLP_ENABLED=true
       - COLLECTOR_OTLP_GRPC_HOST_PORT=:14317
