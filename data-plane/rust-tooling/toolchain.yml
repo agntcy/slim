@@ -92,9 +92,10 @@ tasks:
     desc: "Install the components"
     internal: true
     cmds:
-      - cargo install {{.COMPONENTS}} --locked
+      - cargo install {{.COMPONENTS}} {{if .VERSION}}--version {{.VERSION}}{{end}} --locked
     vars:
       COMPONENTS: '{{ .COMPONENTS | default "" }}'
+      VERSION: '{{ .VERSION | default "" }}'
 
   clean:
     desc: "Clean the project"
@@ -163,6 +164,7 @@ tasks:
       - task: build:install-cargo-components
         vars:
           COMPONENTS: "cargo-machete"
+          VERSION: "0.7.0"
     cmds:
       - cargo machete {{.ARGS}}
     vars:
