@@ -11,7 +11,6 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use thiserror::Error;
 use tokio::sync::mpsc;
-use tokio_util::sync::CancellationToken;
 use tonic::Status;
 use tracing::{debug, error, info};
 
@@ -136,8 +135,6 @@ pub struct Service {
 
     /// signal to shutdown the service
     signal: drain::Signal,
-    /*/// map connection id to a cancellation token
-    connections: HashMap<u64, CancellationToken>,*/
 }
 
 impl Service {
@@ -324,14 +321,6 @@ impl Service {
         if self.message_processor.disconnect(conn).is_err() {
             return Err(ServiceError::DisconnectError);
         }
-        /*             match self.message_processor.disconnect(conn) {
-            Err(e) => {
-                return Err(ServiceError::DisconnectError);
-            }
-            Some(token) => {
-                token.cancel();
-            }
-        }*/
         Ok(())
     }
 

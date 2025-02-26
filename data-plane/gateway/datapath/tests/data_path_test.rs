@@ -51,9 +51,10 @@ mod tests {
 
         // create bidirectional stream
         info!("Client connected");
-        let (_, _, conn_index) = msg_processor
+        let (_, conn_index) = msg_processor
             .connect(
                 channel,
+                None,
                 None,
                 Some(SocketAddr::from(([127, 0, 0, 1], 50051))),
             )

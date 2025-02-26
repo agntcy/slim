@@ -10,7 +10,7 @@ use tokio_stream::wrappers::ReceiverStream;
 use tokio_stream::{Stream, StreamExt};
 use tokio_util::sync::CancellationToken;
 use tonic::codegen::{Body, StdError};
-use tonic::{Request, Response, Status, Streaming};
+use tonic::{Request, Response, Status};
 use tracing::{debug, error, info, trace};
 
 use crate::connection::{Channel, Connection, Type as ConnectionType};
@@ -122,7 +122,10 @@ impl MessageProcessor {
                     }
 
                     let conn_index = opt.unwrap();
-                    info!("connection index = {:?}", conn_index);
+                    info!(
+                        "new connection index = {:?}, is local {:?}",
+                        conn_index, false
+                    );
 
                     // Start loop to process messages
                     let ret = self.process_stream(
@@ -487,7 +490,8 @@ impl MessageProcessor {
                         _ => {}
                     },
                 }
-                let connection = self.forwarder().get_connection(in_connection);
+
+                let connection = self.forwarder().get_connection(conn);
                 if connection.is_none() {
                     // this should never happen
                     error!("incoming connection does not exists");
@@ -673,16 +677,7 @@ impl MessageProcessor {
                 }
             }
 
-            // TODO:
-            // if client config is None-> done
-            // store all the subscription on this connection
-            // remove state
-            // call connect
-            // subcribe
-
-            self_clone
-                .forwarder()
-                .on_connection_drop(conn_index, is_local);
+            let mut delete_connection = true;
 
             if try_to_reconnect && client_conf_clone.is_some() {
                 let config = client_conf_clone.unwrap();
@@ -695,6 +690,15 @@ impl MessageProcessor {
                     }
                     Ok(channel) => {
                         info!("connection lost with remote endpoint, try to reconnect");
+                        let subscriptions = self_clone
+                            .forwarder()
+                            .get_subscriptions_on_connection(conn_index);
+                        delete_connection = false;
+
+                        self_clone
+                            .forwarder()
+                            .on_connection_drop(conn_index, is_local);
+
                         match self_clone
                             .try_to_connect(
                                 channel,
@@ -708,6 +712,19 @@ impl MessageProcessor {
                         {
                             Ok(_) => {
                                 info!("connection re-established");
+                                // connection is restored, send again all the subscriptions
+                                for s in subscriptions.iter() {
+                                    let res = self_clone.forwarder().on_subscription_msg(
+                                        s.agent_class.clone(),
+                                        Some(s.agent_id),
+                                        conn_index,
+                                        is_local,
+                                    );
+                                    if res.is_err() {
+                                        error!("An error occured while reinstablishing local subscriptions")
+                                    }
+                                    // DO I NEED TO SEND THE SUB ON THE NEXT HOP?
+                                }
                             }
                             Err(e) => {
                                 error!("unable to connect to remote node {:?}", e.to_string());
@@ -715,6 +732,12 @@ impl MessageProcessor {
                         }
                     }
                 }
+            }
+
+            if delete_connection {
+                self_clone
+                    .forwarder()
+                    .on_connection_drop(conn_index, is_local);
             }
         });
 

@@ -1,12 +1,13 @@
 // SPDX-FileCopyrightText: Copyright (c) 2025 Cisco and/or its affiliates.
 // SPDX-License-Identifier: Apache-2.0
 
+use std::collections::HashSet;
 use std::sync::Arc;
 
 use super::tables::connection_table::ConnectionTable;
 use super::tables::subscription_table::SubscriptionTableImpl;
 use super::tables::{errors::SubscriptionTableError, SubscriptionTable};
-use crate::messages::AgentClass;
+use crate::messages::{Agent, AgentClass};
 
 #[derive(Debug)]
 pub struct Forwarder<T>
@@ -62,6 +63,11 @@ where
 
     pub fn get_connection(&self, conn_index: u64) -> Option<Arc<T>> {
         self.connection_table.get(conn_index as usize)
+    }
+
+    pub fn get_subscriptions_on_connection(&self, conn_index: u64) -> HashSet<Agent> {
+        self.subscription_table
+            .get_subscriptions_on_connection(conn_index)
     }
 
     pub fn on_subscription_msg(

@@ -567,6 +567,16 @@ impl SubscriptionTable for SubscriptionTableImpl {
         Ok(())
     }
 
+    fn get_subscriptions_on_connection(&self, conn: u64) -> HashSet<Agent> {
+        let conn_map = self.connections.read();
+        match conn_map.get(&conn) {
+            None => {
+                return HashSet::new();
+            }
+            Some(set) => set.clone(),
+        }
+    }
+
     fn remove_connection(&self, conn: u64, is_local: bool) -> Result<(), SubscriptionTableError> {
         {
             let conn_map = self.connections.read();
@@ -576,6 +586,7 @@ impl SubscriptionTable for SubscriptionTableImpl {
             }
             for agent in set.unwrap() {
                 let table = self.table.write();
+                error!("remove subscription {:?} from connection {:?}", agent, conn);
                 remove_subscription_from_sub_table(agent, conn, is_local, table)?;
             }
         }
