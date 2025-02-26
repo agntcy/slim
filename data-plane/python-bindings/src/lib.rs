@@ -29,6 +29,225 @@ use agp_service::{Service, ServiceError};
 
 static TRACING_GUARD: OnceCell<agp_tracing::OtelGuard> = OnceCell::const_new();
 
+/// gatewayconfig class
+#[gen_stub_pyclass]
+#[pyclass]
+#[derive(Clone)]
+struct PyGatewayConfig {
+    #[pyo3(get, set)]
+    endpoint: String,
+
+    #[pyo3(get, set)]
+    insecure: bool,
+
+    #[pyo3(get, set)]
+    insecure_skip_verify: bool,
+
+    #[pyo3(get, set)]
+    tls_ca_path: Option<String>,
+
+    #[pyo3(get, set)]
+    tls_ca_pem: Option<String>,
+
+    #[pyo3(get, set)]
+    tls_cert_path: Option<String>,
+
+    #[pyo3(get, set)]
+    tls_key_path: Option<String>,
+
+    #[pyo3(get, set)]
+    tls_cert_pem: Option<String>,
+
+    #[pyo3(get, set)]
+    tls_key_pem: Option<String>,
+
+    #[pyo3(get, set)]
+    basic_auth_username: Option<String>,
+
+    #[pyo3(get, set)]
+    basic_auth_password: Option<String>,
+}
+
+#[gen_stub_pymethods]
+#[pymethods]
+impl PyGatewayConfig {
+    #[new]
+    #[pyo3(signature = (
+        endpoint,
+        insecure=false,
+        insecure_skip_verify=false,
+        tls_ca_path=None,
+        tls_ca_pem=None,
+        tls_cert_path=None,
+        tls_key_path=None,
+        tls_cert_pem=None,
+        tls_key_pem=None,
+        basic_auth_username=None,
+        basic_auth_password=None,
+    ))]
+    pub fn new(
+        endpoint: String,
+        insecure: bool,
+        insecure_skip_verify: bool,
+        tls_ca_path: Option<String>,
+        tls_ca_pem: Option<String>,
+        tls_cert_path: Option<String>,
+        tls_key_path: Option<String>,
+        tls_cert_pem: Option<String>,
+        tls_key_pem: Option<String>,
+        basic_auth_username: Option<String>,
+        basic_auth_password: Option<String>,
+    ) -> Self {
+        PyGatewayConfig {
+            endpoint,
+            insecure,
+            insecure_skip_verify,
+            tls_ca_path,
+            tls_ca_pem,
+            tls_cert_path,
+            tls_key_path,
+            tls_cert_pem,
+            tls_key_pem,
+            basic_auth_username,
+            basic_auth_password,
+        }
+    }
+}
+
+impl PyGatewayConfig {
+    fn to_server_config(&self) -> Result<ServerConfig, ServiceError> {
+        let config = ServerConfig::with_endpoint(&self.endpoint);
+        let tls_settings = TlsServerConfig::new().with_insecure(self.insecure);
+        let tls_settings = match (&self.tls_cert_path, &self.tls_key_path) {
+            (Some(cert_path), Some(key_path)) => tls_settings
+                .with_cert_file(cert_path)
+                .with_key_file(key_path),
+            (Some(_), None) => {
+                return Err(ServiceError::ConfigError(
+                    "cannot use server cert without key".to_string(),
+                ));
+            }
+            (None, Some(_)) => {
+                return Err(ServiceError::ConfigError(
+                    "cannot use server key without cert".to_string(),
+                ));
+            }
+            (_, _) => tls_settings,
+        };
+
+        let tls_settings = match (&self.tls_cert_pem, &self.tls_key_pem) {
+            (Some(cert_pem), Some(key_pem)) => {
+                tls_settings.with_cert_pem(cert_pem).with_key_pem(key_pem)
+            }
+            (Some(_), None) => {
+                return Err(ServiceError::ConfigError(
+                    "cannot use server cert PEM without key PEM".to_string(),
+                ));
+            }
+            (None, Some(_)) => {
+                return Err(ServiceError::ConfigError(
+                    "cannot use server key PEM without cert PEM".to_string(),
+                ));
+            }
+            (_, _) => tls_settings,
+        };
+
+        let config = config.with_tls_settings(tls_settings);
+
+        let config = match (&self.basic_auth_username, &self.basic_auth_password) {
+            (Some(username), Some(password)) => config.with_auth(
+                ServerAuthenticationConfig::Basic(BasicAuthConfig::new(username, password)),
+            ),
+            (Some(_), None) => {
+                return Err(ServiceError::ConfigError(
+                    "cannot use basic auth without password".to_string(),
+                ));
+            }
+            (None, Some(_)) => {
+                return Err(ServiceError::ConfigError(
+                    "cannot use basic auth without username".to_string(),
+                ));
+            }
+            (_, _) => config,
+        };
+
+        Ok(config)
+    }
+
+    fn to_client_config(&self) -> Result<ClientConfig, ServiceError> {
+        let config = ClientConfig::with_endpoint(&self.endpoint);
+
+        let tls_settings = TlsClientConfig::new()
+            .with_insecure(self.insecure)
+            .with_insecure_skip_verify(self.insecure_skip_verify);
+
+        let tls_settings = match &self.tls_ca_path {
+            Some(ca_path) => tls_settings.with_ca_file(ca_path),
+            None => tls_settings,
+        };
+
+        let tls_settings = match &self.tls_ca_pem {
+            Some(ca_pem) => tls_settings.with_ca_pem(ca_pem),
+            None => tls_settings,
+        };
+
+        let tls_settings = match (&self.tls_cert_path, &self.tls_key_path) {
+            (Some(cert_path), Some(key_path)) => tls_settings
+                .with_cert_file(cert_path)
+                .with_key_file(key_path),
+            (Some(_), None) => {
+                return Err(ServiceError::ConfigError(
+                    "cannot use client cert without key".to_string(),
+                ));
+            }
+            (None, Some(_)) => {
+                return Err(ServiceError::ConfigError(
+                    "cannot use client key without cert".to_string(),
+                ));
+            }
+            (_, _) => tls_settings,
+        };
+
+        let tls_settings = match (&self.tls_cert_pem, &self.tls_key_pem) {
+            (Some(cert_pem), Some(key_pem)) => {
+                tls_settings.with_cert_pem(cert_pem).with_key_pem(key_pem)
+            }
+            (Some(_), None) => {
+                return Err(ServiceError::ConfigError(
+                    "cannot use client cert PEM without key PEM".to_string(),
+                ));
+            }
+            (None, Some(_)) => {
+                return Err(ServiceError::ConfigError(
+                    "cannot use client key PEM without cert PEM".to_string(),
+                ));
+            }
+            (_, _) => tls_settings,
+        };
+
+        let config = config.with_tls_setting(tls_settings);
+
+        let config = match (&self.basic_auth_username, &self.basic_auth_password) {
+            (Some(username), Some(password)) => config.with_auth(
+                ClientAuthenticationConfig::Basic(BasicAuthConfig::new(username, password)),
+            ),
+            (Some(_), None) => {
+                return Err(ServiceError::ConfigError(
+                    "cannot use basic auth without password".to_string(),
+                ));
+            }
+            (None, Some(_)) => {
+                return Err(ServiceError::ConfigError(
+                    "cannot use basic auth without username".to_string(),
+                ));
+            }
+            (_, _) => config,
+        };
+
+        Ok(config)
+    }
+}
+
 /// agent class
 #[gen_stub_pyclass]
 #[pyclass]
@@ -107,6 +326,7 @@ impl PyAgentSource {
 #[derive(Clone)]
 struct PyService {
     sdk: Arc<tokio::sync::RwLock<PyServiceInternal>>,
+    config: Option<PyGatewayConfig>,
 }
 
 struct PyServiceInternal {
@@ -125,28 +345,14 @@ impl PyService {
                 service: Service::new(svc_id),
                 rx: None,
             })),
+            config: None,
         }
     }
-}
 
-async fn init_tracing_impl(log_level: String) {
-    let _ = TRACING_GUARD
-        .get_or_init(|| async {
-            let otel_guard = agp_tracing::TracingConfiguration::default()
-                .with_log_level(log_level)
-                .setup_tracing_subscriber();
-
-            otel_guard
-        })
-        .await;
-}
-
-#[pyfunction]
-#[pyo3(signature = (log_level="info".to_string(),))]
-fn init_tracing(py: Python, log_level: String) {
-    let _ = pyo3_async_runtimes::tokio::future_into_py(py, async move {
-        Ok(init_tracing_impl(log_level).await)
-    });
+    #[pyo3(signature = (config))]
+    pub fn configure(&mut self, config: PyGatewayConfig) {
+        self.config = Some(config);
+    }
 }
 
 async fn create_agent_impl(
@@ -192,259 +398,64 @@ fn create_agent(
     })
 }
 
-async fn serve_impl(
-    svc: PyService,
-    endpoint: String,
-    insecure: bool,
-    tls_server_cert_path: Option<String>,
-    tls_server_key_path: Option<String>,
-    tls_server_cert_pem: Option<String>,
-    tls_server_key_pem: Option<String>,
-    basic_auth_username: Option<String>,
-    basic_auth_password: Option<String>,
-) -> Result<(), ServiceError> {
-    // derive a configuration from the parameters
-    let config = ServerConfig::with_endpoint(&endpoint);
-    let tls_settings = TlsServerConfig::new().with_insecure(insecure);
-
-    let tls_settings = match (&tls_server_cert_path, &tls_server_key_path) {
-        (Some(cert_path), Some(key_path)) => tls_settings
-            .with_cert_file(cert_path)
-            .with_key_file(key_path),
-        (Some(_), None) => {
+async fn serve_impl(svc: PyService) -> Result<(), ServiceError> {
+    let config = match svc.config {
+        Some(config) => config,
+        None => {
             return Err(ServiceError::ConfigError(
-                "cannot use client cert without key".to_string(),
-            ));
+                "No configuration set on service".to_string(),
+            ))
         }
-        (None, Some(_)) => {
-            return Err(ServiceError::ConfigError(
-                "cannot use client key without cert".to_string(),
-            ));
-        }
-        (_, _) => tls_settings,
     };
 
-    let tls_settings = match (&tls_server_cert_pem, &tls_server_key_pem) {
-        (Some(cert_path), Some(key_path)) => {
-            tls_settings.with_cert_pem(cert_path).with_key_pem(key_path)
-        }
-        (Some(_), None) => {
-            return Err(ServiceError::ConfigError(
-                "cannot use client cert without key".to_string(),
-            ));
-        }
-        (None, Some(_)) => {
-            return Err(ServiceError::ConfigError(
-                "cannot use client key without cert".to_string(),
-            ));
-        }
-        (_, _) => tls_settings,
-    };
+    let server_config = config.to_server_config()?;
 
-    let config = config.with_tls_settings(tls_settings);
-
-    let config = match (&basic_auth_username, &basic_auth_password) {
-        (Some(username), Some(password)) => config.with_auth(ServerAuthenticationConfig::Basic(
-            BasicAuthConfig::new(username, password),
-        )),
-        (Some(_), None) => {
-            return Err(ServiceError::ConfigError(
-                "cannot use basic auth without password".to_string(),
-            ));
-        }
-        (None, Some(_)) => {
-            return Err(ServiceError::ConfigError(
-                "cannot use basic auth without username".to_string(),
-            ));
-        }
-        (_, _) => config,
-    };
-
-    // config is ready, connect
     let service = svc.sdk.write().await;
-
-    service.service.serve(Some(config))
+    service.service.serve(Some(server_config))
 }
 
 #[gen_stub_pyfunction]
 #[pyfunction]
 #[pyo3(signature = (
     svc,
-    endpoint,
-    insecure=false,
-    tls_server_cert_path=None,
-    tls_server_key_path=None,
-    tls_server_cert_pem=None,
-    tls_server_key_pem=None,
-    basic_auth_username=None,
-    basic_auth_password=None,
 ))]
-fn serve(
-    py: Python,
-    svc: PyService,
-    endpoint: String,
-    insecure: bool,
-    tls_server_cert_path: Option<String>,
-    tls_server_key_path: Option<String>,
-    tls_server_cert_pem: Option<String>,
-    tls_server_key_pem: Option<String>,
-    basic_auth_username: Option<String>,
-    basic_auth_password: Option<String>,
-) -> PyResult<Bound<PyAny>> {
+fn serve(py: Python, svc: PyService) -> PyResult<Bound<PyAny>> {
     pyo3_async_runtimes::tokio::future_into_py(py, async move {
-        serve_impl(
-            svc.clone(),
-            endpoint,
-            insecure,
-            tls_server_cert_path,
-            tls_server_key_path,
-            tls_server_cert_pem,
-            tls_server_key_pem,
-            basic_auth_username,
-            basic_auth_password,
-        )
-        .await
-        .map_err(|e| PyErr::new::<PyException, _>(format!("{}", e.to_string())))
+        serve_impl(svc.clone())
+            .await
+            .map_err(|e| PyErr::new::<PyException, _>(format!("{}", e.to_string())))
     })
 }
 
-async fn connect_impl(
-    svc: PyService,
-    endpoint: String,
-    insecure: bool,
-    insecure_skip_verify: bool,
-    tls_ca_path: Option<String>,
-    tls_client_cert_path: Option<String>,
-    tls_client_key_path: Option<String>,
-    tls_ca_pem: Option<String>,
-    tls_client_cert_pem: Option<String>,
-    tls_client_key_pem: Option<String>,
-    basic_auth_username: Option<String>,
-    basic_auth_password: Option<String>,
-) -> Result<u64, ServiceError> {
-    // derive a configuration from the parameters
-    let config = ClientConfig::with_endpoint(&endpoint);
-    let tls_settings = TlsClientConfig::new()
-        .with_insecure(insecure)
-        .with_insecure_skip_verify(insecure_skip_verify);
-
-    let tls_settings: TlsClientConfig = match &tls_ca_path {
-        Some(ca_path) => tls_settings.with_ca_file(ca_path),
-        None => tls_settings,
+async fn connect_impl(svc: PyService) -> Result<u64, ServiceError> {
+    // Get the service's configuration
+    let config = match svc.config {
+        Some(config) => config,
+        None => {
+            return Err(ServiceError::ConfigError(
+                "No configuration set on service".to_string(),
+            ))
+        }
     };
 
-    let tls_settings: TlsClientConfig = match &tls_ca_pem {
-        Some(ca_pem) => tls_settings.with_ca_pem(ca_pem),
-        None => tls_settings,
-    };
+    // Convert PyGatewayConfig to ClientConfig
+    let client_config = config.to_client_config()?;
 
-    let tls_settings: TlsClientConfig = match (&tls_client_cert_path, &tls_client_key_path) {
-        (Some(cert_path), Some(key_path)) => tls_settings
-            .with_cert_file(cert_path)
-            .with_key_file(key_path),
-        (Some(_), None) => {
-            return Err(ServiceError::ConfigError(
-                "cannot use client cert without key".to_string(),
-            ));
-        }
-        (None, Some(_)) => {
-            return Err(ServiceError::ConfigError(
-                "cannot use client key without cert".to_string(),
-            ));
-        }
-        (_, _) => tls_settings,
-    };
-
-    let tls_settings: TlsClientConfig = match (&tls_client_cert_pem, &tls_client_key_pem) {
-        (Some(cert_pem), Some(key_pem)) => {
-            tls_settings.with_cert_pem(cert_pem).with_key_pem(key_pem)
-        }
-        (Some(_), None) => {
-            return Err(ServiceError::ConfigError(
-                "cannot use client cert without key".to_string(),
-            ));
-        }
-        (None, Some(_)) => {
-            return Err(ServiceError::ConfigError(
-                "cannot use client key without cert".to_string(),
-            ));
-        }
-        (_, _) => tls_settings,
-    };
-
-    let config = config.with_tls_setting(tls_settings);
-
-    let config = match (&basic_auth_username, &basic_auth_password) {
-        (Some(username), Some(password)) => config.with_auth(ClientAuthenticationConfig::Basic(
-            BasicAuthConfig::new(username, password),
-        )),
-        (Some(_), None) => {
-            return Err(ServiceError::ConfigError(
-                "cannot use basic auth without password".to_string(),
-            ));
-        }
-        (None, Some(_)) => {
-            return Err(ServiceError::ConfigError(
-                "cannot use basic auth without username".to_string(),
-            ));
-        }
-        (_, _) => config,
-    };
-
-    // config is ready, connect
+    // Get service and connect
     let mut service = svc.sdk.write().await;
-
-    service.service.connect(Some(config)).await
+    service.service.connect(Some(client_config)).await
 }
 
 #[gen_stub_pyfunction]
 #[pyfunction]
 #[pyo3(signature = (
     svc,
-    endpoint,
-    insecure=false,
-    insecure_skip_verify=false,
-    tls_ca_path=None,
-    tls_client_cert_path=None,
-    tls_client_key_path=None,
-    tls_ca_pem=None,
-    tls_client_cert_pem=None,
-    tls_client_key_pem=None,
-    basic_auth_username=None,
-    basic_auth_password=None,
 ))]
-fn connect(
-    py: Python,
-    svc: PyService,
-    endpoint: String,
-    insecure: bool,
-    insecure_skip_verify: bool,
-    tls_ca_path: Option<String>,
-    tls_client_cert_path: Option<String>,
-    tls_client_key_path: Option<String>,
-    tls_ca_pem: Option<String>,
-    tls_client_cert_pem: Option<String>,
-    tls_client_key_pem: Option<String>,
-    basic_auth_username: Option<String>,
-    basic_auth_password: Option<String>,
-) -> PyResult<Bound<PyAny>> {
+fn connect(py: Python, svc: PyService) -> PyResult<Bound<PyAny>> {
     pyo3_async_runtimes::tokio::future_into_py(py, async move {
-        connect_impl(
-            svc.clone(),
-            endpoint,
-            insecure,
-            insecure_skip_verify,
-            tls_ca_path,
-            tls_client_cert_path,
-            tls_client_key_path,
-            tls_ca_pem,
-            tls_client_cert_pem,
-            tls_client_key_pem,
-            basic_auth_username,
-            basic_auth_password,
-        )
-        .await
-        .map_err(|e| PyErr::new::<PyException, _>(format!("{}", e.to_string())))
+        connect_impl(svc.clone())
+            .await
+            .map_err(|e| PyErr::new::<PyException, _>(format!("{}", e.to_string())))
     })
 }
 
@@ -697,11 +708,32 @@ fn receive(py: Python, svc: PyService) -> PyResult<Bound<PyAny>> {
     })
 }
 
+async fn init_tracing_impl(log_level: String) {
+    let _ = TRACING_GUARD
+        .get_or_init(|| async {
+            let otel_guard = agp_tracing::TracingConfiguration::default()
+                .with_log_level(log_level)
+                .setup_tracing_subscriber();
+
+            otel_guard
+        })
+        .await;
+}
+
+#[pyfunction]
+#[pyo3(signature = (log_level="info".to_string(),))]
+fn init_tracing(py: Python, log_level: String) {
+    let _ = pyo3_async_runtimes::tokio::future_into_py(py, async move {
+        Ok(init_tracing_impl(log_level).await)
+    });
+}
+
 #[pymodule]
 fn _agp_bindings(_py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
+    m.add_class::<PyGatewayConfig>()?;
     m.add_class::<PyService>()?;
     m.add_class::<PyAgentClass>()?;
-    m.add_function(wrap_pyfunction!(init_tracing, m)?)?;
+
     m.add_function(wrap_pyfunction!(create_agent, m)?)?;
     m.add_function(wrap_pyfunction!(subscribe, m)?)?;
     m.add_function(wrap_pyfunction!(unsubscribe, m)?)?;
@@ -712,6 +744,7 @@ fn _agp_bindings(_py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(connect, m)?)?;
     m.add_function(wrap_pyfunction!(disconnect, m)?)?;
     m.add_function(wrap_pyfunction!(receive, m)?)?;
+    m.add_function(wrap_pyfunction!(init_tracing, m)?)?;
 
     Ok(())
 }
