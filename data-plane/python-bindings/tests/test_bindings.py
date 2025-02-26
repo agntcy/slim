@@ -9,7 +9,7 @@ import agp_bindings
 
 # create svcs
 svc_server = agp_bindings.PyService("gateway/server")
-svc_server.configure(agp_bindings.PyGatewayConfig(
+svc_server.configure(agp_bindings.GatewayConfig(
     endpoint="0.0.0.0:12345", 
     insecure=True
 ))
@@ -31,12 +31,12 @@ async def server():
 async def test_end_to_end(server):
     # create 2 clients, Alice and Bob
     svc_alice = agp_bindings.PyService("gateway/alice")
-    svc_alice.configure(agp_bindings.PyGatewayConfig(
+    svc_alice.configure(agp_bindings.GatewayConfig(
         endpoint="http://127.0.0.1:12345"
     ))
 
     svc_bob = agp_bindings.PyService("gateway/bob")
-    svc_bob.configure(agp_bindings.PyGatewayConfig(
+    svc_bob.configure(agp_bindings.GatewayConfig(
         endpoint="http://127.0.0.1:12345"
     ))
 
@@ -88,7 +88,10 @@ async def test_end_to_end(server):
 async def test_gateway_wrapper(server):
     # create new gateway object
     gateway1 = agp_bindings.Gateway("gateway/gateway1")
-    gateway1.configure(endpoint="http://127.0.0.1:12345", insecure=True)
+    gateway1.configure(agp_bindings.GatewayConfig(
+        endpoint="http://127.0.0.1:12345", 
+        insecure=True
+    ))
 
     org = "cisco"
     ns = "default"
@@ -113,7 +116,10 @@ async def test_gateway_wrapper(server):
 
     # create second local agent
     gateway2 = agp_bindings.Gateway("gateway/gateway2")
-    gateway2.configure(endpoint="http://127.0.0.1:12345", insecure=True)
+    gateway2.configure(agp_bindings.GatewayConfig(
+        endpoint="http://127.0.0.1:12345", 
+        insecure=True
+    ))
 
     agent2 = "gateway2"
 

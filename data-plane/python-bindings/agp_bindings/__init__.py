@@ -4,6 +4,7 @@
 # import the contents of the Rust library into the Python extension
 from typing import Optional, Tuple
 from ._agp_bindings import (
+    PyGatewayConfig as GatewayConfig,
     PyService,
     PyAgentClass,
     create_agent,
@@ -19,7 +20,6 @@ from ._agp_bindings import (
     remove_route,
 )
 from ._agp_bindings import __all__
-from ._agp_bindings import PyGatewayConfig
 
 # optional: include the documentation from the Rust module
 from ._agp_bindings import __doc__  # noqa: F401
@@ -37,53 +37,18 @@ class Gateway:
         """
         self.svc = PyService(name)
 
-    def configure(
-            self,
-            endpoint,
-            insecure: Optional[bool] = False,
-            insecure_skip_verify: Optional[bool] = False,
-            tls_ca_path: Optional[str] = None,
-            tls_client_cert_path: Optional[str] = None,
-            tls_client_key_path: Optional[str] = None,
-            tls_ca_pem: Optional[str] = None,
-            tls_client_cert_pem: Optional[str] = None,
-            tls_client_key_pem: Optional[str] = None,
-            basic_auth_username: Optional[str] = None,
-            basic_auth_password: Optional[str] = None,
-    ):
+    def configure(self, config):
         """
         Configure the gateway.
 
         Args:
-            endpoint (str): The endpoint of the remote gateway service.
-            insecure (bool): Disable TLS. Default is False.
-            insecure_skip_verify (bool): Skip TLS verification. Default is False.
-            tls_ca_path (str): Path to the CA certificate.
-            tls_client_cert_path (str): Path to the client certificate.
-            tls_client_key_path (str): Path to the client key.
-            tls_ca_pem (str): CA certificate as PEM.
-            tls_client_cert_pem (str): Client certificate as PEM.
-            tls_client_key_pem (str): Client key as PEM.
-            basic_auth_username (str): Username for basic auth.
-            basic_auth_password (str): Password for basic auth.
+            config (GatewayConfig): The gateway configuration class.
 
         Returns:
             None
         """
 
-        self.svc.configure(PyGatewayConfig(
-            endpoint,
-            insecure,
-            insecure_skip_verify,
-            tls_ca_path,
-            tls_client_cert_path,
-            tls_client_key_path,
-            tls_ca_pem,
-            tls_client_cert_pem,
-            tls_client_key_pem,
-            basic_auth_username,
-            basic_auth_password,
-        ))
+        self.svc.configure(config)
 
     async def create_agent(
         self, organization, namespace, agent, id: Optional[int] = None

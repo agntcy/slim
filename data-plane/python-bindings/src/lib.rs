@@ -34,16 +34,37 @@ static TRACING_GUARD: OnceCell<agp_tracing::OtelGuard> = OnceCell::const_new();
 #[pyclass]
 #[derive(Clone)]
 struct PyGatewayConfig {
+    #[pyo3(get, set)]
     endpoint: String,
+
+    #[pyo3(get, set)]
     insecure: bool,
+
+    #[pyo3(get, set)]
     insecure_skip_verify: bool,
+
+    #[pyo3(get, set)]
     tls_ca_path: Option<String>,
+
+    #[pyo3(get, set)]
     tls_ca_pem: Option<String>,
+
+    #[pyo3(get, set)]
     tls_cert_path: Option<String>,
+
+    #[pyo3(get, set)]
     tls_key_path: Option<String>,
+
+    #[pyo3(get, set)]
     tls_cert_pem: Option<String>,
+
+    #[pyo3(get, set)]
     tls_key_pem: Option<String>,
+
+    #[pyo3(get, set)]
     basic_auth_username: Option<String>,
+
+    #[pyo3(get, set)]
     basic_auth_password: Option<String>,
 }
 

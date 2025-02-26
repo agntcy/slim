@@ -6,6 +6,7 @@ import asyncio
 from signal import SIGINT
 
 import agp_bindings
+from agp_bindings import GatewayConfig
 
 # Create a service
 gateway = agp_bindings.Gateway()
@@ -16,7 +17,8 @@ async def run_server(address: str):
     agp_bindings.init_tracing(log_level="debug")
 
     # Configure gateway
-    gateway.configure(endpoint=address, insecure=True)
+    config = GatewayConfig(endpoint=address, insecure=True)
+    gateway.configure(config)
 
     # Run as server
     await gateway.serve()

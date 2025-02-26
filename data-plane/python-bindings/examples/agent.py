@@ -6,6 +6,7 @@ import asyncio
 import time
 
 import agp_bindings
+from agp_bindings import GatewayConfig
 
 
 class color:
@@ -40,7 +41,8 @@ async def run_client(local_id, remote_id, message, address):
     gateway = agp_bindings.Gateway()
 
     # Configure gateway
-    gateway.configure(endpoint=address, insecure=True)
+    config = GatewayConfig(endpoint=address, insecure=True)
+    gateway.configure(config)
 
     # Connect to the gateway server
     local_agent_id = await gateway.create_agent(
