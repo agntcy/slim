@@ -447,7 +447,10 @@ impl MessageProcessor {
                     "received message without message type from connection {}: {:?}",
                     in_connection, msg
                 );
-                info!(monotonic_counter.num_messages_by_type = 1, message_type = "none");
+                info!(
+                    monotonic_counter.num_messages_by_type = 1,
+                    message_type = "none"
+                );
                 Err(DataPathError::UnknownMsgType("".to_string()))
             }
             Some(msg_type) => match msg_type {
@@ -456,7 +459,10 @@ impl MessageProcessor {
                         "received subscription from connection {}: {:?}",
                         in_connection, s
                     );
-                    info!(monotonic_counter.num_messages_by_type = 1, message_type = "subscribe");
+                    info!(
+                        monotonic_counter.num_messages_by_type = 1,
+                        message_type = "subscribe"
+                    );
                     match self.process_subscription(msg, in_connection).await {
                         Err(e) => {
                             error! {"error processing subscription {:?}", e}
@@ -470,7 +476,10 @@ impl MessageProcessor {
                         "Received ubsubscription from client {}: {:?}",
                         in_connection, u
                     );
-                    info!(monotonic_counter.num_messages_by_type = 1, message_type = "unsubscribe");
+                    info!(
+                        monotonic_counter.num_messages_by_type = 1,
+                        message_type = "unsubscribe"
+                    );
                     match self.process_unsubscription(msg, in_connection).await {
                         Err(e) => {
                             error! {"error processing unsubscription {:?}", e}
@@ -481,7 +490,10 @@ impl MessageProcessor {
                 }
                 PublishType(p) => {
                     debug!("Received publish from client {}: {:?}", in_connection, p);
-                    info!(monotonic_counter.num_messages_by_type = 1, method = "publish");
+                    info!(
+                        monotonic_counter.num_messages_by_type = 1,
+                        method = "publish"
+                    );
                     match self.process_publish(msg, in_connection).await {
                         Err(e) => {
                             error! {"error processing publication {:?}", e}
@@ -545,6 +557,7 @@ impl MessageProcessor {
         }
     }
 
+    #[tracing::instrument(skip(stream))]
     fn process_stream(
         &self,
         mut stream: impl Stream<Item = Result<Message, Status>> + Unpin + Send + 'static,
@@ -583,6 +596,8 @@ impl MessageProcessor {
                 }
             }
 
+            info!(counter.num_active_connections = -1);
+
             self_clone
                 .forwarder()
                 .on_connection_drop(conn_index, is_local);
@@ -616,6 +631,7 @@ impl MessageProcessor {
 impl PubSubService for MessageProcessor {
     type OpenChannelStream = Pin<Box<dyn Stream<Item = Result<Message, Status>> + Send + 'static>>;
 
+    #[tracing::instrument]
     async fn open_channel(
         &self,
         request: Request<tonic::Streaming<Message>>,
