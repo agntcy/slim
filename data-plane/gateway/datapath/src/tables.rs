@@ -6,17 +6,15 @@
 
 pub mod connection_table;
 pub mod errors;
+pub mod remote_subscription_table;
 pub mod subscription_table;
 
 mod pool;
 
-use crate::messages::{Agent, AgentClass};
+use crate::messages::AgentClass;
 use errors::SubscriptionTableError;
-use std::collections::HashSet;
 
 pub trait SubscriptionTable {
-    const DEFAULT_AGENT_ID: u64 = 0;
-
     fn add_subscription(
         &self,
         class: AgentClass,
@@ -32,8 +30,6 @@ pub trait SubscriptionTable {
         conn: u64,
         is_local: bool,
     ) -> Result<(), SubscriptionTableError>;
-
-    fn get_subscriptions_on_connection(&self, conn: u64) -> HashSet<Agent>;
 
     fn remove_connection(&self, conn: u64, is_local: bool) -> Result<(), SubscriptionTableError>;
 

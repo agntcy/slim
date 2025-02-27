@@ -3,6 +3,8 @@
 
 use std::hash::{DefaultHasher, Hash, Hasher};
 
+pub const DEFAULT_AGENT_ID: u64 = 0;
+
 #[derive(Hash, Eq, PartialEq, Debug, Clone, Default)]
 pub struct AgentClass {
     pub organization: u64,

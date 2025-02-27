@@ -5,8 +5,10 @@ use std::collections::HashSet;
 use std::sync::Arc;
 
 use super::tables::connection_table::ConnectionTable;
+use super::tables::remote_subscription_table::RemoteSubscriptions;
 use super::tables::subscription_table::SubscriptionTableImpl;
 use super::tables::{errors::SubscriptionTableError, SubscriptionTable};
+use crate::messages::encoder::DEFAULT_AGENT_ID;
 use crate::messages::{Agent, AgentClass};
 
 #[derive(Debug)]
@@ -15,6 +17,7 @@ where
     T: Default + Clone,
 {
     subscription_table: SubscriptionTableImpl,
+    remote_subscriptio_table: RemoteSubscriptions,
     connection_table: ConnectionTable<T>,
 }
 
@@ -34,6 +37,7 @@ where
     pub fn new() -> Self {
         Forwarder {
             subscription_table: SubscriptionTableImpl::default(),
+            remote_subscriptio_table: RemoteSubscriptions::default(),
             connection_table: ConnectionTable::with_capacity(100),
         }
     }
@@ -46,7 +50,7 @@ where
             }
             Some(x) => {
                 if self.connection_table.insert_at(conn, x as usize) {
-                    return existing_index;
+                    existing_index
                 } else {
                     None
                 }
@@ -59,14 +63,15 @@ where
         let _ = self
             .subscription_table
             .remove_connection(conn_index, is_local);
+        self.remote_subscriptio_table.remove_connection(conn_index);
     }
 
     pub fn get_connection(&self, conn_index: u64) -> Option<Arc<T>> {
         self.connection_table.get(conn_index as usize)
     }
 
-    pub fn get_subscriptions_on_connection(&self, conn_index: u64) -> HashSet<Agent> {
-        self.subscription_table
+    pub fn get_subscriptions_forwarded_on_connection(&self, conn_index: u64) -> HashSet<Agent> {
+        self.remote_subscriptio_table
             .get_subscriptions_on_connection(conn_index)
     }
 
@@ -81,6 +86,20 @@ where
             .add_subscription(class, agent_id, conn_index, is_local)
     }
 
+    pub fn on_forwarded_subscription(
+        &self,
+        class: AgentClass,
+        agent_id: Option<u64>,
+        conn_index: u64,
+    ) {
+        let agent = Agent {
+            agent_class: class,
+            agent_id: agent_id.unwrap_or(DEFAULT_AGENT_ID),
+        };
+        self.remote_subscriptio_table
+            .add_subscription(agent, conn_index);
+    }
+
     pub fn on_unsubscription_msg(
         &self,
         class: AgentClass,
@@ -90,6 +109,24 @@ where
     ) -> Result<(), SubscriptionTableError> {
         self.subscription_table
             .remove_subscription(class, agent_id, conn_index, is_local)
+    }
+
+    pub fn on_forwarded_unsubscription(
+        &self,
+        class: AgentClass,
+        agent_id: Option<u64>,
+        conn_index: u64,
+    ) {
+        let agent = Agent {
+            agent_class: class,
+            agent_id: agent_id.unwrap_or(DEFAULT_AGENT_ID),
+        };
+        self.remote_subscriptio_table
+            .remove_subscription(agent, conn_index);
+    }
+
+    pub fn print_subscription_table(&self) -> String {
+        format!("{}", self.subscription_table)
     }
 
     pub fn on_publish_msg_match_one(

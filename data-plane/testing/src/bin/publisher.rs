@@ -50,6 +50,16 @@ pub struct Args {
         default_value_t = false
     )]
     quite: bool,
+
+    /// time between publications in milliseconds
+    #[arg(
+        short,
+        long,
+        value_name = "sleep",
+        required = false,
+        default_value_t = 0
+    )]
+    sleep: u32,
 }
 
 impl Args {
@@ -71,6 +81,10 @@ impl Args {
 
     pub fn quite(&self) -> &bool {
         &self.quite
+    }
+
+    pub fn sleep(&self) -> &u32 {
+        &self.sleep
     }
 }
 
@@ -201,6 +215,7 @@ async fn main() {
     let config_file = args.config();
     let msg_size = *args.msg_size();
     let id = *args.id();
+    let sleep = *args.sleep();
 
     // setup agent config
     let mut config = config::load_config(config_file).expect("failed to load configuration");
@@ -362,12 +377,23 @@ async fn main() {
 
         // for the moment we send the message in anycast
         // we need to test also the match_all function
-        svc.send_msg(&p.1.agent_class, name_id, 1, payload, conn_id)
+        if svc
+            .send_msg(&p.1.agent_class, name_id, 1, payload, conn_id)
             .await
-            .unwrap();
+            .is_err()
+        {
+            error!(
+                "an error occured sending publication {}, the test will fail",
+                p.0
+            );
+        }
 
         if !args.quite() {
             bar.inc(1);
+        }
+
+        if sleep != 0 {
+            tokio::time::sleep(tokio::time::Duration::from_millis(sleep as u64)).await;
         }
     }
     let duration = start.elapsed();
