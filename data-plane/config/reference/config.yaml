@@ -26,11 +26,11 @@ tracing:
     enabled: true
 
     # Service name used for the tracing.
-    # Default: false
+    # Default: agp-data-plane
     service_name: "agp-data-plane"
 
     # Service version used for the tracing.
-    # Default: false
+    # Default: v0.1.0
     service_version: "v0.1.0"
 
 runtime:
