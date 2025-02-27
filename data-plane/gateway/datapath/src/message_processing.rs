@@ -132,6 +132,7 @@ impl MessageProcessor {
         let conn_id = self.forwarder().on_connection_established(connection);
 
         debug!("local connection established with id: {:?}", conn_id);
+        info!(telemetry = true, counter.num_active_connections = 1);
 
         // this loop will process messages from the local app
         self.process_stream(ReceiverStream::new(rx1), conn_id, true);
@@ -448,6 +449,7 @@ impl MessageProcessor {
                     in_connection, msg
                 );
                 info!(
+                    telemetry = true,
                     monotonic_counter.num_messages_by_type = 1,
                     message_type = "none"
                 );
@@ -460,6 +462,7 @@ impl MessageProcessor {
                         in_connection, s
                     );
                     info!(
+                        telemetry = true,
                         monotonic_counter.num_messages_by_type = 1,
                         message_type = "subscribe"
                     );
@@ -477,6 +480,7 @@ impl MessageProcessor {
                         in_connection, u
                     );
                     info!(
+                        telemetry = true,
                         monotonic_counter.num_messages_by_type = 1,
                         message_type = "unsubscribe"
                     );
@@ -491,6 +495,7 @@ impl MessageProcessor {
                 PublishType(p) => {
                     debug!("Received publish from client {}: {:?}", in_connection, p);
                     info!(
+                        telemetry = true,
                         monotonic_counter.num_messages_by_type = 1,
                         method = "publish"
                     );
@@ -512,7 +517,10 @@ impl MessageProcessor {
         result: Result<Message, Status>,
     ) -> Result<(), DataPathError> {
         debug!(%conn_index, "Received message from connection");
-        info!(monotonic_counter.num_processed_messages = 1);
+        info!(
+            telemetry = true,
+            monotonic_counter.num_processed_messages = 1
+        );
 
         match result {
             Ok(msg) => {
@@ -524,7 +532,10 @@ impl MessageProcessor {
                             "error processing message from connection {:?}: {:?}",
                             conn_index, e
                         );
-                        info!(monotonic_counter.num_message_process_errors = 1);
+                        info!(
+                            telemetry = true,
+                            monotonic_counter.num_message_process_errors = 1
+                        );
                         Ok(())
                     }
                 }
@@ -557,7 +568,7 @@ impl MessageProcessor {
         }
     }
 
-    #[tracing::instrument(skip(stream))]
+    #[tracing::instrument(fields(telemetry = true), skip(stream))]
     fn process_stream(
         &self,
         mut stream: impl Stream<Item = Result<Message, Status>> + Unpin + Send + 'static,
@@ -596,7 +607,7 @@ impl MessageProcessor {
                 }
             }
 
-            info!(counter.num_active_connections = -1);
+            info!(telemetry = true, counter.num_active_connections = -1);
 
             self_clone
                 .forwarder()
@@ -631,7 +642,7 @@ impl MessageProcessor {
 impl PubSubService for MessageProcessor {
     type OpenChannelStream = Pin<Box<dyn Stream<Item = Result<Message, Status>> + Send + 'static>>;
 
-    #[tracing::instrument]
+    #[tracing::instrument(fields(telemetry = true))]
     async fn open_channel(
         &self,
         request: Request<tonic::Streaming<Message>>,
@@ -652,7 +663,7 @@ impl PubSubService for MessageProcessor {
             connection.remote_addr(),
             connection.local_addr()
         );
-        info!(counter.num_active_connections = 1);
+        info!(telemetry = true, counter.num_active_connections = 1);
 
         // insert connection into connection table
         let conn_index = self.forwarder().on_connection_established(connection);
