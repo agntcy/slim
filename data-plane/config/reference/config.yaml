@@ -20,6 +20,19 @@ tracing:
   # Default: false
   display_thread_ids: true
 
+  opentelemetry:
+    # Enables OpenTelemetry integration.
+    # Default: false
+    enabled: true
+
+    # Service name used for the tracing.
+    # Default: false
+    service_name: "agp-data-plane"
+
+    # Service version used for the tracing.
+    # Default: false
+    service_version: "v0.1.0"
+
 runtime:
   # The number of cores to use for the runtime.
   # Default: 0 (use all available cores)
