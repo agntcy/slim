@@ -52,7 +52,7 @@ pub struct Content {
     #[prost(bytes = "vec", tag = "2")]
     pub blob: ::prost::alloc::vec::Vec<u8>,
 }
-#[derive(Clone, Debug, PartialEq, ::prost::Message)]
+#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct Message {
     #[prost(map = "string, string", tag = "4")]
     pub metadata: ::std::collections::HashMap<
