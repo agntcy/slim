@@ -8,7 +8,7 @@ verbose: false
 
 env:
   CONFIG_CLIENT: ../config/base/client-config.yaml
-  CONFIG_SERVER: ./config/telemetry/server-config.yaml
+  CONFIG_SERVER: ./config/base/server-config.yaml
   SUB: 1000000
   PUB: 3000000
   SUB_AGENTS: 10

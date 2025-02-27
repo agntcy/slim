@@ -652,7 +652,6 @@ impl PubSubService for MessageProcessor {
             connection.remote_addr(),
             connection.local_addr()
         );
-        // TODO(zkacsand): decrease on disconnect
         info!(counter.num_active_connections = 1);
 
         // insert connection into connection table
