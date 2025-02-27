@@ -27,7 +27,7 @@ pub(crate) enum Type {
 
     /// Unknown connection type
     #[default]
-    Unkwon,
+    Unknown,
 }
 
 #[derive(Debug, Clone, Default)]

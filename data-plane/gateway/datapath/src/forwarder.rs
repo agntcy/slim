@@ -10,6 +10,7 @@ use super::tables::subscription_table::SubscriptionTableImpl;
 use super::tables::{errors::SubscriptionTableError, SubscriptionTable};
 use crate::messages::encoder::DEFAULT_AGENT_ID;
 use crate::messages::{Agent, AgentClass};
+use crate::tables::remote_subscription_table::SubscriptionInfo;
 
 #[derive(Debug)]
 pub struct Forwarder<T>
@@ -70,7 +71,10 @@ where
         self.connection_table.get(conn_index as usize)
     }
 
-    pub fn get_subscriptions_forwarded_on_connection(&self, conn_index: u64) -> HashSet<Agent> {
+    pub fn get_subscriptions_forwarded_on_connection(
+        &self,
+        conn_index: u64,
+    ) -> HashSet<SubscriptionInfo> {
         self.remote_subscriptio_table
             .get_subscriptions_on_connection(conn_index)
     }
@@ -88,16 +92,22 @@ where
 
     pub fn on_forwarded_subscription(
         &self,
-        class: AgentClass,
-        agent_id: Option<u64>,
+        source_class: AgentClass,
+        source_agent_id: Option<u64>,
+        name_class: AgentClass,
+        name_agent_id: Option<u64>,
         conn_index: u64,
     ) {
-        let agent = Agent {
-            agent_class: class,
-            agent_id: agent_id.unwrap_or(DEFAULT_AGENT_ID),
+        let source = Agent {
+            agent_class: source_class,
+            agent_id: source_agent_id.unwrap_or(DEFAULT_AGENT_ID),
+        };
+        let name = Agent {
+            agent_class: name_class,
+            agent_id: name_agent_id.unwrap_or(DEFAULT_AGENT_ID),
         };
         self.remote_subscriptio_table
-            .add_subscription(agent, conn_index);
+            .add_subscription(source, name, conn_index);
     }
 
     pub fn on_unsubscription_msg(
@@ -113,20 +123,22 @@ where
 
     pub fn on_forwarded_unsubscription(
         &self,
-        class: AgentClass,
-        agent_id: Option<u64>,
+        source_class: AgentClass,
+        source_agent_id: Option<u64>,
+        name_class: AgentClass,
+        name_agent_id: Option<u64>,
         conn_index: u64,
     ) {
-        let agent = Agent {
-            agent_class: class,
-            agent_id: agent_id.unwrap_or(DEFAULT_AGENT_ID),
+        let source = Agent {
+            agent_class: source_class,
+            agent_id: source_agent_id.unwrap_or(DEFAULT_AGENT_ID),
+        };
+        let name = Agent {
+            agent_class: name_class,
+            agent_id: name_agent_id.unwrap_or(DEFAULT_AGENT_ID),
         };
         self.remote_subscriptio_table
-            .remove_subscription(agent, conn_index);
-    }
-
-    pub fn print_subscription_table(&self) -> String {
-        format!("{}", self.subscription_table)
+            .remove_subscription(source, name, conn_index);
     }
 
     pub fn on_publish_msg_match_one(
@@ -147,6 +159,11 @@ where
     ) -> Result<Vec<u64>, SubscriptionTableError> {
         self.subscription_table
             .match_all(class, agent_id, incoming_conn)
+    }
+
+    #[allow(dead_code)]
+    pub fn print_subscription_table(&self) -> String {
+        format!("{}", self.subscription_table)
     }
 }
 

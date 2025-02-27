@@ -130,6 +130,10 @@ where
             self.len += 1;
         }
         self.bitmap.set(index, true);
+
+        if index > self.max_set {
+            self.max_set = index;
+        }
         true
     }
 
@@ -228,6 +232,41 @@ mod tests {
         assert_eq!(pool.get(index), Some(&element));
         assert_eq!(pool.get_mut(index), Some(&mut 49));
         assert_eq!(pool.max_set(), 7);
+
+        let element = 1;
+        let res = pool.insert_at(element, index);
+        assert_eq!(res, true);
+        assert_eq!(pool.len(), 8);
+        assert_eq!(pool.get(index), Some(&element));
+        assert_eq!(pool.get_mut(index), Some(&mut 1));
+        assert_eq!(pool.max_set(), 7);
+
+        let element = 56898;
+        let res = pool.insert_at(element, index);
+        assert_eq!(res, true);
+        assert_eq!(pool.len(), 8);
+        assert_eq!(pool.get(index), Some(&element));
+        assert_eq!(pool.get_mut(index), Some(&mut 56898));
+        assert_eq!(pool.max_set(), 7);
+
+        let element = 49;
+        let res = pool.insert_at(element, index);
+        assert_eq!(res, true);
+        assert_eq!(pool.len(), 8);
+        assert_eq!(pool.get(index), Some(&element));
+        assert_eq!(pool.get_mut(index), Some(&mut 49));
+        assert_eq!(pool.max_set(), 7);
+
+        let element = 50;
+        let res = pool.insert_at(element, index + 1);
+        assert_eq!(res, true);
+        assert_eq!(pool.len(), 9);
+        assert_eq!(pool.get(index + 1), Some(&element));
+        assert_eq!(pool.get_mut(index + 1), Some(&mut 50));
+        assert_eq!(pool.max_set(), 8);
+
+        let res = pool.insert_at(element, 100000000);
+        assert_eq!(res, false);
 
         let current_len = pool.len();
         let mut curr_max_set = pool.max_set();

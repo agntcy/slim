@@ -431,16 +431,29 @@ impl MessageProcessor {
                     }
                 }
                 if forward {
-                    debug!("forward subscription to {:?}", out_conn);
+                    debug!("forward unsubscription to {:?}", out_conn);
                     msg.metadata.clear();
+                    let source_class = match process_name(&unsubmsg.source) {
+                        Ok(s) => s,
+                        Err(e) => {
+                            error!("error processing unsubscription source {:?}", e);
+                            return Err(DataPathError::UnsubscriptionError(e.to_string()));
+                        }
+                    };
+                    let source_id = get_agent_id(&unsubmsg.source);
                     match self.send_msg(msg, out_conn).await {
                         Ok(_) => {
-                            self.forwarder()
-                                .on_forwarded_unsubscription(class, agent_id, conn);
+                            self.forwarder().on_forwarded_unsubscription(
+                                source_class,
+                                source_id,
+                                class,
+                                agent_id,
+                                out_conn,
+                            );
                         }
                         Err(e) => {
                             error!("error sending a message {:?}", e);
-                            return Err(DataPathError::SubscriptionError(e.to_string()));
+                            return Err(DataPathError::UnsubscriptionError(e.to_string()));
                         }
                     };
                 }
@@ -464,7 +477,7 @@ impl MessageProcessor {
             _ => panic!("wrong message type"),
         };
 
-        info!(
+        debug!(
             "received subscription from connection {}: {:?}",
             in_connection, submsg
         );
@@ -486,12 +499,12 @@ impl MessageProcessor {
                     Ok(tuple) => match tuple.0 {
                         CommandType::ReceivedFrom => {
                             conn = tuple.1;
-                            info!("received subscription_from command, register subscription with conn id {:?}", tuple.1);
+                            trace!("received subscription_from command, register subscription with conn id {:?}", tuple.1);
                         }
                         CommandType::ForwardTo => {
                             forward = true;
                             out_conn = tuple.1;
-                            info!("received forward_to command, register subscription and forward to conn id {:?}", out_conn);
+                            trace!("received forward_to command, register subscription and forward to conn id {:?}", out_conn);
                         }
                         _ => {}
                     },
@@ -519,16 +532,29 @@ impl MessageProcessor {
                 }
 
                 if forward {
-                    debug!("forward subscription {:?} to {:?}", msg, out_conn);
+                    debug!("forward subscription to {:?}", out_conn);
                     msg.metadata.clear();
+                    let source_class = match process_name(&submsg.source) {
+                        Ok(s) => s,
+                        Err(e) => {
+                            error!("error processing unsubscription source {:?}", e);
+                            return Err(DataPathError::SubscriptionError(e.to_string()));
+                        }
+                    };
+                    let source_id = get_agent_id(&submsg.source);
                     match self.send_msg(msg, out_conn).await {
                         Ok(_) => {
-                            self.forwarder()
-                                .on_forwarded_subscription(class, agent_id, out_conn);
+                            self.forwarder().on_forwarded_subscription(
+                                source_class,
+                                source_id,
+                                class,
+                                agent_id,
+                                out_conn,
+                            );
                         }
                         Err(e) => {
                             error!("error sending a message {:?}", e);
-                            return Err(DataPathError::SubscriptionError(e.to_string()));
+                            return Err(DataPathError::UnsubscriptionError(e.to_string()));
                         }
                     };
                 }
@@ -689,11 +715,6 @@ impl MessageProcessor {
 
             let mut delete_connection = true;
 
-            info!(
-                "SUB TABLE: {}",
-                self_clone.forwarder().print_subscription_table()
-            );
-
             if try_to_reconnect && client_conf_clone.is_some() {
                 let config = client_conf_clone.unwrap();
                 match config.to_channel() {
@@ -705,24 +726,13 @@ impl MessageProcessor {
                     }
                     Ok(channel) => {
                         info!("connection lost with remote endpoint, try to reconnect");
-                        // this are the subscriptions set for the connections that we are removing
-                        // subscriptions is the list of subscriptions set with set_route
-                        // remote_subscriptions is the list of subscriptions forwarded to the next node
+                        // These are the subscriptions that we forwarded to the remote gateway on
+                        // this connection. It is necessary to restore them to keep receive the messages
+                        // The connections on the local subscription table (created using the set_route command) are still there and will be removed
+                        // only if the reconnection process will fail.
                         let remote_subscriptions = self_clone
                             .forwarder()
                             .get_subscriptions_forwarded_on_connection(conn_index);
-
-                        // 1. try to reconnect
-                        // 2. if fails
-                        //      2.a remove connection
-                        //      2.b notify the application (next sprint)
-                        // 3. if it is restored
-                        //      3.a send the remote connections
-
-                        info!(
-                            "SUB TABLE: {}",
-                            self_clone.forwarder().print_subscription_table()
-                        );
 
                         match self_clone
                             .try_to_connect(
@@ -743,9 +753,9 @@ impl MessageProcessor {
                                     // TODO in remote subscription put also the source name of the subscription
                                     // so that I can reuse it here
                                     let sub_msg = create_subscription(
-                                        r,
-                                        &r.agent_class,
-                                        Some(r.agent_id),
+                                        r.source(),
+                                        &r.name().agent_class,
+                                        Some(r.name().agent_id),
                                         HashMap::new(),
                                     );
                                     if self_clone.send_msg(sub_msg, conn_index).await.is_err() {
@@ -754,6 +764,7 @@ impl MessageProcessor {
                                 }
                             }
                             Err(e) => {
+                                // TODO: notify the app that the connection is not working anymore
                                 error!("unable to connect to remote node {:?}", e.to_string());
                             }
                         }
@@ -761,9 +772,8 @@ impl MessageProcessor {
                 }
             } else {
                 info!(
-                    "DO NOT RECONNECT BECAUSE try_reconnect {}, client_config {}",
-                    try_to_reconnect,
-                    client_conf_clone.is_some()
+                    "connection lost on connection {}, do not try to reconnect",
+                    conn_index
                 )
             }
 
@@ -772,11 +782,6 @@ impl MessageProcessor {
                     .forwarder()
                     .on_connection_drop(conn_index, is_local);
             }
-
-            info!(
-                "SUB TABLE AFTER: {}",
-                self_clone.forwarder().print_subscription_table()
-            );
         });
 
         handle

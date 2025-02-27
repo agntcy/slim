@@ -36,7 +36,7 @@ impl fmt::Display for CommandType {
             CommandType::ReceivedFrom => write!(f, "ReceivedFrom"),
             CommandType::ForwardTo => write!(f, "ForwardTo"),
             CommandType::IncomingConnection => write!(f, "IncomingConnection"),
-            CommandType::Unknown => write!(f, "Unkwon"),
+            CommandType::Unknown => write!(f, "Unknown"),
         }
     }
 }
