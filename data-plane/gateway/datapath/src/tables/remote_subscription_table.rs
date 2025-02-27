@@ -14,28 +14,28 @@ pub struct RemoteSubscriptions {
 }
 
 impl RemoteSubscriptions {
-    pub fn add_subscription(&self, subcription: Agent, conn: u64) {
+    pub fn add_subscription(&self, subscription: Agent, conn: u64) {
         let mut map = self.table.write();
         match map.get_mut(&conn) {
             None => {
                 let mut set = HashSet::new();
-                set.insert(subcription);
+                set.insert(subscription);
                 map.insert(conn, set);
             }
             Some(set) => {
-                set.insert(subcription);
+                set.insert(subscription);
             }
         }
     }
 
-    pub fn remove_subscription(&self, subcription: Agent, conn: u64) {
+    pub fn remove_subscription(&self, subscription: Agent, conn: u64) {
         let mut map = self.table.write();
         match map.get_mut(&conn) {
             None => {
                 error!("connection not found");
             }
             Some(set) => {
-                set.remove(&subcription);
+                set.remove(&subscription);
                 if set.is_empty() {
                     map.remove(&conn);
                 }

@@ -162,7 +162,7 @@ tasks:
     deps:
       - task: build:install-cargo-components
         vars:
-          COMPONENTS: "cargo-machete"
+          COMPONENTS: "cargo-machete@0.7.0"
     cmds:
       - cargo machete {{.ARGS}}
     vars:

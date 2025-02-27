@@ -141,7 +141,6 @@ dependencies = [
  "serde",
  "thiserror",
  "tokio",
- "tokio-util",
  "tonic",
  "tracing",
  "tracing-test",

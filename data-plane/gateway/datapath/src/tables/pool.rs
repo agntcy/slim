@@ -114,7 +114,7 @@ where
         }
     }
 
-    /// Insert the element in a given postion
+    /// Insert the element in a given position
     /// if the position does not existis the method fails
     /// return true on success
     pub fn insert_at(&mut self, element: T, index: usize) -> bool {
@@ -124,7 +124,7 @@ where
         }
         // put T at position index
         self.pool[index] = element;
-        // we can safly unwrap because self.capacity < index
+        // we can safely unwrap because self.capacity < index
         if !self.bitmap.get(index).unwrap() {
             // if the bit is not set increase len
             self.len += 1;

@@ -119,7 +119,7 @@ impl MessageProcessor {
                     if opt.is_none() {
                         error!("error adding connection to the connection table");
                         return Err(DataPathError::ConnectionError(
-                            "rror adding connection to the connection tables".to_string(),
+                            "error adding connection to the connection tables".to_string(),
                         ));
                     }
 
@@ -186,7 +186,7 @@ impl MessageProcessor {
                         error!("error handling disconnect: missing cancellation token");
                     }
                     Some(t) => {
-                        // here token cancell will stop the receiving loop on
+                        // here token cancel will stop the receiving loop on
                         // conn and this will cause the delition of the state
                         // for this connection
                         t.cancel();
@@ -761,7 +761,7 @@ impl MessageProcessor {
                 }
             } else {
                 info!(
-                    "DO NOT RECONNECT BECUASE try_reconnect {}, client_config {}",
+                    "DO NOT RECONNECT BECAUSE try_reconnect {}, client_config {}",
                     try_to_reconnect,
                     client_conf_clone.is_some()
                 )
