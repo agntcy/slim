@@ -206,7 +206,14 @@ impl TracingConfiguration {
         let fmt_layer = fmt::layer()
             .with_thread_ids(self.display_thread_ids)
             .with_thread_names(self.display_thread_names)
-            .with_filter(LevelFilter::from_level(resolve_level(&self.log_level)));
+            .with_filter(tracing_subscriber::filter::filter_fn(
+                |metadata: &tracing::Metadata| {
+                    !metadata
+                        .fields()
+                        .iter()
+                        .any(|field| field.name() == "telemetry")
+                },
+            ));
 
         let level_filter = LevelFilter::from_level(resolve_level(&self.log_level));
 

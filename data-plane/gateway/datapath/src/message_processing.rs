@@ -222,6 +222,7 @@ impl MessageProcessor {
             .unwrap();
 
         debug!("local connection established with id: {:?}", conn_id);
+        info!(telemetry = true, counter.num_active_connections = 1);
 
         // this loop will process messages from the local app
         self.process_stream(
@@ -578,6 +579,11 @@ impl MessageProcessor {
                     "received message without message type from connection {}: {:?}",
                     in_connection, msg
                 );
+                info!(
+                    telemetry = true,
+                    monotonic_counter.num_messages_by_type = 1,
+                    message_type = "none"
+                );
                 Err(DataPathError::UnknownMsgType("".to_string()))
             }
             Some(msg_type) => match msg_type {
@@ -585,6 +591,11 @@ impl MessageProcessor {
                     debug!(
                         "received subscription from connection {}: {:?}",
                         in_connection, s
+                    );
+                    info!(
+                        telemetry = true,
+                        monotonic_counter.num_messages_by_type = 1,
+                        message_type = "subscribe"
                     );
                     match self.process_subscription(msg, in_connection).await {
                         Err(e) => {
@@ -599,6 +610,11 @@ impl MessageProcessor {
                         "Received ubsubscription from client {}: {:?}",
                         in_connection, u
                     );
+                    info!(
+                        telemetry = true,
+                        monotonic_counter.num_messages_by_type = 1,
+                        message_type = "unsubscribe"
+                    );
                     match self.process_unsubscription(msg, in_connection).await {
                         Err(e) => {
                             error! {"error processing unsubscription {:?}", e}
@@ -609,6 +625,11 @@ impl MessageProcessor {
                 }
                 PublishType(p) => {
                     debug!("Received publish from client {}: {:?}", in_connection, p);
+                    info!(
+                        telemetry = true,
+                        monotonic_counter.num_messages_by_type = 1,
+                        method = "publish"
+                    );
                     match self.process_publish(msg, in_connection).await {
                         Err(e) => {
                             error! {"error processing publication {:?}", e}
@@ -627,6 +648,10 @@ impl MessageProcessor {
         result: Result<Message, Status>,
     ) -> Result<(), DataPathError> {
         debug!(%conn_index, "Received message from connection");
+        info!(
+            telemetry = true,
+            monotonic_counter.num_processed_messages = 1
+        );
 
         match result {
             Ok(msg) => {
@@ -637,6 +662,10 @@ impl MessageProcessor {
                         error!(
                             "error processing message from connection {:?}: {:?}",
                             conn_index, e
+                        );
+                        info!(
+                            telemetry = true,
+                            monotonic_counter.num_message_process_errors = 1
                         );
                         Ok(())
                     }
@@ -670,6 +699,7 @@ impl MessageProcessor {
         }
     }
 
+    #[tracing::instrument(fields(telemetry = true), skip(stream))]
     fn process_stream(
         &self,
         mut stream: impl Stream<Item = Result<Message, Status>> + Unpin + Send + 'static,
@@ -781,6 +811,8 @@ impl MessageProcessor {
                 self_clone
                     .forwarder()
                     .on_connection_drop(conn_index, is_local);
+
+                info!(telemetry = true, counter.num_active_connections = -1);
             }
         });
 
@@ -812,6 +844,7 @@ impl MessageProcessor {
 impl PubSubService for MessageProcessor {
     type OpenChannelStream = Pin<Box<dyn Stream<Item = Result<Message, Status>> + Send + 'static>>;
 
+    #[tracing::instrument(fields(telemetry = true))]
     async fn open_channel(
         &self,
         request: Request<tonic::Streaming<Message>>,
@@ -832,6 +865,7 @@ impl PubSubService for MessageProcessor {
             connection.remote_addr(),
             connection.local_addr()
         );
+        info!(telemetry = true, counter.num_active_connections = 1);
 
         // insert connection into connection table
         let conn_index = self

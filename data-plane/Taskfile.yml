@@ -173,6 +173,21 @@ tasks:
           BIN: "gateway"
           BIN_ARGS: "--config ./config/base/server-config.yaml"
 
+  data-plane:run:server-with-otel:
+    desc: "Run the server with OpenTelemetry enabled"
+    cmds:
+      - task: data-plane:build
+      - task: toolchain:run
+        vars:
+          ARGS: ""
+          BIN: "gateway"
+          BIN_ARGS: "--config ./config/telemetry/server-config.yaml"
+
+  data-plane:telemetry:start:
+    desc: "Start telemetry stack"
+    cmds:
+      - docker-compose -f ./config/telemetry/docker-compose.yml up
+
   data-plane:bindings:python:
     desc: "Generate the Python bindings"
     cmds:

@@ -42,6 +42,11 @@ fn main() {
         debug!(?config.tracing);
 
         info!("Runtime started");
+        info!(
+            telemetry = true,
+            monotonic_counter.num_messages_by_type = 1,
+            message_type = "subscribe"
+        );
 
         // start services
         for service in config.services.iter() {
