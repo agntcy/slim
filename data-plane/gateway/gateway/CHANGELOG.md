@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.3](https://github.com/agntcy/agp/compare/agp-gw-v0.3.2...agp-gw-v0.3.3) - 2025-02-28
+
+### Added
+
+- add message handling metrics
+
 ## [0.3.2](https://github.com/agntcy/agp/compare/agp-gw-v0.3.1...agp-gw-v0.3.2) - 2025-02-24
 
 ### Other
