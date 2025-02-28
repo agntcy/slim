@@ -46,6 +46,11 @@ jobs:
           cache-workspaces: ./data-plane
           cache-directories: |
             .tools
+      - name: Set Windows-specific environment variables
+        if: matrix.platform.os == 'windows'
+        shell: powershell
+        run: |
+          echo "AWS_LC_SYS_C_STD=-std:c11" >> $env:GITHUB_ENV
       - name: Build wheels
         run: |
           git status
