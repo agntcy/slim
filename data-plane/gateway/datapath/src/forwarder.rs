@@ -18,7 +18,7 @@ where
     T: Default + Clone,
 {
     subscription_table: SubscriptionTableImpl,
-    remote_subscriptio_table: RemoteSubscriptions,
+    remote_subscription_table: RemoteSubscriptions,
     connection_table: ConnectionTable<T>,
 }
 
@@ -38,7 +38,7 @@ where
     pub fn new() -> Self {
         Forwarder {
             subscription_table: SubscriptionTableImpl::default(),
-            remote_subscriptio_table: RemoteSubscriptions::default(),
+            remote_subscription_table: RemoteSubscriptions::default(),
             connection_table: ConnectionTable::with_capacity(100),
         }
     }
@@ -64,7 +64,7 @@ where
         let _ = self
             .subscription_table
             .remove_connection(conn_index, is_local);
-        self.remote_subscriptio_table.remove_connection(conn_index);
+        self.remote_subscription_table.remove_connection(conn_index);
     }
 
     pub fn get_connection(&self, conn_index: u64) -> Option<Arc<T>> {
@@ -75,7 +75,7 @@ where
         &self,
         conn_index: u64,
     ) -> HashSet<SubscriptionInfo> {
-        self.remote_subscriptio_table
+        self.remote_subscription_table
             .get_subscriptions_on_connection(conn_index)
     }
 
@@ -106,7 +106,7 @@ where
             agent_class: name_class,
             agent_id: name_agent_id.unwrap_or(DEFAULT_AGENT_ID),
         };
-        self.remote_subscriptio_table
+        self.remote_subscription_table
             .add_subscription(source, name, conn_index);
     }
 
@@ -137,7 +137,7 @@ where
             agent_class: name_class,
             agent_id: name_agent_id.unwrap_or(DEFAULT_AGENT_ID),
         };
-        self.remote_subscriptio_table
+        self.remote_subscription_table
             .remove_subscription(source, name, conn_index);
     }
 

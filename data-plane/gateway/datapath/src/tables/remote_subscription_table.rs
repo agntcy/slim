@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: Copyright (c) 2025 Cisco and/or its affiliates.
+// SPDX-License-Identifier: Apache-2.0
+
 use std::collections::{HashMap, HashSet};
 
 use parking_lot::RwLock;
@@ -8,7 +11,7 @@ use tracing::error;
 
 #[derive(Hash, Eq, PartialEq, Debug, Clone, Default)]
 pub struct SubscriptionInfo {
-    /// source name of the subscription
+    /// source name of subscription
     source: Agent,
 
     /// subscription name
