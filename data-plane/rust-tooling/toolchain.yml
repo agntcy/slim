@@ -164,6 +164,7 @@ tasks:
       - task: build:install-cargo-components
         vars:
           COMPONENTS: "cargo-machete"
+          VERSION: "0.7.0"
     cmds:
       - cargo machete {{.ARGS}}
     vars:
@@ -188,6 +189,7 @@ tasks:
       - task: build:install-cargo-components
         vars:
           COMPONENTS: "cargo-deny"
+          VERSION: "0.17.0"
     cmds:
       - cargo deny check {{.ARGS}}
     vars:
