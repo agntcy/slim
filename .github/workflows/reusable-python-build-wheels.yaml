@@ -47,8 +47,6 @@ jobs:
           cache-directories: |
             .tools
       - name: Build wheels
-        env:
-          AWS_LC_SYS_C_STD: c11
         run: |
           git status
           task data-plane:bindings:python PROFILE=release
