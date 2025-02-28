@@ -4,6 +4,7 @@
 # import the contents of the Rust library into the Python extension
 from typing import Optional, Tuple
 from ._agp_bindings import (
+    PyGatewayConfig as GatewayConfig,
     PyService,
     PyAgentClass,
     create_agent,
@@ -23,7 +24,6 @@ from ._agp_bindings import __all__
 # optional: include the documentation from the Rust module
 from ._agp_bindings import __doc__  # noqa: F401
 
-
 class Gateway:
     def __init__(self, name="gateway/agent"):
         """
@@ -36,6 +36,19 @@ class Gateway:
             Gateway: A new Gateway instance
         """
         self.svc = PyService(name)
+
+    def configure(self, config):
+        """
+        Configure the gateway.
+
+        Args:
+            config (GatewayConfig): The gateway configuration class.
+
+        Returns:
+            None
+        """
+
+        self.svc.configure(config)
 
     async def create_agent(
         self, organization, namespace, agent, id: Optional[int] = None
@@ -54,94 +67,31 @@ class Gateway:
 
         return await create_agent(self.svc, organization, namespace, agent, id)
 
-    async def serve(
-        self,
-        address,
-        insecure: Optional[bool] = False,
-        tls_server_cert_path: Optional[str] = None,
-        tls_server_key_path: Optional[str] = None,
-        tls_server_cert_pem: Optional[str] = None,
-        tls_server_key_pem: Optional[str] = None,
-        basic_auth_username: Optional[str] = None,
-        basic_auth_password: Optional[str] = None,
-    ):
+    async def serve(self):
         """
         Serve the Gateway service.
 
         Args:
-            address (str): The address to serve the Gateway service on.
-            insecure (bool): Disable TLS. Default is False.
-            tls_server_cert_path (str): Path to the server certificate.
-            tls_server_key_path (str): Path to the server key.
-            tls_server_cert_pem (str): Server certificate as PEM.
-            tls_server_key_pem (str): Server key as PEM.
-            basic_auth_username (str): Username for basic auth.
-            basic_auth_password (str): Password for basic auth.
+            None
 
         Returns:
             None
         """
 
-        await serve(
-            self.svc,
-            address,
-            insecure,
-            tls_server_cert_path,
-            tls_server_key_path,
-            tls_server_cert_pem,
-            tls_server_key_pem,
-            basic_auth_username,
-            basic_auth_password,
-        )
+        await serve(self.svc)
 
-    async def connect(
-        self,
-        endpoint,
-        insecure: Optional[bool] = False,
-        insecure_skip_verify: Optional[bool] = False,
-        tls_ca_path: Optional[str] = None,
-        tls_client_cert_path: Optional[str] = None,
-        tls_client_key_path: Optional[str] = None,
-        tls_ca_pem: Optional[str] = None,
-        tls_client_cert_pem: Optional[str] = None,
-        tls_client_key_pem: Optional[str] = None,
-        basic_auth_username: Optional[str] = None,
-        basic_auth_password: Optional[str] = None,
-    ) -> int:
+    async def connect(self) -> int:
         """
         Connect to a remote gateway service.
 
         Args:
-            endpoint (str): The endpoint of the remote gateway service.
-            insecure (bool): Disable TLS. Default is False.
-            insecure_skip_verify (bool): Skip TLS verification. Default is False.
-            tls_ca_path (str): Path to the CA certificate.
-            tls_client_cert_path (str): Path to the client certificate.
-            tls_client_key_path (str): Path to the client key.
-            tls_ca_pem (str): CA certificate as PEM.
-            tls_client_cert_pem (str): Client certificate as PEM.
-            tls_client_key_pem (str): Client key as PEM.
-            basic_auth_username (str): Username for basic auth.
-            basic_auth_password (str): Password for basic auth.
+            None
 
         Returns:
             int: The connection ID.
         """
 
-        self.conn_id = await connect(
-            self.svc,
-            endpoint,
-            insecure,
-            insecure_skip_verify,
-            tls_ca_path,
-            tls_client_cert_path,
-            tls_client_key_path,
-            tls_ca_pem,
-            tls_client_cert_pem,
-            tls_client_key_pem,
-            basic_auth_username,
-            basic_auth_password,
-        )
+        self.conn_id = await connect(self.svc)
 
         return self.conn_id
     

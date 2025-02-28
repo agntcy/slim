@@ -9,6 +9,10 @@ import agp_bindings
 
 # create svcs
 svc_server = agp_bindings.PyService("gateway/server")
+svc_server.configure(agp_bindings.GatewayConfig(
+    endpoint="0.0.0.0:12345", 
+    insecure=True
+))
 
 
 @pytest_asyncio.fixture(scope="module")
@@ -17,7 +21,7 @@ async def server():
     agp_bindings.init_tracing()
 
     # run gateway server in background
-    await agp_bindings.serve(svc_server, "0.0.0.0:12345", insecure=True)
+    await agp_bindings.serve(svc_server)
 
     # wait for the server to start
     await asyncio.sleep(1)
@@ -26,15 +30,22 @@ async def server():
 async def test_end_to_end(server):
     # create 2 clients, Alice and Bob
     svc_alice = agp_bindings.PyService("gateway/alice")
+    svc_alice.configure(agp_bindings.GatewayConfig(
+        endpoint="http://127.0.0.1:12345"
+    ))
+
     svc_bob = agp_bindings.PyService("gateway/bob")
+    svc_bob.configure(agp_bindings.GatewayConfig(
+        endpoint="http://127.0.0.1:12345"
+    ))
 
     # connect to the gateway server
     await agp_bindings.create_agent(svc_alice, "cisco", "default", "alice", 1234)
     await agp_bindings.create_agent(svc_bob, "cisco", "default", "bob", 1234)
 
     # connect to the service
-    conn_id_alice = await agp_bindings.connect(svc_alice, "http://127.0.0.1:12345")
-    conn_id_bob = await agp_bindings.connect(svc_bob, "http://127.0.0.1:12345")
+    conn_id_alice = await agp_bindings.connect(svc_alice)
+    conn_id_bob = await agp_bindings.connect(svc_bob)
 
     # subscribe alice and bob
     alice_class = agp_bindings.PyAgentClass("cisco", "default", "alice")
@@ -81,6 +92,10 @@ async def test_end_to_end(server):
 async def test_gateway_wrapper(server):
     # create new gateway object
     gateway1 = agp_bindings.Gateway("gateway/gateway1")
+    gateway1.configure(agp_bindings.GatewayConfig(
+        endpoint="http://127.0.0.1:12345", 
+        insecure=True
+    ))
 
     org = "cisco"
     ns = "default"
@@ -93,25 +108,29 @@ async def test_gateway_wrapper(server):
     local_agent_id1 = await gateway1.create_agent(org, ns, agent1)
 
     # Connect to the service and subscribe for the local name
-    _ = await gateway1.connect("http://127.0.0.1:12345", insecure=True)
+    _ = await gateway1.connect()
 
     # disconnect and reconnect
     await gateway1.disconnect()
     time.sleep(1)
 
-    _ = await gateway1.connect("http://127.0.0.1:12345", insecure=True)
+    _ = await gateway1.connect()
 
     await gateway1.subscribe(org, ns, agent1, local_agent_id1)
 
     # create second local agent
     gateway2 = agp_bindings.Gateway("gateway/gateway2")
+    gateway2.configure(agp_bindings.GatewayConfig(
+        endpoint="http://127.0.0.1:12345", 
+        insecure=True
+    ))
 
     agent2 = "gateway2"
 
     local_agent_id2 = await gateway2.create_agent(org, ns, agent2)
 
     # Connect to gateway server
-    _ = await gateway2.connect("http://127.0.0.1:12345", insecure=True)
+    _ = await gateway2.connect()
     await gateway2.subscribe(org, ns, agent2, local_agent_id2)
 
     # set route
