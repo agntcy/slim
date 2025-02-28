@@ -12,7 +12,6 @@ drain = { version = "0.1", features = ["retain"] }
 serde = "1.0.217"
 thiserror = "2.0.9"
 tokio = "1.42.0"
-tokio-util = "0.7.13"
 tonic = "0.12"
 tracing = "0.1.41"
 

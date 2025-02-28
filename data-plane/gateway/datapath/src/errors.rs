@@ -7,6 +7,8 @@ use thiserror::Error;
 pub enum DataPathError {
     #[error("connection error: {0}")]
     ConnectionError(String),
+    #[error("disconnection error: {0}")]
+    DisconnectionError(String),
     #[error("unkwon message type {0}")]
     UnknownMsgType(String),
     #[error("error handling subscription: {0}")]

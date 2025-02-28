@@ -6,6 +6,7 @@ license = { workspace = true }
 description = "Core data plane functionality for AGP"
 
 [dependencies]
+agp-config = { path = "../config" }
 bit-vec = "0.8"
 bytes = { version = "1.9.0" }
 drain = { version = "0.1", features = ["retain"] }
@@ -20,9 +21,6 @@ tokio-util = "0.7.13"
 tonic = "0.12"
 tracing = "0.1.41"
 tracing-test = { version = "0.2.5", features = ["no-env-filter"] }
-
-[dev-dependencies]
-agp-config = { path = "../config" }
 
 [build-dependencies]
 protoc-bin-vendored = "3.1.0"

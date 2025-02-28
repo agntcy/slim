@@ -26,7 +26,6 @@ async def server():
     # wait for the server to start
     await asyncio.sleep(1)
 
-
 @pytest.mark.asyncio
 async def test_end_to_end(server):
     # create 2 clients, Alice and Bob
@@ -83,6 +82,11 @@ async def test_end_to_end(server):
     # check if the message is correct
     assert msg_rcv == bytes(msg)
 
+    # disconnect alice
+    await agp_bindings.disconnect(svc_alice, conn_id_alice)
+
+    # disconnect bob
+    await agp_bindings.disconnect(svc_bob, conn_id_bob)
 
 @pytest.mark.asyncio
 async def test_gateway_wrapper(server):
@@ -154,3 +158,4 @@ async def test_gateway_wrapper(server):
 
     # check if the message is correct
     assert msg_rcv == bytes(msg)
+

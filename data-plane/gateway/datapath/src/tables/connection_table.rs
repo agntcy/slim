@@ -34,6 +34,13 @@ where
         pool.insert(Arc::new(connection)).unwrap()
     }
 
+    /// Add a connection to the table on a give index
+    pub fn insert_at(&self, connection: T, index: usize) -> bool {
+        // Get a write lock on the pool
+        let mut pool = self.pool.write();
+        pool.insert_at(Arc::new(connection), index)
+    }
+
     /// remove a connection from the table
     pub fn remove(&self, index: usize) -> bool {
         // Get a write lock on the pool

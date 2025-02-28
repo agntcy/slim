@@ -6,6 +6,7 @@
 
 pub mod connection_table;
 pub mod errors;
+pub mod remote_subscription_table;
 pub mod subscription_table;
 
 mod pool;
@@ -14,8 +15,6 @@ use crate::messages::AgentClass;
 use errors::SubscriptionTableError;
 
 pub trait SubscriptionTable {
-    const DEFAULT_AGENT_ID: u64 = 0;
-
     fn add_subscription(
         &self,
         class: AgentClass,

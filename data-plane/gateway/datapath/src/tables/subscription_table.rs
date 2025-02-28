@@ -10,6 +10,7 @@ use tracing::{debug, error, warn};
 
 use super::pool::Pool;
 use super::{errors::SubscriptionTableError, SubscriptionTable};
+use crate::messages::encoder::DEFAULT_AGENT_ID;
 use crate::messages::{Agent, AgentClass};
 
 #[derive(Debug, Default, Clone)]
@@ -516,7 +517,7 @@ impl SubscriptionTable for SubscriptionTableImpl {
     ) -> Result<(), SubscriptionTableError> {
         let agent = Agent {
             agent_class: class,
-            agent_id: agent_id.unwrap_or(Self::DEFAULT_AGENT_ID),
+            agent_id: agent_id.unwrap_or(DEFAULT_AGENT_ID),
         };
         {
             let conn_table = self.connections.read();
@@ -553,7 +554,7 @@ impl SubscriptionTable for SubscriptionTableImpl {
     ) -> Result<(), SubscriptionTableError> {
         let agent = Agent {
             agent_class: class,
-            agent_id: agent_id.unwrap_or(Self::DEFAULT_AGENT_ID),
+            agent_id: agent_id.unwrap_or(DEFAULT_AGENT_ID),
         };
         {
             let table = self.table.write();
@@ -576,6 +577,7 @@ impl SubscriptionTable for SubscriptionTableImpl {
             }
             for agent in set.unwrap() {
                 let table = self.table.write();
+                debug!("remove subscription {:?} from connection {:?}", agent, conn);
                 remove_subscription_from_sub_table(agent, conn, is_local, table)?;
             }
         }

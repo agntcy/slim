@@ -4,10 +4,9 @@
 use std::fs::File;
 use std::io::prelude::*;
 use std::{collections::HashMap, sync::Arc};
-use thiserror::Error;
 
-use agp_datapath::messages::Agent;
 use parking_lot::RwLock;
+use testing::parse_line;
 use tokio_util::sync::CancellationToken;
 
 use agp_datapath::messages::encoder::encode_agent_from_string;
@@ -50,6 +49,16 @@ pub struct Args {
         default_value_t = false
     )]
     quite: bool,
+
+    /// time between publications in milliseconds
+    #[arg(
+        short,
+        long,
+        value_name = "sleep",
+        required = false,
+        default_value_t = 0
+    )]
+    sleep: u32,
 }
 
 impl Args {
@@ -72,125 +81,10 @@ impl Args {
     pub fn quite(&self) -> &bool {
         &self.quite
     }
-}
 
-#[derive(Error, Debug, PartialEq)]
-pub enum ParsingError {
-    #[error("parsing error {0}")]
-    ParsingError(String),
-    #[error("end of subscriptions")]
-    EOSError,
-    #[error("unknown error")]
-    Unknown,
-}
-
-#[derive(Debug, Default)]
-struct Publication {
-    /// name used to send the publication
-    name: Agent,
-
-    /// publication id to add in the payload
-    id: u64,
-
-    /// list of possible receives for the publication
-    receivers: Vec<u64>,
-}
-
-fn parse_line(line: &str) -> Result<Option<Publication>, ParsingError> {
-    let mut iter = line.split_whitespace();
-    let prefix = iter.next();
-    if prefix == Some("SUB") {
-        // skip this line
-        return Ok(None);
+    pub fn sleep(&self) -> &u32 {
+        &self.sleep
     }
-
-    if prefix != Some("PUB") {
-        // unable to parse this line
-        return Err(ParsingError::ParsingError("unknown prefix".to_string()));
-    }
-
-    let mut publication = Publication::default();
-
-    // this a valid publication, get pub id
-    match iter.next() {
-        None => {
-            // unable to parse this line
-            return Err(ParsingError::ParsingError(
-                "missing publication id".to_string(),
-            ));
-        }
-        Some(x_str) => match x_str.parse::<u64>() {
-            Ok(x) => publication.id = x,
-            Err(e) => {
-                return Err(ParsingError::ParsingError(e.to_string()));
-            }
-        },
-    }
-
-    // get the publication name
-    match iter.next().unwrap().parse::<u64>() {
-        Ok(x) => {
-            publication.name.agent_class.organization = x;
-        }
-        Err(e) => {
-            return Err(ParsingError::ParsingError(e.to_string()));
-        }
-    }
-
-    match iter.next().unwrap().parse::<u64>() {
-        Ok(x) => {
-            publication.name.agent_class.namespace = x;
-        }
-        Err(e) => {
-            return Err(ParsingError::ParsingError(e.to_string()));
-        }
-    }
-
-    match iter.next().unwrap().parse::<u64>() {
-        Ok(x) => {
-            publication.name.agent_class.agent_class = x;
-        }
-        Err(e) => {
-            return Err(ParsingError::ParsingError(e.to_string()));
-        }
-    }
-
-    match iter.next().unwrap().parse::<u64>() {
-        Ok(x) => {
-            publication.name.agent_id = x;
-        }
-        Err(e) => {
-            return Err(ParsingError::ParsingError(e.to_string()));
-        }
-    }
-
-    // get the len of the possible receivers
-    let size = match iter.next().unwrap().parse::<u64>() {
-        Ok(x) => x,
-        Err(e) => {
-            return Err(ParsingError::ParsingError(e.to_string()));
-        }
-    };
-
-    // collect the list of possible receivers
-    for recv in iter {
-        match recv.parse::<u64>() {
-            Ok(x) => {
-                publication.receivers.push(x);
-            }
-            Err(e) => {
-                return Err(ParsingError::ParsingError(e.to_string()));
-            }
-        }
-    }
-
-    if size as usize != publication.receivers.len() {
-        return Err(ParsingError::ParsingError(
-            "missing receiver ids".to_string(),
-        ));
-    }
-
-    Ok(Some(publication))
 }
 
 #[tokio::main]
@@ -201,6 +95,7 @@ async fn main() {
     let config_file = args.config();
     let msg_size = *args.msg_size();
     let id = *args.id();
+    let sleep = *args.sleep();
 
     // setup agent config
     let mut config = config::load_config(config_file).expect("failed to load configuration");
@@ -213,6 +108,7 @@ async fn main() {
 
     let mut publication_list = HashMap::new();
     let mut oracle = HashMap::new();
+    let mut routes = Vec::new();
 
     let res = File::open(input);
     if res.is_err() {
@@ -230,22 +126,18 @@ async fn main() {
     info!("loading publications");
     for line in buf.lines() {
         match parse_line(line) {
-            Ok(publication_opt) => match publication_opt {
-                None => {}
-                Some(p) => {
+            Ok(parsed_msg) => {
+                if parsed_msg.msg_type == "SUB" {
+                    routes.push(parsed_msg.name);
+                } else if parsed_msg.msg_type == "PUB" {
                     // add pub to the publication_list
-                    publication_list.insert(p.id, p.name);
+                    publication_list.insert(parsed_msg.id, parsed_msg.name);
                     // add receivers list to the oracle
-                    oracle.insert(p.id, p.receivers);
+                    oracle.insert(parsed_msg.id, parsed_msg.receivers);
                 }
-            },
+            }
             Err(e) => {
-                if e == ParsingError::EOSError {
-                    // nothing left to parse
-                    break;
-                } else {
-                    panic!("error while parsing the workload file {}", e);
-                }
+                panic!("error while parsing the workload file: {}", e);
             }
         }
     }
@@ -274,11 +166,23 @@ async fn main() {
         }
     }
 
+    // set routes for all subscriptions
+    for r in routes {
+        match svc
+            .set_route(&r.agent_class, Some(r.agent_id), conn_id)
+            .await
+        {
+            Ok(_) => {}
+            Err(e) => {
+                panic!("an error accoured while adding a route {}", e);
+            }
+        }
+    }
+
     // wait for the connection to be established
     tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
 
     // start receiving loop
-    //let results_list = Arc::new(RwLock::new(vec![999999999; publication_list.len()])); // init to a value !=0
     let results_list = Arc::new(RwLock::new(HashMap::new()));
     let clone_results_list = results_list.clone();
     let token = CancellationToken::new();
@@ -362,12 +266,23 @@ async fn main() {
 
         // for the moment we send the message in anycast
         // we need to test also the match_all function
-        svc.send_msg(&p.1.agent_class, name_id, 1, payload, conn_id)
+        if svc
+            .publish(&p.1.agent_class, name_id, 1, payload)
             .await
-            .unwrap();
+            .is_err()
+        {
+            error!(
+                "an error occurred sending publication {}, the test will fail",
+                p.0
+            );
+        }
 
         if !args.quite() {
             bar.inc(1);
+        }
+
+        if sleep != 0 {
+            tokio::time::sleep(tokio::time::Duration::from_millis(sleep as u64)).await;
         }
     }
     let duration = start.elapsed();

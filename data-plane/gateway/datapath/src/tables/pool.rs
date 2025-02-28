@@ -114,6 +114,29 @@ where
         }
     }
 
+    /// Insert the element in a given position
+    /// if the position does not existis the method fails
+    /// return true on success
+    pub fn insert_at(&mut self, element: T, index: usize) -> bool {
+        if self.capacity < index {
+            // position index cannot be accessed
+            return false;
+        }
+        // put T at position index
+        self.pool[index] = element;
+        // we can safely unwrap because self.capacity < index
+        if !self.bitmap.get(index).unwrap() {
+            // if the bit is not set increase len
+            self.len += 1;
+        }
+        self.bitmap.set(index, true);
+
+        if index > self.max_set {
+            self.max_set = index;
+        }
+        true
+    }
+
     /// Remove an element from the pool
     pub fn remove(&mut self, index: usize) -> bool {
         if self.bitmap.get(index).unwrap_or(false) {
@@ -209,6 +232,41 @@ mod tests {
         assert_eq!(pool.get(index), Some(&element));
         assert_eq!(pool.get_mut(index), Some(&mut 49));
         assert_eq!(pool.max_set(), 7);
+
+        let element = 1;
+        let res = pool.insert_at(element, index);
+        assert_eq!(res, true);
+        assert_eq!(pool.len(), 8);
+        assert_eq!(pool.get(index), Some(&element));
+        assert_eq!(pool.get_mut(index), Some(&mut 1));
+        assert_eq!(pool.max_set(), 7);
+
+        let element = 56898;
+        let res = pool.insert_at(element, index);
+        assert_eq!(res, true);
+        assert_eq!(pool.len(), 8);
+        assert_eq!(pool.get(index), Some(&element));
+        assert_eq!(pool.get_mut(index), Some(&mut 56898));
+        assert_eq!(pool.max_set(), 7);
+
+        let element = 49;
+        let res = pool.insert_at(element, index);
+        assert_eq!(res, true);
+        assert_eq!(pool.len(), 8);
+        assert_eq!(pool.get(index), Some(&element));
+        assert_eq!(pool.get_mut(index), Some(&mut 49));
+        assert_eq!(pool.max_set(), 7);
+
+        let element = 50;
+        let res = pool.insert_at(element, index + 1);
+        assert_eq!(res, true);
+        assert_eq!(pool.len(), 9);
+        assert_eq!(pool.get(index + 1), Some(&element));
+        assert_eq!(pool.get_mut(index + 1), Some(&mut 50));
+        assert_eq!(pool.max_set(), 8);
+
+        let res = pool.insert_at(element, 100000000);
+        assert_eq!(res, false);
 
         let current_len = pool.len();
         let mut curr_max_set = pool.max_set();

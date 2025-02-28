@@ -3,9 +3,7 @@
 
 use std::fs::File;
 use std::io::prelude::*;
-use thiserror::Error;
-
-use agp_datapath::messages::Agent;
+use testing::parse_line;
 
 use agp_datapath::messages::encoder::encode_agent_from_string;
 use agp_gw::config;
@@ -43,79 +41,6 @@ impl Args {
     }
 }
 
-#[derive(Error, Debug, PartialEq)]
-pub enum ParsingError {
-    #[error("parsing error {0}")]
-    ParsingError(String),
-    #[error("end of subscriptions")]
-    EOSError,
-    #[error("unknown error")]
-    Unknown,
-}
-
-fn parse_line(line: &str, id: u64) -> Result<Option<Agent>, ParsingError> {
-    let mut iter = line.split_whitespace();
-    let prefix = iter.next();
-    if prefix == Some("PUB") {
-        // no other subscription to read
-        return Err(ParsingError::EOSError);
-    }
-
-    if prefix != Some("SUB") {
-        // unable to parse this line
-        return Err(ParsingError::ParsingError("unknown prefix".to_string()));
-    }
-
-    // this a valid subscription, skip subscription id
-    iter.next();
-
-    // check subscriber id
-    if iter.next() != Some(&id.to_string()) {
-        // skip this line of the workload
-        return Ok(None);
-    }
-
-    // this subscription need to be parsed
-    let mut sub = Agent::default();
-    match iter.next().unwrap().parse::<u64>() {
-        Ok(x) => {
-            sub.agent_class.organization = x;
-        }
-        Err(e) => {
-            return Err(ParsingError::ParsingError(e.to_string()));
-        }
-    }
-
-    match iter.next().unwrap().parse::<u64>() {
-        Ok(x) => {
-            sub.agent_class.namespace = x;
-        }
-        Err(e) => {
-            return Err(ParsingError::ParsingError(e.to_string()));
-        }
-    }
-
-    match iter.next().unwrap().parse::<u64>() {
-        Ok(x) => {
-            sub.agent_class.agent_class = x;
-        }
-        Err(e) => {
-            return Err(ParsingError::ParsingError(e.to_string()));
-        }
-    }
-
-    match iter.next().unwrap().parse::<u64>() {
-        Ok(x) => {
-            sub.agent_id = x;
-        }
-        Err(e) => {
-            return Err(ParsingError::ParsingError(e.to_string()));
-        }
-    }
-
-    Ok(Some(sub))
-}
-
 #[tokio::main]
 async fn main() {
     let args = Args::parse();
@@ -151,20 +76,17 @@ async fn main() {
 
     info!("loading subscriptios for subscriber {}", id);
     for line in buf.lines() {
-        match parse_line(line, id) {
-            Ok(agent) => match agent {
-                None => {}
-                Some(s) => {
-                    subscriptions_list.push(s);
-                }
-            },
-            Err(e) => {
-                if e == ParsingError::EOSError {
-                    // nothing left to parse
+        match parse_line(line) {
+            Ok(parsed_msg) => {
+                if parsed_msg.msg_type == "SUB" && parsed_msg.id == id {
+                    subscriptions_list.push(parsed_msg.name);
+                } else if parsed_msg.msg_type == "PUB" {
+                    // no more subscriptions to process, exit loop
                     break;
-                } else {
-                    panic!("error while parsing the workload file {}", e);
                 }
+            }
+            Err(e) => {
+                panic!("error while parsing the workload file {}", e);
             }
         }
     }

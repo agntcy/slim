@@ -1,12 +1,16 @@
 // SPDX-FileCopyrightText: Copyright (c) 2025 Cisco and/or its affiliates.
 // SPDX-License-Identifier: Apache-2.0
 
+use std::collections::HashSet;
 use std::sync::Arc;
 
 use super::tables::connection_table::ConnectionTable;
+use super::tables::remote_subscription_table::RemoteSubscriptions;
 use super::tables::subscription_table::SubscriptionTableImpl;
 use super::tables::{errors::SubscriptionTableError, SubscriptionTable};
-use crate::messages::AgentClass;
+use crate::messages::encoder::DEFAULT_AGENT_ID;
+use crate::messages::{Agent, AgentClass};
+use crate::tables::remote_subscription_table::SubscriptionInfo;
 
 #[derive(Debug)]
 pub struct Forwarder<T>
@@ -14,6 +18,7 @@ where
     T: Default + Clone,
 {
     subscription_table: SubscriptionTableImpl,
+    remote_subscription_table: RemoteSubscriptions,
     connection_table: ConnectionTable<T>,
 }
 
@@ -33,12 +38,25 @@ where
     pub fn new() -> Self {
         Forwarder {
             subscription_table: SubscriptionTableImpl::default(),
+            remote_subscription_table: RemoteSubscriptions::default(),
             connection_table: ConnectionTable::with_capacity(100),
         }
     }
 
-    pub fn on_connection_established(&self, conn: T) -> u64 {
-        self.connection_table.insert(conn) as u64
+    pub fn on_connection_established(&self, conn: T, existing_index: Option<u64>) -> Option<u64> {
+        match existing_index {
+            None => {
+                let x = self.connection_table.insert(conn) as u64;
+                Some(x)
+            }
+            Some(x) => {
+                if self.connection_table.insert_at(conn, x as usize) {
+                    existing_index
+                } else {
+                    None
+                }
+            }
+        }
     }
 
     pub fn on_connection_drop(&self, conn_index: u64, is_local: bool) {
@@ -46,10 +64,19 @@ where
         let _ = self
             .subscription_table
             .remove_connection(conn_index, is_local);
+        self.remote_subscription_table.remove_connection(conn_index);
     }
 
     pub fn get_connection(&self, conn_index: u64) -> Option<Arc<T>> {
         self.connection_table.get(conn_index as usize)
+    }
+
+    pub fn get_subscriptions_forwarded_on_connection(
+        &self,
+        conn_index: u64,
+    ) -> HashSet<SubscriptionInfo> {
+        self.remote_subscription_table
+            .get_subscriptions_on_connection(conn_index)
     }
 
     pub fn on_subscription_msg(
@@ -63,6 +90,26 @@ where
             .add_subscription(class, agent_id, conn_index, is_local)
     }
 
+    pub fn on_forwarded_subscription(
+        &self,
+        source_class: AgentClass,
+        source_agent_id: Option<u64>,
+        name_class: AgentClass,
+        name_agent_id: Option<u64>,
+        conn_index: u64,
+    ) {
+        let source = Agent {
+            agent_class: source_class,
+            agent_id: source_agent_id.unwrap_or(DEFAULT_AGENT_ID),
+        };
+        let name = Agent {
+            agent_class: name_class,
+            agent_id: name_agent_id.unwrap_or(DEFAULT_AGENT_ID),
+        };
+        self.remote_subscription_table
+            .add_subscription(source, name, conn_index);
+    }
+
     pub fn on_unsubscription_msg(
         &self,
         class: AgentClass,
@@ -72,6 +119,26 @@ where
     ) -> Result<(), SubscriptionTableError> {
         self.subscription_table
             .remove_subscription(class, agent_id, conn_index, is_local)
+    }
+
+    pub fn on_forwarded_unsubscription(
+        &self,
+        source_class: AgentClass,
+        source_agent_id: Option<u64>,
+        name_class: AgentClass,
+        name_agent_id: Option<u64>,
+        conn_index: u64,
+    ) {
+        let source = Agent {
+            agent_class: source_class,
+            agent_id: source_agent_id.unwrap_or(DEFAULT_AGENT_ID),
+        };
+        let name = Agent {
+            agent_class: name_class,
+            agent_id: name_agent_id.unwrap_or(DEFAULT_AGENT_ID),
+        };
+        self.remote_subscription_table
+            .remove_subscription(source, name, conn_index);
     }
 
     pub fn on_publish_msg_match_one(
@@ -92,6 +159,11 @@ where
     ) -> Result<Vec<u64>, SubscriptionTableError> {
         self.subscription_table
             .match_all(class, agent_id, incoming_conn)
+    }
+
+    #[allow(dead_code)]
+    pub fn print_subscription_table(&self) -> String {
+        format!("{}", self.subscription_table)
     }
 }
 
