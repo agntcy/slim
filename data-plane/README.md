@@ -24,16 +24,70 @@ This will build a local binary of the gateway.
 
 To run a multiarch image of the gateway (linux/arm64 & linux/amd64):
 
-```
+```bash
 REPO_ROOT="$(git rev-parse --show-toplevel)"
 docker build -t gateway -f "${REPO_ROOT}/data-plane/Dockerfile" --platform linux/amd64,linux/arm64 "${REPO_ROOT}"
 ```
 
 Or alternatively, with docker buildx bake:
 
-```
+```bash
 pushd $(git rev-parse --show-toplevel) && IMAGE_REPO=gateway IMAGE_TAG=latest docker buildx bake gateway && popd
 ```
+
+---
+
+### Container Image on Windows
+
+The container image build process was tested on:
+
+- Windows 10 + Hyper-V
+- windows 11 + WSL 2
+
+The instructions below assume [Powershell 7](<https://learn.microsoft.com/en-us/powershell/scripting/install/installing-powershell-on-windows?view=powershell-7.5>) environment.
+
+#### Set environment variable
+
+```Powershell
+$env:REPO_ROOT = "<path-to-repo>"
+```
+
+Example:
+
+```Powershell
+$env:REPO_ROOT = "C:\Users\<dummy>\agp"
+```
+
+#### Convert Line endings
+
+To convert line endings in **VSCode** from **CRLF** (Windows-style) to **LF** (Unix-style), follow these steps:
+
+1. Open the **Dockerfile** (or any file you want to convert) in VSCode.
+2. Look at the **bottom-right corner** of the VSCode window.
+3. You should see something like `CRLF` (Carriage Return + Line Feed).
+4. Click on `CRLF`, and a small menu will appear.
+5. Select **LF (Line Feed)** from the menu.
+6. Save the file (`Ctrl + S` or `Cmd + S` on Mac).
+
+#### Build Container
+
+Notice that there is no arm64 on the command below, otherwise it will fail even if using `buildx`.
+
+```Powershell
+docker buildx build `
+    -t gateway `
+    -f "$env:REPO_ROOT\data-plane\Dockerfile" `
+    --platform linux/amd64 `
+    "$env:REPO_ROOT"
+```
+
+If everything goes well you should see an output similar to:
+
+```bash
+...
+ => => naming to docker.io/library/gateway:latest                                                             0.0s
+ => => unpacking to docker.io/library/gateway:latest
+ ```
 
 ## Run gateway
 
@@ -83,6 +137,46 @@ docker run -it \
     -v ./config/base/server-config.yaml:/config.yaml \
     gateway/agp /gateway --config /config.yaml
 ```
+
+---
+
+### Docker on Windows
+
+The instructions below assume [Powershell 7](<https://learn.microsoft.com/en-us/powershell/scripting/install/installing-powershell-on-windows?view=powershell-7.5>) environment.
+
+#### **1. Set the Password as an Environment Variable**
+
+```powershell
+$env:PASSWORD = "your_secure_password"
+```
+
+This sets the environment variable `PASSWORD` for the current session.
+
+#### **2. Run the `docker run` Command**
+
+Since PowerShell doesn’t support `${PASSWORD}`, replace it with `$env:PASSWORD`:
+
+:bomb: **Notice we are exposing port `46357` to the host and it matches the one inside `${PWD}/config/base/server-config.yaml`**
+
+```powershell
+docker run -it `
+    -e PASSWORD=$env:PASSWORD `
+    -v ${PWD}/config/base/server-config.yaml:/config.yaml `
+    -p 46357:46357 `
+    gateway:latest /gateway --config /config.yaml
+```
+
+#### **Persistent Configuration (Optional)**
+
+If you want the password to persist across sessions:
+
+```powershell
+[System.Environment]::SetEnvironmentVariable("PASSWORD", "your_secure_password", "User")
+```
+
+This makes `PASSWORD` available across all PowerShell sessions.
+
+---
 
 ### Client
 

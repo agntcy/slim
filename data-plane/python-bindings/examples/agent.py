@@ -109,7 +109,7 @@ def main():
         "--gateway",
         type=str,
         help="Gateway address.",
-        default="http://127.0.0.1:12345",
+        default="http://127.0.0.1:46357",
     )
 
     args = parser.parse_args()

@@ -58,8 +58,8 @@ pub enum CompressionError {
 impl fmt::Display for CompressionError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            CompressionError::UnsupportedType(typ) => {
-                write!(f, "unsupported compression type {:?}", typ)
+            CompressionError::UnsupportedType(t) => {
+                write!(f, "unsupported compression type {:?}", t)
             }
         }
     }
