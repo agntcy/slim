@@ -55,7 +55,7 @@ $env:REPO_ROOT = "<path-to-repo>"
 Example:
 
 ```Powershell
-$env:REPO_ROOT = "C:\Users\<dummmy>\agp"
+$env:REPO_ROOT = "C:\Users\<dummy>\agp"
 ```
 
 #### Convert Line endings
