@@ -19,7 +19,7 @@ use crate::errors::DataPathError;
 use crate::forwarder::Forwarder;
 use crate::messages::utils::{
     add_incoming_connection, create_subscription, get_agent_id, get_fanout, process_name,
-    CommandType,
+    MetadataType,
 };
 use crate::messages::AgentClass;
 use crate::pubsub::proto::pubsub::v1::message::MessageType::Publish as PublishType;
@@ -345,9 +345,9 @@ impl MessageProcessor {
         }
     }
 
-    fn process_command(&self, msg: &Message) -> Result<(CommandType, u64), DataPathError> {
+    fn process_command(&self, msg: &Message) -> Result<(MetadataType, u64), DataPathError> {
         if !msg.metadata.is_empty() {
-            match msg.metadata.get(&CommandType::ReceivedFrom.to_string()) {
+            match msg.metadata.get(&MetadataType::ReceivedFrom.to_string()) {
                 None => {}
                 Some(out_str) => match out_str.parse::<u64>() {
                     Err(e) => {
@@ -356,11 +356,11 @@ impl MessageProcessor {
                     }
                     Ok(out) => {
                         debug!(%out, "received subscription_from command, register subscription");
-                        return Ok((CommandType::ReceivedFrom, out));
+                        return Ok((MetadataType::ReceivedFrom, out));
                     }
                 },
             }
-            match msg.metadata.get(&CommandType::ForwardTo.to_string()) {
+            match msg.metadata.get(&MetadataType::ForwardTo.to_string()) {
                 None => {}
                 Some(out_str) => match out_str.parse::<u64>() {
                     Err(e) => {
@@ -369,12 +369,12 @@ impl MessageProcessor {
                     }
                     Ok(out) => {
                         debug!(%out, "received forward_to command, register subscription and forward");
-                        return Ok((CommandType::ForwardTo, out));
+                        return Ok((MetadataType::ForwardTo, out));
                     }
                 },
             }
         }
-        Ok((CommandType::Unknown, 0))
+        Ok((MetadataType::Unknown, 0))
     }
 
     async fn process_unsubscription(
@@ -401,10 +401,10 @@ impl MessageProcessor {
                         return Err(e);
                     }
                     Ok(tuple) => match tuple.0 {
-                        CommandType::ReceivedFrom => {
+                        MetadataType::ReceivedFrom => {
                             conn = tuple.1;
                         }
-                        CommandType::ForwardTo => {
+                        MetadataType::ForwardTo => {
                             forward = true;
                             out_conn = tuple.1;
                         }
@@ -498,11 +498,11 @@ impl MessageProcessor {
                         return Err(e);
                     }
                     Ok(tuple) => match tuple.0 {
-                        CommandType::ReceivedFrom => {
+                        MetadataType::ReceivedFrom => {
                             conn = tuple.1;
                             trace!("received subscription_from command, register subscription with conn id {:?}", tuple.1);
                         }
-                        CommandType::ForwardTo => {
+                        MetadataType::ForwardTo => {
                             forward = true;
                             out_conn = tuple.1;
                             trace!("received forward_to command, register subscription and forward to conn id {:?}", out_conn);
@@ -642,59 +642,26 @@ impl MessageProcessor {
         }
     }
 
-    async fn handle_new_message(
-        &self,
-        conn_index: u64,
-        result: Result<Message, Status>,
-    ) -> Result<(), DataPathError> {
+    async fn handle_new_message(&self, conn_index: u64, msg: Message) -> Result<(), DataPathError> {
         debug!(%conn_index, "Received message from connection");
         info!(
             telemetry = true,
             monotonic_counter.num_processed_messages = 1
         );
 
-        match result {
-            Ok(msg) => {
-                match self.process_message(msg, conn_index).await {
-                    Ok(_) => Ok(()),
-                    Err(e) => {
-                        // drop message and log
-                        error!(
-                            "error processing message from connection {:?}: {:?}",
-                            conn_index, e
-                        );
-                        info!(
-                            telemetry = true,
-                            monotonic_counter.num_message_process_errors = 1
-                        );
-                        Ok(())
-                    }
-                }
-            }
+        match self.process_message(msg, conn_index).await {
+            Ok(_) => Ok(()),
             Err(e) => {
-                if let Some(io_err) = MessageProcessor::match_for_io_error(&e) {
-                    if io_err.kind() == std::io::ErrorKind::BrokenPipe {
-                        info!("Connection {:?} closed by peer", conn_index);
-                        return Err(DataPathError::StreamError(e.to_string()));
-                    }
-                }
-                error!("error receiving messages {:?}", e);
-                let connection = self.forwarder().get_connection(conn_index);
-                match connection {
-                    Some(conn) => {
-                        match conn.channel() {
-                            Channel::Server(tx) => tx
-                                .send(Err(e))
-                                .await
-                                .map_err(|e| DataPathError::MessageSendError(e.to_string())),
-                            _ => Err(DataPathError::WrongChannelType), // error
-                        }
-                    }
-                    None => {
-                        error!("connection {:?} not found", conn_index);
-                        Err(DataPathError::ConnectionNotFound(conn_index.to_string()))
-                    }
-                }
+                // drop message and log
+                error!(
+                    "error processing message from connection {:?}: {:?}",
+                    conn_index, e
+                );
+                info!(
+                    telemetry = true,
+                    monotonic_counter.num_message_process_errors = 1
+                );
+                Err(DataPathError::ProcessingError(e.to_string()))
             }
         }
     }
@@ -716,12 +683,63 @@ impl MessageProcessor {
             let mut try_to_reconnect = true;
             loop {
                 tokio::select! {
-                    res = stream.next() => {
-                        match res {
-                            Some(msg) => {
-                                if let Err(e) = self_clone.handle_new_message(conn_index, msg).await {
-                                    error!("error handling stream {:?}", e);
-                                    break;
+                    next = stream.next() => {
+                        match next {
+                            Some(result) => {
+                                match result {
+                                    Ok(msg) => {
+                                        // err_)message is used to notify the local app in case of error
+                                        // during the message parsing
+                                        let mut err_message = Message::default();
+                                        if is_local {
+                                            // TODO: remove this clone using
+                                            err_message = msg.clone();
+                                        }
+                                        if let Err(e) = self_clone.handle_new_message(conn_index, msg).await {
+                                            error!("error processing incoming messages {:?}", e);
+                                            // If the message is coming from a local app, notify it
+                                            if is_local {
+                                                let connection = self_clone.forwarder().get_connection(conn_index);
+                                                match connection {
+                                                    Some(conn) => {
+                                                        debug!("try to notify local application");
+                                                        err_message.metadata.insert(MetadataType::Error.to_string(), e.to_string());
+                                                        if let Channel::Server(tx) = conn.channel() {
+                                                                if tx.send(Ok(err_message)).await.is_err() {
+                                                                    info!("Unable to notify the error to the remote end");
+                                                                }
+                                                            }
+                                                        }
+                                                    None => {
+                                                        error!("connection {:?} not found", conn_index);
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                    Err(e) => {
+                                        if let Some(io_err) = MessageProcessor::match_for_io_error(&e) {
+                                            if io_err.kind() == std::io::ErrorKind::BrokenPipe {
+                                                info!("Connection {:?} closed by peer", conn_index);
+                                            }
+                                        } else {
+                                            error!("error receiving messages {:?}", e);
+                                            let connection = self_clone.forwarder().get_connection(conn_index);
+                                            match connection {
+                                                Some(conn) => {
+                                                    info!("try to notify the error to the remote end");
+                                                    if let Channel::Server(tx) = conn.channel() {
+                                                        if tx.send(Err(e)).await.is_err() {
+                                                            info!("Unable to notify the error to the remote end");
+                                                        }
+                                                    }
+                                                }
+                                                None => {
+                                                    error!("connection {:?} not found", conn_index);
+                                                }
+                                            }
+                                        }
+                                    }
                                 }
                             }
                             None => {
@@ -780,8 +798,6 @@ impl MessageProcessor {
                                 // the subscription table should be ok already
                                 delete_connection = false;
                                 for r in remote_subscriptions.iter() {
-                                    // TODO in remote subscription put also the source name of the subscription
-                                    // so that I can reuse it here
                                     let sub_msg = create_subscription(
                                         r.source(),
                                         &r.name().agent_class,

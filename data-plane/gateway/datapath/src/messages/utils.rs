@@ -23,20 +23,22 @@ pub enum MessageError {
     GroupNotFound,
 }
 
-pub enum CommandType {
+pub enum MetadataType {
     ReceivedFrom,
     ForwardTo,
     IncomingConnection,
+    Error,
     Unknown,
 }
 
-impl fmt::Display for CommandType {
+impl fmt::Display for MetadataType {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            CommandType::ReceivedFrom => write!(f, "ReceivedFrom"),
-            CommandType::ForwardTo => write!(f, "ForwardTo"),
-            CommandType::IncomingConnection => write!(f, "IncomingConnection"),
-            CommandType::Unknown => write!(f, "Unknown"),
+            MetadataType::ReceivedFrom => write!(f, "ReceivedFrom"),
+            MetadataType::ForwardTo => write!(f, "ForwardTo"),
+            MetadataType::IncomingConnection => write!(f, "IncomingConnection"),
+            MetadataType::Error => write!(f, "Error"),
+            MetadataType::Unknown => write!(f, "Unknown"),
         }
     }
 }
@@ -137,7 +139,10 @@ pub fn create_subscription_from(
 
     // add the from_conn in the hashmap of the message
     let mut metadata = HashMap::new();
-    metadata.insert(CommandType::ReceivedFrom.to_string(), from_conn.to_string());
+    metadata.insert(
+        MetadataType::ReceivedFrom.to_string(),
+        from_conn.to_string(),
+    );
 
     // create a subscription with the metadata
     // the result will be that the subscription will be added to the local
@@ -158,7 +163,7 @@ pub fn create_subscription_to_forward(
 
     // add the from_conn in the hashmap of the message
     let mut metadata = HashMap::new();
-    metadata.insert(CommandType::ForwardTo.to_string(), to_conn.to_string());
+    metadata.insert(MetadataType::ForwardTo.to_string(), to_conn.to_string());
 
     create_subscription(source, name, id, metadata)
 }
@@ -175,7 +180,10 @@ pub fn create_unsubscription_from(
 
     // add the from_conn in the hashmap of the message
     let mut metadata = HashMap::new();
-    metadata.insert(CommandType::ReceivedFrom.to_string(), from_conn.to_string());
+    metadata.insert(
+        MetadataType::ReceivedFrom.to_string(),
+        from_conn.to_string(),
+    );
 
     // create the unsubscription with the metadata
     create_unsubscription(&source, name, id, metadata)
@@ -183,7 +191,7 @@ pub fn create_unsubscription_from(
 
 pub fn add_incoming_connection(msg: &mut ProtoMessage, in_connection: u64) {
     msg.metadata.insert(
-        CommandType::IncomingConnection.to_string(),
+        MetadataType::IncomingConnection.to_string(),
         in_connection.to_string(),
     );
 }
@@ -191,7 +199,7 @@ pub fn add_incoming_connection(msg: &mut ProtoMessage, in_connection: u64) {
 pub fn get_incoming_connection(msg: &ProtoMessage) -> Option<u64> {
     match msg
         .metadata
-        .get(&CommandType::IncomingConnection.to_string())
+        .get(&MetadataType::IncomingConnection.to_string())
     {
         None => None,
         Some(conn) => conn.parse::<u64>().ok(),
@@ -208,7 +216,7 @@ pub fn create_unsubscription_to_forward(
 
     // add the from_conn in the hashmap of the message
     let mut metadata = HashMap::new();
-    metadata.insert(CommandType::ForwardTo.to_string(), to_conn.to_string());
+    metadata.insert(MetadataType::ForwardTo.to_string(), to_conn.to_string());
 
     create_unsubscription(source, name, id, metadata)
 }
