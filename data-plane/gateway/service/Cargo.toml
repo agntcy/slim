@@ -6,7 +6,7 @@ version = "0.1.4"
 description = "Main service and public API to interact with AGP data plane."
 
 [dependencies]
-agp-config = { path = "../config", version = "0.1.3" }
+agp-config = { path = "../config", version = "0.1.4" }
 agp-datapath = { path = "../datapath", version = "0.2.0" }
 drain = { version = "0.1", features = ["retain"] }
 serde = "1.0.217"
