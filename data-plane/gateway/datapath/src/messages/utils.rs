@@ -4,7 +4,7 @@
 use core::fmt;
 use std::collections::HashMap;
 
-use super::encoder::{Agent, AgentClass};
+use super::encoder::{Agent, AgentClass, DEFAULT_AGENT_ID};
 use crate::pubsub::{
     Content, ProtoAgentClass, ProtoAgentGroup, ProtoAgentId, ProtoMessage, ProtoPublish,
     ProtoPublishType, ProtoSubscribe, ProtoSubscribeType, ProtoUnsubscribe, ProtoUnsubscribeType,
@@ -204,6 +204,60 @@ pub fn get_incoming_connection(msg: &ProtoMessage) -> Option<u64> {
         None => None,
         Some(conn) => conn.parse::<u64>().ok(),
     }
+}
+
+pub fn get_source(msg: &ProtoMessage) -> Option<Agent> {
+    let source = match &msg.message_type {
+        Some(msg_type) => match msg_type {
+            ProtoPublishType(publish) => publish.source,
+            ProtoSubscribeType(sub) => sub.source,
+            ProtoUnsubscribeType(unsub) => unsub.source,
+        },
+        None => None,
+    };
+
+    source?;
+
+    let (class, id) = match process_name(&source) {
+        Ok(class) => (Some(class), get_agent_id(&source)),
+        Err(_) => (None, None),
+    };
+
+    let unwrap_class = class?;
+
+    let src_name = Agent {
+        agent_class: unwrap_class,
+        agent_id: id.unwrap_or(DEFAULT_AGENT_ID),
+    };
+
+    Some(src_name)
+}
+
+pub fn get_name(msg: &ProtoMessage) -> Option<Agent> {
+    let name = match &msg.message_type {
+        Some(msg_type) => match msg_type {
+            ProtoPublishType(publish) => publish.name,
+            ProtoSubscribeType(sub) => sub.name,
+            ProtoUnsubscribeType(unsub) => unsub.name,
+        },
+        None => None,
+    };
+
+    name?;
+
+    let (class, id) = match process_name(&name) {
+        Ok(class) => (Some(class), get_agent_id(&name)),
+        Err(_) => (None, None),
+    };
+
+    let unwrap_class = class?;
+
+    let dst_name = Agent {
+        agent_class: unwrap_class,
+        agent_id: id.unwrap_or(DEFAULT_AGENT_ID),
+    };
+
+    Some(dst_name)
 }
 
 pub fn create_unsubscription_to_forward(

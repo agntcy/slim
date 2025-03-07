@@ -18,8 +18,8 @@ use crate::connection::{Channel, Connection, Type as ConnectionType};
 use crate::errors::DataPathError;
 use crate::forwarder::Forwarder;
 use crate::messages::utils::{
-    add_incoming_connection, create_subscription, get_agent_id, get_fanout, process_name,
-    MetadataType,
+    add_incoming_connection, create_publication, create_subscription, get_agent_id, get_fanout,
+    get_name, get_source, process_name, MetadataType,
 };
 use crate::messages::AgentClass;
 use crate::pubsub::proto::pubsub::v1::message::MessageType::Publish as PublishType;
@@ -688,12 +688,12 @@ impl MessageProcessor {
                             Some(result) => {
                                 match result {
                                     Ok(msg) => {
-                                        // err_)message is used to notify the local app in case of error
-                                        // during the message parsing
-                                        let mut err_message = Message::default();
+                                        // save message source to use in case of error
+                                        let mut msg_source = None;
+                                        let mut msg_name = None;
                                         if is_local {
-                                            // TODO: remove this clone using
-                                            err_message = msg.clone();
+                                            msg_source = get_source(&msg);
+                                            msg_name = get_name(&msg);
                                         }
                                         if let Err(e) = self_clone.handle_new_message(conn_index, msg).await {
                                             error!("error processing incoming messages {:?}", e);
@@ -703,13 +703,26 @@ impl MessageProcessor {
                                                 match connection {
                                                     Some(conn) => {
                                                         debug!("try to notify local application");
-                                                        err_message.metadata.insert(MetadataType::Error.to_string(), e.to_string());
-                                                        if let Channel::Server(tx) = conn.channel() {
+                                                        if msg_source.is_none() || msg_name.is_none() {
+                                                            debug!("Unable to notify the error to the remote end");
+                                                        } else {
+                                                            // keep the same message format for the error
+                                                            let dest = msg_name.unwrap();
+                                                            let mut err_message = create_publication(
+                                                                &msg_source.unwrap(),
+                                                                &dest.agent_class,
+                                                                Some(dest.agent_id),
+                                                                HashMap::new(), 1, "",
+                                                                Vec::new());
+
+                                                            err_message.metadata.insert(MetadataType::Error.to_string(), e.to_string());
+                                                            if let Channel::Server(tx) = conn.channel() {
                                                                 if tx.send(Ok(err_message)).await.is_err() {
                                                                     info!("Unable to notify the error to the remote end");
                                                                 }
                                                             }
                                                         }
+                                                    }
                                                     None => {
                                                         error!("connection {:?} not found", conn_index);
                                                     }
