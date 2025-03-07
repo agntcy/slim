@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.3](https://github.com/agntcy/agp/compare/agp-config-v0.1.2...agp-config-v0.1.3) - 2025-03-07
+
+### Other
+
+- Windows Instructions ([#73](https://github.com/agntcy/agp/pull/73))
+
 ## [0.1.2](https://github.com/agntcy/agp/compare/agp-config-v0.1.1...agp-config-v0.1.2) - 2025-02-28
 
 ### Added

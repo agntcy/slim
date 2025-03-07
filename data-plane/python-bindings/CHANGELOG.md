@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.8](https://github.com/agntcy/agp/compare/agp-bindings-v0.1.7...agp-bindings-v0.1.8) (2025-03-06)
+
+
+### Features
+
+* handle disconnection events ([#67](https://github.com/agntcy/agp/issues/67)) ([33801aa](https://github.com/agntcy/agp/commit/33801aa2934b81b5a682973e8a9a38cddc3fa54c))
+
 ## [0.1.7](https://github.com/agntcy/agp/compare/agp-bindings-v0.1.6...agp-bindings-v0.1.7) (2025-02-20)
 
 
