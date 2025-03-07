@@ -718,7 +718,7 @@ impl MessageProcessor {
                                                             err_message.metadata.insert(MetadataType::Error.to_string(), e.to_string());
                                                             if let Channel::Server(tx) = conn.channel() {
                                                                 if tx.send(Ok(err_message)).await.is_err() {
-                                                                    info!("Unable to notify the error to the remote end");
+                                                                    debug!("Unable to notify the error to the remote end");
                                                                 }
                                                             }
                                                         }
@@ -740,10 +740,10 @@ impl MessageProcessor {
                                             let connection = self_clone.forwarder().get_connection(conn_index);
                                             match connection {
                                                 Some(conn) => {
-                                                    info!("try to notify the error to the remote end");
+                                                    debug!("try to notify the error to the remote end");
                                                     if let Channel::Server(tx) = conn.channel() {
                                                         if tx.send(Err(e)).await.is_err() {
-                                                            info!("Unable to notify the error to the remote end");
+                                                            debug!("Unable to notify the error to the remote end");
                                                         }
                                                     }
                                                 }
@@ -756,7 +756,7 @@ impl MessageProcessor {
                                 }
                             }
                             None => {
-                                info!(%conn_index, "end of stream");
+                                debug!(%conn_index, "end of stream");
                                 break;
                             }
                         }
@@ -830,10 +830,7 @@ impl MessageProcessor {
                     }
                 }
             } else {
-                info!(
-                    "connection lost on connection {}, do not try to reconnect",
-                    conn_index
-                )
+                info!("close connection {}", conn_index)
             }
 
             if delete_connection {

@@ -73,7 +73,7 @@ Options:
   -i, --id <ID>                 Publisher id
   -m, --msg-size <SIZE>         Publication message size [default: 1500]
   -q, --quite                   Runs in quite mode without progress bars
-  -s, --sleep <sleep>           time between publications in milliseconds [default: 0]
+  -s, --sleep <SLEEP>           time between publications in milliseconds [default: 0]
   -h, --help                    Print help
   -V, --version                 Print version
 ```

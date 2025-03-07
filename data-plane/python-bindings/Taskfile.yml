@@ -101,7 +101,8 @@ tasks:
           -l cisco/default/bob              \
           -r cisco/default/alice            \
           -g http://localhost:12345         \
-          -m "The city of the big ben"
+          -m "The city of the big ben"      \
+          -i 1
 
   python-bindings:generate-stub:
     desc: "Generate stub file for the Python bindings"

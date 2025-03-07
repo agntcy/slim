@@ -6,15 +6,11 @@ use thiserror::Error;
 #[derive(Error, Debug, PartialEq)]
 pub enum SubscriptionTableError {
     #[error("no matching found")]
-    MatchNotFound,
-    #[error("subscription already exists")]
-    SubscriptionExists,
+    NoMatch,
     #[error("subscription not fund")]
     SubscriptionNotFound,
     #[error("agent id not fund")]
     AgentIdNotFound,
     #[error("connection id not fund")]
     ConnectionIdNotFound,
-    #[error("connection already exists")]
-    ConnectionExists,
 }

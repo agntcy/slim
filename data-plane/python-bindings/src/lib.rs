@@ -668,16 +668,16 @@ async fn receive_impl(svc: PyService) -> Result<(PyAgentSource, Vec<u8>), Servic
         .ok_or(ServiceError::ConfigError("no message received".to_string()))?
         .map_err(|e| ServiceError::ReceiveError(e.to_string()))?;
 
-    // Extract incoming connection
-    let conn_in = get_incoming_connection(&msg).ok_or(ServiceError::ReceiveError(
-        "no incoming connection".to_string(),
-    ))?;
-
     // Check if the message is an error
     let error = msg.metadata.get(&MetadataType::Error.to_string());
     if error.is_some() {
         return Err(ServiceError::ReceiveError(error.unwrap().to_string()));
     }
+
+    // Extract incoming connection
+    let conn_in = get_incoming_connection(&msg).ok_or(ServiceError::ReceiveError(
+        "no incoming connection".to_string(),
+    ))?;
 
     // extract agent and payload
     let (source, content) = match msg.message_type {
