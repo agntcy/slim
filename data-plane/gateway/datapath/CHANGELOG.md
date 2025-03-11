@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.1](https://github.com/agntcy/agp/compare/agp-datapath-v0.2.0...agp-datapath-v0.2.1) - 2025-03-11
+
+### Other
+
+- *(agp-config)* release v0.1.4 ([#79](https://github.com/agntcy/agp/pull/79))
+
 ## [0.2.0](https://github.com/agntcy/agp/compare/agp-datapath-v0.1.2...agp-datapath-v0.2.0) - 2025-02-28
 
 ### Added
