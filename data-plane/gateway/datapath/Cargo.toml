@@ -6,7 +6,7 @@ license = { workspace = true }
 description = "Core data plane functionality for AGP"
 
 [dependencies]
-agp-config = { path = "../config" }
+agp-config = { path = "../config", version = "0.1.3" }
 bit-vec = "0.8"
 bytes = { version = "1.9.0" }
 drain = { version = "0.1", features = ["retain"] }
