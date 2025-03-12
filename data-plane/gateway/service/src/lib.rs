@@ -372,7 +372,7 @@ impl Service {
         agent_id: Option<u64>,
         conn: u64,
     ) -> Result<(), ServiceError> {
-        info!("set route to {:?}/{:?}", name, agent_id);
+        debug!("set route to {:?}/{:?}", name, agent_id);
 
         if self.agent.is_none() {
             error!("the local agent is not configured");

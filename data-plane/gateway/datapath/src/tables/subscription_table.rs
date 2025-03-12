@@ -440,10 +440,10 @@ fn add_subscription_to_connection(
         Some(s) => {
             if !s.insert(agent.clone()) {
                 warn!(
-                    "subscription for class {:?}, agent_id {} already exists for connection {}",
+                    "subscription for class {:?}, agent_id {} already exists for connection {}, ignore the message",
                     agent.agent_class, agent.agent_id, conn_index,
                 );
-                return Err(SubscriptionTableError::ConnectionExists);
+                return Ok(());
             }
         }
     }
@@ -526,10 +526,10 @@ impl SubscriptionTable for SubscriptionTableImpl {
                 Some(set) => {
                     if set.contains(&agent) {
                         warn!(
-                            "sub scription {:?} on connection {:?} already exists",
+                            "subscription {:?} on connection {:?} already exists, ignore the message",
                             agent, conn
                         );
-                        return Err(SubscriptionTableError::SubscriptionExists);
+                        return Ok(());
                     }
                 }
             }
@@ -599,7 +599,7 @@ impl SubscriptionTable for SubscriptionTableImpl {
         match class {
             None => {
                 debug!("match not found for class {:?}", class);
-                Err(SubscriptionTableError::MatchNotFound)
+                Err(SubscriptionTableError::NoMatch)
             }
             Some(class_state) => {
                 // first try to send the message to the local connections
@@ -614,7 +614,7 @@ impl SubscriptionTable for SubscriptionTableImpl {
                     return Ok(out);
                 }
                 error!("no output connection available");
-                Err(SubscriptionTableError::MatchNotFound)
+                Err(SubscriptionTableError::NoMatch)
             }
         }
     }
@@ -630,7 +630,7 @@ impl SubscriptionTable for SubscriptionTableImpl {
         match class {
             None => {
                 debug!("match not found for class {:?}", class);
-                Err(SubscriptionTableError::MatchNotFound)
+                Err(SubscriptionTableError::NoMatch)
             }
             Some(class_state) => {
                 // first try to send the message to the local connections
@@ -645,7 +645,7 @@ impl SubscriptionTable for SubscriptionTableImpl {
                     return Ok(out);
                 }
                 error!("no output connection available");
-                Err(SubscriptionTableError::MatchNotFound)
+                Err(SubscriptionTableError::NoMatch)
             }
         }
     }
@@ -721,7 +721,7 @@ mod tests {
         // return no match
         assert_eq!(
             t.match_all(agent_class1.clone(), None, 1),
-            Err(SubscriptionTableError::MatchNotFound)
+            Err(SubscriptionTableError::NoMatch)
         );
 
         // add subscription again
@@ -810,11 +810,12 @@ mod tests {
         );
         assert_eq!(
             t.match_one(agent_class1.clone(), Some(1), 100),
-            Err(SubscriptionTableError::MatchNotFound)
+            Err(SubscriptionTableError::NoMatch)
         );
         assert_eq!(
+            // this generates a warning
             t.add_subscription(agent_class2.clone(), Some(2), 3, false),
-            Err(SubscriptionTableError::SubscriptionExists)
+            Ok(())
         );
         assert_eq!(
             t.remove_subscription(agent_class3.clone(), None, 2, false),

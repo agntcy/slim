@@ -4,7 +4,7 @@
 use core::fmt;
 use std::collections::HashMap;
 
-use super::encoder::{Agent, AgentClass};
+use super::encoder::{Agent, AgentClass, DEFAULT_AGENT_ID};
 use crate::pubsub::{
     Content, ProtoAgentClass, ProtoAgentGroup, ProtoAgentId, ProtoMessage, ProtoPublish,
     ProtoPublishType, ProtoSubscribe, ProtoSubscribeType, ProtoUnsubscribe, ProtoUnsubscribeType,
@@ -23,20 +23,22 @@ pub enum MessageError {
     GroupNotFound,
 }
 
-pub enum CommandType {
+pub enum MetadataType {
     ReceivedFrom,
     ForwardTo,
     IncomingConnection,
+    Error,
     Unknown,
 }
 
-impl fmt::Display for CommandType {
+impl fmt::Display for MetadataType {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            CommandType::ReceivedFrom => write!(f, "ReceivedFrom"),
-            CommandType::ForwardTo => write!(f, "ForwardTo"),
-            CommandType::IncomingConnection => write!(f, "IncomingConnection"),
-            CommandType::Unknown => write!(f, "Unknown"),
+            MetadataType::ReceivedFrom => write!(f, "ReceivedFrom"),
+            MetadataType::ForwardTo => write!(f, "ForwardTo"),
+            MetadataType::IncomingConnection => write!(f, "IncomingConnection"),
+            MetadataType::Error => write!(f, "Error"),
+            MetadataType::Unknown => write!(f, "Unknown"),
         }
     }
 }
@@ -137,7 +139,10 @@ pub fn create_subscription_from(
 
     // add the from_conn in the hashmap of the message
     let mut metadata = HashMap::new();
-    metadata.insert(CommandType::ReceivedFrom.to_string(), from_conn.to_string());
+    metadata.insert(
+        MetadataType::ReceivedFrom.to_string(),
+        from_conn.to_string(),
+    );
 
     // create a subscription with the metadata
     // the result will be that the subscription will be added to the local
@@ -158,7 +163,7 @@ pub fn create_subscription_to_forward(
 
     // add the from_conn in the hashmap of the message
     let mut metadata = HashMap::new();
-    metadata.insert(CommandType::ForwardTo.to_string(), to_conn.to_string());
+    metadata.insert(MetadataType::ForwardTo.to_string(), to_conn.to_string());
 
     create_subscription(source, name, id, metadata)
 }
@@ -175,7 +180,10 @@ pub fn create_unsubscription_from(
 
     // add the from_conn in the hashmap of the message
     let mut metadata = HashMap::new();
-    metadata.insert(CommandType::ReceivedFrom.to_string(), from_conn.to_string());
+    metadata.insert(
+        MetadataType::ReceivedFrom.to_string(),
+        from_conn.to_string(),
+    );
 
     // create the unsubscription with the metadata
     create_unsubscription(&source, name, id, metadata)
@@ -183,7 +191,7 @@ pub fn create_unsubscription_from(
 
 pub fn add_incoming_connection(msg: &mut ProtoMessage, in_connection: u64) {
     msg.metadata.insert(
-        CommandType::IncomingConnection.to_string(),
+        MetadataType::IncomingConnection.to_string(),
         in_connection.to_string(),
     );
 }
@@ -191,11 +199,65 @@ pub fn add_incoming_connection(msg: &mut ProtoMessage, in_connection: u64) {
 pub fn get_incoming_connection(msg: &ProtoMessage) -> Option<u64> {
     match msg
         .metadata
-        .get(&CommandType::IncomingConnection.to_string())
+        .get(&MetadataType::IncomingConnection.to_string())
     {
         None => None,
         Some(conn) => conn.parse::<u64>().ok(),
     }
+}
+
+pub fn get_source(msg: &ProtoMessage) -> Option<Agent> {
+    let source = match &msg.message_type {
+        Some(msg_type) => match msg_type {
+            ProtoPublishType(publish) => publish.source,
+            ProtoSubscribeType(sub) => sub.source,
+            ProtoUnsubscribeType(unsub) => unsub.source,
+        },
+        None => None,
+    };
+
+    source?;
+
+    let (class, id) = match process_name(&source) {
+        Ok(class) => (Some(class), get_agent_id(&source)),
+        Err(_) => (None, None),
+    };
+
+    let unwrap_class = class?;
+
+    let src_name = Agent {
+        agent_class: unwrap_class,
+        agent_id: id.unwrap_or(DEFAULT_AGENT_ID),
+    };
+
+    Some(src_name)
+}
+
+pub fn get_name(msg: &ProtoMessage) -> Option<Agent> {
+    let name = match &msg.message_type {
+        Some(msg_type) => match msg_type {
+            ProtoPublishType(publish) => publish.name,
+            ProtoSubscribeType(sub) => sub.name,
+            ProtoUnsubscribeType(unsub) => unsub.name,
+        },
+        None => None,
+    };
+
+    name?;
+
+    let (class, id) = match process_name(&name) {
+        Ok(class) => (Some(class), get_agent_id(&name)),
+        Err(_) => (None, None),
+    };
+
+    let unwrap_class = class?;
+
+    let dst_name = Agent {
+        agent_class: unwrap_class,
+        agent_id: id.unwrap_or(DEFAULT_AGENT_ID),
+    };
+
+    Some(dst_name)
 }
 
 pub fn create_unsubscription_to_forward(
@@ -208,7 +270,7 @@ pub fn create_unsubscription_to_forward(
 
     // add the from_conn in the hashmap of the message
     let mut metadata = HashMap::new();
-    metadata.insert(CommandType::ForwardTo.to_string(), to_conn.to_string());
+    metadata.insert(MetadataType::ForwardTo.to_string(), to_conn.to_string());
 
     create_unsubscription(source, name, id, metadata)
 }

@@ -5,6 +5,7 @@ use std::fs::File;
 use std::io::prelude::*;
 use std::{collections::HashMap, sync::Arc};
 
+use agp_datapath::messages::utils::MetadataType;
 use parking_lot::RwLock;
 use testing::parse_line;
 use tokio_util::sync::CancellationToken;
@@ -54,7 +55,7 @@ pub struct Args {
     #[arg(
         short,
         long,
-        value_name = "sleep",
+        value_name = "SLEEP",
         required = false,
         default_value_t = 0
     )]
@@ -199,6 +200,11 @@ async fn main() {
                         }
                         Some(result) => match result {
                             Ok(msg) => {
+                                let error = msg.metadata.get(&MetadataType::Error.to_string());
+                                if error.is_some() {
+                                    error!("An error occurred processing a message, error: {}", error.unwrap());
+                                    continue;
+                                }
                                 match &msg.message_type.unwrap() {
                                     agp_datapath::pubsub::ProtoPublishType(msg) => {
                                         // parse payload and add info to the result list

@@ -189,8 +189,9 @@ mod tests {
             Ok(())
         );
         assert_eq!(
+            // this creates a warning
             fwd.on_subscription_msg(agent_class.clone(), Some(1), 12, false),
-            Err(SubscriptionTableError::SubscriptionExists)
+            Ok(())
         );
         assert_eq!(
             fwd.on_publish_msg_match_one(agent_class.clone(), Some(1), 100),
@@ -198,7 +199,7 @@ mod tests {
         );
         assert_eq!(
             fwd.on_publish_msg_match_one(agent_class.clone(), Some(2), 100),
-            Err(SubscriptionTableError::MatchNotFound)
+            Err(SubscriptionTableError::NoMatch)
         );
 
         assert_eq!(

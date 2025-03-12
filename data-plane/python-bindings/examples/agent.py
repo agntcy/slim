@@ -26,7 +26,7 @@ def format_message(message1, message2):
     return f"{color.BOLD}{color.CYAN}{message1.capitalize()}{color.END}\t {message2}"
 
 
-async def run_client(local_id, remote_id, message, address):
+async def run_client(local_id, remote_id, message, address, iterations):
     # init tracing
     agp_bindings.init_tracing()
 
@@ -56,6 +56,9 @@ async def run_client(local_id, remote_id, message, address):
     )
 
     if message:
+        if not iterations:
+            iterations = 1
+
         # Split the IDs into their respective components
         try:
             remote_organization, remote_namespace, remote_agent = remote_id.split("/")
@@ -66,15 +69,21 @@ async def run_client(local_id, remote_id, message, address):
         # Create a route to the remote ID
         await gateway.set_route(remote_organization, remote_namespace, remote_agent)
 
-        # Send the message
-        await gateway.publish(
-            message.encode(), remote_organization, remote_namespace, remote_agent
-        )
-        print(format_message(f"{local_agent.capitalize()} sent:", message))
+        for i in range (0, iterations):
+            try:
+                # Send the message
+                await gateway.publish(
+                    message.encode(), remote_organization, remote_namespace, remote_agent
+                )
+                print(format_message(f"{local_agent.capitalize()} sent:", message))
 
-        # Wait for a reply
-        src, msg = await gateway.receive()
-        print(format_message(f"{local_agent.capitalize()} received:", msg.decode()))
+                # Wait for a reply
+                src, msg = await gateway.receive()
+                print(format_message(f"{local_agent.capitalize()} received:", msg.decode()))
+            except Exception as e:
+                print("received error: ", e)
+
+            time.sleep(1)
     else:
         # Wait for a message and reply in a loop
         while True:
@@ -111,11 +120,11 @@ def main():
         help="Gateway address.",
         default="http://127.0.0.1:46357",
     )
-
+    parser.add_argument("-i", "--iterations", type=int, help="Number of messages to send, one per second.")
     args = parser.parse_args()
 
     # Run the client with the specified local ID, remote ID, and optional message
-    asyncio.run(run_client(args.local, args.remote, args.message, args.gateway))
+    asyncio.run(run_client(args.local, args.remote, args.message, args.gateway, args.iterations))
 
 
 if __name__ == "__main__":

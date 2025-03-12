@@ -3,6 +3,7 @@
 
 use std::sync::Arc;
 
+use agp_datapath::messages::utils::MetadataType;
 use pyo3::exceptions::PyException;
 use pyo3::prelude::*;
 use pyo3_stub_gen::define_stub_info_gatherer;
@@ -666,6 +667,12 @@ async fn receive_impl(svc: PyService) -> Result<(PyAgentSource, Vec<u8>), Servic
         .await
         .ok_or(ServiceError::ConfigError("no message received".to_string()))?
         .map_err(|e| ServiceError::ReceiveError(e.to_string()))?;
+
+    // Check if the message is an error
+    let error = msg.metadata.get(&MetadataType::Error.to_string());
+    if error.is_some() {
+        return Err(ServiceError::ReceiveError(error.unwrap().to_string()));
+    }
 
     // Extract incoming connection
     let conn_in = get_incoming_connection(&msg).ok_or(ServiceError::ReceiveError(
