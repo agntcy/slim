@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0](https://github.com/agntcy/agp/compare/agp-datapath-v0.2.1...agp-datapath-v0.3.0) - 2025-03-12
+
+### Added
+
+- notify local app if a message is not processed correctly ([#72](https://github.com/agntcy/agp/pull/72))
+
 ## [0.2.1](https://github.com/agntcy/agp/compare/agp-datapath-v0.2.0...agp-datapath-v0.2.1) - 2025-03-11
 
 ### Other
