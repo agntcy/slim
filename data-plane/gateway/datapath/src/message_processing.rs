@@ -737,21 +737,8 @@ impl MessageProcessor {
                                             }
                                         } else {
                                             error!("error receiving messages {:?}", e);
-                                            let connection = self_clone.forwarder().get_connection(conn_index);
-                                            match connection {
-                                                Some(conn) => {
-                                                    debug!("try to notify the error to the remote end");
-                                                    if let Channel::Server(tx) = conn.channel() {
-                                                        if tx.send(Err(e)).await.is_err() {
-                                                            debug!("unable to notify the error to the remote end");
-                                                        }
-                                                    }
-                                                }
-                                                None => {
-                                                    error!("connection {:?} not found", conn_index);
-                                                }
-                                            }
                                         }
+                                        break;
                                     }
                                 }
                             }
