@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.9](https://github.com/agntcy/agp/compare/agp-bindings-v0.1.8...agp-bindings-v0.1.9) (2025-03-12)
+
+
+### Features
+
+* notify local app if a message is not processed correctly ([#72](https://github.com/agntcy/agp/issues/72)) ([5fdbaea](https://github.com/agntcy/agp/commit/5fdbaea40d335c29cf48906528d9c26f1994c520))
+
 ## [0.1.8](https://github.com/agntcy/agp/compare/agp-bindings-v0.1.7...agp-bindings-v0.1.8) (2025-03-06)
 
 
