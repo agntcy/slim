@@ -704,7 +704,7 @@ impl MessageProcessor {
                                                     Some(conn) => {
                                                         debug!("try to notify local application");
                                                         if msg_source.is_none() || msg_name.is_none() {
-                                                            debug!("Unable to notify the error to the remote end");
+                                                            debug!("unable to notify the error to the remote end");
                                                         } else {
                                                             // keep the same message format for the error
                                                             let dest = msg_name.unwrap();
@@ -718,7 +718,7 @@ impl MessageProcessor {
                                                             err_message.metadata.insert(MetadataType::Error.to_string(), e.to_string());
                                                             if let Channel::Server(tx) = conn.channel() {
                                                                 if tx.send(Ok(err_message)).await.is_err() {
-                                                                    debug!("Unable to notify the error to the remote end");
+                                                                    debug!("unable to notify the error to the local app");
                                                                 }
                                                             }
                                                         }
@@ -733,7 +733,7 @@ impl MessageProcessor {
                                     Err(e) => {
                                         if let Some(io_err) = MessageProcessor::match_for_io_error(&e) {
                                             if io_err.kind() == std::io::ErrorKind::BrokenPipe {
-                                                info!("Connection {:?} closed by peer", conn_index);
+                                                info!("connection {:?} closed by peer", conn_index);
                                             }
                                         } else {
                                             error!("error receiving messages {:?}", e);
@@ -743,7 +743,7 @@ impl MessageProcessor {
                                                     debug!("try to notify the error to the remote end");
                                                     if let Channel::Server(tx) = conn.channel() {
                                                         if tx.send(Err(e)).await.is_err() {
-                                                            debug!("Unable to notify the error to the remote end");
+                                                            debug!("unable to notify the error to the remote end");
                                                         }
                                                     }
                                                 }
