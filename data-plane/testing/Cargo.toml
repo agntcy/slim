@@ -17,9 +17,9 @@ name = "publisher"
 path = "src/bin/publisher.rs"
 
 [dependencies]
-agp-config = { path = "../gateway/config", version = "0.1.3" }
-agp-datapath = { path = "../gateway/datapath", version = "0.2.0" }
-agp-gw = { path = "../gateway/gateway", version = "0.3.4" }
+agp-config = { path = "../gateway/config", version = "0.1.4" }
+agp-datapath = { path = "../gateway/datapath", version = "0.2.1" }
+agp-gw = { path = "../gateway/gateway", version = "0.3.5" }
 clap = { version = "4.5", features = ["derive"] }
 indicatif = "0.17.11"
 parking_lot = "0.12"
