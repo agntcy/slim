@@ -56,22 +56,7 @@ tasks:
           uv python pin {{.ITEM.PYTHON}}
       - |
         uv sync
-        PYTHONS=(3.9 3.10 3.11 3.12)
-
-        unameOut="$(uname -s)"
-        case "${unameOut}" in
-            Linux*)     machine=Linux;;
-            Darwin*)    machine=Mac;;
-            CYGWIN*)    machine=Cygwin;;
-            MINGW*)     machine=MinGw;;
-            MSYS_NT*)   machine=MSys;;
-            *)          machine="UNKNOWN:${unameOut}"
-        esac
-
-        # TODO(msardara) figure out why this fails on windows with python 3.13
-        if [[ $machine == "Linux" || $machine == "Mac" ]]; then
-          PYTHONS+=(3.13)
-        fi
+        PYTHONS=(3.9 3.10 3.11 3.12 3.13)
 
         uv run maturin build {{.RELEASE}} \
           --out dist                      \
