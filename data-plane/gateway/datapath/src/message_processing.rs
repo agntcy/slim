@@ -266,38 +266,60 @@ impl MessageProcessor {
         mut msg: Message,
         out_conn: u64,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        let span = tracing::span!(
-            tracing::Level::DEBUG,
-            "send_message",
-            instance_id = %INSTANCE_ID.as_str(),
-            connection_id = out_conn,
-            message_type = match &msg.message_type {
-                Some(PublishType(_)) => "publish",
-                Some(SubscribeType(_)) => "subscribe",
-                Some(UnsubscribeType(_)) => "unsubscribe",
-                None => "unknown"
-            },
-            telemetry = true
-        );
-
-        let _guard = span.enter();
-
-        // Inject the current OpenTelemetry context into the message metadata
-        let cx = tracing::Span::current().context();
-        {
-            let mut injector: MetadataInjector<'_> = MetadataInjector(&mut msg.metadata);
-            opentelemetry::global::get_text_map_propagator(|propagator| {
-                propagator.inject_context(&cx, &mut injector)
-            });
-        }
-
         let connection = self.forwarder().get_connection(out_conn);
         match connection {
             Some(conn) => {
                 if conn.is_local_connection() {
-                    // close the span
+                    // [local gateway] -[send_msg]-> [destination]
+                    // extract the propagated OpenTelemetry context from the message metadata
+                    let extractor = MetadataExtractor(&msg.metadata);
+                    let parent_context = opentelemetry::global::get_text_map_propagator(|propagator| {
+                        propagator.extract(&extractor)
+                    });
+
+                    let span = tracing::span!(
+                        tracing::Level::DEBUG,
+                        "send_message_to_local",
+                        instance_id = %INSTANCE_ID.as_str(),
+                        connection_id = out_conn,
+                        message_type = match &msg.message_type {
+                            Some(PublishType(_)) => "publish",
+                            Some(SubscribeType(_)) => "subscribe",
+                            Some(UnsubscribeType(_)) => "unsubscribe",
+                            None => "unknown"
+                        },
+                        telemetry = true
+                    );
+
+                    // the span will be closed when _guard goes out of scope
+                    span.set_parent(parent_context);
+                    let _guard = span.enter();
                 } else {
-                    // create span
+                    // [source] -[send_msg]-> [remote gateway]
+                    let span = tracing::span!(
+                        tracing::Level::DEBUG,
+                        "send_message_to_remote",
+                        instance_id = %INSTANCE_ID.as_str(),
+                        connection_id = out_conn,
+                        message_type = match &msg.message_type {
+                            Some(PublishType(_)) => "publish",
+                            Some(SubscribeType(_)) => "subscribe",
+                            Some(UnsubscribeType(_)) => "unsubscribe",
+                            None => "unknown"
+                        },
+                        telemetry = true
+                    );
+            
+                    let _guard = span.enter();
+
+                    // inject the current OpenTelemetry context into the message metadata
+                    let cx = tracing::Span::current().context();
+                    {
+                        let mut injector: MetadataInjector<'_> = MetadataInjector(&mut msg.metadata);
+                        opentelemetry::global::get_text_map_propagator(|propagator| {
+                            propagator.inject_context(&cx, &mut injector)
+                        });
+                    }
                 }
 
                 match conn.channel() {
@@ -630,27 +652,6 @@ impl MessageProcessor {
         msg: Message,
         in_connection: u64,
     ) -> Result<(), DataPathError> {
-        // extract the propagated OpenTelemetry context from the message metadata
-        let extractor = MetadataExtractor(&msg.metadata);
-        let parent_context = opentelemetry::global::get_text_map_propagator(|propagator| {
-            propagator.extract(&extractor)
-        });
-
-        // create a new span and set the extracted context as its parent
-        let span = tracing::span!(
-            tracing::Level::DEBUG,
-            "process_message",
-            instance_id = %INSTANCE_ID.as_str(),
-            message_type = match &msg.message_type {
-                Some(PublishType(_)) => "publish",
-                Some(SubscribeType(_)) => "subscribe",
-                Some(UnsubscribeType(_)) => "unsubscribe",
-                None => "unknown"
-            },
-        );
-        span.set_parent(parent_context);
-        let _guard = span.enter();
-
         match &msg.message_type {
             None => {
                 error!(
@@ -724,6 +725,7 @@ impl MessageProcessor {
         &self,
         conn_index: u64,
         result: Result<Message, Status>,
+        is_local: bool,
     ) -> Result<(), DataPathError> {
         debug!(%conn_index, "Received message from connection");
         info!(
@@ -732,7 +734,56 @@ impl MessageProcessor {
         );
 
         match result {
-            Ok(msg) => {
+            Ok(mut msg) => {
+                if is_local {
+                    // handling the message from the local gw
+                    // [local gateway] -[handle_new_message]-> [destination]
+                    let span = tracing::span!(
+                        tracing::Level::DEBUG,
+                        "handle_local_message",
+                        instance_id = %INSTANCE_ID.as_str(),
+                        connection_id = conn_index,
+                        message_type = match &msg.message_type {
+                            Some(PublishType(_)) => "publish",
+                            Some(SubscribeType(_)) => "subscribe",
+                            Some(UnsubscribeType(_)) => "unsubscribe",
+                            None => "unknown"
+                        },
+                        telemetry = true
+                    );
+            
+                    let _guard = span.enter();
+
+                    // inject the current OpenTelemetry context into the message metadata
+                    let cx = tracing::Span::current().context();
+                    {
+                        let mut injector: MetadataInjector<'_> = MetadataInjector(&mut msg.metadata);
+                        opentelemetry::global::get_text_map_propagator(|propagator| {
+                            propagator.inject_context(&cx, &mut injector)
+                        });
+                    }
+                } else {
+                    // handling the message on the remote gateway
+                    // [source] -[handle_new_message]-> [remote gateway]
+                    // extract the propagated OpenTelemetry context from the message metadata
+                    let extractor = MetadataExtractor(&msg.metadata);
+                    let parent_context = opentelemetry::global::get_text_map_propagator(|propagator| {
+                        propagator.extract(&extractor)
+                    });
+
+                    let span = tracing::span!(
+                        tracing::Level::DEBUG,
+                        "handle_remote_message",
+                        instance_id = %INSTANCE_ID.as_str(),
+                        connection_id = conn_index,
+                        telemetry = true
+                    );
+
+                    // the span will be closed when _guard goes out of scope
+                    span.set_parent(parent_context);
+                    let _guard = span.enter();
+                }
+
                 match self.process_message(msg, conn_index).await {
                     Ok(_) => Ok(()),
                     Err(e) => {
@@ -790,26 +841,14 @@ impl MessageProcessor {
         let token_clone = cancellation_token.clone();
         let client_conf_clone = client_config.clone();
 
-        // Capture the current span to propagate it
-        let current_span = tracing::Span::current();
-
         let handle = tokio::spawn(async move {
-            // Enter the captured span
-            let _guard = current_span.enter();
-
             let mut try_to_reconnect = true;
             loop {
                 tokio::select! {
                     res = stream.next() => {
                         match res {
                             Some(msg) => {
-                                if is_local {
-                                    // we are receiving the message here from the local gw
-                                } else {
-                                    // receiving the message from a remote gw
-                                }
-
-                                if let Err(e) = self_clone.handle_new_message(conn_index, msg).await {
+                                if let Err(e) = self_clone.handle_new_message(conn_index, msg, is_local).await {
                                     error!("error handling stream {:?}", e);
                                     break;
                                 }
