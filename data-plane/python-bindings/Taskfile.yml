@@ -59,11 +59,11 @@ tasks:
 
         uv run maturin develop --uv {{.RELEASE}}
 
-        ls python-bindings
+        ls agp_bindings
 
         # This file if a leftover from the previous build, delete it otherwise
         # maturin will try to add it to the wheel, and it will fail
-        rm -f python-bindings/*.pyd
+        rm -f agp_bindings/*.pyd
 
         ls python-bindings
 
