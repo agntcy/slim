@@ -5,12 +5,12 @@ use std::fs::File;
 use std::io::prelude::*;
 use std::{collections::HashMap, sync::Arc};
 
-use agp_datapath::messages::utils::MetadataType;
+use agp_datapath::messages::encoder::encode_agent;
+use agp_datapath::messages::utils::get_error;
 use parking_lot::RwLock;
 use testing::parse_line;
 use tokio_util::sync::CancellationToken;
 
-use agp_datapath::messages::encoder::encode_agent_from_string;
 use agp_gw::config;
 use clap::Parser;
 use indicatif::ProgressBar;
@@ -149,7 +149,7 @@ async fn main() {
     let svc = config.services.get_mut(&svc_id).unwrap();
 
     // create local agent
-    let agent_name = encode_agent_from_string("cisco", "default", "publisher", id);
+    let agent_name = encode_agent("cisco", "default", "publisher", id);
     let mut rx = svc.create_agent(agent_name.clone());
 
     // connect to the remote gateway
@@ -158,7 +158,11 @@ async fn main() {
 
     // subscribe for local name
     match svc
-        .subscribe(&agent_name.agent_class, Some(agent_name.agent_id), conn_id)
+        .subscribe(
+            &agent_name.agent_type(),
+            agent_name.agent_id_option(),
+            conn_id,
+        )
         .await
     {
         Ok(_) => {}
@@ -170,7 +174,7 @@ async fn main() {
     // set routes for all subscriptions
     for r in routes {
         match svc
-            .set_route(&r.agent_class, Some(r.agent_id), conn_id)
+            .set_route(&r.agent_type(), r.agent_id_option(), conn_id)
             .await
         {
             Ok(_) => {}
@@ -200,10 +204,17 @@ async fn main() {
                         }
                         Some(result) => match result {
                             Ok(msg) => {
-                                let error = msg.metadata.get(&MetadataType::Error.to_string());
-                                if error.is_some() {
-                                    error!("An error occurred processing a message, error: {}", error.unwrap());
-                                    continue;
+                                // checks if the message is an error
+                                match get_error(&msg) {
+                                    Ok(err) => {
+                                        if err.is_some() && err.unwrap() {
+                                            error!("An error occurred processing a message");
+                                            continue;
+                                        }
+                                    }
+                                    Err(err) => {
+                                        panic!("error processing received packet {}", err.to_string());
+                                    }
                                 }
                                 match &msg.message_type.unwrap() {
                                     agp_datapath::pubsub::ProtoPublishType(msg) => {
@@ -264,16 +275,13 @@ async fn main() {
         // send message
         // at the moment we have only one connection so we can use it to send all messages there
         // the match will be performed by the remote GW.
-        let name_id = if p.1.agent_id == 0 {
-            None
-        } else {
-            Some(p.1.agent_id)
-        };
+        let agent_id = *p.1.agent_id();
+        let name_id = if agent_id == 0 { None } else { Some(agent_id) };
 
         // for the moment we send the message in anycast
         // we need to test also the match_all function
         if svc
-            .publish(&p.1.agent_class, name_id, 1, payload)
+            .publish(&p.1.agent_type(), name_id, 1, payload)
             .await
             .is_err()
         {

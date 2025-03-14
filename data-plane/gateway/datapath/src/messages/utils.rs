@@ -132,8 +132,7 @@ fn get_incoming_conn(msg: &ProtoMessage) -> Result<Option<u64>, MessageError> {
     }
 }
 
-#[allow(dead_code)]
-fn get_error(msg: &ProtoMessage) -> Result<Option<bool>, MessageError> {
+pub fn get_error(msg: &ProtoMessage) -> Result<Option<bool>, MessageError> {
     match get_agp_header(msg) {
         Some(header) => Ok(header.error),
         None => Err(MessageError::AgpHeaderNotFound),
@@ -226,7 +225,11 @@ pub fn create_subscription(
     }
 }
 
-pub fn create_subscription_from(agent_type: &AgentType, agent_id: Option<u64>, recv_from: u64) -> ProtoMessage {
+pub fn create_subscription_from(
+    agent_type: &AgentType,
+    agent_id: Option<u64>,
+    recv_from: u64,
+) -> ProtoMessage {
     // this message is used to set the state inside the local subscription table.
     // it emulates the reception of a subscription message from a remote end point through
     // the connection recv_from
@@ -236,7 +239,15 @@ pub fn create_subscription_from(agent_type: &AgentType, agent_id: Option<u64>, r
 
     // the source field is not used in this case, set it to default
     let source = Agent::default();
-    let header = create_agp_header(&source, agent_type, agent_id,Some(recv_from), None, None, None);
+    let header = create_agp_header(
+        &source,
+        agent_type,
+        agent_id,
+        Some(recv_from),
+        None,
+        None,
+        None,
+    );
 
     // create a subscription with the recv_from field in the header
     // the result is that the subscription will be added to the local
@@ -244,13 +255,26 @@ pub fn create_subscription_from(agent_type: &AgentType, agent_id: Option<u64>, r
     create_subscription(header, HashMap::new())
 }
 
-pub fn create_subscription_to_forward(source: &Agent, agent_type: &AgentType, agent_id: Option<u64>, forward_to: u64) -> ProtoMessage {
+pub fn create_subscription_to_forward(
+    source: &Agent,
+    agent_type: &AgentType,
+    agent_id: Option<u64>,
+    forward_to: u64,
+) -> ProtoMessage {
     // this subscription can be received only from a local connection
     // when this message is received the subscription is set in the local table
     // and forwarded to the connection forward_to to set the subscription remotely
     // before forward the subscription the forward_to needs to be set to None
 
-    let header = create_agp_header(source, agent_type, agent_id, None, Some(forward_to), None, None);
+    let header = create_agp_header(
+        source,
+        agent_type,
+        agent_id,
+        None,
+        Some(forward_to),
+        None,
+        None,
+    );
     create_subscription(header, HashMap::new())
 }
 
@@ -265,21 +289,46 @@ fn create_unsubscription(
     }
 }
 
-pub fn create_unsubscription_from(agent_type: &AgentType, agent_id: Option<u64>, recv_from: u64) -> ProtoMessage {
+pub fn create_unsubscription_from(
+    agent_type: &AgentType,
+    agent_id: Option<u64>,
+    recv_from: u64,
+) -> ProtoMessage {
     // same as subscription from but it removes the state
 
     // the source field is not used in this case, set it to default
     let source = Agent::default();
-    let header = create_agp_header(&source, agent_type, agent_id, Some(recv_from), None, None, None);
+    let header = create_agp_header(
+        &source,
+        agent_type,
+        agent_id,
+        Some(recv_from),
+        None,
+        None,
+        None,
+    );
 
     // create the unsubscription with the metadata
     create_unsubscription(header, HashMap::new())
 }
 
-pub fn create_unsubscription_to_forward(source: &Agent, agent_type: &AgentType, agent_id: Option<u64>, forward_to: u64) -> ProtoMessage {
+pub fn create_unsubscription_to_forward(
+    source: &Agent,
+    agent_type: &AgentType,
+    agent_id: Option<u64>,
+    forward_to: u64,
+) -> ProtoMessage {
     // same as subscription to forward but it removes the state
 
-    let header = create_agp_header(source,agent_type, agent_id, None, Some(forward_to), None, None);
+    let header = create_agp_header(
+        source,
+        agent_type,
+        agent_id,
+        None,
+        Some(forward_to),
+        None,
+        None,
+    );
     create_unsubscription(header, HashMap::new())
 }
 

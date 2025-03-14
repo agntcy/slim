@@ -2,7 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use agp_datapath::messages::utils::{
-    create_agp_header, create_default_service_header, create_publication, create_subscription_from, create_subscription_to_forward, create_unsubscription_from, create_unsubscription_to_forward
+    create_agp_header, create_default_service_header, create_publication, create_subscription_from,
+    create_subscription_to_forward, create_unsubscription_from, create_unsubscription_to_forward,
 };
 use agp_datapath::messages::{Agent, AgentType};
 use serde::Deserialize;
@@ -422,8 +423,11 @@ impl Service {
         let msg = create_publication(
             header,
             create_default_service_header(),
-            HashMap::new(), fanout, "msg",
-            blob);
+            HashMap::new(),
+            fanout,
+            "msg",
+            blob,
+        );
 
         debug!("sending publication {:?}", msg);
 
@@ -452,8 +456,11 @@ impl Service {
         let msg = create_publication(
             header,
             create_default_service_header(),
-            HashMap::new(), fanout, "msg",
-            blob);
+            HashMap::new(),
+            fanout,
+            "msg",
+            blob,
+        );
 
         if let Err(e) = self.message_processor.send_msg(msg, out_conn).await {
             error!(

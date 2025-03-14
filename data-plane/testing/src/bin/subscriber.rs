@@ -1,11 +1,11 @@
 // SPDX-FileCopyrightText: Copyright (c) 2025 Cisco and/or its affiliates.
 // SPDX-License-Identifier: Apache-2.0
 
+use agp_datapath::messages::encoder::encode_agent;
 use std::fs::File;
 use std::io::prelude::*;
 use testing::parse_line;
 
-use agp_datapath::messages::encoder::encode_agent_from_string;
 use agp_gw::config;
 use clap::Parser;
 use indicatif::ProgressBar;
@@ -97,7 +97,7 @@ async fn main() {
     let svc = config.services.get_mut(&svc_id).unwrap();
 
     // create local agent
-    let agent_name = encode_agent_from_string("cisco", "default", "subscriber", id);
+    let agent_name = encode_agent("cisco", "default", "subscriber", id);
     let mut rx = svc.create_agent(agent_name.clone());
 
     // connect to the remote gateway
@@ -112,7 +112,7 @@ async fn main() {
     let bar = ProgressBar::new(subscriptions_list.len() as u64);
     for s in subscriptions_list.iter() {
         match svc
-            .subscribe(&s.agent_class, Some(s.agent_id), conn_id)
+            .subscribe(&s.agent_type(), Some(*s.agent_id()), conn_id)
             .await
         {
             Ok(_) => {}
@@ -130,38 +130,34 @@ async fn main() {
         let recv_msg = rx.recv().await.unwrap().unwrap();
         let pub_id;
         let msg_len;
-        let source_class;
+        let source_type;
         let source_id;
-        match &recv_msg.message_type.unwrap() {
-            agp_datapath::pubsub::ProtoPublishType(msg) => {
-                let payload = agp_datapath::messages::utils::get_payload(msg);
-                // the payload needs to start with the publication id, so it has to contain
-                // at least 8 bytes
-                msg_len = payload.len();
-                if msg_len < 8 {
-                    panic!("error parsing message, unexpected payload format");
-                }
-                pub_id = u64::from_be_bytes(payload[0..8].try_into().unwrap());
-                match agp_datapath::messages::utils::process_name(&msg.source) {
-                    Err(e) => {
-                        panic!("error parsing message {}", e);
-                    }
-                    Ok(x) => {
-                        source_class = x;
-                    }
-                }
-                match agp_datapath::messages::utils::get_agent_id(&msg.source) {
-                    None => {
-                        panic!("error parsing message: unable to get source id");
-                    }
-                    Some(x) => {
-                        source_id = x;
-                    }
-                }
+        match &recv_msg.message_type {
+            None => {
+                panic!("message type is missing");
             }
-            t => {
-                panic!("received unexpected message: {:?}", t);
-            }
+            Some(msg_type) => match msg_type {
+                agp_datapath::pubsub::ProtoPublishType(msg) => {
+                    let payload = agp_datapath::messages::utils::get_payload(msg);
+                    // the payload needs to start with the publication id, so it has to contain
+                    // at least 8 bytes
+                    msg_len = payload.len();
+                    if msg_len < 8 {
+                        panic!("error parsing message, unexpected payload format");
+                    }
+                    pub_id = u64::from_be_bytes(payload[0..8].try_into().unwrap());
+                    (source_type, source_id) =
+                        match agp_datapath::messages::utils::get_name(&recv_msg) {
+                            Ok((source_type, source_id)) => (source_type, source_id),
+                            Err(e) => {
+                                panic!("error parsing message {}", e);
+                            }
+                        };
+                }
+                t => {
+                    panic!("received unexpected message: {:?}", t);
+                }
+            },
         }
 
         // create a new message with the same len with the format
@@ -178,7 +174,7 @@ async fn main() {
         }
 
         // send message
-        svc.send_msg(&source_class, Some(source_id), 1, out_vec, conn_id)
+        svc.send_msg(&source_type, source_id, 1, out_vec, conn_id)
             .await
             .unwrap();
     }

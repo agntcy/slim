@@ -7,7 +7,7 @@ use std::{
     fs::File,
 };
 
-use agp_datapath::messages::{Agent, AgentClass};
+use agp_datapath::messages::{Agent, AgentType};
 use rand::Rng;
 
 use clap::Parser;
@@ -24,7 +24,7 @@ pub struct Args {
     #[arg(short, long, value_name = "PUBLICATIONS", required = true)]
     publications: u32,
 
-    /// Maximum number of agent instances for the same class
+    /// Maximum number of agent instances for the same type
     #[arg(
         short,
         long,
@@ -98,14 +98,14 @@ struct SubscriptionPair {
 }
 
 #[derive(Default, Debug)]
-struct ClassState {
-    /// list of the ids of the scribscribers of this class
+struct TypeState {
+    /// list of the ids of the scribscribers of this type
     subscribers: HashSet<u32>,
     /// list of pairs agnet_id, subscriber
     subscription: Vec<SubscriptionPair>,
 }
 
-impl ClassState {
+impl TypeState {
     fn insert(&mut self, agent_id: u64, subscriber: u32) {
         self.subscribers.insert(subscriber);
         let pair = SubscriptionPair {
@@ -135,11 +135,11 @@ fn main() {
 
     let max_subscriptions = *args.subscriptions();
     let max_publications = *args.publications();
-    let max_agents_per_class = *args.instances();
+    let max_agents_per_type = *args.instances();
     let subscribers = *args.agents();
     let output = args.output();
 
-    println!("configuration -- subscriptions: {}, publications: {}, agents per class: {}, agents: {}, output: {}", max_subscriptions, max_publications, max_agents_per_class, subscribers, output);
+    println!("configuration -- subscriptions: {}, publications: {}, agents per type: {}, agents: {}, output: {}", max_subscriptions, max_publications, max_agents_per_type, subscribers, output);
 
     // number of subscription created
     let mut subscriptions = 0;
@@ -153,46 +153,39 @@ fn main() {
     println!("creating subscriptions");
     let bar = ProgressBar::new(max_subscriptions as u64);
     while subscriptions < max_subscriptions {
-        // create a new class
-        let class = AgentClass {
-            organization: rng.random(),
-            namespace: rng.random(),
-            agent_class: rng.random(),
-        };
+        // create a new type
+        let agent_type = AgentType::new(rng.random(), rng.random(), rng.random());
 
-        let mut class_state = ClassState::default();
+        let mut type_state = TypeState::default();
 
-        // for each class create at most max_agent_per_class
+        // for each type create at most max_agent_per_type
         // but at least one
-        let mut agent_per_class = 0;
+        let mut agent_per_type = 0;
         let mut add_agent = true;
 
         // stop if:
-        // 1) the nunmber of agents ids is equal to max_agent_per_class in this class
+        // 1) the nunmber of agents ids is equal to max_agent_per_type in this type
         // 2) the random bool add_agent is false
         // 3) the total number of subscrptions is equal to max_subscription
-        while (agent_per_class < max_agents_per_class)
+        while (agent_per_type < max_agents_per_type)
             && add_agent
             && (subscriptions < max_subscriptions)
         {
-            let sub = Agent {
-                agent_class: class.clone(),
-                // the agent id in he subscription is always a random number
-                agent_id: rng.random_range(1..u64::MAX),
-            };
+            // the agent id in the subscription is always a random numb
+            let sub = Agent::new(agent_type.clone(), rng.random_range(1..u64::MAX));
 
             // decide which agent will send the subscription
             let subscriber = rng.random_range(..subscribers);
-            agent_per_class += 1;
+            agent_per_type += 1;
             subscriptions += 1;
             add_agent = rng.random_bool(0.8);
 
             bar.inc(1);
 
-            class_state.insert(sub.agent_id, subscriber);
+            type_state.insert(*sub.agent_id(), subscriber);
         }
 
-        subscription_list.insert(class, class_state);
+        subscription_list.insert(agent_type, type_state);
     }
     bar.finish();
 
@@ -208,14 +201,10 @@ fn main() {
             // randomly decided to use the agent id or not
             let use_agent_id = rng.random_bool(0.5);
             if use_agent_id {
-                // pick a random pair inside the class
+                // pick a random pair for this type
                 let pair = s.1.get_pair();
 
-                let name = Agent {
-                    agent_class: s.0.clone(),
-                    // the agent id in he subscription is always a random number
-                    agent_id: pair.agent_id,
-                };
+                let name = Agent::new(s.0.clone(), pair.agent_id);
 
                 let mut p = Publication {
                     publication: name,
@@ -225,12 +214,7 @@ fn main() {
 
                 publications_list.push(p);
             } else {
-                let name = Agent {
-                    agent_class: s.0.clone(),
-                    // the agent id in he subscription is always a random number
-                    agent_id: 0,
-                };
-
+                let name = Agent::new(s.0.clone(), 0);
                 let mut p = Publication {
                     publication: name,
                     subscribers: HashSet::new(),
@@ -267,10 +251,15 @@ fn main() {
     let bar = ProgressBar::new(max_subscriptions as u64);
     for s in subscription_list.iter() {
         for p in s.1.subscription.iter() {
-            // format: SUB index subscriber org ns class id
+            // format: SUB index subscriber org ns type id
             let s = format!(
                 "SUB {} {} {} {} {} {}\n",
-                i, p.subscriber, s.0.organization, s.0.namespace, s.0.agent_class, p.agent_id
+                i,
+                p.subscriber,
+                s.0.organization(),
+                s.0.namespace(),
+                s.0.agent_type(),
+                p.agent_id
             );
             let res = file.write_all(s.as_bytes());
             if res.is_err() {
@@ -291,14 +280,14 @@ fn main() {
             sub_str.push(' ');
             sub_str.push_str(&a.to_string());
         }
-        // format: PUB index org ns class id #subscribers subscriber_1, subscriber_2, ...
+        // format: PUB index org ns type id #subscribers subscriber_1, subscriber_2, ...
         let s = format!(
             "PUB {} {} {} {} {} {}{}\n", //do not add the space between m.subscribers.len() and sub_str
             i,
-            m.publication.agent_class.organization,
-            m.publication.agent_class.namespace,
-            m.publication.agent_class.agent_class,
-            m.publication.agent_id,
+            m.publication.agent_type().organization(),
+            m.publication.agent_type().namespace(),
+            m.publication.agent_type().agent_type(),
+            m.publication.agent_id(),
             m.subscribers.len(),
             sub_str
         );

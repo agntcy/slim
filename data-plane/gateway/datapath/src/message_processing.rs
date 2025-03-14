@@ -429,7 +429,9 @@ impl MessageProcessor {
                     let out_conn = forward.unwrap();
                     let e = clear_agp_header(&msg);
                     if e.is_err() {
-                        return Err(DataPathError::SubscriptionError("error cleaning the AGP header".to_string()));
+                        return Err(DataPathError::SubscriptionError(
+                            "error cleaning the AGP header".to_string(),
+                        ));
                     }
 
                     let (source_type, source_id) = match get_source(&msg) {
@@ -507,7 +509,9 @@ impl MessageProcessor {
                     let out_conn = forward.unwrap();
                     let e = clear_agp_header(&msg);
                     if e.is_err() {
-                        return Err(DataPathError::SubscriptionError("error cleaning the AGP header".to_string()));
+                        return Err(DataPathError::SubscriptionError(
+                            "error cleaning the AGP header".to_string(),
+                        ));
                     }
 
                     let (source_type, source_id) = match get_source(&msg) {

@@ -14,7 +14,7 @@ pub struct AgentType {
 
 impl AgentType {
     /// Create a new AgentType
-    pub(crate) fn new(organization: u64, namespace: u64, agent_type: u64) -> Self {
+    pub fn new(organization: u64, namespace: u64, agent_type: u64) -> Self {
         Self {
             organization,
             namespace,
@@ -22,15 +22,30 @@ impl AgentType {
         }
     }
 
-    pub(crate) fn organization(&self) -> &u64 {
+    pub fn with_organization(self, organization: u64) -> Self {
+        Self {
+            organization,
+            ..self
+        }
+    }
+
+    pub fn with_namespace(self, namespace: u64) -> Self {
+        Self { namespace, ..self }
+    }
+
+    pub fn with_agent_type(self, agent_type: u64) -> Self {
+        Self { agent_type, ..self }
+    }
+
+    pub fn organization(&self) -> &u64 {
         &self.organization
     }
 
-    pub(crate) fn namespace(&self) -> &u64 {
+    pub fn namespace(&self) -> &u64 {
         &self.namespace
     }
 
-    pub(crate) fn agent_type(&self) -> &u64 {
+    pub fn agent_type(&self) -> &u64 {
         &self.agent_type
     }
 }
@@ -43,29 +58,36 @@ pub struct Agent {
 
 impl Agent {
     /// Create a new Agent
-    pub(crate) fn new(agent_type: AgentType, agent_id: u64) -> Self {
+    pub fn new(agent_type: AgentType, agent_id: u64) -> Self {
         Self {
             agent_type,
             agent_id,
         }
     }
 
-    pub(crate) fn agent_type(&self) -> &AgentType {
+    pub fn with_agent_id(self, agent_id: u64) -> Self {
+        Self { agent_id, ..self }
+    }
+
+    pub fn with_agent_type(self, agent_type: AgentType) -> Self {
+        Self { agent_type, ..self }
+    }
+
+    pub fn agent_type(&self) -> &AgentType {
         &self.agent_type
     }
 
-    pub(crate) fn agent_id(&self) -> &u64 {
+    pub fn agent_id(&self) -> &u64 {
         &self.agent_id
     }
 
-    pub(crate) fn agent_id_option(&self) -> Option<u64> {
+    pub fn agent_id_option(&self) -> Option<u64> {
         if self.agent_id == DEFAULT_AGENT_ID {
             return None;
         }
 
         Some(self.agent_id)
     }
-
 }
 
 fn calculate_hash<T: Hash + ?Sized>(t: &T) -> u64 {
