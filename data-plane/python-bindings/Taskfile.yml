@@ -59,16 +59,12 @@ tasks:
 
         uv run maturin develop --uv {{.RELEASE}}
 
-        ls agp_bindings
-
         # This file if a leftover from the previous build, delete it otherwise
         # maturin will try to add it to the wheel, and it will fail
         rm -f agp_bindings/*.pyd
 
-        ls agp_bindings
-
         PYTHONS=(3.9 3.10 3.11 3.12 3.13)
-        echo uv run maturin build {{.RELEASE}} \
+        uv run maturin build {{.RELEASE}} \
           --out dist                      \
           --target {{.TARGET}}            \
           --frozen                        \
