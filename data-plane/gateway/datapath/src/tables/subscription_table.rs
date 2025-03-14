@@ -11,7 +11,7 @@ use tracing::{debug, error, warn};
 use super::pool::Pool;
 use super::{errors::SubscriptionTableError, SubscriptionTable};
 use crate::messages::encoder::DEFAULT_AGENT_ID;
-use crate::messages::{Agent, AgentClass};
+use crate::messages::{Agent, AgentType};
 
 #[derive(Debug, Default, Clone)]
 struct ConnId {
@@ -153,30 +153,30 @@ impl Connections {
 }
 
 #[derive(Debug, Default)]
-struct ClassState {
+struct AgentTypeState {
     // map agent id -> [local connection ids, remote connection ids]
     // the array contains the local connections at position 0 and the
     // remote ones at position 1
     // the number of connections per agent id is expected to be small
     ids: HashMap<u64, [Vec<u64>; 2]>,
-    // List of all the connections that are available for this agent class
+    // List of all the connections that are available for this agent type
     // as for the ids map position 0 stores local connections and position
     // 1 store remotes ones
     connections: [Connections; 2],
 }
 
-impl ClassState {
+impl AgentTypeState {
     fn new(agent_id: u64, conn: u64, is_local: bool) -> Self {
-        let mut class_state = ClassState::default();
+        let mut type_state = AgentTypeState::default();
         let v = vec![conn];
         if is_local {
-            class_state.connections[0].insert(conn);
-            class_state.ids.insert(agent_id, [v, vec![]]);
+            type_state.connections[0].insert(conn);
+            type_state.ids.insert(agent_id, [v, vec![]]);
         } else {
-            class_state.connections[1].insert(conn);
-            class_state.ids.insert(agent_id, [vec![], v]);
+            type_state.connections[1].insert(conn);
+            type_state.ids.insert(agent_id, [vec![], v]);
         }
-        class_state
+        type_state
     }
 
     fn insert(&mut self, agent_id: u64, conn: u64, is_local: bool) {
@@ -201,11 +201,11 @@ impl ClassState {
 
     fn remove(
         &mut self,
-        agent_id: u64,
+        agent_id: &u64,
         conn: u64,
         is_local: bool,
     ) -> Result<(), SubscriptionTableError> {
-        match self.ids.get_mut(&agent_id) {
+        match self.ids.get_mut(agent_id) {
             None => {
                 warn!("agent id {} not found", agent_id);
                 Err(SubscriptionTableError::AgentIdNotFound)
@@ -221,7 +221,7 @@ impl ClassState {
                         connection_ids[index].swap_remove(i);
                         // if both vectors are empty remove the agent id from the tabales
                         if connection_ids[0].is_empty() && connection_ids[1].is_empty() {
-                            self.ids.remove(&agent_id);
+                            self.ids.remove(agent_id);
                         }
                         break;
                     }
@@ -351,11 +351,11 @@ impl ClassState {
 #[derive(Debug, Default)]
 pub struct SubscriptionTableImpl {
     // subscriptions table
-    // agent_class -> class state
+    // agent_type -> type state
     // if a subscription comes for a specific agent_id, it is added
     // to that specific agent_id, otherwise the connection is added
     // to the DEFAULT_AGENT_ID
-    table: RwLock<HashMap<AgentClass, ClassState>>,
+    table: RwLock<HashMap<AgentType, AgentTypeState>>,
     // connections tables
     // conn_index -> set(agent)
     connections: RwLock<HashMap<u64, HashSet<Agent>>>,
@@ -367,7 +367,7 @@ impl Display for SubscriptionTableImpl {
         let table = self.table.read();
         writeln!(f, "Subscription Table")?;
         for (k, v) in table.iter() {
-            writeln!(f, "Class: {:?}", k)?;
+            writeln!(f, "Type: {:?}", k)?;
             writeln!(f, "  Agents:")?;
             for (id, conn) in v.ids.iter() {
                 writeln!(f, "    Agent id: {}", id)?;
@@ -400,23 +400,24 @@ fn add_subscription_to_sub_table(
     agent: &Agent,
     conn: u64,
     is_local: bool,
-    mut table: RwLockWriteGuard<'_, RawRwLock, HashMap<AgentClass, ClassState>>,
+    mut table: RwLockWriteGuard<'_, RawRwLock, HashMap<AgentType, AgentTypeState>>,
 ) {
-    match table.get_mut(&agent.agent_class) {
+    match table.get_mut(agent.agent_type()) {
         None => {
+            let uid = *agent.agent_id();
             debug!(
-                "subscription table: add first subscription for class {:?}, agent_id {:?} on connection {}",
-                agent.agent_class, agent.agent_id, conn,
+                "subscription table: add first subscription for type {:?}, agent_id {:?} on connection {}",
+                agent.agent_type(), uid, conn,
             );
             // the subscription does not exists, init
-            // create and init class state
-            let class_state = ClassState::new(agent.agent_id, conn, is_local);
+            // create and init type state
+            let state = AgentTypeState::new(uid, conn, is_local);
 
             // insert the map in the table
-            table.insert(agent.agent_class.clone(), class_state);
+            table.insert(agent.agent_type().clone(), state);
         }
         Some(state) => {
-            state.insert(agent.agent_id, conn, is_local);
+            state.insert(*agent.agent_id(), conn, is_local);
         }
     }
 }
@@ -430,8 +431,10 @@ fn add_subscription_to_connection(
     match set {
         None => {
             debug!(
-                "add first subscription for class {:?}, agent_id {} on connection {}",
-                agent.agent_class, agent.agent_id, conn_index,
+                "add first subscription for type {:?}, agent_id {} on connection {}",
+                agent.agent_type(),
+                agent.agent_id(),
+                conn_index,
             );
             let mut set = HashSet::new();
             set.insert(agent.clone());
@@ -440,16 +443,18 @@ fn add_subscription_to_connection(
         Some(s) => {
             if !s.insert(agent.clone()) {
                 warn!(
-                    "subscription for class {:?}, agent_id {} already exists for connection {}, ignore the message",
-                    agent.agent_class, agent.agent_id, conn_index,
+                    "subscription for type {:?}, agent_id {} already exists for connection {}, ignore the message",
+                    agent.agent_type(), agent.agent_id(), conn_index,
                 );
                 return Ok(());
             }
         }
     }
     debug!(
-        "subscription for class {:?}, agent_id {} successfully added on connection {}",
-        agent.agent_class, agent.agent_id, conn_index,
+        "subscription for type {:?}, agent_id {} successfully added on connection {}",
+        agent.agent_type(),
+        agent.agent_id(),
+        conn_index,
     );
     Ok(())
 }
@@ -458,18 +463,18 @@ fn remove_subscription_from_sub_table(
     agent: &Agent,
     conn_index: u64,
     is_local: bool,
-    mut table: RwLockWriteGuard<'_, RawRwLock, HashMap<AgentClass, ClassState>>,
+    mut table: RwLockWriteGuard<'_, RawRwLock, HashMap<AgentType, AgentTypeState>>,
 ) -> Result<(), SubscriptionTableError> {
-    match table.get_mut(&agent.agent_class) {
+    match table.get_mut(agent.agent_type()) {
         None => {
-            debug!("subscription not found{:?}", agent.agent_class);
+            debug!("subscription not found{:?}", agent.agent_type());
             Err(SubscriptionTableError::SubscriptionNotFound)
         }
         Some(state) => {
-            state.remove(agent.agent_id, conn_index, is_local)?;
+            state.remove(agent.agent_id(), conn_index, is_local)?;
             // we may need to remove the state
             if state.ids.is_empty() {
-                table.remove(&agent.agent_class);
+                table.remove(agent.agent_type());
             }
             Ok(())
         }
@@ -490,8 +495,10 @@ fn remove_subscription_from_connection(
         Some(s) => {
             if !s.remove(agent) {
                 warn!(
-                    "subscription for class {:?}, agent_id {} not found on connection {}",
-                    agent.agent_class, agent.agent_id, conn_index,
+                    "subscription for type {:?}, agent_id {} not found on connection {}",
+                    agent.agent_type(),
+                    agent.agent_id(),
+                    conn_index,
                 );
                 return Err(SubscriptionTableError::SubscriptionNotFound);
             }
@@ -501,8 +508,10 @@ fn remove_subscription_from_connection(
         }
     }
     debug!(
-        "subscription for class {:?}, agent_id {} successfully removed on connection {}",
-        agent.agent_class, agent.agent_id, conn_index,
+        "subscription for type {:?}, agent_id {} successfully removed on connection {}",
+        agent.agent_type(),
+        agent.agent_id(),
+        conn_index,
     );
     Ok(())
 }
@@ -510,15 +519,12 @@ fn remove_subscription_from_connection(
 impl SubscriptionTable for SubscriptionTableImpl {
     fn add_subscription(
         &self,
-        class: AgentClass,
-        agent_id: Option<u64>,
+        agent_type: AgentType,
+        agent_uid: Option<u64>,
         conn: u64,
         is_local: bool,
     ) -> Result<(), SubscriptionTableError> {
-        let agent = Agent {
-            agent_class: class,
-            agent_id: agent_id.unwrap_or(DEFAULT_AGENT_ID),
-        };
+        let agent = Agent::new(agent_type, agent_uid.unwrap_or(DEFAULT_AGENT_ID));
         {
             let conn_table = self.connections.read();
             match conn_table.get(&conn) {
@@ -547,15 +553,12 @@ impl SubscriptionTable for SubscriptionTableImpl {
 
     fn remove_subscription(
         &self,
-        class: AgentClass,
+        agent_type: AgentType,
         agent_id: Option<u64>,
         conn: u64,
         is_local: bool,
     ) -> Result<(), SubscriptionTableError> {
-        let agent = Agent {
-            agent_class: class,
-            agent_id: agent_id.unwrap_or(DEFAULT_AGENT_ID),
-        };
+        let agent = Agent::new(agent_type, agent_id.unwrap_or(DEFAULT_AGENT_ID));
         {
             let table = self.table.write();
 
@@ -590,26 +593,25 @@ impl SubscriptionTable for SubscriptionTableImpl {
 
     fn match_one(
         &self,
-        class: AgentClass,
+        agent_type: AgentType,
         agent_id: Option<u64>,
         incoming_conn: u64,
     ) -> Result<u64, SubscriptionTableError> {
         let table = self.table.read();
-        let class = table.get(&class);
-        match class {
+        match table.get(&agent_type) {
             None => {
-                debug!("match not found for class {:?}", class);
+                debug!("match not found for type {:?}", agent_type);
                 Err(SubscriptionTableError::NoMatch)
             }
-            Some(class_state) => {
+            Some(state) => {
                 // first try to send the message to the local connections
                 // if no local connection exists or the message cannot
                 // be sent try on remote ones
-                let local_out = class_state.get_one_connection(agent_id, incoming_conn, true);
+                let local_out = state.get_one_connection(agent_id, incoming_conn, true);
                 if let Some(out) = local_out {
                     return Ok(out);
                 }
-                let remote_out = class_state.get_one_connection(agent_id, incoming_conn, false);
+                let remote_out = state.get_one_connection(agent_id, incoming_conn, false);
                 if let Some(out) = remote_out {
                     return Ok(out);
                 }
@@ -621,26 +623,25 @@ impl SubscriptionTable for SubscriptionTableImpl {
 
     fn match_all(
         &self,
-        class: AgentClass,
+        agent_type: AgentType,
         agent_id: Option<u64>,
         incoming_conn: u64,
     ) -> Result<Vec<u64>, SubscriptionTableError> {
         let table = self.table.read();
-        let class = table.get(&class);
-        match class {
+        match table.get(&agent_type) {
             None => {
-                debug!("match not found for class {:?}", class);
+                debug!("match not found for type {:?}", agent_type);
                 Err(SubscriptionTableError::NoMatch)
             }
-            Some(class_state) => {
+            Some(state) => {
                 // first try to send the message to the local connections
                 // if no local connection exists or the message cannot
                 // be sent try on remote ones
-                let local_out = class_state.get_all_connections(agent_id, incoming_conn, true);
+                let local_out = state.get_all_connections(agent_id, incoming_conn, true);
                 if let Some(out) = local_out {
                     return Ok(out);
                 }
-                let remote_out = class_state.get_all_connections(agent_id, incoming_conn, false);
+                let remote_out = state.get_all_connections(agent_id, incoming_conn, false);
                 if let Some(out) = remote_out {
                     return Ok(out);
                 }
@@ -655,90 +656,90 @@ impl SubscriptionTable for SubscriptionTableImpl {
 mod tests {
     use super::*;
 
-    use crate::messages::encoder::encode_agent_class;
+    use crate::messages::encoder::encode_agent_type;
     use tracing_test::traced_test;
 
     #[test]
     #[traced_test]
     fn test_table() {
-        let agent_class1 = encode_agent_class("Cisco", "Default", "class_ONE");
-        let agent_class2 = encode_agent_class("Cisco", "Default", "class_TWO");
-        let agent_class3 = encode_agent_class("Cisco", "Default", "class_THREE");
+        let agent_type1 = encode_agent_type("Cisco", "Default", "type_ONE");
+        let agent_type2 = encode_agent_type("Cisco", "Default", "type_TWO");
+        let agent_type3 = encode_agent_type("Cisco", "Default", "type_THREE");
 
         let t = SubscriptionTableImpl::default();
 
         assert_eq!(
-            t.add_subscription(agent_class1.clone(), None, 1, false),
+            t.add_subscription(agent_type1.clone(), None, 1, false),
             Ok(())
         );
         assert_eq!(
-            t.add_subscription(agent_class1.clone(), None, 2, false),
+            t.add_subscription(agent_type1.clone(), None, 2, false),
             Ok(())
         );
         assert_eq!(
-            t.add_subscription(agent_class1.clone(), Some(1), 3, false),
+            t.add_subscription(agent_type1.clone(), Some(1), 3, false),
             Ok(())
         );
         assert_eq!(
-            t.add_subscription(agent_class2.clone(), Some(2), 3, false),
+            t.add_subscription(agent_type2.clone(), Some(2), 3, false),
             Ok(())
         );
 
         // returns three matches on connection 1,2,3
-        let out = t.match_all(agent_class1.clone(), None, 100).unwrap();
+        let out = t.match_all(agent_type1.clone(), None, 100).unwrap();
         assert_eq!(out.len(), 3);
         assert!(out.contains(&1));
         assert!(out.contains(&2));
         assert!(out.contains(&3));
 
         // return two matches on connection 2,3
-        let out = t.match_all(agent_class1.clone(), None, 1).unwrap();
+        let out = t.match_all(agent_type1.clone(), None, 1).unwrap();
         assert_eq!(out.len(), 2);
         assert!(out.contains(&2));
         assert!(out.contains(&3));
 
         assert_eq!(
-            t.remove_subscription(agent_class1.clone(), None, 2, false),
+            t.remove_subscription(agent_type1.clone(), None, 2, false),
             Ok(())
         );
 
         // return two matches on connection 1,3
-        let out = t.match_all(agent_class1.clone(), None, 100).unwrap();
+        let out = t.match_all(agent_type1.clone(), None, 100).unwrap();
         assert_eq!(out.len(), 2);
         assert!(out.contains(&1));
         assert!(out.contains(&3));
 
         assert_eq!(
-            t.remove_subscription(agent_class1.clone(), Some(1), 3, false),
+            t.remove_subscription(agent_type1.clone(), Some(1), 3, false),
             Ok(())
         );
 
         // return one matches on connection 1
-        let out = t.match_all(agent_class1.clone(), None, 100).unwrap();
+        let out = t.match_all(agent_type1.clone(), None, 100).unwrap();
         assert_eq!(out.len(), 1);
         assert!(out.contains(&1));
 
         // return no match
         assert_eq!(
-            t.match_all(agent_class1.clone(), None, 1),
+            t.match_all(agent_type1.clone(), None, 1),
             Err(SubscriptionTableError::NoMatch)
         );
 
         // add subscription again
         assert_eq!(
-            t.add_subscription(agent_class1.clone(), Some(1), 2, false),
+            t.add_subscription(agent_type1.clone(), Some(1), 2, false),
             Ok(())
         );
 
         // returns two matches on connection 1 and 2
-        let out = t.match_all(agent_class1.clone(), None, 100).unwrap();
+        let out = t.match_all(agent_type1.clone(), None, 100).unwrap();
         assert_eq!(out.len(), 2);
         assert!(out.contains(&1));
         assert!(out.contains(&2));
 
         // run multiple times for randomenes
         for _ in 0..20 {
-            let out = t.match_one(agent_class1.clone(), None, 100).unwrap();
+            let out = t.match_one(agent_type1.clone(), None, 100).unwrap();
             if out != 1 && out != 2 {
                 // the output must be 1 or 2
                 assert!(false);
@@ -746,28 +747,28 @@ mod tests {
         }
 
         // return connection 2
-        let out = t.match_one(agent_class1.clone(), Some(1), 100).unwrap();
+        let out = t.match_one(agent_type1.clone(), Some(1), 100).unwrap();
         assert_eq!(out, 2);
 
         // return connection 3
-        let out = t.match_one(agent_class2.clone(), Some(2), 100).unwrap();
+        let out = t.match_one(agent_type2.clone(), Some(2), 100).unwrap();
         assert_eq!(out, 3);
 
         assert_eq!(t.remove_connection(2, false), Ok(()));
 
         // returns one match on connection 1
-        let out = t.match_all(agent_class1.clone(), None, 100).unwrap();
+        let out = t.match_all(agent_type1.clone(), None, 100).unwrap();
         assert_eq!(out.len(), 1);
         assert!(out.contains(&1));
 
         assert_eq!(
-            t.add_subscription(agent_class2.clone(), Some(2), 4, false),
+            t.add_subscription(agent_type2.clone(), Some(2), 4, false),
             Ok(())
         );
 
         // run multiple times for randomenes
         for _ in 0..20 {
-            let out = t.match_one(agent_class2.clone(), Some(2), 100).unwrap();
+            let out = t.match_one(agent_type2.clone(), Some(2), 100).unwrap();
             if out != 3 && out != 4 {
                 // the output must be 2 or 4
                 assert!(false);
@@ -775,32 +776,32 @@ mod tests {
         }
 
         assert_eq!(
-            t.remove_subscription(agent_class2.clone(), Some(2), 4, false),
+            t.remove_subscription(agent_type2.clone(), Some(2), 4, false),
             Ok(())
         );
 
         // test local vs remote
         assert_eq!(
-            t.add_subscription(agent_class1.clone(), None, 2, true),
+            t.add_subscription(agent_type1.clone(), None, 2, true),
             Ok(())
         );
 
         // returns one match on connection 2
-        let out = t.match_all(agent_class1.clone(), None, 100).unwrap();
+        let out = t.match_all(agent_type1.clone(), None, 100).unwrap();
         assert_eq!(out.len(), 1);
         assert!(out.contains(&2));
 
         // returns one match on connection 2
-        let out = t.match_one(agent_class1.clone(), None, 100).unwrap();
+        let out = t.match_one(agent_type1.clone(), None, 100).unwrap();
         assert_eq!(out, 2);
 
         // fallback on remote connection and return one match on connection 1
-        let out = t.match_all(agent_class1.clone(), None, 2).unwrap();
+        let out = t.match_all(agent_type1.clone(), None, 2).unwrap();
         assert_eq!(out.len(), 1);
         assert!(out.contains(&1));
 
         // same here
-        let out = t.match_one(agent_class1.clone(), None, 2).unwrap();
+        let out = t.match_one(agent_type1.clone(), None, 2).unwrap();
         assert_eq!(out, 1);
 
         // test errors
@@ -809,20 +810,20 @@ mod tests {
             Err(SubscriptionTableError::ConnectionIdNotFound)
         );
         assert_eq!(
-            t.match_one(agent_class1.clone(), Some(1), 100),
+            t.match_one(agent_type1.clone(), Some(1), 100),
             Err(SubscriptionTableError::NoMatch)
         );
         assert_eq!(
             // this generates a warning
-            t.add_subscription(agent_class2.clone(), Some(2), 3, false),
+            t.add_subscription(agent_type2.clone(), Some(2), 3, false),
             Ok(())
         );
         assert_eq!(
-            t.remove_subscription(agent_class3.clone(), None, 2, false),
+            t.remove_subscription(agent_type3.clone(), None, 2, false),
             Err(SubscriptionTableError::SubscriptionNotFound)
         );
         assert_eq!(
-            t.remove_subscription(agent_class2.clone(), None, 2, false),
+            t.remove_subscription(agent_type2.clone(), None, 2, false),
             Err(SubscriptionTableError::AgentIdNotFound)
         );
     }

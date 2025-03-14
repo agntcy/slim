@@ -9,7 +9,7 @@ use super::tables::remote_subscription_table::RemoteSubscriptions;
 use super::tables::subscription_table::SubscriptionTableImpl;
 use super::tables::{errors::SubscriptionTableError, SubscriptionTable};
 use crate::messages::encoder::DEFAULT_AGENT_ID;
-use crate::messages::{Agent, AgentClass};
+use crate::messages::{Agent, AgentType};
 use crate::tables::remote_subscription_table::SubscriptionInfo;
 
 #[derive(Debug)]
@@ -81,84 +81,72 @@ where
 
     pub fn on_subscription_msg(
         &self,
-        class: AgentClass,
+        agent_type: AgentType,
         agent_id: Option<u64>,
         conn_index: u64,
         is_local: bool,
     ) -> Result<(), SubscriptionTableError> {
         self.subscription_table
-            .add_subscription(class, agent_id, conn_index, is_local)
+            .add_subscription(agent_type, agent_id, conn_index, is_local)
     }
 
     pub fn on_forwarded_subscription(
         &self,
-        source_class: AgentClass,
+        source_type: AgentType,
         source_agent_id: Option<u64>,
-        name_class: AgentClass,
+        name_type: AgentType,
         name_agent_id: Option<u64>,
         conn_index: u64,
     ) {
-        let source = Agent {
-            agent_class: source_class,
-            agent_id: source_agent_id.unwrap_or(DEFAULT_AGENT_ID),
-        };
-        let name = Agent {
-            agent_class: name_class,
-            agent_id: name_agent_id.unwrap_or(DEFAULT_AGENT_ID),
-        };
+        let source = Agent::new(source_type, source_agent_id.unwrap_or(DEFAULT_AGENT_ID));
+        let name = Agent::new(name_type, name_agent_id.unwrap_or(DEFAULT_AGENT_ID));
         self.remote_subscription_table
             .add_subscription(source, name, conn_index);
     }
 
     pub fn on_unsubscription_msg(
         &self,
-        class: AgentClass,
+        agent_type: AgentType,
         agent_id: Option<u64>,
         conn_index: u64,
         is_local: bool,
     ) -> Result<(), SubscriptionTableError> {
         self.subscription_table
-            .remove_subscription(class, agent_id, conn_index, is_local)
+            .remove_subscription(agent_type, agent_id, conn_index, is_local)
     }
 
     pub fn on_forwarded_unsubscription(
         &self,
-        source_class: AgentClass,
+        source_type: AgentType,
         source_agent_id: Option<u64>,
-        name_class: AgentClass,
+        name_type: AgentType,
         name_agent_id: Option<u64>,
         conn_index: u64,
     ) {
-        let source = Agent {
-            agent_class: source_class,
-            agent_id: source_agent_id.unwrap_or(DEFAULT_AGENT_ID),
-        };
-        let name = Agent {
-            agent_class: name_class,
-            agent_id: name_agent_id.unwrap_or(DEFAULT_AGENT_ID),
-        };
+        let source = Agent::new(source_type, source_agent_id.unwrap_or(DEFAULT_AGENT_ID));
+        let name = Agent::new(name_type, name_agent_id.unwrap_or(DEFAULT_AGENT_ID));
         self.remote_subscription_table
             .remove_subscription(source, name, conn_index);
     }
 
     pub fn on_publish_msg_match_one(
         &self,
-        class: AgentClass,
+        agent_type: AgentType,
         agent_id: Option<u64>,
         incoming_conn: u64,
     ) -> Result<u64, SubscriptionTableError> {
         self.subscription_table
-            .match_one(class, agent_id, incoming_conn)
+            .match_one(agent_type, agent_id, incoming_conn)
     }
 
     pub fn on_publish_msg_match_all(
         &self,
-        class: AgentClass,
+        agent_type: AgentType,
         agent_id: Option<u64>,
         incoming_conn: u64,
     ) -> Result<Vec<u64>, SubscriptionTableError> {
         self.subscription_table
-            .match_all(class, agent_id, incoming_conn)
+            .match_all(agent_type, agent_id, incoming_conn)
     }
 
     #[allow(dead_code)]
@@ -170,13 +158,13 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::messages::encoder::encode_agent_class;
+    use crate::messages::encoder::encode_agent_type;
     use tracing_test::traced_test;
 
     #[test]
     #[traced_test]
     fn test_forwarder() {
-        let agent_class = encode_agent_class("Cisco", "Default", "class_ONE");
+        let agent_class = encode_agent_type("Cisco", "Default", "class_ONE");
 
         let fwd = Forwarder::<u32>::new();
 

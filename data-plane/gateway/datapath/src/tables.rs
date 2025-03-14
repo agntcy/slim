@@ -11,13 +11,13 @@ pub mod subscription_table;
 
 mod pool;
 
-use crate::messages::AgentClass;
+use crate::messages::AgentType;
 use errors::SubscriptionTableError;
 
 pub trait SubscriptionTable {
     fn add_subscription(
         &self,
-        class: AgentClass,
+        agent_type: AgentType,
         agent_id: Option<u64>,
         conn: u64,
         is_local: bool,
@@ -25,7 +25,7 @@ pub trait SubscriptionTable {
 
     fn remove_subscription(
         &self,
-        class: AgentClass,
+        agent_type: AgentType,
         agent_id: Option<u64>,
         conn: u64,
         is_local: bool,
@@ -35,13 +35,14 @@ pub trait SubscriptionTable {
 
     fn match_one(
         &self,
-        class: AgentClass,
+        agent_type: AgentType,
         agent_id: Option<u64>,
         incoming_conn: u64,
     ) -> Result<u64, SubscriptionTableError>;
+
     fn match_all(
         &self,
-        class: AgentClass,
+        agent_type: AgentType,
         agent_id: Option<u64>,
         incoming_conn: u64,
     ) -> Result<Vec<u64>, SubscriptionTableError>;
