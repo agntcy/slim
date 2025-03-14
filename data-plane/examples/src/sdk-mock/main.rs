@@ -4,7 +4,7 @@
 use clap::Parser;
 use tracing::info;
 
-use agp_datapath::messages::encoder::{encode_agent_class, encode_agent_from_string};
+use agp_datapath::messages::encoder::{encode_agent, encode_agent_type};
 use agp_gw::config;
 
 mod args;
@@ -38,20 +38,20 @@ async fn main() {
 
     // create local agent
     let agent_id = 0;
-    let agent_name = encode_agent_from_string("cisco", "default", local_agent, agent_id);
+    let agent_name = encode_agent("cisco", "default", local_agent, agent_id);
     let mut rx = svc.create_agent(agent_name.clone());
 
     // connect to the remote gateway
     let conn_id = svc.connect(None).await.unwrap();
     info!("remote connection id = {}", conn_id);
 
-    let local_agent_class = encode_agent_class("cisco", "default", local_agent);
-    svc.subscribe(&local_agent_class, Some(agent_id), conn_id)
+    let local_agent_type = encode_agent_type("cisco", "default", local_agent);
+    svc.subscribe(&local_agent_type, Some(agent_id), conn_id)
         .await
         .unwrap();
 
     // Set a route for the remote agent
-    let route = encode_agent_class("cisco", "default", remote_agent);
+    let route = encode_agent_type("cisco", "default", remote_agent);
     info!("allowing messages to remote agent: {:?}", route);
     svc.set_route(&route, None, conn_id).await.unwrap();
 

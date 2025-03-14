@@ -112,7 +112,7 @@ async fn main() {
     let bar = ProgressBar::new(subscriptions_list.len() as u64);
     for s in subscriptions_list.iter() {
         match svc
-            .subscribe(&s.agent_type(), Some(*s.agent_id()), conn_id)
+            .subscribe(s.agent_type(), Some(*s.agent_id()), conn_id)
             .await
         {
             Ok(_) => {}

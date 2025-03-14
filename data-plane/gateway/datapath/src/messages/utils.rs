@@ -25,7 +25,7 @@ pub enum MessageError {
     ControlHeaderNotFound,
 }
 
-// utils funtions for names
+// utils functions for names
 fn create_agent_name(name: &Agent) -> Option<ProtoAgent> {
     let mut id = None;
     if name.agent_id() != &DEFAULT_AGENT_ID {
@@ -39,7 +39,7 @@ fn create_agent_name(name: &Agent) -> Option<ProtoAgent> {
     })
 }
 
-fn create_agent_from_type(agent_type: &AgentType, agent_id: Option<u64>) -> Option<ProtoAgent> {
+pub fn create_agent_from_type(agent_type: &AgentType, agent_id: Option<u64>) -> Option<ProtoAgent> {
     Some(ProtoAgent {
         organization: *agent_type.organization(),
         namespace: *agent_type.namespace(),
@@ -69,16 +69,14 @@ pub fn create_agp_header(
 }
 
 fn get_agp_header(msg: &ProtoMessage) -> Option<AgpHeader> {
-    let header = match &msg.message_type {
+    match &msg.message_type {
         Some(msg_type) => match msg_type {
             ProtoPublishType(publish) => publish.header,
             ProtoSubscribeType(sub) => sub.header,
             ProtoUnsubscribeType(unsub) => unsub.header,
         },
         None => None,
-    };
-
-    header
+    }
 }
 
 // clear header
@@ -124,8 +122,7 @@ pub fn get_forward_to(msg: &ProtoMessage) -> Result<Option<u64>, MessageError> {
     }
 }
 
-#[allow(dead_code)]
-fn get_incoming_conn(msg: &ProtoMessage) -> Result<Option<u64>, MessageError> {
+pub fn get_incoming_connection(msg: &ProtoMessage) -> Result<Option<u64>, MessageError> {
     match get_agp_header(msg) {
         Some(header) => Ok(header.incoming_conn),
         None => Err(MessageError::AgpHeaderNotFound),

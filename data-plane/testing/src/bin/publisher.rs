@@ -159,7 +159,7 @@ async fn main() {
     // subscribe for local name
     match svc
         .subscribe(
-            &agent_name.agent_type(),
+            agent_name.agent_type(),
             agent_name.agent_id_option(),
             conn_id,
         )
@@ -174,7 +174,7 @@ async fn main() {
     // set routes for all subscriptions
     for r in routes {
         match svc
-            .set_route(&r.agent_type(), r.agent_id_option(), conn_id)
+            .set_route(r.agent_type(), r.agent_id_option(), conn_id)
             .await
         {
             Ok(_) => {}
@@ -213,7 +213,7 @@ async fn main() {
                                         }
                                     }
                                     Err(err) => {
-                                        panic!("error processing received packet {}", err.to_string());
+                                        panic!("error processing received packet {}", err);
                                     }
                                 }
                                 match &msg.message_type.unwrap() {
@@ -281,7 +281,7 @@ async fn main() {
         // for the moment we send the message in anycast
         // we need to test also the match_all function
         if svc
-            .publish(&p.1.agent_type(), name_id, 1, payload)
+            .publish(p.1.agent_type(), name_id, 1, payload)
             .await
             .is_err()
         {
