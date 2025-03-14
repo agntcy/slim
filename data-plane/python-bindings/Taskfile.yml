@@ -54,9 +54,14 @@ tasks:
         cmd: |
           uv python install {{.ITEM.PYTHON}}
           uv python pin {{.ITEM.PYTHON}}
+      - task: python-bindings:build:release
       - |
         uv sync
         PYTHONS=(3.9 3.10 3.11 3.12 3.13)
+
+        # This file if a leftover from the previous build, delete it otherwise
+        # maturin will try to add it to the wheel, and it will fail
+        rm -f python-bindings/*.pyd
 
         uv run maturin build {{.RELEASE}} \
           --out dist                      \
