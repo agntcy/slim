@@ -19,6 +19,7 @@ use tracing_subscriber::{
 };
 
 pub mod opaque;
+pub mod utils;
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct TracingConfiguration {
@@ -273,6 +274,10 @@ impl TracingConfiguration {
 
             // set global meter provider
             global::set_meter_provider(meter_provider.clone());
+
+            // Sst up the trace context propagator
+            let propagator = opentelemetry_sdk::propagation::TraceContextPropagator::new();
+            global::set_text_map_propagator(propagator);
 
             let tracer = tracer_provider.tracer("tracing-otel-subscriber");
 

@@ -6,6 +6,8 @@ use std::net::SocketAddr;
 use std::{pin::Pin, sync::Arc};
 
 use agp_config::grpc::client::ClientConfig;
+use agp_tracing::utils::INSTANCE_ID;
+use opentelemetry::propagation::{Extractor, Injector};
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
 use tokio_stream::{Stream, StreamExt};
@@ -13,6 +15,7 @@ use tokio_util::sync::CancellationToken;
 use tonic::codegen::{Body, StdError};
 use tonic::{Request, Response, Status};
 use tracing::{debug, error, info, trace};
+use tracing_opentelemetry::OpenTelemetrySpanExt;
 
 use crate::connection::{Channel, Connection, Type as ConnectionType};
 use crate::errors::DataPathError;
@@ -27,6 +30,27 @@ use crate::pubsub::proto::pubsub::v1::message::MessageType::Subscribe as Subscri
 use crate::pubsub::proto::pubsub::v1::message::MessageType::Unsubscribe as UnsubscribeType;
 use crate::pubsub::proto::pubsub::v1::pub_sub_service_client::PubSubServiceClient;
 use crate::pubsub::proto::pubsub::v1::{pub_sub_service_server::PubSubService, Message};
+
+// Implementation based on: https://docs.rs/opentelemetry-tonic/latest/src/opentelemetry_tonic/lib.rs.html#1-134
+struct MetadataExtractor<'a>(&'a std::collections::HashMap<String, String>);
+
+impl Extractor for MetadataExtractor<'_> {
+    fn get(&self, key: &str) -> Option<&str> {
+        self.0.get(key).map(|s| s.as_str())
+    }
+
+    fn keys(&self) -> Vec<&str> {
+        self.0.keys().map(|s| s.as_str()).collect()
+    }
+}
+
+struct MetadataInjector<'a>(&'a mut std::collections::HashMap<String, String>);
+
+impl Injector for MetadataInjector<'_> {
+    fn set(&mut self, key: &str, value: String) {
+        self.0.insert(key.to_string(), value);
+    }
+}
 
 #[derive(Debug)]
 struct MessageProcessorInternal {
@@ -239,16 +263,49 @@ impl MessageProcessor {
 
     pub async fn send_msg(
         &self,
-        msg: Message,
+        mut msg: Message,
         out_conn: u64,
     ) -> Result<(), Box<dyn std::error::Error>> {
+        let span = tracing::span!(
+            tracing::Level::DEBUG,
+            "send_message",
+            instance_id = %INSTANCE_ID.as_str(),
+            connection_id = out_conn,
+            message_type = match &msg.message_type {
+                Some(PublishType(_)) => "publish",
+                Some(SubscribeType(_)) => "subscribe",
+                Some(UnsubscribeType(_)) => "unsubscribe",
+                None => "unknown"
+            },
+            telemetry = true
+        );
+
+        let _guard = span.enter();
+
+        // Inject the current OpenTelemetry context into the message metadata
+        let cx = tracing::Span::current().context();
+        {
+            let mut injector: MetadataInjector<'_> = MetadataInjector(&mut msg.metadata);
+            opentelemetry::global::get_text_map_propagator(|propagator| {
+                propagator.inject_context(&cx, &mut injector)
+            });
+        }
+
         let connection = self.forwarder().get_connection(out_conn);
         match connection {
-            Some(conn) => match conn.channel() {
-                Channel::Server(s) => s.send(Ok(msg)).await?,
-                Channel::Client(s) => s.send(msg).await?,
-                _ => error!("error reading channel"),
-            },
+            Some(conn) => {
+                if conn.is_local_connection() {
+                    // close the span
+                } else {
+                    // create span
+                }
+
+                match conn.channel() {
+                    Channel::Server(s) => s.send(Ok(msg)).await?,
+                    Channel::Client(s) => s.send(msg).await?,
+                    _ => error!("error reading channel"),
+                }
+            }
             None => error!("connection {:?} not found", out_conn),
         }
         Ok(())
@@ -573,6 +630,27 @@ impl MessageProcessor {
         msg: Message,
         in_connection: u64,
     ) -> Result<(), DataPathError> {
+        // extract the propagated OpenTelemetry context from the message metadata
+        let extractor = MetadataExtractor(&msg.metadata);
+        let parent_context = opentelemetry::global::get_text_map_propagator(|propagator| {
+            propagator.extract(&extractor)
+        });
+
+        // create a new span and set the extracted context as its parent
+        let span = tracing::span!(
+            tracing::Level::DEBUG,
+            "process_message",
+            instance_id = %INSTANCE_ID.as_str(),
+            message_type = match &msg.message_type {
+                Some(PublishType(_)) => "publish",
+                Some(SubscribeType(_)) => "subscribe",
+                Some(UnsubscribeType(_)) => "unsubscribe",
+                None => "unknown"
+            },
+        );
+        span.set_parent(parent_context);
+        let _guard = span.enter();
+
         match &msg.message_type {
             None => {
                 error!(
@@ -699,7 +777,6 @@ impl MessageProcessor {
         }
     }
 
-    #[tracing::instrument(fields(telemetry = true), skip(stream))]
     fn process_stream(
         &self,
         mut stream: impl Stream<Item = Result<Message, Status>> + Unpin + Send + 'static,
@@ -712,13 +789,26 @@ impl MessageProcessor {
         let self_clone = self.clone();
         let token_clone = cancellation_token.clone();
         let client_conf_clone = client_config.clone();
+
+        // Capture the current span to propagate it
+        let current_span = tracing::Span::current();
+
         let handle = tokio::spawn(async move {
+            // Enter the captured span
+            let _guard = current_span.enter();
+
             let mut try_to_reconnect = true;
             loop {
                 tokio::select! {
                     res = stream.next() => {
                         match res {
                             Some(msg) => {
+                                if is_local {
+                                    // we are receiving the message here from the local gw
+                                } else {
+                                    // receiving the message from a remote gw
+                                }
+
                                 if let Err(e) = self_clone.handle_new_message(conn_index, msg).await {
                                     error!("error handling stream {:?}", e);
                                     break;
@@ -844,7 +934,6 @@ impl MessageProcessor {
 impl PubSubService for MessageProcessor {
     type OpenChannelStream = Pin<Box<dyn Stream<Item = Result<Message, Status>> + Send + 'static>>;
 
-    #[tracing::instrument(fields(telemetry = true))]
     async fn open_channel(
         &self,
         request: Request<tonic::Streaming<Message>>,

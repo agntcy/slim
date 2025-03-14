@@ -172,7 +172,6 @@ impl Service {
     }
 
     /// Run the service
-    #[tracing::instrument(fields(telemetry = true))]
     pub async fn run(&self) -> Result<(), ServiceError> {
         // Check that at least one client or server is configured
         if self.config.server().is_none() && self.config.clients.is_empty() {
@@ -461,7 +460,6 @@ impl Component for Service {
         &self.id
     }
 
-    #[tracing::instrument(fields(telemetry = true))]
     async fn start(&self) -> Result<(), ComponentError> {
         info!("starting service");
         self.run()

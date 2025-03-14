@@ -28,7 +28,7 @@ def format_message(message1, message2):
 
 async def run_client(local_id, remote_id, message, address):
     # init tracing
-    agp_bindings.init_tracing()
+    agp_bindings.init_tracing(log_level="debug", enable_opentelemetry=True)
 
     # Split the IDs into their respective components
     try:
