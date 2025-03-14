@@ -12,7 +12,7 @@ use tokio_stream::{Stream, StreamExt};
 use tokio_util::sync::CancellationToken;
 use tonic::codegen::{Body, StdError};
 use tonic::{Request, Response, Status};
-use tracing::{debug, error, info, trace, warn};
+use tracing::{debug, error, info, warn};
 
 use crate::connection::{Channel, Connection, Type as ConnectionType};
 use crate::errors::DataPathError;
@@ -332,7 +332,13 @@ impl MessageProcessor {
                 );
 
                 // add incoming connection to the metadata
-                set_incoming_connection(&mut msg, Some(in_connection));
+                match set_incoming_connection(&mut msg, Some(in_connection)) {
+                    Ok(_) => {}
+                    Err(e) => {
+                        error!("error processing publication message {:?}", e);
+                        return Err(DataPathError::PublicationError(e.to_string()));
+                    }
+                }
 
                 // if we get valid class also the name is valid so we can safely unwrap
                 return self
@@ -421,7 +427,10 @@ impl MessageProcessor {
                 if forward.is_some() {
                     debug!("forward unsubscription to {:?}", forward);
                     let out_conn = forward.unwrap();
-                    clear_agp_header(&msg);
+                    let e = clear_agp_header(&msg);
+                    if e.is_err() {
+                        return Err(DataPathError::SubscriptionError("error cleaning the AGP header".to_string()));
+                    }
 
                     let (source_type, source_id) = match get_source(&msg) {
                         Ok((c, f)) => (c, f),
@@ -667,7 +676,7 @@ impl MessageProcessor {
                                             };
                                             match get_name(&msg) {
                                                 Ok((name_type, name_id)) => {
-                                                    msg_source = Some(Agent::new(name_type, name_id.unwrap_or(DEFAULT_AGENT_ID)));
+                                                    msg_name = Some(Agent::new(name_type, name_id.unwrap_or(DEFAULT_AGENT_ID)));
                                                 }
                                                 Err(e) =>  {
                                                     warn!("error reading the message name {:?}", e);
@@ -685,8 +694,9 @@ impl MessageProcessor {
                                                         if msg_source.is_none() || msg_name.is_none() {
                                                             debug!("unable to notify the error to the remote end");
                                                         } else {
-                                                            let header = create_agp_header(&msg_source.unwrap(), &msg_name.unwrap(), None, None, None, Some(true));
-                                                            let mut err_message = create_publication(
+                                                            let name = msg_name.unwrap();
+                                                            let header = create_agp_header(&msg_source.unwrap(), name.agent_type(), name.agent_id_option(), None, None, None, Some(true));
+                                                            let err_message = create_publication(
                                                                 header,
                                                                 create_default_service_header(),
                                                                 HashMap::new(), 1, "",
@@ -776,7 +786,8 @@ impl MessageProcessor {
                                 for r in remote_subscriptions.iter() {
                                     let header = create_agp_header(
                                         r.source(),
-                                        r.name(),
+                                        r.name().agent_type(),
+                                        r.name().agent_id_option(),
                                         None,
                                         None,
                                         None,

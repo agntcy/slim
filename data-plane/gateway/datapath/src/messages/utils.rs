@@ -39,10 +39,20 @@ fn create_agent_name(name: &Agent) -> Option<ProtoAgent> {
     })
 }
 
+fn create_agent_from_type(agent_type: &AgentType, agent_id: Option<u64>) -> Option<ProtoAgent> {
+    Some(ProtoAgent {
+        organization: *agent_type.organization(),
+        namespace: *agent_type.namespace(),
+        agent_type: *agent_type.agent_type(),
+        agent_id,
+    })
+}
+
 // utils functions for agp header
 pub fn create_agp_header(
     source: &Agent,
-    destination: &Agent,
+    name_type: &AgentType,
+    name_id: Option<u64>,
     recv_from: Option<u64>,
     forward_to: Option<u64>,
     incoming_conn: Option<u64>,
@@ -50,7 +60,7 @@ pub fn create_agp_header(
 ) -> Option<AgpHeader> {
     Some(AgpHeader {
         source: create_agent_name(source),
-        destination: create_agent_name(destination),
+        destination: create_agent_from_type(name_type, name_id),
         recv_from,
         forward_to,
         incoming_conn,
@@ -114,6 +124,7 @@ pub fn get_forward_to(msg: &ProtoMessage) -> Result<Option<u64>, MessageError> {
     }
 }
 
+#[allow(dead_code)]
 fn get_incoming_conn(msg: &ProtoMessage) -> Result<Option<u64>, MessageError> {
     match get_agp_header(msg) {
         Some(header) => Ok(header.incoming_conn),
@@ -121,6 +132,7 @@ fn get_incoming_conn(msg: &ProtoMessage) -> Result<Option<u64>, MessageError> {
     }
 }
 
+#[allow(dead_code)]
 fn get_error(msg: &ProtoMessage) -> Result<Option<bool>, MessageError> {
     match get_agp_header(msg) {
         Some(header) => Ok(header.error),
@@ -179,6 +191,7 @@ pub fn create_default_service_header() -> Option<ServiceHeader> {
 }
 
 // getters for service header
+#[allow(dead_code)]
 fn get_msg_id(msg: &ProtoPublish) -> Result<u32, MessageError> {
     match msg.control {
         Some(header) => Ok(header.id),
@@ -186,6 +199,7 @@ fn get_msg_id(msg: &ProtoPublish) -> Result<u32, MessageError> {
     }
 }
 
+#[allow(dead_code)]
 fn get_stream_id(msg: &ProtoPublish) -> Result<Option<u32>, MessageError> {
     match msg.control {
         Some(header) => Ok(header.stream),
@@ -193,6 +207,7 @@ fn get_stream_id(msg: &ProtoPublish) -> Result<Option<u32>, MessageError> {
     }
 }
 
+#[allow(dead_code)]
 fn get_rtx_id(msg: &ProtoPublish) -> Result<Option<u32>, MessageError> {
     match msg.control {
         Some(header) => Ok(header.rtx),
@@ -211,7 +226,7 @@ pub fn create_subscription(
     }
 }
 
-fn create_subscription_from(name: &Agent, recv_from: u64) -> ProtoMessage {
+pub fn create_subscription_from(agent_type: &AgentType, agent_id: Option<u64>, recv_from: u64) -> ProtoMessage {
     // this message is used to set the state inside the local subscription table.
     // it emulates the reception of a subscription message from a remote end point through
     // the connection recv_from
@@ -221,7 +236,7 @@ fn create_subscription_from(name: &Agent, recv_from: u64) -> ProtoMessage {
 
     // the source field is not used in this case, set it to default
     let source = Agent::default();
-    let header = create_agp_header(&source, name, Some(recv_from), None, None, None);
+    let header = create_agp_header(&source, agent_type, agent_id,Some(recv_from), None, None, None);
 
     // create a subscription with the recv_from field in the header
     // the result is that the subscription will be added to the local
@@ -229,16 +244,17 @@ fn create_subscription_from(name: &Agent, recv_from: u64) -> ProtoMessage {
     create_subscription(header, HashMap::new())
 }
 
-fn create_subscription_to_forward(source: &Agent, name: &Agent, forward_to: u64) -> ProtoMessage {
+pub fn create_subscription_to_forward(source: &Agent, agent_type: &AgentType, agent_id: Option<u64>, forward_to: u64) -> ProtoMessage {
     // this subscription can be received only from a local connection
     // when this message is received the subscription is set in the local table
     // and forwarded to the connection forward_to to set the subscription remotely
     // before forward the subscription the forward_to needs to be set to None
 
-    let header = create_agp_header(source, name, None, Some(forward_to), None, None);
+    let header = create_agp_header(source, agent_type, agent_id, None, Some(forward_to), None, None);
     create_subscription(header, HashMap::new())
 }
 
+#[allow(dead_code)]
 fn create_unsubscription(
     header: Option<AgpHeader>,
     metadata: HashMap<String, String>,
@@ -249,21 +265,21 @@ fn create_unsubscription(
     }
 }
 
-fn create_unsubscription_from(name: &Agent, recv_from: u64) -> ProtoMessage {
+pub fn create_unsubscription_from(agent_type: &AgentType, agent_id: Option<u64>, recv_from: u64) -> ProtoMessage {
     // same as subscription from but it removes the state
 
     // the source field is not used in this case, set it to default
     let source = Agent::default();
-    let header = create_agp_header(&source, name, Some(recv_from), None, None, None);
+    let header = create_agp_header(&source, agent_type, agent_id, Some(recv_from), None, None, None);
 
     // create the unsubscription with the metadata
     create_unsubscription(header, HashMap::new())
 }
 
-fn create_unsubscription_to_forward(source: &Agent, name: &Agent, forward_to: u64) -> ProtoMessage {
+pub fn create_unsubscription_to_forward(source: &Agent, agent_type: &AgentType, agent_id: Option<u64>, forward_to: u64) -> ProtoMessage {
     // same as subscription to forward but it removes the state
 
-    let header = create_agp_header(source, name, None, Some(forward_to), None, None);
+    let header = create_agp_header(source,agent_type, agent_id, None, Some(forward_to), None, None);
     create_unsubscription(header, HashMap::new())
 }
 

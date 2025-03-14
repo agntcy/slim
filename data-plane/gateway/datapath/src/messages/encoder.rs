@@ -57,6 +57,15 @@ impl Agent {
     pub(crate) fn agent_id(&self) -> &u64 {
         &self.agent_id
     }
+
+    pub(crate) fn agent_id_option(&self) -> Option<u64> {
+        if self.agent_id == DEFAULT_AGENT_ID {
+            return None;
+        }
+
+        Some(self.agent_id)
+    }
+
 }
 
 fn calculate_hash<T: Hash + ?Sized>(t: &T) -> u64 {
