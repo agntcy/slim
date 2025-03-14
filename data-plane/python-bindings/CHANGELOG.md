@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.10](https://github.com/agntcy/agp/compare/agp-bindings-v0.1.9...agp-bindings-v0.1.10) (2025-03-14)
+
+
+### Bug Fixes
+
+* **python-bindings:** wheels for python 3.13 in windows ([#84](https://github.com/agntcy/agp/issues/84)) ([4418866](https://github.com/agntcy/agp/commit/4418866f354397a1f7ee8fcbdbdb6ca4eb725e96))
+
 ## [0.1.9](https://github.com/agntcy/agp/compare/agp-bindings-v0.1.8...agp-bindings-v0.1.9) (2025-03-12)
 
 
