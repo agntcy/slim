@@ -241,9 +241,15 @@ impl MessageProcessor {
 
     pub async fn send_msg(
         &self,
-        msg: Message,
+        mut msg: Message,
         out_conn: u64,
     ) -> Result<(), Box<dyn std::error::Error>> {
+        // clear header
+        let err = clear_agp_header(&mut msg);
+        if err.is_err() {
+            error!("an error occurred while cleaning the AGP header");
+        }
+
         let connection = self.forwarder().get_connection(out_conn);
         match connection {
             Some(conn) => match conn.channel() {
@@ -311,11 +317,7 @@ impl MessageProcessor {
         }
     }
 
-    async fn process_publish(
-        &self,
-        mut msg: Message,
-        in_connection: u64,
-    ) -> Result<(), DataPathError> {
+    async fn process_publish(&self, msg: Message, in_connection: u64) -> Result<(), DataPathError> {
         let pubmsg = match &msg.message_type {
             Some(PublishType(p)) => p,
             // this should never happen
@@ -330,15 +332,6 @@ impl MessageProcessor {
                     "received publication from connection {}: {:?}",
                     in_connection, pubmsg
                 );
-
-                // add incoming connection to the metadata
-                match set_incoming_connection(&mut msg, Some(in_connection)) {
-                    Ok(_) => {}
-                    Err(e) => {
-                        error!("error processing publication message {:?}", e);
-                        return Err(DataPathError::PublicationError(e.to_string()));
-                    }
-                }
 
                 // if we get valid type also the name is valid so we can safely unwrap
                 return self
@@ -397,7 +390,7 @@ impl MessageProcessor {
 
     async fn process_unsubscription(
         &self,
-        mut msg: Message,
+        msg: Message,
         in_connection: u64,
     ) -> Result<(), DataPathError> {
         debug!(
@@ -435,12 +428,6 @@ impl MessageProcessor {
                 if forward.is_some() {
                     debug!("forward unsubscription to {:?}", forward);
                     let out_conn = forward.unwrap();
-                    let e = clear_agp_header(&mut msg);
-                    if e.is_err() {
-                        return Err(DataPathError::SubscriptionError(
-                            "error cleaning the AGP header".to_string(),
-                        ));
-                    }
 
                     let (source_type, source_id) = match get_source(&msg) {
                         Ok((c, f)) => (c, f),
@@ -476,7 +463,7 @@ impl MessageProcessor {
 
     async fn process_subscription(
         &self,
-        mut msg: Message,
+        msg: Message,
         in_connection: u64,
     ) -> Result<(), DataPathError> {
         debug!(
@@ -515,12 +502,6 @@ impl MessageProcessor {
                 if forward.is_some() {
                     debug!("forward subscription to {:?}", forward);
                     let out_conn = forward.unwrap();
-                    let e = clear_agp_header(&mut msg);
-                    if e.is_err() {
-                        return Err(DataPathError::SubscriptionError(
-                            "error cleaning the AGP header".to_string(),
-                        ));
-                    }
 
                     let (source_type, source_id) = match get_source(&msg) {
                         Ok((c, f)) => (c, f),
@@ -556,9 +537,18 @@ impl MessageProcessor {
 
     pub async fn process_message(
         &self,
-        msg: Message,
+        mut msg: Message,
         in_connection: u64,
     ) -> Result<(), DataPathError> {
+        // add incoming connection to the AGP header
+        match set_incoming_connection(&mut msg, Some(in_connection)) {
+            Ok(_) => {}
+            Err(e) => {
+                error!("error setting incoming connection {:?}", e);
+                return Err(DataPathError::ErrorSettingInConnection(e.to_string()));
+            }
+        }
+
         match &msg.message_type {
             None => {
                 error!(
