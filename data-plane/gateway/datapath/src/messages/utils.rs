@@ -25,12 +25,6 @@ pub enum MessageError {
     ControlHeaderNotFound,
 }
 
-impl ProtoAgent {
-    pub fn agent_type(&self) -> AgentType {
-        AgentType::new(self.organization, self.namespace, self.agent_type)
-    }
-}
-
 // utils functions for names
 fn create_agent_name(name: &Agent) -> Option<ProtoAgent> {
     let mut id = None;
@@ -370,8 +364,4 @@ pub fn get_fanout(msg: &ProtoPublish) -> u32 {
 
 pub fn get_payload(msg: &ProtoPublish) -> &[u8] {
     &msg.msg.as_ref().unwrap().blob
-}
-
-impl AgpHeader {
-
 }
