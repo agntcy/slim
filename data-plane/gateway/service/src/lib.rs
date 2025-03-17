@@ -1,6 +1,9 @@
 // SPDX-FileCopyrightText: Copyright (c) 2025 Cisco and/or its affiliates.
 // SPDX-License-Identifier: Apache-2.0
 
+pub mod errors;
+pub mod session;
+
 use agp_datapath::messages::utils::{
     create_agp_header, create_default_service_header, create_publication, create_subscription_from,
     create_subscription_to_forward, create_unsubscription_from, create_unsubscription_to_forward,
@@ -9,7 +12,6 @@ use agp_datapath::messages::{Agent, AgentType};
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::sync::Arc;
-use thiserror::Error;
 use tokio::sync::mpsc;
 use tonic::Status;
 use tracing::{debug, error, info};
@@ -22,36 +24,10 @@ use agp_config::grpc::server::ServerConfig;
 use agp_datapath::message_processing::MessageProcessor;
 use agp_datapath::pubsub::proto::pubsub::v1::pub_sub_service_server::PubSubServiceServer;
 use agp_datapath::pubsub::proto::pubsub::v1::Message;
+pub use errors::ServiceError;
 
 // Define the kind of the component as static string
 pub const KIND: &str = "gateway";
-
-// Define the trait for the base component
-#[derive(Error, Debug)]
-pub enum ServiceError {
-    #[error("configuration error {0}")]
-    ConfigError(String),
-    #[error("local agent not configured")]
-    MissingAgentError,
-    #[error("connection error: {0}")]
-    ConnectionError(String),
-    #[error("disconnect error")]
-    DisconnectError,
-    #[error("error sending subscription: {0}")]
-    SubscriptionError(String),
-    #[error("error sending unsubscription: {0}")]
-    UnsubscriptionError(String),
-    #[error("error on set route: {0}")]
-    SetRouteError(String),
-    #[error("error on remove route: {0}")]
-    RemoveRouteError(String),
-    #[error("error publishing message: {0}")]
-    PublishError(String),
-    #[error("error receiving message: {0}")]
-    ReceiveError(String),
-    #[error("unknown error")]
-    Unknown,
-}
 
 #[derive(Debug, Clone, Deserialize, Default)]
 pub struct ServiceConfiguration {
@@ -106,7 +82,6 @@ impl Configuration for ServiceConfiguration {
     }
 }
 
-#[allow(dead_code)]
 #[derive(Debug)]
 struct LocalAgent {
     /// name of the agent
@@ -413,13 +388,32 @@ impl Service {
         fanout: u32,
         blob: Vec<u8>,
     ) -> Result<(), ServiceError> {
+        self.publish_to(agent_type, agent_id, fanout, blob, None).await
+    }
+
+    pub async fn publish_to(
+        &self,
+        agent_type: &AgentType,
+        agent_id: Option<u64>,
+        fanout: u32,
+        blob: Vec<u8>,
+        out_conn: Option<u64>,
+    ) -> Result<(), ServiceError> {
         if self.agent.is_none() {
             error!("the local agent is not configured");
             return Err(ServiceError::MissingAgentError);
         }
 
         let agent = self.agent.as_ref().unwrap();
-        let header = create_agp_header(&agent.name, agent_type, agent_id, None, None, None, None);
+        let header = create_agp_header(
+            &agent.name,
+            agent_type,
+            agent_id,
+            None,
+            out_conn,
+            None,
+            None,
+        );
         let msg = create_publication(
             header,
             create_default_service_header(),
@@ -433,40 +427,6 @@ impl Service {
 
         if let Err(e) = self.agent.as_ref().unwrap().tx_channel.send(Ok(msg)).await {
             error!("error sending the publication {:?}", e);
-            return Err(ServiceError::PublishError(e.to_string()));
-        }
-        Ok(())
-    }
-
-    pub async fn send_msg(
-        &self,
-        agent_type: &AgentType,
-        agent_id: Option<u64>,
-        fanout: u32,
-        blob: Vec<u8>,
-        out_conn: u64,
-    ) -> Result<(), ServiceError> {
-        if self.agent.is_none() {
-            error!("the local agent is not configured");
-            return Err(ServiceError::MissingAgentError);
-        }
-
-        let agent = self.agent.as_ref().unwrap();
-        let header = create_agp_header(&agent.name, agent_type, agent_id, None, None, None, None);
-        let msg = create_publication(
-            header,
-            create_default_service_header(),
-            HashMap::new(),
-            fanout,
-            "msg",
-            blob,
-        );
-
-        if let Err(e) = self.message_processor.send_msg(msg, out_conn).await {
-            error!(
-                "error sending the publication to connection {:?}: {:?}",
-                out_conn, e
-            );
             return Err(ServiceError::PublishError(e.to_string()));
         }
         Ok(())

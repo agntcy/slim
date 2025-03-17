@@ -174,7 +174,7 @@ async fn main() {
         }
 
         // send message
-        svc.send_msg(&source_type, source_id, 1, out_vec, conn_id)
+        svc.publish_to(&source_type, source_id, 1, out_vec, Some(conn_id))
             .await
             .unwrap();
     }
