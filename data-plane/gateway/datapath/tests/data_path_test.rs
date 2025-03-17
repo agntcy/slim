@@ -153,7 +153,8 @@ mod tests {
         tx.send(Ok(fwd_to)).await.unwrap();
 
         tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
-        let expected_msg = "received forward_to command, update state and forward to connection 100";
+        let expected_msg =
+            "received forward_to command, update state and forward to connection 100";
         assert!(logs_contain(&expected_msg));
 
         let expected_msg = "forward subscription";

@@ -147,7 +147,7 @@ async fn main() {
                     }
                     pub_id = u64::from_be_bytes(payload[0..8].try_into().unwrap());
                     (source_type, source_id) =
-                        match agp_datapath::messages::utils::get_name(&recv_msg) {
+                        match agp_datapath::messages::utils::get_source(&recv_msg) {
                             Ok((source_type, source_id)) => (source_type, source_id),
                             Err(e) => {
                                 panic!("error parsing message {}", e);

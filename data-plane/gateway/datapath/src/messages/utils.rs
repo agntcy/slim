@@ -79,10 +79,18 @@ fn get_agp_header(msg: &ProtoMessage) -> Option<AgpHeader> {
     }
 }
 
-// clear header
-pub fn clear_agp_header(msg: &ProtoMessage) -> Result<(), MessageError> {
-    match get_agp_header(msg) {
-        Some(mut header) => {
+fn get_agp_header_as_mut(msg: &mut ProtoMessage) -> Option<&mut AgpHeader> {
+    match &mut msg.message_type {
+        Some(ProtoPublishType(publish)) => publish.header.as_mut(),
+        Some(ProtoSubscribeType(sub)) => sub.header.as_mut(),
+        Some(ProtoUnsubscribeType(unsub)) => unsub.header.as_mut(),
+        None => None,
+    }
+}
+
+pub fn clear_agp_header(msg: &mut ProtoMessage) -> Result<(), MessageError> {
+    match get_agp_header_as_mut(msg) {
+        Some(header) => {
             header.recv_from = None;
             header.forward_to = None;
             header.incoming_conn = None;
@@ -95,11 +103,11 @@ pub fn clear_agp_header(msg: &ProtoMessage) -> Result<(), MessageError> {
 
 // set incoming connection
 pub fn set_incoming_connection(
-    msg: &ProtoMessage,
+    msg: &mut ProtoMessage,
     incoming_conn: Option<u64>,
 ) -> Result<(), MessageError> {
-    match get_agp_header(msg) {
-        Some(mut header) => {
+    match get_agp_header_as_mut(msg) {
+        Some(header) => {
             header.incoming_conn = incoming_conn;
             Ok(())
         }

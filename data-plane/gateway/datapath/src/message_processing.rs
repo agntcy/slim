@@ -311,7 +311,11 @@ impl MessageProcessor {
         }
     }
 
-    async fn process_publish(&self, msg: Message, in_connection: u64) -> Result<(), DataPathError> {
+    async fn process_publish(
+        &self,
+        mut msg: Message,
+        in_connection: u64,
+    ) -> Result<(), DataPathError> {
         let pubmsg = match &msg.message_type {
             Some(PublishType(p)) => p,
             // this should never happen
@@ -328,7 +332,7 @@ impl MessageProcessor {
                 );
 
                 // add incoming connection to the metadata
-                match set_incoming_connection(&msg, Some(in_connection)) {
+                match set_incoming_connection(&mut msg, Some(in_connection)) {
                     Ok(_) => {}
                     Err(e) => {
                         error!("error processing publication message {:?}", e);
@@ -359,7 +363,10 @@ impl MessageProcessor {
         match get_recv_from(msg) {
             Ok(recv_from) => {
                 if let Some(val) = recv_from {
-                    debug!("received recv_from command, update state on connection {}", val);
+                    debug!(
+                        "received recv_from command, update state on connection {}",
+                        val
+                    );
                     return Ok((val, None));
                 }
             }
@@ -372,7 +379,10 @@ impl MessageProcessor {
         match get_forward_to(msg) {
             Ok(fwd_to) => {
                 if fwd_to.is_some() {
-                    debug!("received forward_to command, update state and forward to connection {}", fwd_to.unwrap());
+                    debug!(
+                        "received forward_to command, update state and forward to connection {}",
+                        fwd_to.unwrap()
+                    );
                     return Ok((in_connection, fwd_to));
                 }
             }
@@ -387,7 +397,7 @@ impl MessageProcessor {
 
     async fn process_unsubscription(
         &self,
-        msg: Message,
+        mut msg: Message,
         in_connection: u64,
     ) -> Result<(), DataPathError> {
         debug!(
@@ -425,7 +435,7 @@ impl MessageProcessor {
                 if forward.is_some() {
                     debug!("forward unsubscription to {:?}", forward);
                     let out_conn = forward.unwrap();
-                    let e = clear_agp_header(&msg);
+                    let e = clear_agp_header(&mut msg);
                     if e.is_err() {
                         return Err(DataPathError::SubscriptionError(
                             "error cleaning the AGP header".to_string(),
@@ -466,7 +476,7 @@ impl MessageProcessor {
 
     async fn process_subscription(
         &self,
-        msg: Message,
+        mut msg: Message,
         in_connection: u64,
     ) -> Result<(), DataPathError> {
         debug!(
@@ -505,7 +515,7 @@ impl MessageProcessor {
                 if forward.is_some() {
                     debug!("forward subscription to {:?}", forward);
                     let out_conn = forward.unwrap();
-                    let e = clear_agp_header(&msg);
+                    let e = clear_agp_header(&mut msg);
                     if e.is_err() {
                         return Err(DataPathError::SubscriptionError(
                             "error cleaning the AGP header".to_string(),
