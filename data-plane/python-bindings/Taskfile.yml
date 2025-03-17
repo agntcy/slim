@@ -73,11 +73,15 @@ tasks:
 
   python-bindings:example:server:
     desc: "Run the server example"
+    env:
+      AGP_INSTANCE_ID: server
     cmds:
       - uv run python ./examples/gateway.py
 
   python-bindings:example:alice:
     desc: "Run the Alice example"
+    env:
+      AGP_INSTANCE_ID: alice
     cmds:
       - |
         uv run python ./examples/agent.py \
@@ -86,6 +90,8 @@ tasks:
 
   python-bindings:example:bob:
     desc: "Run the Bob example"
+    env:
+      AGP_INSTANCE_ID: bob
     cmds:
       - |
         uv run python ./examples/agent.py   \

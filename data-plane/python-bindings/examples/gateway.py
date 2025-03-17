@@ -14,7 +14,7 @@ gateway = agp_bindings.Gateway()
 
 async def run_server(address: str):
     # init tracing
-    agp_bindings.init_tracing(log_level="debug")
+    agp_bindings.init_tracing(log_level="debug", enable_opentelemetry=True)
 
     # Configure gateway
     config = GatewayConfig(endpoint=address, insecure=True)

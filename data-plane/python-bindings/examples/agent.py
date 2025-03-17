@@ -28,7 +28,7 @@ def format_message(message1, message2):
 
 async def run_client(local_id, remote_id, message, address, iterations):
     # init tracing
-    agp_bindings.init_tracing()
+    agp_bindings.init_tracing(log_level="debug", enable_opentelemetry=True)
 
     # Split the IDs into their respective components
     try:
@@ -83,7 +83,7 @@ async def run_client(local_id, remote_id, message, address, iterations):
             except Exception as e:
                 print("received error: ", e)
 
-            time.sleep(1)
+            time.sleep(5)
     else:
         # Wait for a message and reply in a loop
         while True:

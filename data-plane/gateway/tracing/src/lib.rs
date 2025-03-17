@@ -7,10 +7,10 @@ use opentelemetry_sdk::{
     trace::{RandomIdGenerator, Sampler, SdkTracerProvider},
     Resource,
 };
-use opentelemetry_semantic_conventions::{
-    attribute::{DEPLOYMENT_ENVIRONMENT_NAME, SERVICE_NAME, SERVICE_VERSION},
-    SCHEMA_URL,
+use opentelemetry_semantic_conventions::attribute::{
+    DEPLOYMENT_ENVIRONMENT_NAME, SERVICE_NAME, SERVICE_VERSION,
 };
+
 use serde::{Deserialize, Serialize};
 use tracing::Level;
 use tracing_opentelemetry::{MetricsLayer, OpenTelemetryLayer};
@@ -19,6 +19,7 @@ use tracing_subscriber::{
 };
 
 pub mod opaque;
+pub mod utils;
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct TracingConfiguration {
@@ -220,17 +221,14 @@ impl TracingConfiguration {
         if self.opentelemetry.enabled {
             // resource
             let resource = Resource::builder()
-                .with_schema_url(
-                    [
-                        KeyValue::new(SERVICE_NAME, self.opentelemetry.service_name.clone()),
-                        KeyValue::new(SERVICE_VERSION, self.opentelemetry.service_version.clone()),
-                        KeyValue::new(
-                            DEPLOYMENT_ENVIRONMENT_NAME,
-                            self.opentelemetry.environment.clone(),
-                        ),
-                    ],
-                    SCHEMA_URL,
-                )
+                .with_attributes([
+                    KeyValue::new(SERVICE_NAME, self.opentelemetry.service_name.clone()),
+                    KeyValue::new(SERVICE_VERSION, self.opentelemetry.service_version.clone()),
+                    KeyValue::new(
+                        DEPLOYMENT_ENVIRONMENT_NAME,
+                        self.opentelemetry.environment.clone(),
+                    ),
+                ])
                 .build();
 
             // init tracer provider
@@ -273,6 +271,10 @@ impl TracingConfiguration {
 
             // set global meter provider
             global::set_meter_provider(meter_provider.clone());
+
+            // Sst up the trace context propagator
+            let propagator = opentelemetry_sdk::propagation::TraceContextPropagator::new();
+            global::set_text_map_propagator(propagator);
 
             let tracer = tracer_provider.tracer("tracing-otel-subscriber");
 
