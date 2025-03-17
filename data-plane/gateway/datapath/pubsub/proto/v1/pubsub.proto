@@ -23,8 +23,8 @@ message Publish {
   Content msg = 4;
 }
 
-// recvFrom = connection form where the sub/ubsub is supposed to be received
-// forwardTo = connection where to forward the sub/unsub
+// recvFrom = connection form where the sub/unsub is supposed to be received
+// forwardTo = connection where to forward the message
 // incomingConn = connection from where the packet was received
 // error = if true the publication contains an error notification
 message AGPHeader {
@@ -61,13 +61,13 @@ enum ServiceHeaderType {
 // CTRL_RTX_REQUEST = nonce
 // CTRL_RTX_REPLY = nonce of the associated CTRL_RTX_REQUEST
 
-// Srervice.stream meaning according to ControlType
+// Service.stream meaning according to ControlType
 // CTRL_STREAM = stream for which the id field is valid
 // CTRL_RTX_REQUEST = stream for this CTRL_RTX_REQUEST
 // CTRL_RTX_REPLY = stream for this CTRL_RTX_REPLY
 // None in all the other cases
 
-// Srervice.rtx meaning according to ControlType
+// Service.rtx meaning according to ControlType
 // CTRL_RTX_REQUEST = id of the messing packet to retransmit
 // CTRL_RTX_REPLY = id of the retransmitted packet
 // None in all the other cases

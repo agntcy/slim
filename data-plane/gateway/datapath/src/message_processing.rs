@@ -3,6 +3,7 @@
 
 use std::collections::HashMap;
 use std::net::SocketAddr;
+use std::sync::mpsc::SendError;
 use std::{pin::Pin, sync::Arc};
 
 use agp_config::grpc::client::ClientConfig;
@@ -247,7 +248,9 @@ impl MessageProcessor {
         // clear header
         let err = clear_agp_header(&mut msg);
         if err.is_err() {
-            error!("an error occurred while cleaning the AGP header");
+            return Err(Box::new(SendError(
+                "an error occurred while cleaning the AGP header".to_string(),
+            )));
         }
 
         let connection = self.forwarder().get_connection(out_conn);
@@ -255,9 +258,14 @@ impl MessageProcessor {
             Some(conn) => match conn.channel() {
                 Channel::Server(s) => s.send(Ok(msg)).await?,
                 Channel::Client(s) => s.send(msg).await?,
-                _ => error!("error reading channel"),
+                _ => {
+                    return Err(Box::new(SendError("error reading channel".to_string())));
+                }
             },
-            None => error!("connection {:?} not found", out_conn),
+            None => {
+                let error_message = format!("connection {:?} not found", out_conn);
+                return Err(Box::new(SendError(error_message)));
+            }
         }
         Ok(())
     }
