@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.5](https://github.com/agntcy/agp/compare/agp-config-v0.1.4...agp-config-v0.1.5) - 2025-03-18
+
+### Added
+
+- propagate context to enable distributed tracing ([#90](https://github.com/agntcy/agp/pull/90))
+
 ## [0.1.4](https://github.com/agntcy/agp/compare/agp-config-v0.1.3...agp-config-v0.1.4) - 2025-03-11
 
 ### Other
