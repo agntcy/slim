@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
 pub mod errors;
-pub mod session;
 
 use agp_datapath::messages::utils::{
     create_agp_header, create_default_service_header, create_publication, create_subscription_from,
@@ -387,7 +386,8 @@ impl Service {
         fanout: u32,
         blob: Vec<u8>,
     ) -> Result<(), ServiceError> {
-        self.publish_to(agent_type, agent_id, fanout, blob, None).await
+        self.publish_to(agent_type, agent_id, fanout, blob, None)
+            .await
     }
 
     pub async fn publish_to(

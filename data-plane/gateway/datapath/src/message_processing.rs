@@ -363,17 +363,12 @@ impl MessageProcessor {
 
         // if the message already contains an output connection, use that one
         // without performing any match in the subscription table
-        match get_forward_to(&msg) {
-            Ok(forward_to) => {
-                if let Some(val) = forward_to {
-                    info!("forwarding message to connection {:?}", val);
-                    return self.send_msg(msg, val).await.map_err(|e| {
-                        error!("error sending a message {:?}", e);
-                        DataPathError::PublicationError(e.to_string())
-                    });
-                }
-            }
-            Err(_) => {}
+        if let Some(val) = get_forward_to(&msg).unwrap_or(None) {
+            info!("forwarding message to connection {:?}", val);
+            return self.send_msg(msg, val).await.map_err(|e| {
+                error!("error sending a message {:?}", e);
+                DataPathError::PublicationError(e.to_string())
+            });
         }
 
         if fanout == 1 {
@@ -399,7 +394,7 @@ impl MessageProcessor {
                     for out in out_set {
                         self.send_msg(msg.clone(), out).await.map_err(|e| {
                             error!("error sending a message {:?}", e);
-                            return DataPathError::PublicationError(e.to_string());
+                            DataPathError::PublicationError(e.to_string())
                         })?;
                     }
 
@@ -521,10 +516,7 @@ impl MessageProcessor {
                         return Err(DataPathError::UnsubscriptionError(e.to_string()));
                     }
                 }
-<<<<<<< HEAD
-=======
 
->>>>>>> main
                 if forward.is_some() {
                     debug!("forward unsubscription to {:?}", forward);
                     let out_conn = forward.unwrap();
