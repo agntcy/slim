@@ -2,10 +2,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use agp_datapath::messages::utils::{
-    create_publication, create_subscription_from, create_subscription_to_forward,
-    create_unsubscription_from, create_unsubscription_to_forward,
+    create_agp_header, create_default_service_header, create_publication, create_subscription_from,
+    create_subscription_to_forward, create_unsubscription_from, create_unsubscription_to_forward,
 };
-use agp_datapath::messages::{Agent, AgentClass};
+use agp_datapath::messages::{Agent, AgentType};
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -325,7 +325,7 @@ impl Service {
 
     pub async fn subscribe(
         &self,
-        name: &AgentClass,
+        agent_type: &AgentType,
         agent_id: Option<u64>,
         conn: u64,
     ) -> Result<(), ServiceError> {
@@ -334,7 +334,7 @@ impl Service {
             return Err(ServiceError::MissingAgentError);
         }
         let agent = self.agent.as_ref().unwrap();
-        let msg = create_subscription_to_forward(&agent.name, name, agent_id, conn);
+        let msg = create_subscription_to_forward(&agent.name, agent_type, agent_id, conn);
         match agent.tx_channel.send(Ok(msg)).await {
             Err(e) => {
                 error!("error sending the subscription {:?}", e);
@@ -346,7 +346,7 @@ impl Service {
 
     pub async fn unsubscribe(
         &self,
-        name: &AgentClass,
+        agent_type: &AgentType,
         agent_id: Option<u64>,
         conn: u64,
     ) -> Result<(), ServiceError> {
@@ -355,7 +355,7 @@ impl Service {
             return Err(ServiceError::MissingAgentError);
         }
         let agent = self.agent.as_ref().unwrap();
-        let msg = create_unsubscription_to_forward(&agent.name, name, agent_id, conn);
+        let msg = create_unsubscription_to_forward(&agent.name, agent_type, agent_id, conn);
         match agent.tx_channel.send(Ok(msg)).await {
             Err(e) => {
                 error!("error sending the unsubscription {:?}", e);
@@ -367,18 +367,18 @@ impl Service {
 
     pub async fn set_route(
         &self,
-        name: &AgentClass,
+        agent_type: &AgentType,
         agent_id: Option<u64>,
         conn: u64,
     ) -> Result<(), ServiceError> {
-        debug!("set route to {:?}/{:?}", name, agent_id);
+        debug!("set route to {:?}/{:?}", agent_type, agent_id);
 
         if self.agent.is_none() {
             error!("the local agent is not configured");
             return Err(ServiceError::MissingAgentError);
         }
         // send a message with subscription from
-        let msg = create_subscription_from(name, agent_id, conn);
+        let msg = create_subscription_from(agent_type, agent_id, conn);
         if let Err(e) = self.agent.as_ref().unwrap().tx_channel.send(Ok(msg)).await {
             error!("error on set route to {:?}", e);
             return Err(ServiceError::SetRouteError(e.to_string()));
@@ -388,7 +388,7 @@ impl Service {
 
     pub async fn remove_route(
         &self,
-        name: &AgentClass,
+        agent_type: &AgentType,
         agent_id: Option<u64>,
         conn: u64,
     ) -> Result<(), ServiceError> {
@@ -397,7 +397,7 @@ impl Service {
             return Err(ServiceError::MissingAgentError);
         }
         //  send a message with unsubscription from
-        let msg = create_unsubscription_from(name, agent_id, conn);
+        let msg = create_unsubscription_from(agent_type, agent_id, conn);
         if let Err(e) = self.agent.as_ref().unwrap().tx_channel.send(Ok(msg)).await {
             error!("error on remove route {:?}", e);
             return Err(ServiceError::RemoveRouteError(e.to_string()));
@@ -407,8 +407,8 @@ impl Service {
 
     pub async fn publish(
         &self,
-        name: &AgentClass,
-        id: Option<u64>,
+        agent_type: &AgentType,
+        agent_id: Option<u64>,
         fanout: u32,
         blob: Vec<u8>,
     ) -> Result<(), ServiceError> {
@@ -416,8 +416,17 @@ impl Service {
             error!("the local agent is not configured");
             return Err(ServiceError::MissingAgentError);
         }
+
         let agent = self.agent.as_ref().unwrap();
-        let msg = create_publication(&agent.name, name, id, HashMap::new(), fanout, "msg", blob);
+        let header = create_agp_header(&agent.name, agent_type, agent_id, None, None, None, None);
+        let msg = create_publication(
+            header,
+            create_default_service_header(),
+            HashMap::new(),
+            fanout,
+            "msg",
+            blob,
+        );
 
         debug!("sending publication {:?}", msg);
 
@@ -430,8 +439,8 @@ impl Service {
 
     pub async fn send_msg(
         &self,
-        name: &AgentClass,
-        id: Option<u64>,
+        agent_type: &AgentType,
+        agent_id: Option<u64>,
         fanout: u32,
         blob: Vec<u8>,
         out_conn: u64,
@@ -442,7 +451,15 @@ impl Service {
         }
 
         let agent = self.agent.as_ref().unwrap();
-        let msg = create_publication(&agent.name, name, id, HashMap::new(), fanout, "msg", blob);
+        let header = create_agp_header(&agent.name, agent_type, agent_id, None, None, None, None);
+        let msg = create_publication(
+            header,
+            create_default_service_header(),
+            HashMap::new(),
+            fanout,
+            "msg",
+            blob,
+        );
 
         if let Err(e) = self.message_processor.send_msg(msg, out_conn).await {
             error!(

@@ -10,9 +10,10 @@ mod tests {
 
     use agp_config::grpc::{client::ClientConfig, server::ServerConfig};
     use agp_datapath::message_processing::MessageProcessor;
-    use agp_datapath::messages::encoder::{encode_agent_class, encode_agent_from_string};
+    use agp_datapath::messages::encoder::{encode_agent, encode_agent_type};
     use agp_datapath::messages::utils::{
-        create_subscription, create_subscription_from, create_subscription_to_forward,
+        create_agp_header, create_subscription, create_subscription_from,
+        create_subscription_to_forward,
     };
     use agp_datapath::pubsub::proto::pubsub::v1::{
         pub_sub_service_server::PubSubServiceServer, Message,
@@ -63,7 +64,7 @@ mod tests {
 
         // send messages from the client
         for n in 0..5 {
-            let msg = make_message("org", "namespace", "class");
+            let msg = make_message("org", "namespace", "type");
             let res = msg_processor.send_msg(msg, conn_index);
             match res.await {
                 Ok(_) => {
@@ -84,7 +85,7 @@ mod tests {
 
         // send messages from server
         for n in 0..5 {
-            let msg = make_message("org", "namespace", "class");
+            let msg = make_message("org", "namespace", "type");
             // let's assume that the connection index is 0
             let res = msg_processor.send_msg(msg, 0).await;
             match res {
@@ -109,7 +110,7 @@ mod tests {
         let (tx, mut rx) = msg_processor.register_local_connection();
 
         // send messages from tx and verify that they are received by rx
-        let msg = make_message("org", "namespace", "class");
+        let msg = make_message("org", "namespace", "type");
         tx.send(Ok(msg)).await.unwrap();
 
         // wait for messages to be received by the server
@@ -121,7 +122,7 @@ mod tests {
         assert!(logs_contain(&expected_msg));
 
         // let's now send a message to the connection 2 in the connection table
-        let msg = make_message("message-for-us", "namespace-for-us", "class-for-us");
+        let msg = make_message("message-for-us", "namespace-for-us", "type-for-us");
 
         // clone to keep a copy
         msg_processor.send_msg(msg.clone(), 2).await.unwrap();
@@ -139,45 +140,45 @@ mod tests {
         assert_eq!(received_msg.unwrap(), msg);
 
         // try to send a subscription_from message
-        let sub_form = make_sub_from_command("org", "ns", "class", 100);
+        let sub_form = make_sub_from_command("org", "ns", "type", 100);
         tx.send(Ok(sub_form)).await.unwrap();
 
         tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
 
-        let expected_msg = "received subscription_from command, register subscription out=100";
+        let expected_msg = "received recv_from command, update state on connection 100";
         assert!(logs_contain(&expected_msg));
 
         // try to send a forward_to message
-        let fwd_to = make_fwd_to_command("org", "ns", "class", 100);
+        let fwd_to = make_fwd_to_command("org", "ns", "type", 100);
         tx.send(Ok(fwd_to)).await.unwrap();
 
         tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
-        let expected_msg = "received forward_to command, register subscription and forward out=100";
+        let expected_msg =
+            "received forward_to command, update state and forward to connection 100";
         assert!(logs_contain(&expected_msg));
 
         let expected_msg = "forward subscription";
         assert!(logs_contain(&expected_msg));
     }
 
-    fn make_message(org: &str, ns: &str, class: &str) -> Message {
-        let source = encode_agent_from_string(org, ns, class, 0);
-        let name = encode_agent_class(org, ns, class);
+    fn make_message(org: &str, ns: &str, agent_type: &str) -> Message {
+        let source = encode_agent(org, ns, agent_type, 0);
+        let name = encode_agent_type(org, ns, agent_type);
+        let header = create_agp_header(&source, &name, Some(1), None, None, None, None);
         create_subscription(
-            &source,
-            &name,
-            Some(1),
+            header,
             HashMap::from([(String::from("test"), String::from("test"))]),
         )
     }
 
-    fn make_sub_from_command(org: &str, ns: &str, class: &str, from_conn: u64) -> Message {
-        let name = encode_agent_class(org, ns, class);
+    fn make_sub_from_command(org: &str, ns: &str, agent_type: &str, from_conn: u64) -> Message {
+        let name = encode_agent_type(org, ns, agent_type);
         create_subscription_from(&name, None, from_conn)
     }
 
-    fn make_fwd_to_command(org: &str, ns: &str, class: &str, to_conn: u64) -> Message {
-        let source = encode_agent_from_string(org, ns, class, 0);
-        let name = encode_agent_class(org, ns, class);
+    fn make_fwd_to_command(org: &str, ns: &str, agent_type: &str, to_conn: u64) -> Message {
+        let source = encode_agent(org, ns, agent_type, 0);
+        let name = encode_agent_type(org, ns, agent_type);
         create_subscription_to_forward(&source, &name, None, to_conn)
     }
 }

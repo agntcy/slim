@@ -1,6 +1,6 @@
 use std::str::SplitWhitespace;
 
-use agp_datapath::messages::Agent;
+use agp_datapath::messages::{Agent, AgentType};
 use thiserror::Error;
 
 #[derive(Error, Debug, PartialEq)]
@@ -54,10 +54,11 @@ pub fn parse_sub(mut iter: SplitWhitespace<'_>) -> Result<ParsedMessage, Parsing
         },
     }
 
+    let mut a_type = AgentType::default();
     let mut sub = Agent::default();
     match iter.next().unwrap().parse::<u64>() {
         Ok(x) => {
-            sub.agent_class.organization = x;
+            a_type = a_type.with_organization(x);
         }
         Err(e) => {
             return Err(ParsingError::ParsingError(e.to_string()));
@@ -66,7 +67,7 @@ pub fn parse_sub(mut iter: SplitWhitespace<'_>) -> Result<ParsedMessage, Parsing
 
     match iter.next().unwrap().parse::<u64>() {
         Ok(x) => {
-            sub.agent_class.namespace = x;
+            a_type = a_type.with_namespace(x);
         }
         Err(e) => {
             return Err(ParsingError::ParsingError(e.to_string()));
@@ -75,7 +76,7 @@ pub fn parse_sub(mut iter: SplitWhitespace<'_>) -> Result<ParsedMessage, Parsing
 
     match iter.next().unwrap().parse::<u64>() {
         Ok(x) => {
-            sub.agent_class.agent_class = x;
+            a_type = a_type.with_agent_type(x);
         }
         Err(e) => {
             return Err(ParsingError::ParsingError(e.to_string()));
@@ -84,7 +85,8 @@ pub fn parse_sub(mut iter: SplitWhitespace<'_>) -> Result<ParsedMessage, Parsing
 
     match iter.next().unwrap().parse::<u64>() {
         Ok(x) => {
-            sub.agent_id = x;
+            sub = sub.with_agent_id(x);
+            sub = sub.with_agent_type(a_type);
         }
         Err(e) => {
             return Err(ParsingError::ParsingError(e.to_string()));
@@ -118,9 +120,11 @@ pub fn parse_pub(mut iter: SplitWhitespace<'_>) -> Result<ParsedMessage, Parsing
     }
 
     // get the publication name
+    let mut a_type = AgentType::default();
+    let mut pub_name = Agent::default();
     match iter.next().unwrap().parse::<u64>() {
         Ok(x) => {
-            publication.name.agent_class.organization = x;
+            a_type = a_type.with_organization(x);
         }
         Err(e) => {
             return Err(ParsingError::ParsingError(e.to_string()));
@@ -129,7 +133,7 @@ pub fn parse_pub(mut iter: SplitWhitespace<'_>) -> Result<ParsedMessage, Parsing
 
     match iter.next().unwrap().parse::<u64>() {
         Ok(x) => {
-            publication.name.agent_class.namespace = x;
+            a_type = a_type.with_namespace(x);
         }
         Err(e) => {
             return Err(ParsingError::ParsingError(e.to_string()));
@@ -138,7 +142,7 @@ pub fn parse_pub(mut iter: SplitWhitespace<'_>) -> Result<ParsedMessage, Parsing
 
     match iter.next().unwrap().parse::<u64>() {
         Ok(x) => {
-            publication.name.agent_class.agent_class = x;
+            a_type = a_type.with_agent_type(x);
         }
         Err(e) => {
             return Err(ParsingError::ParsingError(e.to_string()));
@@ -147,7 +151,8 @@ pub fn parse_pub(mut iter: SplitWhitespace<'_>) -> Result<ParsedMessage, Parsing
 
     match iter.next().unwrap().parse::<u64>() {
         Ok(x) => {
-            publication.name.agent_id = x;
+            pub_name = pub_name.with_agent_id(x);
+            pub_name = pub_name.with_agent_type(a_type);
         }
         Err(e) => {
             return Err(ParsingError::ParsingError(e.to_string()));
@@ -180,6 +185,7 @@ pub fn parse_pub(mut iter: SplitWhitespace<'_>) -> Result<ParsedMessage, Parsing
         ));
     }
 
+    publication.name = pub_name;
     Ok(publication)
 }
 

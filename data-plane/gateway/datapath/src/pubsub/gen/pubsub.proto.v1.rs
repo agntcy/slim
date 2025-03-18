@@ -2,48 +2,64 @@
 #[derive(Clone, Copy, PartialEq, ::prost::Message)]
 pub struct Subscribe {
     #[prost(message, optional, tag = "1")]
-    pub source: ::core::option::Option<AgentId>,
-    #[prost(message, optional, tag = "2")]
-    pub name: ::core::option::Option<AgentId>,
+    pub header: ::core::option::Option<AgpHeader>,
 }
 #[derive(Clone, Copy, PartialEq, ::prost::Message)]
 pub struct Unsubscribe {
     #[prost(message, optional, tag = "1")]
-    pub source: ::core::option::Option<AgentId>,
-    #[prost(message, optional, tag = "2")]
-    pub name: ::core::option::Option<AgentId>,
+    pub header: ::core::option::Option<AgpHeader>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct Publish {
     #[prost(message, optional, tag = "1")]
-    pub source: ::core::option::Option<AgentId>,
+    pub header: ::core::option::Option<AgpHeader>,
     #[prost(message, optional, tag = "2")]
-    pub name: ::core::option::Option<AgentId>,
+    pub control: ::core::option::Option<ServiceHeader>,
     #[prost(uint32, tag = "3")]
     pub fanout: u32,
     #[prost(message, optional, tag = "4")]
     pub msg: ::core::option::Option<Content>,
 }
+/// recvFrom = connection form where the sub/unsub is supposed to be received
+/// forwardTo = connection where to forward the message
+/// incomingConn = connection from where the packet was received
+/// error = if true the publication contains an error notification
 #[derive(Clone, Copy, PartialEq, ::prost::Message)]
-pub struct AgentGroup {
+pub struct AgpHeader {
+    #[prost(message, optional, tag = "1")]
+    pub source: ::core::option::Option<Agent>,
+    #[prost(message, optional, tag = "2")]
+    pub destination: ::core::option::Option<Agent>,
+    #[prost(uint64, optional, tag = "3")]
+    pub recv_from: ::core::option::Option<u64>,
+    #[prost(uint64, optional, tag = "4")]
+    pub forward_to: ::core::option::Option<u64>,
+    #[prost(uint64, optional, tag = "5")]
+    pub incoming_conn: ::core::option::Option<u64>,
+    #[prost(bool, optional, tag = "6")]
+    pub error: ::core::option::Option<bool>,
+}
+#[derive(Clone, Copy, PartialEq, ::prost::Message)]
+pub struct Agent {
     #[prost(uint64, tag = "1")]
     pub organization: u64,
     #[prost(uint64, tag = "2")]
     pub namespace: u64,
+    #[prost(uint64, tag = "3")]
+    pub agent_type: u64,
+    #[prost(uint64, optional, tag = "4")]
+    pub agent_id: ::core::option::Option<u64>,
 }
 #[derive(Clone, Copy, PartialEq, ::prost::Message)]
-pub struct AgentClass {
-    #[prost(message, optional, tag = "1")]
-    pub group: ::core::option::Option<AgentGroup>,
-    #[prost(uint64, tag = "2")]
-    pub class: u64,
-}
-#[derive(Clone, Copy, PartialEq, ::prost::Message)]
-pub struct AgentId {
-    #[prost(message, optional, tag = "1")]
-    pub class: ::core::option::Option<AgentClass>,
-    #[prost(uint64, optional, tag = "2")]
-    pub id: ::core::option::Option<u64>,
+pub struct ServiceHeader {
+    #[prost(enumeration = "ServiceHeaderType", tag = "1")]
+    pub header_type: i32,
+    #[prost(uint32, tag = "2")]
+    pub id: u32,
+    #[prost(uint32, optional, tag = "3")]
+    pub stream: ::core::option::Option<u32>,
+    #[prost(uint32, optional, tag = "4")]
+    pub rtx: ::core::option::Option<u32>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct Content {
@@ -72,6 +88,47 @@ pub mod message {
         Unsubscribe(super::Unsubscribe),
         #[prost(message, tag = "3")]
         Publish(super::Publish),
+    }
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+#[repr(i32)]
+pub enum ServiceHeaderType {
+    CtrlUnspecified = 0,
+    CtrlFnf = 1,
+    CtrlRequest = 2,
+    CtrlReply = 3,
+    CtrlStream = 4,
+    CtrlRtxRequest = 5,
+    CtrlRtxReply = 6,
+}
+impl ServiceHeaderType {
+    /// String value of the enum field names used in the ProtoBuf definition.
+    ///
+    /// The values are not transformed in any way and thus are considered stable
+    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+    pub fn as_str_name(&self) -> &'static str {
+        match self {
+            Self::CtrlUnspecified => "CTRL_UNSPECIFIED",
+            Self::CtrlFnf => "CTRL_FNF",
+            Self::CtrlRequest => "CTRL_REQUEST",
+            Self::CtrlReply => "CTRL_REPLY",
+            Self::CtrlStream => "CTRL_STREAM",
+            Self::CtrlRtxRequest => "CTRL_RTX_REQUEST",
+            Self::CtrlRtxReply => "CTRL_RTX_REPLY",
+        }
+    }
+    /// Creates an enum from field names used in the ProtoBuf definition.
+    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+        match value {
+            "CTRL_UNSPECIFIED" => Some(Self::CtrlUnspecified),
+            "CTRL_FNF" => Some(Self::CtrlFnf),
+            "CTRL_REQUEST" => Some(Self::CtrlRequest),
+            "CTRL_REPLY" => Some(Self::CtrlReply),
+            "CTRL_STREAM" => Some(Self::CtrlStream),
+            "CTRL_RTX_REQUEST" => Some(Self::CtrlRtxRequest),
+            "CTRL_RTX_REPLY" => Some(Self::CtrlRtxReply),
+            _ => None,
+        }
     }
 }
 /// Generated client implementations.

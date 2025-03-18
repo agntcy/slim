@@ -3,7 +3,10 @@
 
 use std::sync::Arc;
 
-use agp_datapath::messages::utils::MetadataType;
+use agp_datapath::messages::utils::create_agent_from_type;
+use agp_datapath::messages::utils::get_error;
+use agp_datapath::messages::utils::get_payload;
+use agp_datapath::messages::utils::get_source;
 use pyo3::exceptions::PyException;
 use pyo3::prelude::*;
 use pyo3_stub_gen::define_stub_info_gatherer;
@@ -22,10 +25,10 @@ use agp_config::grpc::{
     server::AuthenticationConfig as ServerAuthenticationConfig, server::ServerConfig,
 };
 use agp_config::tls::{client::TlsClientConfig, server::TlsServerConfig};
-use agp_datapath::messages::encoder::{encode_agent_class, encode_agent_from_string, AgentClass};
+use agp_datapath::messages::encoder::{encode_agent, encode_agent_type, AgentType};
 use agp_datapath::messages::utils::get_incoming_connection;
 use agp_datapath::pubsub::proto::pubsub::v1::Message;
-use agp_datapath::pubsub::ProtoAgentId;
+use agp_datapath::pubsub::ProtoAgent;
 use agp_service::{Service, ServiceError};
 
 static TRACING_GUARD: OnceCell<agp_tracing::OtelGuard> = OnceCell::const_new();
@@ -280,7 +283,7 @@ impl PyAgentClass {
 struct PyAgentSource {
     org: u64,
     ns: u64,
-    class: u64,
+    t: u64,
     id: u64,
     connection: u64,
 }
@@ -289,11 +292,11 @@ struct PyAgentSource {
 #[pymethods]
 impl PyAgentSource {
     #[new]
-    pub fn new(org: u64, ns: u64, class: u64, id: u64, connection: u64) -> Self {
+    pub fn new(org: u64, ns: u64, t: u64, id: u64, connection: u64) -> Self {
         PyAgentSource {
             org,
             ns,
-            class,
+            t,
             id,
             connection,
         }
@@ -301,21 +304,16 @@ impl PyAgentSource {
 }
 
 impl PyAgentSource {
-    fn from_proto_agent_id(agent_id: ProtoAgentId, connection: u64) -> Self {
-        let (org, ns, class, id) = match (agent_id.class, agent_id.id) {
-            (Some(class), Some(id)) => (
-                class.group.unwrap().organization,
-                class.group.unwrap().namespace,
-                class.class,
-                id,
-            ),
-            _ => (0, 0, 0, 0),
+    fn from_proto_agent_id(agent_id: ProtoAgent, connection: u64) -> Self {
+        let id = match agent_id.agent_id {
+            Some(id) => id,
+            None => 0,
         };
 
         PyAgentSource {
-            org,
-            ns,
-            class,
+            org: agent_id.organization,
+            ns: agent_id.namespace,
+            t: agent_id.agent_type,
             id,
             connection,
         }
@@ -372,7 +370,7 @@ async fn create_agent_impl(
     };
 
     // create local agent
-    let agent_name = encode_agent_from_string(&agent_org, &agent_ns, &agent_class, id);
+    let agent_name = encode_agent(&agent_org, &agent_ns, &agent_class, id);
     let mut service = svc.sdk.write().await;
     let rx = service.service.create_agent(agent_name);
     service.rx = Some(rx);
@@ -482,7 +480,7 @@ async fn subscribe_impl(
     name: PyAgentClass,
     id: Option<u64>,
 ) -> Result<(), ServiceError> {
-    let class = encode_agent_class(&name.organization, &name.namespace, &name.class);
+    let class = encode_agent_type(&name.organization, &name.namespace, &name.class);
     let service = svc.sdk.read().await;
     service.service.subscribe(&class, id, conn).await
 }
@@ -511,7 +509,7 @@ async fn unsubscribe_impl(
     name: PyAgentClass,
     id: Option<u64>,
 ) -> Result<(), ServiceError> {
-    let class = encode_agent_class(&name.organization, &name.namespace, &name.class);
+    let class = encode_agent_type(&name.organization, &name.namespace, &name.class);
     let service = svc.sdk.read().await;
     service.service.unsubscribe(&class, id, conn).await
 }
@@ -540,7 +538,7 @@ async fn set_route_impl(
     name: PyAgentClass,
     id: Option<u64>,
 ) -> Result<(), ServiceError> {
-    let class = encode_agent_class(&name.organization, &name.namespace, &name.class);
+    let class = encode_agent_type(&name.organization, &name.namespace, &name.class);
     let service = svc.sdk.read().await;
     service.service.set_route(&class, id, conn).await
 }
@@ -569,7 +567,7 @@ async fn remove_route_impl(
     name: PyAgentClass,
     id: Option<u64>,
 ) -> Result<(), ServiceError> {
-    let class = encode_agent_class(&name.organization, &name.namespace, &name.class);
+    let class = encode_agent_type(&name.organization, &name.namespace, &name.class);
     let service = svc.sdk.read().await;
     service.service.remove_route(&class, id, conn).await
 }
@@ -602,16 +600,12 @@ async fn publish_impl(
 ) -> Result<(), ServiceError> {
     let (agent_class, id, conn_out) = match (name, agent) {
         (Some(name), None) => (
-            encode_agent_class(&name.organization, &name.namespace, &name.class),
+            encode_agent_type(&name.organization, &name.namespace, &name.class),
             id,
             None,
         ),
         (None, Some(agent)) => (
-            AgentClass {
-                organization: agent.org,
-                namespace: agent.ns,
-                agent_class: agent.class,
-            },
+            AgentType::new(agent.org, agent.ns, agent.t),
             Some(agent.id),
             Some(agent.connection),
         ),
@@ -669,27 +663,52 @@ async fn receive_impl(svc: PyService) -> Result<(PyAgentSource, Vec<u8>), Servic
         .map_err(|e| ServiceError::ReceiveError(e.to_string()))?;
 
     // Check if the message is an error
-    let error = msg.metadata.get(&MetadataType::Error.to_string());
-    if error.is_some() {
-        return Err(ServiceError::ReceiveError(error.unwrap().to_string()));
+    match get_error(&msg) {
+        Ok(err) => {
+            if err.is_some() && err.unwrap() {
+                return Err(ServiceError::ReceiveError(
+                    "an error occurred processing a message".to_string(),
+                ));
+            }
+        }
+        Err(_) => {
+            return Err(ServiceError::ReceiveError(
+                "received malforemd packet, no header available".to_string(),
+            ));
+        }
     }
 
     // Extract incoming connection
-    let conn_in = get_incoming_connection(&msg).ok_or(ServiceError::ReceiveError(
-        "no incoming connection".to_string(),
-    ))?;
+    let conn_in = match get_incoming_connection(&msg) {
+        Ok(conn) => match conn {
+            Some(conn_in) => conn_in,
+            None => {
+                return Err(ServiceError::ReceiveError(
+                    "no incoming connection".to_string(),
+                ))
+            }
+        },
+        Err(_) => {
+            return Err(ServiceError::ReceiveError(
+                "malformed packet, unable to get incoming connection".to_string(),
+            ))
+        }
+    };
 
     // extract agent and payload
     let (source, content) = match msg.message_type {
-        Some(msg_type) => match msg_type {
-            agp_datapath::pubsub::ProtoPublishType(publish) => {
-                match (publish.source, publish.msg) {
-                    (Some(source), Some(content)) => (source, content.blob),
-                    _ => Err(ServiceError::ReceiveError(
-                        "no content received".to_string(),
-                    ))?,
+        Some(ref msg_type) => match msg_type {
+            agp_datapath::pubsub::ProtoPublishType(publish) => match get_source(&msg) {
+                Ok((agent_type, agent_id)) => (
+                    create_agent_from_type(&agent_type, agent_id),
+                    get_payload(&publish),
+                ),
+                Err(_) => {
+                    return Err(ServiceError::ReceiveError(
+                        "malformed packet, no source available".to_string(),
+                    ))
                 }
-            }
+            },
             _ => Err(ServiceError::ReceiveError(
                 "receive publish message type".to_string(),
             ))?,
@@ -699,9 +718,9 @@ async fn receive_impl(svc: PyService) -> Result<(PyAgentSource, Vec<u8>), Servic
         ))?,
     };
 
-    let source = PyAgentSource::from_proto_agent_id(source, conn_in);
+    let source = PyAgentSource::from_proto_agent_id(source.unwrap(), conn_in);
 
-    Ok((source, content))
+    Ok((source, content.to_vec()))
 }
 
 #[gen_stub_pyfunction]
