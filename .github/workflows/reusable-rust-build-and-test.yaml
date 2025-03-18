@@ -66,13 +66,18 @@ jobs:
 
       - name: Setup Rust
         uses: ./.github/actions/setup-rust
+
+      - name: Setup Rust Caching
+        if: inputs.cache == 'true'
+        uses: Swatinem/rust-cache@v2
         with:
-          cache-workspaces: ${{ inputs.working-directory }}
+          workspaces: ${{ inputs.working-directory }}
           cache-directories: |
             .tools
+          cache-on-failure: false
+          shared-key: ${{runner.os}}-rust-${{hashFiles('**/Cargo.lock')}}
 
       - name: Install dependencies
-        if: steps.setup-rust.outputs.cache-hit != 'true'
         run: |
           task data-plane:fetch
 
@@ -91,10 +96,16 @@ jobs:
 
       - name: Setup Rust
         uses: ./.github/actions/setup-rust
+
+      - name: Setup Rust Caching
+        if: inputs.cache == 'true'
+        uses: Swatinem/rust-cache@v2
         with:
-          cache-workspaces: ${{ inputs.working-directory }}
+          workspaces: ${{ inputs.working-directory }}
           cache-directories: |
             .tools
+          cache-on-failure: false
+          shared-key: ${{runner.os}}-rust-${{hashFiles('**/Cargo.lock')}}
 
       - name: lint
         run: |
@@ -118,10 +129,16 @@ jobs:
 
       - name: Setup Rust
         uses: ./.github/actions/setup-rust
+
+      - name: Setup Rust Caching
+        if: inputs.cache == 'true'
+        uses: Swatinem/rust-cache@v2
         with:
-          cache-workspaces: ${{ inputs.working-directory }}
+          workspaces: ${{ inputs.working-directory }}
           cache-directories: |
             .tools
+          cache-on-failure: false
+          shared-key: ${{runner.os}}-rust-${{hashFiles('**/Cargo.lock')}}
 
       - name: Run `vuln`
         run: |
@@ -144,10 +161,16 @@ jobs:
 
       - name: Setup Rust
         uses: ./.github/actions/setup-rust
+
+      - name: Setup Rust Caching
+        if: inputs.cache == 'true'
+        uses: Swatinem/rust-cache@v2
         with:
-          cache-workspaces: ${{ inputs.working-directory }}
+          workspaces: ${{ inputs.working-directory }}
           cache-directories: |
             .tools
+          cache-on-failure: false
+          shared-key: ${{runner.os}}-rust-${{hashFiles('**/Cargo.lock')}}
 
       - name: Run `coverage`
         run: |
@@ -170,10 +193,16 @@ jobs:
 
       - name: Setup Rust
         uses: ./.github/actions/setup-rust
+
+      - name: Setup Rust Caching
+        if: inputs.cache == 'true'
+        uses: Swatinem/rust-cache@v2
         with:
-          cache-workspaces: ${{ inputs.working-directory }}
+          workspaces: ${{ inputs.working-directory }}
           cache-directories: |
             .tools
+          cache-on-failure: false
+          shared-key: ${{runner.os}}-rust-${{hashFiles('**/Cargo.lock')}}
 
       - name: Setup Python
         uses: ./.github/actions/setup-python
@@ -233,10 +262,16 @@ jobs:
 
       - name: Setup Rust
         uses: ./.github/actions/setup-rust
+
+      - name: Setup Rust Caching
+        if: inputs.cache == 'true'
+        uses: Swatinem/rust-cache@v2
         with:
-          cache-workspaces: ${{ inputs.working-directory }}
+          workspaces: ${{ inputs.working-directory }}
           cache-directories: |
             .tools
+          cache-on-failure: false
+          shared-key: ${{runner.os}}-rust-${{hashFiles('**/Cargo.lock')}}
 
       - name: Build
         run: |
