@@ -42,7 +42,9 @@ impl<T> Pool<T> {
     fn resize_pool_vector(pool: &mut Vec<T>, new_capacity: usize) {
         pool.reserve(new_capacity);
 
-        // Update length
+        // Update length. This is unsafe because we are not initializing this memory.
+        // However, we know at each time what elements are initialized and what are not
+        // thanks to the bitmap. This allows to build a safe API on top of this.
         unsafe {
             pool.set_len(new_capacity);
         }
@@ -90,6 +92,7 @@ impl<T> Pool<T> {
     pub fn insert(&mut self, element: T) -> usize {
         // If length is equal to capacity, resize the pool
         if self.len == self.capacity {
+            // Resize the pool
             Self::resize_pool_vector(&mut self.pool, 2 * self.capacity);
             self.bitmap.grow(self.capacity, false);
             self.capacity *= 2;
@@ -105,6 +108,7 @@ impl<T> Pool<T> {
             debug_assert!(self.bitmap.capacity() >= self.capacity);
         }
 
+        // Find the first unset bit and insert the element
         if let Some(index) = self.bitmap.iter().position(|x| !x) {
             self.insert_at(element, index)
                 .then(|| ())
@@ -127,28 +131,32 @@ impl<T> Pool<T> {
         }
 
         // put T at position index
-        // self.pool[index] = element;
-        // we can safely unwrap because self.capacity < index
-        if !self.bitmap.get(index).unwrap() {
-            // if the bit is not set increase len
-            self.len += 1;
-        } else {
-            // if the bit is set we are replacing an element
-            // so we do not need to increase len, but we still need to
-            // call the in-place destructor first
-            unsafe {
+        unsafe {
+            // we can safely unwrap because self.capacity < index
+            if !self.bitmap.get(index).unwrap_unchecked() {
+                // if the bit is not set, increase len
+                self.len += 1;
+            } else {
+                // If the bit is set we are replacing an element
+                // so we do not need to increase len, but we still need to
+                // call the in-place destructor first. This is safe because
+                // we are calling the destructor on an initialized element.
                 std::ptr::drop_in_place(&mut self.pool[index]);
             }
         }
 
+        // Mark the bit as set
+        self.bitmap.set(index, true);
+
         // Do not call destructor when we drop the pool
         std::mem::forget(std::mem::replace(&mut self.pool[index], element));
 
-        self.bitmap.set(index, true);
-
+        // If the index is greater than the max_set, update max_set
         if index > self.max_set {
             self.max_set = index;
         }
+
+        // Return success
         true
     }
 
@@ -187,7 +195,8 @@ impl<T> Drop for Pool<T> {
         for i in 0..self.capacity {
             if self.bitmap.get(i).unwrap_or(false) {
                 // Call the in-place destructor for active elements.
-                // Elements not mapped in the bitmap are not initialized.
+                // Elements not mapped in the bitmap are not initialized, so
+                // we do not need to call the destructor for them.
                 unsafe {
                     std::ptr::drop_in_place(&mut self.pool[i]);
                 }
