@@ -68,7 +68,6 @@ jobs:
         uses: ./.github/actions/setup-rust
 
       - name: Setup Rust Caching
-        if: inputs.cache == 'true'
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: ${{ inputs.working-directory }}
@@ -98,7 +97,6 @@ jobs:
         uses: ./.github/actions/setup-rust
 
       - name: Setup Rust Caching
-        if: inputs.cache == 'true'
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: ${{ inputs.working-directory }}
@@ -131,7 +129,6 @@ jobs:
         uses: ./.github/actions/setup-rust
 
       - name: Setup Rust Caching
-        if: inputs.cache == 'true'
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: ${{ inputs.working-directory }}
@@ -163,7 +160,6 @@ jobs:
         uses: ./.github/actions/setup-rust
 
       - name: Setup Rust Caching
-        if: inputs.cache == 'true'
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: ${{ inputs.working-directory }}
@@ -195,7 +191,6 @@ jobs:
         uses: ./.github/actions/setup-rust
 
       - name: Setup Rust Caching
-        if: inputs.cache == 'true'
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: ${{ inputs.working-directory }}
@@ -264,7 +259,6 @@ jobs:
         uses: ./.github/actions/setup-rust
 
       - name: Setup Rust Caching
-        if: inputs.cache == 'true'
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: ${{ inputs.working-directory }}
