@@ -15,19 +15,18 @@ use tokio_stream::{Stream, StreamExt};
 use tokio_util::sync::CancellationToken;
 use tonic::codegen::{Body, StdError};
 use tonic::{Request, Response, Status};
-use tracing::{debug, error, info, warn};
+use tracing::{debug, error, info};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 
 use crate::connection::{Channel, Connection, Type as ConnectionType};
 use crate::errors::DataPathError;
 use crate::forwarder::Forwarder;
-use crate::messages::encoder::DEFAULT_AGENT_ID;
 use crate::messages::utils::{
-    clear_agp_header, create_agp_header, create_default_service_header, create_publication,
-    create_subscription, get_fanout, get_forward_to, get_name, get_recv_from, get_source,
-    message_type_to_str, set_incoming_connection,
+    clear_agp_header, create_agp_header, create_error_publication, create_subscription, get_fanout,
+    get_forward_to, get_name, get_recv_from, get_source, message_type_to_str,
+    set_incoming_connection,
 };
-use crate::messages::{Agent, AgentType};
+use crate::messages::AgentType;
 use crate::pubsub::proto::pubsub::v1::message::MessageType::Publish as PublishType;
 use crate::pubsub::proto::pubsub::v1::message::MessageType::Subscribe as SubscribeType;
 use crate::pubsub::proto::pubsub::v1::message::MessageType::Unsubscribe as UnsubscribeType;
@@ -659,6 +658,24 @@ impl MessageProcessor {
         }
     }
 
+    async fn send_error_to_local_app(&self, conn_index: u64, err: DataPathError) {
+        let connection = self.forwarder().get_connection(conn_index);
+        match connection {
+            Some(conn) => {
+                debug!("try to notify the error to the local application");
+                let err_msg = create_error_publication(err.to_string());
+                if let Channel::Server(tx) = conn.channel() {
+                    if tx.send(Ok(err_msg)).await.is_err() {
+                        debug!("unable to notify the error to the local app");
+                    }
+                }
+            }
+            None => {
+                error!("connection {:?} not found", conn_index);
+            }
+        }
+    }
+
     fn process_stream(
         &self,
         mut stream: impl Stream<Item = Result<Message, Status>> + Unpin + Send + 'static,
@@ -680,57 +697,11 @@ impl MessageProcessor {
                             Some(result) => {
                                 match result {
                                     Ok(msg) => {
-                                        // save message source to use in case of error
-                                        let mut msg_source = None;
-                                        let mut msg_name = None;
-                                        if is_local {
-                                            match get_source(&msg) {
-                                                Ok((source_type, source_id)) => {
-                                                    msg_source = Some(Agent::new(source_type, source_id.unwrap_or(DEFAULT_AGENT_ID)));
-                                                }
-                                                Err(e) =>  {
-                                                    warn!("error reading the message source {:?}", e);
-                                                }
-                                            };
-                                            match get_name(&msg) {
-                                                Ok((name_type, name_id)) => {
-                                                    msg_name = Some(Agent::new(name_type, name_id.unwrap_or(DEFAULT_AGENT_ID)));
-                                                }
-                                                Err(e) =>  {
-                                                    warn!("error reading the message name {:?}", e);
-                                                }
-                                            };
-                                        }
                                         if let Err(e) = self_clone.handle_new_message(conn_index, is_local, msg).await {
                                             error!("error processing incoming messages {:?}", e);
                                             // If the message is coming from a local app, notify it
                                             if is_local {
-                                                let connection = self_clone.forwarder().get_connection(conn_index);
-                                                match connection {
-                                                    Some(conn) => {
-                                                        debug!("try to notify local application");
-                                                        if msg_source.is_none() || msg_name.is_none() {
-                                                            debug!("unable to notify the error to the remote end");
-                                                        } else {
-                                                            let name = msg_name.unwrap();
-                                                            let header = create_agp_header(&msg_source.unwrap(), name.agent_type(), name.agent_id_option(), None, None, None, Some(true));
-                                                            let err_message = create_publication(
-                                                                header,
-                                                                create_default_service_header(),
-                                                                HashMap::new(), 1, "",
-                                                                Vec::new());
-
-                                                            if let Channel::Server(tx) = conn.channel() {
-                                                                if tx.send(Ok(err_message)).await.is_err() {
-                                                                    debug!("unable to notify the error to the local app");
-                                                                }
-                                                            }
-                                                        }
-                                                    }
-                                                    None => {
-                                                        error!("connection {:?} not found", conn_index);
-                                                    }
-                                                }
+                                                self_clone.send_error_to_local_app(conn_index, e).await;
                                             }
                                         }
                                     }
