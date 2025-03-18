@@ -85,7 +85,8 @@ impl<T> Pool<T> {
         // If length is equal to capacity, resize the pool
         if self.len == self.capacity {
             // Resize the pool
-            self.pool.resize_with(2 * self.capacity, || MaybeUninit::uninit());
+            self.pool
+                .resize_with(2 * self.capacity, || MaybeUninit::uninit());
             self.bitmap.grow(self.capacity, false);
             self.capacity *= 2;
 
