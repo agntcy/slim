@@ -24,7 +24,7 @@ message Publish {
 }
 
 // recvFrom = connection from where the sub/unsub is supposed to be received
-// forwardTo = connection where to forward the sub/unsub
+// forwardTo = connection where to forward the message
 // incomingConn = connection from where the packet was received
 // error = if true the publication contains an error notification
 message AGPHeader {
