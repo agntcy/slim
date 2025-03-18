@@ -48,6 +48,15 @@ pub fn create_agent_from_type(agent_type: &AgentType, agent_id: Option<u64>) -> 
     })
 }
 
+pub fn message_type_to_str(msg: &ProtoMessage) -> &str {
+    match &msg.message_type {
+        Some(ProtoPublishType(_)) => "publish",
+        Some(ProtoSubscribeType(_)) => "subscribe",
+        Some(ProtoUnsubscribeType(_)) => "unsubscribe",
+        None => "unknown",
+    }
+}
+
 // utils functions for agp header
 pub fn create_agp_header(
     source: &Agent,

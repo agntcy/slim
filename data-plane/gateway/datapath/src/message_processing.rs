@@ -3,7 +3,6 @@
 
 use std::collections::HashMap;
 use std::net::SocketAddr;
-use std::sync::mpsc::SendError;
 use std::{pin::Pin, sync::Arc};
 
 use agp_config::grpc::client::ClientConfig;
@@ -26,10 +25,9 @@ use crate::messages::encoder::DEFAULT_AGENT_ID;
 use crate::messages::utils::{
     clear_agp_header, create_agp_header, create_default_service_header, create_publication,
     create_subscription, get_fanout, get_forward_to, get_name, get_recv_from, get_source,
-    set_incoming_connection,
+    message_type_to_str, set_incoming_connection,
 };
 use crate::messages::{Agent, AgentType};
-use crate::pubsub::proto::pubsub::v1::message::MessageType;
 use crate::pubsub::proto::pubsub::v1::message::MessageType::Publish as PublishType;
 use crate::pubsub::proto::pubsub::v1::message::MessageType::Subscribe as SubscribeType;
 use crate::pubsub::proto::pubsub::v1::message::MessageType::Unsubscribe as UnsubscribeType;
@@ -77,15 +75,6 @@ fn inject_current_context(msg: &mut Message) {
     opentelemetry::global::get_text_map_propagator(|propagator| {
         propagator.inject_context(&cx, &mut injector)
     });
-}
-
-fn message_type_to_str(message_type: &Option<MessageType>) -> &'static str {
-    match message_type {
-        Some(PublishType(_)) => "publish",
-        Some(SubscribeType(_)) => "subscribe",
-        Some(UnsubscribeType(_)) => "unsubscribe",
-        None => "unknown",
-    }
 }
 
 #[derive(Debug)]
@@ -303,12 +292,7 @@ impl MessageProcessor {
         out_conn: u64,
     ) -> Result<(), Box<dyn std::error::Error>> {
         // clear header
-        let err = clear_agp_header(&mut msg);
-        if err.is_err() {
-            return Err(Box::new(SendError(
-                "an error occurred while cleaning the AGP header".to_string(),
-            )));
-        }
+        clear_agp_header(&mut msg)?;
 
         let connection = self.forwarder().get_connection(out_conn);
         match connection {
@@ -319,12 +303,7 @@ impl MessageProcessor {
                     "send_message",
                     instance_id = %INSTANCE_ID.as_str(),
                     connection_id = out_conn,
-                    message_type = match &msg.message_type {
-                        Some(PublishType(_)) => "publish",
-                        Some(SubscribeType(_)) => "subscribe",
-                        Some(UnsubscribeType(_)) => "unsubscribe",
-                        None => "unknown"
-                    },
+                    message_type = message_type_to_str(&msg),
                     telemetry = true
                 );
 
@@ -358,44 +337,36 @@ impl MessageProcessor {
             agent_type, agent_id, fanout,
         );
 
-        if fanout == 1 {
-            match self
-                .forwarder()
-                .on_publish_msg_match_one(agent_type, agent_id, in_connection)
-            {
-                Ok(out) => match self.send_msg(msg, out).await {
-                    Ok(_) => Ok(()),
-                    Err(e) => {
-                        error!("error sending a message {:?}", e);
-                        Err(DataPathError::PublicationError(e.to_string()))
-                    }
-                },
-                Err(e) => {
-                    error!("error matching a message {:?}", e);
-                    Err(DataPathError::PublicationError(e.to_string()))
-                }
-            }
-        } else {
-            match self
-                .forwarder()
-                .on_publish_msg_match_all(agent_type, agent_id, in_connection)
-            {
-                Ok(out_set) => {
-                    for out in out_set {
-                        match self.send_msg(msg.clone(), out).await {
-                            Ok(_) => {}
-                            Err(e) => {
-                                error!("error sending a message {:?}", e);
-                                return Err(DataPathError::PublicationError(e.to_string()));
-                            }
+        match self
+            .forwarder()
+            .on_publish_msg_match(agent_type, agent_id, in_connection, fanout)
+        {
+            Ok(out_vec) => {
+                // in case out_vec.len = 1, do not clone the message.
+                // in the other cases clone only len - 1 times.
+                let mut i = 0;
+                while i < out_vec.len() - 1 {
+                    match self.send_msg(msg.clone(), out_vec[i]).await {
+                        Ok(_) => {}
+                        Err(e) => {
+                            error!("error sending a message {:?}", e);
+                            return Err(DataPathError::PublicationError(e.to_string()));
                         }
                     }
-                    Ok(())
+                    i += 1;
                 }
-                Err(e) => {
-                    error!("error sending a message {:?}", e);
-                    Err(DataPathError::PublicationError(e.to_string()))
+                match self.send_msg(msg, out_vec[i]).await {
+                    Ok(_) => {}
+                    Err(e) => {
+                        error!("error sending a message {:?}", e);
+                        return Err(DataPathError::PublicationError(e.to_string()));
+                    }
                 }
+                Ok(())
+            }
+            Err(e) => {
+                error!("error sending a message {:?}", e);
+                Err(DataPathError::PublicationError(e.to_string()))
             }
         }
     }
@@ -471,88 +442,18 @@ impl MessageProcessor {
         Ok((in_connection, None))
     }
 
-    async fn process_unsubscription(
-        &self,
-        msg: Message,
-        in_connection: u64,
-    ) -> Result<(), DataPathError> {
-        debug!(
-            "received unsubscription from connection {}: {:?}",
-            in_connection, msg
-        );
-
-        match get_name(&msg) {
-            Ok((agent_type, agent_id)) => {
-                let (conn, forward) = match self.process_agp_header(&msg, in_connection) {
-                    Ok((c, f)) => (c, f),
-                    Err(e) => return Err(e),
-                };
-
-                let connection = self.forwarder().get_connection(conn);
-                if connection.is_none() {
-                    // this should never happen
-                    error!("incoming connection does not exists");
-                    return Err(DataPathError::SubscriptionError(
-                        "incoming connection does not exists".to_string(),
-                    ));
-                }
-
-                match self.forwarder().on_unsubscription_msg(
-                    agent_type.clone(),
-                    agent_id,
-                    conn,
-                    connection.unwrap().is_local_connection(),
-                ) {
-                    Ok(_) => {}
-                    Err(e) => {
-                        return Err(DataPathError::UnsubscriptionError(e.to_string()));
-                    }
-                }
-
-                if forward.is_some() {
-                    debug!("forward unsubscription to {:?}", forward);
-                    let out_conn = forward.unwrap();
-
-                    let (source_type, source_id) = match get_source(&msg) {
-                        Ok((c, f)) => (c, f),
-                        Err(e) => {
-                            error!("error processing unsubscription source {:?}", e);
-                            return Err(DataPathError::UnsubscriptionError(e.to_string()));
-                        }
-                    };
-                    match self.send_msg(msg, out_conn).await {
-                        Ok(_) => {
-                            self.forwarder().on_forwarded_unsubscription(
-                                source_type,
-                                source_id,
-                                agent_type,
-                                agent_id,
-                                out_conn,
-                            );
-                        }
-                        Err(e) => {
-                            error!("error sending a message {:?}", e);
-                            return Err(DataPathError::UnsubscriptionError(e.to_string()));
-                        }
-                    };
-                }
-                Ok(())
-            }
-            Err(e) => {
-                error!("error processing unsubscription message {:?}", e);
-                Err(DataPathError::UnsubscriptionError(e.to_string()))
-            }
-        }
-    }
-
+    // Use a single function to process subscription and unsubscription packets.
+    // The flag add = true is used to add a new subscription while add = false
+    // is used to remove existing state
     async fn process_subscription(
         &self,
         msg: Message,
         in_connection: u64,
+        add: bool,
     ) -> Result<(), DataPathError> {
         debug!(
-            "received subscription from connection {}: {:?}",
-            in_connection, msg
+            "received subscription (add = {}) from connection {}: {:?}",
+            add, in_connection, msg
         );
 
         match get_name(&msg) {
@@ -576,6 +477,7 @@ impl MessageProcessor {
                     agent_id,
                     conn,
                     connection.unwrap().is_local_connection(),
+                    add,
                 ) {
                     Ok(_) => {}
                     Err(e) => {
@@ -584,13 +486,16 @@ impl MessageProcessor {
                 }
 
                 if forward.is_some() {
-                    debug!("forward subscription to {:?}", forward);
+                    debug!("forward subscription (add = {}) to {:?}", add, forward);
                     let out_conn = forward.unwrap();
 
                     let (source_type, source_id) = match get_source(&msg) {
                         Ok((c, f)) => (c, f),
                         Err(e) => {
-                            error!("error processing subscription source {:?}", e);
+                            error!(
+                                "error processing subscription (add = {}) source: {:?}",
+                                add, e
+                            );
                             return Err(DataPathError::UnsubscriptionError(e.to_string()));
                         }
                     };
@@ -602,10 +507,11 @@ impl MessageProcessor {
                                 agent_type,
                                 agent_id,
                                 out_conn,
+                                add,
                             );
                         }
                         Err(e) => {
-                            error!("error sending a message {:?}", e);
+                            error!("error sending a message: {:?}", e);
                             return Err(DataPathError::UnsubscriptionError(e.to_string()));
                         }
                     };
@@ -613,7 +519,10 @@ impl MessageProcessor {
                 Ok(())
             }
             Err(e) => {
-                error!("error processing subscription message {:?}", e);
+                error!(
+                    "error processing subscription message (add = {}): {:?}",
+                    add, e
+                );
                 Err(DataPathError::SubscriptionError(e.to_string()))
             }
         }
@@ -657,13 +566,8 @@ impl MessageProcessor {
                         monotonic_counter.num_messages_by_type = 1,
                         message_type = "subscribe"
                     );
-                    match self.process_subscription(msg, in_connection).await {
-                        Err(e) => {
-                            error! {"error processing subscription {:?}", e}
-                            Err(e)
-                        }
-                        Ok(_) => Ok(()),
-                    }
+                    self.process_subscription(msg, in_connection, true).await?;
+                    Ok(())
                 }
                 UnsubscribeType(u) => {
                     debug!(
@@ -675,13 +579,8 @@ impl MessageProcessor {
                         monotonic_counter.num_messages_by_type = 1,
                         message_type = "unsubscribe"
                     );
-                    match self.process_unsubscription(msg, in_connection).await {
-                        Err(e) => {
-                            error! {"error processing unsubscription {:?}", e}
-                            Err(e)
-                        }
-                        Ok(_) => Ok(()),
-                    }
+                    self.process_subscription(msg, in_connection, false).await?;
+                    Ok(())
                 }
                 PublishType(p) => {
                     debug!("Received publish from client {}: {:?}", in_connection, p);
@@ -690,13 +589,8 @@ impl MessageProcessor {
                         monotonic_counter.num_messages_by_type = 1,
                         method = "publish"
                     );
-                    match self.process_publish(msg, in_connection).await {
-                        Err(e) => {
-                            error! {"error processing publication {:?}", e}
-                            Err(e)
-                        }
-                        Ok(_) => Ok(()),
-                    }
+                    self.process_publish(msg, in_connection).await?;
+                    Ok(())
                 }
             },
         }
@@ -715,22 +609,20 @@ impl MessageProcessor {
         );
 
         if is_local {
-            // handling the message from the local gw
-            // [local gateway] -[handle_new_message]-> [destination]
+            // handling the message from the local application
             let span = tracing::span!(
                 tracing::Level::DEBUG,
                 "handle_local_message",
                 instance_id = %INSTANCE_ID.as_str(),
                 connection_id = conn_index,
-                message_type = message_type_to_str(&msg.message_type),
+                message_type = message_type_to_str(&msg),
                 telemetry = true
             );
             let _guard = span.enter();
 
             inject_current_context(&mut msg);
         } else {
-            // handling the message on the remote gateway
-            // [source] -[handle_new_message]-> [remote gateway]
+            // handling the message from a remote gateway
             let parent_context = extract_parent_context(&msg);
 
             let span = tracing::span!(
@@ -738,7 +630,7 @@ impl MessageProcessor {
                 "handle_remote_message",
                 instance_id = %INSTANCE_ID.as_str(),
                 connection_id = conn_index,
-                message_type = message_type_to_str(&msg.message_type),
+                message_type = message_type_to_str(&msg),
                 telemetry = true
             );
 
