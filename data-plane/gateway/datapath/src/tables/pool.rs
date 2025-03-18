@@ -1,15 +1,14 @@
 // SPDX-FileCopyrightText: Copyright (c) 2025 Cisco and/or its affiliates.
 // SPDX-License-Identifier: Apache-2.0
 
+use std::mem::replace;
+
 use bit_vec::BitVec;
 
 use tracing::trace;
 
 #[derive(Debug, Clone)]
-pub struct Pool<T>
-where
-    T: Default + Clone,
-{
+pub struct Pool<T> {
     /// bitmap indicating if the pool contains an element
     bitmap: BitVec,
 
@@ -26,18 +25,28 @@ where
     max_set: usize,
 }
 
-impl<T> Pool<T>
-where
-    T: Default + Clone,
-{
+impl<T> Pool<T> {
     /// Create a new pool with a given capacity
     pub fn with_capacity(capacity: usize) -> Self {
+        let mut pool = Vec::with_capacity(capacity);
+        Self::resize_pool_vector(&mut pool, capacity);
+
         Pool {
             bitmap: BitVec::from_elem(capacity, false),
-            pool: vec![T::default(); capacity],
+            pool,
             len: 0,
             capacity,
             max_set: 0,
+        }
+    }
+
+    /// Resize the pool vector to a new capacity
+    fn resize_pool_vector(pool: &mut Vec<T>, new_capacity: usize) {
+        pool.reserve(new_capacity);
+
+        // Update length
+        unsafe {
+            pool.set_len(new_capacity);
         }
     }
 
@@ -83,7 +92,7 @@ where
     pub fn insert(&mut self, element: T) -> Option<usize> {
         // If length is equal to capacity, resize the pool
         if self.len == self.capacity {
-            self.pool.resize(2 * self.capacity, T::default());
+            Self::resize_pool_vector(&mut self.pool, 2 * self.capacity);
             self.bitmap.grow(self.capacity, false);
             self.capacity *= 2;
 
@@ -123,12 +132,24 @@ where
             return false;
         }
         // put T at position index
-        self.pool[index] = element;
+        // self.pool[index] = element;
         // we can safely unwrap because self.capacity < index
         if !self.bitmap.get(index).unwrap() {
             // if the bit is not set increase len
             self.len += 1;
+        } else {
+            // if the bit is set we are replacing an element
+            // so we do not need to increase len, but we still need to
+            // call the in-place destructor first
+            unsafe {
+                std::ptr::drop_in_place(&mut self.pool[index]);
+            }
         }
+
+        // Do not call destructor when we drop the pool
+        let old = std::mem::replace(&mut self.pool[index], element);
+        std::mem::forget(old);
+
         self.bitmap.set(index, true);
 
         if index > self.max_set {
@@ -141,7 +162,11 @@ where
     pub fn remove(&mut self, index: usize) -> bool {
         if self.bitmap.get(index).unwrap_or(false) {
             self.bitmap.set(index, false);
-            self.pool[index] = T::default();
+
+            // Call the in-place destructor
+            unsafe {
+                std::ptr::drop_in_place(&mut self.pool[index]);
+            }
 
             self.len -= 1;
 

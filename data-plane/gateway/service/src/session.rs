@@ -74,5 +74,5 @@ impl Common {
 }
 
 pub(crate) struct SessionMap {
-    pool: HashMap<AgentType, Box<dyn Session>>,
+    pool: Pool<Option<Box<dyn Session>>>,
 }
