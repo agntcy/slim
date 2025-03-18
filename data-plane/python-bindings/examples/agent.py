@@ -26,9 +26,9 @@ def format_message(message1, message2):
     return f"{color.BOLD}{color.CYAN}{message1.capitalize()}{color.END}\t {message2}"
 
 
-async def run_client(local_id, remote_id, message, address, iterations):
+async def run_client(local_id, remote_id, message, address, iterations, enable_opentelemetry: bool):
     # init tracing
-    agp_bindings.init_tracing()
+    agp_bindings.init_tracing(log_level="debug", enable_opentelemetry=enable_opentelemetry)
 
     # Split the IDs into their respective components
     try:
@@ -83,7 +83,7 @@ async def run_client(local_id, remote_id, message, address, iterations):
             except Exception as e:
                 print("received error: ", e)
 
-            time.sleep(1)
+            time.sleep(5)
     else:
         # Wait for a message and reply in a loop
         while True:
@@ -121,10 +121,18 @@ def main():
         default="http://127.0.0.1:46357",
     )
     parser.add_argument("-i", "--iterations", type=int, help="Number of messages to send, one per second.")
+    parser.add_argument(
+        "-t",
+        "--enable-opentelemetry",
+        action="store_true",
+        default=False,
+        help="Enable OpenTelemetry tracing.",
+    )
+
     args = parser.parse_args()
 
     # Run the client with the specified local ID, remote ID, and optional message
-    asyncio.run(run_client(args.local, args.remote, args.message, args.gateway, args.iterations))
+    asyncio.run(run_client(args.local, args.remote, args.message, args.gateway, args.iterations, args.enable_opentelemetry))
 
 
 if __name__ == "__main__":

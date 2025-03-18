@@ -2,9 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 pub mod errors;
-
-mod session;
-mod fire_and_forget;
+pub mod session;
 
 use agp_datapath::messages::utils::{
     create_agp_header, create_default_service_header, create_publication, create_subscription_from,
@@ -149,7 +147,6 @@ impl Service {
     }
 
     /// Run the service
-    #[tracing::instrument(fields(telemetry = true))]
     pub async fn run(&self) -> Result<(), ServiceError> {
         // Check that at least one client or server is configured
         if self.config.server().is_none() && self.config.clients.is_empty() {
@@ -390,7 +387,8 @@ impl Service {
         fanout: u32,
         blob: Vec<u8>,
     ) -> Result<(), ServiceError> {
-        self.publish_to(agent_type, agent_id, fanout, blob, None).await
+        self.publish_to(agent_type, agent_id, fanout, blob, None)
+            .await
     }
 
     pub async fn publish_to(
@@ -416,6 +414,7 @@ impl Service {
             None,
             None,
         );
+
         let msg = create_publication(
             header,
             create_default_service_header(),
@@ -443,7 +442,6 @@ impl Component for Service {
         &self.id
     }
 
-    #[tracing::instrument(fields(telemetry = true))]
     async fn start(&self) -> Result<(), ComponentError> {
         info!("starting service");
         self.run()

@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.1.11](https://github.com/agntcy/agp/compare/agp-bindings-v0.1.10...agp-bindings-v0.1.11) (2025-03-18)
+
+
+### Features
+
+* propagate context to enable distributed tracing ([#90](https://github.com/agntcy/agp/issues/90)) ([4266d91](https://github.com/agntcy/agp/commit/4266d91854fa235dc6b07b108aa6cfb09a55e433))
+
+## [0.1.10](https://github.com/agntcy/agp/compare/agp-bindings-v0.1.9...agp-bindings-v0.1.10) (2025-03-14)
+
+
+### Bug Fixes
+
+* **python-bindings:** wheels for python 3.13 in windows ([#84](https://github.com/agntcy/agp/issues/84)) ([4418866](https://github.com/agntcy/agp/commit/4418866f354397a1f7ee8fcbdbdb6ca4eb725e96))
+
 ## [0.1.9](https://github.com/agntcy/agp/compare/agp-bindings-v0.1.8...agp-bindings-v0.1.9) (2025-03-12)
 
 

@@ -724,12 +724,16 @@ fn receive(py: Python, svc: PyService) -> PyResult<Bound<PyAny>> {
     })
 }
 
-async fn init_tracing_impl(log_level: String) {
+async fn init_tracing_impl(log_level: String, enable_opentelemetry: bool) {
     let _ = TRACING_GUARD
         .get_or_init(|| async {
-            let otel_guard = agp_tracing::TracingConfiguration::default()
-                .with_log_level(log_level)
-                .setup_tracing_subscriber();
+            let mut config = agp_tracing::TracingConfiguration::default().with_log_level(log_level);
+
+            if enable_opentelemetry {
+                config = config.clone().enable_opentelemetry();
+            }
+
+            let otel_guard = config.setup_tracing_subscriber();
 
             otel_guard
         })
@@ -737,10 +741,10 @@ async fn init_tracing_impl(log_level: String) {
 }
 
 #[pyfunction]
-#[pyo3(signature = (log_level="info".to_string(),))]
-fn init_tracing(py: Python, log_level: String) {
+#[pyo3(signature = (log_level="info".to_string(), enable_opentelemetry=false,))]
+fn init_tracing(py: Python, log_level: String, enable_opentelemetry: bool) {
     let _ = pyo3_async_runtimes::tokio::future_into_py(py, async move {
-        Ok(init_tracing_impl(log_level).await)
+        Ok(init_tracing_impl(log_level, enable_opentelemetry).await)
     });
 }
 
