@@ -1,17 +1,19 @@
 // SPDX-FileCopyrightText: Copyright (c) 2025 Cisco and/or its affiliates.
 // SPDX-License-Identifier: Apache-2.0
 
+use std::mem::MaybeUninit;
+
 use bit_vec::BitVec;
 
 use tracing::trace;
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct Pool<T> {
     /// bitmap indicating if the pool contains an element
     bitmap: BitVec,
 
     /// the pool of elements
-    pool: Vec<T>,
+    pool: Vec<MaybeUninit<T>>,
 
     /// the number of elements in the pool
     len: usize,
@@ -39,14 +41,12 @@ impl<T> Pool<T> {
     }
 
     /// Resize the pool vector to a new capacity
-    fn resize_pool_vector(pool: &mut Vec<T>, new_capacity: usize) {
+    fn resize_pool_vector(pool: &mut Vec<MaybeUninit<T>>, new_capacity: usize) {
         pool.reserve(new_capacity);
 
-        // Update length. This is unsafe because we are not initializing this memory.
-        // However, we know at each time what elements are initialized and what are not
-        // thanks to the bitmap. This allows to build a safe API on top of this.
-        unsafe {
-            pool.set_len(new_capacity);
+        // Fill vector with MaybeUninit elements
+        for _ in pool.len()..new_capacity {
+            pool.push(MaybeUninit::<T>::uninit());
         }
     }
 
@@ -73,7 +73,8 @@ impl<T> Pool<T> {
     /// Get an element from the pool
     pub fn get(&self, index: usize) -> Option<&T> {
         if self.bitmap.get(index).unwrap_or(false) {
-            Some(&self.pool[index])
+            // Safety: The element is initialized
+            Some(unsafe { self.pool[index].assume_init_ref() })
         } else {
             None
         }
@@ -82,7 +83,8 @@ impl<T> Pool<T> {
     /// Get a mutable reference to an element in the pool
     pub fn get_mut(&mut self, index: usize) -> Option<&mut T> {
         if self.bitmap.get(index).unwrap_or(false) {
-            Some(&mut self.pool[index])
+            // Safety: The element is initialized
+            Some(unsafe { self.pool[index].assume_init_mut() })
         } else {
             None
         }
@@ -111,7 +113,7 @@ impl<T> Pool<T> {
         // Find the first unset bit and insert the element
         if let Some(index) = self.bitmap.iter().position(|x| !x) {
             self.insert_at(element, index)
-                .then(|| ())
+                .then_some(true)
                 .expect("insert_at failed");
 
             index
@@ -136,20 +138,20 @@ impl<T> Pool<T> {
             if !self.bitmap.get(index).unwrap_unchecked() {
                 // if the bit is not set, increase len
                 self.len += 1;
-            } else {
+            }else {
                 // If the bit is set we are replacing an element
                 // so we do not need to increase len, but we still need to
                 // call the in-place destructor first. This is safe because
                 // we are calling the destructor on an initialized element.
-                std::ptr::drop_in_place(&mut self.pool[index]);
+                self.pool[index].assume_init_drop();
             }
         }
 
         // Mark the bit as set
         self.bitmap.set(index, true);
 
-        // Do not call destructor when we drop the pool
-        std::mem::forget(std::mem::replace(&mut self.pool[index], element));
+        // Store the new element in the pool
+        self.pool[index] = MaybeUninit::new(element);
 
         // If the index is greater than the max_set, update max_set
         if index > self.max_set {
@@ -165,11 +167,15 @@ impl<T> Pool<T> {
         if self.bitmap.get(index).unwrap_or(false) {
             self.bitmap.set(index, false);
 
-            // Call the in-place destructor
+            // Drop existing element. This is safe, as we know the element is initialized.
             unsafe {
-                std::ptr::drop_in_place(&mut self.pool[index]);
-            }
+                self.pool[index].assume_init_drop();
+            };
 
+            // Store an uninit value in the pool
+            self.pool[index] = MaybeUninit::uninit();
+
+            // Decrease the length of the pool
             self.len -= 1;
 
             if index == self.max_set && index != 0 {
@@ -198,15 +204,9 @@ impl<T> Drop for Pool<T> {
                 // Elements not mapped in the bitmap are not initialized, so
                 // we do not need to call the destructor for them.
                 unsafe {
-                    std::ptr::drop_in_place(&mut self.pool[i]);
+                    self.pool[i].assume_init_drop();
                 }
             }
-        }
-
-        // Set the length of the pool to 0. This will prevent the destructors
-        // from being called again when the pool is dropped.
-        unsafe {
-            self.pool.set_len(0);
         }
     }
 }
