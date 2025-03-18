@@ -29,7 +29,7 @@ impl<T> Pool<T> {
     /// Create a new pool with a given capacity
     pub fn with_capacity(capacity: usize) -> Self {
         let mut pool = Vec::with_capacity(capacity);
-        Self::resize_pool_vector(&mut pool, capacity);
+        pool.resize_with(capacity, || MaybeUninit::uninit());
 
         Pool {
             bitmap: BitVec::from_elem(capacity, false),
@@ -37,16 +37,6 @@ impl<T> Pool<T> {
             len: 0,
             capacity,
             max_set: 0,
-        }
-    }
-
-    /// Resize the pool vector to a new capacity
-    fn resize_pool_vector(pool: &mut Vec<MaybeUninit<T>>, new_capacity: usize) {
-        pool.reserve(new_capacity);
-
-        // Fill vector with MaybeUninit elements
-        for _ in pool.len()..new_capacity {
-            pool.push(MaybeUninit::<T>::uninit());
         }
     }
 
@@ -95,7 +85,7 @@ impl<T> Pool<T> {
         // If length is equal to capacity, resize the pool
         if self.len == self.capacity {
             // Resize the pool
-            Self::resize_pool_vector(&mut self.pool, 2 * self.capacity);
+            self.pool.resize_with(2 * self.capacity, || MaybeUninit::uninit());
             self.bitmap.grow(self.capacity, false);
             self.capacity *= 2;
 
@@ -138,7 +128,7 @@ impl<T> Pool<T> {
             if !self.bitmap.get(index).unwrap_unchecked() {
                 // if the bit is not set, increase len
                 self.len += 1;
-            }else {
+            } else {
                 // If the bit is set we are replacing an element
                 // so we do not need to increase len, but we still need to
                 // call the in-place destructor first. This is safe because
