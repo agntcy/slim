@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.12](https://github.com/agntcy/agp/compare/agp-bindings-v0.1.11...agp-bindings-v0.1.12) (2025-03-18)
+
+
+### Features
+
+* new message format ([#88](https://github.com/agntcy/agp/issues/88)) ([aefaaa0](https://github.com/agntcy/agp/commit/aefaaa09e89c0a2e36f4e3f67cdafc1bfaa169d6))
+
 ## [0.1.11](https://github.com/agntcy/agp/compare/agp-bindings-v0.1.10...agp-bindings-v0.1.11) (2025-03-18)
 
 
