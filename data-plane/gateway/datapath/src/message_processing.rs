@@ -302,14 +302,6 @@ impl MessageProcessor {
         mut msg: Message,
         out_conn: u64,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        // clear header
-        let err = clear_agp_header(&mut msg);
-        if err.is_err() {
-            return Err(Box::new(SendError(
-                "an error occurred while cleaning the AGP header".to_string(),
-            )));
-        }
-
         let connection = self.forwarder().get_connection(out_conn);
         match connection {
             Some(conn) => {
