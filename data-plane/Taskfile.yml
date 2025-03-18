@@ -186,7 +186,7 @@ tasks:
   data-plane:telemetry:start:
     desc: "Start telemetry stack"
     cmds:
-      - docker-compose -f ./config/telemetry/docker-compose.yml up
+      - docker compose -f ./config/telemetry/docker-compose.yml up
 
   data-plane:bindings:python:
     desc: "Generate the Python bindings"

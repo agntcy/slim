@@ -526,7 +526,10 @@ impl MessageProcessor {
                 }
                 if forward {
                     debug!("forward unsubscription to {:?}", out_conn);
-                    msg.metadata.clear();
+
+                    // NOTE(msardara): this is temporary and will be removed once
+                    // the new packet formast is in place
+                    msg.metadata.remove(&MetadataType::ForwardTo.to_string());
                     let source_class = match process_name(&unsubmsg.source) {
                         Ok(s) => s,
                         Err(e) => {
@@ -627,7 +630,10 @@ impl MessageProcessor {
 
                 if forward {
                     debug!("forward subscription to {:?}", out_conn);
-                    msg.metadata.clear();
+
+                    // NOTE(msardara): this is temporary and will be removed once
+                    // the new packet formast is in place
+                    msg.metadata.remove(&MetadataType::ForwardTo.to_string());
                     let source_class = match process_name(&submsg.source) {
                         Ok(s) => s,
                         Err(e) => {
