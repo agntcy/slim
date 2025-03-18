@@ -51,14 +51,8 @@ impl Connections {
         match self.index.get(&conn) {
             None => {
                 let conn_id = ConnId::new(conn);
-                match self.pool.insert(conn_id) {
-                    None => {
-                        error!("error adding a connection in the pool");
-                    }
-                    Some(pos) => {
-                        self.index.insert(conn, pos);
-                    }
-                }
+                let pos = self.pool.insert(conn_id);
+                self.index.insert(conn, pos);
             }
             Some(pos) => match self.pool.get_mut(*pos) {
                 None => {
