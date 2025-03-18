@@ -268,7 +268,6 @@ impl ClientConfig {
     /// If the configuration is invalid, it will return a ConfigError.
     /// The function will set the headers, tls settings, keepalive settings, rate limit settings
     /// timeout settings, buffer size settings, and origin settings.
-    #[tracing::instrument]
     pub fn to_channel(
         &self,
     ) -> Result<

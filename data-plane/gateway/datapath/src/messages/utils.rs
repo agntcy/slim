@@ -88,6 +88,8 @@ fn get_agp_header_as_mut(msg: &mut ProtoMessage) -> Option<&mut AgpHeader> {
     }
 }
 
+// this function cleans all the AGP header fields except
+// for incoming_conn which is set upon message reception
 pub fn clear_agp_header(msg: &mut ProtoMessage) -> Result<(), MessageError> {
     match get_agp_header_as_mut(msg) {
         Some(header) => {
@@ -364,4 +366,145 @@ pub fn get_fanout(msg: &ProtoPublish) -> u32 {
 
 pub fn get_payload(msg: &ProtoPublish) -> &[u8] {
     &msg.msg.as_ref().unwrap().blob
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::messages::encoder::{encode_agent, encode_agent_type};
+
+    use super::*;
+
+    #[test]
+    fn test_utils() {
+        // test subscription
+        let source = encode_agent("org", "ns", "type", 1);
+        let name = encode_agent_type("org", "ns", "type");
+        let header = create_agp_header(&source, &name, Some(2), None, None, None, None);
+        let sub = create_subscription(header, HashMap::new());
+
+        assert_eq!(header, get_agp_header(&sub));
+        assert_eq!(None, get_recv_from(&sub).unwrap());
+        assert_eq!(None, get_forward_to(&sub).unwrap());
+        assert_eq!(None, get_incoming_connection(&sub).unwrap());
+        let (got_source, got_source_id) = get_source(&sub).unwrap();
+        assert_eq!(*source.agent_type(), got_source);
+        assert_eq!(Some(1), got_source_id);
+        let (got_name, got_name_id) = get_name(&sub).unwrap();
+        assert_eq!(name, got_name);
+        assert_eq!(Some(2), got_name_id);
+
+        let header_from = create_agp_header(
+            &Agent::default(),
+            &name,
+            Some(2),
+            Some(50),
+            None,
+            None,
+            None,
+        );
+        let sub_from = create_subscription_from(&name, Some(2), 50);
+
+        assert_eq!(header_from, get_agp_header(&sub_from));
+        assert_eq!(Some(50), get_recv_from(&sub_from).unwrap());
+        assert_eq!(None, get_forward_to(&sub_from).unwrap());
+        assert_eq!(None, get_incoming_connection(&sub_from).unwrap());
+        let (got_source, got_source_id) = get_source(&sub_from).unwrap();
+        assert_eq!(*Agent::default().agent_type(), got_source);
+        assert_eq!(Agent::default().agent_id_option(), got_source_id);
+        let (got_name, got_name_id) = get_name(&sub_from).unwrap();
+        assert_eq!(name, got_name);
+        assert_eq!(Some(2), got_name_id);
+
+        let header_fwd = create_agp_header(&source, &name, None, None, Some(30), None, None);
+        let mut sub_fwd = create_subscription_to_forward(&source, &name, None, 30);
+
+        assert_eq!(header_fwd, get_agp_header(&sub_fwd));
+        assert_eq!(None, get_recv_from(&sub_fwd).unwrap());
+        assert_eq!(Some(30), get_forward_to(&sub_fwd).unwrap());
+        assert_eq!(None, get_incoming_connection(&sub_fwd).unwrap());
+        let (got_source, got_source_id) = get_source(&sub_fwd).unwrap();
+        assert_eq!(*source.agent_type(), got_source);
+        assert_eq!(Some(1), got_source_id);
+        let (got_name, got_name_id) = get_name(&sub_fwd).unwrap();
+        assert_eq!(name, got_name);
+        assert_eq!(None, got_name_id);
+        let ret = clear_agp_header(&mut sub_fwd);
+        assert_eq!(Ok(()), ret);
+        assert_eq!(
+            create_agp_header(&source, &name, None, None, None, None, None),
+            get_agp_header(&sub_fwd)
+        );
+
+        let unsub_from = create_unsubscription_from(&name, Some(2), 50);
+
+        assert_eq!(header_from, get_agp_header(&unsub_from));
+        assert_eq!(Some(50), get_recv_from(&unsub_from).unwrap());
+        assert_eq!(None, get_forward_to(&unsub_from).unwrap());
+        assert_eq!(None, get_incoming_connection(&sub_from).unwrap());
+        let (got_source, got_source_id) = get_source(&unsub_from).unwrap();
+        assert_eq!(*Agent::default().agent_type(), got_source);
+        assert_eq!(Agent::default().agent_id_option(), got_source_id);
+        let (got_name, got_name_id) = get_name(&unsub_from).unwrap();
+        assert_eq!(name, got_name);
+        assert_eq!(Some(2), got_name_id);
+
+        let mut unsub_fwd = create_unsubscription_to_forward(&source, &name, None, 30);
+
+        assert_eq!(header_fwd, get_agp_header(&unsub_fwd));
+        assert_eq!(None, get_recv_from(&unsub_fwd).unwrap());
+        assert_eq!(Some(30), get_forward_to(&unsub_fwd).unwrap());
+        assert_eq!(None, get_incoming_connection(&unsub_fwd).unwrap());
+        let (got_source, got_source_id) = get_source(&unsub_fwd).unwrap();
+        assert_eq!(*source.agent_type(), got_source);
+        assert_eq!(Some(1), got_source_id);
+        let (got_name, got_name_id) = get_name(&unsub_fwd).unwrap();
+        assert_eq!(name, got_name);
+        assert_eq!(None, got_name_id);
+        let ret = clear_agp_header(&mut unsub_fwd);
+        assert_eq!(Ok(()), ret);
+        assert_eq!(
+            create_agp_header(&source, &name, None, None, None, None, None),
+            get_agp_header(&unsub_fwd)
+        );
+
+        let mut p = create_publication(
+            header,
+            create_default_service_header(),
+            HashMap::new(),
+            10,
+            "str",
+            "this is the content of the message".into(),
+        );
+        assert_eq!(header, get_agp_header(&p));
+        assert_eq!(None, get_recv_from(&p).unwrap());
+        assert_eq!(None, get_forward_to(&p).unwrap());
+        assert_eq!(None, get_incoming_connection(&p).unwrap());
+        let (got_source, got_source_id) = get_source(&sub).unwrap();
+        assert_eq!(*source.agent_type(), got_source);
+        assert_eq!(Some(1), got_source_id);
+        let (got_name, got_name_id) = get_name(&sub).unwrap();
+        assert_eq!(name, got_name);
+        assert_eq!(Some(2), got_name_id);
+
+        let ret = set_incoming_connection(&mut p, Some(500));
+        assert_eq!(Ok(()), ret);
+        assert_eq!(get_incoming_connection(&p).unwrap(), Some(500));
+        let ret = clear_agp_header(&mut p);
+        assert_eq!(Ok(()), ret);
+        assert_eq!(
+            create_agp_header(&source, &name, Some(2), None, None, Some(500), None),
+            get_agp_header(&p)
+        );
+        let msg = match &p.message_type {
+            Some(ProtoPublishType(msg)) => msg,
+            // this should never happen
+            _ => panic!("wrong message type"),
+        };
+
+        assert_eq!(get_fanout(&msg), 10);
+        assert_eq!(
+            get_payload(&msg),
+            "this is the content of the message".as_bytes()
+        );
+    }
 }

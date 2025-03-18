@@ -3,9 +3,13 @@
 
 use std::collections::HashMap;
 use std::net::SocketAddr;
+use std::sync::mpsc::SendError;
 use std::{pin::Pin, sync::Arc};
 
 use agp_config::grpc::client::ClientConfig;
+use agp_tracing::utils::INSTANCE_ID;
+use opentelemetry::propagation::{Extractor, Injector};
+use opentelemetry::trace::TraceContextExt;
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
 use tokio_stream::{Stream, StreamExt};
@@ -13,6 +17,7 @@ use tokio_util::sync::CancellationToken;
 use tonic::codegen::{Body, StdError};
 use tonic::{Request, Response, Status};
 use tracing::{debug, error, info, warn};
+use tracing_opentelemetry::OpenTelemetrySpanExt;
 
 use crate::connection::{Channel, Connection, Type as ConnectionType};
 use crate::errors::DataPathError;
@@ -24,11 +29,64 @@ use crate::messages::utils::{
     set_incoming_connection,
 };
 use crate::messages::{Agent, AgentType};
+use crate::pubsub::proto::pubsub::v1::message::MessageType;
 use crate::pubsub::proto::pubsub::v1::message::MessageType::Publish as PublishType;
 use crate::pubsub::proto::pubsub::v1::message::MessageType::Subscribe as SubscribeType;
 use crate::pubsub::proto::pubsub::v1::message::MessageType::Unsubscribe as UnsubscribeType;
 use crate::pubsub::proto::pubsub::v1::pub_sub_service_client::PubSubServiceClient;
 use crate::pubsub::proto::pubsub::v1::{pub_sub_service_server::PubSubService, Message};
+
+// Implementation based on: https://docs.rs/opentelemetry-tonic/latest/src/opentelemetry_tonic/lib.rs.html#1-134
+struct MetadataExtractor<'a>(&'a std::collections::HashMap<String, String>);
+
+impl Extractor for MetadataExtractor<'_> {
+    fn get(&self, key: &str) -> Option<&str> {
+        self.0.get(key).map(|s| s.as_str())
+    }
+
+    fn keys(&self) -> Vec<&str> {
+        self.0.keys().map(|s| s.as_str()).collect()
+    }
+}
+
+struct MetadataInjector<'a>(&'a mut std::collections::HashMap<String, String>);
+
+impl Injector for MetadataInjector<'_> {
+    fn set(&mut self, key: &str, value: String) {
+        self.0.insert(key.to_string(), value);
+    }
+}
+
+// Helper function to extract the parent OpenTelemetry context from metadata
+fn extract_parent_context(msg: &Message) -> Option<opentelemetry::Context> {
+    let extractor = MetadataExtractor(&msg.metadata);
+    let parent_context =
+        opentelemetry::global::get_text_map_propagator(|propagator| propagator.extract(&extractor));
+
+    if parent_context.span().span_context().is_valid() {
+        Some(parent_context)
+    } else {
+        None
+    }
+}
+
+// Helper function to inject the current OpenTelemetry context into metadata
+fn inject_current_context(msg: &mut Message) {
+    let cx = tracing::Span::current().context();
+    let mut injector = MetadataInjector(&mut msg.metadata);
+    opentelemetry::global::get_text_map_propagator(|propagator| {
+        propagator.inject_context(&cx, &mut injector)
+    });
+}
+
+fn message_type_to_str(message_type: &Option<MessageType>) -> &'static str {
+    match message_type {
+        Some(PublishType(_)) => "publish",
+        Some(SubscribeType(_)) => "subscribe",
+        Some(UnsubscribeType(_)) => "unsubscribe",
+        None => "unknown",
+    }
+}
 
 #[derive(Debug)]
 struct MessageProcessorInternal {
@@ -244,11 +302,40 @@ impl MessageProcessor {
         mut msg: Message,
         out_conn: u64,
     ) -> Result<(), Box<dyn std::error::Error>> {
+        // clear header
+        let err = clear_agp_header(&mut msg);
+        if err.is_err() {
+            return Err(Box::new(SendError(
+                "an error occurred while cleaning the AGP header".to_string(),
+            )));
+        }
+
         let connection = self.forwarder().get_connection(out_conn);
         match connection {
             Some(conn) => {
                 // reset header fields
                 clear_agp_header(&mut msg)?;
+
+                let parent_context = extract_parent_context(&msg);
+                let span = tracing::span!(
+                tracing::Level::DEBUG,
+                    "send_message",
+                    instance_id = %INSTANCE_ID.as_str(),
+                    connection_id = out_conn,
+                    message_type = match &msg.message_type {
+                        Some(PublishType(_)) => "publish",
+                        Some(SubscribeType(_)) => "subscribe",
+                        Some(UnsubscribeType(_)) => "unsubscribe",
+                        None => "unknown"
+                    },
+                    telemetry = true
+                );
+
+                if let Some(ctx) = parent_context {
+                    span.set_parent(ctx);
+                }
+                let _guard = span.enter();
+                inject_current_context(&mut msg);
 
                 match conn.channel() {
                     Channel::Server(s) => s.send(Ok(msg)).await?,
@@ -326,11 +413,7 @@ impl MessageProcessor {
         }
     }
 
-    async fn process_publish(
-        &self,
-        mut msg: Message,
-        in_connection: u64,
-    ) -> Result<(), DataPathError> {
+    async fn process_publish(&self, msg: Message, in_connection: u64) -> Result<(), DataPathError> {
         let pubmsg = match &msg.message_type {
             Some(PublishType(p)) => p,
             // this should never happen
@@ -345,15 +428,6 @@ impl MessageProcessor {
                     "received publication from connection {}: {:?}",
                     in_connection, pubmsg
                 );
-
-                // add incoming connection to the metadata
-                match set_incoming_connection(&mut msg, Some(in_connection)) {
-                    Ok(_) => {}
-                    Err(e) => {
-                        error!("error processing publication message {:?}", e);
-                        return Err(DataPathError::PublicationError(e.to_string()));
-                    }
-                }
 
                 // if we get valid type also the name is valid so we can safely unwrap
                 return self
@@ -447,6 +521,10 @@ impl MessageProcessor {
                         return Err(DataPathError::UnsubscriptionError(e.to_string()));
                     }
                 }
+<<<<<<< HEAD
+=======
+
+>>>>>>> main
                 if forward.is_some() {
                     debug!("forward unsubscription to {:?}", forward);
                     let out_conn = forward.unwrap();
@@ -559,9 +637,18 @@ impl MessageProcessor {
 
     pub async fn process_message(
         &self,
-        msg: Message,
+        mut msg: Message,
         in_connection: u64,
     ) -> Result<(), DataPathError> {
+        // add incoming connection to the AGP header
+        match set_incoming_connection(&mut msg, Some(in_connection)) {
+            Ok(_) => {}
+            Err(e) => {
+                error!("error setting incoming connection {:?}", e);
+                return Err(DataPathError::ErrorSettingInConnection(e.to_string()));
+            }
+        }
+
         match &msg.message_type {
             None => {
                 error!(
@@ -631,12 +718,53 @@ impl MessageProcessor {
         }
     }
 
-    async fn handle_new_message(&self, conn_index: u64, msg: Message) -> Result<(), DataPathError> {
+    async fn handle_new_message(
+        &self,
+        conn_index: u64,
+        is_local: bool,
+        mut msg: Message,
+    ) -> Result<(), DataPathError> {
         debug!(%conn_index, "Received message from connection");
         info!(
             telemetry = true,
             monotonic_counter.num_processed_messages = 1
         );
+
+        if is_local {
+            // handling the message from the local gw
+            // [local gateway] -[handle_new_message]-> [destination]
+            let span = tracing::span!(
+                tracing::Level::DEBUG,
+                "handle_local_message",
+                instance_id = %INSTANCE_ID.as_str(),
+                connection_id = conn_index,
+                message_type = message_type_to_str(&msg.message_type),
+                telemetry = true
+            );
+            let _guard = span.enter();
+
+            inject_current_context(&mut msg);
+        } else {
+            // handling the message on the remote gateway
+            // [source] -[handle_new_message]-> [remote gateway]
+            let parent_context = extract_parent_context(&msg);
+
+            let span = tracing::span!(
+                tracing::Level::DEBUG,
+                "handle_remote_message",
+                instance_id = %INSTANCE_ID.as_str(),
+                connection_id = conn_index,
+                message_type = message_type_to_str(&msg.message_type),
+                telemetry = true
+            );
+
+            if let Some(ctx) = parent_context {
+                span.set_parent(ctx);
+            }
+            let _guard = span.enter();
+
+            inject_current_context(&mut msg);
+        }
 
         match self.process_message(msg, conn_index).await {
             Ok(_) => Ok(()),
@@ -655,7 +783,6 @@ impl MessageProcessor {
         }
     }
 
-    #[tracing::instrument(fields(telemetry = true), skip(stream))]
     fn process_stream(
         &self,
         mut stream: impl Stream<Item = Result<Message, Status>> + Unpin + Send + 'static,
@@ -698,7 +825,7 @@ impl MessageProcessor {
                                                 }
                                             };
                                         }
-                                        if let Err(e) = self_clone.handle_new_message(conn_index, msg).await {
+                                        if let Err(e) = self_clone.handle_new_message(conn_index, is_local, msg).await {
                                             error!("error processing incoming messages {:?}", e);
                                             // If the message is coming from a local app, notify it
                                             if is_local {
@@ -862,7 +989,6 @@ impl MessageProcessor {
 impl PubSubService for MessageProcessor {
     type OpenChannelStream = Pin<Box<dyn Stream<Item = Result<Message, Status>> + Send + 'static>>;
 
-    #[tracing::instrument(fields(telemetry = true))]
     async fn open_channel(
         &self,
         request: Request<tonic::Streaming<Message>>,
