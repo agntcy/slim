@@ -26,6 +26,7 @@ use crate::messages::utils::{
     get_name, get_source, process_name, MetadataType,
 };
 use crate::messages::AgentClass;
+use crate::pubsub::proto::pubsub::v1::message::MessageType;
 use crate::pubsub::proto::pubsub::v1::message::MessageType::Publish as PublishType;
 use crate::pubsub::proto::pubsub::v1::message::MessageType::Subscribe as SubscribeType;
 use crate::pubsub::proto::pubsub::v1::message::MessageType::Unsubscribe as UnsubscribeType;
@@ -73,6 +74,15 @@ fn inject_current_context(msg: &mut Message) {
     opentelemetry::global::get_text_map_propagator(|propagator| {
         propagator.inject_context(&cx, &mut injector)
     });
+}
+
+fn message_type_to_str(message_type: &Option<MessageType>) -> &'static str {
+    match message_type {
+        Some(PublishType(_)) => "publish",
+        Some(SubscribeType(_)) => "subscribe",
+        Some(UnsubscribeType(_)) => "unsubscribe",
+        None => "unknown",
+    }
 }
 
 #[derive(Debug)]
@@ -299,12 +309,7 @@ impl MessageProcessor {
                         "send_message_to_local",
                         instance_id = %INSTANCE_ID.as_str(),
                         connection_id = out_conn,
-                        message_type = match &msg.message_type {
-                            Some(PublishType(_)) => "publish",
-                            Some(SubscribeType(_)) => "subscribe",
-                            Some(UnsubscribeType(_)) => "unsubscribe",
-                            None => "unknown"
-                        },
+                        message_type = message_type_to_str(&msg.message_type),
                         telemetry = true
                     );
                     let _guard = span.enter();
@@ -319,12 +324,7 @@ impl MessageProcessor {
                         "send_message_to_remote",
                         instance_id = %INSTANCE_ID.as_str(),
                         connection_id = out_conn,
-                        message_type = match &msg.message_type {
-                            Some(PublishType(_)) => "publish",
-                            Some(SubscribeType(_)) => "subscribe",
-                            Some(UnsubscribeType(_)) => "unsubscribe",
-                            None => "unknown"
-                        },
+                        message_type = message_type_to_str(&msg.message_type),
                         telemetry = true
                     );
 
@@ -755,12 +755,7 @@ impl MessageProcessor {
                 "handle_local_message",
                 instance_id = %INSTANCE_ID.as_str(),
                 connection_id = conn_index,
-                message_type = match &msg.message_type {
-                    Some(PublishType(_)) => "publish",
-                    Some(SubscribeType(_)) => "subscribe",
-                    Some(UnsubscribeType(_)) => "unsubscribe",
-                    None => "unknown"
-                },
+                message_type = message_type_to_str(&msg.message_type),
                 telemetry = true
             );
             let _guard = span.enter();
@@ -776,6 +771,7 @@ impl MessageProcessor {
                 "handle_remote_message",
                 instance_id = %INSTANCE_ID.as_str(),
                 connection_id = conn_index,
+                message_type = message_type_to_str(&msg.message_type),
                 telemetry = true
             );
 
