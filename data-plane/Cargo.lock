@@ -141,6 +141,7 @@ dependencies = [
  "agp-config",
  "agp-datapath",
  "drain",
+ "parking_lot",
  "serde",
  "thiserror",
  "tokio",

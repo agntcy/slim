@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 pub mod errors;
+pub mod producer_cache;
 
 use agp_datapath::messages::utils::{
     create_agp_header, create_default_service_header, create_publication, create_subscription_from,

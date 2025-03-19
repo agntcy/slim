@@ -186,7 +186,7 @@ pub fn get_name(msg: &ProtoMessage) -> Result<(AgentType, Option<u64>), MessageE
 }
 
 // utils functions for service header
-fn create_service_header(
+pub fn create_service_header(
     header_type: i32,
     id: u32,
     stream: Option<u32>,
@@ -205,8 +205,7 @@ pub fn create_default_service_header() -> Option<ServiceHeader> {
 }
 
 // getters for service header
-#[allow(dead_code)]
-fn get_msg_id(msg: &ProtoPublish) -> Result<u32, MessageError> {
+pub fn get_msg_id(msg: &ProtoPublish) -> Result<u32, MessageError> {
     match msg.control {
         Some(header) => Ok(header.id),
         None => Err(MessageError::ControlHeaderNotFound),
@@ -388,6 +387,13 @@ pub fn create_error_publication(error: String) -> ProtoMessage {
         "",
         error.into_bytes(),
     )
+}
+
+pub fn get_message_as_publish(msg: &ProtoMessage) -> Option<&ProtoPublish> {
+    match &msg.message_type {
+        Some(ProtoPublishType(p)) => Some(p),
+        _ => None,
+    }
 }
 
 pub fn get_fanout(msg: &ProtoPublish) -> u32 {
