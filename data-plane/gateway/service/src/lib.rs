@@ -2,17 +2,20 @@
 // SPDX-License-Identifier: Apache-2.0
 
 pub mod errors;
-pub mod session;
 
 mod fire_and_forget;
+mod session;
+mod session_layer;
 
 use agp_datapath::messages::utils::{
     create_agp_header, create_default_service_header, create_publication, create_subscription_from,
     create_subscription_to_forward, create_unsubscription_from, create_unsubscription_to_forward,
 };
 use agp_datapath::messages::{Agent, AgentType};
+use agp_datapath::pubsub::MessageType;
 use serde::Deserialize;
-use session::SessionPool;
+use session::MessageDirection;
+use session_layer::SessionLayer;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::mpsc;
@@ -90,7 +93,7 @@ struct LocalAgent {
     /// name of the agent
     name: Agent,
 
-    /// channels used to send messages to the message processor
+    /// channel used to send messages to the gateway
     tx_channel: tokio::sync::mpsc::Sender<Result<Message, Status>>,
 }
 
@@ -109,7 +112,7 @@ pub struct Service {
     config: ServiceConfiguration,
 
     /// pool of sessions for the service
-    sessions: SessionPool,
+    session_layer: Arc<SessionLayer>,
 
     /// drain watch to shutdown the service
     watch: drain::Watch,
@@ -128,6 +131,7 @@ impl Service {
             agent: None,
             message_processor: Arc::new(MessageProcessor::with_drain_channel(watch.clone())),
             config: ServiceConfiguration::new(),
+            session_layer: Arc::new(SessionLayer::new()),
             watch,
             signal,
         }
@@ -184,14 +188,15 @@ impl Service {
 
     // APP APIs
     // TODO(msardara): unit tests the APIs
-    pub fn create_agent(&mut self, agent_name: Agent) -> mpsc::Receiver<Result<Message, Status>> {
+    pub fn create_agent(&mut self, agent_name: Agent) {
         let (tx, rx) = self.message_processor.register_local_connection();
         self.agent = Some(LocalAgent {
             name: agent_name,
             tx_channel: tx,
         });
 
-        rx
+        // start message processing using the rx channel
+        self.process_messages(rx);
     }
 
     pub fn serve(&self, new_config: Option<ServerConfig>) -> Result<(), ServiceError> {
@@ -438,12 +443,85 @@ impl Service {
         }
         Ok(())
     }
-<<<<<<< HEAD
 
-    // session-related APIs
+    /// Session APIs
 
-=======
->>>>>>> main
+    /// Receive messages from gateway and forward them to the appropriate session
+    fn process_messages(&self, mut rx: mpsc::Receiver<Result<Message, Status>>) {
+        // clone the session layer
+        let session_layer = self.session_layer.clone();
+
+        tokio::spawn(async move {
+            while let Some(msg) = rx.recv().await {
+                match msg {
+                    Ok(msg) => {
+                        debug!("received message {:?}", msg);
+
+                        // filter only the messages of type publish
+                        match msg.message_type.as_ref() {
+                            Some(t) => match t {
+                                MessageType::Publish(_) => {}
+                                _ => {
+                                    continue;
+                                }
+                            },
+                            None => {
+                                continue;
+                            }
+                        }
+
+                        // Handle the message
+                        let res = session_layer
+                            .handle_message(msg, MessageDirection::North, None)
+                            .await;
+
+                        if let Err(e) = res {
+                            error!("error handling message: {:?}", e);
+                        }
+                    }
+                    Err(e) => {
+                        error!("error receiving message: {:?}", e);
+                    }
+                }
+            }
+        });
+    }
+
+    /// Publish a message to a session
+    pub async fn publish_to_session(
+        &self,
+        session_id: session::Id,
+        message: Message,
+    ) -> Result<(), ServiceError> {
+        self.session_layer
+            .handle_message(message, MessageDirection::South, Some(session_id))
+            .await
+            .map_err(|e| {
+                error!("error handling message: {:?}", e);
+                ServiceError::PublishError(e.to_string())
+            })
+    }
+
+    // /// Create a new fire and forget session. This session does nothing
+    // /// but forward messages, without any processing or reliability guarantees.
+    // pub fn fire_and_forget(&mut self) -> Result<session::Id, ServiceError> {
+    //     // generate a random session id
+    //     let session_id = session::IdGenerator::new().generate();
+
+    //     // create the session
+    //     let session = Box::new(FireAndForget::new(
+    //         session_id,
+    //         SessionDirection::Bidirectional,
+    //     ));
+
+    //     // add the session to the pool
+    //     self.sessions
+    //         .create_session(session_id, session)
+    //         .map_err(|e| ServiceError::SessionCreationError(e.to_string()))?;
+
+    //     // return the session id
+    //     Ok(session_id)
+    // }
 }
 
 impl Component for Service {

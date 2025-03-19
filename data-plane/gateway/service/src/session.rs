@@ -4,13 +4,12 @@
 use std::future::Future;
 use std::pin::Pin;
 
-use agp_datapath::messages::AgentType;
 use thiserror::Error;
 
 use agp_datapath::pubsub::proto::pubsub::v1::Message;
-use agp_datapath::tables::pool::Pool;
 
-pub(crate) type Id = u64;
+/// Session ID
+pub type Id = u32;
 
 #[derive(Error, Debug)]
 pub(crate) enum Error {
@@ -24,16 +23,55 @@ pub(crate) enum Error {
     AppTransmissionError(String),
     #[error("error processing message {0}")]
     ProcessingError(String),
+    #[error("session id already used {0}")]
+    SessionIdAlreadyUsed(String),
+    #[error("missing AGP header {0}")]
+    MissingAgpHeader(String),
+    #[error("missing session header")]
+    MissingSessionHeader,
+    #[error("session unknown: {0}")]
+    SessionUnknown(String),
+    #[error("session not found: {0}")]
+    SessionNotFound(String),
+    #[error("missing session id: {0}")]
+    MissingSessionId(String),
 }
 
+/// The state of a session
 pub(crate) enum State {
     Active,
     Inactive,
 }
 
+/// The type of a session
+pub(crate) enum SessionDirection {
+    Sender,
+    Receiver,
+    Bidirectional,
+}
+
+#[derive(PartialEq)]
+pub(crate) enum MessageDirection {
+    North,
+    South,
+}
+
 pub(crate) enum SessionType {
-    Publisher,
-    Subscriber,
+    FireAndForget,
+    RequestResponse,
+    PublishSubscribe,
+    Streaming,
+}
+
+impl std::fmt::Display for SessionType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            SessionType::FireAndForget => write!(f, "FireAndForget"),
+            SessionType::RequestResponse => write!(f, "RequestResponse"),
+            SessionType::PublishSubscribe => write!(f, "PublishSubscribe"),
+            SessionType::Streaming => write!(f, "Streaming"),
+        }
+    }
 }
 
 pub(crate) trait Session {
@@ -44,19 +82,14 @@ pub(crate) trait Session {
     fn state(&self) -> &State;
 
     // get the session type
-    fn session_type(&self) -> &SessionType;
+    fn session_type(&self) -> &SessionDirection;
 
     // publish a message as part of the session
-    fn on_message_from_app(
+    fn on_message(
         &self,
         message: Message,
-    ) -> Pin<Box<dyn Future<Output = Result<(), Error>> + Send>>;
-
-    // receive a message as part of the session
-    fn on_message_from_gateway(
-        &self,
-        message: Message,
-    ) -> Pin<Box<dyn Future<Output = Result<(), Error>> + Send>>;
+        direction: MessageDirection,
+    ) -> Pin<Box<dyn Future<Output = Result<(), Error>> + Send + 'static>>;
 }
 
 /// Common session data
@@ -68,7 +101,7 @@ pub(crate) struct Common {
     state: State,
 
     /// Session type
-    session_type: SessionType,
+    session_type: SessionDirection,
 
     /// tx channel to send messages to the underlying gateway
     south_tx: tokio::sync::mpsc::Sender<Message>,
@@ -84,7 +117,7 @@ pub(crate) struct Common {
 }
 
 impl Common {
-    pub(crate) fn new(id: Id, session_type: SessionType) -> Common {
+    pub(crate) fn new(id: Id, session_type: SessionDirection) -> Common {
         // create the internal channel
         let (south_tx, south_rx) = tokio::sync::mpsc::channel(128);
         let (north_tx, north_rx) = tokio::sync::mpsc::channel(128);
@@ -100,15 +133,18 @@ impl Common {
         }
     }
 
+    /// get the session ID
     pub(crate) fn id(&self) -> Id {
         self.id
     }
 
+    /// get the session state
     pub(crate) fn state(&self) -> &State {
         &self.state
     }
 
-    pub(crate) fn session_type(&self) -> &SessionType {
+    /// get the session type
+    pub(crate) fn session_type(&self) -> &SessionDirection {
         &self.session_type
     }
 
@@ -118,37 +154,5 @@ impl Common {
 
     pub(crate) fn north_tx(&self) -> tokio::sync::mpsc::Sender<Message> {
         self.north_tx.clone()
-    }
-
-
-}
-
-pub(crate) struct SessionPool {
-    pub(crate) pool: Pool<Box<dyn Session>>,
-}
-
-impl SessionPool {
-    pub(crate) fn new() -> SessionPool {
-        SessionPool {
-            pool: Pool::with_capacity(128),
-        }
-    }
-
-    pub(crate) fn insert(&mut self, session: Box<dyn Session>) -> Id {
-        self.pool.insert(session)
-    }
-
-    pub(crate) fn remove(&mut self, id: Id) {
-        self.pool.remove(id);
-    }
-
-    pub(crate) fn get(&self, id: Id) -> Option<&Box<dyn Session>> {
-        self.pool.get(id)
-    }
-}
-
-impl std::fmt::Debug for SessionPool {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "SessionPool")
     }
 }

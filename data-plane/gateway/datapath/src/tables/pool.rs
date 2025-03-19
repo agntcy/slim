@@ -40,16 +40,6 @@ impl<T> Pool<T> {
         }
     }
 
-    /// Resize the pool vector to a new capacity
-    fn resize_pool_vector(pool: &mut Vec<T>, new_capacity: usize) {
-        pool.reserve(new_capacity);
-
-        // Update length
-        unsafe {
-            pool.set_len(new_capacity);
-        }
-    }
-
     /// Get the number of elements in the pool
     pub fn len(&self) -> usize {
         self.len

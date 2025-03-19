@@ -68,22 +68,40 @@ pub fn create_agp_header(
     })
 }
 
-fn get_agp_header(msg: &ProtoMessage) -> Option<AgpHeader> {
+pub fn get_agp_header(msg: &ProtoMessage) -> Option<&AgpHeader> {
     match &msg.message_type {
         Some(msg_type) => match msg_type {
-            ProtoPublishType(publish) => publish.header,
-            ProtoSubscribeType(sub) => sub.header,
-            ProtoUnsubscribeType(unsub) => unsub.header,
+            ProtoPublishType(publish) => publish.header.as_ref(),
+            ProtoSubscribeType(sub) => sub.header.as_ref(),
+            ProtoUnsubscribeType(unsub) => unsub.header.as_ref(),
         },
         None => None,
     }
 }
 
-fn get_agp_header_as_mut(msg: &mut ProtoMessage) -> Option<&mut AgpHeader> {
+pub fn get_agp_header_as_mut(msg: &mut ProtoMessage) -> Option<&mut AgpHeader> {
     match &mut msg.message_type {
         Some(ProtoPublishType(publish)) => publish.header.as_mut(),
         Some(ProtoSubscribeType(sub)) => sub.header.as_mut(),
         Some(ProtoUnsubscribeType(unsub)) => unsub.header.as_mut(),
+        None => None,
+    }
+}
+
+pub fn get_session_header(msg: &ProtoMessage) -> Option<&ServiceHeader> {
+    match &msg.message_type {
+        Some(ProtoPublishType(publish)) => publish.control.as_ref(),
+        Some(ProtoSubscribeType(_)) => None,
+        Some(ProtoUnsubscribeType(_)) => None,
+        None => None,
+    }
+}
+
+pub fn get_session_header_as_mut(msg: &mut ProtoMessage) -> Option<&mut ServiceHeader> {
+    match &mut msg.message_type {
+        Some(ProtoPublishType(publish)) => publish.control.as_mut(),
+        Some(ProtoSubscribeType(_)) => None,
+        Some(ProtoUnsubscribeType(_)) => None,
         None => None,
     }
 }
@@ -368,6 +386,33 @@ pub fn get_payload(msg: &ProtoPublish) -> &[u8] {
     &msg.msg.as_ref().unwrap().blob
 }
 
+pub fn int_to_service_type(int: i32) -> Option<ServiceHeaderType> {
+    match int {
+        1 => Some(ServiceHeaderType::CtrlFnf),
+        2 => Some(ServiceHeaderType::CtrlRequest),
+        3 => Some(ServiceHeaderType::CtrlReply),
+        4 => Some(ServiceHeaderType::CtrlStream),
+        5 => Some(ServiceHeaderType::CtrlRtxRequest),
+        6 => Some(ServiceHeaderType::CtrlRtxReply),
+        _ => {
+            error!("unknown service header type: {}", int);
+            None
+        }
+    }
+}
+
+pub fn service_type_to_int(service_type: ServiceHeaderType) -> i32 {
+    match service_type {
+        ServiceHeaderType::CtrlUnspecified => 0,
+        ServiceHeaderType::CtrlFnf => 1,
+        ServiceHeaderType::CtrlRequest => 2,
+        ServiceHeaderType::CtrlReply => 3,
+        ServiceHeaderType::CtrlStream => 4,
+        ServiceHeaderType::CtrlRtxRequest => 5,
+        ServiceHeaderType::CtrlRtxReply => 6,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::messages::encoder::{encode_agent, encode_agent_type};
@@ -382,7 +427,7 @@ mod tests {
         let header = create_agp_header(&source, &name, Some(2), None, None, None, None);
         let sub = create_subscription(header, HashMap::new());
 
-        assert_eq!(header, get_agp_header(&sub));
+        assert_eq!(header.as_ref(), get_agp_header(&sub));
         assert_eq!(None, get_recv_from(&sub).unwrap());
         assert_eq!(None, get_forward_to(&sub).unwrap());
         assert_eq!(None, get_incoming_connection(&sub).unwrap());
@@ -404,7 +449,7 @@ mod tests {
         );
         let sub_from = create_subscription_from(&name, Some(2), 50);
 
-        assert_eq!(header_from, get_agp_header(&sub_from));
+        assert_eq!(header_from.as_ref(), get_agp_header(&sub_from));
         assert_eq!(Some(50), get_recv_from(&sub_from).unwrap());
         assert_eq!(None, get_forward_to(&sub_from).unwrap());
         assert_eq!(None, get_incoming_connection(&sub_from).unwrap());
@@ -418,7 +463,7 @@ mod tests {
         let header_fwd = create_agp_header(&source, &name, None, None, Some(30), None, None);
         let mut sub_fwd = create_subscription_to_forward(&source, &name, None, 30);
 
-        assert_eq!(header_fwd, get_agp_header(&sub_fwd));
+        assert_eq!(header_fwd.as_ref(), get_agp_header(&sub_fwd));
         assert_eq!(None, get_recv_from(&sub_fwd).unwrap());
         assert_eq!(Some(30), get_forward_to(&sub_fwd).unwrap());
         assert_eq!(None, get_incoming_connection(&sub_fwd).unwrap());
@@ -431,13 +476,13 @@ mod tests {
         let ret = clear_agp_header(&mut sub_fwd);
         assert_eq!(Ok(()), ret);
         assert_eq!(
-            create_agp_header(&source, &name, None, None, None, None, None),
+            create_agp_header(&source, &name, None, None, None, None, None).as_ref(),
             get_agp_header(&sub_fwd)
         );
 
         let unsub_from = create_unsubscription_from(&name, Some(2), 50);
 
-        assert_eq!(header_from, get_agp_header(&unsub_from));
+        assert_eq!(header_from.as_ref(), get_agp_header(&unsub_from));
         assert_eq!(Some(50), get_recv_from(&unsub_from).unwrap());
         assert_eq!(None, get_forward_to(&unsub_from).unwrap());
         assert_eq!(None, get_incoming_connection(&sub_from).unwrap());
@@ -450,7 +495,7 @@ mod tests {
 
         let mut unsub_fwd = create_unsubscription_to_forward(&source, &name, None, 30);
 
-        assert_eq!(header_fwd, get_agp_header(&unsub_fwd));
+        assert_eq!(header_fwd.as_ref(), get_agp_header(&unsub_fwd));
         assert_eq!(None, get_recv_from(&unsub_fwd).unwrap());
         assert_eq!(Some(30), get_forward_to(&unsub_fwd).unwrap());
         assert_eq!(None, get_incoming_connection(&unsub_fwd).unwrap());
@@ -463,7 +508,7 @@ mod tests {
         let ret = clear_agp_header(&mut unsub_fwd);
         assert_eq!(Ok(()), ret);
         assert_eq!(
-            create_agp_header(&source, &name, None, None, None, None, None),
+            create_agp_header(&source, &name, None, None, None, None, None).as_ref(),
             get_agp_header(&unsub_fwd)
         );
 
@@ -475,7 +520,7 @@ mod tests {
             "str",
             "this is the content of the message".into(),
         );
-        assert_eq!(header, get_agp_header(&p));
+        assert_eq!(header.as_ref(), get_agp_header(&p));
         assert_eq!(None, get_recv_from(&p).unwrap());
         assert_eq!(None, get_forward_to(&p).unwrap());
         assert_eq!(None, get_incoming_connection(&p).unwrap());
@@ -492,7 +537,7 @@ mod tests {
         let ret = clear_agp_header(&mut p);
         assert_eq!(Ok(()), ret);
         assert_eq!(
-            create_agp_header(&source, &name, Some(2), None, None, Some(500), None),
+            create_agp_header(&source, &name, Some(2), None, None, Some(500), None).as_ref(),
             get_agp_header(&p)
         );
         let msg = match &p.message_type {

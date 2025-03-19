@@ -25,6 +25,10 @@ pub enum ServiceError {
     PublishError(String),
     #[error("error receiving message: {0}")]
     ReceiveError(String),
+    #[error("session not found: {0}")]
+    SessionNotFound(String),
+    #[error("error creating session: {0}")]
+    SessionCreationError(String),
     #[error("unknown error")]
     Unknown,
 }
