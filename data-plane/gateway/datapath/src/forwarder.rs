@@ -85,9 +85,15 @@ where
         agent_id: Option<u64>,
         conn_index: u64,
         is_local: bool,
+        add: bool,
     ) -> Result<(), SubscriptionTableError> {
-        self.subscription_table
-            .add_subscription(agent_type, agent_id, conn_index, is_local)
+        if add {
+            self.subscription_table
+                .add_subscription(agent_type, agent_id, conn_index, is_local)
+        } else {
+            self.subscription_table
+                .remove_subscription(agent_type, agent_id, conn_index, is_local)
+        }
     }
 
     pub fn on_forwarded_subscription(
@@ -97,56 +103,38 @@ where
         name_type: AgentType,
         name_agent_id: Option<u64>,
         conn_index: u64,
+        add: bool,
     ) {
         let source = Agent::new(source_type, source_agent_id.unwrap_or(DEFAULT_AGENT_ID));
         let name = Agent::new(name_type, name_agent_id.unwrap_or(DEFAULT_AGENT_ID));
-        self.remote_subscription_table
-            .add_subscription(source, name, conn_index);
+        if add {
+            self.remote_subscription_table
+                .add_subscription(source, name, conn_index);
+        } else {
+            self.remote_subscription_table
+                .remove_subscription(source, name, conn_index);
+        }
     }
 
-    pub fn on_unsubscription_msg(
-        &self,
-        agent_type: AgentType,
-        agent_id: Option<u64>,
-        conn_index: u64,
-        is_local: bool,
-    ) -> Result<(), SubscriptionTableError> {
-        self.subscription_table
-            .remove_subscription(agent_type, agent_id, conn_index, is_local)
-    }
-
-    pub fn on_forwarded_unsubscription(
-        &self,
-        source_type: AgentType,
-        source_agent_id: Option<u64>,
-        name_type: AgentType,
-        name_agent_id: Option<u64>,
-        conn_index: u64,
-    ) {
-        let source = Agent::new(source_type, source_agent_id.unwrap_or(DEFAULT_AGENT_ID));
-        let name = Agent::new(name_type, name_agent_id.unwrap_or(DEFAULT_AGENT_ID));
-        self.remote_subscription_table
-            .remove_subscription(source, name, conn_index);
-    }
-
-    pub fn on_publish_msg_match_one(
+    pub fn on_publish_msg_match(
         &self,
         agent_type: AgentType,
         agent_id: Option<u64>,
         incoming_conn: u64,
-    ) -> Result<u64, SubscriptionTableError> {
-        self.subscription_table
-            .match_one(agent_type, agent_id, incoming_conn)
-    }
-
-    pub fn on_publish_msg_match_all(
-        &self,
-        agent_type: AgentType,
-        agent_id: Option<u64>,
-        incoming_conn: u64,
+        fanout: u32,
     ) -> Result<Vec<u64>, SubscriptionTableError> {
-        self.subscription_table
-            .match_all(agent_type, agent_id, incoming_conn)
+        if fanout == 1 {
+            match self
+                .subscription_table
+                .match_one(agent_type, agent_id, incoming_conn)
+            {
+                Ok(out) => Ok(vec![out]),
+                Err(e) => Err(e),
+            }
+        } else {
+            self.subscription_table
+                .match_all(agent_type, agent_id, incoming_conn)
+        }
     }
 
     #[allow(dead_code)]
@@ -169,33 +157,33 @@ mod tests {
         let fwd = Forwarder::<u32>::new();
 
         assert_eq!(
-            fwd.on_subscription_msg(agent_class.clone(), None, 10, false),
+            fwd.on_subscription_msg(agent_class.clone(), None, 10, false, true),
             Ok(())
         );
         assert_eq!(
-            fwd.on_subscription_msg(agent_class.clone(), Some(1), 12, false),
+            fwd.on_subscription_msg(agent_class.clone(), Some(1), 12, false, true),
             Ok(())
         );
         assert_eq!(
             // this creates a warning
-            fwd.on_subscription_msg(agent_class.clone(), Some(1), 12, false),
+            fwd.on_subscription_msg(agent_class.clone(), Some(1), 12, false, true),
             Ok(())
         );
         assert_eq!(
-            fwd.on_publish_msg_match_one(agent_class.clone(), Some(1), 100),
-            Ok(12)
+            fwd.on_publish_msg_match(agent_class.clone(), Some(1), 100, 1),
+            Ok(vec![12])
         );
         assert_eq!(
-            fwd.on_publish_msg_match_one(agent_class.clone(), Some(2), 100),
+            fwd.on_publish_msg_match(agent_class.clone(), Some(2), 100, 1),
             Err(SubscriptionTableError::NoMatch)
         );
 
         assert_eq!(
-            fwd.on_unsubscription_msg(agent_class.clone(), None, 10, false),
+            fwd.on_subscription_msg(agent_class.clone(), None, 10, false, false),
             Ok(())
         );
         assert_eq!(
-            fwd.on_unsubscription_msg(agent_class.clone(), None, 10, false),
+            fwd.on_subscription_msg(agent_class.clone(), None, 10, false, false),
             Err(SubscriptionTableError::AgentIdNotFound)
         );
     }

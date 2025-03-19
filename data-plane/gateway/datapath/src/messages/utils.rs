@@ -48,6 +48,15 @@ pub fn create_agent_from_type(agent_type: &AgentType, agent_id: Option<u64>) -> 
     })
 }
 
+pub fn message_type_to_str(msg: &ProtoMessage) -> &str {
+    match &msg.message_type {
+        Some(ProtoPublishType(_)) => "publish",
+        Some(ProtoSubscribeType(_)) => "subscribe",
+        Some(ProtoUnsubscribeType(_)) => "unsubscribe",
+        None => "unknown",
+    }
+}
+
 // utils functions for agp header
 pub fn create_agp_header(
     source: &Agent,
@@ -358,6 +367,27 @@ pub fn create_publication(
             }),
         })),
     }
+}
+
+pub fn create_error_publication(error: String) -> ProtoMessage {
+    let default_name = Agent::default();
+    let header = create_agp_header(
+        &default_name,
+        default_name.agent_type(),
+        None,
+        None,
+        None,
+        None,
+        Some(true),
+    );
+    create_publication(
+        header,
+        create_default_service_header(),
+        HashMap::new(),
+        1,
+        "",
+        error.into_bytes(),
+    )
 }
 
 pub fn get_fanout(msg: &ProtoPublish) -> u32 {

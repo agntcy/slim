@@ -172,7 +172,7 @@ fn main() {
             && (subscriptions < max_subscriptions)
         {
             // the agent id in the subscription is always a random numb
-            let sub = Agent::new(agent_type.clone(), rng.random_range(1..u64::MAX));
+            let sub = Agent::new(agent_type.clone(), rng.random_range(0..u64::MAX));
 
             // decide which agent will send the subscription
             let subscriber = rng.random_range(..subscribers);
