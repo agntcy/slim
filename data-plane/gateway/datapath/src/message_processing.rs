@@ -3,7 +3,6 @@
 
 use std::collections::HashMap;
 use std::net::SocketAddr;
-use std::sync::mpsc::SendError;
 use std::{pin::Pin, sync::Arc};
 
 use agp_config::grpc::client::ClientConfig;
@@ -302,17 +301,12 @@ impl MessageProcessor {
         mut msg: Message,
         out_conn: u64,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        // clear header
-        let err = clear_agp_header(&mut msg);
-        if err.is_err() {
-            return Err(Box::new(SendError(
-                "an error occurred while cleaning the AGP header".to_string(),
-            )));
-        }
-
         let connection = self.forwarder().get_connection(out_conn);
         match connection {
             Some(conn) => {
+                // reset header fields
+                clear_agp_header(&mut msg)?;
+
                 let parent_context = extract_parent_context(&msg);
                 let span = tracing::span!(
                 tracing::Level::DEBUG,
@@ -358,18 +352,25 @@ impl MessageProcessor {
             agent_type, agent_id, fanout,
         );
 
+        // if the message already contains an output connection, use that one
+        // without performing any match in the subscription table
+        if let Some(val) = get_forward_to(&msg).unwrap_or(None) {
+            info!("forwarding message to connection {:?}", val);
+            return self.send_msg(msg, val).await.map_err(|e| {
+                error!("error sending a message {:?}", e);
+                DataPathError::PublicationError(e.to_string())
+            });
+        }
+
         if fanout == 1 {
             match self
                 .forwarder()
                 .on_publish_msg_match_one(agent_type, agent_id, in_connection)
             {
-                Ok(out) => match self.send_msg(msg, out).await {
-                    Ok(_) => Ok(()),
-                    Err(e) => {
-                        error!("error sending a message {:?}", e);
-                        Err(DataPathError::PublicationError(e.to_string()))
-                    }
-                },
+                Ok(out) => self.send_msg(msg, out).await.map_err(|e| {
+                    error!("error sending a message {:?}", e);
+                    DataPathError::PublicationError(e.to_string())
+                }),
                 Err(e) => {
                     error!("error matching a message {:?}", e);
                     Err(DataPathError::PublicationError(e.to_string()))
@@ -382,14 +383,12 @@ impl MessageProcessor {
             {
                 Ok(out_set) => {
                     for out in out_set {
-                        match self.send_msg(msg.clone(), out).await {
-                            Ok(_) => {}
-                            Err(e) => {
-                                error!("error sending a message {:?}", e);
-                                return Err(DataPathError::PublicationError(e.to_string()));
-                            }
-                        }
+                        self.send_msg(msg.clone(), out).await.map_err(|e| {
+                            error!("error sending a message {:?}", e);
+                            DataPathError::PublicationError(e.to_string())
+                        })?;
                     }
+
                     Ok(())
                 }
                 Err(e) => {

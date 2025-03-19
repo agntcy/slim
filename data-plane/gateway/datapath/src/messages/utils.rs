@@ -88,7 +88,7 @@ fn get_agp_header_as_mut(msg: &mut ProtoMessage) -> Option<&mut AgpHeader> {
     }
 }
 
-// this function cleans all the AGP header fields expect
+// this function cleans all the AGP header fields except
 // for incoming_conn which is set upon message reception
 pub fn clear_agp_header(msg: &mut ProtoMessage) -> Result<(), MessageError> {
     match get_agp_header_as_mut(msg) {
