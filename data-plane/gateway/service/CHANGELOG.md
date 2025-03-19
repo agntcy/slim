@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.8](https://github.com/agntcy/agp/compare/agp-service-v0.1.7...agp-service-v0.1.8) - 2025-03-18
+
+### Added
+
+- new message format ([#88](https://github.com/agntcy/agp/pull/88))
+
 ## [0.1.7](https://github.com/agntcy/agp/compare/agp-service-v0.1.6...agp-service-v0.1.7) - 2025-03-18
 
 ### Added
