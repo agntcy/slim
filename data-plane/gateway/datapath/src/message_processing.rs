@@ -680,6 +680,60 @@ impl MessageProcessor {
         }
     }
 
+    async fn reconnect(&self, client_conf: Option<ClientConfig>, conn_index: u64) -> bool {
+        let config = client_conf.unwrap();
+        match config.to_channel() {
+            Err(e) => {
+                error!(
+                    "cannot parse connection config, unable to reconnect {:?}",
+                    e.to_string()
+                );
+                false
+            }
+            Ok(channel) => {
+                info!("connection lost with remote endpoint, try to reconnect");
+                // These are the subscriptions that we forwarded to the remote gateway on
+                // this connection. It is necessary to restore them to keep receive the messages
+                // The connections on the local subscription table (created using the set_route command)
+                // are still there and will be removed only if the reconnection process will fail.
+                let remote_subscriptions = self
+                    .forwarder()
+                    .get_subscriptions_forwarded_on_connection(conn_index);
+
+                match self
+                    .try_to_connect(channel, Some(config), None, None, Some(conn_index), 120)
+                    .await
+                {
+                    Ok(_) => {
+                        info!("connection re-established");
+                        // the subscription table should be ok already
+                        for r in remote_subscriptions.iter() {
+                            let header = create_agp_header(
+                                r.source(),
+                                r.name().agent_type(),
+                                r.name().agent_id_option(),
+                                None,
+                                None,
+                                None,
+                                None,
+                            );
+                            let sub_msg = create_subscription(header, HashMap::new());
+                            if self.send_msg(sub_msg, conn_index).await.is_err() {
+                                error!("error restoring subscription on remote node");
+                            }
+                        }
+                        true
+                    }
+                    Err(e) => {
+                        // TODO: notify the app that the connection is not working anymore
+                        error!("unable to connect to remote node {:?}", e.to_string());
+                        false
+                    }
+                }
+            }
+        }
+    }
+
     fn process_stream(
         &self,
         mut stream: impl Stream<Item = Result<Message, Status>> + Unpin + Send + 'static,
@@ -740,70 +794,16 @@ impl MessageProcessor {
                 }
             }
 
-            let mut delete_connection = true;
+            let mut connected = false;
 
             if try_to_reconnect && client_conf_clone.is_some() {
-                let config = client_conf_clone.unwrap();
-                match config.to_channel() {
-                    Err(e) => {
-                        error!(
-                            "cannot parse connection config, unable to reconnect {:?}",
-                            e.to_string()
-                        );
-                    }
-                    Ok(channel) => {
-                        info!("connection lost with remote endpoint, try to reconnect");
-                        // These are the subscriptions that we forwarded to the remote gateway on
-                        // this connection. It is necessary to restore them to keep receive the messages
-                        // The connections on the local subscription table (created using the set_route command) are still there and will be removed
-                        // only if the reconnection process will fail.
-                        let remote_subscriptions = self_clone
-                            .forwarder()
-                            .get_subscriptions_forwarded_on_connection(conn_index);
-
-                        match self_clone
-                            .try_to_connect(
-                                channel,
-                                Some(config),
-                                None,
-                                None,
-                                Some(conn_index),
-                                120,
-                            )
-                            .await
-                        {
-                            Ok(_) => {
-                                info!("connection re-established");
-                                // the subscription table should be ok already
-                                delete_connection = false;
-                                for r in remote_subscriptions.iter() {
-                                    let header = create_agp_header(
-                                        r.source(),
-                                        r.name().agent_type(),
-                                        r.name().agent_id_option(),
-                                        None,
-                                        None,
-                                        None,
-                                        None,
-                                    );
-                                    let sub_msg = create_subscription(header, HashMap::new());
-                                    if self_clone.send_msg(sub_msg, conn_index).await.is_err() {
-                                        error!("error restoring subscription on remote node");
-                                    }
-                                }
-                            }
-                            Err(e) => {
-                                // TODO: notify the app that the connection is not working anymore
-                                error!("unable to connect to remote node {:?}", e.to_string());
-                            }
-                        }
-                    }
-                }
+                connected = self_clone.reconnect(client_conf_clone, conn_index).await;
             } else {
                 info!("close connection {}", conn_index)
             }
 
-            if delete_connection {
+            if !connected {
+                // delete connection state
                 self_clone
                     .forwarder()
                     .on_connection_drop(conn_index, is_local);
