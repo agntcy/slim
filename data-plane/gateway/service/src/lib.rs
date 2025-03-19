@@ -31,6 +31,7 @@ use agp_datapath::message_processing::MessageProcessor;
 use agp_datapath::pubsub::proto::pubsub::v1::pub_sub_service_server::PubSubServiceServer;
 use agp_datapath::pubsub::proto::pubsub::v1::Message;
 pub use errors::ServiceError;
+use session::Session;
 
 // Define the kind of the component as static string
 pub const KIND: &str = "gateway";
@@ -94,7 +95,10 @@ struct LocalAgent {
     name: Agent,
 
     /// channel used to send messages to the gateway
-    tx_channel: tokio::sync::mpsc::Sender<Result<Message, Status>>,
+    tx_gw: tokio::sync::mpsc::Sender<Result<Message, Status>>,
+
+    /// channel used to send messages from the app
+    tx_app: tokio::sync::mpsc::Sender<(Message, session::Id)>,
 }
 
 #[derive(Debug)]
@@ -112,7 +116,7 @@ pub struct Service {
     config: ServiceConfiguration,
 
     /// pool of sessions for the service
-    session_layer: Arc<SessionLayer>,
+    session_layers: HashMap<Agent, Arc<SessionLayer>>,
 
     /// drain watch to shutdown the service
     watch: drain::Watch,
@@ -188,15 +192,25 @@ impl Service {
 
     // APP APIs
     // TODO(msardara): unit tests the APIs
-    pub fn create_agent(&mut self, agent_name: Agent) {
-        let (tx, rx) = self.message_processor.register_local_connection();
-        self.agent = Some(LocalAgent {
-            name: agent_name,
-            tx_channel: tx,
-        });
+    pub fn create_agent(&mut self, agent_name: Agent) -> mpsc::Receiver<(Message, session::Id)> {
+        // Channels to communicate with the gateway
+        let (tx_gw, rx_gw) = self.message_processor.register_local_connection();
+
+        // Channels to communicate with the local app
+        // TODO(msardara): make the buffer size configurable
+        let (tx_app, rx_app) = mpsc::channel(128);
+
+        // register agent within session layers
+        self.session_layers.insert(
+            agent_name.clone(),
+            Arc::new(SessionLayer::new(tx_gw, tx_app)),
+        );
 
         // start message processing using the rx channel
-        self.process_messages(rx);
+        self.process_messages(agent_name, rx_gw);
+
+        // return the rx channel
+        rx_app
     }
 
     pub fn serve(&self, new_config: Option<ServerConfig>) -> Result<(), ServiceError> {
@@ -321,7 +335,7 @@ impl Service {
         }
         let agent = self.agent.as_ref().unwrap();
         let msg = create_subscription_to_forward(&agent.name, agent_type, agent_id, conn);
-        match agent.tx_channel.send(Ok(msg)).await {
+        match agent.tx_gw.send(Ok(msg)).await {
             Err(e) => {
                 error!("error sending the subscription {:?}", e);
                 Err(ServiceError::SubscriptionError(e.to_string()))
@@ -342,7 +356,7 @@ impl Service {
         }
         let agent = self.agent.as_ref().unwrap();
         let msg = create_unsubscription_to_forward(&agent.name, agent_type, agent_id, conn);
-        match agent.tx_channel.send(Ok(msg)).await {
+        match agent.tx_gw.send(Ok(msg)).await {
             Err(e) => {
                 error!("error sending the unsubscription {:?}", e);
                 Err(ServiceError::UnsubscriptionError(e.to_string()))
@@ -365,7 +379,7 @@ impl Service {
         }
         // send a message with subscription from
         let msg = create_subscription_from(agent_type, agent_id, conn);
-        if let Err(e) = self.agent.as_ref().unwrap().tx_channel.send(Ok(msg)).await {
+        if let Err(e) = self.agent.as_ref().unwrap().tx_gw.send(Ok(msg)).await {
             error!("error on set route to {:?}", e);
             return Err(ServiceError::SetRouteError(e.to_string()));
         }
@@ -384,7 +398,7 @@ impl Service {
         }
         //  send a message with unsubscription from
         let msg = create_unsubscription_from(agent_type, agent_id, conn);
-        if let Err(e) = self.agent.as_ref().unwrap().tx_channel.send(Ok(msg)).await {
+        if let Err(e) = self.agent.as_ref().unwrap().tx_gw.send(Ok(msg)).await {
             error!("error on remove route {:?}", e);
             return Err(ServiceError::RemoveRouteError(e.to_string()));
         }
@@ -437,7 +451,7 @@ impl Service {
 
         debug!("sending publication {:?}", msg);
 
-        if let Err(e) = self.agent.as_ref().unwrap().tx_channel.send(Ok(msg)).await {
+        if let Err(e) = self.agent.as_ref().unwrap().tx_gw.send(Ok(msg)).await {
             error!("error sending the publication {:?}", e);
             return Err(ServiceError::PublishError(e.to_string()));
         }
@@ -447,11 +461,15 @@ impl Service {
     /// Session APIs
 
     /// Receive messages from gateway and forward them to the appropriate session
-    fn process_messages(&self, mut rx: mpsc::Receiver<Result<Message, Status>>) {
+    fn process_messages(&self, agent_name: Agent, mut rx: mpsc::Receiver<Result<Message, Status>>) {
         // clone the session layer
         let session_layer = self.session_layer.clone();
 
         tokio::spawn(async move {
+            debug!(
+                "starting message processing loop for agent {:?}",
+                agent_name
+            );
             while let Some(msg) = rx.recv().await {
                 match msg {
                     Ok(msg) => {
@@ -502,26 +520,19 @@ impl Service {
             })
     }
 
-    // /// Create a new fire and forget session. This session does nothing
-    // /// but forward messages, without any processing or reliability guarantees.
-    // pub fn fire_and_forget(&mut self) -> Result<session::Id, ServiceError> {
-    //     // generate a random session id
-    //     let session_id = session::IdGenerator::new().generate();
+    /// Create a new fire and forget session. This session does nothing
+    /// but forward messages, without any processing or reliability guarantees.
+    pub fn fire_and_forget(&mut self, agent: Agent) -> Result<session::Id, ServiceError> {
+        // check if agent was registered
+        let agent = self.session_layers.get(&agent);
 
-    //     // create the session
-    //     let session = Box::new(FireAndForget::new(
-    //         session_id,
-    //         SessionDirection::Bidirectional,
-    //     ));
+        if agent.is_none() {
+            error!("agent {:?} not found", agent);
+            return Err(ServiceError::AgentNotFound);
+        }
 
-    //     // add the session to the pool
-    //     self.sessions
-    //         .create_session(session_id, session)
-    //         .map_err(|e| ServiceError::SessionCreationError(e.to_string()))?;
-
-    //     // return the session id
-    //     Ok(session_id)
-    // }
+        let agent = agent.unwrap();
+    }
 }
 
 impl Component for Service {

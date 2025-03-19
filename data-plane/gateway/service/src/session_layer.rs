@@ -4,7 +4,9 @@
 use std::collections::HashMap;
 
 use rand::Rng;
-use tokio::sync::RwLock;
+use tokio::sync::mpsc;
+use tokio::sync::{mpsc::Sender, RwLock};
+use tonic::Status;
 
 use crate::fire_and_forget;
 use crate::session::{Error, Id, MessageDirection, Session, SessionDirection, SessionType};
@@ -16,6 +18,10 @@ use agp_datapath::pubsub::proto::pubsub::v1::ServiceHeaderType;
 pub(crate) struct SessionLayer {
     /// Session pool
     pool: RwLock<HashMap<Id, Box<dyn Session + Send + Sync>>>,
+
+    /// Tx channels
+    tx_gw: Sender<Result<Message, Status>>,
+    tx_app: Sender<(Message, Id)>,
 }
 
 impl std::fmt::Debug for SessionLayer {
@@ -26,9 +32,14 @@ impl std::fmt::Debug for SessionLayer {
 
 impl SessionLayer {
     /// Create a new session pool
-    pub(crate) fn new() -> SessionLayer {
+    pub(crate) fn new(
+        tx_gw: Sender<Result<Message, Status>>,
+        tx_app: Sender<(Message, Id)>,
+    ) -> SessionLayer {
         SessionLayer {
             pool: RwLock::new(HashMap::new()),
+            tx_gw,
+            tx_app,
         }
     }
 
