@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0](https://github.com/agntcy/agp/compare/agp-service-v0.1.8...agp-service-v0.2.0) - 2025-03-19
+
+### Other
+
+- use same API for send_to and publish ([#89](https://github.com/agntcy/agp/pull/89))
+
 ## [0.1.8](https://github.com/agntcy/agp/compare/agp-service-v0.1.7...agp-service-v0.1.8) - 2025-03-18
 
 ### Added
