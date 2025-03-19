@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.2](https://github.com/agntcy/agp/compare/agp-datapath-v0.4.1...agp-datapath-v0.4.2) - 2025-03-19
+
+### Added
+
+- improve message processing file ([#101](https://github.com/agntcy/agp/pull/101))
+
 ## [0.4.1](https://github.com/agntcy/agp/compare/agp-datapath-v0.4.0...agp-datapath-v0.4.1) - 2025-03-19
 
 ### Added
