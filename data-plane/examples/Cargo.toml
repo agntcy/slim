@@ -10,7 +10,7 @@ path = "src/sdk-mock/main.rs"
 
 [dependencies]
 agp-config = { path = "../gateway/config", version = "0.1.5" }
-agp-datapath = { path = "../gateway/datapath", version = "0.4.1" }
+agp-datapath = { path = "../gateway/datapath", version = "0.4.2" }
 agp-gw = { path = "../gateway/gateway", version = "0.3.9" }
 clap = "4.5"
 tokio = "1"
