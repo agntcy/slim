@@ -1,20 +1,19 @@
 // SPDX-FileCopyrightText: Copyright (c) 2025 Cisco and/or its affiliates.
 // SPDX-License-Identifier: Apache-2.0
 
+use std::mem::MaybeUninit;
+
 use bit_vec::BitVec;
 
 use tracing::trace;
 
-#[derive(Debug, Clone)]
-pub struct Pool<T>
-where
-    T: Default + Clone,
-{
+#[derive(Debug)]
+pub struct Pool<T> {
     /// bitmap indicating if the pool contains an element
     bitmap: BitVec,
 
     /// the pool of elements
-    pool: Vec<T>,
+    pool: Vec<MaybeUninit<T>>,
 
     /// the number of elements in the pool
     len: usize,
@@ -26,15 +25,15 @@ where
     max_set: usize,
 }
 
-impl<T> Pool<T>
-where
-    T: Default + Clone,
-{
+impl<T> Pool<T> {
     /// Create a new pool with a given capacity
     pub fn with_capacity(capacity: usize) -> Self {
+        let mut pool = Vec::with_capacity(capacity);
+        pool.resize_with(capacity, || MaybeUninit::uninit());
+
         Pool {
             bitmap: BitVec::from_elem(capacity, false),
-            pool: vec![T::default(); capacity],
+            pool,
             len: 0,
             capacity,
             max_set: 0,
@@ -64,7 +63,8 @@ where
     /// Get an element from the pool
     pub fn get(&self, index: usize) -> Option<&T> {
         if self.bitmap.get(index).unwrap_or(false) {
-            Some(&self.pool[index])
+            // Safety: The element is initialized
+            Some(unsafe { self.pool[index].assume_init_ref() })
         } else {
             None
         }
@@ -73,17 +73,20 @@ where
     /// Get a mutable reference to an element in the pool
     pub fn get_mut(&mut self, index: usize) -> Option<&mut T> {
         if self.bitmap.get(index).unwrap_or(false) {
-            Some(&mut self.pool[index])
+            // Safety: The element is initialized
+            Some(unsafe { self.pool[index].assume_init_mut() })
         } else {
             None
         }
     }
 
     /// Insert an element into the pool
-    pub fn insert(&mut self, element: T) -> Option<usize> {
+    pub fn insert(&mut self, element: T) -> usize {
         // If length is equal to capacity, resize the pool
         if self.len == self.capacity {
-            self.pool.resize(2 * self.capacity, T::default());
+            // Resize the pool
+            self.pool
+                .resize_with(2 * self.capacity, || MaybeUninit::uninit());
             self.bitmap.grow(self.capacity, false);
             self.capacity *= 2;
 
@@ -98,16 +101,13 @@ where
             debug_assert!(self.bitmap.capacity() >= self.capacity);
         }
 
+        // Find the first unset bit and insert the element
         if let Some(index) = self.bitmap.iter().position(|x| !x) {
-            self.pool[index] = element;
-            self.bitmap.set(index, true);
-            self.len += 1;
+            self.insert_at(element, index)
+                .then_some(true)
+                .expect("insert_at failed");
 
-            if index > self.max_set {
-                self.max_set = index;
-            }
-
-            Some(index)
+            index
         } else {
             // This should never happen
             panic!("pool is full");
@@ -115,25 +115,41 @@ where
     }
 
     /// Insert the element in a given position
-    /// if the position does not existis the method fails
+    /// if the position does not exist the method fails
     /// return true on success
     pub fn insert_at(&mut self, element: T, index: usize) -> bool {
         if self.capacity < index {
             // position index cannot be accessed
             return false;
         }
+
         // put T at position index
-        self.pool[index] = element;
-        // we can safely unwrap because self.capacity < index
-        if !self.bitmap.get(index).unwrap() {
-            // if the bit is not set increase len
-            self.len += 1;
+        unsafe {
+            // we can safely unwrap because self.capacity < index
+            if !self.bitmap.get(index).unwrap_unchecked() {
+                // if the bit is not set, increase len
+                self.len += 1;
+            } else {
+                // If the bit is set we are replacing an element
+                // so we do not need to increase len, but we still need to
+                // call the in-place destructor first. This is safe because
+                // we are calling the destructor on an initialized element.
+                self.pool[index].assume_init_drop();
+            }
         }
+
+        // Mark the bit as set
         self.bitmap.set(index, true);
 
+        // Store the new element in the pool
+        self.pool[index] = MaybeUninit::new(element);
+
+        // If the index is greater than the max_set, update max_set
         if index > self.max_set {
             self.max_set = index;
         }
+
+        // Return success
         true
     }
 
@@ -141,8 +157,16 @@ where
     pub fn remove(&mut self, index: usize) -> bool {
         if self.bitmap.get(index).unwrap_or(false) {
             self.bitmap.set(index, false);
-            self.pool[index] = T::default();
 
+            // Drop existing element. This is safe, as we know the element is initialized.
+            unsafe {
+                self.pool[index].assume_init_drop();
+            };
+
+            // Store an uninit value in the pool
+            self.pool[index] = MaybeUninit::uninit();
+
+            // Decrease the length of the pool
             self.len -= 1;
 
             if index == self.max_set && index != 0 {
@@ -163,6 +187,21 @@ where
     }
 }
 
+impl<T> Drop for Pool<T> {
+    fn drop(&mut self) {
+        for i in 0..self.capacity {
+            if self.bitmap.get(i).unwrap_or(false) {
+                // Call the in-place destructor for active elements.
+                // Elements not mapped in the bitmap are not initialized, so
+                // we do not need to call the destructor for them.
+                unsafe {
+                    self.pool[i].assume_init_drop();
+                }
+            }
+        }
+    }
+}
+
 // tests
 #[cfg(test)]
 mod tests {
@@ -178,56 +217,56 @@ mod tests {
         assert_eq!(pool.max_set(), 0);
 
         let element = 42;
-        let index = pool.insert(element).unwrap();
+        let index = pool.insert(element);
         assert_eq!(pool.len(), 1);
         assert_eq!(pool.get(index), Some(&element));
         assert_eq!(pool.get_mut(index), Some(&mut 42));
         assert_eq!(pool.max_set(), 0);
 
         let element = 43;
-        let index = pool.insert(element).unwrap();
+        let index = pool.insert(element);
         assert_eq!(pool.len(), 2);
         assert_eq!(pool.get(index), Some(&element));
         assert_eq!(pool.get_mut(index), Some(&mut 43));
         assert_eq!(pool.max_set(), 1);
 
         let element = 44;
-        let index = pool.insert(element).unwrap();
+        let index = pool.insert(element);
         assert_eq!(pool.len(), 3);
         assert_eq!(pool.get(index), Some(&element));
         assert_eq!(pool.get_mut(index), Some(&mut 44));
         assert_eq!(pool.max_set(), 2);
 
         let element = 45;
-        let index = pool.insert(element).unwrap();
+        let index = pool.insert(element);
         assert_eq!(pool.len(), 4);
         assert_eq!(pool.get(index), Some(&element));
         assert_eq!(pool.get_mut(index), Some(&mut 45));
         assert_eq!(pool.max_set(), 3);
 
         let element = 46;
-        let index = pool.insert(element).unwrap();
+        let index = pool.insert(element);
         assert_eq!(pool.len(), 5);
         assert_eq!(pool.get(index), Some(&element));
         assert_eq!(pool.get_mut(index), Some(&mut 46));
         assert_eq!(pool.max_set(), 4);
 
         let element = 47;
-        let index = pool.insert(element).unwrap();
+        let index = pool.insert(element);
         assert_eq!(pool.len(), 6);
         assert_eq!(pool.get(index), Some(&element));
         assert_eq!(pool.get_mut(index), Some(&mut 47));
         assert_eq!(pool.max_set(), 5);
 
         let element = 48;
-        let index = pool.insert(element).unwrap();
+        let index = pool.insert(element);
         assert_eq!(pool.len(), 7);
         assert_eq!(pool.get(index), Some(&element));
         assert_eq!(pool.get_mut(index), Some(&mut 48));
         assert_eq!(pool.max_set(), 6);
 
         let element = 49;
-        let index = pool.insert(element).unwrap();
+        let index = pool.insert(element);
         assert_eq!(pool.len(), 8);
         assert_eq!(pool.get(index), Some(&element));
         assert_eq!(pool.get_mut(index), Some(&mut 49));
@@ -273,7 +312,7 @@ mod tests {
 
         // insert a very large number of elements in a loop to trigger resize
         for mut i in 0..1000 {
-            let index = pool.insert(i).unwrap();
+            let index = pool.insert(i);
             assert_eq!(pool.get(index), Some(&i));
             assert_eq!(pool.get_mut(index), Some(&mut i));
             assert_eq!(pool.max_set(), curr_max_set + 1);
@@ -311,7 +350,7 @@ mod tests {
 
         // Insert new elements in the pool and check whether they are inserted in the same indexes
         for mut i in 0..removed_indexes.len() {
-            let index = pool.insert(i).unwrap();
+            let index = pool.insert(i);
             assert_eq!(index, removed_indexes[i]);
             assert_eq!(pool.get(index), Some(&i));
             assert_eq!(pool.get_mut(index), Some(&mut i));

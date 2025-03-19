@@ -31,7 +31,7 @@ where
     pub fn insert(&self, connection: T) -> usize {
         // Get a write lock on the pool
         let mut pool = self.pool.write();
-        pool.insert(Arc::new(connection)).unwrap()
+        pool.insert(Arc::new(connection))
     }
 
     /// Add a connection to the table on a give index

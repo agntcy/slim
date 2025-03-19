@@ -20,7 +20,7 @@ pub struct Publish {
     #[prost(message, optional, tag = "4")]
     pub msg: ::core::option::Option<Content>,
 }
-/// recvFrom = connection form where the sub/unsub is supposed to be received
+/// recvFrom = connection from where the sub/unsub is supposed to be received
 /// forwardTo = connection where to forward the message
 /// incomingConn = connection from where the packet was received
 /// error = if true the publication contains an error notification

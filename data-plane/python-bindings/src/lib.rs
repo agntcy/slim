@@ -614,20 +614,10 @@ async fn publish_impl(
 
     let service = svc.sdk.read().await;
 
-    match conn_out {
-        Some(conn) => {
-            service
-                .service
-                .send_msg(&agent_class, id, fanout, blob, conn)
-                .await
-        }
-        None => {
-            service
-                .service
-                .publish(&agent_class, id, fanout, blob)
-                .await
-        }
-    }
+    service
+        .service
+        .publish_to(&agent_class, id, fanout, blob, conn_out)
+        .await
 }
 
 #[gen_stub_pyfunction]

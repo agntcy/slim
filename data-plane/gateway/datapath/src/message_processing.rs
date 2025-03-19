@@ -290,12 +290,12 @@ impl MessageProcessor {
         mut msg: Message,
         out_conn: u64,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        // clear header
-        clear_agp_header(&mut msg)?;
-
         let connection = self.forwarder().get_connection(out_conn);
         match connection {
             Some(conn) => {
+                // reset header fields
+                clear_agp_header(&mut msg)?;
+
                 let parent_context = extract_parent_context(&msg);
                 let span = tracing::span!(
                 tracing::Level::DEBUG,
@@ -336,6 +336,16 @@ impl MessageProcessor {
             agent_type, agent_id, fanout,
         );
 
+        // if the message already contains an output connection, use that one
+        // without performing any match in the subscription table
+        if let Some(val) = get_forward_to(&msg).unwrap_or(None) {
+            info!("forwarding message to connection {:?}", val);
+            return self.send_msg(msg, val).await.map_err(|e| {
+                error!("error sending a message {:?}", e);
+                DataPathError::PublicationError(e.to_string())
+            });
+        }
+
         match self
             .forwarder()
             .on_publish_msg_match(agent_type, agent_id, in_connection, fanout)
@@ -345,22 +355,16 @@ impl MessageProcessor {
                 // in the other cases clone only len - 1 times.
                 let mut i = 0;
                 while i < out_vec.len() - 1 {
-                    match self.send_msg(msg.clone(), out_vec[i]).await {
-                        Ok(_) => {}
-                        Err(e) => {
-                            error!("error sending a message {:?}", e);
-                            return Err(DataPathError::PublicationError(e.to_string()));
-                        }
-                    }
+                    self.send_msg(msg.clone(), out_vec[i]).await.map_err(|e| {
+                        error!("error sending a message {:?}", e);
+                        DataPathError::PublicationError(e.to_string())
+                    })?;
                     i += 1;
                 }
-                match self.send_msg(msg, out_vec[i]).await {
-                    Ok(_) => {}
-                    Err(e) => {
-                        error!("error sending a message {:?}", e);
-                        return Err(DataPathError::PublicationError(e.to_string()));
-                    }
-                }
+                self.send_msg(msg, out_vec[i]).await.map_err(|e| {
+                    error!("error sending a message {:?}", e);
+                    DataPathError::PublicationError(e.to_string())
+                })?;
                 Ok(())
             }
             Err(e) => {
