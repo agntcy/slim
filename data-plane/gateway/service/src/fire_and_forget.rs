@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: Copyright (c) 2025 Cisco and/or its affiliates.
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::session::{Id, Error, Session, State, SessionType, Common};
+use crate::session::{Common, Error, Id, Session, SessionType, State};
 
 use agp_datapath::pubsub::proto::pubsub::v1::Message;
 
@@ -30,11 +30,33 @@ impl Session for FireAndForget {
         self.common.session_type()
     }
 
-    fn on_publish(&self, _message: &mut Message) -> Result<(), Error> {
-        Ok(())
+    fn on_message_from_gateway(
+        &self,
+        message: Message,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), Error>> + Send>> {
+        // clone tx
+        let tx = self.common.north_tx();
+
+        Box::pin(async move {
+            // Nothing to do here, just pass the message to the app
+            tx.send(message)
+                .await
+                .map_err(|e| Error::AppTransmissionError(e.to_string()))
+        })
     }
 
-    fn on_receive(&self, _message: &mut Message) -> Result<(), Error> {
-        Ok(())
+    fn on_message_from_app(
+        &self,
+        message: Message,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), Error>> + Send>> {
+        // clone tx
+        let tx = self.common.south_tx();
+
+        Box::pin(async move {
+            // Nothing to do here, just pass the message to the app
+            tx.send(message)
+                .await
+                .map_err(|e| Error::AppTransmissionError(e.to_string()))
+        })
     }
 }

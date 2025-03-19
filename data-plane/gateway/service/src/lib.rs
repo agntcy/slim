@@ -4,12 +4,15 @@
 pub mod errors;
 pub mod session;
 
+mod fire_and_forget;
+
 use agp_datapath::messages::utils::{
     create_agp_header, create_default_service_header, create_publication, create_subscription_from,
     create_subscription_to_forward, create_unsubscription_from, create_unsubscription_to_forward,
 };
 use agp_datapath::messages::{Agent, AgentType};
 use serde::Deserialize;
+use session::SessionPool;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::mpsc;
@@ -104,6 +107,9 @@ pub struct Service {
 
     /// the configuration of the service
     config: ServiceConfiguration,
+
+    /// pool of sessions for the service
+    sessions: SessionPool,
 
     /// drain watch to shutdown the service
     watch: drain::Watch,
