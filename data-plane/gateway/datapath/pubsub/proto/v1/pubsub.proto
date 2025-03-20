@@ -68,7 +68,7 @@ enum ServiceHeaderType {
 // None in all the other cases
 
 // Service.rtx meaning according to ControlType
-// CTRL_RTX_REQUEST = id of the messing packet to retransmit
+// CTRL_RTX_REQUEST = id of the missing packet to retransmit
 // CTRL_RTX_REPLY = id of the retransmitted packet
 // None in all the other cases
 
