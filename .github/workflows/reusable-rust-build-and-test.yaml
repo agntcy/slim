@@ -79,6 +79,7 @@ jobs:
       - name: Install dependencies
         run: |
           task data-plane:fetch
+          task data-plane:tools:fetch
 
   lint:
     runs-on: ${{ inputs.runner }}
