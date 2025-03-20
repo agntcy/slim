@@ -50,7 +50,7 @@ tasks:
     cmds:
       - task: toolchain:build:install-cargo-components
         vars:
-          COMPONENTS: "cargo-sort cargo-audit cargo-llvm-cov cargo-machete@0.7.0 cargo-deny typos-cli release-plz"
+          COMPONENTS: "cargo-sort cargo-audit cargo-llvm-cov cargo-machete@0.7.0 cargo-deny@0.17.0 typos-cli release-plz"
 
   data-plane:check:
     desc: "Check the project"
