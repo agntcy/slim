@@ -113,7 +113,6 @@ tasks:
   data-plane:lint:
     desc: "Run the linter"
     deps:
-      - data-plane:fetch
       - data-plane:tools:fetch
     cmds:
       - task: data-plane:fmt:check
@@ -133,7 +132,6 @@ tasks:
   data-plane:test:
     desc: "Run the tests"
     deps:
-      - data-plane:fetch
       - data-plane:tools:fetch
     cmds:
       - task: toolchain:test
@@ -144,7 +142,6 @@ tasks:
   data-plane:test:coverage:
     desc: "Run tests coverage"
     deps:
-      - data-plane:fetch
       - data-plane:tools:fetch
     cmds:
       - task: toolchain:test:coverage
@@ -154,7 +151,6 @@ tasks:
   data-plane:build:
     desc: "Build the project"
     deps:
-      - data-plane:fetch
       - data-plane:tools:fetch
     cmds:
       - rm -f {{.TARGET_BIN}} {{.TARGET_BIN}}.dbg
@@ -176,7 +172,6 @@ tasks:
   data-plane:vuln:
     desc: "Check for vulnerabilities"
     deps:
-      - data-plane:fetch
       - data-plane:tools:fetch
     cmds:
       - task: toolchain:vuln
