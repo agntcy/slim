@@ -34,7 +34,7 @@ jobs:
           cache-directories: |
             .tools
           cache-on-failure: false
-          shared-key: ${{runner.os}}-rust-${{hashFiles('**/Cargo.lock')}}
+          shared-key: ${{runner.os}}-rust-${{hashFiles('**/Cargo.lock')}}-${{hashFiles('**/.cargo-components')}}
       - name: Run release-plz
         uses: release-plz/action@v0.5
         with:
@@ -69,7 +69,7 @@ jobs:
           cache-directories: |
             .tools
           cache-on-failure: false
-          shared-key: ${{runner.os}}-rust-${{hashFiles('**/Cargo.lock')}}
+          shared-key: ${{runner.os}}-rust-${{hashFiles('**/Cargo.lock')}}-${{hashFiles('**/.cargo-components')}}
       - name: Run release-plz
         uses: release-plz/action@v0.5
         with:

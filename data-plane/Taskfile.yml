@@ -47,10 +47,13 @@ tasks:
 
   data-plane:tools:fetch:
     desc: "Fetch the dependencies"
+    vars:
+      COMPONENTS: "cargo-sort cargo-audit cargo-llvm-cov cargo-machete@0.7.0 cargo-deny@0.17.0 typos-cli release-plz@0.3.120"
     cmds:
+      - cmd: sh -c "echo \"{{.COMPONENTS}}\" > .cargo-components"
       - task: toolchain:build:install-cargo-components
         vars:
-          COMPONENTS: "cargo-sort cargo-audit cargo-llvm-cov cargo-machete@0.7.0 cargo-deny@0.17.0 typos-cli release-plz@0.3.120"
+          COMPONENTS: "{{.COMPONENTS}}"
 
   data-plane:check:
     desc: "Check the project"

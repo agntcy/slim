@@ -74,7 +74,7 @@ jobs:
           cache-directories: |
             .tools
           cache-on-failure: false
-          shared-key: ${{runner.os}}-rust-${{hashFiles('**/Cargo.lock')}}
+          shared-key: ${{runner.os}}-rust-${{hashFiles('**/Cargo.lock')}}-${{hashFiles('**/.cargo-components')}}
 
       - name: Install dependencies
         run: |
@@ -104,7 +104,7 @@ jobs:
           cache-directories: |
             .tools
           cache-on-failure: false
-          shared-key: ${{runner.os}}-rust-${{hashFiles('**/Cargo.lock')}}
+          shared-key: ${{runner.os}}-rust-${{hashFiles('**/Cargo.lock')}}-${{hashFiles('**/.cargo-components')}}
 
       - name: lint
         run: |
@@ -136,7 +136,7 @@ jobs:
           cache-directories: |
             .tools
           cache-on-failure: false
-          shared-key: ${{runner.os}}-rust-${{hashFiles('**/Cargo.lock')}}
+          shared-key: ${{runner.os}}-rust-${{hashFiles('**/Cargo.lock')}}-${{hashFiles('**/.cargo-components')}}
 
       - name: Run `vuln`
         run: |
@@ -167,7 +167,7 @@ jobs:
           cache-directories: |
             .tools
           cache-on-failure: false
-          shared-key: ${{runner.os}}-rust-${{hashFiles('**/Cargo.lock')}}
+          shared-key: ${{runner.os}}-rust-${{hashFiles('**/Cargo.lock')}}-${{hashFiles('**/.cargo-components')}}
 
       - name: Run `coverage`
         run: |
@@ -198,7 +198,7 @@ jobs:
           cache-directories: |
             .tools
           cache-on-failure: false
-          shared-key: ${{runner.os}}-rust-${{hashFiles('**/Cargo.lock')}}
+          shared-key: ${{runner.os}}-rust-${{hashFiles('**/Cargo.lock')}}-${{hashFiles('**/.cargo-components')}}
 
       - name: Setup Python
         uses: ./.github/actions/setup-python
@@ -266,7 +266,7 @@ jobs:
           cache-directories: |
             .tools
           cache-on-failure: false
-          shared-key: ${{runner.os}}-rust-${{hashFiles('**/Cargo.lock')}}
+          shared-key: ${{runner.os}}-rust-${{hashFiles('**/Cargo.lock')}}-${{hashFiles('**/.cargo-components')}}
 
       - name: Build
         run: |
