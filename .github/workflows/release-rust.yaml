@@ -27,10 +27,14 @@ jobs:
           token: ${{ secrets.AGNTCY_BUILD_BOT_GH_TOKEN }}
       - name: Setup Rust
         uses: ./.github/actions/setup-rust
+      - name: Setup Rust Caching
+        uses: Swatinem/rust-cache@v2
         with:
-          cache-workspaces: ./data-plane
+          workspaces: ./data-plane
           cache-directories: |
             .tools
+          cache-on-failure: false
+          shared-key: ${{runner.os}}-rust-${{hashFiles('**/Cargo.lock')}}
       - name: Run release-plz
         uses: release-plz/action@v0.5
         with:
@@ -58,10 +62,14 @@ jobs:
           fetch-depth: 0
       - name: Setup Rust
         uses: ./.github/actions/setup-rust
+            - name: Setup Rust Caching
+        uses: Swatinem/rust-cache@v2
         with:
-          cache-workspaces: ./data-plane
+          workspaces: ./data-plane
           cache-directories: |
             .tools
+          cache-on-failure: false
+          shared-key: ${{runner.os}}-rust-${{hashFiles('**/Cargo.lock')}}
       - name: Run release-plz
         uses: release-plz/action@v0.5
         with:
