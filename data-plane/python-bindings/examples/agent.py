@@ -105,7 +105,11 @@ async def run_client(
         # Wait for a message and reply in a loop
         while True:
             session_info, src, msg = await gateway.receive()
-            print(format_message(f"{local_agent.capitalize()} received: {msg.decode()} from session {session_info.id}"))
+            print(
+                format_message(
+                    f"{local_agent.capitalize()} received: {msg.decode()} from session {session_info.id}"
+                )
+            )
 
             ret = f"Echo from {local_agent}: {msg.decode()}"
 

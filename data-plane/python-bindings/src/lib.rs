@@ -422,7 +422,7 @@ async fn create_agent_impl(
     // create local agent
     let agent = encode_agent(&agent_org, &agent_ns, &agent_class, id);
     let mut service = svc.sdk.write().await;
-    let rx = service.service.create_agent(&agent);
+    let rx = service.service.create_agent(&agent)?;
     service.rx = Some(rx);
     service.agent = Some(agent);
 
@@ -459,7 +459,7 @@ async fn create_session_impl(
 
     match &service.agent {
         Some(agent) => service.service.create_session(agent, session_type).await,
-        None => Err(ServiceError::MissingAgentError),
+        None => Err(ServiceError::AgentNotFound("no agent found".to_string())),
     }
 }
 
@@ -571,7 +571,9 @@ async fn subscribe_impl(
                 .subscribe(agent, &class, id, Some(conn))
                 .await
         }
-        None => Err(ServiceError::MissingAgentError),
+        None => Err(ServiceError::AgentNotFound(
+            "missing from service".to_string(),
+        )),
     }
 }
 
@@ -609,7 +611,9 @@ async fn unsubscribe_impl(
                 .unsubscribe(agent, &class, id, Some(conn))
                 .await
         }
-        None => Err(ServiceError::MissingAgentError),
+        None => Err(ServiceError::AgentNotFound(
+            "missing from service".to_string(),
+        )),
     }
 }
 
@@ -642,7 +646,9 @@ async fn set_route_impl(
 
     match &service.agent {
         Some(agent) => service.service.set_route(agent, &class, id, conn).await,
-        None => Err(ServiceError::MissingAgentError),
+        None => Err(ServiceError::AgentNotFound(
+            "missing from service".to_string(),
+        )),
     }
 }
 
@@ -675,7 +681,9 @@ async fn remove_route_impl(
 
     match &service.agent {
         Some(agent) => service.service.remove_route(agent, &class, id, conn).await,
-        None => Err(ServiceError::MissingAgentError),
+        None => Err(ServiceError::AgentNotFound(
+            "missing from service".to_string(),
+        )),
     }
 }
 
@@ -737,7 +745,9 @@ async fn publish_impl(
                 )
                 .await
         }
-        None => Err(ServiceError::MissingAgentError),
+        None => Err(ServiceError::AgentNotFound(
+            "missing from service".to_string(),
+        )),
     }
 }
 

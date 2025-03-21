@@ -233,5 +233,4 @@ class Gateway:
 
         """
 
-        info, source, msg = await receive(self.svc)
-        return info, source, msg
+        return await receive(self.svc)

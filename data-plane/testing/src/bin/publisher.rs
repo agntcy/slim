@@ -150,7 +150,9 @@ async fn main() {
 
     // create local agent
     let agent_name = encode_agent("cisco", "default", "publisher", id);
-    let mut rx = svc.create_agent(&agent_name);
+    let mut rx = svc
+        .create_agent(&agent_name)
+        .expect("failed to create agent");
 
     // connect to the remote gateway
     let conn_id = svc.connect(None).await.unwrap();

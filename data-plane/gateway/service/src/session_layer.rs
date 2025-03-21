@@ -18,6 +18,9 @@ pub(crate) struct SessionLayer {
     /// Session pool
     pool: RwLock<HashMap<Id, Box<dyn Session + Send + Sync>>>,
 
+    /// ID of the local connection
+    conn_id: u64,
+
     /// Tx channels
     tx_gw: Sender<Result<Message, Status>>,
     tx_app: Sender<(Message, Info)>,
@@ -32,11 +35,13 @@ impl std::fmt::Debug for SessionLayer {
 impl SessionLayer {
     /// Create a new session pool
     pub(crate) fn new(
+        conn_id: u64,
         tx_gw: Sender<Result<Message, Status>>,
         tx_app: Sender<(Message, Info)>,
     ) -> SessionLayer {
         SessionLayer {
             pool: RwLock::new(HashMap::new()),
+            conn_id,
             tx_gw,
             tx_app,
         }
@@ -49,6 +54,10 @@ impl SessionLayer {
     #[allow(dead_code)]
     pub(crate) fn tx_app(&self) -> Sender<(Message, Info)> {
         self.tx_app.clone()
+    }
+
+    pub(crate) fn conn_id(&self) -> u64 {
+        self.conn_id
     }
 
     /// Insert a new session into the pool
@@ -236,7 +245,7 @@ mod tests {
         let (tx_gw, _) = tokio::sync::mpsc::channel(1);
         let (tx_app, _) = tokio::sync::mpsc::channel(1);
 
-        SessionLayer::new(tx_gw, tx_app)
+        SessionLayer::new(0, tx_gw, tx_app)
     }
 
     #[tokio::test]
@@ -251,7 +260,7 @@ mod tests {
         let (tx_gw, _) = tokio::sync::mpsc::channel(1);
         let (tx_app, _) = tokio::sync::mpsc::channel(1);
 
-        let session_layer = SessionLayer::new(tx_gw.clone(), tx_app.clone());
+        let session_layer = SessionLayer::new(0, tx_gw.clone(), tx_app.clone());
 
         let session = Box::new(FireAndForget::new(
             1,
@@ -269,7 +278,7 @@ mod tests {
         let (tx_gw, _) = tokio::sync::mpsc::channel(1);
         let (tx_app, _) = tokio::sync::mpsc::channel(1);
 
-        let session_layer = SessionLayer::new(tx_gw.clone(), tx_app.clone());
+        let session_layer = SessionLayer::new(0, tx_gw.clone(), tx_app.clone());
 
         let session = Box::new(FireAndForget::new(
             1,
@@ -289,7 +298,7 @@ mod tests {
         let (tx_gw, _) = tokio::sync::mpsc::channel(1);
         let (tx_app, _) = tokio::sync::mpsc::channel(1);
 
-        let session_layer = SessionLayer::new(tx_gw.clone(), tx_app.clone());
+        let session_layer = SessionLayer::new(0, tx_gw.clone(), tx_app.clone());
 
         let res = session_layer
             .create_session(SessionType::FireAndForget, None)
@@ -302,7 +311,7 @@ mod tests {
         let (tx_gw, _) = tokio::sync::mpsc::channel(1);
         let (tx_app, mut rx_app) = tokio::sync::mpsc::channel(1);
 
-        let session_layer = SessionLayer::new(tx_gw.clone(), tx_app.clone());
+        let session_layer = SessionLayer::new(0, tx_gw.clone(), tx_app.clone());
 
         let session = Box::new(FireAndForget::new(
             1,

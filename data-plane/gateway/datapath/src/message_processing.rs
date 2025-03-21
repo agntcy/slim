@@ -235,6 +235,7 @@ impl MessageProcessor {
                         // here token cancel will stop the receiving loop on
                         // conn and this will cause the delition of the state
                         // for this connection
+                        debug!("cancelling connection to connection: {}", conn);
                         t.cancel();
                     }
                 }
@@ -247,6 +248,7 @@ impl MessageProcessor {
     pub fn register_local_connection(
         &self,
     ) -> (
+        u64,
         tokio::sync::mpsc::Sender<Result<Message, Status>>,
         tokio::sync::mpsc::Receiver<Result<Message, Status>>,
     ) {
@@ -259,7 +261,10 @@ impl MessageProcessor {
         let (tx2, rx2) = mpsc::channel(128);
 
         // create a connection
-        let connection = Connection::new(ConnectionType::Local).with_channel(Channel::Server(tx2));
+        let cancellation_token = CancellationToken::new();
+        let connection = Connection::new(ConnectionType::Local)
+            .with_channel(Channel::Server(tx2))
+            .with_cancellation_token(Some(cancellation_token.clone()));
 
         // add it to the connection table
         let conn_id = self
@@ -275,12 +280,12 @@ impl MessageProcessor {
             ReceiverStream::new(rx1),
             conn_id,
             None,
-            CancellationToken::new(),
+            cancellation_token,
             true,
         );
 
-        // return the handles to be used to send and receive messages
-        (tx1, rx2)
+        // return the conn_id and  handles to be used to send and receive messages
+        (conn_id, tx1, rx2)
     }
 
     pub async fn send_msg(

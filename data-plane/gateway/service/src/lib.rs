@@ -171,19 +171,27 @@ impl Service {
     }
 
     // APP APIs
-    // TODO(msardara): unit tests the APIs
-    pub fn create_agent(&mut self, agent_name: &Agent) -> mpsc::Receiver<(Message, session::Info)> {
+    pub fn create_agent(
+        &mut self,
+        agent_name: &Agent,
+    ) -> Result<mpsc::Receiver<(Message, session::Info)>, ServiceError> {
+        // make sure the agent is not already registered
+        if self.session_layers.contains_key(agent_name) {
+            error!("agent {:?} already exists", agent_name);
+            return Err(ServiceError::AgentAlreadyRegistered(agent_name.to_string()));
+        }
+
         info!("creating agent {:?}", agent_name);
 
         // Channels to communicate with the gateway
-        let (tx_gw, rx_gw) = self.message_processor.register_local_connection();
+        let (conn_id, tx_gw, rx_gw) = self.message_processor.register_local_connection();
 
         // Channels to communicate with the local app
         // TODO(msardara): make the buffer size configurable
         let (tx_app, rx_app) = mpsc::channel(128);
 
         // create session layer
-        let session_layer = Arc::new(SessionLayer::new(tx_gw, tx_app));
+        let session_layer = Arc::new(SessionLayer::new(conn_id, tx_gw, tx_app));
 
         // register agent within session layers
         self.session_layers
@@ -193,7 +201,27 @@ impl Service {
         self.process_messages(agent_name.clone(), session_layer, rx_gw);
 
         // return the rx channel
-        rx_app
+        Ok(rx_app)
+    }
+
+    pub fn delete_agent(&mut self, agent_name: &Agent) -> Result<(), ServiceError> {
+        match self.session_layers.remove(agent_name) {
+            None => {
+                error!("agent {:?} not found", agent_name);
+                Err(ServiceError::AgentNotFound(agent_name.to_string()))
+            }
+            Some(layer) => {
+                info!("deleting agent {}", agent_name);
+
+                // disconnect local connection (this should also end the processing loop)
+                self.message_processor
+                    .disconnect(layer.conn_id())
+                    .map_err(|e| {
+                        error!("error disconnecting agent: {}", e);
+                        ServiceError::DisconnectError
+                    })
+            }
+        }
     }
 
     pub fn serve(&self, new_config: Option<ServerConfig>) -> Result<(), ServiceError> {
@@ -308,8 +336,8 @@ impl Service {
     ) -> Result<(), ServiceError> {
         let session = match self.session_layers.get(agent) {
             None => {
-                error!("agent {:?} not found", agent);
-                return Err(ServiceError::MissingAgentError);
+                error!("agent {} not found", agent);
+                return Err(ServiceError::AgentNotFound(agent.to_string()));
             }
             Some(layer) => layer,
         };
@@ -319,11 +347,11 @@ impl Service {
                 .handle_message(msg, MessageDirection::South, Some(id))
                 .await
                 .map_err(|e| {
-                    error!("error sending the message to session {}: {:?}", id, e);
+                    error!("error sending the message to session {}: {}", id, e);
                     ServiceError::SessionSendError(e.to_string())
                 }),
             None => session.tx_gw().send(Ok(msg)).await.map_err(|e| {
-                error!("error sending the subscription {:?}", e);
+                error!("error sending the subscription {}", e);
                 ServiceError::SubscriptionError(e.to_string())
             }),
         }
@@ -336,7 +364,7 @@ impl Service {
         agent_id: Option<u64>,
         conn: Option<u64>,
     ) -> Result<(), ServiceError> {
-        debug!("subscribe to {:?}/{:?}", agent_type, agent_id);
+        debug!("subscribe to {}/{:?}", agent_type, agent_id);
 
         let msg = utils::create_subscription(local_agent, agent_type, agent_id, None, conn);
         self.send_message(local_agent, None, msg).await
@@ -349,7 +377,7 @@ impl Service {
         agent_id: Option<u64>,
         conn: Option<u64>,
     ) -> Result<(), ServiceError> {
-        debug!("unsubscribe from {:?}/{:?}", agent_type, agent_id);
+        debug!("unsubscribe from {}/{:?}", agent_type, agent_id);
 
         let msg = utils::create_unsubscription(local_agent, agent_type, agent_id, None, conn);
         self.send_message(local_agent, None, msg).await
@@ -362,7 +390,7 @@ impl Service {
         agent_id: Option<u64>,
         conn: u64,
     ) -> Result<(), ServiceError> {
-        debug!("set route to {:?}/{:?}", agent_type, agent_id);
+        debug!("set route to {}/{:?}", agent_type, agent_id);
 
         // send a message with subscription from
         let msg = utils::create_subscription(local_agent, agent_type, agent_id, Some(conn), None);
@@ -376,7 +404,7 @@ impl Service {
         agent_id: Option<u64>,
         conn: u64,
     ) -> Result<(), ServiceError> {
-        debug!("unset route to {:?}/{:?}", agent_type, agent_id);
+        debug!("unset route to {}/{:?}", agent_type, agent_id);
 
         //  send a message with unsubscription from
         let msg = utils::create_unsubscription(local_agent, agent_type, agent_id, Some(conn), None);
@@ -407,7 +435,7 @@ impl Service {
         blob: Vec<u8>,
         out_conn: Option<u64>,
     ) -> Result<(), ServiceError> {
-        debug!("sending publication to {:?}/{:?}", agent_type, agent_id);
+        debug!("sending publication to {}/{:?}", agent_type, agent_id);
 
         let msg = utils::create_publication(
             source, agent_type, agent_id, None, out_conn, fanout, "msg", blob,
@@ -427,7 +455,7 @@ impl Service {
         let watch = self.watch.clone();
 
         tokio::spawn(async move {
-            debug!("starting message processing loop for agent {:?}", agent);
+            debug!("starting message processing loop for agent {}", agent);
 
             // subscribe for local agent running this loop
             let subscribe_msg = utils::create_subscription(
@@ -472,18 +500,18 @@ impl Service {
                                             .await;
 
                                         if let Err(e) = res {
-                                            error!("error handling message: {:?}", e);
+                                            error!("error handling message: {}", e);
                                         }
                                     }
                                     Err(e) => {
-                                        error!("error receiving message: {:?}", e);
+                                        error!("error receiving message: {}", e);
                                     }
                                 }
                             }
                         }
                     }
                     _ = watch.clone().signaled() => {
-                        info!("shutting down processing on drain for agent: {:?}", agent);
+                        info!("shutting down processing on drain for agent: {}", agent);
                         break;
                     }
                 }
@@ -501,15 +529,15 @@ impl Service {
         let layer = self.session_layers.get(agent);
 
         if layer.is_none() {
-            error!("agent {:?} not found", layer);
-            return Err(ServiceError::MissingAgentError);
+            error!("agent {} not found", agent);
+            return Err(ServiceError::AgentNotFound(agent.to_string()));
         }
 
         let layer = layer.unwrap();
 
         // create a new fire and forget session
         layer.create_session(session_type, None).await.map_err(|e| {
-            error!("error creating session: {:?}", e);
+            error!("error creating session: {}", e);
             ServiceError::SessionCreationError(e.to_string())
         })
     }
@@ -524,8 +552,8 @@ impl Service {
         let layer = self.session_layers.get(agent);
 
         if layer.is_none() {
-            error!("agent {:?} not found", layer);
-            return Err(ServiceError::MissingAgentError);
+            error!("agent {} not found", agent);
+            return Err(ServiceError::AgentNotFound(agent.to_string()));
         }
 
         let layer = layer.unwrap();
@@ -672,7 +700,9 @@ mod tests {
 
         // create a subscriber
         let subscriber_agent = encoder::encode_agent("cisco", "default", "subscriber_agent", 0);
-        let mut sub_rx = service.create_agent(&subscriber_agent);
+        let mut sub_rx = service
+            .create_agent(&subscriber_agent)
+            .expect("failed to create agent");
 
         // create a publisher
         let publisher_agent = encoder::encode_agent("cisco", "default", "publisher_agent", 0);
@@ -720,5 +750,26 @@ mod tests {
 
         // make also sure the session ids correspond
         assert_eq!(session_id, info.id);
+
+        // Now remove the session from the 2 agents
+        service
+            .delete_session(&publisher_agent, session_id)
+            .await
+            .unwrap();
+        service
+            .delete_session(&subscriber_agent, session_id)
+            .await
+            .unwrap();
+
+        // And remove the agents
+        service.delete_agent(&publisher_agent).unwrap();
+        service.delete_agent(&subscriber_agent).unwrap();
+
+        // sleep to allow the deletion to be processed
+        time::sleep(Duration::from_millis(100)).await;
+
+        // This should also trigger a stop of the message processing loop.
+        // Make sure the loop stopped by checking the logs
+        assert!(logs_contain("no more messages to process"));
     }
 }
