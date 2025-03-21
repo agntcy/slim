@@ -235,7 +235,6 @@ impl MessageProcessor {
                         // here token cancel will stop the receiving loop on
                         // conn and this will cause the delition of the state
                         // for this connection
-                        debug!("cancelling connection to connection: {}", conn);
                         t.cancel();
                     }
                 }
