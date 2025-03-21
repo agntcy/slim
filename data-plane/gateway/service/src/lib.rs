@@ -6,7 +6,7 @@ pub mod producer_buffer;
 pub mod receiver_buffer;
 
 use agp_datapath::messages::utils::{
-    create_agp_header, create_default_service_header, create_publication, create_subscription_from,
+    create_agp_header, create_default_session_header, create_publication, create_subscription_from,
     create_subscription_to_forward, create_unsubscription_from, create_unsubscription_to_forward,
 };
 use agp_datapath::messages::{Agent, AgentType};
@@ -418,7 +418,7 @@ impl Service {
 
         let msg = create_publication(
             header,
-            create_default_service_header(),
+            create_default_session_header(),
             HashMap::new(),
             fanout,
             "msg",

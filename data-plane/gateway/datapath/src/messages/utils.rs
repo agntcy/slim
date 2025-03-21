@@ -5,9 +5,9 @@ use std::collections::HashMap;
 
 use super::encoder::{Agent, AgentType, DEFAULT_AGENT_ID};
 use crate::pubsub::{
-    proto::pubsub::v1::ServiceHeaderType, AgpHeader, Content, ProtoAgent, ProtoMessage,
+    proto::pubsub::v1::SessionHeaderType, AgpHeader, Content, ProtoAgent, ProtoMessage,
     ProtoPublish, ProtoPublishType, ProtoSubscribe, ProtoSubscribeType, ProtoUnsubscribe,
-    ProtoUnsubscribeType, ServiceHeader,
+    ProtoUnsubscribeType, SessionHeader,
 };
 
 use rand::Rng;
@@ -186,14 +186,14 @@ pub fn get_name(msg: &ProtoMessage) -> Result<(AgentType, Option<u64>), MessageE
     }
 }
 
-// utils functions for service header
-pub fn create_service_header(
+// utils functions for session header
+pub fn create_session_header(
     header_type: i32,
     id: u32,
     stream: Option<u32>,
     rtx: Option<u32>,
-) -> Option<ServiceHeader> {
-    Some(ServiceHeader {
+) -> Option<SessionHeader> {
+    Some(SessionHeader {
         header_type,
         id,
         stream,
@@ -201,11 +201,11 @@ pub fn create_service_header(
     })
 }
 
-pub fn create_default_service_header() -> Option<ServiceHeader> {
-    create_service_header(ServiceHeaderType::CtrlFnf.into(), 0, None, None)
+pub fn create_default_session_header() -> Option<SessionHeader> {
+    create_session_header(SessionHeaderType::Fnf.into(), 0, None, None)
 }
 
-// getters for service header
+// getters for session header
 pub fn get_msg_id(msg: &ProtoPublish) -> Result<u32, MessageError> {
     match msg.control {
         Some(header) => Ok(header.id),
@@ -349,7 +349,7 @@ pub fn create_unsubscription_to_forward(
 
 pub fn create_publication(
     header: Option<AgpHeader>,
-    control: Option<ServiceHeader>,
+    control: Option<SessionHeader>,
     metadata: HashMap<String, String>,
     fanout: u32,
     content_type: &str,
@@ -382,7 +382,7 @@ pub fn create_error_publication(error: String) -> ProtoMessage {
     );
     create_publication(
         header,
-        create_default_service_header(),
+        create_default_session_header(),
         HashMap::new(),
         1,
         "",
@@ -400,11 +400,11 @@ pub fn create_rtx_publication(
     content: Option<Vec<u8>>,
 ) -> ProtoMessage {
     let agp_header = create_agp_header(source, name_type, name_id, None, None, None, None);
-    let mut rtx_type = ServiceHeaderType::CtrlRtxRequest;
+    let mut rtx_type = SessionHeaderType::RtxRequest;
     if !is_request {
-        rtx_type = ServiceHeaderType::CtrlRtxReply;
+        rtx_type = SessionHeaderType::RtxReply;
     }
-    let session_header = create_service_header(
+    let session_header = create_session_header(
         rtx_type.into(),
         rand::rng().random(),
         Some(session),
@@ -536,7 +536,7 @@ mod tests {
 
         let mut p = create_publication(
             header,
-            create_default_service_header(),
+            create_default_session_header(),
             HashMap::new(),
             10,
             "str",

@@ -118,8 +118,8 @@ impl ProcducerBuffer {
 mod tests {
     use super::*;
     use agp_datapath::{
-        messages::utils::{create_publication, create_service_header, get_message_as_publish},
-        pubsub::proto::pubsub::v1::ServiceHeaderType,
+        messages::utils::{create_publication, create_session_header, get_message_as_publish},
+        pubsub::proto::pubsub::v1::SessionHeaderType,
     };
 
     #[test]
@@ -128,11 +128,11 @@ mod tests {
 
         assert_eq!(buffer.get_capacity(), 3);
 
-        let h0 = create_service_header(ServiceHeaderType::CtrlFnf.into(), 0, None, None);
-        let h1 = create_service_header(ServiceHeaderType::CtrlFnf.into(), 1, None, None);
-        let h2 = create_service_header(ServiceHeaderType::CtrlFnf.into(), 2, None, None);
-        let h3 = create_service_header(ServiceHeaderType::CtrlFnf.into(), 3, None, None);
-        let h4 = create_service_header(ServiceHeaderType::CtrlFnf.into(), 4, None, None);
+        let h0 = create_session_header(SessionHeaderType::Fnf.into(), 0, None, None);
+        let h1 = create_session_header(SessionHeaderType::Fnf.into(), 1, None, None);
+        let h2 = create_session_header(SessionHeaderType::Fnf.into(), 2, None, None);
+        let h3 = create_session_header(SessionHeaderType::Fnf.into(), 3, None, None);
+        let h4 = create_session_header(SessionHeaderType::Fnf.into(), 4, None, None);
 
         let p0 = create_publication(None, h0, HashMap::new(), 1, "", vec![]);
         let p1 = create_publication(None, h1, HashMap::new(), 1, "", vec![]);

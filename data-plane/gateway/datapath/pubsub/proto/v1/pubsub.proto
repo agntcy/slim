@@ -18,7 +18,7 @@ message Unsubscribe {
 
 message Publish {
   AGPHeader header = 1;
-  ServiceHeader control = 2;
+  SessionHeader control = 2;
   uint32 fanout = 3;
   Content msg = 4;
 }
@@ -43,37 +43,37 @@ message Agent {
   optional uint64 agent_id = 4;
 }
 
-enum ServiceHeaderType {
-  CTRL_UNSPECIFIED = 0;
-  CTRL_FNF = 1;
-  CTRL_REQUEST = 2;
-  CTRL_REPLY = 3;
-  CTRL_STREAM = 4;
-  CTRL_RTX_REQUEST = 5;
-  CTRL_RTX_REPLY = 6;
+enum SessionHeaderType {
+  UNSPECIFIED = 0;
+  FNF = 1;
+  REQUEST = 2;
+  REPLY = 3;
+  STREAM = 4;
+  RTX_REQUEST = 5;
+  RTX_REPLY = 6;
 }
 
-// Service.id meaning according to ControlType
-// CTRL_FNF = nonce
-// CTRL_REQUEST = nonce
-// CTRL_REPLY = nonce of the associated CTRL_REQUEST
-// CTRL_STREAM = sequential incremental ID
-// CTRL_RTX_REQUEST = nonce
-// CTRL_RTX_REPLY = nonce of the associated CTRL_RTX_REQUEST
+// Session.id meaning according to the SessionHeaderType
+// FNF = nonce
+// REQUEST = nonce
+// REPLY = nonce of the associated REQUEST
+// STREAM = sequential incremental ID
+// RTX_REQUEST = nonce
+// RTX_REPLY = nonce of the associated RTX_REQUEST
 
-// Service.stream meaning according to ControlType
-// CTRL_STREAM = stream for which the id field is valid
-// CTRL_RTX_REQUEST = stream for this CTRL_RTX_REQUEST
-// CTRL_RTX_REPLY = stream for this CTRL_RTX_REPLY
+// Session.stream meaning according to the SessionHeaderType
+// STREAM = stream for which the id field is valid
+// RTX_REQUEST = stream for this RTX_REQUEST
+// RTX_REPLY = same as the on in the associated RTX_REQUEST
 // None in all the other cases
 
-// Service.rtx meaning according to ControlType
-// CTRL_RTX_REQUEST = id of the missing packet to retransmit
-// CTRL_RTX_REPLY = id of the retransmitted packet
+// Session.rtx meaning according to SessionHeaderType
+// RTX_REQUEST = id of the missing packet to retransmit
+// RTX_REPLY = id of the retransmitted packet
 // None in all the other cases
 
-message ServiceHeader {
-  ServiceHeaderType header_type = 1;
+message SessionHeader {
+  SessionHeaderType header_type = 1;
   uint32 id = 2;
   optional uint32 stream = 3;
   optional uint32 rtx = 4;
