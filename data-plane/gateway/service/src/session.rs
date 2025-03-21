@@ -5,24 +5,25 @@ use std::future::Future;
 use std::pin::Pin;
 
 use thiserror::Error;
+use tonic::Status;
 
 use agp_datapath::pubsub::proto::pubsub::v1::Message;
-
-/// Session ID
-pub type Id = u32;
 
 #[derive(Error, Debug)]
 pub(crate) enum Error {
     #[error("error receiving message from gateway {0}")]
-    GatewayReceptionError(String),
+    #[allow(dead_code)]
+    GatewayReception(String),
     #[error("error sending message to gateway {0}")]
-    GatewayTransmissionError(String),
+    GatewayTransmission(String),
     #[error("error receiving message from app {0}")]
-    AppReceptionError(String),
+    #[allow(dead_code)]
+    AppReception(String),
     #[error("error sending message to app {0}")]
-    AppTransmissionError(String),
+    AppTransmission(String),
     #[error("error processing message {0}")]
-    ProcessingError(String),
+    #[allow(dead_code)]
+    Processing(String),
     #[error("session id already used {0}")]
     SessionIdAlreadyUsed(String),
     #[error("missing AGP header {0}")]
@@ -37,26 +38,57 @@ pub(crate) enum Error {
     MissingSessionId(String),
 }
 
+/// Session ID
+pub type Id = u32;
+
+/// Session Info
+#[derive(Clone, PartialEq, Debug)]
+pub struct Info {
+    pub id: Id,
+    pub session_type: SessionType,
+    pub state: State,
+
+    pub message_nonce: u32,
+    pub message_count: u32,
+}
+
+impl Info {
+    pub fn new(id: Id, session_type: SessionType, state: State) -> Info {
+        Info {
+            id,
+            session_type,
+            state,
+            message_nonce: 0,
+            message_count: 0,
+        }
+    }
+}
+
 /// The state of a session
-pub(crate) enum State {
+#[derive(Clone, PartialEq, Debug)]
+pub enum State {
     Active,
     Inactive,
 }
 
 /// The type of a session
+#[derive(Clone, PartialEq, Debug)]
 pub(crate) enum SessionDirection {
+    #[allow(dead_code)]
     Sender,
+    #[allow(dead_code)]
     Receiver,
     Bidirectional,
 }
 
-#[derive(PartialEq)]
+#[derive(Clone, PartialEq, Debug)]
 pub(crate) enum MessageDirection {
     North,
     South,
 }
 
-pub(crate) enum SessionType {
+#[derive(Clone, PartialEq, Debug)]
+pub enum SessionType {
     FireAndForget,
     RequestResponse,
     PublishSubscribe,
@@ -76,13 +108,16 @@ impl std::fmt::Display for SessionType {
 
 pub(crate) trait Session {
     // Session ID
+    #[allow(dead_code)]
     fn id(&self) -> Id;
 
     // get the session state
+    #[allow(dead_code)]
     fn state(&self) -> &State;
 
     // get the session type
-    fn session_type(&self) -> &SessionDirection;
+    #[allow(dead_code)]
+    fn session_type(&self) -> SessionType;
 
     // publish a message as part of the session
     fn on_message(
@@ -100,36 +135,30 @@ pub(crate) struct Common {
     /// Session state
     state: State,
 
-    /// Session type
-    session_type: SessionDirection,
+    /// Session direction
+    #[allow(dead_code)]
+    session_direction: SessionDirection,
 
-    /// tx channel to send messages to the underlying gateway
-    south_tx: tokio::sync::mpsc::Sender<Message>,
+    /// Sender for messages to gw
+    tx_gw: tokio::sync::mpsc::Sender<Result<Message, Status>>,
 
-    /// rx channel to receive messages from the underlying gateway
-    south_rx: tokio::sync::mpsc::Receiver<Message>,
-
-    /// tx channel to send messages to the app
-    north_tx: tokio::sync::mpsc::Sender<Message>,
-
-    /// rx channel to receive messages from the app
-    north_rx: tokio::sync::mpsc::Receiver<Message>,
+    /// Sender for messages to app
+    tx_app: tokio::sync::mpsc::Sender<(Message, Info)>,
 }
 
 impl Common {
-    pub(crate) fn new(id: Id, session_type: SessionDirection) -> Common {
-        // create the internal channel
-        let (south_tx, south_rx) = tokio::sync::mpsc::channel(128);
-        let (north_tx, north_rx) = tokio::sync::mpsc::channel(128);
-
+    pub(crate) fn new(
+        id: Id,
+        session_direction: SessionDirection,
+        tx_gw: tokio::sync::mpsc::Sender<Result<Message, Status>>,
+        tx_app: tokio::sync::mpsc::Sender<(Message, Info)>,
+    ) -> Common {
         Common {
             id,
             state: State::Active,
-            session_type,
-            south_tx,
-            south_rx,
-            north_tx,
-            north_rx,
+            session_direction,
+            tx_gw,
+            tx_app,
         }
     }
 
@@ -143,16 +172,11 @@ impl Common {
         &self.state
     }
 
-    /// get the session type
-    pub(crate) fn session_type(&self) -> &SessionDirection {
-        &self.session_type
+    pub(crate) fn tx_gw(&self) -> tokio::sync::mpsc::Sender<Result<Message, Status>> {
+        self.tx_gw.clone()
     }
 
-    pub(crate) fn south_tx(&self) -> tokio::sync::mpsc::Sender<Message> {
-        self.south_tx.clone()
-    }
-
-    pub(crate) fn north_tx(&self) -> tokio::sync::mpsc::Sender<Message> {
-        self.north_tx.clone()
+    pub(crate) fn tx_app(&self) -> tokio::sync::mpsc::Sender<(Message, Info)> {
+        self.tx_app.clone()
     }
 }

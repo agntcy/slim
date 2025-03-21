@@ -11,13 +11,13 @@ use pyo3::exceptions::PyException;
 use pyo3::prelude::*;
 use pyo3_stub_gen::define_stub_info_gatherer;
 use pyo3_stub_gen::derive::gen_stub_pyclass;
+use pyo3_stub_gen::derive::gen_stub_pyclass_enum;
 use pyo3_stub_gen::derive::gen_stub_pyfunction;
 use pyo3_stub_gen::derive::gen_stub_pymethods;
 use rand::Rng;
 use tokio::sync::mpsc;
 use tokio::sync::OnceCell;
 use tokio::sync::RwLock;
-use tonic::Status;
 
 use agp_config::auth::basic::Config as BasicAuthConfig;
 use agp_config::grpc::{
@@ -25,13 +25,17 @@ use agp_config::grpc::{
     server::AuthenticationConfig as ServerAuthenticationConfig, server::ServerConfig,
 };
 use agp_config::tls::{client::TlsClientConfig, server::TlsServerConfig};
-use agp_datapath::messages::encoder::{encode_agent, encode_agent_type, AgentType};
+use agp_datapath::messages::encoder::{encode_agent, encode_agent_type, Agent, AgentType};
 use agp_datapath::messages::utils::get_incoming_connection;
 use agp_datapath::pubsub::proto::pubsub::v1::Message;
 use agp_datapath::pubsub::ProtoAgent;
+use agp_service::session;
 use agp_service::{Service, ServiceError};
 
 static TRACING_GUARD: OnceCell<agp_tracing::OtelGuard> = OnceCell::const_new();
+
+// TODO(msardara): most of the structs here shouhld be generated with a macro
+// to reflect any change that may occur in the gateway code
 
 /// gatewayconfig class
 #[gen_stub_pyclass]
@@ -320,6 +324,50 @@ impl PyAgentSource {
     }
 }
 
+/// session type
+#[gen_stub_pyclass_enum]
+#[pyclass(eq, eq_int)]
+#[derive(Clone, PartialEq)]
+enum PySessionType {
+    FireAndForget,
+    RequestResponse,
+    PublishSubscribe,
+    Streaming,
+}
+
+impl From<PySessionType> for session::SessionType {
+    fn from(session_type: PySessionType) -> Self {
+        match session_type {
+            PySessionType::FireAndForget => session::SessionType::FireAndForget,
+            PySessionType::RequestResponse => session::SessionType::RequestResponse,
+            PySessionType::PublishSubscribe => session::SessionType::PublishSubscribe,
+            PySessionType::Streaming => session::SessionType::Streaming,
+        }
+    }
+}
+
+// TODO(msardara): this must be generated and equivalent to the session::Info struct
+#[gen_stub_pyclass]
+#[pyclass]
+#[derive(Clone)]
+struct PySessionInfo {
+    pub id: u32,
+}
+
+#[gen_stub_pymethods]
+#[pymethods]
+impl PySessionInfo {
+    #[new]
+    pub fn new(id: u32) -> Self {
+        PySessionInfo { id }
+    }
+
+    #[getter]
+    pub fn get_id(&self) -> u32 {
+        self.id
+    }
+}
+
 #[gen_stub_pyclass]
 #[pyclass]
 #[derive(Clone)]
@@ -330,7 +378,8 @@ struct PyService {
 
 struct PyServiceInternal {
     service: Service,
-    rx: Option<mpsc::Receiver<Result<Message, Status>>>,
+    agent: Option<Agent>,
+    rx: Option<mpsc::Receiver<(Message, agp_service::session::Info)>>,
 }
 
 #[gen_stub_pymethods]
@@ -342,6 +391,7 @@ impl PyService {
         PyService {
             sdk: Arc::new(RwLock::new(PyServiceInternal {
                 service: Service::new(svc_id),
+                agent: None,
                 rx: None,
             })),
             config: None,
@@ -370,10 +420,11 @@ async fn create_agent_impl(
     };
 
     // create local agent
-    let agent_name = encode_agent(&agent_org, &agent_ns, &agent_class, id);
+    let agent = encode_agent(&agent_org, &agent_ns, &agent_class, id);
     let mut service = svc.sdk.write().await;
-    let rx = service.service.create_agent(agent_name);
+    let rx = service.service.create_agent(&agent);
     service.rx = Some(rx);
+    service.agent = Some(agent);
 
     Ok(id)
 }
@@ -392,6 +443,36 @@ fn create_agent(
     let clone = svc.clone();
     pyo3_async_runtimes::tokio::future_into_py(py, async move {
         create_agent_impl(clone, agent_org, agent_ns, agent_class, agent_id)
+            .await
+            .map_err(|e| PyErr::new::<PyException, _>(format!("{}", e.to_string())))
+    })
+}
+
+async fn create_session_impl(
+    svc: PyService,
+    session_type: PySessionType,
+) -> Result<u32, ServiceError> {
+    // create local agent
+    let service = svc.sdk.write().await;
+
+    let session_type: session::SessionType = session_type.into();
+
+    match &service.agent {
+        Some(agent) => service.service.create_session(agent, session_type).await,
+        None => Err(ServiceError::MissingAgentError),
+    }
+}
+
+#[gen_stub_pyfunction]
+#[pyfunction]
+#[pyo3(signature = (svc, session_type))]
+fn create_session(
+    py: Python,
+    svc: PyService,
+    session_type: PySessionType,
+) -> PyResult<Bound<PyAny>> {
+    pyo3_async_runtimes::tokio::future_into_py(py, async move {
+        create_session_impl(svc.clone(), session_type)
             .await
             .map_err(|e| PyErr::new::<PyException, _>(format!("{}", e.to_string())))
     })
@@ -482,7 +563,16 @@ async fn subscribe_impl(
 ) -> Result<(), ServiceError> {
     let class = encode_agent_type(&name.organization, &name.namespace, &name.class);
     let service = svc.sdk.read().await;
-    service.service.subscribe(&class, id, conn).await
+
+    match &service.agent {
+        Some(agent) => {
+            service
+                .service
+                .subscribe(agent, &class, id, Some(conn))
+                .await
+        }
+        None => Err(ServiceError::MissingAgentError),
+    }
 }
 
 #[gen_stub_pyfunction]
@@ -511,7 +601,16 @@ async fn unsubscribe_impl(
 ) -> Result<(), ServiceError> {
     let class = encode_agent_type(&name.organization, &name.namespace, &name.class);
     let service = svc.sdk.read().await;
-    service.service.unsubscribe(&class, id, conn).await
+
+    match &service.agent {
+        Some(agent) => {
+            service
+                .service
+                .unsubscribe(agent, &class, id, Some(conn))
+                .await
+        }
+        None => Err(ServiceError::MissingAgentError),
+    }
 }
 
 #[gen_stub_pyfunction]
@@ -540,7 +639,11 @@ async fn set_route_impl(
 ) -> Result<(), ServiceError> {
     let class = encode_agent_type(&name.organization, &name.namespace, &name.class);
     let service = svc.sdk.read().await;
-    service.service.set_route(&class, id, conn).await
+
+    match &service.agent {
+        Some(agent) => service.service.set_route(agent, &class, id, conn).await,
+        None => Err(ServiceError::MissingAgentError),
+    }
 }
 
 #[gen_stub_pyfunction]
@@ -569,7 +672,11 @@ async fn remove_route_impl(
 ) -> Result<(), ServiceError> {
     let class = encode_agent_type(&name.organization, &name.namespace, &name.class);
     let service = svc.sdk.read().await;
-    service.service.remove_route(&class, id, conn).await
+
+    match &service.agent {
+        Some(agent) => service.service.remove_route(agent, &class, id, conn).await,
+        None => Err(ServiceError::MissingAgentError),
+    }
 }
 
 #[gen_stub_pyfunction]
@@ -592,6 +699,7 @@ fn remove_route(
 
 async fn publish_impl(
     svc: PyService,
+    session_id: session::Id,
     fanout: u32,
     blob: Vec<u8>,
     name: Option<PyAgentClass>,
@@ -614,18 +722,32 @@ async fn publish_impl(
 
     let service = svc.sdk.read().await;
 
-    service
-        .service
-        .publish_to(&agent_class, id, fanout, blob, conn_out)
-        .await
+    match &service.agent {
+        Some(agent) => {
+            service
+                .service
+                .publish_to(
+                    agent,
+                    session_id as session::Id,
+                    &agent_class,
+                    id,
+                    fanout,
+                    blob,
+                    conn_out,
+                )
+                .await
+        }
+        None => Err(ServiceError::MissingAgentError),
+    }
 }
 
 #[gen_stub_pyfunction]
 #[pyfunction]
-#[pyo3(signature = (svc, fanout, blob, name=None, id=None, agent=None))]
+#[pyo3(signature = (svc, session_id, fanout, blob, name=None, id=None, agent=None))]
 fn publish(
     py: Python,
     svc: PyService,
+    session_id: u32,
     fanout: u32,
     blob: Vec<u8>,
     name: Option<PyAgentClass>,
@@ -633,23 +755,25 @@ fn publish(
     agent: Option<PyAgentSource>,
 ) -> PyResult<Bound<PyAny>> {
     pyo3_async_runtimes::tokio::future_into_py(py, async move {
-        publish_impl(svc.clone(), fanout, blob, name, id, agent)
+        publish_impl(svc.clone(), session_id, fanout, blob, name, id, agent)
             .await
             .map_err(|e| PyErr::new::<PyException, _>(format!("{}", e.to_string())))
     })
 }
 
-async fn receive_impl(svc: PyService) -> Result<(PyAgentSource, Vec<u8>), ServiceError> {
+async fn receive_impl(
+    svc: PyService,
+) -> Result<(PySessionInfo, PyAgentSource, Vec<u8>), ServiceError> {
     let mut service = svc.sdk.write().await;
 
     let rx = service.rx.as_mut().ok_or(ServiceError::ReceiveError(
         "no local agent created".to_string(),
     ))?;
 
-    let msg = rx
+    let (msg, info) = rx
         .recv()
         .await
-        .ok_or(ServiceError::ConfigError("no message received".to_string()))?
+        .ok_or(ServiceError::ConfigError("no message received".to_string()))
         .map_err(|e| ServiceError::ReceiveError(e.to_string()))?;
 
     // Check if the message is an error
@@ -663,7 +787,7 @@ async fn receive_impl(svc: PyService) -> Result<(PyAgentSource, Vec<u8>), Servic
         }
         Err(_) => {
             return Err(ServiceError::ReceiveError(
-                "received malforemd packet, no header available".to_string(),
+                "received malformed packet, no header available".to_string(),
             ));
         }
     }
@@ -710,7 +834,7 @@ async fn receive_impl(svc: PyService) -> Result<(PyAgentSource, Vec<u8>), Servic
 
     let source = PyAgentSource::from_proto_agent_id(source.unwrap(), conn_in);
 
-    Ok((source, content.to_vec()))
+    Ok((PySessionInfo::new(info.id), source, content.to_vec()))
 }
 
 #[gen_stub_pyfunction]
@@ -753,8 +877,11 @@ fn _agp_bindings(_py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyGatewayConfig>()?;
     m.add_class::<PyService>()?;
     m.add_class::<PyAgentClass>()?;
+    m.add_class::<PySessionType>()?;
+    m.add_class::<PySessionInfo>()?;
 
     m.add_function(wrap_pyfunction!(create_agent, m)?)?;
+    m.add_function(wrap_pyfunction!(create_session, m)?)?;
     m.add_function(wrap_pyfunction!(subscribe, m)?)?;
     m.add_function(wrap_pyfunction!(unsubscribe, m)?)?;
     m.add_function(wrap_pyfunction!(set_route, m)?)?;

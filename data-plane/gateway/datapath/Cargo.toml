@@ -23,6 +23,8 @@ tokio-util = "0.7.13"
 tonic = "0.12"
 tracing = "0.1.41"
 tracing-opentelemetry = "0.29.0"
+
+[dev-dependencies]
 tracing-test = { version = "0.2.5", features = ["no-env-filter"] }
 
 [build-dependencies]

@@ -26,9 +26,13 @@ def format_message(message1, message2):
     return f"{color.BOLD}{color.CYAN}{message1.capitalize()}{color.END}\t {message2}"
 
 
-async def run_client(local_id, remote_id, message, address, iterations, enable_opentelemetry: bool):
+async def run_client(
+    local_id, remote_id, message, address, iterations, enable_opentelemetry: bool
+):
     # init tracing
-    agp_bindings.init_tracing(log_level="debug", enable_opentelemetry=enable_opentelemetry)
+    agp_bindings.init_tracing(
+        log_level="debug", enable_opentelemetry=enable_opentelemetry
+    )
 
     # Split the IDs into their respective components
     try:
@@ -69,17 +73,30 @@ async def run_client(local_id, remote_id, message, address, iterations, enable_o
         # Create a route to the remote ID
         await gateway.set_route(remote_organization, remote_namespace, remote_agent)
 
-        for i in range (0, iterations):
+        # create a session
+        session_id = await gateway.create_session(
+            agp_bindings.PySessionType.FireAndForget
+        )
+
+        for i in range(0, iterations):
             try:
                 # Send the message
                 await gateway.publish(
-                    message.encode(), remote_organization, remote_namespace, remote_agent
+                    session_id,
+                    message.encode(),
+                    remote_organization,
+                    remote_namespace,
+                    remote_agent,
                 )
                 print(format_message(f"{local_agent.capitalize()} sent:", message))
 
                 # Wait for a reply
                 src, msg = await gateway.receive()
-                print(format_message(f"{local_agent.capitalize()} received:", msg.decode()))
+                print(
+                    format_message(
+                        f"{local_agent.capitalize()} received:", msg.decode()
+                    )
+                )
             except Exception as e:
                 print("received error: ", e)
 
@@ -87,8 +104,8 @@ async def run_client(local_id, remote_id, message, address, iterations, enable_o
     else:
         # Wait for a message and reply in a loop
         while True:
-            src, msg = await gateway.receive()
-            print(format_message(f"{local_agent.capitalize()} received:", msg.decode()))
+            session_info, src, msg = await gateway.receive()
+            print(format_message(f"{local_agent.capitalize()} received: {msg.decode()} from session {session_info.id}"))
 
             ret = f"Echo from {local_agent}: {msg.decode()}"
 
@@ -120,7 +137,12 @@ def main():
         help="Gateway address.",
         default="http://127.0.0.1:46357",
     )
-    parser.add_argument("-i", "--iterations", type=int, help="Number of messages to send, one per second.")
+    parser.add_argument(
+        "-i",
+        "--iterations",
+        type=int,
+        help="Number of messages to send, one per second.",
+    )
     parser.add_argument(
         "-t",
         "--enable-opentelemetry",
@@ -132,7 +154,16 @@ def main():
     args = parser.parse_args()
 
     # Run the client with the specified local ID, remote ID, and optional message
-    asyncio.run(run_client(args.local, args.remote, args.message, args.gateway, args.iterations, args.enable_opentelemetry))
+    asyncio.run(
+        run_client(
+            args.local,
+            args.remote,
+            args.message,
+            args.gateway,
+            args.iterations,
+            args.enable_opentelemetry,
+        )
+    )
 
 
 if __name__ == "__main__":

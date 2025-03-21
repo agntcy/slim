@@ -4,15 +4,14 @@
 use std::collections::HashMap;
 
 use rand::Rng;
-use tokio::sync::mpsc;
 use tokio::sync::{mpsc::Sender, RwLock};
 use tonic::Status;
 
 use crate::fire_and_forget;
-use crate::session::{Error, Id, MessageDirection, Session, SessionDirection, SessionType};
+use crate::session::{Error, Id, Info, MessageDirection, Session, SessionDirection, SessionType};
 use agp_datapath::messages::utils;
 use agp_datapath::pubsub::proto::pubsub::v1::Message;
-use agp_datapath::pubsub::proto::pubsub::v1::ServiceHeaderType;
+use agp_datapath::pubsub::proto::pubsub::v1::SessionHeaderType;
 
 /// SessionLayer
 pub(crate) struct SessionLayer {
@@ -21,7 +20,7 @@ pub(crate) struct SessionLayer {
 
     /// Tx channels
     tx_gw: Sender<Result<Message, Status>>,
-    tx_app: Sender<(Message, Id)>,
+    tx_app: Sender<(Message, Info)>,
 }
 
 impl std::fmt::Debug for SessionLayer {
@@ -34,13 +33,22 @@ impl SessionLayer {
     /// Create a new session pool
     pub(crate) fn new(
         tx_gw: Sender<Result<Message, Status>>,
-        tx_app: Sender<(Message, Id)>,
+        tx_app: Sender<(Message, Info)>,
     ) -> SessionLayer {
         SessionLayer {
             pool: RwLock::new(HashMap::new()),
             tx_gw,
             tx_app,
         }
+    }
+
+    pub(crate) fn tx_gw(&self) -> Sender<Result<Message, Status>> {
+        self.tx_gw.clone()
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn tx_app(&self) -> Sender<(Message, Info)> {
+        self.tx_app.clone()
     }
 
     /// Insert a new session into the pool
@@ -62,15 +70,24 @@ impl SessionLayer {
         Ok(())
     }
 
-    pub(crate) async fn create_session(&self, session_type: SessionType) -> Result<Id, Error> {
+    pub(crate) async fn create_session(
+        &self,
+        session_type: SessionType,
+        id: Option<Id>,
+    ) -> Result<Id, Error> {
         // generate a new session ID
-        let id = rand::rng().random();
+        let id = match id {
+            Some(id) => id,
+            None => rand::rng().random(),
+        };
 
         // create a new session
         let session = match session_type {
             SessionType::FireAndForget => Box::new(fire_and_forget::FireAndForget::new(
                 id,
                 SessionDirection::Bidirectional,
+                self.tx_gw.clone(),
+                self.tx_app.clone(),
             )),
             _ => return Err(Error::SessionUnknown(session_type.to_string())),
         };
@@ -82,10 +99,9 @@ impl SessionLayer {
     }
 
     /// Remove a session from the pool
-    pub(crate) async fn remove_session(&mut self, id: Id) -> bool {
+    pub(crate) async fn remove_session(&self, id: Id) -> bool {
         // get the write lock
         let mut pool = self.pool.write().await;
-
         pool.remove(&id).is_some()
     }
 
@@ -184,13 +200,18 @@ impl SessionLayer {
         }
 
         let new_session_id = match session_type {
-            ServiceHeaderType::CtrlFnf => self.create_session(SessionType::FireAndForget).await?,
+            SessionHeaderType::CtrlFnf => {
+                self.create_session(SessionType::FireAndForget, Some(id))
+                    .await?
+            }
             _ => {
                 return Err(Error::SessionUnknown(
                     session_type.as_str_name().to_string(),
                 ))
             }
         };
+
+        debug_assert!(new_session_id == id);
 
         // retry the match
         if let Some(session) = self.pool.read().await.get(&new_session_id) {
@@ -200,5 +221,124 @@ impl SessionLayer {
 
         // this should never happen
         panic!("session not found: {}", "test");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::fire_and_forget::FireAndForget;
+    use crate::session::State;
+
+    use agp_datapath::messages::encoder;
+
+    fn create_session_layer() -> SessionLayer {
+        let (tx_gw, _) = tokio::sync::mpsc::channel(1);
+        let (tx_app, _) = tokio::sync::mpsc::channel(1);
+
+        SessionLayer::new(tx_gw, tx_app)
+    }
+
+    #[tokio::test]
+    async fn test_create_session_layer() {
+        let session_layer = create_session_layer();
+
+        assert!(session_layer.pool.read().await.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_insert_session() {
+        let (tx_gw, _) = tokio::sync::mpsc::channel(1);
+        let (tx_app, _) = tokio::sync::mpsc::channel(1);
+
+        let session_layer = SessionLayer::new(tx_gw.clone(), tx_app.clone());
+
+        let session = Box::new(FireAndForget::new(
+            1,
+            SessionDirection::Bidirectional,
+            tx_gw.clone(),
+            tx_app.clone(),
+        ));
+
+        let res = session_layer.insert_session(1, session).await;
+        assert!(res.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_remove_session() {
+        let (tx_gw, _) = tokio::sync::mpsc::channel(1);
+        let (tx_app, _) = tokio::sync::mpsc::channel(1);
+
+        let session_layer = SessionLayer::new(tx_gw.clone(), tx_app.clone());
+
+        let session = Box::new(FireAndForget::new(
+            1,
+            SessionDirection::Bidirectional,
+            tx_gw.clone(),
+            tx_app.clone(),
+        ));
+
+        session_layer.insert_session(1, session).await.unwrap();
+        let res = session_layer.remove_session(1).await;
+
+        assert!(res);
+    }
+
+    #[tokio::test]
+    async fn test_create_session() {
+        let (tx_gw, _) = tokio::sync::mpsc::channel(1);
+        let (tx_app, _) = tokio::sync::mpsc::channel(1);
+
+        let session_layer = SessionLayer::new(tx_gw.clone(), tx_app.clone());
+
+        let res = session_layer
+            .create_session(SessionType::FireAndForget, None)
+            .await;
+        assert!(res.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_handle_message() {
+        let (tx_gw, _) = tokio::sync::mpsc::channel(1);
+        let (tx_app, mut rx_app) = tokio::sync::mpsc::channel(1);
+
+        let session_layer = SessionLayer::new(tx_gw.clone(), tx_app.clone());
+
+        let session = Box::new(FireAndForget::new(
+            1,
+            SessionDirection::Bidirectional,
+            tx_gw.clone(),
+            tx_app.clone(),
+        ));
+
+        session_layer.insert_session(1, session).await.unwrap();
+
+        let mut message = utils::create_publication(
+            &encoder::encode_agent("cisco", "default", "local_agent", 0),
+            &encoder::encode_agent_type("cisco", "default", "remote_agent"),
+            Some(0),
+            None,
+            None,
+            1,
+            "msg",
+            vec![0x1, 0x2, 0x3, 0x4],
+        );
+
+        // set the session id in the message
+        let header = utils::get_session_header_as_mut(&mut message).unwrap();
+        header.id = 1;
+
+        let res = session_layer
+            .handle_message(message.clone(), MessageDirection::North, Some(1))
+            .await;
+
+        assert!(res.is_ok());
+
+        // message should have been delivered to the app
+        let (msg, info) = rx_app.recv().await.unwrap();
+        assert_eq!(msg, message);
+        assert_eq!(info.id, 1);
+        assert_eq!(info.session_type, SessionType::FireAndForget);
+        assert_eq!(info.state, State::Active);
     }
 }

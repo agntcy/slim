@@ -23,9 +23,9 @@ use crate::errors::DataPathError;
 use crate::forwarder::Forwarder;
 use crate::messages::encoder::DEFAULT_AGENT_ID;
 use crate::messages::utils::{
-    clear_agp_header, create_agp_header, create_default_service_header, create_publication,
-    create_subscription, get_fanout, get_forward_to, get_name, get_recv_from, get_source,
-    set_incoming_connection,
+    clear_agp_header, create_agp_header, create_default_session_header,
+    create_publication_with_header, create_subscription, get_fanout, get_forward_to, get_name,
+    get_recv_from, get_source, set_incoming_connection,
 };
 use crate::messages::{Agent, AgentType};
 use crate::pubsub::proto::pubsub::v1::message::MessageType;
@@ -821,9 +821,9 @@ impl MessageProcessor {
                                                         } else {
                                                             let name = msg_name.unwrap();
                                                             let header = create_agp_header(&msg_source.unwrap(), name.agent_type(), name.agent_id_option(), None, None, None, Some(true));
-                                                            let err_message = create_publication(
+                                                            let err_message = create_publication_with_header(
                                                                 header,
-                                                                create_default_service_header(),
+                                                                create_default_session_header(),
                                                                 HashMap::new(), 1, "",
                                                                 Vec::new());
 
@@ -909,16 +909,13 @@ impl MessageProcessor {
                                 // the subscription table should be ok already
                                 delete_connection = false;
                                 for r in remote_subscriptions.iter() {
-                                    let header = create_agp_header(
+                                    let sub_msg = create_subscription(
                                         r.source(),
                                         r.name().agent_type(),
                                         r.name().agent_id_option(),
                                         None,
                                         None,
-                                        None,
-                                        None,
                                     );
-                                    let sub_msg = create_subscription(header, HashMap::new());
                                     if self_clone.send_msg(sub_msg, conn_index).await.is_err() {
                                         error!("error restoring subscription on remote node");
                                     }

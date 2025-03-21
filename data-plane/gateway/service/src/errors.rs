@@ -29,6 +29,10 @@ pub enum ServiceError {
     SessionNotFound(String),
     #[error("error creating session: {0}")]
     SessionCreationError(String),
+    #[error("error creating the session: {0}")]
+    SessionDeletionError(String),
+    #[error("error deleting the session: {0}")]
+    SessionSendError(String),
     #[error("unknown error")]
     Unknown,
 }

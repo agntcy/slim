@@ -2,19 +2,16 @@
 // SPDX-License-Identifier: Apache-2.0
 
 mod tests {
-    use std::collections::HashMap;
     use std::{net::SocketAddr, sync::Arc};
 
+    use agp_datapath::messages::Agent;
     use tracing::info;
     use tracing_test::traced_test;
 
     use agp_config::grpc::{client::ClientConfig, server::ServerConfig};
     use agp_datapath::message_processing::MessageProcessor;
     use agp_datapath::messages::encoder::{encode_agent, encode_agent_type};
-    use agp_datapath::messages::utils::{
-        create_agp_header, create_subscription, create_subscription_from,
-        create_subscription_to_forward,
-    };
+    use agp_datapath::messages::utils::create_subscription;
     use agp_datapath::pubsub::proto::pubsub::v1::{
         pub_sub_service_server::PubSubServiceServer, Message,
     };
@@ -164,21 +161,17 @@ mod tests {
     fn make_message(org: &str, ns: &str, agent_type: &str) -> Message {
         let source = encode_agent(org, ns, agent_type, 0);
         let name = encode_agent_type(org, ns, agent_type);
-        let header = create_agp_header(&source, &name, Some(1), None, None, None, None);
-        create_subscription(
-            header,
-            HashMap::from([(String::from("test"), String::from("test"))]),
-        )
+        create_subscription(&source, &name, Some(1), None, None)
     }
 
     fn make_sub_from_command(org: &str, ns: &str, agent_type: &str, from_conn: u64) -> Message {
         let name = encode_agent_type(org, ns, agent_type);
-        create_subscription_from(&name, None, from_conn)
+        create_subscription(&Agent::default(), &name, None, Some(from_conn), None)
     }
 
     fn make_fwd_to_command(org: &str, ns: &str, agent_type: &str, to_conn: u64) -> Message {
         let source = encode_agent(org, ns, agent_type, 0);
         let name = encode_agent_type(org, ns, agent_type);
-        create_subscription_to_forward(&source, &name, None, to_conn)
+        create_subscription(&source, &name, None, None, Some(to_conn))
     }
 }

@@ -150,7 +150,7 @@ async fn main() {
 
     // create local agent
     let agent_name = encode_agent("cisco", "default", "publisher", id);
-    let mut rx = svc.create_agent(agent_name.clone());
+    let mut rx = svc.create_agent(&agent_name);
 
     // connect to the remote gateway
     let conn_id = svc.connect(None).await.unwrap();
@@ -159,9 +159,10 @@ async fn main() {
     // subscribe for local name
     match svc
         .subscribe(
+            &agent_name,
             agent_name.agent_type(),
             agent_name.agent_id_option(),
-            conn_id,
+            Some(conn_id),
         )
         .await
     {
@@ -174,7 +175,7 @@ async fn main() {
     // set routes for all subscriptions
     for r in routes {
         match svc
-            .set_route(r.agent_type(), r.agent_id_option(), conn_id)
+            .set_route(&agent_name, r.agent_type(), r.agent_id_option(), conn_id)
             .await
         {
             Ok(_) => {}
@@ -186,6 +187,21 @@ async fn main() {
 
     // wait for the connection to be established
     tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+
+    // create fire and forget session
+    // create a fire and forget session
+    let res = svc
+        .create_session(
+            &agent_name,
+            agp_service::session::SessionType::FireAndForget,
+        )
+        .await;
+    if res.is_err() {
+        panic!("error creating fire and forget session");
+    }
+
+    // get the session
+    let session_id = res.unwrap();
 
     // start receiving loop
     let results_list = Arc::new(RwLock::new(HashMap::new()));
@@ -202,44 +218,46 @@ async fn main() {
                             info!(%conn_id, "end of stream");
                             break;
                         }
-                        Some(result) => match result {
-                            Ok(msg) => {
-                                // checks if the message is an error
-                                match get_error(&msg) {
-                                    Ok(err) => {
-                                        if err.is_some() && err.unwrap() {
-                                            error!("An error occurred processing a message");
-                                            continue;
-                                        }
-                                    }
-                                    Err(err) => {
-                                        panic!("error processing received packet {}", err);
+                        Some(msg_info) => {
+                            let (msg, session_info) = msg_info;
+
+                            // make sure the session matches
+                            if session_info.id != session_id {
+                                panic!("wrong session id {}", session_info.id);
+                            }
+
+                            // checks if the message is an error
+                            match get_error(&msg) {
+                                Ok(err) => {
+                                    if err.is_some() && err.unwrap() {
+                                        error!("An error occurred processing a message");
+                                        continue;
                                     }
                                 }
-                                match &msg.message_type.unwrap() {
-                                    agp_datapath::pubsub::ProtoPublishType(msg) => {
-                                        // parse payload and add info to the result list
-                                        let payload = agp_datapath::messages::utils::get_payload(msg);
-                                        // the payload needs to start with the publication id and the received id
-                                        // so it must contain at least 18 bytes
-                                        if payload.len() < 18 {
-                                            panic!("error parsing message");
-                                        }
-
-                                        let pub_id = u64::from_be_bytes(payload[0..8].try_into().unwrap());
-                                        let recv_id = u64::from_be_bytes(payload[9..17].try_into().unwrap());
-                                        debug!("recv msg {} from {} on puslihser {}", pub_id, recv_id, id);
-                                        let mut lock = clone_results_list.write();
-                                        //write[pub_id as usize] = recv_id;
-                                        lock.insert(pub_id, recv_id);
-                                    }
-                                    t => {
-                                        panic!("received unexpected message: {:?}", t);
-                                    }
+                                Err(err) => {
+                                    panic!("error processing received packet {}", err);
                                 }
                             }
-                            Err(_) => {
-                                info!(%conn_id, "connection dropped");
+                            match &msg.message_type.unwrap() {
+                                agp_datapath::pubsub::ProtoPublishType(msg) => {
+                                    // parse payload and add info to the result list
+                                    let payload = agp_datapath::messages::utils::get_payload(msg);
+                                    // the payload needs to start with the publication id and the received id
+                                    // so it must contain at least 18 bytes
+                                    if payload.len() < 18 {
+                                        panic!("error parsing message");
+                                    }
+
+                                    let pub_id = u64::from_be_bytes(payload[0..8].try_into().unwrap());
+                                    let recv_id = u64::from_be_bytes(payload[9..17].try_into().unwrap());
+                                    debug!("recv msg {} from {} on puslihser {}", pub_id, recv_id, id);
+                                    let mut lock = clone_results_list.write();
+                                    //write[pub_id as usize] = recv_id;
+                                    lock.insert(pub_id, recv_id);
+                                }
+                                t => {
+                                    panic!("received unexpected message: {:?}", t);
+                                }
                             }
                         }
                     }
@@ -281,7 +299,14 @@ async fn main() {
         // for the moment we send the message in anycast
         // we need to test also the match_all function
         if svc
-            .publish(p.1.agent_type(), name_id, 1, payload)
+            .publish(
+                &agent_name,
+                session_id,
+                p.1.agent_type(),
+                name_id,
+                1,
+                payload,
+            )
             .await
             .is_err()
         {
