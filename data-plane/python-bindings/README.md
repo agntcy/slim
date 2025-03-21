@@ -8,7 +8,7 @@ Bindings to call the gateway APIs from a python program.
 pip install agp-bindings
 ```
 
-For Windows, see section below
+For Windows, see section below.
 
 ## Include as dependency
 

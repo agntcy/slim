@@ -27,10 +27,19 @@ jobs:
           token: ${{ secrets.AGNTCY_BUILD_BOT_GH_TOKEN }}
       - name: Setup Rust
         uses: ./.github/actions/setup-rust
+      - name: Get components hash
+        id: get_hash
+        run: |
+          COMPONENTS_HASH=$(task data-plane:tools:hash)
+          echo "components_hash=$COMPONENTS_HASH" >> $GITHUB_OUTPUT
+      - name: Setup Rust Caching
+        uses: Swatinem/rust-cache@v2
         with:
-          cache-workspaces: ./data-plane
+          workspaces: ./data-plane
           cache-directories: |
             .tools
+          cache-on-failure: false
+          shared-key: ${{runner.os}}-rust-${{hashFiles('**/Cargo.lock')}}-${{ steps.get_hash.outputs.components_hash }}
       - name: Run release-plz
         uses: release-plz/action@v0.5
         with:
@@ -58,10 +67,19 @@ jobs:
           fetch-depth: 0
       - name: Setup Rust
         uses: ./.github/actions/setup-rust
+      - name: Get components hash
+        id: get_hash
+        run: |
+          COMPONENTS_HASH=$(task data-plane:tools:hash)
+          echo "components_hash=$COMPONENTS_HASH" >> $GITHUB_OUTPUT
+      - name: Setup Rust Caching
+        uses: Swatinem/rust-cache@v2
         with:
-          cache-workspaces: ./data-plane
+          workspaces: ./data-plane
           cache-directories: |
             .tools
+          cache-on-failure: false
+          shared-key: ${{runner.os}}-rust-${{hashFiles('**/Cargo.lock')}}-${{ steps.get_hash.outputs.components_hash }}
       - name: Run release-plz
         uses: release-plz/action@v0.5
         with:
