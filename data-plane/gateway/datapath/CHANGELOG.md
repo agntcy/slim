@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.2](https://github.com/agntcy/agp/compare/agp-datapath-v0.4.1...agp-datapath-v0.4.2) - 2025-03-19
+
+### Added
+
+- improve message processing file ([#101](https://github.com/agntcy/agp/pull/101))
+
+## [0.4.1](https://github.com/agntcy/agp/compare/agp-datapath-v0.4.0...agp-datapath-v0.4.1) - 2025-03-19
+
+### Added
+
+- *(tables)* do not require Default/Clone traits for elements stored in pool ([#97](https://github.com/agntcy/agp/pull/97))
+
+### Other
+
+- use same API for send_to and publish ([#89](https://github.com/agntcy/agp/pull/89))
+
 ## [0.4.0](https://github.com/agntcy/agp/compare/agp-datapath-v0.3.1...agp-datapath-v0.4.0) - 2025-03-18
 
 ### Added

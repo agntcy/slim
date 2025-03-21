@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.1.14](https://github.com/agntcy/agp/compare/agp-bindings-v0.1.13...agp-bindings-v0.1.14) (2025-03-19)
+
+
+### Features
+
+* improve message processing file ([#101](https://github.com/agntcy/agp/issues/101)) ([6a0591c](https://github.com/agntcy/agp/commit/6a0591ce92411c76a6514e51322f8bee3294d768))
+
+## [0.1.13](https://github.com/agntcy/agp/compare/agp-bindings-v0.1.12...agp-bindings-v0.1.13) (2025-03-19)
+
+
+### Features
+
+* **tables:** do not require Default/Clone traits for elements stored in pool ([#97](https://github.com/agntcy/agp/issues/97)) ([afd6765](https://github.com/agntcy/agp/commit/afd6765fc6d05bc0b8692db33356469bfe749426))
+
+
+### Bug Fixes
+
+* **python-bindings:** move windows build instructions in dedicated file ([#100](https://github.com/agntcy/agp/issues/100)) ([2fcc546](https://github.com/agntcy/agp/commit/2fcc546ac4e175ea6052a30758be7fc618e38114))
+
 ## [0.1.12](https://github.com/agntcy/agp/compare/agp-bindings-v0.1.11...agp-bindings-v0.1.12) (2025-03-18)
 
 

@@ -144,6 +144,9 @@ async def test_gateway_wrapper(server):
     # create session
     session_id = await gateway2.create_session(agp_bindings.PySessionType.FireAndForget)
 
+    # Wait for session to be created
+    await asyncio.sleep(1)
+
     # publish message
     msg = [1, 2, 3, 4, 5, 6, 7, 8, 9]
     await gateway2.publish(session_id,msg, org, ns, agent1)
