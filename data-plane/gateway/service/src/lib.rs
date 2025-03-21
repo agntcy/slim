@@ -4,6 +4,7 @@
 pub mod errors;
 pub mod producer_buffer;
 pub mod receiver_buffer;
+pub mod timer;
 
 use agp_datapath::messages::utils::{
     create_agp_header, create_default_session_header, create_publication, create_subscription_from,
