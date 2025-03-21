@@ -21,9 +21,8 @@ use crate::connection::{Channel, Connection, Type as ConnectionType};
 use crate::errors::DataPathError;
 use crate::forwarder::Forwarder;
 use crate::messages::utils::{
-    clear_agp_header, create_subscription, get_fanout, get_forward_to, get_name,
-    get_recv_from, get_source, set_incoming_connection, message_type_to_str,
-    create_error_publication,
+    clear_agp_header, create_error_publication, create_subscription, get_fanout, get_forward_to,
+    get_name, get_recv_from, get_source, message_type_to_str, set_incoming_connection,
 };
 use crate::messages::AgentType;
 use crate::pubsub::proto::pubsub::v1::message::MessageType::Publish as PublishType;
