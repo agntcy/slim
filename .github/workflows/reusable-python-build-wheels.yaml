@@ -42,6 +42,11 @@ jobs:
           uv-install: true
       - name: Setup Rust
         uses: ./.github/actions/setup-rust
+      - name: Get components hash
+        id: get_hash
+        run: |
+          COMPONENTS_HASH=$(task data-plane:tools:hash)
+          echo "components_hash=$COMPONENTS_HASH" >> $GITHUB_OUTPUT
       - name: Setup Rust Caching
         uses: Swatinem/rust-cache@v2
         with:
@@ -49,7 +54,7 @@ jobs:
           cache-directories: |
             .tools
           cache-on-failure: false
-          shared-key: ${{runner.os}}-rust-${{hashFiles('**/Cargo.lock')}}-${{hashFiles('**/.cargo-components')}}
+          shared-key: ${{runner.os}}-rust-${{hashFiles('**/Cargo.lock')}}-${{ steps.get_hash.outputs.components_hash }}
       - name: Build wheels
         run: |
           git status

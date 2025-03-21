@@ -20,6 +20,9 @@ env:
   TARGET:
     sh: 'rustc -vV | sed -n "s|host: ||p"'
 
+vars:
+  CARGO_COMPONENTS: "cargo-sort cargo-audit cargo-llvm-cov cargo-machete@0.7.0 cargo-deny@0.17.0 typos-cli release-plz@0.3.120"
+
 tasks:
   default:
     cmds:
@@ -47,13 +50,15 @@ tasks:
 
   data-plane:tools:fetch:
     desc: "Fetch the dependencies"
-    vars:
-      COMPONENTS: "cargo-sort cargo-audit cargo-llvm-cov cargo-machete@0.7.0 cargo-deny@0.17.0 typos-cli release-plz@0.3.120"
     cmds:
-      - cmd: sh -c "echo \"{{.COMPONENTS}}\" > .cargo-components"
       - task: toolchain:build:install-cargo-components
         vars:
-          COMPONENTS: "{{.COMPONENTS}}"
+          COMPONENTS: "{{.CARGO_COMPONENTS}}"
+
+  data-plane:tools:hash:
+    desc: "Compute the SHA-256 hash of the CARGO_COMPONENTS string"
+    cmds:
+      - cmd: sh -c "echo -n '{{.CARGO_COMPONENTS}}' | sha256sum | cut -d ' ' -f1"
 
   data-plane:check:
     desc: "Check the project"

@@ -67,6 +67,12 @@ jobs:
       - name: Setup Rust
         uses: ./.github/actions/setup-rust
 
+      - name: Get components hash
+        id: get_hash
+        run: |
+          COMPONENTS_HASH=$(task data-plane:tools:hash)
+          echo "components_hash=$COMPONENTS_HASH" >> $GITHUB_OUTPUT
+
       - name: Setup Rust Caching
         uses: Swatinem/rust-cache@v2
         with:
@@ -74,7 +80,7 @@ jobs:
           cache-directories: |
             .tools
           cache-on-failure: false
-          shared-key: ${{runner.os}}-rust-${{hashFiles('**/Cargo.lock')}}-${{hashFiles('**/.cargo-components')}}
+          shared-key: ${{runner.os}}-rust-${{hashFiles('**/Cargo.lock')}}-${{ steps.get_hash.outputs.components_hash }}
 
       - name: Install dependencies
         run: |
@@ -97,6 +103,12 @@ jobs:
       - name: Setup Rust
         uses: ./.github/actions/setup-rust
 
+      - name: Get components hash
+        id: get_hash
+        run: |
+          COMPONENTS_HASH=$(task data-plane:tools:hash)
+          echo "components_hash=$COMPONENTS_HASH" >> $GITHUB_OUTPUT
+
       - name: Setup Rust Caching
         uses: Swatinem/rust-cache@v2
         with:
@@ -104,7 +116,7 @@ jobs:
           cache-directories: |
             .tools
           cache-on-failure: false
-          shared-key: ${{runner.os}}-rust-${{hashFiles('**/Cargo.lock')}}-${{hashFiles('**/.cargo-components')}}
+          shared-key: ${{runner.os}}-rust-${{hashFiles('**/Cargo.lock')}}-${{ steps.get_hash.outputs.components_hash }}
 
       - name: lint
         run: |
@@ -129,6 +141,12 @@ jobs:
       - name: Setup Rust
         uses: ./.github/actions/setup-rust
 
+      - name: Get components hash
+        id: get_hash
+        run: |
+          COMPONENTS_HASH=$(task data-plane:tools:hash)
+          echo "components_hash=$COMPONENTS_HASH" >> $GITHUB_OUTPUT
+
       - name: Setup Rust Caching
         uses: Swatinem/rust-cache@v2
         with:
@@ -136,7 +154,7 @@ jobs:
           cache-directories: |
             .tools
           cache-on-failure: false
-          shared-key: ${{runner.os}}-rust-${{hashFiles('**/Cargo.lock')}}-${{hashFiles('**/.cargo-components')}}
+          shared-key: ${{runner.os}}-rust-${{hashFiles('**/Cargo.lock')}}-${{ steps.get_hash.outputs.components_hash }}
 
       - name: Run `vuln`
         run: |
@@ -160,6 +178,12 @@ jobs:
       - name: Setup Rust
         uses: ./.github/actions/setup-rust
 
+      - name: Get components hash
+        id: get_hash
+        run: |
+          COMPONENTS_HASH=$(task data-plane:tools:hash)
+          echo "components_hash=$COMPONENTS_HASH" >> $GITHUB_OUTPUT
+
       - name: Setup Rust Caching
         uses: Swatinem/rust-cache@v2
         with:
@@ -167,7 +191,7 @@ jobs:
           cache-directories: |
             .tools
           cache-on-failure: false
-          shared-key: ${{runner.os}}-rust-${{hashFiles('**/Cargo.lock')}}-${{hashFiles('**/.cargo-components')}}
+          shared-key: ${{runner.os}}-rust-${{hashFiles('**/Cargo.lock')}}-${{ steps.get_hash.outputs.components_hash }}
 
       - name: Run `coverage`
         run: |
@@ -191,6 +215,12 @@ jobs:
       - name: Setup Rust
         uses: ./.github/actions/setup-rust
 
+      - name: Get components hash
+        id: get_hash
+        run: |
+          COMPONENTS_HASH=$(task data-plane:tools:hash)
+          echo "components_hash=$COMPONENTS_HASH" >> $GITHUB_OUTPUT
+
       - name: Setup Rust Caching
         uses: Swatinem/rust-cache@v2
         with:
@@ -198,7 +228,7 @@ jobs:
           cache-directories: |
             .tools
           cache-on-failure: false
-          shared-key: ${{runner.os}}-rust-${{hashFiles('**/Cargo.lock')}}-${{hashFiles('**/.cargo-components')}}
+          shared-key: ${{runner.os}}-rust-${{hashFiles('**/Cargo.lock')}}-${{ steps.get_hash.outputs.components_hash }}
 
       - name: Setup Python
         uses: ./.github/actions/setup-python
@@ -259,6 +289,12 @@ jobs:
       - name: Setup Rust
         uses: ./.github/actions/setup-rust
 
+      - name: Get components hash
+        id: get_hash
+        run: |
+          COMPONENTS_HASH=$(task data-plane:tools:hash)
+          echo "components_hash=$COMPONENTS_HASH" >> $GITHUB_OUTPUT
+
       - name: Setup Rust Caching
         uses: Swatinem/rust-cache@v2
         with:
@@ -266,7 +302,7 @@ jobs:
           cache-directories: |
             .tools
           cache-on-failure: false
-          shared-key: ${{runner.os}}-rust-${{hashFiles('**/Cargo.lock')}}-${{hashFiles('**/.cargo-components')}}
+          shared-key: ${{runner.os}}-rust-${{hashFiles('**/Cargo.lock')}}-${{ steps.get_hash.outputs.components_hash }}
 
       - name: Build
         run: |
