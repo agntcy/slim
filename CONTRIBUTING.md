@@ -122,9 +122,12 @@ Signed-off-by: Random J Developer
 
 You can use the -s when you do a git commit to simplify including a properly
 formatted sign-off in your commits. If you need to add your sign-off to a commit
-you have already made, please see this article.
+you have already made, you will need to amend:
 
+```
+git commit --amend --signoff
 
+```
 
 ### Performing spellcheck on AGP codebase
 
