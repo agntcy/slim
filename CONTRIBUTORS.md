@@ -6,3 +6,5 @@ the project. AGNTCY uses the following file header:
 
 Copyright AGNTCY Contributors (https://github.com/agntcy)
 SPDX-License-Identifier: Apache-2.0
+
+1. Cisco Systems Inc.
