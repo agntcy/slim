@@ -14,7 +14,7 @@ pub struct Publish {
     #[prost(message, optional, tag = "1")]
     pub header: ::core::option::Option<AgpHeader>,
     #[prost(message, optional, tag = "2")]
-    pub control: ::core::option::Option<ServiceHeader>,
+    pub control: ::core::option::Option<SessionHeader>,
     #[prost(uint32, tag = "3")]
     pub fanout: u32,
     #[prost(message, optional, tag = "4")]
@@ -51,14 +51,16 @@ pub struct Agent {
     pub agent_id: ::core::option::Option<u64>,
 }
 #[derive(Clone, Copy, PartialEq, ::prost::Message)]
-pub struct ServiceHeader {
-    #[prost(enumeration = "ServiceHeaderType", tag = "1")]
+pub struct SessionHeader {
+    #[prost(enumeration = "SessionHeaderType", tag = "1")]
     pub header_type: i32,
     #[prost(uint32, tag = "2")]
-    pub id: u32,
-    #[prost(uint32, optional, tag = "3")]
-    pub stream: ::core::option::Option<u32>,
+    pub session_id: u32,
+    #[prost(uint32, tag = "3")]
+    pub message_id: u32,
     #[prost(uint32, optional, tag = "4")]
+    pub stream: ::core::option::Option<u32>,
+    #[prost(uint32, optional, tag = "5")]
     pub rtx: ::core::option::Option<u32>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -92,7 +94,7 @@ pub mod message {
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]
-pub enum ServiceHeaderType {
+pub enum SessionHeaderType {
     CtrlUnspecified = 0,
     CtrlFnf = 1,
     CtrlRequest = 2,
@@ -101,7 +103,7 @@ pub enum ServiceHeaderType {
     CtrlRtxRequest = 5,
     CtrlRtxReply = 6,
 }
-impl ServiceHeaderType {
+impl SessionHeaderType {
     /// String value of the enum field names used in the ProtoBuf definition.
     ///
     /// The values are not transformed in any way and thus are considered stable

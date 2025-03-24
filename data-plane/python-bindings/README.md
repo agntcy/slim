@@ -8,7 +8,7 @@ Bindings to call the gateway APIs from a python program.
 pip install agp-bindings
 ```
 
-For Windows, see section below
+For Windows, see section below.
 
 ## Include as dependency
 
@@ -51,17 +51,22 @@ import asyncio
 from signal import SIGINT
 
 import agp_bindings
+from agp_bindings import GatewayConfig
 
 # Create a service
 gateway = agp_bindings.Gateway()
 
 
-async def run_server(address: str):
-    # init tracing with debug
-    agp_bindings.init_tracing(log_level="debug")
+async def run_server(address: str, enable_opentelemetry: bool):
+    # init tracing
+    agp_bindings.init_tracing(log_level="debug", enable_opentelemetry=enable_opentelemetry)
+
+    # Configure gateway
+    config = GatewayConfig(endpoint=address, insecure=True)
+    gateway.configure(config)
 
     # Run as server
-    await gateway.serve(address, insecure=True)
+    await gateway.serve()
 
 
 async def main():
@@ -70,6 +75,13 @@ async def main():
     )
     parser.add_argument(
         "-g", "--gateway", type=str, help="Gateway address.", default="127.0.0.1:12345"
+    )
+    parser.add_argument(
+        "--enable-opentelemetry",
+        "-t",
+        action="store_true",
+        default=False,
+        help="Enable OpenTelemetry tracing.",
     )
 
     args = parser.parse_args()
@@ -87,7 +99,7 @@ async def main():
     loop.add_signal_handler(SIGINT, shutdown)
 
     # Run the client task
-    client_task = asyncio.create_task(run_server(args.gateway))
+    client_task = asyncio.create_task(run_server(args.gateway, args.enable_opentelemetry))
 
     # Wait until the stop event is set
     await stop_event.wait()
@@ -118,6 +130,7 @@ import asyncio
 import time
 
 import agp_bindings
+from agp_bindings import GatewayConfig
 
 
 class color:
@@ -137,9 +150,13 @@ def format_message(message1, message2):
     return f"{color.BOLD}{color.CYAN}{message1.capitalize()}{color.END}\t {message2}"
 
 
-async def run_client(local_id, remote_id, message, address):
+async def run_client(
+    local_id, remote_id, message, address, iterations, enable_opentelemetry: bool
+):
     # init tracing
-    agp_bindings.init_tracing()
+    agp_bindings.init_tracing(
+        log_level="debug", enable_opentelemetry=enable_opentelemetry
+    )
 
     # Split the IDs into their respective components
     try:
@@ -151,18 +168,25 @@ async def run_client(local_id, remote_id, message, address):
     # Define the service based on the local agent
     gateway = agp_bindings.Gateway()
 
+    # Configure gateway
+    config = GatewayConfig(endpoint=address, insecure=True)
+    gateway.configure(config)
+
     # Connect to the gateway server
     local_agent_id = await gateway.create_agent(
         local_organization, local_namespace, local_agent
     )
 
     # Connect to the service and subscribe for the local name
-    _ = await gateway.connect(address, insecure=True)
+    _ = await gateway.connect()
     await gateway.subscribe(
         local_organization, local_namespace, local_agent, local_agent_id
     )
 
     if message:
+        if not iterations:
+            iterations = 1
+
         # Split the IDs into their respective components
         try:
             remote_organization, remote_namespace, remote_agent = remote_id.split("/")
@@ -173,20 +197,43 @@ async def run_client(local_id, remote_id, message, address):
         # Create a route to the remote ID
         await gateway.set_route(remote_organization, remote_namespace, remote_agent)
 
-        # Send the message
-        await gateway.publish(
-            message.encode(), remote_organization, remote_namespace, remote_agent
+        # create a session
+        session_id = await gateway.create_session(
+            agp_bindings.PySessionType.FireAndForget
         )
-        print(format_message(f"{local_agent.capitalize()} sent:", message))
 
-        # Wait for a reply
-        src, msg = await gateway.receive()
-        print(format_message(f"{local_agent.capitalize()} received:", msg.decode()))
+        for i in range(0, iterations):
+            try:
+                # Send the message
+                await gateway.publish(
+                    session_id,
+                    message.encode(),
+                    remote_organization,
+                    remote_namespace,
+                    remote_agent,
+                )
+                print(format_message(f"{local_agent.capitalize()} sent:", message))
+
+                # Wait for a reply
+                src, msg = await gateway.receive()
+                print(
+                    format_message(
+                        f"{local_agent.capitalize()} received:", msg.decode()
+                    )
+                )
+            except Exception as e:
+                print("received error: ", e)
+
+            time.sleep(5)
     else:
         # Wait for a message and reply in a loop
         while True:
-            src, msg = await gateway.receive()
-            print(format_message(f"{local_agent.capitalize()} received:", msg.decode()))
+            session_info, src, msg = await gateway.receive()
+            print(
+                format_message(
+                    f"{local_agent.capitalize()} received: {msg.decode()} from session {session_info.id}"
+                )
+            )
 
             ret = f"Echo from {local_agent}: {msg.decode()}"
 
@@ -216,13 +263,35 @@ def main():
         "--gateway",
         type=str,
         help="Gateway address.",
-        default="http://127.0.0.1:12345",
+        default="http://127.0.0.1:46357",
+    )
+    parser.add_argument(
+        "-i",
+        "--iterations",
+        type=int,
+        help="Number of messages to send, one per second.",
+    )
+    parser.add_argument(
+        "-t",
+        "--enable-opentelemetry",
+        action="store_true",
+        default=False,
+        help="Enable OpenTelemetry tracing.",
     )
 
     args = parser.parse_args()
 
     # Run the client with the specified local ID, remote ID, and optional message
-    asyncio.run(run_client(args.local, args.remote, args.message, args.gateway))
+    asyncio.run(
+        run_client(
+            args.local,
+            args.remote,
+            args.message,
+            args.gateway,
+            args.iterations,
+            args.enable_opentelemetry,
+        )
+    )
 
 
 if __name__ == "__main__":

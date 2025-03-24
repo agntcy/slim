@@ -86,8 +86,7 @@ tasks:
       - |
         uv run python ./examples/agent.py \
           -l cisco/default/alice          \
-          -g http://localhost:12345       \
-          -t
+          -g http://localhost:12345
 
   python-bindings:example:bob:
     desc: "Run the Bob example"
@@ -100,8 +99,7 @@ tasks:
           -r cisco/default/alice            \
           -g http://localhost:12345         \
           -m "The city of the big ben"      \
-          -i 1                              \
-          -t
+          -i 1
 
   python-bindings:generate-stub:
     desc: "Generate stub file for the Python bindings"

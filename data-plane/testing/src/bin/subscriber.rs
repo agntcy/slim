@@ -98,7 +98,9 @@ async fn main() {
 
     // create local agent
     let agent_name = encode_agent("cisco", "default", "subscriber", id);
-    let mut rx = svc.create_agent(agent_name.clone());
+    let mut rx = svc
+        .create_agent(&agent_name)
+        .expect("failed to create agent");
 
     // connect to the remote gateway
     let conn_id = svc.connect(None).await.unwrap();
@@ -112,7 +114,12 @@ async fn main() {
     let bar = ProgressBar::new(subscriptions_list.len() as u64);
     for s in subscriptions_list.iter() {
         match svc
-            .subscribe(s.agent_type(), Some(*s.agent_id()), conn_id)
+            .subscribe(
+                &agent_name,
+                s.agent_type(),
+                Some(*s.agent_id()),
+                Some(conn_id),
+            )
             .await
         {
             Ok(_) => {}
@@ -127,7 +134,7 @@ async fn main() {
     info!("waiting for incoming messages");
     // wait for messages
     loop {
-        let recv_msg = rx.recv().await.unwrap().unwrap();
+        let (recv_msg, session_info) = rx.recv().await.unwrap();
         let pub_id;
         let msg_len;
         let source_type;
@@ -174,8 +181,16 @@ async fn main() {
         }
 
         // send message
-        svc.publish_to(&source_type, source_id, 1, out_vec, Some(conn_id))
-            .await
-            .unwrap();
+        svc.publish_to(
+            &agent_name,
+            session_info.id,
+            &source_type,
+            source_id,
+            1,
+            out_vec,
+            Some(conn_id),
+        )
+        .await
+        .unwrap();
     }
 }

@@ -118,8 +118,14 @@ impl ProcducerCache {
 mod tests {
     use super::*;
     use agp_datapath::{
-        messages::utils::{create_publication, create_service_header, get_message_as_publish},
-        pubsub::proto::pubsub::v1::ServiceHeaderType,
+        messages::{
+            encoder::encode_agent,
+            utils::{
+                create_agp_header, create_publication_with_header, create_session_header,
+                get_message_as_publish,
+            },
+        },
+        pubsub::proto::pubsub::v1::SessionHeaderType,
     };
 
     #[test]
@@ -128,22 +134,28 @@ mod tests {
 
         assert_eq!(cache.get_capacity(), 3);
 
-        let h0 = create_service_header(ServiceHeaderType::CtrlFnf.into(), 0, None, None);
-        let h1 = create_service_header(ServiceHeaderType::CtrlFnf.into(), 1, None, None);
-        let h2 = create_service_header(ServiceHeaderType::CtrlFnf.into(), 2, None, None);
-        let h3 = create_service_header(ServiceHeaderType::CtrlFnf.into(), 3, None, None);
-        let h4 = create_service_header(ServiceHeaderType::CtrlFnf.into(), 4, None, None);
+        let src = encode_agent("org", "ns", "type", 0);
+        let name_type = agp_datapath::messages::encoder::encode_agent_type("org", "ns", "type");
 
-        let p0 = create_publication(None, h0, HashMap::new(), 1, "", vec![]);
-        let p1 = create_publication(None, h1, HashMap::new(), 1, "", vec![]);
-        let p2 = create_publication(None, h2, HashMap::new(), 1, "", vec![]);
-        let p3 = create_publication(None, h3, HashMap::new(), 1, "", vec![]);
-        let p4 = create_publication(None, h4, HashMap::new(), 1, "", vec![]);
+        let agp_header = create_agp_header(&src, &name_type, Some(1), None, None, None, None);
+
+        let h0 = create_session_header(SessionHeaderType::CtrlFnf.into(), 0, 0, None, None);
+        let h1 = create_session_header(SessionHeaderType::CtrlFnf.into(), 0, 1, None, None);
+        let h2 = create_session_header(SessionHeaderType::CtrlFnf.into(), 0, 2, None, None);
+        let h3 = create_session_header(SessionHeaderType::CtrlFnf.into(), 0, 3, None, None);
+        let h4 = create_session_header(SessionHeaderType::CtrlFnf.into(), 0, 4, None, None);
+
+        let p0 = create_publication_with_header(agp_header, h0, HashMap::new(), 1, "", vec![]);
+        let p1 = create_publication_with_header(agp_header, h1, HashMap::new(), 1, "", vec![]);
+        let p2 = create_publication_with_header(agp_header, h2, HashMap::new(), 1, "", vec![]);
+        let p3 = create_publication_with_header(agp_header, h3, HashMap::new(), 1, "", vec![]);
+        let p4 = create_publication_with_header(agp_header, h4, HashMap::new(), 1, "", vec![]);
 
         assert_eq!(
             cache.push(get_message_as_publish(&p0).unwrap().clone()),
             true
         );
+
         assert_eq!(&cache.get(0).unwrap(), get_message_as_publish(&p0).unwrap());
         assert_eq!(&cache.get(0).unwrap(), get_message_as_publish(&p0).unwrap());
         assert_eq!(&cache.get(0).unwrap(), get_message_as_publish(&p0).unwrap());
