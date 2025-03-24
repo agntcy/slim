@@ -203,11 +203,6 @@ impl SessionLayer {
             return ret;
         }
 
-        // if the session is not found and the direction is North, create a new session
-        if direction != MessageDirection::North {
-            return Err(Error::SessionNotFound(id.to_string()));
-        }
-
         let new_session_id = match session_type {
             SessionHeaderType::CtrlFnf => {
                 self.create_session(SessionType::FireAndForget, Some(id))
