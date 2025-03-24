@@ -211,13 +211,7 @@ async def test_auto_reconnect_after_server_restart():
     # stop the current server instance
     await agp_bindings.stop(svc_server)
     await asyncio.sleep(3)  # allow time for the server to fully shut down
-    
-    # "restart" the server by creating a new instance
-    new_svc_server = agp_bindings.PyService("gateway/server2")
-    new_svc_server.configure(
-        agp_bindings.GatewayConfig(endpoint="0.0.0.0:12346", insecure=True)
-    )
-    await agp_bindings.serve(new_svc_server)
+    await agp_bindings.serve(svc_server)
     await asyncio.sleep(2)  # allow time for automatic reconnection
     
     # test that the message exchange resumes normally after the simulated restart
