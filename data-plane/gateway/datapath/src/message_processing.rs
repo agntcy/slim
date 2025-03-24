@@ -786,28 +786,24 @@ impl MessageProcessor {
                         break;
                     }
                     _ = token_clone.cancelled() => {
-                        info!("shutting down stream cancellation token: {}", conn_index);
+                        info!("shutting down stream on cancellation token: {}", conn_index);
                         try_to_reconnect = false;
                         break;
                     }
                 }
             }
 
-            let mut connected = false;
+            // delete connection state from table. this connection is not active
+            self_clone
+                .forwarder()
+                .on_connection_drop(conn_index, is_local);
+
+            info!(telemetry = true, counter.num_active_connections = -1);
 
             if try_to_reconnect && client_conf_clone.is_some() {
-                connected = self_clone.reconnect(client_conf_clone, conn_index).await;
-            } else {
-                info!("close connection {}", conn_index)
-            }
-
-            if !connected {
-                // delete connection state
-                self_clone
-                    .forwarder()
-                    .on_connection_drop(conn_index, is_local);
-
-                info!(telemetry = true, counter.num_active_connections = -1);
+                tokio::spawn(async move {
+                    self_clone.reconnect(client_conf_clone, conn_index).await;
+                });
             }
         });
 

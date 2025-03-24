@@ -86,7 +86,7 @@ tasks:
       - |
         uv run python ./examples/agent.py \
           -l cisco/default/alice          \
-          -g http://localhost:12345
+          -g http://localhost:46357
 
   python-bindings:example:bob:
     desc: "Run the Bob example"
