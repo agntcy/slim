@@ -32,7 +32,7 @@ impl Timer {
         }
     }
 
-    async fn start<T: TimerObserver + Send + Sync + 'static>(&self, observer: Arc<T>) {
+    fn start<T: TimerObserver + Send + Sync + 'static>(&self, observer: Arc<T>) {
         let timer_id = self.timer_id;
         let duration = self.duration;
         let max_retries = self.max_retries;
@@ -66,7 +66,7 @@ impl Timer {
         });
     }
 
-    async fn stop(&self) {
+    fn stop(&self) {
         self.cancellation_token.cancel();
     }
 }
@@ -111,7 +111,7 @@ mod tests {
 
         let t = Timer::new(o.id, 100, 3);
 
-        t.start(o).await;
+        t.start(o);
 
         time::sleep(Duration::from_millis(500)).await;
 
@@ -133,11 +133,11 @@ mod tests {
 
         let t = Timer::new(o.id, 100, 5);
 
-        t.start(o).await;
+        t.start(o);
 
         time::sleep(Duration::from_millis(350)).await;
 
-        t.stop().await;
+        t.stop();
 
         time::sleep(Duration::from_millis(500)).await;
 
@@ -163,15 +163,15 @@ mod tests {
         let t2 = Timer::new(o2.id, 200, 5);
         let t3 = Timer::new(o3.id, 200, 5);
 
-        t1.start(o1).await;
-        t2.start(o2).await;
-        t3.start(o3).await;
+        t1.start(o1);
+        t2.start(o2);
+        t3.start(o3);
 
         time::sleep(Duration::from_millis(700)).await;
 
-        t1.stop().await;
-        t2.stop().await;
-        t3.stop().await;
+        t1.stop();
+        t2.stop();
+        t3.stop();
 
         time::sleep(Duration::from_millis(500)).await;
 
