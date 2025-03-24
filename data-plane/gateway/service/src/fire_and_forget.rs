@@ -54,7 +54,7 @@ impl Session for FireAndForget {
             );
         }
 
-        header.unwrap().header_type = utils::service_type_to_int(SessionHeaderType::CtrlFnf);
+        header.unwrap().header_type = utils::service_type_to_int(SessionHeaderType::Fnf);
 
         // clone tx
         match direction {

@@ -206,7 +206,7 @@ impl SessionLayer {
         }
 
         let new_session_id = match session_type {
-            SessionHeaderType::CtrlFnf => {
+            SessionHeaderType::Fnf => {
                 self.create_session(SessionType::FireAndForget, Some(id))
                     .await?
             }

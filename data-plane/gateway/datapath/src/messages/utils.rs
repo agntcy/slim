@@ -204,7 +204,7 @@ pub fn get_name(msg: &ProtoMessage) -> Result<(AgentType, Option<u64>), MessageE
     }
 }
 
-// utils functions for service header
+// utils functions for session header
 pub fn create_session_header(
     header_type: i32,
     session_id: u32,
@@ -222,10 +222,10 @@ pub fn create_session_header(
 }
 
 pub fn create_default_session_header() -> Option<SessionHeader> {
-    create_session_header(SessionHeaderType::CtrlFnf.into(), 0, 0, None, None)
+    create_session_header(SessionHeaderType::Fnf.into(), 0, 0, None, None)
 }
 
-// getters for service header
+// getters for session header
 pub fn get_msg_id(msg: &ProtoPublish) -> Result<u32, MessageError> {
     match msg.control {
         Some(header) => Ok(header.message_id),
@@ -384,9 +384,9 @@ pub fn create_rtx_publication(
     content: Option<Vec<u8>>,
 ) -> ProtoMessage {
     let agp_header = create_agp_header(source, name_type, name_id, None, None, None, None);
-    let mut rtx_type = SessionHeaderType::CtrlRtxRequest;
+    let mut rtx_type = SessionHeaderType::RtxRequest;
     if !is_request {
-        rtx_type = SessionHeaderType::CtrlRtxReply;
+        rtx_type = SessionHeaderType::RtxReply;
     }
     let session_header = create_session_header(
         rtx_type.into(),
@@ -422,12 +422,12 @@ pub fn get_payload(msg: &ProtoPublish) -> &[u8] {
 
 pub fn int_to_service_type(int: i32) -> Option<SessionHeaderType> {
     match int {
-        1 => Some(SessionHeaderType::CtrlFnf),
-        2 => Some(SessionHeaderType::CtrlRequest),
-        3 => Some(SessionHeaderType::CtrlReply),
-        4 => Some(SessionHeaderType::CtrlStream),
-        5 => Some(SessionHeaderType::CtrlRtxRequest),
-        6 => Some(SessionHeaderType::CtrlRtxReply),
+        1 => Some(SessionHeaderType::Fnf),
+        2 => Some(SessionHeaderType::Request),
+        3 => Some(SessionHeaderType::Reply),
+        4 => Some(SessionHeaderType::Stream),
+        5 => Some(SessionHeaderType::RtxRequest),
+        6 => Some(SessionHeaderType::RtxReply),
         _ => {
             error!("unknown service header type: {}", int);
             None
@@ -437,13 +437,13 @@ pub fn int_to_service_type(int: i32) -> Option<SessionHeaderType> {
 
 pub fn service_type_to_int(service_type: SessionHeaderType) -> i32 {
     match service_type {
-        SessionHeaderType::CtrlUnspecified => 0,
-        SessionHeaderType::CtrlFnf => 1,
-        SessionHeaderType::CtrlRequest => 2,
-        SessionHeaderType::CtrlReply => 3,
-        SessionHeaderType::CtrlStream => 4,
-        SessionHeaderType::CtrlRtxRequest => 5,
-        SessionHeaderType::CtrlRtxReply => 6,
+        SessionHeaderType::Unspecified => 0,
+        SessionHeaderType::Fnf => 1,
+        SessionHeaderType::Request => 2,
+        SessionHeaderType::Reply => 3,
+        SessionHeaderType::Stream => 4,
+        SessionHeaderType::RtxRequest => 5,
+        SessionHeaderType::RtxReply => 6,
     }
 }
 
