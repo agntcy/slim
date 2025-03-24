@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025 Cisco and/or its affiliates.
+# Copyright AGNTCY Contributors (https://github.com/agntcy)
 # SPDX-License-Identifier: Apache-2.0
 
 # import the contents of the Rust library into the Python extension
@@ -7,6 +7,9 @@ from ._agp_bindings import (
     PyGatewayConfig as GatewayConfig,
     PyService,
     PyAgentClass,
+    PySessionType,
+    PySessionInfo,
+    create_session,
     create_agent,
     connect,
     disconnect,
@@ -23,6 +26,7 @@ from ._agp_bindings import __all__
 
 # optional: include the documentation from the Rust module
 from ._agp_bindings import __doc__  # noqa: F401
+
 
 class Gateway:
     def __init__(self, name="gateway/agent"):
@@ -62,10 +66,23 @@ class Gateway:
             agent (str): The name of the agent.
 
         Returns:
-            None
+            ID of the agent
         """
 
         return await create_agent(self.svc, organization, namespace, agent, id)
+
+    async def create_session(self, session_type: PySessionType) -> int:
+        """
+        Create a new session.
+
+        Args:
+            session_type (PySessionType): The type of the session.
+
+        Returns:
+            ID of the session
+        """
+
+        return await create_session(self.svc, session_type)
 
     async def serve(self):
         """
@@ -94,7 +111,7 @@ class Gateway:
         self.conn_id = await connect(self.svc)
 
         return self.conn_id
-    
+
     async def disconnect(self):
         """
         disconnect from a remote gateway service.
@@ -125,7 +142,9 @@ class Gateway:
         name = PyAgentClass(organization, namespace, agent)
         await set_route(self.svc, self.conn_id, name, id)
 
-    async def remove_route(self, organization, namespace, agent, id: Optional[int] = None):
+    async def remove_route(
+        self, organization, namespace, agent, id: Optional[int] = None
+    ):
         """
         Remove route for outgoing messages via the connected gateway.
 
@@ -174,7 +193,7 @@ class Gateway:
         unsub = PyAgentClass(organization, namespace, agent)
         await unsubscribe(self.svc, self.conn_id, unsub, id)
 
-    async def publish(self, msg, organization, namespace, agent):
+    async def publish(self, session, msg, organization, namespace, agent):
         """
         Publish a message to an agent via normal matching in subscription table.
 
@@ -189,9 +208,9 @@ class Gateway:
         """
 
         dest = PyAgentClass(organization, namespace, agent)
-        await publish(self.svc, 1, msg, dest, None)
+        await publish(self.svc, session, 1, msg, dest, None)
 
-    async def publish_to(self, msg, agent):
+    async def publish_to(self, session, msg, agent):
         """
         Publish a message to an agent via the connected gateway.
 
@@ -203,9 +222,9 @@ class Gateway:
             None
         """
 
-        await publish(self.svc, 1, msg, agent=agent)
+        await publish(self.svc, session, 1, msg, agent=agent)
 
-    async def receive(self) -> Tuple[any, bytes]:
+    async def receive(self) -> Tuple[PySessionInfo, any, bytes]:
         """
         Receive a message from the connected gateway.
 
@@ -214,5 +233,4 @@ class Gateway:
 
         """
 
-        source, msg = await receive(self.svc)
-        return source, msg
+        return await receive(self.svc)

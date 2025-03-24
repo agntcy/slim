@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: Copyright (c) 2025 Cisco and/or its affiliates.
+// Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
 //! gRPC bindings for pubsub service.
@@ -13,6 +13,6 @@ pub use proto::pubsub::v1::AgpHeader;
 pub use proto::pubsub::v1::Content;
 pub use proto::pubsub::v1::Message as ProtoMessage;
 pub use proto::pubsub::v1::Publish as ProtoPublish;
-pub use proto::pubsub::v1::ServiceHeader;
+pub use proto::pubsub::v1::SessionHeader;
 pub use proto::pubsub::v1::Subscribe as ProtoSubscribe;
 pub use proto::pubsub::v1::Unsubscribe as ProtoUnsubscribe;

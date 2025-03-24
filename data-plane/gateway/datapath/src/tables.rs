@@ -1,7 +1,7 @@
-// SPDX-FileCopyrightText: Copyright (c) 2025 Cisco and/or its affiliates.
+// Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
-// SPDX-FileCopyrightText: Copyright (c) 2025 Cisco and/or its affiliates.
+// Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
 pub mod connection_table;
@@ -9,7 +9,7 @@ pub mod errors;
 pub mod remote_subscription_table;
 pub mod subscription_table;
 
-mod pool;
+pub mod pool;
 
 use crate::messages::AgentType;
 use errors::SubscriptionTableError;

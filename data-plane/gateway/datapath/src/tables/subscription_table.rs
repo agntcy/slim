@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: Copyright (c) 2025 Cisco and/or its affiliates.
+// Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
 use std::collections::{HashMap, HashSet};
@@ -574,7 +574,7 @@ impl SubscriptionTable for SubscriptionTableImpl {
             }
             for agent in set.unwrap() {
                 let table = self.table.write();
-                debug!("remove subscription {:?} from connection {:?}", agent, conn);
+                debug!("remove subscription {} from connection {}", agent, conn);
                 remove_subscription_from_sub_table(agent, conn, is_local, table)?;
             }
         }

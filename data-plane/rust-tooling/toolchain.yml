@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025 Cisco and/or its affiliates.
+# Copyright AGNTCY Contributors (https://github.com/agntcy)
 # SPDX-License-Identifier: Apache-2.0
 
 ---
@@ -92,10 +92,9 @@ tasks:
     desc: "Install the components"
     internal: true
     cmds:
-      - cargo install {{.COMPONENTS}} {{if .VERSION}}--version {{.VERSION}}{{end}} --locked
+      - cargo install {{.COMPONENTS}} --locked
     vars:
       COMPONENTS: '{{ .COMPONENTS | default "" }}'
-      VERSION: '{{ .VERSION | default "" }}'
 
   clean:
     desc: "Clean the project"
@@ -163,8 +162,7 @@ tasks:
     deps:
       - task: build:install-cargo-components
         vars:
-          COMPONENTS: "cargo-machete"
-          VERSION: "0.7.0"
+          COMPONENTS: "cargo-machete@0.7.0"
     cmds:
       - cargo machete {{.ARGS}}
     vars:
@@ -188,8 +186,7 @@ tasks:
     deps:
       - task: build:install-cargo-components
         vars:
-          COMPONENTS: "cargo-deny"
-          VERSION: "0.17.0"
+          COMPONENTS: "cargo-deny@0.17.0"
     cmds:
       - cargo deny check {{.ARGS}}
     vars:
