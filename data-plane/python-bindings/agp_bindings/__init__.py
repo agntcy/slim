@@ -100,7 +100,7 @@ class Gateway:
 
     async def stop(self):
         """
-        Serve the Gateway service.
+        Stop the Gateway service.
 
         Args:
             None
