@@ -251,7 +251,7 @@ async def test_error_on_nonexistent_subscription(server):
     msg = [7, 8, 9]
     await agp_bindings.publish(svc_alice, session_id, 1, msg, bob_class, None)
     
-    # an expection should be raised on receive
+    # an exception should be raised on receive
     try:
         _, src, received = await asyncio.wait_for(agp_bindings.receive(svc_alice), timeout=5)
     except asyncio.TimeoutError:
