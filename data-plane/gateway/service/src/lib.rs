@@ -5,6 +5,7 @@ pub mod errors;
 pub mod producer_buffer;
 pub mod receiver_buffer;
 pub mod session;
+pub mod timer;
 
 mod fire_and_forget;
 mod session_layer;
