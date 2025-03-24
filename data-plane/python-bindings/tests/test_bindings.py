@@ -159,3 +159,109 @@ async def test_gateway_wrapper(server):
 
     # check if the message is correct
     assert msg_rcv == bytes(msg)
+
+@pytest.mark.asyncio
+async def test_auto_reconnect_after_server_restart():
+    # set up a new server
+    svc_server = agp_bindings.PyService("gateway/server1")
+    svc_server.configure(
+        agp_bindings.GatewayConfig(endpoint="0.0.0.0:12346", insecure=True)
+    )
+    await agp_bindings.serve(svc_server)
+
+    # setup two clients (Alice and Bob)
+    svc_alice = agp_bindings.PyService("gateway/alice")
+    svc_alice.configure(agp_bindings.GatewayConfig(
+        endpoint="http://127.0.0.1:12346"
+    ))
+    svc_bob = agp_bindings.PyService("gateway/bob")
+    svc_bob.configure(agp_bindings.GatewayConfig(
+        endpoint="http://127.0.0.1:12346"
+    ))
+    
+    # create agents for Alice and Bob
+    await agp_bindings.create_agent(svc_alice, "cisco", "default", "alice", 1234)
+    await agp_bindings.create_agent(svc_bob, "cisco", "default", "bob", 1234)
+    
+    # connect clients and subscribe for messages
+    conn_id_alice = await agp_bindings.connect(svc_alice)
+    conn_id_bob = await agp_bindings.connect(svc_bob)
+    
+    alice_class = agp_bindings.PyAgentClass("cisco", "default", "alice")
+    bob_class = agp_bindings.PyAgentClass("cisco", "default", "bob")
+    await agp_bindings.subscribe(svc_alice, conn_id_alice, alice_class, 1234)
+    await agp_bindings.subscribe(svc_bob, conn_id_bob, bob_class, 1234)
+    
+    # set routing from Alice to Bob
+    await agp_bindings.set_route(svc_alice, conn_id_alice, bob_class, None)
+
+    # create fire and forget session
+    session_id = await agp_bindings.create_session(
+        svc_alice, agp_bindings.PySessionType.FireAndForget
+    )
+    
+    # verify baseline message exchange before the simulated server restart
+    baseline_msg = [1, 2, 3]
+    await agp_bindings.publish(svc_alice, session_id, 1, baseline_msg, bob_class, None)
+    
+    _, src, received = await agp_bindings.receive(svc_bob)
+    assert received == bytes(baseline_msg)
+    
+    # restart the server
+    await agp_bindings.stop(svc_server)
+    await asyncio.sleep(3)  # allow time for the server to fully shut down
+    await agp_bindings.serve(svc_server)
+    await asyncio.sleep(2)  # allow time for automatic reconnection
+    
+    # test that the message exchange resumes normally after the simulated restart
+    test_msg = [4, 5, 6]
+    await agp_bindings.publish(svc_alice, session_id, 1, test_msg, bob_class, None)
+    _, src, received = await agp_bindings.receive(svc_bob)
+    assert received == bytes(test_msg)
+    
+    # clean up
+    await agp_bindings.disconnect(svc_alice, conn_id_alice)
+    await agp_bindings.disconnect(svc_bob, conn_id_bob)
+
+@pytest.mark.asyncio
+async def test_error_on_nonexistent_subscription(server):
+    # setup one client (Alice, but there is no Bob this time)
+    svc_alice = agp_bindings.PyService("gateway/alice")
+    svc_alice.configure(agp_bindings.GatewayConfig(
+        endpoint="http://127.0.0.1:12345"
+    ))
+
+    # create agent for Alice
+    await agp_bindings.create_agent(svc_alice, "cisco", "default", "alice", 1234)
+
+    # connect client and subscribe for messages
+    conn_id_alice = await agp_bindings.connect(svc_alice)
+    alice_class = agp_bindings.PyAgentClass("cisco", "default", "alice")
+    await agp_bindings.subscribe(svc_alice, conn_id_alice, alice_class, 1234)
+
+    # create fire and forget session
+    session_id = await agp_bindings.create_session(
+        svc_alice, agp_bindings.PySessionType.FireAndForget
+    )
+
+    # create Bob's agent class, but do not instantiate or subscribe Bob
+    bob_class = agp_bindings.PyAgentClass("cisco", "default", "bob")
+    
+    # publish a message from Alice intended for Bob (who is not there)
+    msg = [7, 8, 9]
+    await agp_bindings.publish(svc_alice, session_id, 1, msg, bob_class, None)
+    
+    # an exception should be raised on receive
+    try:
+        _, src, received = await asyncio.wait_for(agp_bindings.receive(svc_alice), timeout=5)
+    except asyncio.TimeoutError:
+        pytest.fail("timed out waiting for error message on receive channel")
+    except Exception as e:
+        assert "an error occurred processing a message" in str(e), (
+            f"Unexpected error message: {str(e)}"
+        )
+    else:
+        pytest.fail(f"Expected an exception, but received message: {received}")
+    
+    # clean up
+    await agp_bindings.disconnect(svc_alice, conn_id_alice)

@@ -507,6 +507,26 @@ fn serve(py: Python, svc: PyService) -> PyResult<Bound<PyAny>> {
     })
 }
 
+async fn stop_impl(svc: PyService) -> Result<(), ServiceError> {
+    let service = svc.sdk.write().await;
+    service.service.stop();
+
+    Ok(())
+}
+
+#[gen_stub_pyfunction]
+#[pyfunction]
+#[pyo3(signature = (
+    svc,
+))]
+fn stop(py: Python, svc: PyService) -> PyResult<Bound<PyAny>> {
+    pyo3_async_runtimes::tokio::future_into_py(py, async move {
+        stop_impl(svc.clone())
+            .await
+            .map_err(|e| PyErr::new::<PyException, _>(format!("{}", e.to_string())))
+    })
+}
+
 async fn connect_impl(svc: PyService) -> Result<u64, ServiceError> {
     // Get the service's configuration
     let config = match svc.config {
@@ -898,6 +918,7 @@ fn _agp_bindings(_py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(remove_route, m)?)?;
     m.add_function(wrap_pyfunction!(publish, m)?)?;
     m.add_function(wrap_pyfunction!(serve, m)?)?;
+    m.add_function(wrap_pyfunction!(stop, m)?)?;
     m.add_function(wrap_pyfunction!(connect, m)?)?;
     m.add_function(wrap_pyfunction!(disconnect, m)?)?;
     m.add_function(wrap_pyfunction!(receive, m)?)?;

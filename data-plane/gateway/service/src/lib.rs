@@ -19,6 +19,7 @@ use session_layer::SessionLayer;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::mpsc;
+use tokio_util::sync::CancellationToken;
 use tonic::Status;
 use tracing::{debug, error, info};
 
@@ -107,6 +108,9 @@ pub struct Service {
 
     /// signal to shutdown the service
     signal: drain::Signal,
+
+    /// cancellation token to stop the server main loop
+    cancellation_token: CancellationToken,
 }
 
 impl Service {
@@ -121,6 +125,7 @@ impl Service {
             session_layers: HashMap::new(),
             watch,
             signal,
+            cancellation_token: CancellationToken::new(),
         }
     }
 
@@ -255,6 +260,8 @@ impl Service {
         // clone the watcher to be notified when the service is shutting down
         let drain_rx = self.watch.clone();
 
+        let token = self.cancellation_token.clone();
+
         // spawn server acceptor in a new task
         tokio::spawn(async move {
             debug!("starting server main loop");
@@ -275,10 +282,17 @@ impl Service {
                 _ = shutdown => {
                     info!("shutting down server");
                 }
+                _ = token.cancelled() => {
+                    info!("cancellation token triggered: shutting down server");
+                }
             }
         });
 
         Ok(())
+    }
+
+    pub fn stop(&self) {
+        self.cancellation_token.cancel();
     }
 
     pub async fn connect(&mut self, new_config: Option<ClientConfig>) -> Result<u64, ServiceError> {
