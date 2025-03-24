@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 pub mod errors;
+pub mod producer_cache;
 pub mod session;
 
 mod fire_and_forget;
