@@ -786,12 +786,17 @@ impl MessageProcessor {
                         break;
                     }
                     _ = token_clone.cancelled() => {
-                        info!("shutting down stream cancellation token: {}", conn_index);
+                        info!("shutting down stream on cancellation token: {}", conn_index);
                         try_to_reconnect = false;
                         break;
                     }
                 }
             }
+
+            // we drop rx now as otherwise the connection will be closed only
+            // when the task is dropped and we want to make sure that the rx
+            // stream is closed as soon as possible
+            drop(stream);
 
             let mut connected = false;
 

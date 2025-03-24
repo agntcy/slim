@@ -205,6 +205,8 @@ impl<T> Drop for Pool<T> {
 // tests
 #[cfg(test)]
 mod tests {
+    use std::cell::RefCell;
+
     use super::*;
     use rand::Rng;
 
@@ -361,5 +363,46 @@ mod tests {
                 assert_eq!(curr_max_set, pool.max_set());
             }
         }
+    }
+
+    struct TestDropStruct<F: FnMut()> {
+        drop_callback: F,
+    }
+
+    impl<F: FnMut()> Drop for TestDropStruct<F> {
+        fn drop(&mut self) {
+            (self.drop_callback)();
+        }
+    }
+
+    #[test]
+    fn test_pool_drop() {
+        // check if the drop is called for all elements in the pool at the end
+        let drop_count: RefCell<u32> = 0.into();
+        let mut pool = Pool::with_capacity(10);
+        (0..10).for_each(|_| {
+            pool.insert(TestDropStruct {
+                drop_callback: || {
+                    *drop_count.borrow_mut() += 1;
+                },
+            });
+        });
+
+        assert_eq!(*drop_count.borrow(), 0);
+        drop(pool);
+        assert_eq!(*drop_count.borrow(), 10);
+
+        // check if the drop is called when an element in the pool is removed
+        let drop_count: RefCell<u32> = 0.into();
+        let mut pool = Pool::with_capacity(10);
+        let pos = pool.insert(TestDropStruct {
+            drop_callback: || {
+                *drop_count.borrow_mut() += 1;
+            },
+        });
+
+        assert_eq!(*drop_count.borrow(), 0);
+        pool.remove(pos);
+        assert_eq!(*drop_count.borrow(), 1);
     }
 }
