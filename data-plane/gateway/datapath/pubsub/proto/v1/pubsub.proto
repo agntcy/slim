@@ -18,7 +18,7 @@ message Unsubscribe {
 
 message Publish {
   AGPHeader header = 1;
-  ServiceHeader control = 2;
+  SessionHeader control = 2;
   uint32 fanout = 3;
   Content msg = 4;
 }
@@ -43,7 +43,7 @@ message Agent {
   optional uint64 agent_id = 4;
 }
 
-enum ServiceHeaderType {
+enum SessionHeaderType {
   CTRL_UNSPECIFIED = 0;
   CTRL_FNF = 1;
   CTRL_REQUEST = 2;
@@ -53,7 +53,9 @@ enum ServiceHeaderType {
   CTRL_RTX_REPLY = 6;
 }
 
-// Service.id meaning according to ControlType
+// Session.session_id is the ID of the session
+
+// Session.message_id meaning according to ControlType
 // CTRL_FNF = nonce
 // CTRL_REQUEST = nonce
 // CTRL_REPLY = nonce of the associated CTRL_REQUEST
@@ -61,22 +63,22 @@ enum ServiceHeaderType {
 // CTRL_RTX_REQUEST = nonce
 // CTRL_RTX_REPLY = nonce of the associated CTRL_RTX_REQUEST
 
-// Service.stream meaning according to ControlType
-// CTRL_STREAM = stream for which the id field is valid
+// Session.stream meaning according to ControlType
+// CTRL_STREAM = stream for which the message_id field is valid
 // CTRL_RTX_REQUEST = stream for this CTRL_RTX_REQUEST
 // CTRL_RTX_REPLY = stream for this CTRL_RTX_REPLY
-// None in all the other cases
 
-// Service.rtx meaning according to ControlType
+// Session.rtx meaning according to ControlType
 // CTRL_RTX_REQUEST = id of the messing packet to retransmit
 // CTRL_RTX_REPLY = id of the retransmitted packet
 // None in all the other cases
 
-message ServiceHeader {
-  ServiceHeaderType header_type = 1;
-  uint32 id = 2;
-  optional uint32 stream = 3;
-  optional uint32 rtx = 4;
+message SessionHeader {
+  SessionHeaderType header_type = 1;
+  uint32 session_id = 2;
+  uint32 message_id = 3;
+  optional uint32 stream = 4;
+  optional uint32 rtx = 5;
 }
 
 message Content {

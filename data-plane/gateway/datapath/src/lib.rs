@@ -4,9 +4,9 @@
 pub mod message_processing;
 pub mod messages;
 pub mod pubsub;
+pub mod tables;
 
 mod errors;
 
 mod connection;
 mod forwarder;
-mod tables;
