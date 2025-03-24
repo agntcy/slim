@@ -1,13 +1,13 @@
-// SPDX-FileCopyrightText: Copyright (c) 2025 Cisco and/or its affiliates.
+// Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
 use std::collections::HashMap;
 
 use super::encoder::{Agent, AgentType, DEFAULT_AGENT_ID};
 use crate::pubsub::{
-    proto::pubsub::v1::ServiceHeaderType, AgpHeader, Content, ProtoAgent, ProtoMessage,
+    proto::pubsub::v1::SessionHeaderType, AgpHeader, Content, ProtoAgent, ProtoMessage,
     ProtoPublish, ProtoPublishType, ProtoSubscribe, ProtoSubscribeType, ProtoUnsubscribe,
-    ProtoUnsubscribeType, ServiceHeader,
+    ProtoUnsubscribeType, SessionHeader,
 };
 
 use rand::Rng;
@@ -78,22 +78,40 @@ pub fn create_agp_header(
     })
 }
 
-fn get_agp_header(msg: &ProtoMessage) -> Option<AgpHeader> {
+pub fn get_agp_header(msg: &ProtoMessage) -> Option<&AgpHeader> {
     match &msg.message_type {
         Some(msg_type) => match msg_type {
-            ProtoPublishType(publish) => publish.header,
-            ProtoSubscribeType(sub) => sub.header,
-            ProtoUnsubscribeType(unsub) => unsub.header,
+            ProtoPublishType(publish) => publish.header.as_ref(),
+            ProtoSubscribeType(sub) => sub.header.as_ref(),
+            ProtoUnsubscribeType(unsub) => unsub.header.as_ref(),
         },
         None => None,
     }
 }
 
-fn get_agp_header_as_mut(msg: &mut ProtoMessage) -> Option<&mut AgpHeader> {
+pub fn get_agp_header_as_mut(msg: &mut ProtoMessage) -> Option<&mut AgpHeader> {
     match &mut msg.message_type {
         Some(ProtoPublishType(publish)) => publish.header.as_mut(),
         Some(ProtoSubscribeType(sub)) => sub.header.as_mut(),
         Some(ProtoUnsubscribeType(unsub)) => unsub.header.as_mut(),
+        None => None,
+    }
+}
+
+pub fn get_session_header(msg: &ProtoMessage) -> Option<&SessionHeader> {
+    match &msg.message_type {
+        Some(ProtoPublishType(publish)) => publish.control.as_ref(),
+        Some(ProtoSubscribeType(_)) => None,
+        Some(ProtoUnsubscribeType(_)) => None,
+        None => None,
+    }
+}
+
+pub fn get_session_header_as_mut(msg: &mut ProtoMessage) -> Option<&mut SessionHeader> {
+    match &mut msg.message_type {
+        Some(ProtoPublishType(publish)) => publish.control.as_mut(),
+        Some(ProtoSubscribeType(_)) => None,
+        Some(ProtoUnsubscribeType(_)) => None,
         None => None,
     }
 }
@@ -187,28 +205,30 @@ pub fn get_name(msg: &ProtoMessage) -> Result<(AgentType, Option<u64>), MessageE
 }
 
 // utils functions for service header
-pub fn create_service_header(
+pub fn create_session_header(
     header_type: i32,
-    id: u32,
+    session_id: u32,
+    message_id: u32,
     stream: Option<u32>,
     rtx: Option<u32>,
-) -> Option<ServiceHeader> {
-    Some(ServiceHeader {
+) -> Option<SessionHeader> {
+    Some(SessionHeader {
         header_type,
-        id,
+        session_id,
+        message_id,
         stream,
         rtx,
     })
 }
 
-pub fn create_default_service_header() -> Option<ServiceHeader> {
-    create_service_header(ServiceHeaderType::CtrlFnf.into(), 0, None, None)
+pub fn create_default_session_header() -> Option<SessionHeader> {
+    create_session_header(SessionHeaderType::CtrlFnf.into(), 0, 0, None, None)
 }
 
 // getters for service header
 pub fn get_msg_id(msg: &ProtoPublish) -> Result<u32, MessageError> {
     match msg.control {
-        Some(header) => Ok(header.id),
+        Some(header) => Ok(header.message_id),
         None => Err(MessageError::ControlHeaderNotFound),
     }
 }
@@ -230,7 +250,7 @@ fn get_rtx_id(msg: &ProtoPublish) -> Result<Option<u32>, MessageError> {
 }
 
 // utils functions for messages
-pub fn create_subscription(
+fn create_subscription_internal(
     header: Option<AgpHeader>,
     metadata: HashMap<String, String>,
 ) -> ProtoMessage {
@@ -240,41 +260,12 @@ pub fn create_subscription(
     }
 }
 
-pub fn create_subscription_from(
-    agent_type: &AgentType,
-    agent_id: Option<u64>,
-    recv_from: u64,
-) -> ProtoMessage {
-    // this message is used to set the state inside the local subscription table.
-    // it emulates the reception of a subscription message from a remote end point through
-    // the connection recv_from
-    // this allows to forward pub messages using a standard match on the subscription tables
-    // it works in a similar way to the set_route command in IP: it creates a route to a destion
-    // through a local interface
-
-    // the source field is not used in this case, set it to default
-    let source = Agent::default();
-    let header = create_agp_header(
-        &source,
-        agent_type,
-        agent_id,
-        Some(recv_from),
-        None,
-        None,
-        None,
-    );
-
-    // create a subscription with the recv_from field in the header
-    // the result is that the subscription will be added to the local
-    // subscription table with connection = recv_from
-    create_subscription(header, HashMap::new())
-}
-
-pub fn create_subscription_to_forward(
+pub fn create_subscription(
     source: &Agent,
     agent_type: &AgentType,
     agent_id: Option<u64>,
-    forward_to: u64,
+    recv_from: Option<u64>,
+    forward_to: Option<u64>,
 ) -> ProtoMessage {
     // this subscription can be received only from a local connection
     // when this message is received the subscription is set in the local table
@@ -282,19 +273,13 @@ pub fn create_subscription_to_forward(
     // before forward the subscription the forward_to needs to be set to None
 
     let header = create_agp_header(
-        source,
-        agent_type,
-        agent_id,
-        None,
-        Some(forward_to),
-        None,
-        None,
+        source, agent_type, agent_id, recv_from, forward_to, None, None,
     );
-    create_subscription(header, HashMap::new())
+    create_subscription_internal(header, HashMap::new())
 }
 
 #[allow(dead_code)]
-fn create_unsubscription(
+fn create_unsubscription_internal(
     header: Option<AgpHeader>,
     metadata: HashMap<String, String>,
 ) -> ProtoMessage {
@@ -304,52 +289,51 @@ fn create_unsubscription(
     }
 }
 
-pub fn create_unsubscription_from(
-    agent_type: &AgentType,
-    agent_id: Option<u64>,
-    recv_from: u64,
-) -> ProtoMessage {
-    // same as subscription from but it removes the state
-
-    // the source field is not used in this case, set it to default
-    let source = Agent::default();
-    let header = create_agp_header(
-        &source,
-        agent_type,
-        agent_id,
-        Some(recv_from),
-        None,
-        None,
-        None,
-    );
-
-    // create the unsubscription with the metadata
-    create_unsubscription(header, HashMap::new())
-}
-
-pub fn create_unsubscription_to_forward(
+pub fn create_unsubscription(
     source: &Agent,
     agent_type: &AgentType,
     agent_id: Option<u64>,
-    forward_to: u64,
+    recv_from: Option<u64>,
+    forward_to: Option<u64>,
 ) -> ProtoMessage {
-    // same as subscription to forward but it removes the state
+    // this subscription can be received only from a local connection
+    // when this message is received the subscription is set in the local table
+    // and forwarded to the connection forward_to to set the subscription remotely
+    // before forward the subscription the forward_to needs to be set to None
 
     let header = create_agp_header(
-        source,
-        agent_type,
-        agent_id,
-        None,
-        Some(forward_to),
-        None,
-        None,
+        source, agent_type, agent_id, recv_from, forward_to, None, None,
     );
-    create_unsubscription(header, HashMap::new())
+    create_unsubscription_internal(header, HashMap::new())
 }
 
+// TODO(msardara): fix this clippy warning
+#[allow(clippy::too_many_arguments)]
 pub fn create_publication(
+    src: &Agent,
+    dst_type: &AgentType,
+    dst_id: Option<u64>,
+    recv_from: Option<u64>,
+    forward_to: Option<u64>,
+    fanout: u32,
+    content_type: &str,
+    blob: Vec<u8>,
+) -> ProtoMessage {
+    let header = create_agp_header(src, dst_type, dst_id, recv_from, forward_to, None, None);
+
+    create_publication_with_header(
+        header,
+        create_default_session_header(),
+        std::collections::HashMap::new(),
+        fanout,
+        content_type,
+        blob,
+    )
+}
+
+pub fn create_publication_with_header(
     header: Option<AgpHeader>,
-    control: Option<ServiceHeader>,
+    control: Option<SessionHeader>,
     metadata: HashMap<String, String>,
     fanout: u32,
     content_type: &str,
@@ -380,9 +364,9 @@ pub fn create_error_publication(error: String) -> ProtoMessage {
         None,
         Some(true),
     );
-    create_publication(
+    create_publication_with_header(
         header,
-        create_default_service_header(),
+        create_default_session_header(),
         HashMap::new(),
         1,
         "",
@@ -400,17 +384,18 @@ pub fn create_rtx_publication(
     content: Option<Vec<u8>>,
 ) -> ProtoMessage {
     let agp_header = create_agp_header(source, name_type, name_id, None, None, None, None);
-    let mut rtx_type = ServiceHeaderType::CtrlRtxRequest;
+    let mut rtx_type = SessionHeaderType::CtrlRtxRequest;
     if !is_request {
-        rtx_type = ServiceHeaderType::CtrlRtxReply;
+        rtx_type = SessionHeaderType::CtrlRtxReply;
     }
-    let session_header = create_service_header(
+    let session_header = create_session_header(
         rtx_type.into(),
+        session,
         rand::rng().random(),
-        Some(session),
+        None,
         Some(msg_id),
     );
-    create_publication(
+    create_publication_with_header(
         agp_header,
         session_header,
         HashMap::new(),
@@ -435,6 +420,33 @@ pub fn get_payload(msg: &ProtoPublish) -> &[u8] {
     &msg.msg.as_ref().unwrap().blob
 }
 
+pub fn int_to_service_type(int: i32) -> Option<SessionHeaderType> {
+    match int {
+        1 => Some(SessionHeaderType::CtrlFnf),
+        2 => Some(SessionHeaderType::CtrlRequest),
+        3 => Some(SessionHeaderType::CtrlReply),
+        4 => Some(SessionHeaderType::CtrlStream),
+        5 => Some(SessionHeaderType::CtrlRtxRequest),
+        6 => Some(SessionHeaderType::CtrlRtxReply),
+        _ => {
+            error!("unknown service header type: {}", int);
+            None
+        }
+    }
+}
+
+pub fn service_type_to_int(service_type: SessionHeaderType) -> i32 {
+    match service_type {
+        SessionHeaderType::CtrlUnspecified => 0,
+        SessionHeaderType::CtrlFnf => 1,
+        SessionHeaderType::CtrlRequest => 2,
+        SessionHeaderType::CtrlReply => 3,
+        SessionHeaderType::CtrlStream => 4,
+        SessionHeaderType::CtrlRtxRequest => 5,
+        SessionHeaderType::CtrlRtxReply => 6,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::messages::encoder::{encode_agent, encode_agent_type};
@@ -447,9 +459,9 @@ mod tests {
         let source = encode_agent("org", "ns", "type", 1);
         let name = encode_agent_type("org", "ns", "type");
         let header = create_agp_header(&source, &name, Some(2), None, None, None, None);
-        let sub = create_subscription(header, HashMap::new());
+        let sub = create_subscription_internal(header, HashMap::new());
 
-        assert_eq!(header, get_agp_header(&sub));
+        assert_eq!(header.as_ref(), get_agp_header(&sub));
         assert_eq!(None, get_recv_from(&sub).unwrap());
         assert_eq!(None, get_forward_to(&sub).unwrap());
         assert_eq!(None, get_incoming_connection(&sub).unwrap());
@@ -469,9 +481,9 @@ mod tests {
             None,
             None,
         );
-        let sub_from = create_subscription_from(&name, Some(2), 50);
+        let sub_from = create_subscription(&Agent::default(), &name, Some(2), Some(50), None);
 
-        assert_eq!(header_from, get_agp_header(&sub_from));
+        assert_eq!(header_from.as_ref(), get_agp_header(&sub_from));
         assert_eq!(Some(50), get_recv_from(&sub_from).unwrap());
         assert_eq!(None, get_forward_to(&sub_from).unwrap());
         assert_eq!(None, get_incoming_connection(&sub_from).unwrap());
@@ -483,9 +495,9 @@ mod tests {
         assert_eq!(Some(2), got_name_id);
 
         let header_fwd = create_agp_header(&source, &name, None, None, Some(30), None, None);
-        let mut sub_fwd = create_subscription_to_forward(&source, &name, None, 30);
+        let mut sub_fwd = create_subscription(&source, &name, None, None, Some(30));
 
-        assert_eq!(header_fwd, get_agp_header(&sub_fwd));
+        assert_eq!(header_fwd.as_ref(), get_agp_header(&sub_fwd));
         assert_eq!(None, get_recv_from(&sub_fwd).unwrap());
         assert_eq!(Some(30), get_forward_to(&sub_fwd).unwrap());
         assert_eq!(None, get_incoming_connection(&sub_fwd).unwrap());
@@ -498,13 +510,13 @@ mod tests {
         let ret = clear_agp_header(&mut sub_fwd);
         assert_eq!(Ok(()), ret);
         assert_eq!(
-            create_agp_header(&source, &name, None, None, None, None, None),
+            create_agp_header(&source, &name, None, None, None, None, None).as_ref(),
             get_agp_header(&sub_fwd)
         );
 
-        let unsub_from = create_unsubscription_from(&name, Some(2), 50);
+        let unsub_from = create_unsubscription(&Agent::default(), &name, Some(2), Some(50), None);
 
-        assert_eq!(header_from, get_agp_header(&unsub_from));
+        assert_eq!(header_from.as_ref(), get_agp_header(&unsub_from));
         assert_eq!(Some(50), get_recv_from(&unsub_from).unwrap());
         assert_eq!(None, get_forward_to(&unsub_from).unwrap());
         assert_eq!(None, get_incoming_connection(&sub_from).unwrap());
@@ -515,9 +527,9 @@ mod tests {
         assert_eq!(name, got_name);
         assert_eq!(Some(2), got_name_id);
 
-        let mut unsub_fwd = create_unsubscription_to_forward(&source, &name, None, 30);
+        let mut unsub_fwd = create_unsubscription(&source, &name, None, None, Some(30));
 
-        assert_eq!(header_fwd, get_agp_header(&unsub_fwd));
+        assert_eq!(header_fwd.as_ref(), get_agp_header(&unsub_fwd));
         assert_eq!(None, get_recv_from(&unsub_fwd).unwrap());
         assert_eq!(Some(30), get_forward_to(&unsub_fwd).unwrap());
         assert_eq!(None, get_incoming_connection(&unsub_fwd).unwrap());
@@ -530,19 +542,19 @@ mod tests {
         let ret = clear_agp_header(&mut unsub_fwd);
         assert_eq!(Ok(()), ret);
         assert_eq!(
-            create_agp_header(&source, &name, None, None, None, None, None),
+            create_agp_header(&source, &name, None, None, None, None, None).as_ref(),
             get_agp_header(&unsub_fwd)
         );
 
-        let mut p = create_publication(
+        let mut p = create_publication_with_header(
             header,
-            create_default_service_header(),
+            create_default_session_header(),
             HashMap::new(),
             10,
             "str",
             "this is the content of the message".into(),
         );
-        assert_eq!(header, get_agp_header(&p));
+        assert_eq!(header.as_ref(), get_agp_header(&p));
         assert_eq!(None, get_recv_from(&p).unwrap());
         assert_eq!(None, get_forward_to(&p).unwrap());
         assert_eq!(None, get_incoming_connection(&p).unwrap());
@@ -559,7 +571,7 @@ mod tests {
         let ret = clear_agp_header(&mut p);
         assert_eq!(Ok(()), ret);
         assert_eq!(
-            create_agp_header(&source, &name, Some(2), None, None, Some(500), None),
+            create_agp_header(&source, &name, Some(2), None, None, Some(500), None).as_ref(),
             get_agp_header(&p)
         );
         let msg = match &p.message_type {
