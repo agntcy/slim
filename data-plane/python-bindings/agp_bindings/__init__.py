@@ -19,6 +19,7 @@ from ._agp_bindings import (
     subscribe,
     unsubscribe,
     serve,
+    stop,
     set_route,
     remove_route,
 )
@@ -96,6 +97,19 @@ class Gateway:
         """
 
         await serve(self.svc)
+
+    async def stop(self):
+        """
+        Serve the Gateway service.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
+
+        await stop(self.svc)
 
     async def connect(self) -> int:
         """
