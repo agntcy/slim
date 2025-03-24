@@ -510,7 +510,7 @@ fn serve(py: Python, svc: PyService) -> PyResult<Bound<PyAny>> {
 async fn stop_impl(svc: PyService) -> Result<(), ServiceError> {
     let service = svc.sdk.write().await;
     service.service.stop();
-    
+
     Ok(())
 }
 
