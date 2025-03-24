@@ -64,7 +64,7 @@ jobs:
           args=(
             --upgrade
             --debug
-            --target-branch=${{ github.event_name == 'pull_request' && github.base_ref || github.ref }}
+            --target-branch=${{ github.event_name == 'pull_request' && github.base_ref || github.ref_name }}
             --chart-dirs ${{ inputs.chart-path }}
             --validate-maintainers=false
             --check-version-increment=false
