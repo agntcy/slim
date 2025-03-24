@@ -12,8 +12,8 @@ use your help.
 This guide will help you get started. **Do not let this guide intimidate you**.
 It should be considered a map to help you navigate the process.
 
-The [dev channel][dev] is available for any concerns not covered in this guide, please join
-us!
+The [dev channel][dev] is available for any concerns not covered in this guide,
+please join us!
 
 [dev]: https://internetofagents.slack.com
 
@@ -105,9 +105,35 @@ usually a good idea to first open an issue describing the change to solicit
 feedback and guidance. This will increase the likelihood of the PR getting
 merged.
 
+## Developer’s Certificate of Origin
+
+To improve tracking of who did what, we have introduced a “sign-off” procedure.
+The sign-off is a line at the end of the explanation for the commit, which
+certifies that you wrote it or otherwise have the right to pass it on as open
+source work. We use the Developer Certificate of Origin (see
+https://developercertificate.org/) for our sign-off procedure. You must include
+a sign-off in the commit message of your pull request for it to be accepted. The
+format for a sign-off is:
+
+```
+Signed-off-by: Random J Developer
+<random@developer.example.org>
+```
+
+You can use the -s when you do a git commit to simplify including a properly
+formatted sign-off in your commits. If you need to add your sign-off to a commit
+you have already made, you will need to amend:
+
+```
+git commit --amend --signoff
+
+```
+
 ### Performing spellcheck on AGP codebase
 
-You can perform spell-check on agp codebase. For details of how to use the spellcheck tool, feel free to visit
+You can perform spell-check on agp codebase. For details of how to use the
+spellcheck tool, feel free to visit
+
 https://github.com/drahnr/cargo-spellcheck
 ```
 # First install the spell-check plugin
@@ -117,11 +143,13 @@ cargo install --locked cargo-spellcheck
 cargo spellcheck check
 ```
 
-if the command rejects a word, you should backtick the rejected word if it's code related. If not, the
-rejected word should be put into `spellcheck.dic` file.
+if the command rejects a word, you should backtick the rejected word if it's
+code related. If not, the rejected word should be put into `spellcheck.dic`
+file.
 
-Note that when you add a word into the file, you should also update the first line which tells the spellcheck tool
-the total number of words included in the file
+Note that when you add a word into the file, you should also update the first
+line which tells the spellcheck tool the total number of words included in the
+file
 
 ### Commits
 
@@ -207,8 +235,8 @@ in order to evaluate whether the changes are correct and necessary.
 Keep an eye out for comments from code owners to provide guidance on conflicting
 feedback.
 
-**Once the PR is open, do not rebase the commits**. See [Commit Squashing](#commit-squashing) for
-more details.
+**Once the PR is open, do not rebase the commits**.
+See [Commit Squashing](#commit-squashing) for more details.
 
 ### Commit Squashing
 

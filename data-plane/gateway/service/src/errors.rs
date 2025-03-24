@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: Copyright (c) 2025 Cisco and/or its affiliates.
+// Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
 use thiserror::Error;
@@ -7,8 +7,10 @@ use thiserror::Error;
 pub enum ServiceError {
     #[error("configuration error {0}")]
     ConfigError(String),
-    #[error("local agent not configured")]
-    MissingAgentError,
+    #[error("agent already registered: {0}")]
+    AgentAlreadyRegistered(String),
+    #[error("agent not found: {0}")]
+    AgentNotFound(String),
     #[error("connection error: {0}")]
     ConnectionError(String),
     #[error("disconnect error")]
@@ -25,6 +27,14 @@ pub enum ServiceError {
     PublishError(String),
     #[error("error receiving message: {0}")]
     ReceiveError(String),
+    #[error("session not found: {0}")]
+    SessionNotFound(String),
+    #[error("error creating session: {0}")]
+    SessionCreationError(String),
+    #[error("error creating the session: {0}")]
+    SessionDeletionError(String),
+    #[error("error deleting the session: {0}")]
+    SessionSendError(String),
     #[error("unknown error")]
     Unknown,
 }

@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: Copyright (c) 2025 Cisco and/or its affiliates.
+// Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
 use std::hash::{DefaultHasher, Hash, Hasher};
@@ -10,6 +10,16 @@ pub struct AgentType {
     organization: u64,
     namespace: u64,
     agent_type: u64,
+}
+
+impl std::fmt::Display for AgentType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{:x}/{:x}/{:x}",
+            self.organization, self.namespace, self.agent_type
+        )
+    }
 }
 
 impl AgentType {
@@ -54,6 +64,19 @@ impl AgentType {
 pub struct Agent {
     agent_type: AgentType,
     agent_id: u64,
+}
+
+impl std::fmt::Display for Agent {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{:x}/{:x}/{:x}/{:x}",
+            self.agent_type.organization(),
+            self.agent_type.namespace(),
+            self.agent_type.agent_type(),
+            self.agent_id
+        )
+    }
 }
 
 impl Agent {

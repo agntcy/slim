@@ -65,7 +65,7 @@ impl ReceiverBuffer {
 
             debug!("Received message id {}", msg_id);
             // no loss detected, return message
-            // if this is the first packet received (case last_sent == usize::MAX) we consieder it
+            // if this is the first packet received (case last_sent == usize::MAX) we consider it
             // valid one and the buffer is initilaized accordingly. in this way a stream can start from
             // a random number or it can be joined at any time
             if self.last_sent == usize::MAX
@@ -80,7 +80,7 @@ impl ReceiverBuffer {
             if msg_id <= self.last_sent {
                 // this message is not useful anymore because we have already sent
                 // content for this ID to the application. It can be a duplicated
-                // msg or a message the arrived too late. Log and drop
+                // msg or a message that arrived too late. Log and drop
                 info!("Received possibly DUP message, drop it");
                 return Ok(vec![]);
             }
@@ -237,26 +237,34 @@ mod tests {
 
     use super::*;
     use agp_datapath::{
-        messages::utils::{create_publication, create_session_header},
+        messages::{
+            encoder::encode_agent,
+            utils::{create_agp_header, create_publication_with_header, create_session_header},
+        },
         pubsub::proto::pubsub::v1::SessionHeaderType,
     };
 
     #[test]
     #[traced_test]
     fn test_receiver_buffer() {
-        let h0 = create_session_header(SessionHeaderType::Fnf.into(), 0, None, None);
-        let h1 = create_session_header(SessionHeaderType::Fnf.into(), 1, None, None);
-        let h2 = create_session_header(SessionHeaderType::Fnf.into(), 2, None, None);
-        let h3 = create_session_header(SessionHeaderType::Fnf.into(), 3, None, None);
-        let h4 = create_session_header(SessionHeaderType::Fnf.into(), 4, None, None);
-        let h5 = create_session_header(SessionHeaderType::Fnf.into(), 5, None, None);
+        let src = encode_agent("org", "ns", "type", 0);
+        let name_type = agp_datapath::messages::encoder::encode_agent_type("org", "ns", "type");
 
-        let p0 = create_publication(None, h0, HashMap::new(), 1, "", vec![]);
-        let p1 = create_publication(None, h1, HashMap::new(), 1, "", vec![]);
-        let p2 = create_publication(None, h2, HashMap::new(), 1, "", vec![]);
-        let p3 = create_publication(None, h3, HashMap::new(), 1, "", vec![]);
-        let p4 = create_publication(None, h4, HashMap::new(), 1, "", vec![]);
-        let p5 = create_publication(None, h5, HashMap::new(), 1, "", vec![]);
+        let agp_header = create_agp_header(&src, &name_type, Some(1), None, None, None, None);
+
+        let h0 = create_session_header(SessionHeaderType::Fnf.into(), 0, 0, None, None);
+        let h1 = create_session_header(SessionHeaderType::Fnf.into(), 0, 1, None, None);
+        let h2 = create_session_header(SessionHeaderType::Fnf.into(), 0, 2, None, None);
+        let h3 = create_session_header(SessionHeaderType::Fnf.into(), 0, 3, None, None);
+        let h4 = create_session_header(SessionHeaderType::Fnf.into(), 0, 4, None, None);
+        let h5 = create_session_header(SessionHeaderType::Fnf.into(), 0, 5, None, None);
+
+        let p0 = create_publication_with_header(agp_header, h0, HashMap::new(), 1, "", vec![]);
+        let p1 = create_publication_with_header(None, h1, HashMap::new(), 1, "", vec![]);
+        let p2 = create_publication_with_header(None, h2, HashMap::new(), 1, "", vec![]);
+        let p3 = create_publication_with_header(None, h3, HashMap::new(), 1, "", vec![]);
+        let p4 = create_publication_with_header(None, h4, HashMap::new(), 1, "", vec![]);
+        let p5 = create_publication_with_header(None, h5, HashMap::new(), 1, "", vec![]);
 
         // insert in order
         let mut buffer = ReceiverBuffer::default();

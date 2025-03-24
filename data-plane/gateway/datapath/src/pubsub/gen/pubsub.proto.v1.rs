@@ -55,10 +55,12 @@ pub struct SessionHeader {
     #[prost(enumeration = "SessionHeaderType", tag = "1")]
     pub header_type: i32,
     #[prost(uint32, tag = "2")]
-    pub id: u32,
-    #[prost(uint32, optional, tag = "3")]
-    pub stream: ::core::option::Option<u32>,
+    pub session_id: u32,
+    #[prost(uint32, tag = "3")]
+    pub message_id: u32,
     #[prost(uint32, optional, tag = "4")]
+    pub stream: ::core::option::Option<u32>,
+    #[prost(uint32, optional, tag = "5")]
     pub rtx: ::core::option::Option<u32>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
