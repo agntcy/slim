@@ -30,7 +30,6 @@ dependencies = [
  "pyo3-stub-gen",
  "rand 0.9.0",
  "tokio",
- "tonic",
 ]
 
 [[package]]
@@ -99,6 +98,8 @@ dependencies = [
  "agp-config",
  "agp-datapath",
  "agp-gw",
+ "agp-service",
+ "agp-signal",
  "clap",
  "tokio",
  "tracing",
@@ -141,6 +142,7 @@ dependencies = [
  "agp-config",
  "agp-datapath",
  "drain",
+ "rand 0.9.0",
  "serde",
  "thiserror",
  "tokio",
@@ -2551,6 +2553,7 @@ dependencies = [
  "agp-config",
  "agp-datapath",
  "agp-gw",
+ "agp-service",
  "clap",
  "indicatif",
  "parking_lot",

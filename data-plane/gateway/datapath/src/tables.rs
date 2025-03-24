@@ -9,7 +9,7 @@ pub mod errors;
 pub mod remote_subscription_table;
 pub mod subscription_table;
 
-mod pool;
+pub mod pool;
 
 use crate::messages::AgentType;
 use errors::SubscriptionTableError;
