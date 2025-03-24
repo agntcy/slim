@@ -10,6 +10,7 @@ agp-config = { path = "../config", version = "0.1.5" }
 agp-datapath = { path = "../datapath", version = "0.4.2" }
 drain = { version = "0.1", features = ["retain"] }
 parking_lot = "0.12.3"
+rand = "0.9.0"
 serde = "1.0.217"
 thiserror = "2.0.9"
 tokio = "1.42.0"
@@ -18,4 +19,4 @@ tonic = "0.12"
 tracing = "0.1.41"
 
 [dev-dependencies]
-tracing-test = "0.2.5"
+tracing-test = { version = "0.2.5", features = ["no-env-filter"] }

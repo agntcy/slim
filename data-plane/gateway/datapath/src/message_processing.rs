@@ -1,7 +1,6 @@
-// SPDX-FileCopyrightText: Copyright (c) 2025 Cisco and/or its affiliates.
+// Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
-use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::{pin::Pin, sync::Arc};
 
@@ -22,9 +21,8 @@ use crate::connection::{Channel, Connection, Type as ConnectionType};
 use crate::errors::DataPathError;
 use crate::forwarder::Forwarder;
 use crate::messages::utils::{
-    clear_agp_header, create_agp_header, create_error_publication, create_subscription, get_fanout,
-    get_forward_to, get_name, get_recv_from, get_source, message_type_to_str,
-    set_incoming_connection,
+    clear_agp_header, create_error_publication, create_subscription, get_fanout, get_forward_to,
+    get_name, get_recv_from, get_source, message_type_to_str, set_incoming_connection,
 };
 use crate::messages::AgentType;
 use crate::pubsub::proto::pubsub::v1::message::MessageType::Publish as PublishType;
@@ -249,6 +247,7 @@ impl MessageProcessor {
     pub fn register_local_connection(
         &self,
     ) -> (
+        u64,
         tokio::sync::mpsc::Sender<Result<Message, Status>>,
         tokio::sync::mpsc::Receiver<Result<Message, Status>>,
     ) {
@@ -261,7 +260,10 @@ impl MessageProcessor {
         let (tx2, rx2) = mpsc::channel(128);
 
         // create a connection
-        let connection = Connection::new(ConnectionType::Local).with_channel(Channel::Server(tx2));
+        let cancellation_token = CancellationToken::new();
+        let connection = Connection::new(ConnectionType::Local)
+            .with_channel(Channel::Server(tx2))
+            .with_cancellation_token(Some(cancellation_token.clone()));
 
         // add it to the connection table
         let conn_id = self
@@ -277,12 +279,12 @@ impl MessageProcessor {
             ReceiverStream::new(rx1),
             conn_id,
             None,
-            CancellationToken::new(),
+            cancellation_token,
             true,
         );
 
-        // return the handles to be used to send and receive messages
-        (tx1, rx2)
+        // return the conn_id and  handles to be used to send and receive messages
+        (conn_id, tx1, rx2)
     }
 
     pub async fn send_msg(
@@ -708,16 +710,13 @@ impl MessageProcessor {
                         info!("connection re-established");
                         // the subscription table should be ok already
                         for r in remote_subscriptions.iter() {
-                            let header = create_agp_header(
+                            let sub_msg = create_subscription(
                                 r.source(),
                                 r.name().agent_type(),
                                 r.name().agent_id_option(),
                                 None,
                                 None,
-                                None,
-                                None,
                             );
-                            let sub_msg = create_subscription(header, HashMap::new());
                             if self.send_msg(sub_msg, conn_index).await.is_err() {
                                 error!("error restoring subscription on remote node");
                             }

@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: Copyright (c) 2025 Cisco and/or its affiliates.
+// Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
 syntax = "proto3";
@@ -52,8 +52,9 @@ enum SessionHeaderType {
   RTX_REQUEST = 5;
   RTX_REPLY = 6;
 }
+// Session.session_id is the ID of the session
 
-// Session.id meaning according to the SessionHeaderType
+// Session.message_id meaning according to the SessionHeaderType
 // FNF = nonce
 // REQUEST = nonce
 // REPLY = nonce of the associated REQUEST
@@ -74,9 +75,10 @@ enum SessionHeaderType {
 
 message SessionHeader {
   SessionHeaderType header_type = 1;
-  uint32 id = 2;
-  optional uint32 stream = 3;
-  optional uint32 rtx = 4;
+  uint32 session_id = 2;
+  uint32 message_id = 3;
+  optional uint32 stream = 4;
+  optional uint32 rtx = 5;
 }
 
 message Content {

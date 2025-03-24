@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025 Cisco and/or its affiliates.
+# Copyright AGNTCY Contributors (https://github.com/agntcy)
 # SPDX-License-Identifier: Apache-2.0
 
 ---
@@ -10,17 +10,6 @@ inputs:
     description: 'Rust toolchain to use'
     required: false
     default: 'stable'
-  cache:
-    description: 'Cache rust workspaces'
-    required: false
-    default: true
-  cache-workspaces:
-    description: 'Cache rust workspaces'
-    required: false
-    default: .
-  cache-directories:
-    description: 'Cache rust directories'
-    required: false
 runs:
   using: "composite"
   steps:
@@ -49,12 +38,3 @@ runs:
           g++-aarch64-linux-gnu \
           gcc-x86-64-linux-gnu \
           g++-x86-64-linux-gnu
-
-    - name: Setup Rust Caching
-      if: inputs.cache == 'true'
-      uses: Swatinem/rust-cache@v2
-      with:
-        workspaces: ${{inputs.cache-workspaces}}
-        cache-directories: ${{inputs.cache-directories}}
-        cache-on-failure: false
-        shared-key: ${{runner.os}}-rust-${{hashFiles('**/Cargo.lock')}}
