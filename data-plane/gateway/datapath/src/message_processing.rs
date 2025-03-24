@@ -793,9 +793,9 @@ impl MessageProcessor {
                 }
             }
 
-            // drop the rx stream, causing the tx to be dropped and the connection to be closed.
-            // we drop it now as otherwise the connection will be closed only when the task is dropped
-            // and we want to be sure that the rx stream is closed as soon as possible
+            // we drop rx now as otherwise the connection will be closed only
+            // when the task is dropped and we want to make sure that the rx
+            // stream is closed as soon as possible
             drop(stream);
 
             let mut connected = false;
