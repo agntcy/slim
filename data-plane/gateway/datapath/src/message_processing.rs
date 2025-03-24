@@ -793,17 +793,26 @@ impl MessageProcessor {
                 }
             }
 
-            // delete connection state from table. this connection is not active
-            self_clone
-                .forwarder()
-                .on_connection_drop(conn_index, is_local);
+            // drop the rx stream, causing the tx to be dropped and the connection to be closed.
+            // we drop it now as otherwise the connection will be closed only when the task is dropped
+            // and we want to be sure that the rx stream is closed as soon as possible
+            drop(stream);
 
-            info!(telemetry = true, counter.num_active_connections = -1);
+            let mut connected = false;
 
             if try_to_reconnect && client_conf_clone.is_some() {
-                tokio::spawn(async move {
-                    self_clone.reconnect(client_conf_clone, conn_index).await;
-                });
+                connected = self_clone.reconnect(client_conf_clone, conn_index).await;
+            } else {
+                info!("close connection {}", conn_index)
+            }
+
+            if !connected {
+                // delete connection state
+                self_clone
+                    .forwarder()
+                    .on_connection_drop(conn_index, is_local);
+
+                info!(telemetry = true, counter.num_active_connections = -1);
             }
         });
 
