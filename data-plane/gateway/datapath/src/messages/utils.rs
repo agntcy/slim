@@ -204,29 +204,31 @@ pub fn get_name(msg: &ProtoMessage) -> Result<(AgentType, Option<u64>), MessageE
 }
 
 // utils functions for service header
-fn create_service_header(
+fn create_session_header(
     header_type: i32,
-    id: u32,
+    session_id: u32,
+    message_id: u32,
     stream: Option<u32>,
     rtx: Option<u32>,
 ) -> Option<SessionHeader> {
     Some(SessionHeader {
         header_type,
-        id,
+        session_id,
+        message_id,
         stream,
         rtx,
     })
 }
 
 pub fn create_default_session_header() -> Option<SessionHeader> {
-    create_service_header(SessionHeaderType::CtrlFnf.into(), 0, None, None)
+    create_session_header(SessionHeaderType::CtrlFnf.into(), 0, 0, None, None)
 }
 
 // getters for service header
 #[allow(dead_code)]
 fn get_msg_id(msg: &ProtoPublish) -> Result<u32, MessageError> {
     match msg.control {
-        Some(header) => Ok(header.id),
+        Some(header) => Ok(header.message_id),
         None => Err(MessageError::ControlHeaderNotFound),
     }
 }

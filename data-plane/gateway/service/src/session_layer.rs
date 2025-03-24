@@ -84,6 +84,9 @@ impl SessionLayer {
         session_type: SessionType,
         id: Option<Id>,
     ) -> Result<Id, Error> {
+        // TODO(msardara): the session identifier should be a combination of the
+        // session ID and the agent ID, to prevent collisions.
+
         // generate a new session ID
         let id = match id {
             Some(id) => id,
@@ -124,6 +127,12 @@ impl SessionLayer {
         match direction {
             MessageDirection::North => self.handle_message_from_gateway(message, direction).await,
             MessageDirection::South => {
+                // make sure the session ID is provided
+                let session_id = match session_id {
+                    Some(id) => id,
+                    None => return Err(Error::MissingSessionId("none".to_string())),
+                };
+
                 self.handle_message_from_app(message, direction, session_id)
                     .await
             }
@@ -136,17 +145,10 @@ impl SessionLayer {
         &self,
         mut message: Message,
         direction: MessageDirection,
-        session_id: Option<Id>,
+        session_id: Id,
     ) -> Result<(), Error> {
-        // if the session ID is not specified, return an error
-        if session_id.is_none() {
-            return Err(Error::MissingSessionId("None".to_string()));
-        }
-
-        let id = session_id.unwrap();
-
         // check if pool contains the session
-        if let Some(session) = self.pool.read().await.get(&id) {
+        if let Some(session) = self.pool.read().await.get(&session_id) {
             // Set session id and session type to message
             let header = utils::get_session_header_as_mut(&mut message);
             if header.is_none() {
@@ -154,14 +156,14 @@ impl SessionLayer {
             }
 
             let header = header.unwrap();
-            header.id = id;
+            header.session_id = session_id;
 
             // pass the message to the session
             return session.on_message(message, direction).await;
         }
 
         // if the session is not found, return an error
-        Err(Error::SessionNotFound(id.to_string()))
+        Err(Error::SessionNotFound(session_id.to_string()))
     }
 
     /// Handle a message from the message processor, and pass it to the
@@ -191,7 +193,7 @@ impl SessionLayer {
             }
 
             // get the session ID
-            let id = header.id;
+            let id = header.session_id;
 
             (id, session_type.unwrap())
         };
@@ -330,7 +332,7 @@ mod tests {
 
         // set the session id in the message
         let header = utils::get_session_header_as_mut(&mut message).unwrap();
-        header.id = 1;
+        header.session_id = 1;
 
         let res = session_layer
             .handle_message(message.clone(), MessageDirection::North, Some(1))

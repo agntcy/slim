@@ -4,6 +4,7 @@
 use crate::session::SessionType;
 use crate::session::{Common, Error, Id, Info, MessageDirection, Session, SessionDirection, State};
 
+use rand::Rng;
 use tonic::Status;
 
 use agp_datapath::messages::utils;
@@ -73,6 +74,10 @@ impl Session for FireAndForget {
                 })
             }
             MessageDirection::South => {
+                // add a nonce to the message
+                let header = utils::get_session_header_as_mut(&mut message).unwrap();
+                header.message_id = rand::rng().random();
+
                 let tx = self.common.tx_gw();
                 Box::pin(async move {
                     tx.send(Ok(message))
@@ -121,7 +126,7 @@ mod tests {
 
         // set the session id in the message
         let header = utils::get_session_header_as_mut(&mut message).unwrap();
-        header.id = 1;
+        header.session_id = 1;
 
         let res = session
             .on_message(message.clone(), MessageDirection::North)
