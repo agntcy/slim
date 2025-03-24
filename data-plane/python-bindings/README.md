@@ -43,7 +43,7 @@ agp-bindings = ">=0.1.0"
 ### Server
 
 ```python
-# SPDX-FileCopyrightText: Copyright (c) 2025 Cisco and/or its affiliates.
+# Copyright AGNTCY Contributors (https://github.com/agntcy)
 # SPDX-License-Identifier: Apache-2.0
 
 import argparse
@@ -122,7 +122,7 @@ if __name__ == "__main__":
 ### Client
 
 ```python
-# SPDX-FileCopyrightText: Copyright (c) 2025 Cisco and/or its affiliates.
+# Copyright AGNTCY Contributors (https://github.com/agntcy)
 # SPDX-License-Identifier: Apache-2.0
 
 import argparse
