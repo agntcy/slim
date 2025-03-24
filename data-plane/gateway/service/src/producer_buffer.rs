@@ -6,21 +6,21 @@ use std::collections::HashMap;
 use agp_datapath::{messages::utils::get_msg_id, pubsub::proto::pubsub::v1::Publish};
 use parking_lot::RwLock;
 
-struct ProducerCacheImpl {
+struct ProducerBufferImpl {
     capacity: usize,
     next: usize,
     buffer: Vec<Option<Publish>>,
     map: HashMap<usize, usize>,
 }
 
-pub struct ProcducerCache {
-    cache: RwLock<ProducerCacheImpl>,
+pub struct ProcducerBuffer {
+    buffer: RwLock<ProducerBufferImpl>,
 }
 
-impl ProducerCacheImpl {
+impl ProducerBufferImpl {
     /// Create a buffer with a given capacity
     fn with_capacity(capacity: usize) -> Self {
-        ProducerCacheImpl {
+        ProducerBufferImpl {
             capacity,
             next: 0,
             buffer: vec![None; capacity],
@@ -32,7 +32,7 @@ impl ProducerCacheImpl {
         self.capacity
     }
 
-    /// Add message to the cache.
+    /// Add message to the buffer.
     /// return true if the insertion completes
     fn push(&mut self, msg: Publish) -> bool {
         // get message id
@@ -70,7 +70,7 @@ impl ProducerCacheImpl {
         true
     }
 
-    /// Remove all the elements in the cache
+    /// Remove all the elements in the buffer
     fn clear(&mut self) {
         self.buffer = vec![None; self.capacity];
         self.next = 0;
@@ -85,30 +85,30 @@ impl ProducerCacheImpl {
     }
 }
 
-impl ProcducerCache {
+impl ProcducerBuffer {
     pub fn with_capacity(capacity: usize) -> Self {
-        ProcducerCache {
-            cache: ProducerCacheImpl::with_capacity(capacity).into(),
+        ProcducerBuffer {
+            buffer: ProducerBufferImpl::with_capacity(capacity).into(),
         }
     }
 
     pub fn get_capacity(&self) -> usize {
-        let lock = self.cache.read();
+        let lock = self.buffer.read();
         lock.get_capacity()
     }
 
     pub fn push(&self, msg: Publish) -> bool {
-        let mut lock = self.cache.write();
+        let mut lock = self.buffer.write();
         lock.push(msg)
     }
 
     pub fn clear(&self) {
-        let mut lock = self.cache.write();
+        let mut lock = self.buffer.write();
         lock.clear()
     }
 
     pub fn get(&self, id: usize) -> Option<Publish> {
-        let lock = self.cache.read();
+        let lock = self.buffer.read();
         lock.get(id)
     }
 }
@@ -129,10 +129,10 @@ mod tests {
     };
 
     #[test]
-    fn test_producer_cache() {
-        let cache = ProcducerCache::with_capacity(3);
+    fn test_producer_buffer() {
+        let buffer = ProcducerBuffer::with_capacity(3);
 
-        assert_eq!(cache.get_capacity(), 3);
+        assert_eq!(buffer.get_capacity(), 3);
 
         let src = encode_agent("org", "ns", "type", 0);
         let name_type = agp_datapath::messages::encoder::encode_agent_type("org", "ns", "type");
@@ -152,88 +152,133 @@ mod tests {
         let p4 = create_publication_with_header(agp_header, h4, HashMap::new(), 1, "", vec![]);
 
         assert_eq!(
-            cache.push(get_message_as_publish(&p0).unwrap().clone()),
+            buffer.push(get_message_as_publish(&p0).unwrap().clone()),
             true
         );
 
-        assert_eq!(&cache.get(0).unwrap(), get_message_as_publish(&p0).unwrap());
-        assert_eq!(&cache.get(0).unwrap(), get_message_as_publish(&p0).unwrap());
-        assert_eq!(&cache.get(0).unwrap(), get_message_as_publish(&p0).unwrap());
-        assert_eq!(cache.get(1), None);
+        assert_eq!(
+            &buffer.get(0).unwrap(),
+            get_message_as_publish(&p0).unwrap()
+        );
+        assert_eq!(
+            &buffer.get(0).unwrap(),
+            get_message_as_publish(&p0).unwrap()
+        );
+        assert_eq!(
+            &buffer.get(0).unwrap(),
+            get_message_as_publish(&p0).unwrap()
+        );
+        assert_eq!(buffer.get(1), None);
 
         assert_eq!(
-            cache.push(get_message_as_publish(&p0).unwrap().clone()),
+            buffer.push(get_message_as_publish(&p0).unwrap().clone()),
             true
         );
         assert_eq!(
-            cache.push(get_message_as_publish(&p1).unwrap().clone()),
+            buffer.push(get_message_as_publish(&p1).unwrap().clone()),
             true
         );
         assert_eq!(
-            cache.push(get_message_as_publish(&p2).unwrap().clone()),
+            buffer.push(get_message_as_publish(&p2).unwrap().clone()),
             true
         );
 
-        assert_eq!(&cache.get(0).unwrap(), get_message_as_publish(&p0).unwrap());
-        assert_eq!(&cache.get(1).unwrap(), get_message_as_publish(&p1).unwrap());
-        assert_eq!(&cache.get(2).unwrap(), get_message_as_publish(&p2).unwrap());
-        assert_eq!(cache.get(3), None);
-
-        // now the cache is full, add a new element will remote the elem 0
         assert_eq!(
-            cache.push(get_message_as_publish(&p3).unwrap().clone()),
+            &buffer.get(0).unwrap(),
+            get_message_as_publish(&p0).unwrap()
+        );
+        assert_eq!(
+            &buffer.get(1).unwrap(),
+            get_message_as_publish(&p1).unwrap()
+        );
+        assert_eq!(
+            &buffer.get(2).unwrap(),
+            get_message_as_publish(&p2).unwrap()
+        );
+        assert_eq!(buffer.get(3), None);
+
+        // now the buffer is full, add a new element will remote the elem 0
+        assert_eq!(
+            buffer.push(get_message_as_publish(&p3).unwrap().clone()),
             true
         );
-        assert_eq!(cache.get(0), None);
-        assert_eq!(&cache.get(1).unwrap(), get_message_as_publish(&p1).unwrap());
-        assert_eq!(&cache.get(2).unwrap(), get_message_as_publish(&p2).unwrap());
-        assert_eq!(&cache.get(3).unwrap(), get_message_as_publish(&p3).unwrap());
-        assert_eq!(cache.get(4), None);
-
-        // now the cache is full, add a new element will remote the elem 1
+        assert_eq!(buffer.get(0), None);
         assert_eq!(
-            cache.push(get_message_as_publish(&p4).unwrap().clone()),
+            &buffer.get(1).unwrap(),
+            get_message_as_publish(&p1).unwrap()
+        );
+        assert_eq!(
+            &buffer.get(2).unwrap(),
+            get_message_as_publish(&p2).unwrap()
+        );
+        assert_eq!(
+            &buffer.get(3).unwrap(),
+            get_message_as_publish(&p3).unwrap()
+        );
+        assert_eq!(buffer.get(4), None);
+
+        // now the buffer is full, add a new element will remote the elem 1
+        assert_eq!(
+            buffer.push(get_message_as_publish(&p4).unwrap().clone()),
             true
         );
-        assert_eq!(cache.get(0), None);
-        assert_eq!(cache.get(1), None);
-        assert_eq!(&cache.get(2).unwrap(), get_message_as_publish(&p2).unwrap());
-        assert_eq!(&cache.get(3).unwrap(), get_message_as_publish(&p3).unwrap());
-        assert_eq!(&cache.get(4).unwrap(), get_message_as_publish(&p4).unwrap());
+        assert_eq!(buffer.get(0), None);
+        assert_eq!(buffer.get(1), None);
+        assert_eq!(
+            &buffer.get(2).unwrap(),
+            get_message_as_publish(&p2).unwrap()
+        );
+        assert_eq!(
+            &buffer.get(3).unwrap(),
+            get_message_as_publish(&p3).unwrap()
+        );
+        assert_eq!(
+            &buffer.get(4).unwrap(),
+            get_message_as_publish(&p4).unwrap()
+        );
 
         // remove all elements
-        cache.clear();
-        assert_eq!(cache.get(0), None);
-        assert_eq!(cache.get(1), None);
-        assert_eq!(cache.get(2), None);
-        assert_eq!(cache.get(3), None);
-        assert_eq!(cache.get(4), None);
+        buffer.clear();
+        assert_eq!(buffer.get(0), None);
+        assert_eq!(buffer.get(1), None);
+        assert_eq!(buffer.get(2), None);
+        assert_eq!(buffer.get(3), None);
+        assert_eq!(buffer.get(4), None);
 
         // add all msgs and check again
         assert_eq!(
-            cache.push(get_message_as_publish(&p0).unwrap().clone()),
+            buffer.push(get_message_as_publish(&p0).unwrap().clone()),
             true
         );
         assert_eq!(
-            cache.push(get_message_as_publish(&p1).unwrap().clone()),
+            buffer.push(get_message_as_publish(&p1).unwrap().clone()),
             true
         );
         assert_eq!(
-            cache.push(get_message_as_publish(&p2).unwrap().clone()),
+            buffer.push(get_message_as_publish(&p2).unwrap().clone()),
             true
         );
         assert_eq!(
-            cache.push(get_message_as_publish(&p3).unwrap().clone()),
+            buffer.push(get_message_as_publish(&p3).unwrap().clone()),
             true
         );
         assert_eq!(
-            cache.push(get_message_as_publish(&p4).unwrap().clone()),
+            buffer.push(get_message_as_publish(&p4).unwrap().clone()),
             true
         );
-        assert_eq!(cache.get(0), None);
-        assert_eq!(cache.get(1), None);
-        assert_eq!(&cache.get(2).unwrap(), get_message_as_publish(&p2).unwrap());
-        assert_eq!(&cache.get(3).unwrap(), get_message_as_publish(&p3).unwrap());
-        assert_eq!(&cache.get(4).unwrap(), get_message_as_publish(&p4).unwrap());
+        assert_eq!(buffer.get(0), None);
+        assert_eq!(buffer.get(1), None);
+        assert_eq!(
+            &buffer.get(2).unwrap(),
+            get_message_as_publish(&p2).unwrap()
+        );
+        assert_eq!(
+            &buffer.get(3).unwrap(),
+            get_message_as_publish(&p3).unwrap()
+        );
+        assert_eq!(
+            &buffer.get(4).unwrap(),
+            get_message_as_publish(&p4).unwrap()
+        );
     }
 }

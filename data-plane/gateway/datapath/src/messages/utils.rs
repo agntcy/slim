@@ -10,6 +10,7 @@ use crate::pubsub::{
     ProtoUnsubscribeType, SessionHeader,
 };
 
+use rand::Rng;
 use thiserror::Error;
 use tracing::error;
 
@@ -370,6 +371,37 @@ pub fn create_error_publication(error: String) -> ProtoMessage {
         1,
         "",
         error.into_bytes(),
+    )
+}
+
+pub fn create_rtx_publication(
+    source: &Agent,
+    name_type: &AgentType,
+    name_id: Option<u64>,
+    is_request: bool,
+    session: u32,
+    msg_id: u32,
+    content: Option<Vec<u8>>,
+) -> ProtoMessage {
+    let agp_header = create_agp_header(source, name_type, name_id, None, None, None, None);
+    let mut rtx_type = SessionHeaderType::CtrlRtxRequest;
+    if !is_request {
+        rtx_type = SessionHeaderType::CtrlRtxReply;
+    }
+    let session_header = create_session_header(
+        rtx_type.into(),
+        session,
+        rand::rng().random(),
+        None,
+        Some(msg_id),
+    );
+    create_publication_with_header(
+        agp_header,
+        session_header,
+        HashMap::new(),
+        1,
+        "",
+        content.unwrap_or_default(),
     )
 }
 
