@@ -121,7 +121,7 @@ pub(crate) trait Session {
 
     // publish a message as part of the session
     fn on_message(
-        &self,
+        &mut self,
         message: Message,
         direction: MessageDirection,
     ) -> Pin<Box<dyn Future<Output = Result<(), Error>> + Send + 'static>>;

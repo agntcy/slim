@@ -13,7 +13,7 @@ struct ProducerBufferImpl {
     map: HashMap<usize, usize>,
 }
 
-pub struct ProcducerBuffer {
+pub struct ProducerBuffer {
     buffer: RwLock<ProducerBufferImpl>,
 }
 
@@ -85,9 +85,9 @@ impl ProducerBufferImpl {
     }
 }
 
-impl ProcducerBuffer {
+impl ProducerBuffer {
     pub fn with_capacity(capacity: usize) -> Self {
-        ProcducerBuffer {
+        ProducerBuffer {
             buffer: ProducerBufferImpl::with_capacity(capacity).into(),
         }
     }
@@ -130,7 +130,7 @@ mod tests {
 
     #[test]
     fn test_producer_buffer() {
-        let buffer = ProcducerBuffer::with_capacity(3);
+        let buffer = ProducerBuffer::with_capacity(3);
 
         assert_eq!(buffer.get_capacity(), 3);
 

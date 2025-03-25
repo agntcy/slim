@@ -17,8 +17,7 @@ pub enum ReceiverBufferError {
     ProcessingError(String),
 }
 
-#[allow(dead_code)]
-struct ReceiverBuffer {
+pub(crate) struct ReceiverBuffer {
     // ID of the last packet sent to the application
     // Init to usize max and it takes the values of the first
     // packet received in the buffer
@@ -48,7 +47,6 @@ impl Default for ReceiverBuffer {
     }
 }
 
-#[allow(dead_code)]
 impl ReceiverBuffer {
     pub fn on_received_message(
         &mut self,

@@ -42,7 +42,7 @@ impl Session for FireAndForget {
     }
 
     fn on_message(
-        &self,
+        &mut self,
         mut message: Message,
         direction: MessageDirection,
     ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), Error>> + Send>> {
@@ -111,7 +111,7 @@ mod tests {
         let (tx_gw, _rx_gw) = tokio::sync::mpsc::channel(1);
         let (tx_app, mut rx_app) = tokio::sync::mpsc::channel(1);
 
-        let session = FireAndForget::new(0, SessionDirection::Bidirectional, tx_gw, tx_app);
+        let mut session = FireAndForget::new(0, SessionDirection::Bidirectional, tx_gw, tx_app);
 
         let mut message = utils::create_publication(
             &encoder::encode_agent("cisco", "default", "local_agent", 0),

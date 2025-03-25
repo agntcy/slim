@@ -6,6 +6,7 @@ pub mod producer_buffer;
 pub mod receiver_buffer;
 pub mod session;
 pub mod timer;
+pub mod stream;
 
 mod fire_and_forget;
 mod session_layer;
