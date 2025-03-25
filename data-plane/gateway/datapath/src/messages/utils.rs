@@ -226,9 +226,29 @@ pub fn create_default_session_header() -> Option<SessionHeader> {
 }
 
 // getters for session header
+pub fn set_session_type(msg: &mut ProtoMessage, session_type: SessionHeaderType) -> Result<(), MessageError> {
+    match get_session_header_as_mut(msg) {
+        Some(header) => {
+            header.header_type = session_type.into();
+            Ok(())
+        }
+        None => Err(MessageError::ControlHeaderNotFound),
+    }
+}
+
 pub fn get_msg_id(msg: &ProtoPublish) -> Result<u32, MessageError> {
     match msg.control {
         Some(header) => Ok(header.message_id),
+        None => Err(MessageError::ControlHeaderNotFound),
+    }
+}
+
+pub fn set_msg_id(msg: &mut ProtoMessage, id: u32) -> Result<(), MessageError> {
+    match get_session_header_as_mut(msg) {
+        Some(header) => {
+            header.message_id = id;
+            Ok(())
+        }
         None => Err(MessageError::ControlHeaderNotFound),
     }
 }

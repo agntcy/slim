@@ -42,7 +42,7 @@ impl Session for FireAndForget {
     }
 
     fn on_message(
-        &mut self,
+        &self,
         mut message: Message,
         direction: MessageDirection,
     ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), Error>> + Send>> {
