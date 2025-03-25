@@ -525,7 +525,7 @@ impl SubscriptionTable for SubscriptionTableImpl {
                 None => {}
                 Some(set) => {
                     if set.contains(&agent) {
-                        warn!(
+                        debug!(
                             "subscription {:?} on connection {:?} already exists, ignore the message",
                             agent, conn
                         );

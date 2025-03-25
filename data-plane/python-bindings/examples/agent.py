@@ -31,7 +31,7 @@ async def run_client(
 ):
     # init tracing
     agp_bindings.init_tracing(
-        log_level="debug", enable_opentelemetry=enable_opentelemetry
+        log_level="info", enable_opentelemetry=enable_opentelemetry
     )
 
     # Split the IDs into their respective components
@@ -91,10 +91,11 @@ async def run_client(
                 print(format_message(f"{local_agent.capitalize()} sent:", message))
 
                 # Wait for a reply
-                src, msg = await gateway.receive()
+                session_info, src, msg = await gateway.receive()
                 print(
                     format_message(
-                        f"{local_agent.capitalize()} received:", msg.decode()
+                        f"{local_agent.capitalize()} received from session {session_info.id}:",
+                        f"{msg.decode()}",
                     )
                 )
             except Exception as e:
@@ -107,13 +108,14 @@ async def run_client(
             session_info, src, msg = await gateway.receive()
             print(
                 format_message(
-                    f"{local_agent.capitalize()} received: {msg.decode()} from session {session_info.id}"
+                    f"{local_agent.capitalize()} received from session {session_info.id}:",
+                    f"{msg.decode()}",
                 )
             )
 
             ret = f"Echo from {local_agent}: {msg.decode()}"
 
-            await gateway.publish_to(ret.encode(), src)
+            await gateway.publish_to(session_info.id, ret.encode(), src)
             print(format_message(f"{local_agent.capitalize()} replies:", ret))
 
 
@@ -169,6 +171,8 @@ def main():
         )
     )
 
-
 if __name__ == "__main__":
-    main()
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        print("Program terminated by user.")

@@ -300,7 +300,7 @@ impl MessageProcessor {
 
                 let parent_context = extract_parent_context(&msg);
                 let span = tracing::span!(
-                tracing::Level::DEBUG,
+                    tracing::Level::INFO,
                     "send_message",
                     instance_id = %INSTANCE_ID.as_str(),
                     connection_id = out_conn,
@@ -616,7 +616,7 @@ impl MessageProcessor {
         if is_local {
             // handling the message from the local application
             let span = tracing::span!(
-                tracing::Level::DEBUG,
+                tracing::Level::INFO,
                 "handle_local_message",
                 instance_id = %INSTANCE_ID.as_str(),
                 connection_id = conn_index,
@@ -631,7 +631,7 @@ impl MessageProcessor {
             let parent_context = extract_parent_context(&msg);
 
             let span = tracing::span!(
-                tracing::Level::DEBUG,
+                tracing::Level::INFO,
                 "handle_remote_message",
                 instance_id = %INSTANCE_ID.as_str(),
                 connection_id = conn_index,
