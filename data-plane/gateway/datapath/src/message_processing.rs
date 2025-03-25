@@ -617,7 +617,7 @@ impl MessageProcessor {
             // handling the message from the local application
             let span = tracing::span!(
                 tracing::Level::INFO,
-                "handle_local_message",
+                "process_local",
                 instance_id = %INSTANCE_ID.as_str(),
                 connection_id = conn_index,
                 message_type = message_type_to_str(&msg),
@@ -632,7 +632,7 @@ impl MessageProcessor {
 
             let span = tracing::span!(
                 tracing::Level::INFO,
-                "handle_remote_message",
+                "process_remote",
                 instance_id = %INSTANCE_ID.as_str(),
                 connection_id = conn_index,
                 message_type = message_type_to_str(&msg),

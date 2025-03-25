@@ -78,10 +78,21 @@ tasks:
     cmds:
       - uv run python ./examples/gateway.py -t
 
-  python-bindings:example:alice:
+  python-bindings:example:alice1:
     desc: "Run the Alice example"
     env:
-      AGP_INSTANCE_ID: alice
+      AGP_INSTANCE_ID: alice1
+    cmds:
+      - |
+        uv run python ./examples/agent.py \
+          -l cisco/default/alice          \
+          -g http://localhost:12345       \
+          -t
+
+  python-bindings:example:alice2:
+    desc: "Run the Alice example"
+    env:
+      AGP_INSTANCE_ID: alice2
     cmds:
       - |
         uv run python ./examples/agent.py \
@@ -99,8 +110,8 @@ tasks:
           -l cisco/default/bob              \
           -r cisco/default/alice            \
           -g http://localhost:12345         \
-          -m "message to be echoed"         \
-          -i 1                              \
+          -m "hello"         \
+          -i 1000                           \
           -t
 
   python-bindings:generate-stub:
