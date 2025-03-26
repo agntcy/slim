@@ -226,12 +226,22 @@ pub fn create_default_session_header() -> Option<SessionHeader> {
 }
 
 // getters for session header
-pub fn set_session_type(msg: &mut ProtoMessage, session_type: SessionHeaderType) -> Result<(), MessageError> {
+pub fn set_session_type(
+    msg: &mut ProtoMessage,
+    session_type: SessionHeaderType,
+) -> Result<(), MessageError> {
     match get_session_header_as_mut(msg) {
         Some(header) => {
             header.header_type = session_type.into();
             Ok(())
         }
+        None => Err(MessageError::ControlHeaderNotFound),
+    }
+}
+
+pub fn get_session_header_type(msg: &ProtoPublish) -> Result<i32, MessageError> {
+    match msg.control {
+        Some(header) => Ok(header.header_type),
         None => Err(MessageError::ControlHeaderNotFound),
     }
 }
@@ -253,6 +263,13 @@ pub fn set_msg_id(msg: &mut ProtoMessage, id: u32) -> Result<(), MessageError> {
     }
 }
 
+pub fn get_session_id(msg: &ProtoPublish) -> Result<u32, MessageError> {
+    match msg.control {
+        Some(header) => Ok(header.session_id),
+        None => Err(MessageError::ControlHeaderNotFound),
+    }
+}
+
 #[allow(dead_code)]
 fn get_stream_id(msg: &ProtoPublish) -> Result<Option<u32>, MessageError> {
     match msg.control {
@@ -261,8 +278,7 @@ fn get_stream_id(msg: &ProtoPublish) -> Result<Option<u32>, MessageError> {
     }
 }
 
-#[allow(dead_code)]
-fn get_rtx_id(msg: &ProtoPublish) -> Result<Option<u32>, MessageError> {
+pub fn get_rtx_id(msg: &ProtoPublish) -> Result<Option<u32>, MessageError> {
     match msg.control {
         Some(header) => Ok(header.rtx),
         None => Err(MessageError::ControlHeaderNotFound),

@@ -97,9 +97,9 @@ impl ReceiverBuffer {
                 debug!("Losses found, missing {} packets", self.buffer.len());
                 self.buffer.push(Some(msg));
                 let mut rtx: Vec<u32> = Vec::new();
-                for i in (self.last_sent  + 1) .. (msg_id) {
-                  trace!("add {} to rtx vector", i);
-                  rtx.push(i as u32);
+                for i in (self.last_sent + 1)..(msg_id) {
+                    trace!("add {} to rtx vector", i);
+                    rtx.push(i as u32);
                 }
 
                 Ok((vec![], rtx))
@@ -147,8 +147,7 @@ impl ReceiverBuffer {
                     // ((self.last_sent + 1) + (self.buffer.len() - self.first_entry))
                     // loop up to msg_id - 1 (the last element is not in the range)
                     let mut rtx = Vec::new();
-                    for i in
-                        ((self.last_sent + 1) + (self.buffer.len() - self.first_entry))..msg_id
+                    for i in ((self.last_sent + 1) + (self.buffer.len() - self.first_entry))..msg_id
                     {
                         self.buffer.push(None);
                         rtx.push(i as u32);
@@ -317,14 +316,14 @@ mod tests {
 
         let ret = buffer.on_received_message(p2.clone());
         assert!(ret.is_ok());
-        let (recv, rtx)  = ret.unwrap();
+        let (recv, rtx) = ret.unwrap();
         assert_eq!(recv.len(), 1);
         assert_eq!(rtx.len(), 0);
         assert_eq!(recv[0], Some(p2.clone()));
 
         let ret = buffer.on_received_message(p3.clone());
         assert!(ret.is_ok());
-        let (recv, rtx)  = ret.unwrap();
+        let (recv, rtx) = ret.unwrap();
         assert_eq!(recv.len(), 1);
         assert_eq!(rtx.len(), 0);
         assert_eq!(recv[0], Some(p3.clone()));
@@ -489,7 +488,7 @@ mod tests {
         assert_eq!(rtx.len(), 1);
         assert_eq!(rtx[0], 1);
 
-        // detect loss for 3 
+        // detect loss for 3
         let ret = buffer.on_received_message(p4.clone());
         assert!(ret.is_ok());
         let (recv, rtx) = ret.unwrap();
@@ -505,7 +504,7 @@ mod tests {
         assert_eq!(recv[0], None);
         assert_eq!(recv[1], Some(p2.clone()));
 
-        // 5 is lost 
+        // 5 is lost
         let ret = buffer.on_lost_message(5);
         assert!(ret.is_ok());
         let recv = ret.unwrap();
