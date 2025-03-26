@@ -27,7 +27,7 @@ use agp_datapath::{
 };
 
 use tonic::{async_trait, Status};
-use tracing::{debug, error, info, warn};
+use tracing::{debug, error, info, trace, warn};
 
 #[allow(dead_code)]
 struct RtxTimerObserver {
@@ -40,12 +40,8 @@ impl TimerObserver for RtxTimerObserver {
         debug!("timeout number {} for rtx {}, retry", timeouts, timer_id);
 
         // notify the process loop
-        match self.channel.send(Ok((timer_id, true))).await {
-            Ok(_) => {}
-            Err(e) => {
-                error!("error notifing the process loop: {}", e.to_string());
-                return;
-            }
+        if self.channel.send(Ok((timer_id, true))).await.is_err() {
+            error!("error notifing the process loop");
         }
     }
 
@@ -56,17 +52,14 @@ impl TimerObserver for RtxTimerObserver {
         );
 
         // notify the process loop
-        match self.channel.send(Ok((timer_id, false))).await {
-            Ok(_) => {}
-            Err(e) => {
-                error!("error notifing the process loop: {}", e.to_string());
-                return;
-            }
+        if self.channel.send(Ok((timer_id, false))).await.is_err() {
+            error!("error notifing the process loop");
         }
     }
 
     async fn on_stop(&self, timer_id: u32) {
         debug!("timer for rtx {} cancelled", timer_id);
+        // nothing to do
     }
 }
 
@@ -151,19 +144,21 @@ impl Stream {
         let send_gw = self.common.tx_gw();
         let send_app = self.common.tx_app();
         let state = self.common.state().clone();
+        let mut timer_rx_closed = false;
         tokio::spawn(async move {
-            debug!("starting message processing in session id {}", session_id);
+            debug!("starting message processing on session {}", session_id);
             loop {
                 tokio::select! {
                     next = rx.recv() => {
                         match next {
                             None => {
-                                info!("no more messages to process");
+                                info!("no more messages to process on session {}", session_id);
                                 break;
                             }
                             Some(result) => {
+                                debug!("got a message in process message");
                                 if result.is_err() {
-                                    error!("error receiving a message, drop it");
+                                    error!("error receiving a message on session {}, drop it", session_id);
                                     continue;
                                 }
                                 let (mut msg, direction) = result.unwrap();
@@ -171,6 +166,7 @@ impl Stream {
                                     Endpoint::Producer(producer) => {
                                         match direction {
                                             MessageDirection::North => {
+                                                trace!("received message from the gataway on session {}", session_id);
                                                 // received a message from the GW
                                                 // this must be an RTX message otherwise drop it
                                                 let pub_msg_opt = get_message_as_publish(&msg);
@@ -196,7 +192,7 @@ impl Stream {
                                                 match get_session_id(pub_msg) {
                                                     Ok(id) => id,
                                                     Err(_) => {
-                                                        error!("received for the wrong session on session {}", session_id);
+                                                        error!("received packet for invalid session on session {}", session_id);
                                                         continue;
                                                     }
                                                 };
@@ -205,12 +201,12 @@ impl Stream {
                                                     Ok(rtx_opt) => match rtx_opt {
                                                         Some(rtx) => rtx,
                                                         None => {
-                                                            error!("error parsion RTX message on session {}", session_id);
+                                                            error!("error parsing request RTX message on session {}", session_id);
                                                             continue;
                                                         },
                                                     },
                                                     Err(_) => {
-                                                        error!("error parsion RTX message on session {}", session_id);
+                                                        error!("error parsing request RTX message on session {}", session_id);
                                                         continue;
                                                     }
                                                 };
@@ -249,66 +245,70 @@ impl Stream {
                                                     },
                                                 };
 
-                                                match send_gw.send(Ok(rtx_pub)).await {
-                                                    Ok(_) => {},
-                                                    Err(e) => {
-                                                        error!("error sending packet to the gateway: {}", e.to_string());
-                                                        continue; // TO BE DISCUSSED, what to do here? do we need to notify the app with an error packet?
-                                                    }
+                                                if send_gw.send(Ok(rtx_pub)).await.is_err() {
+                                                    error!("error sending packet to the gateway on session {}", session_id);
+                                                    continue; // TODO: do we need to notify the app with an error packet?
                                                 }
                                             }
                                             MessageDirection::South => {
                                                 // received a message from the APP
                                                 // set the session header, add the message to the buffer and send it
+                                                trace!("received message from the app on session {}", session_id);
                                                 if set_session_type(&mut msg, SessionHeaderType::Stream).is_err() {
                                                     error!("error setting session type, drop packet");
-                                                    continue; // TO BE DISCUSSED, is it ok to drop the packet? do we need to notify the app with an error packet?
+                                                    continue; // TODO: do we need to notify the app with an error packet?
                                                 }
 
                                                 if set_msg_id(&mut msg, producer.next_id).is_err() {
                                                     error!("error setting msg id. drop packet");
-                                                    continue; // TO BE DISCUSSED, is it ok to drop the packet? do we need to notify the app with an error packet?
+                                                    continue; // TODO: do we need to notify the app with an error packet?
                                                 }
 
-                                                producer.next_id += 1;
-
+                                                trace!("add message {} to the producer buffer on session {}", producer.next_id, session_id);
                                                 let pub_msg = get_message_as_publish(&msg);
                                                 if !producer.buffer.push(pub_msg.unwrap().clone()) {
                                                     warn!("cannot add packet to the local buffer");
                                                 }
 
-                                                match send_gw.send(Ok(msg)).await {
-                                                    Ok(_) => {},
-                                                    Err(e) => {
-                                                        error!("error sending packet to the gateway: {}", e.to_string());
-                                                        continue; // TO BE DISCUSSED, what to do here? do we need to notify the app with an error packet?
-                                                    }
+                                                trace!("send message {} to the producer buffer on session {}", producer.next_id, session_id);
+                                                producer.next_id += 1;
+
+                                                if send_gw.send(Ok(msg)).await.is_err() {
+                                                    error!("error sending packet to the gateway on session {}", session_id);
+                                                    continue; // TODO: do we need to notify the app with an error packet?
                                                 }
                                             }
                                         }
                                     }
                                     Endpoint::Receiver(receiver) => {
                                         // here the packets are coming only from the gateway
+                                        trace!("received message from the gataway on session {}, add it to the receiver buffer", session_id);
                                         match receiver.buffer.on_received_message(msg){
                                             Ok((recv, rtx)) =>{
-                                                for m in recv {
+                                                for opt in recv {
+                                                    trace!("send recv packet to the application on session {}", session_id);
                                                     let info = Info::new(
                                                         session_id,
                                                         SessionType::Streaming,
                                                         state.clone(),
                                                     );
 
-                                                    // here a message can be NONE
-                                                    match send_app.send((m.unwrap(), info)).await {
-                                                        Ok(_) => {},
-                                                        Err(e) => {
-                                                            error!("error sending message to the app {}", e.to_string());
-                                                            continue; // TO BE DISCUSSED, what to do here? do we need to notify the app with an error packet?
+                                                    match opt {
+                                                        Some(m) => {
+                                                            // send message to the app
+                                                            if send_app.send((m, info)).await.is_err() {
+                                                                error!("error sending packet to the gateway on session {}", session_id);
+                                                                // TODO: do we need to notify the app with an error packet?
+                                                            }
+                                                        }
+                                                        None => {
+                                                            // TODO. how do we notify the app that a message is lost forever
+                                                            warn!("a message was definitely lost in session {}", session_id);
                                                         }
                                                     }
                                                 }
                                                 for r in rtx {
-                                                    debug!("send a rtx for message {}", r);
+                                                    debug!("send a rtx for message {} on session {}", r, session_id);
                                                     // TODO get the agent name
                                                     // TODO get the destination
                                                     let rtx = create_rtx_publication(&Agent::default(), &AgentType::default(), None, true, session_id, r, Some(vec![]));
@@ -320,19 +320,14 @@ impl Stream {
                                                     receiver.rtx_map.insert(r, rtx.clone());
                                                     receiver.timers_map.insert(r, timer);
 
-                                                    match send_gw.send(Ok(rtx)).await {
-                                                        Ok(_) => {},
-                                                        Err(e) => {
-                                                            error!("error sending packet to the gateway: {}", e.to_string());
-                                                            continue; // TO BE DISCUSSED, what to do here? do we need to notify the app with an error packet?
-                                                        }
+                                                    if send_gw.send(Ok(rtx)).await.is_err() {
+                                                        error!("error sending RTX for id {} on session {}", r, session_id);
                                                     }
-
                                                 }
                                             }
                                             Err(e) => {
                                                 error!("error adding message to the buffer: {}", e.to_string());
-                                                continue; // TO BE DISCUSSED, what to do here?
+                                                continue; // TODO: what happen here? the packet will be never sent to app
                                             }
                                         }
                                     }
@@ -344,11 +339,12 @@ impl Stream {
                             }
                         }
                     }
-                    next_timer = timer_rx.recv() => {
+                    next_timer = timer_rx.recv(), if !timer_rx_closed => {
                         match next_timer {
                             None => {
                                 info!("no more timers to process");
-                                break; // should we break here?
+                                // close the timer channel
+                                timer_rx_closed = true;
                             },
                             Some(result) => {
                                 if result.is_err() {
@@ -376,12 +372,9 @@ impl Stream {
                                                     continue;
                                                 }
                                             };
-                                            match send_gw.send(Ok(rtx.clone())).await {
-                                                Ok(_) => {},
-                                                Err(e) => {
-                                                    error!("error sending rtx the gateway: {}", e.to_string());
-                                                    continue; // TO BE DISCUSSED, what to do here? do we need to notify the app with an error packet?
-                                                }
+
+                                            if send_gw.send(Ok(rtx.clone())).await.is_err() {
+                                                error!("error sending RTX for id {} on session {}", msg_id, session_id);
                                             }
                                         } else {
                                             receiver.rtx_map.remove(&msg_id);
@@ -389,19 +382,24 @@ impl Stream {
 
                                             match receiver.buffer.on_lost_message(msg_id) {
                                                 Ok(recv) => {
-                                                    for m in recv {
+                                                    for opt in recv {
                                                         let info = Info::new(
                                                             session_id,
                                                             SessionType::Streaming,
                                                             state.clone(),
                                                         );
 
-                                                        // here a message can be None
-                                                        match send_app.send((m.unwrap(), info)).await {
-                                                            Ok(_) => {},
-                                                            Err(e) => {
-                                                                error!("error sending message to the app {}", e.to_string());
-                                                                continue; // TO BE DISCUSSED, what to do here? do we need to notify the app with an error packet?
+                                                        match opt {
+                                                            Some(m) => {
+                                                                // send message to the app
+                                                                if send_app.send((m, info)).await.is_err() {
+                                                                    error!("error sending packet to the gateway on session {}", session_id);
+                                                                    // TODO: do we need to notify the app with an error packet?
+                                                                }
+                                                            }
+                                                            None => {
+                                                                // TODO. how do we notify the app that a message is lost forever
+                                                                warn!("a message was definitely lost in session {}", session_id);
                                                             }
                                                         }
                                                     }
@@ -422,11 +420,7 @@ impl Stream {
                                         continue;
                                     },
                                 }
-                                //if retry {
-
-                                //}
                             }
-
                         }
                     }
                 }
@@ -453,6 +447,7 @@ impl Session for Stream {
         message: Message,
         direction: MessageDirection,
     ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), Error>> + Send>> {
+        debug!("receive message");
         let tx = self.tx.clone();
         Box::pin(async move {
             tx.send(Ok((message, direction)))
@@ -460,4 +455,92 @@ impl Session for Stream {
                 .map_err(|e| Error::GatewayTransmission(e.to_string())) // TODO put the right error here
         })
     }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use agp_datapath::messages::{encoder, utils};
+    use tracing_test::traced_test;
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_stream_create() {
+        let (tx_gw, _) = tokio::sync::mpsc::channel(1);
+        let (tx_app, _) = tokio::sync::mpsc::channel(1);
+
+        let session = Stream::new(0, SessionDirection::Sender, tx_gw.clone(), tx_app.clone());
+
+        assert_eq!(session.id(), 0);
+        assert_eq!(session.state(), &State::Active);
+        assert_eq!(session.session_type(), SessionType::Streaming);
+
+        let session = Stream::new(1, SessionDirection::Receiver, tx_gw, tx_app);
+
+        assert_eq!(session.id(), 1);
+        assert_eq!(session.state(), &State::Active);
+        assert_eq!(session.session_type(), SessionType::Streaming);
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_stream_sender_and_receiver_on_message() {
+        let (tx_gw_sender, mut rx_gw_sender) = tokio::sync::mpsc::channel(1);
+        let (tx_app_sender, _rx_app_sender) = tokio::sync::mpsc::channel(1);
+
+        let (tx_gw_receiver, _rx_gw_receiver) = tokio::sync::mpsc::channel(1);
+        let (tx_app_receiver, mut rx_app_receiver) = tokio::sync::mpsc::channel(1);
+
+        let sender = Stream::new(0, SessionDirection::Sender, tx_gw_sender, tx_app_sender);
+        let receiver = Stream::new(
+            0,
+            SessionDirection::Receiver,
+            tx_gw_receiver,
+            tx_app_receiver,
+        );
+
+        let mut message = utils::create_publication(
+            &encoder::encode_agent("cisco", "default", "local_agent", 0),
+            &encoder::encode_agent_type("cisco", "default", "remote_agent"),
+            Some(0),
+            None,
+            None,
+            1,
+            "msg",
+            vec![0x1, 0x2, 0x3, 0x4],
+        );
+
+        // set the session id in the message
+        let header = utils::get_session_header_as_mut(&mut message).unwrap();
+        header.session_id = 1;
+
+        // set session header type for test check
+        let mut expected_msg = message.clone();
+        let _ = set_session_type(&mut expected_msg, SessionHeaderType::Stream);
+
+        // send a message from the sender app to the gw
+        let res = sender
+            .on_message(message.clone(), MessageDirection::South) // !!!! WHAT IS THE RIGHT DIRECTION
+            .await;
+        assert!(res.is_ok());
+
+        let msg = rx_gw_sender.recv().await.unwrap().unwrap();
+        assert_eq!(msg, expected_msg);
+
+        // send the same message to the receiver
+        let res = receiver
+            .on_message(msg.clone(), MessageDirection::North)
+            .await;
+        assert!(res.is_ok());
+
+        let (msg, info) = rx_app_receiver.recv().await.unwrap();
+        assert_eq!(msg, expected_msg);
+        assert_eq!(info.id, 0);
+        assert_eq!(info.session_type, SessionType::Streaming);
+        assert_eq!(info.state, State::Active);
+    }
+
+    // test RTX until timeout
+
+    // test RTX with producer buffer
 }
