@@ -17,6 +17,7 @@ pub enum ReceiverBufferError {
     ProcessingError(String),
 }
 
+#[allow(dead_code)]
 pub(crate) struct ReceiverBuffer {
     // ID of the last packet sent to the application
     // Init to usize max and it takes the values of the first
@@ -47,6 +48,7 @@ impl Default for ReceiverBuffer {
     }
 }
 
+#[allow(dead_code)]
 impl ReceiverBuffer {
     // returns a vec of messages to send to the application
     // in case the vector contains a None it means that the packet is lost
