@@ -13,13 +13,15 @@ use crate::{
 use producer_buffer::ProducerBuffer;
 use receiver_buffer::ReceiverBuffer;
 
-use agp_datapath::pubsub::proto::pubsub::v1::SessionHeaderType;
+use agp_datapath::{
+    messages::utils::{get_msg_id, get_payload_from_msg},
+    pubsub::proto::pubsub::v1::SessionHeaderType,
+};
 use agp_datapath::{
     messages::{
         utils::{
-            create_rtx_publication, get_message_as_publish, get_payload, get_rtx_id,
-            get_session_header_type, get_session_id, get_source, service_type_to_int, set_msg_id,
-            set_session_type,
+            create_rtx_publication, get_message_as_publish, get_session_header_type,
+            get_session_id, get_source, service_type_to_int, set_msg_id, set_session_type,
         },
         Agent, AgentType,
     },
@@ -198,23 +200,19 @@ impl Stream {
                                                     }
                                                 };
 
-                                                let msg_rtx = match get_rtx_id(pub_msg) {
-                                                    Ok(rtx_opt) => match rtx_opt {
-                                                        Some(rtx) => rtx,
-                                                        None => {
-                                                            error!("error parsing request RTX message on session {}", session_id);
-                                                            continue;
-                                                        },
-                                                    },
+                                                let msg_rtx_id = match get_msg_id(&msg) {
+                                                    Ok(msg_rtx_id) => msg_rtx_id,
                                                     Err(_) => {
                                                         error!("error parsing request RTX message on session {}", session_id);
                                                         continue;
                                                     }
                                                 };
 
+                                                trace!("received rtx for message {} on session {}", msg_rtx_id, session_id);
                                                 // search the packet in the producer buffer
-                                                let rtx_pub = match producer.buffer.get(msg_rtx as usize) {
+                                                let rtx_pub = match producer.buffer.get(msg_rtx_id as usize) {
                                                     Some(packet) => {
+                                                        trace!("packet {} exists in the producer buffer, create rtx reply", msg_rtx_id);
                                                         // the packet exists, send it to the source of the RTX
                                                         let (src_type, src_id) = match get_source(&msg) {
                                                             Ok((src_type, src_id)) => (src_type, src_id),
@@ -234,8 +232,14 @@ impl Stream {
                                                         };*/
 
                                                         // TODO -> get the name of the this agent to add it as source in the RXT packet
-                                                        let rtx = create_rtx_publication(&Agent::default(), &src_type, src_id, false, session_id, msg_rtx, Some(get_payload(&packet).to_vec()));
-                                                        rtx
+                                                        let payload = match get_payload_from_msg(&packet) {
+                                                            Ok(payload) => payload,
+                                                            Err(e) => {
+                                                                error!("error parsing packet: {}", e.to_string());
+                                                                continue;
+                                                            }
+                                                        };
+                                                        create_rtx_publication(&Agent::default(), &src_type, src_id, false, session_id, msg_rtx_id, Some(payload.to_vec()))
                                                     }
                                                     None => {
                                                         // the packet does not exist so do nothing
@@ -246,6 +250,7 @@ impl Stream {
                                                     },
                                                 };
 
+                                                trace!("send rtx reply for message {}", msg_rtx_id);
                                                 if send_gw.send(Ok(rtx_pub)).await.is_err() {
                                                     error!("error sending packet to the gateway on session {}", session_id);
                                                     continue; // TODO: do we need to notify the app with an error packet?
@@ -266,8 +271,7 @@ impl Stream {
                                                 }
 
                                                 trace!("add message {} to the producer buffer on session {}", producer.next_id, session_id);
-                                                let pub_msg = get_message_as_publish(&msg);
-                                                if !producer.buffer.push(pub_msg.unwrap().clone()) {
+                                                if !producer.buffer.push(msg.clone()) {
                                                     warn!("cannot add packet to the local buffer");
                                                 }
 
@@ -284,6 +288,7 @@ impl Stream {
                                     Endpoint::Receiver(receiver) => {
                                         // here the packets are coming only from the gateway
                                         trace!("received message from the gataway on session {}, add it to the receiver buffer", session_id);
+                                        // TODO -> check if you receive
                                         match receiver.buffer.on_received_message(msg){
                                             Ok((recv, rtx)) =>{
                                                 for opt in recv {
@@ -588,7 +593,7 @@ mod tests {
             .await;
         assert!(res.is_ok());
 
-        // read rtxs from the gw channel, the orginal one + 5 retries
+        // read rtxs from the gw channel, the original one + 5 retries
         for _ in 0..6 {
             let rtx_msg = rx_gw.recv().await.unwrap().unwrap();
             let rtx_header = utils::get_session_header(&rtx_msg).unwrap();
@@ -605,5 +610,77 @@ mod tests {
         assert!(logs_contain(expected_msg));
     }
 
-    // test RTX with producer buffer
+    #[tokio::test]
+    #[traced_test]
+    async fn test_stream_rtx_reception() {
+        let (tx_gw, mut rx_gw) = tokio::sync::mpsc::channel(1);
+        let (tx_app, _rx_app) = tokio::sync::mpsc::channel(1);
+
+        let session = Stream::new(120, SessionDirection::Sender, tx_gw, tx_app);
+
+        assert_eq!(session.id(), 120);
+        assert_eq!(session.state(), &State::Active);
+        assert_eq!(session.session_type(), SessionType::Streaming);
+
+        let mut message = utils::create_publication(
+            &encoder::encode_agent("cisco", "default", "local_agent", 0),
+            &encoder::encode_agent_type("cisco", "default", "remote_agent"),
+            Some(0),
+            None,
+            None,
+            1,
+            "msg",
+            vec![0x1, 0x2, 0x3, 0x4],
+        );
+
+        // set the session id in the message
+        let header = utils::get_session_header_as_mut(&mut message).unwrap();
+        header.session_id = 120;
+
+        // send 3 messages
+        for _ in 0..3 {
+            let res = session
+                .on_message(message.clone(), MessageDirection::South)
+                .await;
+            assert!(res.is_ok());
+        }
+
+        // read the 3 messages from the gw channel
+        for i in 0..3 {
+            let msg = rx_gw.recv().await.unwrap().unwrap();
+            let msg_header = utils::get_session_header(&msg).unwrap();
+            assert_eq!(msg_header.session_id, 120);
+            assert_eq!(msg_header.message_id, i);
+            assert_eq!(msg_header.header_type, SessionHeaderType::Stream.into());
+            assert_eq!(msg_header.rtx, None);
+        }
+
+        // receive an RTX for message 2
+        let rtx = create_rtx_publication(
+            &encoder::encode_agent("cisco", "default", "local_agent", 0),
+            &encoder::encode_agent_type("cisco", "default", "remote_agent"),
+            Some(0),
+            true,
+            1,
+            2,
+            Some(vec![]),
+        );
+
+        // send the RTX from the gw
+        let res = session.on_message(rtx, MessageDirection::North).await;
+        assert!(res.is_ok());
+
+        // get rtx reply message from gw
+        let msg = rx_gw.recv().await.unwrap().unwrap();
+        let msg_header = utils::get_session_header(&msg).unwrap();
+        assert_eq!(msg_header.session_id, 120);
+        assert_eq!(msg_header.message_id, 2);
+        assert_eq!(msg_header.header_type, SessionHeaderType::RtxReply.into());
+        assert_eq!(
+            utils::get_payload_from_msg(&msg).unwrap(),
+            vec![0x1, 0x2, 0x3, 0x4]
+        );
+
+        //time::sleep(Duration::from_millis(1000)).await;
+    }
 }

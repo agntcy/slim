@@ -14,7 +14,7 @@ pub struct Publish {
     #[prost(message, optional, tag = "1")]
     pub header: ::core::option::Option<AgpHeader>,
     #[prost(message, optional, tag = "2")]
-    pub control: ::core::option::Option<SessionHeader>,
+    pub session: ::core::option::Option<SessionHeader>,
     #[prost(uint32, tag = "3")]
     pub fanout: u32,
     #[prost(message, optional, tag = "4")]
@@ -58,8 +58,6 @@ pub struct SessionHeader {
     pub session_id: u32,
     #[prost(uint32, tag = "3")]
     pub message_id: u32,
-    #[prost(uint32, optional, tag = "4")]
-    pub stream: ::core::option::Option<u32>,
     #[prost(uint32, optional, tag = "5")]
     pub rtx: ::core::option::Option<u32>,
 }

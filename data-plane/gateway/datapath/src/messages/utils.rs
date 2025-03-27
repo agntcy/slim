@@ -22,8 +22,10 @@ pub enum MessageError {
     SourceNotFound,
     #[error("destination not found")]
     DestinationNotFound,
-    #[error("control header not found")]
-    ControlHeaderNotFound,
+    #[error("session header not found")]
+    SessionHeaderNotFound,
+    #[error("payload not found")]
+    PayloadNotFound,
 }
 
 // utils functions for names
@@ -100,7 +102,7 @@ pub fn get_agp_header_as_mut(msg: &mut ProtoMessage) -> Option<&mut AgpHeader> {
 
 pub fn get_session_header(msg: &ProtoMessage) -> Option<&SessionHeader> {
     match &msg.message_type {
-        Some(ProtoPublishType(publish)) => publish.control.as_ref(),
+        Some(ProtoPublishType(publish)) => publish.session.as_ref(),
         Some(ProtoSubscribeType(_)) => None,
         Some(ProtoUnsubscribeType(_)) => None,
         None => None,
@@ -109,7 +111,7 @@ pub fn get_session_header(msg: &ProtoMessage) -> Option<&SessionHeader> {
 
 pub fn get_session_header_as_mut(msg: &mut ProtoMessage) -> Option<&mut SessionHeader> {
     match &mut msg.message_type {
-        Some(ProtoPublishType(publish)) => publish.control.as_mut(),
+        Some(ProtoPublishType(publish)) => publish.session.as_mut(),
         Some(ProtoSubscribeType(_)) => None,
         Some(ProtoUnsubscribeType(_)) => None,
         None => None,
@@ -209,20 +211,18 @@ pub fn create_session_header(
     header_type: i32,
     session_id: u32,
     message_id: u32,
-    stream: Option<u32>,
     rtx: Option<u32>,
 ) -> Option<SessionHeader> {
     Some(SessionHeader {
         header_type,
         session_id,
         message_id,
-        stream,
         rtx,
     })
 }
 
 pub fn create_default_session_header() -> Option<SessionHeader> {
-    create_session_header(SessionHeaderType::Fnf.into(), 0, 0, None, None)
+    create_session_header(SessionHeaderType::Fnf.into(), 0, 0, None)
 }
 
 // getters for session header
@@ -235,21 +235,21 @@ pub fn set_session_type(
             header.header_type = session_type.into();
             Ok(())
         }
-        None => Err(MessageError::ControlHeaderNotFound),
+        None => Err(MessageError::SessionHeaderNotFound),
     }
 }
 
 pub fn get_session_header_type(msg: &ProtoPublish) -> Result<i32, MessageError> {
-    match msg.control {
+    match msg.session {
         Some(header) => Ok(header.header_type),
-        None => Err(MessageError::ControlHeaderNotFound),
+        None => Err(MessageError::SessionHeaderNotFound),
     }
 }
 
-pub fn get_msg_id(msg: &ProtoPublish) -> Result<u32, MessageError> {
-    match msg.control {
+pub fn get_msg_id(msg: &ProtoMessage) -> Result<u32, MessageError> {
+    match get_session_header(msg) {
         Some(header) => Ok(header.message_id),
-        None => Err(MessageError::ControlHeaderNotFound),
+        None => Err(MessageError::SessionHeaderNotFound),
     }
 }
 
@@ -259,29 +259,21 @@ pub fn set_msg_id(msg: &mut ProtoMessage, id: u32) -> Result<(), MessageError> {
             header.message_id = id;
             Ok(())
         }
-        None => Err(MessageError::ControlHeaderNotFound),
+        None => Err(MessageError::SessionHeaderNotFound),
     }
 }
 
 pub fn get_session_id(msg: &ProtoPublish) -> Result<u32, MessageError> {
-    match msg.control {
+    match msg.session {
         Some(header) => Ok(header.session_id),
-        None => Err(MessageError::ControlHeaderNotFound),
-    }
-}
-
-#[allow(dead_code)]
-fn get_stream_id(msg: &ProtoPublish) -> Result<Option<u32>, MessageError> {
-    match msg.control {
-        Some(header) => Ok(header.stream),
-        None => Err(MessageError::ControlHeaderNotFound),
+        None => Err(MessageError::SessionHeaderNotFound),
     }
 }
 
 pub fn get_rtx_id(msg: &ProtoPublish) -> Result<Option<u32>, MessageError> {
-    match msg.control {
+    match msg.session {
         Some(header) => Ok(header.rtx),
-        None => Err(MessageError::ControlHeaderNotFound),
+        None => Err(MessageError::SessionHeaderNotFound),
     }
 }
 
@@ -369,7 +361,7 @@ pub fn create_publication(
 
 pub fn create_publication_with_header(
     header: Option<AgpHeader>,
-    control: Option<SessionHeader>,
+    session: Option<SessionHeader>,
     metadata: HashMap<String, String>,
     fanout: u32,
     content_type: &str,
@@ -379,7 +371,7 @@ pub fn create_publication_with_header(
         metadata,
         message_type: Some(ProtoPublishType(ProtoPublish {
             header,
-            control,
+            session,
             fanout,
             msg: Some(Content {
                 content_type: content_type.to_string(),
@@ -424,13 +416,8 @@ pub fn create_rtx_publication(
     if !is_request {
         rtx_type = SessionHeaderType::RtxReply;
     }
-    let session_header = create_session_header(
-        rtx_type.into(),
-        session,
-        rand::rng().random(),
-        None,
-        Some(msg_id),
-    );
+    let session_header =
+        create_session_header(rtx_type.into(), session, msg_id, Some(rand::rng().random()));
     create_publication_with_header(
         agp_header,
         session_header,
@@ -450,6 +437,13 @@ pub fn get_message_as_publish(msg: &ProtoMessage) -> Option<&ProtoPublish> {
 
 pub fn get_fanout(msg: &ProtoPublish) -> u32 {
     msg.fanout
+}
+
+pub fn get_payload_from_msg(msg: &ProtoMessage) -> Result<&[u8], MessageError> {
+    match get_message_as_publish(msg) {
+        Some(m) => Ok(&m.msg.as_ref().unwrap().blob),
+        None => Err(MessageError::PayloadNotFound),
+    }
 }
 
 pub fn get_payload(msg: &ProtoPublish) -> &[u8] {
