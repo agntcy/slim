@@ -459,8 +459,11 @@ impl Session for Stream {
 
 #[cfg(test)]
 mod tests {
+    use std::time::Duration;
+
     use super::*;
     use agp_datapath::messages::{encoder, utils};
+    use tokio::time;
     use tracing_test::traced_test;
 
     #[tokio::test]
@@ -540,7 +543,41 @@ mod tests {
         assert_eq!(info.state, State::Active);
     }
 
-    // test RTX until timeout
+    #[tokio::test]
+    #[traced_test]
+    async fn test_stream_rtx_timeouts() {
+        let (tx_gw, _) = tokio::sync::mpsc::channel(1);
+        let (tx_app, _) = tokio::sync::mpsc::channel(1);
+
+        let session = Stream::new(0, SessionDirection::Receiver, tx_gw.clone(), tx_app.clone());
+
+        assert_eq!(session.id(), 0);
+        assert_eq!(session.state(), &State::Active);
+        assert_eq!(session.session_type(), SessionType::Streaming);
+
+        let mut message = utils::create_publication(
+            &encoder::encode_agent("cisco", "default", "local_agent", 0),
+            &encoder::encode_agent_type("cisco", "default", "remote_agent"),
+            Some(0),
+            None,
+            None,
+            1,
+            "msg",
+            vec![0x1, 0x2, 0x3, 0x4],
+        );
+
+        // set the session id in the message
+        let header = utils::get_session_header_as_mut(&mut message).unwrap();
+        header.session_id = 1;
+
+        let res = session
+            .on_message(message.clone(), MessageDirection::North)
+            .await;
+        assert!(res.is_ok());
+
+        time::sleep(Duration::from_millis(500)).await;
+        
+    }
 
     // test RTX with producer buffer
 }
