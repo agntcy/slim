@@ -58,8 +58,6 @@ pub struct SessionHeader {
     pub session_id: u32,
     #[prost(uint32, tag = "3")]
     pub message_id: u32,
-    #[prost(uint32, optional, tag = "5")]
-    pub rtx: ::core::option::Option<u32>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct Content {

@@ -20,8 +20,8 @@ use agp_datapath::{
 use agp_datapath::{
     messages::{
         utils::{
-            create_rtx_publication, get_message_as_publish, get_session_header_type,
-            get_session_id, get_source, service_type_to_int, set_msg_id, set_session_type,
+            create_rtx_publication, get_session_header_type, get_source, service_type_to_int,
+            set_msg_id, set_session_type,
         },
         Agent, AgentType,
     },
@@ -172,13 +172,7 @@ impl Stream {
                                                 trace!("received message from the gataway on session {}", session_id);
                                                 // received a message from the GW
                                                 // this must be an RTX message otherwise drop it
-                                                let pub_msg_opt = get_message_as_publish(&msg);
-                                                if pub_msg_opt.is_none() {
-                                                    error!("received invalid packet type on session {}: the packet is not a publication", session_id);
-                                                    continue;
-                                                }
-                                                let pub_msg = pub_msg_opt.unwrap();
-                                                match get_session_header_type(pub_msg){
+                                                match get_session_header_type(&msg){
                                                     Ok(session_type) => {
                                                         if session_type != service_type_to_int(SessionHeaderType::RtxRequest) {
                                                             error!("received invalid packet type on session {}: not RTX request", session_id);
@@ -188,14 +182,6 @@ impl Stream {
                                                     }
                                                     Err(_) => {
                                                         error!("received invalid packet type on session {}: missing header type", session_id);
-                                                        continue;
-                                                    }
-                                                };
-
-                                                match get_session_id(pub_msg) {
-                                                    Ok(id) => id,
-                                                    Err(_) => {
-                                                        error!("received packet for invalid session on session {}", session_id);
                                                         continue;
                                                     }
                                                 };
@@ -286,9 +272,40 @@ impl Stream {
                                         }
                                     }
                                     Endpoint::Receiver(receiver) => {
-                                        // here the packets are coming only from the gateway
                                         trace!("received message from the gataway on session {}, add it to the receiver buffer", session_id);
-                                        // TODO -> check if you receive
+                                        let header_type = match get_session_header_type(&msg){
+                                            Ok(t) => t,
+                                            Err(e) => {
+                                                error!("unable to parse received packet {}", e.to_string());
+                                                continue;
+                                            },
+                                        };
+                                        if header_type == service_type_to_int(SessionHeaderType::RtxReply) {
+                                            let rtx_msg_id = match get_msg_id(&msg){
+                                                Ok(id) => id,
+                                                Err(e) => {
+                                                    error!("unable to parse received packet {}", e.to_string());
+                                                    continue;
+                                                },
+                                            };
+                                            match receiver.timers_map.get(&rtx_msg_id) {
+                                                Some(timer) => {
+                                                    timer.stop();
+                                                    receiver.timers_map.remove(&rtx_msg_id);
+                                                    receiver.rtx_map.remove(&rtx_msg_id);
+                                                }
+                                                None => {
+                                                    warn!("unable to find the timer associated to the received RTX reply");
+                                                    // try to remove the packet anyway
+                                                    receiver.rtx_map.remove(&rtx_msg_id);
+                                                }
+                                            }
+
+                                        } else if header_type != service_type_to_int(SessionHeaderType::Stream){
+                                            error!("received packet with invalid header type");
+                                            continue;
+                                        }
+
                                         match receiver.buffer.on_received_message(msg){
                                             Ok((recv, rtx)) =>{
                                                 for opt in recv {
@@ -490,7 +507,7 @@ mod tests {
 
     #[tokio::test]
     #[traced_test]
-    async fn test_stream_sender_and_receiver_on_message() {
+    async fn test_stream_sender_and_receiver() {
         let (tx_gw_sender, mut rx_gw_sender) = tokio::sync::mpsc::channel(1);
         let (tx_app_sender, _rx_app_sender) = tokio::sync::mpsc::channel(1);
 
@@ -569,9 +586,9 @@ mod tests {
             vec![0x1, 0x2, 0x3, 0x4],
         );
 
-        // set the session id in the message
+        // set the session type
         let header = utils::get_session_header_as_mut(&mut message).unwrap();
-        header.session_id = 1;
+        header.header_type = SessionHeaderType::Stream.into();
 
         let res = session
             .on_message(message.clone(), MessageDirection::North)
@@ -598,8 +615,8 @@ mod tests {
             let rtx_msg = rx_gw.recv().await.unwrap().unwrap();
             let rtx_header = utils::get_session_header(&rtx_msg).unwrap();
             assert_eq!(rtx_header.session_id, 0);
+            assert_eq!(rtx_header.message_id, 1);
             assert_eq!(rtx_header.header_type, SessionHeaderType::RtxRequest.into());
-            assert_eq!(rtx_header.rtx.unwrap(), 1);
         }
 
         time::sleep(Duration::from_millis(1000)).await;
@@ -652,7 +669,6 @@ mod tests {
             assert_eq!(msg_header.session_id, 120);
             assert_eq!(msg_header.message_id, i);
             assert_eq!(msg_header.header_type, SessionHeaderType::Stream.into());
-            assert_eq!(msg_header.rtx, None);
         }
 
         // receive an RTX for message 2
@@ -680,7 +696,112 @@ mod tests {
             utils::get_payload_from_msg(&msg).unwrap(),
             vec![0x1, 0x2, 0x3, 0x4]
         );
+    }
 
-        //time::sleep(Duration::from_millis(1000)).await;
+    #[tokio::test]
+    #[traced_test]
+    async fn test_stream_e2e_with_losses() {
+        let (tx_gw_sender, mut rx_gw_sender) = tokio::sync::mpsc::channel(1);
+        let (tx_app_sender, _rx_app_sender) = tokio::sync::mpsc::channel(1);
+
+        let (tx_gw_receiver, mut rx_gw_receiver) = tokio::sync::mpsc::channel(1);
+        let (tx_app_receiver, mut rx_app_receiver) = tokio::sync::mpsc::channel(1);
+
+        let sender = Stream::new(0, SessionDirection::Sender, tx_gw_sender, tx_app_sender);
+        let receiver = Stream::new(
+            0,
+            SessionDirection::Receiver,
+            tx_gw_receiver,
+            tx_app_receiver,
+        );
+
+        let message = utils::create_publication(
+            &encoder::encode_agent("cisco", "default", "local_agent", 0),
+            &encoder::encode_agent_type("cisco", "default", "remote_agent"),
+            Some(0),
+            None,
+            None,
+            1,
+            "msg",
+            vec![0x1, 0x2, 0x3, 0x4],
+        );
+
+        // send 3 messages from the producer app
+        // send 3 messages
+        for _ in 0..3 {
+            let res = sender
+                .on_message(message.clone(), MessageDirection::South)
+                .await;
+            assert!(res.is_ok());
+        }
+
+        // read the 3 messages from the sender gw channel
+        // forward message 1 and 3 to the receiver
+        for i in 0..3 {
+            let msg = rx_gw_sender.recv().await.unwrap().unwrap();
+            let msg_header = utils::get_session_header(&msg).unwrap();
+            assert_eq!(msg_header.session_id, 0);
+            assert_eq!(msg_header.message_id, i);
+            assert_eq!(msg_header.header_type, SessionHeaderType::Stream.into());
+
+            // the receiver should detect a loss for packet 1
+            if i != 1 {
+                let res = receiver
+                    .on_message(msg.clone(), MessageDirection::North)
+                    .await;
+                assert!(res.is_ok());
+            }
+        }
+
+        // the receiver app should get the packet 0
+        let (msg, _info) = rx_app_receiver.recv().await.unwrap();
+        let msg_header = utils::get_session_header(&msg).unwrap();
+        assert_eq!(msg_header.session_id, 0);
+        assert_eq!(msg_header.message_id, 0);
+        assert_eq!(msg_header.header_type, SessionHeaderType::Stream.into());
+
+        // get the RTX and drop the first one before send it to sender
+        let msg = rx_gw_receiver.recv().await.unwrap().unwrap();
+        let msg_header = utils::get_session_header(&msg).unwrap();
+        assert_eq!(msg_header.session_id, 0);
+        assert_eq!(msg_header.message_id, 1);
+        assert_eq!(msg_header.header_type, SessionHeaderType::RtxRequest.into());
+
+        let msg = rx_gw_receiver.recv().await.unwrap().unwrap();
+        let msg_header = utils::get_session_header(&msg).unwrap();
+        assert_eq!(msg_header.session_id, 0);
+        assert_eq!(msg_header.message_id, 1);
+        assert_eq!(msg_header.header_type, SessionHeaderType::RtxRequest.into());
+
+        // send the second reply to the producer
+        let res = sender
+            .on_message(msg.clone(), MessageDirection::North)
+            .await;
+        assert!(res.is_ok());
+
+        // this should generate an RTX reply
+        let msg = rx_gw_sender.recv().await.unwrap().unwrap();
+        let msg_header = utils::get_session_header(&msg).unwrap();
+        assert_eq!(msg_header.session_id, 0);
+        assert_eq!(msg_header.message_id, 1);
+        assert_eq!(msg_header.header_type, SessionHeaderType::RtxReply.into());
+
+        let res = receiver
+            .on_message(msg.clone(), MessageDirection::North)
+            .await;
+        assert!(res.is_ok());
+
+        // the receiver app should get the packet 1 and 2, packet 1 is an RTX
+        let (msg, _info) = rx_app_receiver.recv().await.unwrap();
+        let msg_header = utils::get_session_header(&msg).unwrap();
+        assert_eq!(msg_header.session_id, 0);
+        assert_eq!(msg_header.message_id, 1);
+        assert_eq!(msg_header.header_type, SessionHeaderType::RtxReply.into());
+
+        let (msg, _info) = rx_app_receiver.recv().await.unwrap();
+        let msg_header = utils::get_session_header(&msg).unwrap();
+        assert_eq!(msg_header.session_id, 0);
+        assert_eq!(msg_header.message_id, 2);
+        assert_eq!(msg_header.header_type, SessionHeaderType::Stream.into());
     }
 }

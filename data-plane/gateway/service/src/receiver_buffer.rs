@@ -250,12 +250,12 @@ mod tests {
 
         let agp_header = create_agp_header(&src, &name_type, Some(1), None, None, None, None);
 
-        let h0 = create_session_header(SessionHeaderType::Fnf.into(), 0, 0, None);
-        let h1 = create_session_header(SessionHeaderType::Fnf.into(), 0, 1, None);
-        let h2 = create_session_header(SessionHeaderType::Fnf.into(), 0, 2, None);
-        let h3 = create_session_header(SessionHeaderType::Fnf.into(), 0, 3, None);
-        let h4 = create_session_header(SessionHeaderType::Fnf.into(), 0, 4, None);
-        let h5 = create_session_header(SessionHeaderType::Fnf.into(), 0, 5, None);
+        let h0 = create_session_header(SessionHeaderType::Fnf.into(), 0, 0);
+        let h1 = create_session_header(SessionHeaderType::Fnf.into(), 0, 1);
+        let h2 = create_session_header(SessionHeaderType::Fnf.into(), 0, 2);
+        let h3 = create_session_header(SessionHeaderType::Fnf.into(), 0, 3);
+        let h4 = create_session_header(SessionHeaderType::Fnf.into(), 0, 4);
+        let h5 = create_session_header(SessionHeaderType::Fnf.into(), 0, 5);
 
         let p0 = create_publication_with_header(agp_header, h0, HashMap::new(), 1, "", vec![]);
         let p1 = create_publication_with_header(None, h1, HashMap::new(), 1, "", vec![]);

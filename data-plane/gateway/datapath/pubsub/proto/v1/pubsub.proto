@@ -62,16 +62,10 @@ enum SessionHeaderType {
 // RTX_REQUEST = ID of the lost packet
 // RTX_REPLY = ID of the retransmitted packet
 
-// Session.rtx meaning according to SessionHeaderType
-// RTX_REQUEST = nonce
-// RTX_REPLY = nonce of the associated RTX
-// None in all the other cases
-
 message SessionHeader {
   SessionHeaderType header_type = 1;
   uint32 session_id = 2;
   uint32 message_id = 3;
-  optional uint32 rtx = 5;
 }
 
 message Content {

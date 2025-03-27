@@ -10,7 +10,6 @@ use crate::pubsub::{
     ProtoUnsubscribeType, SessionHeader,
 };
 
-use rand::Rng;
 use thiserror::Error;
 use tracing::error;
 
@@ -211,18 +210,16 @@ pub fn create_session_header(
     header_type: i32,
     session_id: u32,
     message_id: u32,
-    rtx: Option<u32>,
 ) -> Option<SessionHeader> {
     Some(SessionHeader {
         header_type,
         session_id,
         message_id,
-        rtx,
     })
 }
 
 pub fn create_default_session_header() -> Option<SessionHeader> {
-    create_session_header(SessionHeaderType::Fnf.into(), 0, 0, None)
+    create_session_header(SessionHeaderType::Fnf.into(), 0, 0)
 }
 
 // getters for session header
@@ -239,8 +236,8 @@ pub fn set_session_type(
     }
 }
 
-pub fn get_session_header_type(msg: &ProtoPublish) -> Result<i32, MessageError> {
-    match msg.session {
+pub fn get_session_header_type(msg: &ProtoMessage) -> Result<i32, MessageError> {
+    match get_session_header(msg) {
         Some(header) => Ok(header.header_type),
         None => Err(MessageError::SessionHeaderNotFound),
     }
@@ -266,13 +263,6 @@ pub fn set_msg_id(msg: &mut ProtoMessage, id: u32) -> Result<(), MessageError> {
 pub fn get_session_id(msg: &ProtoPublish) -> Result<u32, MessageError> {
     match msg.session {
         Some(header) => Ok(header.session_id),
-        None => Err(MessageError::SessionHeaderNotFound),
-    }
-}
-
-pub fn get_rtx_id(msg: &ProtoPublish) -> Result<Option<u32>, MessageError> {
-    match msg.session {
-        Some(header) => Ok(header.rtx),
         None => Err(MessageError::SessionHeaderNotFound),
     }
 }
@@ -416,8 +406,7 @@ pub fn create_rtx_publication(
     if !is_request {
         rtx_type = SessionHeaderType::RtxReply;
     }
-    let session_header =
-        create_session_header(rtx_type.into(), session, msg_id, Some(rand::rng().random()));
+    let session_header = create_session_header(rtx_type.into(), session, msg_id);
     create_publication_with_header(
         agp_header,
         session_header,
