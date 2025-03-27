@@ -37,7 +37,7 @@ struct RtxTimerObserver {
 #[async_trait]
 impl TimerObserver for RtxTimerObserver {
     async fn on_timeout(&self, timer_id: u32, timeouts: u32) {
-        debug!("timeout number {} for rtx {}, retry", timeouts, timer_id);
+        trace!("timeout number {} for rtx {}, retry", timeouts, timer_id);
 
         // notify the process loop
         if self.channel.send(Ok((timer_id, true))).await.is_err() {
@@ -46,9 +46,10 @@ impl TimerObserver for RtxTimerObserver {
     }
 
     async fn on_failure(&self, timer_id: u32, timeouts: u32) {
-        debug!(
+        trace!(
             "timeout number {} for rtx {}, stop retry",
-            timeouts, timer_id
+            timeouts,
+            timer_id
         );
 
         // notify the process loop
@@ -58,7 +59,7 @@ impl TimerObserver for RtxTimerObserver {
     }
 
     async fn on_stop(&self, timer_id: u32) {
-        debug!("timer for rtx {} cancelled", timer_id);
+        trace!("timer for rtx {} cancelled", timer_id);
         // nothing to do
     }
 }
@@ -297,7 +298,7 @@ impl Stream {
                                                         Some(m) => {
                                                             // send message to the app
                                                             if send_app.send((m, info)).await.is_err() {
-                                                                error!("error sending packet to the gateway on session {}", session_id);
+                                                                error!("error sending packet to the application on session {}", session_id);
                                                                 // TODO: do we need to notify the app with an error packet?
                                                             }
                                                         }
@@ -356,6 +357,7 @@ impl Stream {
                                 match &mut *buffer_clone.write().await {
                                     Endpoint::Receiver(receiver) => {
                                         if retry {
+                                            trace!("try to send rtx for packet {}", msg_id);
                                             // send the RTX again
                                             let rtx = match receiver.rtx_map.get(&msg_id) {
                                                 Some(rtx) => rtx,
@@ -364,7 +366,7 @@ impl Stream {
                                                     let timer = match receiver.timers_map.get(&msg_id) {
                                                         Some(t) => t,
                                                         None => {
-                                                            error!("timer notfound");
+                                                            error!("timer not found");
                                                             continue;
                                                         },
                                                     };
@@ -377,6 +379,7 @@ impl Stream {
                                                 error!("error sending RTX for id {} on session {}", msg_id, session_id);
                                             }
                                         } else {
+                                            trace!("pacekt {} lost, not retry left", msg_id);
                                             receiver.rtx_map.remove(&msg_id);
                                             receiver.timers_map.remove(&msg_id);
 
@@ -429,6 +432,7 @@ impl Stream {
     }
 }
 
+#[async_trait]
 impl Session for Stream {
     fn id(&self) -> Id {
         self.common.id()
@@ -442,18 +446,12 @@ impl Session for Stream {
         SessionType::Streaming
     }
 
-    fn on_message(
-        &self,
-        message: Message,
-        direction: MessageDirection,
-    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), Error>> + Send>> {
+    async fn on_message(&self, message: Message, direction: MessageDirection) -> Result<(), Error> {
         debug!("receive message");
-        let tx = self.tx.clone();
-        Box::pin(async move {
-            tx.send(Ok((message, direction)))
-                .await
-                .map_err(|e| Error::GatewayTransmission(e.to_string())) // TODO put the right error here
-        })
+        self.tx
+            .send(Ok((message, direction)))
+            .await
+            .map_err(|e| Error::GatewayTransmission(e.to_string())) // TODO put the right error here
     }
 }
 
@@ -546,10 +544,10 @@ mod tests {
     #[tokio::test]
     #[traced_test]
     async fn test_stream_rtx_timeouts() {
-        let (tx_gw, _) = tokio::sync::mpsc::channel(1);
-        let (tx_app, _) = tokio::sync::mpsc::channel(1);
+        let (tx_gw, mut rx_gw) = tokio::sync::mpsc::channel(1);
+        let (tx_app, mut rx_app) = tokio::sync::mpsc::channel(1);
 
-        let session = Stream::new(0, SessionDirection::Receiver, tx_gw.clone(), tx_app.clone());
+        let session = Stream::new(0, SessionDirection::Receiver, tx_gw, tx_app);
 
         assert_eq!(session.id(), 0);
         assert_eq!(session.state(), &State::Active);
@@ -575,8 +573,36 @@ mod tests {
             .await;
         assert!(res.is_ok());
 
-        time::sleep(Duration::from_millis(500)).await;
-        
+        let (msg, info) = rx_app.recv().await.unwrap();
+        assert_eq!(msg, message);
+        assert_eq!(info.id, 0);
+        assert_eq!(info.session_type, SessionType::Streaming);
+        assert_eq!(info.state, State::Active);
+
+        // set msg id = 2 this will trigger a loss detection
+        let header = utils::get_session_header_as_mut(&mut message).unwrap();
+        header.message_id = 2;
+
+        let res = session
+            .on_message(message.clone(), MessageDirection::North)
+            .await;
+        assert!(res.is_ok());
+
+        // read rtxs from the gw channel, the orginal one + 5 retries
+        for _ in 0..6 {
+            let rtx_msg = rx_gw.recv().await.unwrap().unwrap();
+            let rtx_header = utils::get_session_header(&rtx_msg).unwrap();
+            assert_eq!(rtx_header.session_id, 0);
+            assert_eq!(rtx_header.header_type, SessionHeaderType::RtxRequest.into());
+            assert_eq!(rtx_header.rtx.unwrap(), 1);
+        }
+
+        time::sleep(Duration::from_millis(1000)).await;
+
+        let expected_msg = "pacekt 1 lost, not retry left";
+        assert!(logs_contain(expected_msg));
+        let expected_msg = "a message was definitely lost in session 0";
+        assert!(logs_contain(expected_msg));
     }
 
     // test RTX with producer buffer
