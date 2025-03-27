@@ -1,9 +1,7 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
-use std::future::Future;
-use std::pin::Pin;
-
+use async_trait::async_trait;
 use thiserror::Error;
 use tonic::Status;
 
@@ -106,6 +104,7 @@ impl std::fmt::Display for SessionType {
     }
 }
 
+#[async_trait]
 pub(crate) trait Session {
     // Session ID
     #[allow(dead_code)]
@@ -120,11 +119,7 @@ pub(crate) trait Session {
     fn session_type(&self) -> SessionType;
 
     // publish a message as part of the session
-    fn on_message(
-        &self,
-        message: Message,
-        direction: MessageDirection,
-    ) -> Pin<Box<dyn Future<Output = Result<(), Error>> + Send + 'static>>;
+    async fn on_message(&self, message: Message, direction: MessageDirection) -> Result<(), Error>;
 }
 
 /// Common session data
@@ -172,11 +167,21 @@ impl Common {
         &self.state
     }
 
+    #[allow(dead_code)]
     pub(crate) fn tx_gw(&self) -> tokio::sync::mpsc::Sender<Result<Message, Status>> {
         self.tx_gw.clone()
     }
 
+    #[allow(dead_code)]
     pub(crate) fn tx_app(&self) -> tokio::sync::mpsc::Sender<(Message, Info)> {
         self.tx_app.clone()
+    }
+
+    pub(crate) fn tx_app_ref(&self) -> &tokio::sync::mpsc::Sender<(Message, Info)> {
+        &self.tx_app
+    }
+
+    pub(crate) fn tx_gw_ref(&self) -> &tokio::sync::mpsc::Sender<Result<Message, Status>> {
+        &self.tx_gw
     }
 }

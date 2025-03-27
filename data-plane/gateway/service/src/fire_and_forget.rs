@@ -4,6 +4,7 @@
 use crate::session::SessionType;
 use crate::session::{Common, Error, Id, Info, MessageDirection, Session, SessionDirection, State};
 
+use async_trait::async_trait;
 use rand::Rng;
 use tonic::Status;
 
@@ -28,6 +29,7 @@ impl FireAndForget {
     }
 }
 
+#[async_trait]
 impl Session for FireAndForget {
     fn id(&self) -> Id {
         self.common.id()
@@ -41,17 +43,15 @@ impl Session for FireAndForget {
         SessionType::FireAndForget
     }
 
-    fn on_message(
+    async fn on_message(
         &self,
         mut message: Message,
         direction: MessageDirection,
-    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), Error>> + Send>> {
+    ) -> Result<(), Error> {
         // set the session type
         let header = utils::get_session_header_as_mut(&mut message);
         if header.is_none() {
-            return Box::pin(
-                async move { Err(Error::AppTransmission("missing header".to_string())) },
-            );
+            return Err(Error::AppTransmission("missing header".to_string()));
         }
 
         header.unwrap().header_type = utils::service_type_to_int(SessionHeaderType::Fnf);
@@ -66,24 +66,22 @@ impl Session for FireAndForget {
                     self.common.state().clone(),
                 );
 
-                let tx = self.common.tx_app();
-                Box::pin(async move {
-                    tx.send((message, info))
-                        .await
-                        .map_err(|e| Error::AppTransmission(e.to_string()))
-                })
+                self.common
+                    .tx_app_ref()
+                    .send((message, info))
+                    .await
+                    .map_err(|e| Error::AppTransmission(e.to_string()))
             }
             MessageDirection::South => {
                 // add a nonce to the message
                 let header = utils::get_session_header_as_mut(&mut message).unwrap();
                 header.message_id = rand::rng().random();
 
-                let tx = self.common.tx_gw();
-                Box::pin(async move {
-                    tx.send(Ok(message))
-                        .await
-                        .map_err(|e| Error::GatewayTransmission(e.to_string()))
-                })
+                self.common
+                    .tx_gw_ref()
+                    .send(Ok(message))
+                    .await
+                    .map_err(|e| Error::GatewayTransmission(e.to_string()))
             }
         }
     }
