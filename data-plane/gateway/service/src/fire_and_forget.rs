@@ -6,11 +6,10 @@ use rand::Rng;
 
 use crate::errors::SessionError;
 use crate::session::{
-    AppChannelSender, Common, CommonSession, GwChannelSender, Id, Info, MessageDirection, Session,
-    SessionConfig, SessionDirection, State,
+    AppChannelSender, Common, CommonSession, GwChannelSender, Id, MessageDirection, Session,
+    SessionConfig, SessionDirection, SessionMessage, State,
 };
 use agp_datapath::messages::utils;
-use agp_datapath::pubsub::proto::pubsub::v1::Message;
 use agp_datapath::pubsub::proto::pubsub::v1::SessionHeaderType;
 
 /// Configuration for the Fire and Forget session
@@ -52,38 +51,34 @@ impl FireAndForget {
 impl Session for FireAndForget {
     async fn on_message(
         &self,
-        mut message: Message,
+        mut message: SessionMessage,
         direction: MessageDirection,
     ) -> Result<(), SessionError> {
         // set the session type
-        let header = utils::get_session_header_as_mut(&mut message);
+        let header = utils::get_session_header_as_mut(&mut message.message);
         if header.is_none() {
             return Err(SessionError::AppTransmission("missing header".to_string()));
         }
 
         let header = header.unwrap();
         header.header_type = utils::service_type_to_int(SessionHeaderType::Fnf);
-;
+
         // clone tx
         match direction {
-            MessageDirection::North => {
-                // create info
-                let info = Info::from_message(&message);
-
-                self.common
-                    .tx_app_ref()
-                    .send(Ok((message, info)))
-                    .await
-                    .map_err(|e| SessionError::AppTransmission(e.to_string()))
-            }
+            MessageDirection::North => self
+                .common
+                .tx_app_ref()
+                .send(Ok(message))
+                .await
+                .map_err(|e| SessionError::AppTransmission(e.to_string())),
             MessageDirection::South => {
                 // add a nonce to the message
-                let header = utils::get_session_header_as_mut(&mut message).unwrap();
+                let header = utils::get_session_header_as_mut(&mut message.message).unwrap();
                 header.message_id = rand::rng().random();
 
                 self.common
                     .tx_gw_ref()
-                    .send(Ok(message))
+                    .send(Ok(message.message))
                     .await
                     .map_err(|e| SessionError::GatewayTransmission(e.to_string()))
             }
@@ -148,17 +143,19 @@ mod tests {
         header.session_id = 1;
 
         let res = session
-            .on_message(message.clone(), MessageDirection::North)
+            .on_message(
+                SessionMessage::from(message.clone()),
+                MessageDirection::North,
+            )
             .await;
         assert!(res.is_ok());
 
-        let (msg, info) = rx_app
+        let msg = rx_app
             .recv()
             .await
             .expect("no message received")
             .expect("error");
-        assert_eq!(msg, message);
-        assert_eq!(info.id, 0);
-        assert_eq!(info.state, State::Active);
+        assert_eq!(msg.message, message);
+        assert_eq!(msg.info.id, 1);
     }
 }

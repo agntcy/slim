@@ -16,10 +16,48 @@ use agp_datapath::pubsub::proto::pubsub::v1::Message;
 /// Session ID
 pub type Id = u32;
 
+/// Message wrapper
+#[derive(Clone, PartialEq, Debug)]
+pub struct SessionMessage {
+    /// The message to be sent
+    pub message: Message,
+    /// The optional session info
+    pub info: Info,
+}
+
+impl SessionMessage {
+    /// Create a new session message
+    pub fn new(message: Message, info: Info) -> Self {
+        SessionMessage { message, info }
+    }
+}
+
+impl From<(Message, Info)> for SessionMessage {
+    fn from(tuple: (Message, Info)) -> Self {
+        SessionMessage {
+            message: tuple.0,
+            info: tuple.1,
+        }
+    }
+}
+
+impl From<Message> for SessionMessage {
+    fn from(message: Message) -> Self {
+        let info = Info::from(&message);
+        SessionMessage { message, info }
+    }
+}
+
+impl From<SessionMessage> for Message {
+    fn from(session_message: SessionMessage) -> Self {
+        session_message.message
+    }
+}
+
 /// Channel used in the path service -> app
-pub type AppChannelSender = tokio::sync::mpsc::Sender<Result<(Message, Info), SessionError>>;
+pub type AppChannelSender = tokio::sync::mpsc::Sender<Result<SessionMessage, SessionError>>;
 /// Channel used in the path app -> service
-pub type AppChannelReceiver = tokio::sync::mpsc::Receiver<Result<(Message, Info), SessionError>>;
+pub type AppChannelReceiver = tokio::sync::mpsc::Receiver<Result<SessionMessage, SessionError>>;
 /// Channel used in the path service -> gw
 pub type GwChannelSender = tokio::sync::mpsc::Sender<Result<Message, Status>>;
 /// Channel used in the path gw -> service
@@ -31,29 +69,39 @@ pub struct Info {
     /// The id of the session
     pub id: Id,
     /// The message nonce used to identify the message
-    pub message_id: u32,
+    pub message_id: Option<u32>,
     /// The identifier of the agent that sent the message
-    pub message_source: Agent,
+    pub message_source: Option<Agent>,
     /// The input connection id
-    pub input_connection: u64,
+    pub input_connection: Option<u64>,
+}
+
+impl Info {
+    /// Create a new session info
+    pub fn new(id: Id) -> Self {
+        Info {
+            id,
+            message_id: None,
+            message_source: None,
+            input_connection: None,
+        }
+    }
 }
 
 impl From<&Message> for Info {
     fn from(message: &Message) -> Self {
-        let session_header = utils::get_session_header(&message).expect("session header not found");
-        let agp_header = utils::get_agp_header(&message).expect("AGP header not found");
+        let session_header = utils::get_session_header(message).expect("session header not found");
+        let agp_header = utils::get_agp_header(message).expect("AGP header not found");
 
         let id = session_header.session_id;
         let message_id = session_header.message_id;
-        let message_source = utils::get_source(&msg);
-        let input_connection = agp_header
-            .incoming_conn
-            .expect("input connection not found");
+        let message_source = utils::get_source(message).expect("message source not found");
+        let input_connection = agp_header.incoming_conn;
 
         Info {
             id,
-            message_id,
-            message_source,
+            message_id: Some(message_id),
+            message_source: Some(message_source),
             input_connection,
         }
     }
@@ -97,7 +145,6 @@ impl std::fmt::Display for SessionConfig {
     }
 }
 
-
 pub(crate) trait CommonSession {
     // Session ID
     #[allow(dead_code)]
@@ -121,7 +168,7 @@ pub(crate) trait Session: CommonSession {
     // publish a message as part of the session
     async fn on_message(
         &self,
-        message: Message,
+        message: SessionMessage,
         direction: MessageDirection,
     ) -> Result<(), SessionError>;
 }
@@ -129,9 +176,11 @@ pub(crate) trait Session: CommonSession {
 /// Common session data
 pub(crate) struct Common {
     /// Session ID - unique identifier for the session
+    #[allow(dead_code)]
     id: Id,
 
     /// Session state
+    #[allow(dead_code)]
     state: State,
 
     /// Session type

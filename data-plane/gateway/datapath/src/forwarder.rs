@@ -98,14 +98,12 @@ where
 
     pub fn on_forwarded_subscription(
         &self,
-        source_type: AgentType,
-        source_agent_id: Option<u64>,
+        source: Agent,
         name_type: AgentType,
         name_agent_id: Option<u64>,
         conn_index: u64,
         add: bool,
     ) {
-        let source = Agent::new(source_type, source_agent_id.unwrap_or(DEFAULT_AGENT_ID));
         let name = Agent::new(name_type, name_agent_id.unwrap_or(DEFAULT_AGENT_ID));
         if add {
             self.remote_subscription_table

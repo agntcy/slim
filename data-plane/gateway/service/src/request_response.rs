@@ -1,23 +1,20 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
-use core::fmt;
 use std::collections::HashMap;
 use std::sync::Arc;
 
 use async_trait::async_trait;
 use parking_lot::RwLock;
-use rand::Rng;
-use tracing::{debug, warn};
+use tracing::debug;
 
 use crate::errors::SessionError;
 use crate::session::{AppChannelSender, GwChannelSender, SessionConfig};
 use crate::session::{
-    Common, CommonSession, Id, Info, MessageDirection, Session, SessionDirection, State,
+    Common, CommonSession, Id, MessageDirection, Session, SessionDirection, State,
 };
-use crate::timer;
+use crate::{timer, SessionMessage};
 use agp_datapath::messages::utils;
-use agp_datapath::pubsub::proto::pubsub::v1::Message;
 use agp_datapath::pubsub::proto::pubsub::v1::SessionHeaderType;
 
 /// Configuration for the Request Response session
@@ -51,7 +48,7 @@ impl std::fmt::Display for RequestResponseConfiguration {
 /// Internal state of the Request Response session
 struct RequestResponseInternal {
     common: Common,
-    timers: RwLock<HashMap<u32, (timer::Timer, Message)>>,
+    timers: RwLock<HashMap<u32, (timer::Timer, SessionMessage)>>,
 }
 
 #[async_trait]
@@ -75,7 +72,7 @@ impl timer::TimerObserver for RequestResponseInternal {
             .tx_app_ref()
             .send(Err(SessionError::Timeout {
                 error: message_id.to_string(),
-                message,
+                message: Box::new(message),
             }))
             .await
             .map_err(|e| SessionError::AppTransmission(e.to_string()));
@@ -117,9 +114,11 @@ impl RequestResponse {
 
     pub(crate) async fn send_message_with_timer(
         &self,
-        message: Message,
-        message_id: u32,
+        message: SessionMessage,
     ) -> Result<(), SessionError> {
+        // get message id
+        let message_id = message.info.message_id.expect("message id not found");
+
         // create new timer
         let timer = timer::Timer::new(message_id, 1000, 0);
 
@@ -127,7 +126,7 @@ impl RequestResponse {
         self.internal
             .common
             .tx_gw_ref()
-            .send(Ok(message.clone()))
+            .send(Ok(message.message.clone()))
             .await
             .map_err(|e| SessionError::GatewayTransmission(e.to_string()))?;
 
@@ -149,11 +148,11 @@ impl RequestResponse {
 impl Session for RequestResponse {
     async fn on_message(
         &self,
-        mut message: Message,
+        mut message: SessionMessage,
         direction: MessageDirection,
     ) -> Result<(), SessionError> {
         // set the session type
-        let header = utils::get_session_header_as_mut(&mut message);
+        let header = utils::get_session_header_as_mut(&mut message.message);
         if header.is_none() {
             return Err(SessionError::AppTransmission("missing header".to_string()));
         }
@@ -197,22 +196,47 @@ impl Session for RequestResponse {
                     )))?,
                 }
 
-                // create info
-                let info = Info::new(self.id(), self.state().clone());
-
                 self.internal
                     .common
                     .tx_app_ref()
-                    .send(Ok((message, info)))
+                    .send(Ok(message))
                     .await
                     .map_err(|e| SessionError::AppTransmission(e.to_string()))
             }
             MessageDirection::South => {
-                // Send message with timer
-                let message_id = rand::rng().random();
-                header.message_id = message_id;
+                // check if response or reply
+                let session_type = match utils::int_to_service_type(header.header_type) {
+                    Some(t) => t,
+                    None => Err(SessionError::AppTransmission(
+                        "unknown session type".to_string(),
+                    ))?,
+                };
 
-                self.send_message_with_timer(message, message_id).await
+                match session_type {
+                    SessionHeaderType::Reply => {
+                        // this is a reply - make sure the message_id matches the request
+                        match message.info.message_id {
+                            Some(message_id) => {
+                                header.message_id = message_id;
+                                Ok(())
+                            }
+                            None => {
+                                return Err(SessionError::GatewayTransmission(
+                                    "missing message id for reply".to_string(),
+                                ))
+                            }
+                        }
+                    }
+                    SessionHeaderType::Request => {
+                        // this is a request - set a timer for it
+                        message.info.message_id = Some(header.message_id);
+                        self.send_message_with_timer(message).await
+                    }
+                    _ => Err(SessionError::AppTransmission(format!(
+                        "request/reply session: unsupported session type: {:?}",
+                        session_type
+                    )))?,
+                }
             }
         }
     }
@@ -252,7 +276,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_fire_and_forget_on_message() {
+    async fn test_request_response_on_message() {
         let (tx_gw, _rx_gw) = tokio::sync::mpsc::channel(1);
         let (tx_app, mut rx_app) = tokio::sync::mpsc::channel(1);
 
@@ -282,19 +306,26 @@ mod tests {
             payload.clone(),
         );
 
+        // set the session type to request
+        let header = utils::get_session_header_as_mut(&mut msg).unwrap();
+        header.header_type = utils::service_type_to_int(SessionHeaderType::Request);
+
         // set the session id in the message
         let header = utils::get_session_header_as_mut(&mut msg).unwrap();
         header.session_id = 1;
 
+        let session_message = SessionMessage::from(msg);
+
         // Send a message to the underlying gateway
         let res = session
-            .on_message(msg.clone(), MessageDirection::South)
+            .on_message(session_message, MessageDirection::South)
             .await;
-        assert!(res.is_ok());
+
+        assert!(res.is_ok(), "{}", res.unwrap_err());
 
         // we will wait for a response, but as no one is reply, we will get a timeout
         let res = rx_app.recv().await.expect("no message received");
-        assert!(res.is_err());
+        assert!(res.is_err(), "{}", res.unwrap_err());
 
         // We also should get the message back in the error
         let err = res.unwrap_err();
@@ -303,7 +334,7 @@ mod tests {
                 error: _error,
                 message,
             } => {
-                let blob = utils::get_message_as_publish(&message)
+                let blob = utils::get_message_as_publish(&message.message)
                     .expect("error getting message")
                     .msg
                     .as_ref()

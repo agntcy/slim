@@ -6,10 +6,10 @@ from typing import Optional, Tuple
 from ._agp_bindings import (
     PyGatewayConfig as GatewayConfig,
     PyService,
-    PyAgentClass,
-    PySessionType,
+    PyAgentType,
     PySessionInfo,
-    create_session,
+    PyFireAndForgetConfiguration,
+    create_ff_session,
     create_agent,
     connect,
     disconnect,
@@ -72,7 +72,9 @@ class Gateway:
 
         return await create_agent(self.svc, organization, namespace, agent, id)
 
-    async def create_session(self, session_type: PySessionType) -> int:
+    async def create_ff_session(
+        self, session_config: PyFireAndForgetConfiguration
+    ) -> int:
         """
         Create a new session.
 
@@ -83,7 +85,7 @@ class Gateway:
             ID of the session
         """
 
-        return await create_session(self.svc, session_type)
+        return await create_ff_session(self.svc, session_config)
 
     async def serve(self):
         """
@@ -153,7 +155,7 @@ class Gateway:
             None
         """
 
-        name = PyAgentClass(organization, namespace, agent)
+        name = PyAgentType(organization, namespace, agent)
         await set_route(self.svc, self.conn_id, name, id)
 
     async def remove_route(
@@ -171,7 +173,7 @@ class Gateway:
             None
         """
 
-        name = PyAgentClass(organization, namespace, agent)
+        name = PyAgentType(organization, namespace, agent)
         await remove_route(self.svc, self.conn_id, name, id)
 
     async def subscribe(self, organization, namespace, agent, id=None):
@@ -188,7 +190,7 @@ class Gateway:
             None
         """
 
-        sub = PyAgentClass(organization, namespace, agent)
+        sub = PyAgentType(organization, namespace, agent)
         await subscribe(self.svc, self.conn_id, sub, id)
 
     async def unsubscribe(self, organization, namespace, agent, id=None):
@@ -204,7 +206,7 @@ class Gateway:
         Returns:
             None
         """
-        unsub = PyAgentClass(organization, namespace, agent)
+        unsub = PyAgentType(organization, namespace, agent)
         await unsubscribe(self.svc, self.conn_id, unsub, id)
 
     async def publish(self, session, msg, organization, namespace, agent):
@@ -221,10 +223,10 @@ class Gateway:
             None
         """
 
-        dest = PyAgentClass(organization, namespace, agent)
+        dest = PyAgentType(organization, namespace, agent)
         await publish(self.svc, session, 1, msg, dest, None)
 
-    async def publish_to(self, session, msg, agent):
+    async def publish_to(self, session, msg):
         """
         Publish a message to an agent via the connected gateway.
 
@@ -236,9 +238,9 @@ class Gateway:
             None
         """
 
-        await publish(self.svc, session, 1, msg, agent=agent)
+        await publish(self.svc, session, 1, msg)
 
-    async def receive(self) -> Tuple[PySessionInfo, any, bytes]:
+    async def receive(self) -> Tuple[PySessionInfo, bytes]:
         """
         Receive a message from the connected gateway.
 
