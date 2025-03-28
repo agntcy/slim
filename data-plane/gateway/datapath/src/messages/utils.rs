@@ -26,18 +26,20 @@ pub enum MessageError {
     ControlHeaderNotFound,
 }
 
-// utils functions for names
-fn create_agent_name(name: &Agent) -> Option<ProtoAgent> {
-    let mut id = None;
-    if name.agent_id() != &DEFAULT_AGENT_ID {
-        id = Some(*name.agent_id())
+impl From<&Agent> for ProtoAgent {
+    fn from(agent: &Agent) -> Self {
+        let mut id = None;
+        if agent.agent_id() != DEFAULT_AGENT_ID {
+            id = Some(agent.agent_id())
+        }
+
+        Self {
+            organization: *agent.agent_type().organization(),
+            namespace: *agent.agent_type().namespace(),
+            agent_type: *agent.agent_type().agent_type(),
+            agent_id: id,
+        }
     }
-    Some(ProtoAgent {
-        organization: *name.agent_type().organization(),
-        namespace: *name.agent_type().namespace(),
-        agent_type: *name.agent_type().agent_type(),
-        agent_id: id,
-    })
 }
 
 pub fn create_agent_from_type(agent_type: &AgentType, agent_id: Option<u64>) -> Option<ProtoAgent> {
@@ -69,7 +71,7 @@ pub fn create_agp_header(
     error: Option<bool>,
 ) -> Option<AgpHeader> {
     Some(AgpHeader {
-        source: create_agent_name(source),
+        source: Some(ProtoAgent::from(source)),
         destination: create_agent_from_type(name_type, name_id),
         recv_from,
         forward_to,
@@ -176,15 +178,7 @@ pub fn get_error(msg: &ProtoMessage) -> Result<Option<bool>, MessageError> {
 pub fn get_source(msg: &ProtoMessage) -> Result<Agent, MessageError> {
     match get_agp_header(msg) {
         Some(header) => match header.source {
-            Some(source) => {
-                let id =  match source.agent_id {
-                    Some(id) => id,
-                    None => return Err(MessageError::SourceNotFound),
-                };
-
-                let agent = Agent::new(AgentType::new(source.organization, source.namespace, source.agent_type), id);
-                Ok(agent)
-            }
+            Some(source) => Ok(Agent::from(&source)),
             None => Err(MessageError::SourceNotFound),
         },
         None => Err(MessageError::AgpHeaderNotFound),

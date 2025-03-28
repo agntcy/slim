@@ -3,19 +3,15 @@
 
 use std::sync::Arc;
 
-use agp_datapath::messages::utils::create_agent_from_type;
 use agp_datapath::messages::utils::get_error;
 use agp_datapath::messages::utils::get_payload;
-use agp_datapath::messages::utils::get_source;
 use pyo3::exceptions::PyException;
 use pyo3::prelude::*;
 use pyo3_stub_gen::define_stub_info_gatherer;
 use pyo3_stub_gen::derive::gen_stub_pyclass;
-use pyo3_stub_gen::derive::gen_stub_pyclass_enum;
 use pyo3_stub_gen::derive::gen_stub_pyfunction;
 use pyo3_stub_gen::derive::gen_stub_pymethods;
 use rand::Rng;
-use tokio::sync::mpsc;
 use tokio::sync::OnceCell;
 use tokio::sync::RwLock;
 
@@ -26,9 +22,6 @@ use agp_config::grpc::{
 };
 use agp_config::tls::{client::TlsClientConfig, server::TlsServerConfig};
 use agp_datapath::messages::encoder::{encode_agent, encode_agent_type, Agent, AgentType};
-use agp_datapath::messages::utils::get_incoming_connection;
-use agp_datapath::pubsub::proto::pubsub::v1::Message;
-use agp_datapath::pubsub::ProtoAgent;
 use agp_service::session;
 use agp_service::{Service, ServiceError};
 
@@ -260,18 +253,30 @@ impl PyGatewayConfig {
 #[gen_stub_pyclass]
 #[pyclass]
 #[derive(Clone)]
-struct PyAgentClass {
+struct PyAgentType {
     organization: String,
     namespace: String,
     class: String,
 }
 
+impl Into<AgentType> for PyAgentType {
+    fn into(self) -> AgentType {
+        encode_agent_type(&self.organization, &self.namespace, &self.class)
+    }
+}
+
+impl Into<AgentType> for &PyAgentType {
+    fn into(self) -> AgentType {
+        encode_agent_type(&self.organization, &self.namespace, &self.class)
+    }
+}
+
 #[gen_stub_pymethods]
 #[pymethods]
-impl PyAgentClass {
+impl PyAgentType {
     #[new]
     pub fn new(agent_org: String, agent_ns: String, agent_class: String) -> Self {
-        PyAgentClass {
+        PyAgentType {
             organization: agent_org,
             namespace: agent_ns,
             class: agent_class,
@@ -279,92 +284,95 @@ impl PyAgentClass {
     }
 }
 
-/// packet source with encoded agent information
-/// plus incoming connection
+/// session config
 #[gen_stub_pyclass]
 #[pyclass]
-#[derive(Clone)]
-struct PyAgentSource {
-    org: u64,
-    ns: u64,
-    t: u64,
-    id: u64,
-    connection: u64,
+#[derive(Clone, Default)]
+struct PyFireAndForgetConfiguration {
+    pub fire_and_forget_configuration: agp_service::FireAndForgetConfiguration,
 }
 
 #[gen_stub_pymethods]
 #[pymethods]
-impl PyAgentSource {
+impl PyFireAndForgetConfiguration {
     #[new]
-    pub fn new(org: u64, ns: u64, t: u64, id: u64, connection: u64) -> Self {
-        PyAgentSource {
-            org,
-            ns,
-            t,
-            id,
-            connection,
+    pub fn new() -> Self {
+        PyFireAndForgetConfiguration {
+            fire_and_forget_configuration: agp_service::FireAndForgetConfiguration {},
         }
     }
 }
 
-impl PyAgentSource {
-    fn from_proto_agent_id(agent_id: ProtoAgent, connection: u64) -> Self {
-        let id = match agent_id.agent_id {
-            Some(id) => id,
-            None => 0,
-        };
+/// session config
+#[gen_stub_pyclass]
+#[pyclass]
+#[derive(Clone, Default)]
+struct PyRequestResponseConfiguration {
+    pub request_response_configuration: agp_service::RequestResponseConfiguration,
+}
 
-        PyAgentSource {
-            org: agent_id.organization,
-            ns: agent_id.namespace,
-            t: agent_id.agent_type,
-            id,
-            connection,
+#[gen_stub_pymethods]
+#[pymethods]
+impl PyRequestResponseConfiguration {
+    #[new]
+    #[pyo3(signature = (max_retries=0, timeout=1000))]
+    pub fn new(max_retries: u32, timeout: u32) -> Self {
+        PyRequestResponseConfiguration {
+            request_response_configuration: agp_service::RequestResponseConfiguration {
+                max_retries,
+                timeout: std::time::Duration::from_millis(timeout as u64),
+            },
         }
+    }
+
+    #[getter]
+    pub fn max_retries(&self) -> u32 {
+        self.request_response_configuration.max_retries
+    }
+
+    #[getter]
+    pub fn timeout(&self) -> u32 {
+        self.request_response_configuration.timeout.as_millis() as u32
+    }
+
+    #[setter]
+    pub fn set_max_retries(&mut self, max_retries: u32) {
+        self.request_response_configuration.max_retries = max_retries;
+    }
+
+    #[setter]
+    pub fn set_timeout(&mut self, timeout: u32) {
+        self.request_response_configuration.timeout =
+            std::time::Duration::from_millis(timeout as u64);
     }
 }
 
-/// session type
-#[gen_stub_pyclass_enum]
-#[pyclass(eq, eq_int)]
-#[derive(Clone, PartialEq)]
-enum PySessionType {
-    FireAndForget,
-    RequestResponse,
-    PublishSubscribe,
-    Streaming,
-}
-
-impl From<PySessionType> for session::SessionConfig {
-    fn from(session_type: PySessionType) -> Self {
-        match session_type {
-            PySessionType::FireAndForget => session::SessionConfig::FireAndForget,
-            PySessionType::RequestResponse => session::SessionConfig::RequestResponse,
-            PySessionType::PublishSubscribe => session::SessionConfig::PublishSubscribe,
-            PySessionType::Streaming => session::SessionConfig::Streaming,
-        }
-    }
-}
-
-// TODO(msardara): this must be generated and equivalent to the session::Info struct
 #[gen_stub_pyclass]
 #[pyclass]
 #[derive(Clone)]
 struct PySessionInfo {
-    pub id: u32,
+    session_info: session::Info,
+}
+
+impl From<session::Info> for PySessionInfo {
+    fn from(session_info: session::Info) -> Self {
+        PySessionInfo { session_info }
+    }
 }
 
 #[gen_stub_pymethods]
 #[pymethods]
 impl PySessionInfo {
     #[new]
-    pub fn new(id: u32) -> Self {
-        PySessionInfo { id }
+    fn new(session_id: u32) -> Self {
+        PySessionInfo {
+            session_info: session::Info::new(session_id),
+        }
     }
 
     #[getter]
-    pub fn get_id(&self) -> u32 {
-        self.id
+    fn id(&self) -> u32 {
+        self.session_info.id
     }
 }
 
@@ -379,7 +387,7 @@ struct PyService {
 struct PyServiceInternal {
     service: Service,
     agent: Option<Agent>,
-    rx: Option<mpsc::Receiver<(Message, agp_service::session::Info)>>,
+    rx: Option<session::AppChannelReceiver>,
 }
 
 #[gen_stub_pymethods]
@@ -450,31 +458,56 @@ fn create_agent(
 
 async fn create_session_impl(
     svc: PyService,
-    session_type: PySessionType,
-) -> Result<u32, ServiceError> {
+    session_config: session::SessionConfig,
+) -> Result<PySessionInfo, ServiceError> {
     // create local agent
     let service = svc.sdk.write().await;
 
-    let session_type: session::SessionConfig = session_type.into();
-
     match &service.agent {
-        Some(agent) => service.service.create_session(agent, session_type).await,
+        Some(agent) => {
+            let session_info = service
+                .service
+                .create_session(agent, session_config)
+                .await?;
+            Ok(PySessionInfo::from(session_info))
+        }
         None => Err(ServiceError::AgentNotFound("no agent found".to_string())),
     }
 }
 
 #[gen_stub_pyfunction]
 #[pyfunction]
-#[pyo3(signature = (svc, session_type))]
-fn create_session(
+#[pyo3(signature = (svc, config=PyFireAndForgetConfiguration::default()))]
+fn create_ff_session(
     py: Python,
     svc: PyService,
-    session_type: PySessionType,
+    config: PyFireAndForgetConfiguration,
 ) -> PyResult<Bound<PyAny>> {
     pyo3_async_runtimes::tokio::future_into_py(py, async move {
-        create_session_impl(svc.clone(), session_type)
-            .await
-            .map_err(|e| PyErr::new::<PyException, _>(format!("{}", e.to_string())))
+        create_session_impl(
+            svc.clone(),
+            session::SessionConfig::FireAndForget(config.fire_and_forget_configuration),
+        )
+        .await
+        .map_err(|e| PyErr::new::<PyException, _>(format!("{}", e.to_string())))
+    })
+}
+
+#[gen_stub_pyfunction]
+#[pyfunction]
+#[pyo3(signature = (svc, config=PyRequestResponseConfiguration::default()))]
+fn create_rr_session(
+    py: Python,
+    svc: PyService,
+    config: PyRequestResponseConfiguration,
+) -> PyResult<Bound<PyAny>> {
+    pyo3_async_runtimes::tokio::future_into_py(py, async move {
+        create_session_impl(
+            svc.clone(),
+            session::SessionConfig::RequestResponse(config.request_response_configuration),
+        )
+        .await
+        .map_err(|e| PyErr::new::<PyException, _>(format!("{}", e.to_string())))
     })
 }
 
@@ -578,7 +611,7 @@ fn disconnect(py: Python, svc: PyService, conn: u64) -> PyResult<Bound<PyAny>> {
 async fn subscribe_impl(
     svc: PyService,
     conn: u64,
-    name: PyAgentClass,
+    name: PyAgentType,
     id: Option<u64>,
 ) -> Result<(), ServiceError> {
     let class = encode_agent_type(&name.organization, &name.namespace, &name.class);
@@ -604,7 +637,7 @@ fn subscribe(
     py: Python,
     svc: PyService,
     conn: u64,
-    name: PyAgentClass,
+    name: PyAgentType,
     id: Option<u64>,
 ) -> PyResult<Bound<PyAny>> {
     let clone = svc.clone();
@@ -618,7 +651,7 @@ fn subscribe(
 async fn unsubscribe_impl(
     svc: PyService,
     conn: u64,
-    name: PyAgentClass,
+    name: PyAgentType,
     id: Option<u64>,
 ) -> Result<(), ServiceError> {
     let class = encode_agent_type(&name.organization, &name.namespace, &name.class);
@@ -644,7 +677,7 @@ fn unsubscribe(
     py: Python,
     svc: PyService,
     conn: u64,
-    name: PyAgentClass,
+    name: PyAgentType,
     id: Option<u64>,
 ) -> PyResult<Bound<PyAny>> {
     let clone = svc.clone();
@@ -658,7 +691,7 @@ fn unsubscribe(
 async fn set_route_impl(
     svc: PyService,
     conn: u64,
-    name: PyAgentClass,
+    name: PyAgentType,
     id: Option<u64>,
 ) -> Result<(), ServiceError> {
     let class = encode_agent_type(&name.organization, &name.namespace, &name.class);
@@ -679,7 +712,7 @@ fn set_route(
     py: Python,
     svc: PyService,
     conn: u64,
-    name: PyAgentClass,
+    name: PyAgentType,
     id: Option<u64>,
 ) -> PyResult<Bound<PyAny>> {
     let clone = svc.clone();
@@ -693,7 +726,7 @@ fn set_route(
 async fn remove_route_impl(
     svc: PyService,
     conn: u64,
-    name: PyAgentClass,
+    name: PyAgentType,
     id: Option<u64>,
 ) -> Result<(), ServiceError> {
     let class = encode_agent_type(&name.organization, &name.namespace, &name.class);
@@ -714,7 +747,7 @@ fn remove_route(
     py: Python,
     svc: PyService,
     conn: u64,
-    name: PyAgentClass,
+    name: PyAgentType,
     id: Option<u64>,
 ) -> PyResult<Bound<PyAny>> {
     let clone = svc.clone();
@@ -727,25 +760,25 @@ fn remove_route(
 
 async fn publish_impl(
     svc: PyService,
-    session_id: session::Id,
+    session_info: session::Info,
     fanout: u32,
     blob: Vec<u8>,
-    name: Option<PyAgentClass>,
+    name: Option<PyAgentType>,
     id: Option<u64>,
-    agent: Option<PyAgentSource>,
 ) -> Result<(), ServiceError> {
-    let (agent_class, id, conn_out) = match (name, agent) {
-        (Some(name), None) => (
-            encode_agent_type(&name.organization, &name.namespace, &name.class),
-            id,
-            None,
-        ),
-        (None, Some(agent)) => (
-            AgentType::new(agent.org, agent.ns, agent.t),
-            Some(agent.id),
-            Some(agent.connection),
-        ),
-        _ => Err(ServiceError::ConfigError("no agent specified".to_string()))?,
+    let (agent_type, agent_id, conn_out) = match name {
+        Some(name) => (name.into(), id, None),
+        None => {
+            // use the session_info to set a name
+            match &session_info.message_source {
+                Some(ref agent) => (
+                    agent.agent_type().clone(),
+                    Some(agent.agent_id()),
+                    session_info.input_connection.clone(),
+                ),
+                None => return Err(ServiceError::ConfigError("no agent specified".to_string())),
+            }
+        }
     };
 
     let service = svc.sdk.read().await;
@@ -756,9 +789,9 @@ async fn publish_impl(
                 .service
                 .publish_to(
                     agent,
-                    session_id as session::Id,
-                    &agent_class,
-                    id,
+                    session_info,
+                    &agent_type,
+                    agent_id,
                     fanout,
                     blob,
                     conn_out,
@@ -773,41 +806,56 @@ async fn publish_impl(
 
 #[gen_stub_pyfunction]
 #[pyfunction]
-#[pyo3(signature = (svc, session_id, fanout, blob, name=None, id=None, agent=None))]
+#[pyo3(signature = (svc, session_info, fanout, blob, name=None, id=None))]
 fn publish(
     py: Python,
     svc: PyService,
-    session_id: u32,
+    session_info: PySessionInfo,
     fanout: u32,
     blob: Vec<u8>,
-    name: Option<PyAgentClass>,
+    name: Option<PyAgentType>,
     id: Option<u64>,
-    agent: Option<PyAgentSource>,
 ) -> PyResult<Bound<PyAny>> {
     pyo3_async_runtimes::tokio::future_into_py(py, async move {
-        publish_impl(svc.clone(), session_id, fanout, blob, name, id, agent)
-            .await
-            .map_err(|e| PyErr::new::<PyException, _>(format!("{}", e.to_string())))
+        publish_impl(
+            svc.clone(),
+            session_info.session_info,
+            fanout,
+            blob,
+            name,
+            id,
+        )
+        .await
+        .map_err(|e| PyErr::new::<PyException, _>(format!("{}", e.to_string())))
     })
 }
 
-async fn receive_impl(
-    svc: PyService,
-) -> Result<(PySessionInfo, PyAgentSource, Vec<u8>), ServiceError> {
+async fn receive_impl(svc: PyService) -> Result<(PySessionInfo, Vec<u8>), ServiceError> {
     let mut service = svc.sdk.write().await;
 
     let rx = service.rx.as_mut().ok_or(ServiceError::ReceiveError(
         "no local agent created".to_string(),
     ))?;
 
-    let (msg, info) = rx
+    let res = rx
         .recv()
         .await
         .ok_or(ServiceError::ConfigError("no message received".to_string()))
         .map_err(|e| ServiceError::ReceiveError(e.to_string()))?;
 
+    let msg = match res {
+        Ok(msg) => msg,
+        Err(e) => {
+            return Err(ServiceError::ReceiveError(format!(
+                "error receiving message: {}",
+                e
+            )))
+        }
+    };
+
     // Check if the message is an error
-    match get_error(&msg) {
+    // TODO(msardara): remove this part
+    match get_error(&msg.message) {
         Ok(err) => {
             if err.is_some() && err.unwrap() {
                 return Err(ServiceError::ReceiveError(
@@ -822,37 +870,10 @@ async fn receive_impl(
         }
     }
 
-    // Extract incoming connection
-    let conn_in = match get_incoming_connection(&msg) {
-        Ok(conn) => match conn {
-            Some(conn_in) => conn_in,
-            None => {
-                return Err(ServiceError::ReceiveError(
-                    "no incoming connection".to_string(),
-                ))
-            }
-        },
-        Err(_) => {
-            return Err(ServiceError::ReceiveError(
-                "malformed packet, unable to get incoming connection".to_string(),
-            ))
-        }
-    };
-
     // extract agent and payload
-    let (source, content) = match msg.message_type {
+    let content = match msg.message.message_type {
         Some(ref msg_type) => match msg_type {
-            agp_datapath::pubsub::ProtoPublishType(publish) => match get_source(&msg) {
-                Ok((agent_type, agent_id)) => (
-                    create_agent_from_type(&agent_type, agent_id),
-                    get_payload(&publish),
-                ),
-                Err(_) => {
-                    return Err(ServiceError::ReceiveError(
-                        "malformed packet, no source available".to_string(),
-                    ))
-                }
-            },
+            agp_datapath::pubsub::ProtoPublishType(publish) => get_payload(publish),
             _ => Err(ServiceError::ReceiveError(
                 "receive publish message type".to_string(),
             ))?,
@@ -862,9 +883,7 @@ async fn receive_impl(
         ))?,
     };
 
-    let source = PyAgentSource::from_proto_agent_id(source.unwrap(), conn_in);
-
-    Ok((PySessionInfo::new(info.id), source, content.to_vec()))
+    Ok((PySessionInfo::from(msg.info), content.to_vec()))
 }
 
 #[gen_stub_pyfunction]
@@ -906,12 +925,14 @@ fn init_tracing(py: Python, log_level: String, enable_opentelemetry: bool) {
 fn _agp_bindings(_py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyGatewayConfig>()?;
     m.add_class::<PyService>()?;
-    m.add_class::<PyAgentClass>()?;
-    m.add_class::<PySessionType>()?;
+    m.add_class::<PyAgentType>()?;
     m.add_class::<PySessionInfo>()?;
+    m.add_class::<PyFireAndForgetConfiguration>()?;
+    m.add_class::<PyRequestResponseConfiguration>()?;
 
     m.add_function(wrap_pyfunction!(create_agent, m)?)?;
-    m.add_function(wrap_pyfunction!(create_session, m)?)?;
+    m.add_function(wrap_pyfunction!(create_ff_session, m)?)?;
+    m.add_function(wrap_pyfunction!(create_rr_session, m)?)?;
     m.add_function(wrap_pyfunction!(subscribe, m)?)?;
     m.add_function(wrap_pyfunction!(unsubscribe, m)?)?;
     m.add_function(wrap_pyfunction!(set_route, m)?)?;

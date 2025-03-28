@@ -182,7 +182,7 @@ fn main() {
 
             bar.inc(1);
 
-            type_state.insert(*sub.agent_id(), subscriber);
+            type_state.insert(sub.agent_id(), subscriber);
         }
 
         subscription_list.insert(agent_type, type_state);

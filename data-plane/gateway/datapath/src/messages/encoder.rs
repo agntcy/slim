@@ -3,6 +3,8 @@
 
 use std::hash::{DefaultHasher, Hash, Hasher};
 
+use crate::pubsub::ProtoAgent;
+
 pub const DEFAULT_AGENT_ID: u64 = u64::MAX;
 
 #[derive(Hash, Eq, PartialEq, Debug, Clone, Default)]
@@ -19,6 +21,16 @@ impl std::fmt::Display for AgentType {
             "{:x}/{:x}/{:x}",
             self.organization, self.namespace, self.agent_type
         )
+    }
+}
+
+impl From<&ProtoAgent> for AgentType {
+    fn from(agent: &ProtoAgent) -> Self {
+        Self {
+            organization: agent.organization,
+            namespace: agent.namespace,
+            agent_type: agent.agent_type,
+        }
     }
 }
 
@@ -79,6 +91,15 @@ impl std::fmt::Display for Agent {
     }
 }
 
+impl From<&ProtoAgent> for Agent {
+    fn from(agent: &ProtoAgent) -> Self {
+        Self {
+            agent_type: AgentType::from(agent),
+            agent_id: agent.agent_id.expect("agent id not found"),
+        }
+    }
+}
+
 impl Agent {
     /// Create a new Agent
     pub fn new(agent_type: AgentType, agent_id: u64) -> Self {
@@ -100,8 +121,8 @@ impl Agent {
         &self.agent_type
     }
 
-    pub fn agent_id(&self) -> &u64 {
-        &self.agent_id
+    pub fn agent_id(&self) -> u64 {
+        self.agent_id
     }
 
     pub fn agent_id_option(&self) -> Option<u64> {

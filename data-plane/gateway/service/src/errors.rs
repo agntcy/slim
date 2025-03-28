@@ -3,7 +3,7 @@
 
 use thiserror::Error;
 
-use agp_datapath::pubsub::proto::pubsub::v1::Message;
+use crate::session::SessionMessage;
 
 #[derive(Error, Debug)]
 pub enum ServiceError {
@@ -64,6 +64,6 @@ pub enum SessionError {
     #[error("timeout for message: {error}")]
     Timeout {
         error: String,
-        message: Message
+        message: Box<SessionMessage>,
     },
 }
