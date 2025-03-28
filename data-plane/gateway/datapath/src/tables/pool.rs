@@ -59,7 +59,6 @@ impl<T> Pool<T> {
     }
 
     /// Get an element from the pool
-    #[inline(always)]
     pub fn get(&self, index: usize) -> Option<&T> {
         self.pool.get(index).and_then(|slot| slot.as_ref())
     }
