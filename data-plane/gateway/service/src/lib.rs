@@ -16,7 +16,6 @@ pub use fire_and_forget::FireAndForgetConfiguration;
 pub use request_response::RequestResponseConfiguration;
 pub use session::SessionMessage;
 
-use agp_datapath::messages::utils;
 use agp_datapath::messages::{Agent, AgentType};
 use agp_datapath::pubsub::MessageType;
 use serde::Deserialize;
@@ -390,7 +389,7 @@ impl Service {
     ) -> Result<(), ServiceError> {
         debug!("subscribe to {}/{:?}", agent_type, agent_id);
 
-        let msg = utils::create_subscription(local_agent, agent_type, agent_id, None, conn);
+        let msg = Message::new_subscribe(local_agent, agent_type, agent_id, None, conn);
         self.send_message(local_agent, msg, None).await
     }
 
@@ -403,7 +402,7 @@ impl Service {
     ) -> Result<(), ServiceError> {
         debug!("unsubscribe from {}/{:?}", agent_type, agent_id);
 
-        let msg = utils::create_unsubscription(local_agent, agent_type, agent_id, None, conn);
+        let msg = Message::new_subscribe(local_agent, agent_type, agent_id, None, conn);
         self.send_message(local_agent, msg, None).await
     }
 
@@ -417,7 +416,7 @@ impl Service {
         debug!("set route to {}/{:?}", agent_type, agent_id);
 
         // send a message with subscription from
-        let msg = utils::create_subscription(local_agent, agent_type, agent_id, Some(conn), None);
+        let msg = Message::new_subscribe(local_agent, agent_type, agent_id, Some(conn), None);
         self.send_message(local_agent, msg, None).await
     }
 
@@ -431,7 +430,7 @@ impl Service {
         debug!("unset route to {}/{:?}", agent_type, agent_id);
 
         //  send a message with unsubscription from
-        let msg = utils::create_unsubscription(local_agent, agent_type, agent_id, Some(conn), None);
+        let msg = Message::new_subscribe(local_agent, agent_type, agent_id, Some(conn), None);
         self.send_message(local_agent, msg, None).await
     }
 
@@ -469,7 +468,7 @@ impl Service {
     ) -> Result<(), ServiceError> {
         debug!("sending publication to {}/{:?}", agent_type, agent_id);
 
-        let msg = utils::create_publication(
+        let msg = Message::new_publish(
             source, agent_type, agent_id, None, out_conn, fanout, "msg", blob,
         );
 
@@ -490,7 +489,7 @@ impl Service {
             debug!("starting message processing loop for agent {}", agent);
 
             // subscribe for local agent running this loop
-            let subscribe_msg = utils::create_subscription(
+            let subscribe_msg = Message::new_subscribe(
                 &agent,
                 agent.agent_type(),
                 Some(agent.agent_id()),
@@ -700,7 +699,6 @@ mod tests {
     use super::*;
     use agp_config::grpc::server::ServerConfig;
     use agp_config::tls::server::TlsServerConfig;
-    use agp_datapath::messages::encoder;
     use std::time::Duration;
     use tokio::time;
     use tracing_test::traced_test;
@@ -761,13 +759,13 @@ mod tests {
             .unwrap();
 
         // create a subscriber
-        let subscriber_agent = encoder::encode_agent("cisco", "default", "subscriber_agent", 0);
+        let subscriber_agent = Agent::from_strings("cisco", "default", "subscriber_agent", 0);
         let mut sub_rx = service
             .create_agent(&subscriber_agent)
             .expect("failed to create agent");
 
         // create a publisher
-        let publisher_agent = encoder::encode_agent("cisco", "default", "publisher_agent", 0);
+        let publisher_agent = Agent::from_strings("cisco", "default", "publisher_agent", 0);
         let _pub_rx = service.create_agent(&publisher_agent);
 
         // sleep to allow the subscription to be processed
@@ -815,7 +813,7 @@ mod tests {
         };
 
         // make sure message is correct
-        assert_eq!(utils::get_payload(&publ), message_blob);
+        assert_eq!(publ.get_payload().blob, message_blob);
 
         // make also sure the session ids correspond
         assert_eq!(session_info.id, msg.info.id);

@@ -61,6 +61,8 @@ pub enum SessionError {
     SessionNotFound(String),
     #[error("missing session id: {0}")]
     MissingSessionId(String),
+    #[error("error during message validation: {0}")]
+    ValidationError(String),
     #[error("timeout for message: {error}")]
     Timeout {
         error: String,

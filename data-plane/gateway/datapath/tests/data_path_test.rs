@@ -4,14 +4,12 @@
 mod tests {
     use std::{net::SocketAddr, sync::Arc};
 
-    use agp_datapath::messages::Agent;
+    use agp_datapath::messages::{Agent, AgentType};
     use tracing::info;
     use tracing_test::traced_test;
 
     use agp_config::grpc::{client::ClientConfig, server::ServerConfig};
     use agp_datapath::message_processing::MessageProcessor;
-    use agp_datapath::messages::encoder::{encode_agent, encode_agent_type};
-    use agp_datapath::messages::utils::create_subscription;
     use agp_datapath::pubsub::proto::pubsub::v1::{
         pub_sub_service_server::PubSubServiceServer, Message,
     };
@@ -61,7 +59,7 @@ mod tests {
 
         // send messages from the client
         for n in 0..5 {
-            let msg = make_message("org", "namespace", "type");
+            let msg = make_message("org", "namespace", "type", conn_index);
             let res = msg_processor.send_msg(msg, conn_index);
             match res.await {
                 Ok(_) => {
@@ -82,7 +80,7 @@ mod tests {
 
         // send messages from server
         for n in 0..5 {
-            let msg = make_message("org", "namespace", "type");
+            let msg = make_message("org", "namespace", "type", 0);
             // let's assume that the connection index is 0
             let res = msg_processor.send_msg(msg, 0).await;
             match res {
@@ -104,10 +102,10 @@ mod tests {
         assert!(logs_contain(&expected_msg));
 
         // test the local connections
-        let (_conn_id, tx, mut rx) = msg_processor.register_local_connection();
+        let (conn_id, tx, mut rx) = msg_processor.register_local_connection();
 
         // send messages from tx and verify that they are received by rx
-        let msg = make_message("org", "namespace", "type");
+        let msg = make_message("org", "namespace", "type", u64::MAX);
         tx.send(Ok(msg)).await.unwrap();
 
         // wait for messages to be received by the server
@@ -119,7 +117,7 @@ mod tests {
         assert!(logs_contain(&expected_msg));
 
         // let's now send a message to the connection 2 in the connection table
-        let msg = make_message("message-for-us", "namespace-for-us", "type-for-us");
+        let msg = make_message("message-for-us", "namespace-for-us", "type-for-us", 2);
 
         // clone to keep a copy
         msg_processor.send_msg(msg.clone(), 2).await.unwrap();
@@ -137,7 +135,7 @@ mod tests {
         assert_eq!(received_msg.unwrap(), msg);
 
         // try to send a subscription_from message
-        let sub_form = make_sub_from_command("org", "ns", "type", 100);
+        let sub_form = make_sub_from_command("org", "ns", "type", 100, u64::MAX);
         tx.send(Ok(sub_form)).await.unwrap();
 
         tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
@@ -146,7 +144,7 @@ mod tests {
         assert!(logs_contain(&expected_msg));
 
         // try to send a forward_to message
-        let fwd_to = make_fwd_to_command("org", "ns", "type", 100);
+        let fwd_to = make_fwd_to_command("org", "ns", "type", 100, u64::MAX);
         tx.send(Ok(fwd_to)).await.unwrap();
 
         tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
@@ -158,20 +156,41 @@ mod tests {
         assert!(logs_contain(&expected_msg));
     }
 
-    fn make_message(org: &str, ns: &str, agent_type: &str) -> Message {
-        let source = encode_agent(org, ns, agent_type, 0);
-        let name = encode_agent_type(org, ns, agent_type);
-        create_subscription(&source, &name, Some(1), None, None)
+    fn make_message(org: &str, ns: &str, agent_type: &str, conn_index: u64) -> Message {
+        let source = Agent::from_strings(org, ns, agent_type, 0);
+        let name = AgentType::from_strings(org, ns, agent_type);
+        let mut ret = Message::new_subscribe(&source, &name, Some(1), None, None);
+        ret.set_incoming_conn(Some(conn_index));
+
+        ret
     }
 
-    fn make_sub_from_command(org: &str, ns: &str, agent_type: &str, from_conn: u64) -> Message {
-        let name = encode_agent_type(org, ns, agent_type);
-        create_subscription(&Agent::default(), &name, None, Some(from_conn), None)
+    fn make_sub_from_command(
+        org: &str,
+        ns: &str,
+        agent_type: &str,
+        from_conn: u64,
+        conn_index: u64,
+    ) -> Message {
+        let name = AgentType::from_strings(org, ns, agent_type);
+        let mut ret = Message::new_subscribe(&Agent::default(), &name, None, Some(from_conn), None);
+        ret.set_incoming_conn(Some(conn_index));
+
+        ret
     }
 
-    fn make_fwd_to_command(org: &str, ns: &str, agent_type: &str, to_conn: u64) -> Message {
-        let source = encode_agent(org, ns, agent_type, 0);
-        let name = encode_agent_type(org, ns, agent_type);
-        create_subscription(&source, &name, None, None, Some(to_conn))
+    fn make_fwd_to_command(
+        org: &str,
+        ns: &str,
+        agent_type: &str,
+        to_conn: u64,
+        conn_index: u64,
+    ) -> Message {
+        let source = Agent::from_strings(org, ns, agent_type, 0);
+        let name = AgentType::from_strings(org, ns, agent_type);
+        let mut ret = Message::new_subscribe(&source, &name, None, None, Some(to_conn));
+        ret.set_incoming_conn(Some(conn_index));
+
+        ret
     }
 }

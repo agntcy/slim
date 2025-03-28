@@ -9,7 +9,6 @@ use crate::errors::SessionError;
 use crate::fire_and_forget::FireAndForgetConfiguration;
 use crate::request_response::RequestResponseConfiguration;
 use agp_datapath::messages::encoder::Agent;
-use agp_datapath::messages::utils;
 use agp_datapath::pubsub::proto::pubsub::v1::Message;
 
 /// Session ID
@@ -89,12 +88,12 @@ impl Info {
 
 impl From<&Message> for Info {
     fn from(message: &Message) -> Self {
-        let session_header = utils::get_session_header(message).expect("session header not found");
-        let agp_header = utils::get_agp_header(message).expect("AGP header not found");
+        let session_header = message.session_header();
+        let agp_header = message.agp_header();
 
         let id = session_header.session_id;
         let message_id = session_header.message_id;
-        let message_source = utils::get_source(message).expect("message source not found");
+        let message_source = message.get_source();
         let input_connection = agp_header.incoming_conn;
 
         Info {

@@ -650,15 +650,14 @@ impl SubscriptionTable for SubscriptionTableImpl {
 mod tests {
     use super::*;
 
-    use crate::messages::encoder::encode_agent_type;
     use tracing_test::traced_test;
 
     #[test]
     #[traced_test]
     fn test_table() {
-        let agent_type1 = encode_agent_type("Cisco", "Default", "type_ONE");
-        let agent_type2 = encode_agent_type("Cisco", "Default", "type_TWO");
-        let agent_type3 = encode_agent_type("Cisco", "Default", "type_THREE");
+        let agent_type1 = AgentType::from_strings("Cisco", "Default", "type_ONE");
+        let agent_type2 = AgentType::from_strings("Cisco", "Default", "type_TWO");
+        let agent_type3 = AgentType::from_strings("Cisco", "Default", "type_THREE");
 
         let t = SubscriptionTableImpl::default();
 

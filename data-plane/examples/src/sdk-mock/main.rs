@@ -1,11 +1,11 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
+use agp_datapath::messages::{Agent, AgentType};
 use clap::Parser;
 use tokio::time;
 use tracing::info;
 
-use agp_datapath::messages::encoder::{encode_agent, encode_agent_type};
 use agp_gw::config;
 use agp_service::{
     session::{self, SessionConfig},
@@ -43,7 +43,7 @@ async fn main() {
 
     // create local agent
     let agent_id = 0;
-    let agent_name = encode_agent("cisco", "default", local_agent, agent_id);
+    let agent_name = Agent::from_strings("cisco", "default", local_agent, agent_id);
     let mut rx = svc
         .create_agent(&agent_name)
         .expect("failed to create agent");
@@ -52,7 +52,7 @@ async fn main() {
     let conn_id = svc.connect(None).await.unwrap();
     info!("remote connection id = {}", conn_id);
 
-    let local_agent_type = encode_agent_type("cisco", "default", local_agent);
+    let local_agent_type = AgentType::from_strings("cisco", "default", local_agent);
     svc.subscribe(
         &agent_name,
         &local_agent_type,
@@ -63,7 +63,7 @@ async fn main() {
     .unwrap();
 
     // Set a route for the remote agent
-    let route = encode_agent_type("cisco", "default", remote_agent);
+    let route = AgentType::from_strings("cisco", "default", remote_agent);
     info!("allowing messages to remote agent: {:?}", route);
     svc.set_route(&agent_name, &route, None, conn_id)
         .await
@@ -120,10 +120,10 @@ async fn main() {
 
                 match &session_msg.message.message_type.unwrap() {
                     agp_datapath::pubsub::ProtoPublishType(msg) => {
-                        let payload = agp_datapath::messages::utils::get_payload(msg);
+                        let payload = msg.get_payload();
                         info!(
                             "received message: {}",
-                            std::str::from_utf8(payload).unwrap()
+                            std::str::from_utf8(&payload.blob).unwrap()
                         );
                     }
                     t => {

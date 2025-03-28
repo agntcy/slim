@@ -3,10 +3,7 @@
 
 use std::collections::HashSet;
 
-use agp_datapath::{
-    messages::utils::{get_message_as_publish, get_msg_id},
-    pubsub::proto::pubsub::v1::Message,
-};
+use agp_datapath::pubsub::proto::pubsub::v1::Message;
 
 use thiserror::Error;
 use tracing::{debug, error, info, trace};
@@ -54,108 +51,101 @@ impl ReceiverBuffer {
         &mut self,
         msg: Message,
     ) -> Result<Vec<Option<Message>>, ReceiverBufferError> {
-        if let Some(publish) = get_message_as_publish(&msg) {
-            let msg_id = match get_msg_id(publish) {
-                Err(e) => {
-                    error!("the message does not contain a valid id, drop it");
-                    return Err(ReceiverBufferError::ProcessingError(e.to_string()));
-                }
-                Ok(msg_id) => msg_id as usize,
-            };
-
-            debug!("Received message id {}", msg_id);
-            // no loss detected, return message
-            // if this is the first packet received (case last_sent == usize::MAX) we consider it
-            // valid one and the buffer is initilaized accordingly. in this way a stream can start from
-            // a random number or it can be joined at any time
-            if self.last_sent == usize::MAX
-                || (msg_id == (self.last_sent + 1)) && (self.buffer.is_empty())
-            {
-                debug!("No loss detected, return message {}", msg_id);
-                self.last_sent = msg_id;
-                return Ok(vec![Some(msg)]);
-            }
-
-            // the message is an OOO check what to do with the message
-            if msg_id <= self.last_sent {
-                // this message is not useful anymore because we have already sent
-                // content for this ID to the application. It can be a duplicated
-                // msg or a message that arrived too late. Log and drop
-                info!("Received possibly DUP message, drop it");
-                return Ok(vec![]);
-            }
-
-            if self.buffer.is_empty() {
-                // init the buffer and send required rtx
-                self.first_entry = 0;
-                // fill the buffer with an empty entry for each hole
-                // detected in the message stream
-                self.buffer = vec![None; msg_id - (self.last_sent + 1)];
-                debug!("Losses found, missing {} packets", self.buffer.len());
-                self.buffer.push(Some(msg));
-
-                // TODO: For each None in the buffer send an RTX
-                Ok(vec![])
-            } else {
-                debug!(
-                    "buffer is not empty and received OOO packet {}, process it",
-                    msg_id
-                );
-                trace!(
-                    "buffer status: last sent {}, first entry {}, len {}",
-                    self.last_sent,
-                    self.first_entry,
-                    self.buffer.len()
-                );
-                // check if the msg_id fits inside the buffer range
-                if msg_id <= (self.last_sent + (self.buffer.len() - self.first_entry)) {
-                    debug!(
-                        "message {} is inside the buffer range {} - {}",
-                        msg_id,
-                        (self.last_sent + 1),
-                        (self.buffer.len() - self.first_entry)
-                    );
-                    // find the position of the message in the buffer
-                    let pos = msg_id - (self.last_sent + 1) + self.first_entry;
-                    debug!("try to insert message {} at pos {}", msg_id, pos);
-                    if self.buffer[pos].is_some() {
-                        // this is a duplicate message, drop it and do nothing
-                        info!("Received DUP message, drop it");
-                        return Ok(vec![]);
-                    }
-                    debug!(
-                        "add message {} at pos {} and try to release msgs",
-                        msg_id, pos
-                    );
-                    // add the message to the buffer and check if it is possible
-                    // to send some message to the application
-                    self.buffer[pos] = Some(msg);
-
-                    // return the messages if possible
-                    Ok(self.release_msgs())
-                } else {
-                    // the message is out of the current buffer
-                    // add more entries to it and return an empty vec
-                    // the next id to add at the end of the buffer is
-                    // ((self.last_sent + 1) + (self.buffer.len() - self.first_entry))
-                    // loop up to msg_id - 1 (the last element is not in the range)
-                    for _i in
-                        ((self.last_sent + 1) + (self.buffer.len() - self.first_entry))..msg_id
-                    {
-                        self.buffer.push(None);
-                        // TODO trigger RTX for each missing ID
-                        debug!("detect packet loss to add at the end of the buffer");
-                    }
-                    debug!("add packet {} at the end of the buffer", msg_id);
-                    self.buffer.push(Some(msg));
-                    Ok(vec![])
-                }
-            }
-        } else {
+        // make sure this is a publish message
+        if !msg.is_publish() {
             error!("the message is not a valid publication, drop it");
-            Err(ReceiverBufferError::ProcessingError(
+            return Err(ReceiverBufferError::ProcessingError(
                 "wrong packet type".to_string(),
-            ))
+            ));
+        }
+
+        let msg_id = msg.session_header().message_id() as usize;
+
+        debug!("Received message id {}", msg_id);
+        // no loss detected, return message
+        // if this is the first packet received (case last_sent == usize::MAX) we consider it
+        // valid one and the buffer is initilaized accordingly. in this way a stream can start from
+        // a random number or it can be joined at any time
+        if self.last_sent == usize::MAX
+            || (msg_id == (self.last_sent + 1)) && (self.buffer.is_empty())
+        {
+            debug!("No loss detected, return message {}", msg_id);
+            self.last_sent = msg_id;
+            return Ok(vec![Some(msg)]);
+        }
+
+        // the message is an OOO check what to do with the message
+        if msg_id <= self.last_sent {
+            // this message is not useful anymore because we have already sent
+            // content for this ID to the application. It can be a duplicated
+            // msg or a message that arrived too late. Log and drop
+            info!("Received possibly DUP message, drop it");
+            return Ok(vec![]);
+        }
+
+        if self.buffer.is_empty() {
+            // init the buffer and send required rtx
+            self.first_entry = 0;
+            // fill the buffer with an empty entry for each hole
+            // detected in the message stream
+            self.buffer = vec![None; msg_id - (self.last_sent + 1)];
+            debug!("Losses found, missing {} packets", self.buffer.len());
+            self.buffer.push(Some(msg));
+
+            // TODO: For each None in the buffer send an RTX
+            Ok(vec![])
+        } else {
+            debug!(
+                "buffer is not empty and received OOO packet {}, process it",
+                msg_id
+            );
+            trace!(
+                "buffer status: last sent {}, first entry {}, len {}",
+                self.last_sent,
+                self.first_entry,
+                self.buffer.len()
+            );
+            // check if the msg_id fits inside the buffer range
+            if msg_id <= (self.last_sent + (self.buffer.len() - self.first_entry)) {
+                debug!(
+                    "message {} is inside the buffer range {} - {}",
+                    msg_id,
+                    (self.last_sent + 1),
+                    (self.buffer.len() - self.first_entry)
+                );
+                // find the position of the message in the buffer
+                let pos = msg_id - (self.last_sent + 1) + self.first_entry;
+                debug!("try to insert message {} at pos {}", msg_id, pos);
+                if self.buffer[pos].is_some() {
+                    // this is a duplicate message, drop it and do nothing
+                    info!("Received DUP message, drop it");
+                    return Ok(vec![]);
+                }
+                debug!(
+                    "add message {} at pos {} and try to release msgs",
+                    msg_id, pos
+                );
+                // add the message to the buffer and check if it is possible
+                // to send some message to the application
+                self.buffer[pos] = Some(msg);
+
+                // return the messages if possible
+                Ok(self.release_msgs())
+            } else {
+                // the message is out of the current buffer
+                // add more entries to it and return an empty vec
+                // the next id to add at the end of the buffer is
+                // ((self.last_sent + 1) + (self.buffer.len() - self.first_entry))
+                // loop up to msg_id - 1 (the last element is not in the range)
+                for _i in ((self.last_sent + 1) + (self.buffer.len() - self.first_entry))..msg_id {
+                    self.buffer.push(None);
+                    // TODO trigger RTX for each missing ID
+                    debug!("detect packet loss to add at the end of the buffer");
+                }
+                debug!("add packet {} at the end of the buffer", msg_id);
+                self.buffer.push(Some(msg));
+                Ok(vec![])
+            }
         }
     }
 
@@ -232,39 +222,38 @@ impl ReceiverBuffer {
 // tests
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
     use tracing_test::traced_test;
 
     use super::*;
     use agp_datapath::{
-        messages::{
-            encoder::encode_agent,
-            utils::{create_agp_header, create_publication_with_header, create_session_header},
+        messages::{Agent, AgentType},
+        pubsub::{
+            proto::pubsub::v1::{AgpHeader, SessionHeaderType},
+            SessionHeader,
         },
-        pubsub::proto::pubsub::v1::SessionHeaderType,
     };
 
     #[test]
     #[traced_test]
     fn test_receiver_buffer() {
-        let src = encode_agent("org", "ns", "type", 0);
-        let name_type = agp_datapath::messages::encoder::encode_agent_type("org", "ns", "type");
+        let src = Agent::from_strings("org", "ns", "type", 0);
+        let name_type = AgentType::from_strings("org", "ns", "type");
 
-        let agp_header = create_agp_header(&src, &name_type, Some(1), None, None, None, None);
+        let agp_header = AgpHeader::new(&src, &name_type, Some(1), None, None, None, None);
 
-        let h0 = create_session_header(SessionHeaderType::Fnf.into(), 0, 0, None, None);
-        let h1 = create_session_header(SessionHeaderType::Fnf.into(), 0, 1, None, None);
-        let h2 = create_session_header(SessionHeaderType::Fnf.into(), 0, 2, None, None);
-        let h3 = create_session_header(SessionHeaderType::Fnf.into(), 0, 3, None, None);
-        let h4 = create_session_header(SessionHeaderType::Fnf.into(), 0, 4, None, None);
-        let h5 = create_session_header(SessionHeaderType::Fnf.into(), 0, 5, None, None);
+        let h0 = SessionHeader::new(SessionHeaderType::Fnf.into(), 0, 0, None, None);
+        let h1 = SessionHeader::new(SessionHeaderType::Fnf.into(), 0, 1, None, None);
+        let h2 = SessionHeader::new(SessionHeaderType::Fnf.into(), 0, 2, None, None);
+        let h3 = SessionHeader::new(SessionHeaderType::Fnf.into(), 0, 3, None, None);
+        let h4 = SessionHeader::new(SessionHeaderType::Fnf.into(), 0, 4, None, None);
+        let h5 = SessionHeader::new(SessionHeaderType::Fnf.into(), 0, 5, None, None);
 
-        let p0 = create_publication_with_header(agp_header, h0, HashMap::new(), 1, "", vec![]);
-        let p1 = create_publication_with_header(None, h1, HashMap::new(), 1, "", vec![]);
-        let p2 = create_publication_with_header(None, h2, HashMap::new(), 1, "", vec![]);
-        let p3 = create_publication_with_header(None, h3, HashMap::new(), 1, "", vec![]);
-        let p4 = create_publication_with_header(None, h4, HashMap::new(), 1, "", vec![]);
-        let p5 = create_publication_with_header(None, h5, HashMap::new(), 1, "", vec![]);
+        let p0 = Message::new_publish_with_headers(Some(agp_header), Some(h0), 1, "", vec![]);
+        let p1 = Message::new_publish_with_headers(None, Some(h1), 1, "", vec![]);
+        let p2 = Message::new_publish_with_headers(None, Some(h2), 1, "", vec![]);
+        let p3 = Message::new_publish_with_headers(None, Some(h3), 1, "", vec![]);
+        let p4 = Message::new_publish_with_headers(None, Some(h4), 1, "", vec![]);
+        let p5 = Message::new_publish_with_headers(None, Some(h5), 1, "", vec![]);
 
         // insert in order
         let mut buffer = ReceiverBuffer::default();

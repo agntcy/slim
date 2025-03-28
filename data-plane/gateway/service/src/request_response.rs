@@ -14,7 +14,6 @@ use crate::session::{
     Common, CommonSession, Id, MessageDirection, Session, SessionDirection, State,
 };
 use crate::{timer, SessionMessage};
-use agp_datapath::messages::utils;
 use agp_datapath::pubsub::proto::pubsub::v1::SessionHeaderType;
 
 /// Configuration for the Request Response session
@@ -152,24 +151,17 @@ impl Session for RequestResponse {
         direction: MessageDirection,
     ) -> Result<(), SessionError> {
         // set the session type
-        let header = utils::get_session_header_as_mut(&mut message.message);
-        if header.is_none() {
-            return Err(SessionError::AppTransmission("missing header".to_string()));
-        }
+        let header = message.message.session_header_mut();
 
-        let header = header.unwrap();
+        // get session type
+        let session_type = header
+            .header_type
+            .try_into()
+            .map_err(|_| SessionError::ValidationError("unknown session type".to_string()))?;
 
         // clone tx
         match direction {
             MessageDirection::North => {
-                // message for the app - check if request or response
-                let session_type = match utils::int_to_service_type(header.header_type) {
-                    Some(t) => t,
-                    None => Err(SessionError::AppTransmission(
-                        "unknown session type".to_string(),
-                    ))?,
-                };
-
                 match session_type {
                     SessionHeaderType::Reply => {
                         // this is a reply - remove the timer
@@ -204,14 +196,6 @@ impl Session for RequestResponse {
                     .map_err(|e| SessionError::AppTransmission(e.to_string()))
             }
             MessageDirection::South => {
-                // check if response or reply
-                let session_type = match utils::int_to_service_type(header.header_type) {
-                    Some(t) => t,
-                    None => Err(SessionError::AppTransmission(
-                        "unknown session type".to_string(),
-                    ))?,
-                };
-
                 match session_type {
                     SessionHeaderType::Reply => {
                         // this is a reply - make sure the message_id matches the request
@@ -235,7 +219,7 @@ impl Session for RequestResponse {
                     _ => Err(SessionError::AppTransmission(format!(
                         "request/reply session: unsupported session type: {:?}",
                         session_type
-                    )))?,
+                    ))),
                 }
             }
         }
@@ -247,7 +231,10 @@ delegate_common_behavior!(RequestResponse, internal, common);
 #[cfg(test)]
 mod tests {
     use super::*;
-    use agp_datapath::messages::encoder;
+    use agp_datapath::{
+        messages::{Agent, AgentType},
+        pubsub::{ProtoMessage, ProtoPublish},
+    };
 
     #[tokio::test]
     async fn test_rr_create() {
@@ -295,23 +282,22 @@ mod tests {
 
         let payload = vec![0x1, 0x2, 0x3, 0x4];
 
-        let mut msg = utils::create_publication(
-            &encoder::encode_agent("cisco", "default", "local_agent", 0),
-            &encoder::encode_agent_type("cisco", "default", "remote_agent"),
+        let mut msg = ProtoMessage::new_publish(
+            &Agent::from_strings("cisco", "default", "local_agent", 0),
+            &AgentType::from_strings("cisco", "default", "remote_agent"),
             Some(0),
             None,
             None,
             1,
             "msg",
-            payload.clone(),
+            vec![0x1, 0x2, 0x3, 0x4],
         );
 
         // set the session type to request
-        let header = utils::get_session_header_as_mut(&mut msg).unwrap();
-        header.header_type = utils::service_type_to_int(SessionHeaderType::Request);
+        let header = msg.session_header_mut();
+        header.header_type = i32::from(SessionHeaderType::Request);
 
         // set the session id in the message
-        let header = utils::get_session_header_as_mut(&mut msg).unwrap();
         header.session_id = 1;
 
         let session_message = SessionMessage::from(msg);
@@ -334,8 +320,7 @@ mod tests {
                 error: _error,
                 message,
             } => {
-                let blob = utils::get_message_as_publish(&message.message)
-                    .expect("error getting message")
+                let blob = ProtoPublish::from(message.message)
                     .msg
                     .as_ref()
                     .expect("error getting message")
