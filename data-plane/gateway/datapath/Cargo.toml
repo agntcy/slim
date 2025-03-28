@@ -26,7 +26,12 @@ tracing-opentelemetry = "0.29.0"
 
 [dev-dependencies]
 tracing-test = { version = "0.2.5", features = ["no-env-filter"] }
+criterion = { version = "0.5", features = ["html_reports"] }
 
 [build-dependencies]
 protoc-bin-vendored = "3.1.0"
 tonic-build = { version = "0.12.3", features = ["prost"] }
+
+[[bench]]
+name = "pool_benchmark"
+harness = false
