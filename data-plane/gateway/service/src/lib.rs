@@ -6,7 +6,7 @@ pub mod producer_buffer;
 pub mod receiver_buffer;
 #[macro_use]
 pub mod session;
-pub mod stream;
+pub mod streaming;
 pub mod timer;
 
 mod fire_and_forget;

@@ -9,6 +9,7 @@ use tonic::Status;
 use crate::errors::SessionError;
 use crate::fire_and_forget::FireAndForgetConfiguration;
 use crate::request_response::RequestResponseConfiguration;
+use crate::streaming::StreamingConfiguration;
 use agp_datapath::messages::encoder::Agent;
 use agp_datapath::messages::utils;
 use agp_datapath::pubsub::proto::pubsub::v1::Message;
@@ -134,6 +135,7 @@ pub(crate) enum MessageDirection {
 pub enum SessionConfig {
     FireAndForget(FireAndForgetConfiguration),
     RequestResponse(RequestResponseConfiguration),
+    Streaming(StreamingConfiguration),
 }
 
 impl std::fmt::Display for SessionConfig {
@@ -141,6 +143,7 @@ impl std::fmt::Display for SessionConfig {
         match self {
             SessionConfig::FireAndForget(ff) => write!(f, "{}", ff),
             SessionConfig::RequestResponse(rr) => write!(f, "{}", rr),
+            SessionConfig::Streaming(s) => write!(f, "{}", s),
         }
     }
 }

@@ -14,6 +14,7 @@ use crate::session::{
     AppChannelSender, GwChannelSender, Id, Info, MessageDirection, Session, SessionConfig,
     SessionDirection, SessionMessage,
 };
+use crate::streaming;
 use agp_datapath::messages::utils;
 use agp_datapath::pubsub::proto::pubsub::v1::SessionHeaderType;
 
@@ -115,6 +116,13 @@ impl SessionLayer {
                     self.tx_app.clone(),
                 ))
             }
+            SessionConfig::Streaming(conf) => Box::new(streaming::Streaming::new(
+                id,
+                conf,
+                SessionDirection::Bidirectional,
+                self.tx_gw.clone(),
+                self.tx_app.clone(),
+            )),
         };
 
         // insert the session into the pool
