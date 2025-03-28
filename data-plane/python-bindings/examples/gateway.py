@@ -14,7 +14,9 @@ gateway = agp_bindings.Gateway()
 
 async def run_server(address: str, enable_opentelemetry: bool):
     # init tracing
-    agp_bindings.init_tracing(log_level="debug", enable_opentelemetry=enable_opentelemetry)
+    agp_bindings.init_tracing(
+        log_level="debug", enable_opentelemetry=enable_opentelemetry
+    )
 
     # Configure gateway
     config = GatewayConfig(endpoint=address, insecure=True)
@@ -54,7 +56,9 @@ async def main():
     loop.add_signal_handler(SIGINT, shutdown)
 
     # Run the client task
-    client_task = asyncio.create_task(run_server(args.gateway, args.enable_opentelemetry))
+    client_task = asyncio.create_task(
+        run_server(args.gateway, args.enable_opentelemetry)
+    )
 
     # Wait until the stop event is set
     await stop_event.wait()

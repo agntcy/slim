@@ -4,6 +4,7 @@
 import argparse
 import asyncio
 import time
+import os
 
 import agp_bindings
 from agp_bindings import GatewayConfig
@@ -23,7 +24,7 @@ class color:
 
 
 def format_message(message1, message2):
-    return f"{color.BOLD}{color.CYAN}{message1.capitalize()}{color.END}\t {message2}"
+    return f"{color.BOLD}{color.CYAN}{message1.capitalize() :<40}{color.END}{message2}"
 
 
 async def run_client(
@@ -31,7 +32,7 @@ async def run_client(
 ):
     # init tracing
     agp_bindings.init_tracing(
-        log_level="debug", enable_opentelemetry=enable_opentelemetry
+        log_level="info", enable_opentelemetry=enable_opentelemetry
     )
 
     # Split the IDs into their respective components
@@ -88,36 +89,41 @@ async def run_client(
                     remote_namespace,
                     remote_agent,
                 )
-                print(format_message(f"{local_agent.capitalize()} sent:", message))
+                print(format_message(f"{local_agent} sent:", message))
 
                 # Wait for a reply
-                src, msg = await gateway.receive()
+                session_info, src, msg = await gateway.receive()
                 print(
                     format_message(
-                        f"{local_agent.capitalize()} received:", msg.decode()
+                        f"{local_agent.capitalize()} received (from session {session_info.id}):",
+                        f"{msg.decode()}",
                     )
                 )
             except Exception as e:
                 print("received error: ", e)
 
-            time.sleep(5)
+            time.sleep(1)
     else:
+        # Get the local agent instance from env
+        instance = os.getenv("AGP_INSTANCE_ID", local_agent)
+
         # Wait for a message and reply in a loop
         while True:
             session_info, src, msg = await gateway.receive()
             print(
                 format_message(
-                    f"{local_agent.capitalize()} received: {msg.decode()} from session {session_info.id}"
+                    f"{local_agent.capitalize()} received (from session {session_info.id}):",
+                    f"{msg.decode()}",
                 )
             )
 
-            ret = f"Echo from {local_agent}: {msg.decode()}"
+            ret = f"{msg.decode()} from {instance}"
 
-            await gateway.publish_to(ret.encode(), src)
+            await gateway.publish_to(session_info.id, ret.encode(), src)
             print(format_message(f"{local_agent.capitalize()} replies:", ret))
 
 
-def main():
+async def main():
     parser = argparse.ArgumentParser(
         description="Command line client for message passing."
     )
@@ -158,17 +164,17 @@ def main():
     args = parser.parse_args()
 
     # Run the client with the specified local ID, remote ID, and optional message
-    asyncio.run(
-        run_client(
-            args.local,
-            args.remote,
-            args.message,
-            args.gateway,
-            args.iterations,
-            args.enable_opentelemetry,
-        )
+    await run_client(
+        args.local,
+        args.remote,
+        args.message,
+        args.gateway,
+        args.iterations,
+        args.enable_opentelemetry,
     )
 
-
 if __name__ == "__main__":
-    main()
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        print("Program terminated by user.")

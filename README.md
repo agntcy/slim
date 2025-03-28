@@ -91,7 +91,7 @@ helm pull ghcr.io/agntcy/agp/helm/agp:latest
 pip install agp-bindings
 ```
 
-#dd# Copyright Notice
+### Copyright Notice
 
 [Copyright Notice and License](./LICENSE.md)
 
