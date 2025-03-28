@@ -335,13 +335,13 @@ enum PySessionType {
     Streaming,
 }
 
-impl From<PySessionType> for session::SessionType {
+impl From<PySessionType> for session::SessionConfig {
     fn from(session_type: PySessionType) -> Self {
         match session_type {
-            PySessionType::FireAndForget => session::SessionType::FireAndForget,
-            PySessionType::RequestResponse => session::SessionType::RequestResponse,
-            PySessionType::PublishSubscribe => session::SessionType::PublishSubscribe,
-            PySessionType::Streaming => session::SessionType::Streaming,
+            PySessionType::FireAndForget => session::SessionConfig::FireAndForget,
+            PySessionType::RequestResponse => session::SessionConfig::RequestResponse,
+            PySessionType::PublishSubscribe => session::SessionConfig::PublishSubscribe,
+            PySessionType::Streaming => session::SessionConfig::Streaming,
         }
     }
 }
@@ -455,7 +455,7 @@ async fn create_session_impl(
     // create local agent
     let service = svc.sdk.write().await;
 
-    let session_type: session::SessionType = session_type.into();
+    let session_type: session::SessionConfig = session_type.into();
 
     match &service.agent {
         Some(agent) => service.service.create_session(agent, session_type).await,

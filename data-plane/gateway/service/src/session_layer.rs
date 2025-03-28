@@ -4,11 +4,16 @@
 use std::collections::HashMap;
 
 use rand::Rng;
-use tokio::sync::{mpsc::Sender, RwLock};
-use tonic::Status;
+use tokio::sync::RwLock;
 
+use crate::errors::SessionError;
 use crate::fire_and_forget;
-use crate::session::{Error, Id, Info, MessageDirection, Session, SessionDirection, SessionType};
+use crate::fire_and_forget::FireAndForgetConfiguration;
+use crate::request_response;
+use crate::session::{
+    AppChannelSender, GwChannelSender, Id, MessageDirection, Session, SessionConfig,
+    SessionDirection,
+};
 use agp_datapath::messages::utils;
 use agp_datapath::pubsub::proto::pubsub::v1::Message;
 use agp_datapath::pubsub::proto::pubsub::v1::SessionHeaderType;
@@ -22,8 +27,8 @@ pub(crate) struct SessionLayer {
     conn_id: u64,
 
     /// Tx channels
-    tx_gw: Sender<Result<Message, Status>>,
-    tx_app: Sender<(Message, Info)>,
+    tx_gw: GwChannelSender,
+    tx_app: AppChannelSender,
 }
 
 impl std::fmt::Debug for SessionLayer {
@@ -36,8 +41,8 @@ impl SessionLayer {
     /// Create a new session pool
     pub(crate) fn new(
         conn_id: u64,
-        tx_gw: Sender<Result<Message, Status>>,
-        tx_app: Sender<(Message, Info)>,
+        tx_gw: GwChannelSender,
+        tx_app: AppChannelSender,
     ) -> SessionLayer {
         SessionLayer {
             pool: RwLock::new(HashMap::new()),
@@ -47,12 +52,12 @@ impl SessionLayer {
         }
     }
 
-    pub(crate) fn tx_gw(&self) -> Sender<Result<Message, Status>> {
+    pub(crate) fn tx_gw(&self) -> GwChannelSender {
         self.tx_gw.clone()
     }
 
     #[allow(dead_code)]
-    pub(crate) fn tx_app(&self) -> Sender<(Message, Info)> {
+    pub(crate) fn tx_app(&self) -> AppChannelSender {
         self.tx_app.clone()
     }
 
@@ -65,13 +70,13 @@ impl SessionLayer {
         &self,
         id: Id,
         session: Box<dyn Session + Send + Sync>,
-    ) -> Result<(), Error> {
+    ) -> Result<(), SessionError> {
         // get the write lock
         let mut pool = self.pool.write().await;
 
         // check if the session already exists
         if pool.contains_key(&id) {
-            return Err(Error::SessionIdAlreadyUsed(id.to_string()));
+            return Err(SessionError::SessionIdAlreadyUsed(id.to_string()));
         }
 
         pool.insert(id, session);
@@ -81,9 +86,9 @@ impl SessionLayer {
 
     pub(crate) async fn create_session(
         &self,
-        session_type: SessionType,
+        session_config: SessionConfig,
         id: Option<Id>,
-    ) -> Result<Id, Error> {
+    ) -> Result<Id, SessionError> {
         // TODO(msardara): the session identifier should be a combination of the
         // session ID and the agent ID, to prevent collisions.
 
@@ -94,14 +99,23 @@ impl SessionLayer {
         };
 
         // create a new session
-        let session = match session_type {
-            SessionType::FireAndForget => Box::new(fire_and_forget::FireAndForget::new(
+        let session: Box<(dyn Session + Send + Sync + 'static)> = match session_config {
+            SessionConfig::FireAndForget(conf) => Box::new(fire_and_forget::FireAndForget::new(
                 id,
+                conf,
                 SessionDirection::Bidirectional,
                 self.tx_gw.clone(),
                 self.tx_app.clone(),
             )),
-            _ => return Err(Error::SessionUnknown(session_type.to_string())),
+            SessionConfig::RequestResponse(conf) => {
+                Box::new(request_response::RequestResponse::new(
+                    id,
+                    conf,
+                    SessionDirection::Bidirectional,
+                    self.tx_gw.clone(),
+                    self.tx_app.clone(),
+                ))
+            }
         };
 
         // insert the session into the pool
@@ -123,14 +137,14 @@ impl SessionLayer {
         message: Message,
         direction: MessageDirection,
         session_id: Option<Id>,
-    ) -> Result<(), Error> {
+    ) -> Result<(), SessionError> {
         match direction {
             MessageDirection::North => self.handle_message_from_gateway(message, direction).await,
             MessageDirection::South => {
                 // make sure the session ID is provided
                 let session_id = match session_id {
                     Some(id) => id,
-                    None => return Err(Error::MissingSessionId("none".to_string())),
+                    None => return Err(SessionError::MissingSessionId("none".to_string())),
                 };
 
                 self.handle_message_from_app(message, direction, session_id)
@@ -146,13 +160,13 @@ impl SessionLayer {
         mut message: Message,
         direction: MessageDirection,
         session_id: Id,
-    ) -> Result<(), Error> {
+    ) -> Result<(), SessionError> {
         // check if pool contains the session
         if let Some(session) = self.pool.read().await.get(&session_id) {
             // Set session id and session type to message
             let header = utils::get_session_header_as_mut(&mut message);
             if header.is_none() {
-                return Err(Error::MissingSessionHeader);
+                return Err(SessionError::MissingSessionHeader);
             }
 
             let header = header.unwrap();
@@ -163,7 +177,7 @@ impl SessionLayer {
         }
 
         // if the session is not found, return an error
-        Err(Error::SessionNotFound(session_id.to_string()))
+        Err(SessionError::SessionNotFound(session_id.to_string()))
     }
 
     /// Handle a message from the message processor, and pass it to the
@@ -172,14 +186,16 @@ impl SessionLayer {
         &self,
         message: Message,
         direction: MessageDirection,
-    ) -> Result<(), Error> {
+    ) -> Result<(), SessionError> {
         let (id, session_type) = {
             // get the session type and the session id from the message
             let header = utils::get_session_header(&message);
 
             // if header is None, return an error
             if header.is_none() {
-                return Err(Error::MissingAgpHeader("missing AGP header".to_string()));
+                return Err(SessionError::MissingAgpHeader(
+                    "missing AGP header".to_string(),
+                ));
             }
 
             let header = header.unwrap();
@@ -189,7 +205,7 @@ impl SessionLayer {
 
             // if the session type is not specified, return an error
             if session_type.is_none() {
-                return Err(Error::SessionUnknown(header.header_type.to_string()));
+                return Err(SessionError::SessionUnknown(header.header_type.to_string()));
             }
 
             // get the session ID
@@ -207,11 +223,23 @@ impl SessionLayer {
 
         let new_session_id = match session_type {
             SessionHeaderType::Fnf => {
-                self.create_session(SessionType::FireAndForget, Some(id))
-                    .await?
+                self.create_session(
+                    SessionConfig::FireAndForget(FireAndForgetConfiguration::default()),
+                    Some(id),
+                )
+                .await?
+            }
+            SessionHeaderType::Request => {
+                self.create_session(
+                    SessionConfig::RequestResponse(
+                        request_response::RequestResponseConfiguration::default(),
+                    ),
+                    Some(id),
+                )
+                .await?
             }
             _ => {
-                return Err(Error::SessionUnknown(
+                return Err(SessionError::SessionUnknown(
                     session_type.as_str_name().to_string(),
                 ))
             }
@@ -228,19 +256,37 @@ impl SessionLayer {
         // this should never happen
         panic!("session not found: {}", "test");
     }
+
+    /// Set the configuration of a session
+    pub(crate) async fn set_session_config(
+        &self,
+        session_id: Id,
+        session_config: &SessionConfig,
+    ) -> Result<(), SessionError> {
+        // get the write lock
+        let mut pool = self.pool.write().await;
+
+        // check if the session exists
+        if let Some(session) = pool.get_mut(&session_id) {
+            // set the session config
+            session.set_session_config(session_config)?
+        }
+
+        Err(SessionError::SessionNotFound(session_id.to_string()))
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::fire_and_forget::FireAndForget;
+    use crate::fire_and_forget::{FireAndForget, FireAndForgetConfiguration};
     use crate::session::State;
 
     use agp_datapath::messages::encoder;
 
     fn create_session_layer() -> SessionLayer {
-        let (tx_gw, _) = tokio::sync::mpsc::channel(1);
-        let (tx_app, _) = tokio::sync::mpsc::channel(1);
+        let (tx_gw, _) = tokio::sync::mpsc::channel(128);
+        let (tx_app, _) = tokio::sync::mpsc::channel(128);
 
         SessionLayer::new(0, tx_gw, tx_app)
     }
@@ -258,9 +304,11 @@ mod tests {
         let (tx_app, _) = tokio::sync::mpsc::channel(1);
 
         let session_layer = SessionLayer::new(0, tx_gw.clone(), tx_app.clone());
+        let session_config = FireAndForgetConfiguration {};
 
         let session = Box::new(FireAndForget::new(
             1,
+            session_config,
             SessionDirection::Bidirectional,
             tx_gw.clone(),
             tx_app.clone(),
@@ -276,9 +324,11 @@ mod tests {
         let (tx_app, _) = tokio::sync::mpsc::channel(1);
 
         let session_layer = SessionLayer::new(0, tx_gw.clone(), tx_app.clone());
+        let session_config = FireAndForgetConfiguration {};
 
         let session = Box::new(FireAndForget::new(
             1,
+            session_config,
             SessionDirection::Bidirectional,
             tx_gw.clone(),
             tx_app.clone(),
@@ -298,7 +348,10 @@ mod tests {
         let session_layer = SessionLayer::new(0, tx_gw.clone(), tx_app.clone());
 
         let res = session_layer
-            .create_session(SessionType::FireAndForget, None)
+            .create_session(
+                SessionConfig::FireAndForget(FireAndForgetConfiguration {}),
+                None,
+            )
             .await;
         assert!(res.is_ok());
     }
@@ -310,8 +363,11 @@ mod tests {
 
         let session_layer = SessionLayer::new(0, tx_gw.clone(), tx_app.clone());
 
+        let session_config = FireAndForgetConfiguration {};
+
         let session = Box::new(FireAndForget::new(
             1,
+            session_config,
             SessionDirection::Bidirectional,
             tx_gw.clone(),
             tx_app.clone(),
@@ -341,10 +397,13 @@ mod tests {
         assert!(res.is_ok());
 
         // message should have been delivered to the app
-        let (msg, info) = rx_app.recv().await.unwrap();
+        let (msg, info) = rx_app
+            .recv()
+            .await
+            .expect("no message received")
+            .expect("error");
         assert_eq!(msg, message);
         assert_eq!(info.id, 1);
-        assert_eq!(info.session_type, SessionType::FireAndForget);
         assert_eq!(info.state, State::Active);
     }
 }

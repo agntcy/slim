@@ -23,7 +23,7 @@ pub struct Timer {
 
 #[allow(dead_code)]
 impl Timer {
-    fn new(timer_id: u32, duration: u32, max_retries: u32) -> Self {
+    pub fn new(timer_id: u32, duration: u32, max_retries: u32) -> Self {
         Timer {
             timer_id,
             duration,
@@ -32,7 +32,7 @@ impl Timer {
         }
     }
 
-    fn start<T: TimerObserver + Send + Sync + 'static>(&self, observer: Arc<T>) {
+    pub fn start<T: TimerObserver + Send + Sync + 'static>(&self, observer: Arc<T>) {
         let timer_id = self.timer_id;
         let duration = self.duration;
         let max_retries = self.max_retries;
@@ -66,7 +66,7 @@ impl Timer {
         });
     }
 
-    fn stop(&self) {
+    pub fn stop(&self) {
         self.cancellation_token.cancel();
     }
 }
