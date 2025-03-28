@@ -4,18 +4,23 @@
 pub mod errors;
 pub mod producer_buffer;
 pub mod receiver_buffer;
+#[macro_use]
 pub mod session;
 pub mod stream;
 pub mod timer;
 
 mod fire_and_forget;
+mod request_response;
 mod session_layer;
+
+pub use fire_and_forget::FireAndForgetConfiguration;
+pub use request_response::RequestResponseConfiguration;
 
 use agp_datapath::messages::utils;
 use agp_datapath::messages::{Agent, AgentType};
 use agp_datapath::pubsub::MessageType;
 use serde::Deserialize;
-use session::MessageDirection;
+use session::{AppChannelReceiver, MessageDirection};
 use session_layer::SessionLayer;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -180,10 +185,7 @@ impl Service {
     }
 
     // APP APIs
-    pub fn create_agent(
-        &mut self,
-        agent_name: &Agent,
-    ) -> Result<mpsc::Receiver<(Message, session::Info)>, ServiceError> {
+    pub fn create_agent(&mut self, agent_name: &Agent) -> Result<AppChannelReceiver, ServiceError> {
         // make sure the agent is not already registered
         if self.session_layers.contains_key(agent_name) {
             error!("agent {:?} already exists", agent_name);
@@ -366,7 +368,7 @@ impl Service {
                 .await
                 .map_err(|e| {
                     error!("error sending the message to session {}: {}", id, e);
-                    ServiceError::SessionSendError(e.to_string())
+                    ServiceError::SessionError(e.to_string())
                 }),
             None => session.tx_gw().send(Ok(msg)).await.map_err(|e| {
                 error!("error sending the subscription {}", e);
@@ -541,7 +543,7 @@ impl Service {
     pub async fn create_session(
         &self,
         agent: &Agent,
-        session_type: session::SessionType,
+        session_config: session::SessionConfig,
     ) -> Result<session::Id, ServiceError> {
         // check if agent was registered
         let layer = self.session_layers.get(agent);
@@ -554,10 +556,40 @@ impl Service {
         let layer = layer.unwrap();
 
         // create a new fire and forget session
-        layer.create_session(session_type, None).await.map_err(|e| {
-            error!("error creating session: {}", e);
-            ServiceError::SessionCreationError(e.to_string())
-        })
+        layer
+            .create_session(session_config, None)
+            .await
+            .map_err(|e| {
+                error!("error creating session: {}", e);
+                ServiceError::SessionError(e.to_string())
+            })
+    }
+
+    /// Set config for a session
+    pub async fn set_session_config(
+        &self,
+        agent: &Agent,
+        session_id: session::Id,
+        session_config: &session::SessionConfig,
+    ) -> Result<(), ServiceError> {
+        // check if agent was registered
+        let layer = self.session_layers.get(agent);
+
+        if layer.is_none() {
+            error!("agent {} not found", agent);
+            return Err(ServiceError::AgentNotFound(agent.to_string()));
+        }
+
+        let layer = layer.unwrap();
+
+        // set the session config
+        layer
+            .set_session_config(session_id, &session_config)
+            .await
+            .map_err(|e| {
+                error!("error setting session config: {}", e);
+                ServiceError::SessionError(e.to_string())
+            })
     }
 
     /// delete a session
@@ -581,7 +613,7 @@ impl Service {
             true => Ok(()),
             false => {
                 error!("error deleting session");
-                Err(ServiceError::SessionDeletionError("unknown".to_string()))
+                Err(ServiceError::SessionError("unknown".to_string()))
             }
         }
     }
@@ -651,7 +683,7 @@ impl ComponentBuilder for ServiceBuilder {
 // tests
 #[cfg(test)]
 mod tests {
-    use crate::session::SessionType;
+    use crate::session::SessionConfig;
 
     use super::*;
     use agp_config::grpc::server::ServerConfig;
@@ -735,7 +767,10 @@ mod tests {
 
         // create a fire and forget session
         let session_id = service
-            .create_session(&publisher_agent, SessionType::FireAndForget)
+            .create_session(
+                &publisher_agent,
+                SessionConfig::FireAndForget(FireAndForgetConfiguration::default()),
+            )
             .await
             .unwrap();
 
@@ -754,7 +789,11 @@ mod tests {
             .unwrap();
 
         // wait for the message to arrive
-        let (msg, info) = sub_rx.recv().await.unwrap();
+        let (msg, info) = sub_rx
+            .recv()
+            .await
+            .expect("no message received")
+            .expect("error");
 
         // make sure message is a publication
         assert!(msg.message_type.is_some());

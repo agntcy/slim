@@ -195,7 +195,7 @@ async fn main() {
     let res = svc
         .create_session(
             &agent_name,
-            agp_service::session::SessionType::FireAndForget,
+            agp_service::session::SessionConfig::FireAndForget,
         )
         .await;
     if res.is_err() {

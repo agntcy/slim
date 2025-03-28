@@ -7,7 +7,7 @@ use tracing::info;
 
 use agp_datapath::messages::encoder::{encode_agent, encode_agent_type};
 use agp_gw::config;
-use agp_service::session::SessionType;
+use agp_service::session::SessionConfig;
 
 mod args;
 
@@ -75,7 +75,7 @@ async fn main() {
     if let Some(msg) = message {
         // create a fire and forget session
         let res = svc
-            .create_session(&agent_name, SessionType::FireAndForget)
+            .create_session(&agent_name, SessionConfig::FireAndForget)
             .await;
         if res.is_err() {
             panic!("error creating fire and forget session");

@@ -174,7 +174,7 @@ pub fn get_error(msg: &ProtoMessage) -> Result<Option<bool>, MessageError> {
     }
 }
 
-pub fn get_source(msg: &ProtoMessage) -> Result<(AgentType, Option<u64>), MessageError> {
+pub fn get_source(msg: &ProtoMessage) -> Result<Agent, MessageError> {
     match get_agp_header(msg) {
         Some(header) => match header.source {
             Some(source) => {

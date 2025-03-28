@@ -3,6 +3,8 @@
 
 use thiserror::Error;
 
+use agp_datapath::pubsub::proto::pubsub::v1::Message;
+
 #[derive(Error, Debug)]
 pub enum ServiceError {
     #[error("configuration error {0}")]
@@ -29,12 +31,39 @@ pub enum ServiceError {
     ReceiveError(String),
     #[error("session not found: {0}")]
     SessionNotFound(String),
-    #[error("error creating session: {0}")]
-    SessionCreationError(String),
-    #[error("error creating the session: {0}")]
-    SessionDeletionError(String),
-    #[error("error deleting the session: {0}")]
-    SessionSendError(String),
+    #[error("error in session session: {0}")]
+    SessionError(String),
     #[error("unknown error")]
     Unknown,
+}
+
+#[derive(Error, Debug, PartialEq)]
+pub enum SessionError {
+    #[error("error receiving message from gateway: {0}")]
+    GatewayReception(String),
+    #[error("error sending message to gateway: {0}")]
+    GatewayTransmission(String),
+    #[error("error receiving message from app: {0}")]
+    AppReception(String),
+    #[error("error sending message to app: {0}")]
+    AppTransmission(String),
+    #[error("error processing message: {0}")]
+    Processing(String),
+    #[error("session id already used: {0}")]
+    SessionIdAlreadyUsed(String),
+    #[error("missing AGP header: {0}")]
+    MissingAgpHeader(String),
+    #[error("missing session header")]
+    MissingSessionHeader,
+    #[error("session unknown: {0}")]
+    SessionUnknown(String),
+    #[error("session not found: {0}")]
+    SessionNotFound(String),
+    #[error("missing session id: {0}")]
+    MissingSessionId(String),
+    #[error("timeout for message: {error}")]
+    Timeout {
+        error: String,
+        message: Message
+    },
 }

@@ -2,62 +2,59 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use async_trait::async_trait;
-use thiserror::Error;
+
+use parking_lot::RwLock;
 use tonic::Status;
 
+use crate::errors::SessionError;
+use crate::fire_and_forget::FireAndForgetConfiguration;
+use crate::request_response::RequestResponseConfiguration;
+use agp_datapath::messages::encoder::Agent;
+use agp_datapath::messages::utils;
 use agp_datapath::pubsub::proto::pubsub::v1::Message;
-
-#[derive(Error, Debug)]
-pub(crate) enum Error {
-    #[error("error receiving message from gateway {0}")]
-    #[allow(dead_code)]
-    GatewayReception(String),
-    #[error("error sending message to gateway {0}")]
-    GatewayTransmission(String),
-    #[error("error receiving message from app {0}")]
-    #[allow(dead_code)]
-    AppReception(String),
-    #[error("error sending message to app {0}")]
-    AppTransmission(String),
-    #[error("error processing message {0}")]
-    #[allow(dead_code)]
-    Processing(String),
-    #[error("session id already used {0}")]
-    SessionIdAlreadyUsed(String),
-    #[error("missing AGP header {0}")]
-    MissingAgpHeader(String),
-    #[error("missing session header")]
-    MissingSessionHeader,
-    #[error("session unknown: {0}")]
-    SessionUnknown(String),
-    #[error("session not found: {0}")]
-    SessionNotFound(String),
-    #[error("missing session id: {0}")]
-    MissingSessionId(String),
-}
 
 /// Session ID
 pub type Id = u32;
 
+/// Channel used in the path service -> app
+pub type AppChannelSender = tokio::sync::mpsc::Sender<Result<(Message, Info), SessionError>>;
+/// Channel used in the path app -> service
+pub type AppChannelReceiver = tokio::sync::mpsc::Receiver<Result<(Message, Info), SessionError>>;
+/// Channel used in the path service -> gw
+pub type GwChannelSender = tokio::sync::mpsc::Sender<Result<Message, Status>>;
+/// Channel used in the path gw -> service
+pub type GwChannelReceiver = tokio::sync::mpsc::Receiver<Result<Message, Status>>;
+
 /// Session Info
 #[derive(Clone, PartialEq, Debug)]
 pub struct Info {
+    /// The id of the session
     pub id: Id,
-    pub session_type: SessionType,
-    pub state: State,
-
-    pub message_nonce: u32,
-    pub message_count: u32,
+    /// The message nonce used to identify the message
+    pub message_id: u32,
+    /// The identifier of the agent that sent the message
+    pub message_source: Agent,
+    /// The input connection id
+    pub input_connection: u64,
 }
 
-impl Info {
-    pub fn new(id: Id, session_type: SessionType, state: State) -> Info {
+impl From<&Message> for Info {
+    fn from(message: &Message) -> Self {
+        let session_header = utils::get_session_header(&message).expect("session header not found");
+        let agp_header = utils::get_agp_header(&message).expect("AGP header not found");
+
+        let id = session_header.session_id;
+        let message_id = session_header.message_id;
+        let message_source = utils::get_source(&msg);
+        let input_connection = agp_header
+            .incoming_conn
+            .expect("input connection not found");
+
         Info {
             id,
-            session_type,
-            state,
-            message_nonce: 0,
-            message_count: 0,
+            message_id,
+            message_source,
+            input_connection,
         }
     }
 }
@@ -86,26 +83,22 @@ pub(crate) enum MessageDirection {
 }
 
 #[derive(Clone, PartialEq, Debug)]
-pub enum SessionType {
-    FireAndForget,
-    RequestResponse,
-    PublishSubscribe,
-    Streaming,
+pub enum SessionConfig {
+    FireAndForget(FireAndForgetConfiguration),
+    RequestResponse(RequestResponseConfiguration),
 }
 
-impl std::fmt::Display for SessionType {
+impl std::fmt::Display for SessionConfig {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            SessionType::FireAndForget => write!(f, "FireAndForget"),
-            SessionType::RequestResponse => write!(f, "RequestResponse"),
-            SessionType::PublishSubscribe => write!(f, "PublishSubscribe"),
-            SessionType::Streaming => write!(f, "Streaming"),
+            SessionConfig::FireAndForget(ff) => write!(f, "{}", ff),
+            SessionConfig::RequestResponse(rr) => write!(f, "{}", rr),
         }
     }
 }
 
-#[async_trait]
-pub(crate) trait Session {
+
+pub(crate) trait CommonSession {
     // Session ID
     #[allow(dead_code)]
     fn id(&self) -> Id;
@@ -114,12 +107,23 @@ pub(crate) trait Session {
     #[allow(dead_code)]
     fn state(&self) -> &State;
 
-    // get the session type
+    // get the session config
     #[allow(dead_code)]
-    fn session_type(&self) -> SessionType;
+    fn session_config(&self) -> SessionConfig;
 
+    // set the session config
+    #[allow(dead_code)]
+    fn set_session_config(&self, session_config: &SessionConfig) -> Result<(), SessionError>;
+}
+
+#[async_trait]
+pub(crate) trait Session: CommonSession {
     // publish a message as part of the session
-    async fn on_message(&self, message: Message, direction: MessageDirection) -> Result<(), Error>;
+    async fn on_message(
+        &self,
+        message: Message,
+        direction: MessageDirection,
+    ) -> Result<(), SessionError>;
 }
 
 /// Common session data
@@ -130,58 +134,98 @@ pub(crate) struct Common {
     /// Session state
     state: State,
 
+    /// Session type
+    session_config: RwLock<SessionConfig>,
+
     /// Session direction
     #[allow(dead_code)]
     session_direction: SessionDirection,
 
     /// Sender for messages to gw
-    tx_gw: tokio::sync::mpsc::Sender<Result<Message, Status>>,
+    tx_gw: GwChannelSender,
 
     /// Sender for messages to app
-    tx_app: tokio::sync::mpsc::Sender<(Message, Info)>,
+    tx_app: AppChannelSender,
+}
+
+impl CommonSession for Common {
+    fn id(&self) -> Id {
+        self.id
+    }
+
+    fn state(&self) -> &State {
+        &self.state
+    }
+
+    fn session_config(&self) -> SessionConfig {
+        self.session_config.read().clone()
+    }
+
+    fn set_session_config(&self, session_config: &SessionConfig) -> Result<(), SessionError> {
+        let mut conf = self.session_config.write();
+
+        *conf = session_config.clone();
+        Ok(())
+    }
 }
 
 impl Common {
     pub(crate) fn new(
         id: Id,
         session_direction: SessionDirection,
-        tx_gw: tokio::sync::mpsc::Sender<Result<Message, Status>>,
-        tx_app: tokio::sync::mpsc::Sender<(Message, Info)>,
+        session_type: SessionConfig,
+        tx_gw: GwChannelSender,
+        tx_app: AppChannelSender,
     ) -> Common {
         Common {
             id,
             state: State::Active,
             session_direction,
+            session_config: RwLock::new(session_type),
             tx_gw,
             tx_app,
         }
     }
 
-    /// get the session ID
-    pub(crate) fn id(&self) -> Id {
-        self.id
-    }
-
-    /// get the session state
-    pub(crate) fn state(&self) -> &State {
-        &self.state
-    }
-
     #[allow(dead_code)]
-    pub(crate) fn tx_gw(&self) -> tokio::sync::mpsc::Sender<Result<Message, Status>> {
+    pub(crate) fn tx_gw(&self) -> GwChannelSender {
         self.tx_gw.clone()
     }
 
+    pub(crate) fn tx_gw_ref(&self) -> &GwChannelSender {
+        &self.tx_gw
+    }
+
     #[allow(dead_code)]
-    pub(crate) fn tx_app(&self) -> tokio::sync::mpsc::Sender<(Message, Info)> {
+    pub(crate) fn tx_app(&self) -> AppChannelSender {
         self.tx_app.clone()
     }
 
-    pub(crate) fn tx_app_ref(&self) -> &tokio::sync::mpsc::Sender<(Message, Info)> {
+    pub(crate) fn tx_app_ref(&self) -> &AppChannelSender {
         &self.tx_app
     }
+}
 
-    pub(crate) fn tx_gw_ref(&self) -> &tokio::sync::mpsc::Sender<Result<Message, Status>> {
-        &self.tx_gw
-    }
+// Define a macro to delegate trait implementation
+macro_rules! delegate_common_behavior {
+    ($parent:ident, $($tokens:ident),+) => {
+        impl CommonSession for $parent {
+            fn id(&self) -> Id {
+                // concat the token stream
+                self.$($tokens).+.id()
+            }
+
+            fn state(&self) -> &State {
+                self.$($tokens).+.state()
+            }
+
+            fn session_config(&self) -> SessionConfig {
+                self.$($tokens).+.session_config()
+            }
+
+            fn set_session_config(&self, session_config: &SessionConfig) -> Result<(), SessionError> {
+                self.$($tokens).+.set_session_config(session_config)
+            }
+        }
+    };
 }
