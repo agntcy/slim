@@ -494,8 +494,8 @@ impl MessageProcessor {
                     debug!("forward subscription (add = {}) to {:?}", add, forward);
                     let out_conn = forward.unwrap();
 
-                    let (source_type, source_id) = match get_source(&msg) {
-                        Ok((c, f)) => (c, f),
+                    let source_agent = match get_source(&msg) {
+                        Ok(src) => src,
                         Err(e) => {
                             error!(
                                 "error processing subscription (add = {}) source: {:?}",
@@ -507,8 +507,7 @@ impl MessageProcessor {
                     match self.send_msg(msg, out_conn).await {
                         Ok(_) => {
                             self.forwarder().on_forwarded_subscription(
-                                source_type,
-                                source_id,
+                                source_agent,
                                 agent_type,
                                 agent_id,
                                 out_conn,

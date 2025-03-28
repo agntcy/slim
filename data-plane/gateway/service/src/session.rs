@@ -44,7 +44,7 @@ impl From<&Message> for Info {
 
         let id = session_header.session_id;
         let message_id = session_header.message_id;
-        let message_source = utils::get_source(&msg);
+        let message_source = utils::get_source(&message).expect("message source not found");
         let input_connection = agp_header
             .incoming_conn
             .expect("input connection not found");
