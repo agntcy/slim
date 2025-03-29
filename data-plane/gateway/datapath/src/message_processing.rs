@@ -445,7 +445,14 @@ impl MessageProcessor {
         let connection = self
             .forwarder()
             .get_connection(conn)
-            .expect("incoming connection does not exists - this shohuld never happen");
+            .ok_or_else(|| {
+                DataPathError::SubscriptionError("connection not found".to_string())
+            })?;
+
+        debug!(
+            "subscription update (add = {}) for agent type: {} (agent id: {:?}) - connection: {}",
+            add, agent_type, agent_id, conn
+        );
 
         if let Err(e) = self.forwarder().on_subscription_msg(
             agent_type.clone(),
@@ -463,7 +470,7 @@ impl MessageProcessor {
                 Ok(())
             }
             Some(out_conn) => {
-                debug!("forward subscription (add = {}) to {:?}", add, forward);
+                debug!("forward subscription (add = {}) to {}", add, out_conn);
 
                 // get source name
                 let source_agent = msg.get_source();
@@ -505,7 +512,7 @@ impl MessageProcessor {
         is_local: bool,
         mut msg: Message,
     ) -> Result<(), DataPathError> {
-        debug!(%conn_index, "Received message from connection");
+        debug!(%conn_index, "received message from connection");
         info!(
             telemetry = true,
             monotonic_counter.num_processed_messages = 1

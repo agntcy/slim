@@ -59,7 +59,7 @@ mod tests {
 
         // send messages from the client
         for n in 0..5 {
-            let msg = make_message("org", "namespace", "type", conn_index);
+            let msg = make_message("org", "namespace", "type");
             let res = msg_processor.send_msg(msg, conn_index);
             match res.await {
                 Ok(_) => {
@@ -75,12 +75,12 @@ mod tests {
         tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
 
         // assert messages from the client were received by the server
-        let expected_msg = "Received message from connection conn_index=0";
+        let expected_msg = "received message from connection conn_index=0";
         assert!(logs_contain(expected_msg));
 
         // send messages from server
         for n in 0..5 {
-            let msg = make_message("org", "namespace", "type", 0);
+            let msg = make_message("org", "namespace", "type");
             // let's assume that the connection index is 0
             let res = msg_processor.send_msg(msg, 0).await;
             match res {
@@ -97,7 +97,7 @@ mod tests {
         tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
 
         // assert messages from the server were received by the client
-        let expected_msg = "Received message from connection conn_index=".to_string()
+        let expected_msg = "received message from connection conn_index=".to_string()
             + conn_index.to_string().as_ref();
         assert!(logs_contain(&expected_msg));
 
@@ -105,7 +105,7 @@ mod tests {
         let (conn_id, tx, mut rx) = msg_processor.register_local_connection();
 
         // send messages from tx and verify that they are received by rx
-        let msg = make_message("org", "namespace", "type", u64::MAX);
+        let msg = make_message("org", "namespace", "type");
         tx.send(Ok(msg)).await.unwrap();
 
         // wait for messages to be received by the server
@@ -113,11 +113,11 @@ mod tests {
 
         // assert messages from the client were received by the server
         let expected_msg =
-            "Received message from connection conn_index=".to_string() + (2).to_string().as_ref();
+            "received message from connection conn_index=".to_string() + (2).to_string().as_ref();
         assert!(logs_contain(&expected_msg));
 
         // let's now send a message to the connection 2 in the connection table
-        let msg = make_message("message-for-us", "namespace-for-us", "type-for-us", 2);
+        let msg = make_message("message-for-us", "namespace-for-us", "type-for-us");
 
         // clone to keep a copy
         msg_processor.send_msg(msg.clone(), 2).await.unwrap();
@@ -135,62 +135,41 @@ mod tests {
         assert_eq!(received_msg.unwrap(), msg);
 
         // try to send a subscription_from message
-        let sub_form = make_sub_from_command("org", "ns", "type", 100, u64::MAX);
+        let sub_form = make_sub_from_command("org", "ns", "type", 0);
         tx.send(Ok(sub_form)).await.unwrap();
 
         tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
 
-        let expected_msg = "received recv_from command, update state on connection 100";
+        let expected_msg = format!(
+            "subscription update (add = true) for agent type: {} (agent id: None) - connection: 0",
+            AgentType::from_strings("org", "ns", "type")
+        );
         assert!(logs_contain(&expected_msg));
 
         // try to send a forward_to message
-        let fwd_to = make_fwd_to_command("org", "ns", "type", 100, u64::MAX);
+        let fwd_to = make_fwd_to_command("org", "ns", "type", 0);
         tx.send(Ok(fwd_to)).await.unwrap();
 
         tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
         let expected_msg =
-            "received forward_to command, update state and forward to connection 100";
-        assert!(logs_contain(&expected_msg));
-
-        let expected_msg = "forward subscription";
+            "forward subscription (add = true) to 0";
         assert!(logs_contain(&expected_msg));
     }
 
-    fn make_message(org: &str, ns: &str, agent_type: &str, conn_index: u64) -> Message {
+    fn make_message(org: &str, ns: &str, agent_type: &str) -> Message {
         let source = Agent::from_strings(org, ns, agent_type, 0);
         let name = AgentType::from_strings(org, ns, agent_type);
-        let mut ret = Message::new_subscribe(&source, &name, Some(1), None, None);
-        ret.set_incoming_conn(Some(conn_index));
-
-        ret
+        Message::new_subscribe(&source, &name, Some(1), None, None)
     }
 
-    fn make_sub_from_command(
-        org: &str,
-        ns: &str,
-        agent_type: &str,
-        from_conn: u64,
-        conn_index: u64,
-    ) -> Message {
+    fn make_sub_from_command(org: &str, ns: &str, agent_type: &str, from_conn: u64) -> Message {
         let name = AgentType::from_strings(org, ns, agent_type);
-        let mut ret = Message::new_subscribe(&Agent::default(), &name, None, Some(from_conn), None);
-        ret.set_incoming_conn(Some(conn_index));
-
-        ret
+        Message::new_subscribe(&Agent::default(), &name, None, Some(from_conn), None)
     }
 
-    fn make_fwd_to_command(
-        org: &str,
-        ns: &str,
-        agent_type: &str,
-        to_conn: u64,
-        conn_index: u64,
-    ) -> Message {
+    fn make_fwd_to_command(org: &str, ns: &str, agent_type: &str, to_conn: u64) -> Message {
         let source = Agent::from_strings(org, ns, agent_type, 0);
         let name = AgentType::from_strings(org, ns, agent_type);
-        let mut ret = Message::new_subscribe(&source, &name, None, None, Some(to_conn));
-        ret.set_incoming_conn(Some(conn_index));
-
-        ret
+        Message::new_subscribe(&source, &name, None, None, Some(to_conn))
     }
 }
