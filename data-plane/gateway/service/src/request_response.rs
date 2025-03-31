@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::collections::HashMap;
+use std::num::TryFromIntError;
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -119,8 +120,31 @@ impl RequestResponse {
         // get message id
         let message_id = message.info.message_id.expect("message id not found");
 
+        // get session config
+        let session_config = match self.session_config() {
+            SessionConfig::RequestResponse(config) => config,
+            _ => {
+                return Err(SessionError::AppTransmission(
+                    "invalid session config".to_string(),
+                ))
+            }
+        };
+
+        // get duration from configuration
+        let duration =
+            session_config
+                .timeout
+                .as_millis()
+                .try_into()
+                .map_err(|e: TryFromIntError| {
+                    SessionError::ConfigurationError(format!(
+                        "timeout duration is too large: {}",
+                        e
+                    ))
+                })?;
+
         // create new timer
-        let timer = timer::Timer::new(message_id, 1000, 0);
+        let timer = timer::Timer::new(message_id, duration, session_config.max_retries);
 
         // send message
         self.internal
