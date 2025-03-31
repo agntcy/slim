@@ -302,7 +302,6 @@ async fn main() {
                 session_info.clone(),
                 p.1.agent_type(),
                 name_id,
-                1,
                 payload,
             )
             .await

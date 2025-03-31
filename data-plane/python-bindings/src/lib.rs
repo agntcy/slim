@@ -20,6 +20,7 @@ use agp_config::grpc::{
 };
 use agp_config::tls::{client::TlsClientConfig, server::TlsServerConfig};
 use agp_datapath::messages::encoder::{Agent, AgentType};
+use agp_datapath::messages::utils::AgpHeaderFlags;
 use agp_service::session;
 use agp_service::{Service, ServiceError};
 
@@ -781,19 +782,13 @@ async fn publish_impl(
 
     let service = svc.sdk.read().await;
 
+    // set flags
+    let flags = AgpHeaderFlags::new(fanout, None, conn_out, None, None);
     match &service.agent {
         Some(agent) => {
             service
                 .service
-                .publish_to(
-                    agent,
-                    session_info,
-                    &agent_type,
-                    agent_id,
-                    fanout,
-                    blob,
-                    conn_out,
-                )
+                .publish_with_flags(agent, session_info, &agent_type, agent_id, flags, blob)
                 .await
         }
         None => Err(ServiceError::AgentNotFound(

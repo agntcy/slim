@@ -287,8 +287,6 @@ mod tests {
             &AgentType::from_strings("cisco", "default", "remote_agent"),
             Some(0),
             None,
-            None,
-            1,
             "msg",
             vec![0x1, 0x2, 0x3, 0x4],
         );

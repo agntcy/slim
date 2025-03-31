@@ -107,6 +107,38 @@ impl AgpHeaderFlags {
             error,
         }
     }
+
+    pub fn with_fanout(self, fanout: u32) -> Self {
+        Self { fanout, ..self }
+    }
+
+    pub fn with_recv_from(self, recv_from: u64) -> Self {
+        Self {
+            recv_from: Some(recv_from),
+            ..self
+        }
+    }
+
+    pub fn with_forward_to(self, forward_to: u64) -> Self {
+        Self {
+            forward_to: Some(forward_to),
+            ..self
+        }
+    }
+
+    pub fn with_incoming_conn(self, incoming_conn: u64) -> Self {
+        Self {
+            incoming_conn: Some(incoming_conn),
+            ..self
+        }
+    }
+
+    pub fn with_error(self, error: bool) -> Self {
+        Self {
+            error: Some(error),
+            ..self
+        }
+    }
 }
 
 /// AGP Header
@@ -119,7 +151,7 @@ impl AgpHeader {
         name_id: Option<u64>,
         flags: Option<AgpHeaderFlags>,
     ) -> Self {
-        let flags = flags.unwrap_or(AgpHeaderFlags::default());
+        let flags = flags.unwrap_or_default();
 
         Self {
             source: Some(ProtoAgent::from(source)),
@@ -681,22 +713,27 @@ mod tests {
         source: Agent,
         name: AgentType,
         name_id: Option<u64>,
-        recv_from: Option<u64>,
-        forward_to: Option<u64>,
+        flags: Option<AgpHeaderFlags>,
     ) {
         let sub = {
             if subscription {
-                ProtoMessage::new_subscribe(&source, &name, name_id, recv_from, forward_to)
+                ProtoMessage::new_subscribe(&source, &name, name_id, flags.clone())
             } else {
-                ProtoMessage::new_unsubscribe(&source, &name, name_id, recv_from, forward_to)
+                ProtoMessage::new_unsubscribe(&source, &name, name_id, flags.clone())
             }
+        };
+
+        let flags = if let None = flags {
+            Some(AgpHeaderFlags::default())
+        } else {
+            flags
         };
 
         assert_eq!(sub.is_publish(), false);
         assert_eq!(sub.is_subscribe(), subscription);
         assert_eq!(sub.is_unsubscribe(), !subscription);
-        assert_eq!(recv_from, sub.recv_from());
-        assert_eq!(forward_to, sub.forward_to());
+        assert_eq!(flags.as_ref().unwrap().recv_from, sub.recv_from());
+        assert_eq!(flags.as_ref().unwrap().forward_to, sub.forward_to());
         assert_eq!(None, sub.incoming_conn());
         assert_eq!(source, sub.get_source());
         let (got_name, got_name_id) = sub.get_name();
@@ -708,32 +745,34 @@ mod tests {
         source: Agent,
         name: AgentType,
         name_id: Option<u64>,
-        recv_from: Option<u64>,
-        forward_to: Option<u64>,
-        fanout: u32,
+        flags: Option<AgpHeaderFlags>,
     ) {
         let pub_msg = ProtoMessage::new_publish(
             &source,
             &name,
             name_id,
-            recv_from,
-            forward_to,
-            fanout,
+            flags.clone(),
             "str",
             "this is the content of the message".into(),
         );
 
+        let flags = if let None = flags {
+            Some(AgpHeaderFlags::default())
+        } else {
+            flags
+        };
+
         assert_eq!(pub_msg.is_publish(), true);
         assert_eq!(pub_msg.is_subscribe(), false);
         assert_eq!(pub_msg.is_unsubscribe(), false);
-        assert_eq!(recv_from, pub_msg.recv_from());
-        assert_eq!(forward_to, pub_msg.forward_to());
+        assert_eq!(flags.as_ref().unwrap().recv_from, pub_msg.recv_from());
+        assert_eq!(flags.as_ref().unwrap().forward_to, pub_msg.forward_to());
         assert_eq!(None, pub_msg.incoming_conn());
         assert_eq!(source, pub_msg.get_source());
         let (got_name, got_name_id) = pub_msg.get_name();
         assert_eq!(name, got_name);
         assert_eq!(name_id, got_name_id);
-        assert_eq!(fanout, pub_msg.get_fanout());
+        assert_eq!(flags.as_ref().unwrap().fanout, pub_msg.get_fanout());
     }
 
     #[test]
@@ -742,16 +781,28 @@ mod tests {
         let name = AgentType::from_strings("org", "ns", "type");
 
         // simple
-        test_subscription_template(true, source.clone(), name.clone(), None, None, None);
+        test_subscription_template(true, source.clone(), name.clone(), None, None);
 
         // with name id
-        test_subscription_template(true, source.clone(), name.clone(), Some(2), None, None);
+        test_subscription_template(true, source.clone(), name.clone(), Some(2), None);
 
         // with recv from
-        test_subscription_template(true, source.clone(), name.clone(), None, Some(50), None);
+        test_subscription_template(
+            true,
+            source.clone(),
+            name.clone(),
+            None,
+            Some(AgpHeaderFlags::default().with_recv_from(50)),
+        );
 
         // with forward to
-        test_subscription_template(true, source.clone(), name.clone(), None, None, Some(30));
+        test_subscription_template(
+            true,
+            source.clone(),
+            name.clone(),
+            None,
+            Some(AgpHeaderFlags::default().with_forward_to(30)),
+        );
     }
 
     #[test]
@@ -760,16 +811,28 @@ mod tests {
         let name = AgentType::from_strings("org", "ns", "type");
 
         // simple
-        test_subscription_template(false, source.clone(), name.clone(), None, None, None);
+        test_subscription_template(false, source.clone(), name.clone(), None, None);
 
         // with name id
-        test_subscription_template(false, source.clone(), name.clone(), Some(2), None, None);
+        test_subscription_template(false, source.clone(), name.clone(), Some(2), None);
 
         // with recv from
-        test_subscription_template(false, source.clone(), name.clone(), None, Some(50), None);
+        test_subscription_template(
+            false,
+            source.clone(),
+            name.clone(),
+            None,
+            Some(AgpHeaderFlags::default().with_recv_from(50)),
+        );
 
         // with forward to
-        test_subscription_template(false, source.clone(), name.clone(), None, None, Some(30));
+        test_subscription_template(
+            false,
+            source.clone(),
+            name.clone(),
+            None,
+            Some(AgpHeaderFlags::default().with_forward_to(30)),
+        );
     }
 
     #[test]
@@ -778,19 +841,44 @@ mod tests {
         let name = AgentType::from_strings("org", "ns", "type");
 
         // simple
-        test_publish_template(source.clone(), name.clone(), None, None, None, 1);
+        test_publish_template(
+            source.clone(),
+            name.clone(),
+            None,
+            Some(AgpHeaderFlags::default()),
+        );
 
         // with name id
-        test_publish_template(source.clone(), name.clone(), Some(2), None, None, 1);
+        test_publish_template(
+            source.clone(),
+            name.clone(),
+            Some(2),
+            Some(AgpHeaderFlags::default()),
+        );
 
         // with recv from
-        test_publish_template(source.clone(), name.clone(), None, Some(50), None, 1);
+        test_publish_template(
+            source.clone(),
+            name.clone(),
+            None,
+            Some(AgpHeaderFlags::default().with_recv_from(50)),
+        );
 
         // with forward to
-        test_publish_template(source.clone(), name.clone(), None, None, Some(30), 1);
+        test_publish_template(
+            source.clone(),
+            name.clone(),
+            None,
+            Some(AgpHeaderFlags::default().with_forward_to(30)),
+        );
 
         // with fanout
-        test_publish_template(source.clone(), name.clone(), None, None, None, 2);
+        test_publish_template(
+            source.clone(),
+            name.clone(),
+            None,
+            Some(AgpHeaderFlags::default().with_fanout(2)),
+        );
     }
 
     #[test]
@@ -814,8 +902,16 @@ mod tests {
         assert_eq!(proto_agent.agent_id.unwrap(), 1);
 
         // ProtoMessage to ProtoSubscribe
-        let proto_subscribe =
-            ProtoMessage::new_subscribe(&agent, &agent_type, Some(1), Some(2), Some(3));
+        let proto_subscribe = ProtoMessage::new_subscribe(
+            &agent,
+            &agent_type,
+            Some(1),
+            Some(
+                AgpHeaderFlags::default()
+                    .with_recv_from(2)
+                    .with_forward_to(3),
+            ),
+        );
         let proto_subscribe = ProtoSubscribe::from(proto_subscribe);
         assert_eq!(proto_subscribe.header.as_ref().unwrap().get_source(), agent);
         assert_eq!(
@@ -824,8 +920,16 @@ mod tests {
         );
 
         // ProtoMessage to ProtoUnsubscribe
-        let proto_unsubscribe =
-            ProtoMessage::new_unsubscribe(&agent, &agent_type, Some(1), Some(2), Some(3));
+        let proto_unsubscribe = ProtoMessage::new_unsubscribe(
+            &agent,
+            &agent_type,
+            Some(1),
+            Some(
+                AgpHeaderFlags::default()
+                    .with_recv_from(2)
+                    .with_forward_to(3),
+            ),
+        );
         let proto_unsubscribe = ProtoUnsubscribe::from(proto_unsubscribe);
         assert_eq!(
             proto_unsubscribe.header.as_ref().unwrap().get_source(),
@@ -841,9 +945,11 @@ mod tests {
             &agent,
             &agent_type,
             Some(1),
-            Some(2),
-            Some(3),
-            1,
+            Some(
+                AgpHeaderFlags::default()
+                    .with_recv_from(2)
+                    .with_forward_to(3),
+            ),
             "str",
             "this is the content of the message".into(),
         );
@@ -861,7 +967,16 @@ mod tests {
         let name = AgentType::from_strings("org", "ns", "type");
 
         // panic if AGP header is not found
-        let msg = ProtoMessage::new_subscribe(&source, &name, None, None, None);
+        let msg = ProtoMessage::new_subscribe(
+            &source,
+            &name,
+            None,
+            Some(
+                AgpHeaderFlags::default()
+                    .with_recv_from(2)
+                    .with_forward_to(3),
+            ),
+        );
 
         // let's try to convert it to a unsubscribe
         // this should panic because the message type is not unsubscribe
@@ -884,6 +999,7 @@ mod tests {
         let header = AgpHeader {
             source: None,
             destination: None,
+            fanout: 0,
             recv_from: None,
             forward_to: None,
             incoming_conn: None,

@@ -179,9 +179,8 @@ async fn main() {
             recv_msg.info,
             source.agent_type(),
             Some(source.agent_id()),
-            1,
+            conn_id,
             out_vec,
-            Some(conn_id),
         )
         .await
         .unwrap();

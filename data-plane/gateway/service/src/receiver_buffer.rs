@@ -239,7 +239,7 @@ mod tests {
         let src = Agent::from_strings("org", "ns", "type", 0);
         let name_type = AgentType::from_strings("org", "ns", "type");
 
-        let agp_header = AgpHeader::new(&src, &name_type, Some(1), None, None, None, None);
+        let agp_header = AgpHeader::new(&src, &name_type, Some(1), None);
 
         let h0 = SessionHeader::new(SessionHeaderType::Fnf.into(), 0, 0, None, None);
         let h1 = SessionHeader::new(SessionHeaderType::Fnf.into(), 0, 1, None, None);
@@ -248,12 +248,12 @@ mod tests {
         let h4 = SessionHeader::new(SessionHeaderType::Fnf.into(), 0, 4, None, None);
         let h5 = SessionHeader::new(SessionHeaderType::Fnf.into(), 0, 5, None, None);
 
-        let p0 = Message::new_publish_with_headers(Some(agp_header), Some(h0), 1, "", vec![]);
-        let p1 = Message::new_publish_with_headers(None, Some(h1), 1, "", vec![]);
-        let p2 = Message::new_publish_with_headers(None, Some(h2), 1, "", vec![]);
-        let p3 = Message::new_publish_with_headers(None, Some(h3), 1, "", vec![]);
-        let p4 = Message::new_publish_with_headers(None, Some(h4), 1, "", vec![]);
-        let p5 = Message::new_publish_with_headers(None, Some(h5), 1, "", vec![]);
+        let p0 = Message::new_publish_with_headers(Some(agp_header), Some(h0), "", vec![]);
+        let p1 = Message::new_publish_with_headers(None, Some(h1), "", vec![]);
+        let p2 = Message::new_publish_with_headers(None, Some(h2), "", vec![]);
+        let p3 = Message::new_publish_with_headers(None, Some(h3), "", vec![]);
+        let p4 = Message::new_publish_with_headers(None, Some(h4), "", vec![]);
+        let p5 = Message::new_publish_with_headers(None, Some(h5), "", vec![]);
 
         // insert in order
         let mut buffer = ReceiverBuffer::default();

@@ -644,7 +644,6 @@ impl MessageProcessor {
                                 r.name().agent_type(),
                                 r.name().agent_id_option(),
                                 None,
-                                None,
                             );
                             if self.send_msg(sub_msg, conn_index).await.is_err() {
                                 error!("error restoring subscription on remote node");

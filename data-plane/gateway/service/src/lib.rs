@@ -12,6 +12,7 @@ mod fire_and_forget;
 mod request_response;
 mod session_layer;
 
+pub use agp_datapath::messages::utils::AgpHeaderFlags;
 pub use fire_and_forget::FireAndForgetConfiguration;
 pub use request_response::RequestResponseConfiguration;
 pub use session::SessionMessage;
@@ -389,7 +390,12 @@ impl Service {
     ) -> Result<(), ServiceError> {
         debug!("subscribe to {}/{:?}", agent_type, agent_id);
 
-        let msg = Message::new_subscribe(local_agent, agent_type, agent_id, None, conn);
+        let header = if let Some(c) = conn {
+            Some(AgpHeaderFlags::default().with_forward_to(c))
+        } else {
+            Some(AgpHeaderFlags::default())
+        };
+        let msg = Message::new_subscribe(local_agent, agent_type, agent_id, header);
         self.send_message(local_agent, msg, None).await
     }
 
@@ -402,7 +408,12 @@ impl Service {
     ) -> Result<(), ServiceError> {
         debug!("unsubscribe from {}/{:?}", agent_type, agent_id);
 
-        let msg = Message::new_subscribe(local_agent, agent_type, agent_id, None, conn);
+        let header = if let Some(c) = conn {
+            Some(AgpHeaderFlags::default().with_forward_to(c))
+        } else {
+            Some(AgpHeaderFlags::default())
+        };
+        let msg = Message::new_subscribe(local_agent, agent_type, agent_id, header);
         self.send_message(local_agent, msg, None).await
     }
 
@@ -416,7 +427,12 @@ impl Service {
         debug!("set route to {}/{:?}", agent_type, agent_id);
 
         // send a message with subscription from
-        let msg = Message::new_subscribe(local_agent, agent_type, agent_id, Some(conn), None);
+        let msg = Message::new_subscribe(
+            local_agent,
+            agent_type,
+            agent_id,
+            Some(AgpHeaderFlags::default().with_recv_from(conn)),
+        );
         self.send_message(local_agent, msg, None).await
     }
 
@@ -430,8 +446,33 @@ impl Service {
         debug!("unset route to {}/{:?}", agent_type, agent_id);
 
         //  send a message with unsubscription from
-        let msg = Message::new_subscribe(local_agent, agent_type, agent_id, Some(conn), None);
+        let msg = Message::new_subscribe(
+            local_agent,
+            agent_type,
+            agent_id,
+            Some(AgpHeaderFlags::default().with_recv_from(conn)),
+        );
         self.send_message(local_agent, msg, None).await
+    }
+
+    pub async fn publish_to(
+        &self,
+        source: &Agent,
+        session_info: session::Info,
+        agent_type: &AgentType,
+        agent_id: Option<u64>,
+        forward_to: u64,
+        blob: Vec<u8>,
+    ) -> Result<(), ServiceError> {
+        self.publish_with_flags(
+            source,
+            session_info,
+            agent_type,
+            agent_id,
+            AgpHeaderFlags::default().with_forward_to(forward_to),
+            blob,
+        )
+        .await
     }
 
     pub async fn publish(
@@ -440,37 +481,31 @@ impl Service {
         session_info: session::Info,
         agent_type: &AgentType,
         agent_id: Option<u64>,
-        fanout: u32,
         blob: Vec<u8>,
     ) -> Result<(), ServiceError> {
-        self.publish_to(
+        self.publish_with_flags(
             source,
             session_info,
             agent_type,
             agent_id,
-            fanout,
+            AgpHeaderFlags::default(),
             blob,
-            None,
         )
         .await
     }
 
-    #[allow(clippy::too_many_arguments)]
-    pub async fn publish_to(
+    pub async fn publish_with_flags(
         &self,
         source: &Agent,
         session_info: session::Info,
         agent_type: &AgentType,
         agent_id: Option<u64>,
-        fanout: u32,
+        flags: AgpHeaderFlags,
         blob: Vec<u8>,
-        out_conn: Option<u64>,
     ) -> Result<(), ServiceError> {
         debug!("sending publication to {}/{:?}", agent_type, agent_id);
 
-        let msg = Message::new_publish(
-            source, agent_type, agent_id, None, out_conn, fanout, "msg", blob,
-        );
+        let msg = Message::new_publish(source, agent_type, agent_id, Some(flags), "msg", blob);
 
         self.send_message(source, msg, Some(session_info)).await
     }
@@ -489,13 +524,8 @@ impl Service {
             debug!("starting message processing loop for agent {}", agent);
 
             // subscribe for local agent running this loop
-            let subscribe_msg = Message::new_subscribe(
-                &agent,
-                agent.agent_type(),
-                Some(agent.agent_id()),
-                None,
-                None,
-            );
+            let subscribe_msg =
+                Message::new_subscribe(&agent, agent.agent_type(), Some(agent.agent_id()), None);
             let tx = session_layer.tx_gw();
             tx.send(Ok(subscribe_msg))
                 .await
@@ -798,7 +828,6 @@ mod tests {
                 session_info.clone(),
                 &subscriber_agent.agent_type(),
                 Some(subscriber_agent.agent_id()),
-                1,
                 message_blob.clone(),
             )
             .await

@@ -4,6 +4,7 @@
 mod tests {
     use std::{net::SocketAddr, sync::Arc};
 
+    use agp_datapath::messages::utils::AgpHeaderFlags;
     use agp_datapath::messages::{Agent, AgentType};
     use tracing::info;
     use tracing_test::traced_test;
@@ -158,17 +159,27 @@ mod tests {
     fn make_message(org: &str, ns: &str, agent_type: &str) -> Message {
         let source = Agent::from_strings(org, ns, agent_type, 0);
         let name = AgentType::from_strings(org, ns, agent_type);
-        Message::new_subscribe(&source, &name, Some(1), None, None)
+        Message::new_subscribe(&source, &name, Some(1), None)
     }
 
     fn make_sub_from_command(org: &str, ns: &str, agent_type: &str, from_conn: u64) -> Message {
         let name = AgentType::from_strings(org, ns, agent_type);
-        Message::new_subscribe(&Agent::default(), &name, None, Some(from_conn), None)
+        Message::new_subscribe(
+            &Agent::default(),
+            &name,
+            None,
+            Some(AgpHeaderFlags::default().with_recv_from(from_conn)),
+        )
     }
 
     fn make_fwd_to_command(org: &str, ns: &str, agent_type: &str, to_conn: u64) -> Message {
         let source = Agent::from_strings(org, ns, agent_type, 0);
         let name = AgentType::from_strings(org, ns, agent_type);
-        Message::new_subscribe(&source, &name, None, None, Some(to_conn))
+        Message::new_subscribe(
+            &source,
+            &name,
+            None,
+            Some(AgpHeaderFlags::default().with_forward_to(to_conn)),
+        )
     }
 }

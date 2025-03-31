@@ -89,7 +89,7 @@ async fn main() {
         let session = res.unwrap();
 
         // publish message
-        svc.publish(&agent_name, session, &route, None, 1, msg.into())
+        svc.publish(&agent_name, session, &route, None, msg.into())
             .await
             .unwrap();
     }
@@ -106,7 +106,7 @@ async fn main() {
                 // send a message back
                 let msg = messages.pop_front();
                 if let Some(msg) = msg {
-                    svc.publish(&agent_name, msg.1, &route, None, 1, msg.0.into())
+                    svc.publish(&agent_name, msg.1, &route, None, msg.0.into())
                         .await
                         .unwrap();
                 }
