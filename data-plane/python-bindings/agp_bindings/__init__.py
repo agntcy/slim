@@ -9,7 +9,9 @@ from ._agp_bindings import (
     PyAgentType,
     PySessionInfo,
     PyFireAndForgetConfiguration,
+    PyRequestResponseConfiguration,
     create_ff_session,
+    create_rr_session,
     create_agent,
     connect,
     disconnect,
@@ -86,6 +88,21 @@ class Gateway:
         """
 
         return await create_ff_session(self.svc, session_config)
+
+    async def create_rr_session(
+        self, session_config: PyRequestResponseConfiguration = PyRequestResponseConfiguration()
+    ) -> int:
+        """
+        Create a new session.
+
+        Args:
+            session_type (PySessionType): The type of the session.
+
+        Returns:
+            ID of the session
+        """
+
+        return await create_rr_session(self.svc, session_config)
 
     async def serve(self):
         """

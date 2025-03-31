@@ -1,10 +1,12 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
+use core::error;
 use std::collections::HashMap;
 
 use rand::Rng;
 use tokio::sync::RwLock;
+use tracing::{error, warn};
 
 use crate::errors::SessionError;
 use crate::fire_and_forget;

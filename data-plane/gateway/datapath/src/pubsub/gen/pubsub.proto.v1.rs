@@ -95,13 +95,13 @@ pub mod message {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]
 pub enum SessionHeaderType {
-    Fnf = 0,
-    Request = 1,
-    Reply = 2,
-    Stream = 3,
-    RtxRequest = 4,
-    RtxReply = 5,
-    Unspecified = 6,
+    Unspecified = 0,
+    Fnf = 1,
+    Request = 2,
+    Reply = 3,
+    Stream = 4,
+    RtxRequest = 5,
+    RtxReply = 6,
 }
 impl SessionHeaderType {
     /// String value of the enum field names used in the ProtoBuf definition.
@@ -110,25 +110,25 @@ impl SessionHeaderType {
     /// (if the ProtoBuf definition does not change) and safe for programmatic use.
     pub fn as_str_name(&self) -> &'static str {
         match self {
+            Self::Unspecified => "UNSPECIFIED",
             Self::Fnf => "FNF",
             Self::Request => "REQUEST",
             Self::Reply => "REPLY",
             Self::Stream => "STREAM",
             Self::RtxRequest => "RTX_REQUEST",
             Self::RtxReply => "RTX_REPLY",
-            Self::Unspecified => "UNSPECIFIED",
         }
     }
     /// Creates an enum from field names used in the ProtoBuf definition.
     pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
         match value {
+            "UNSPECIFIED" => Some(Self::Unspecified),
             "FNF" => Some(Self::Fnf),
             "REQUEST" => Some(Self::Request),
             "REPLY" => Some(Self::Reply),
             "STREAM" => Some(Self::Stream),
             "RTX_REQUEST" => Some(Self::RtxRequest),
             "RTX_REPLY" => Some(Self::RtxReply),
-            "UNSPECIFIED" => Some(Self::Unspecified),
             _ => None,
         }
     }

@@ -91,6 +91,16 @@ impl Default for AgpHeaderFlags {
     }
 }
 
+impl Display for AgpHeaderFlags {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "fanout: {}, recv_from: {:?}, forward_to: {:?}, incoming_conn: {:?}, error: {:?}",
+            self.fanout, self.recv_from, self.forward_to, self.incoming_conn, self.error
+        )
+    }
+}
+
 impl AgpHeaderFlags {
     pub fn new(
         fanout: u32,
@@ -1089,7 +1099,7 @@ mod tests {
     #[test]
     fn test_service_type_to_int() {
         // Get total number of service types
-        let total_service_types = SessionHeaderType::Unspecified as i32;
+        let total_service_types = (SessionHeaderType::RtxReply as i32) + 1;
 
         for i in 0..total_service_types {
             // int -> ServiceType

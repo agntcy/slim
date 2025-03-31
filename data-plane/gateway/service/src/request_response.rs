@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use parking_lot::RwLock;
-use tracing::debug;
+use tracing::{debug, error};
 
 use crate::errors::SessionError;
 use crate::session::{AppChannelSender, GwChannelSender, SessionConfig};
@@ -150,22 +150,16 @@ impl Session for RequestResponse {
         mut message: SessionMessage,
         direction: MessageDirection,
     ) -> Result<(), SessionError> {
-        // set the session type
-        let header = message.message.session_header_mut();
-
-        // get session type
-        let session_type = header
-            .header_type
-            .try_into()
-            .map_err(|_| SessionError::ValidationError("unknown session type".to_string()))?;
+        // session header
+        let session_header = message.message.session_header_mut();
 
         // clone tx
         match direction {
             MessageDirection::North => {
-                match session_type {
+                match message.info.session_header_type {
                     SessionHeaderType::Reply => {
                         // this is a reply - remove the timer
-                        let message_id = header.message_id;
+                        let message_id = session_header.message_id;
                         match self.internal.timers.write().remove(&message_id) {
                             Some((timer, _message)) => {
                                 // stop the timer
@@ -180,11 +174,13 @@ impl Session for RequestResponse {
                         }
                     }
                     SessionHeaderType::Request => {
-                        // this is a request - send it to app
+                        // this is a request - set the session_type pf the session
+                        // info to reply to allow the app to reply using this session info
+                        message.info.session_header_type = SessionHeaderType::Reply;
                     }
                     _ => Err(SessionError::AppTransmission(format!(
                         "request/reply session: unsupported session type: {:?}",
-                        session_type
+                        message.info.session_header_type
                     )))?,
                 }
 
@@ -196,13 +192,25 @@ impl Session for RequestResponse {
                     .map_err(|e| SessionError::AppTransmission(e.to_string()))
             }
             MessageDirection::South => {
-                match session_type {
+                // we are sending the message over the gateway.
+                // Let's start setting the session header
+                session_header.session_id = self.internal.common.id();
+                message.info.id = self.internal.common.id();
+
+                match message.info.session_header_type {
                     SessionHeaderType::Reply => {
                         // this is a reply - make sure the message_id matches the request
                         match message.info.message_id {
                             Some(message_id) => {
-                                header.message_id = message_id;
-                                Ok(())
+                                session_header.message_id = message_id;
+                                session_header.header_type = i32::from(SessionHeaderType::Reply);
+
+                                self.internal
+                                    .common
+                                    .tx_gw_ref()
+                                    .send(Ok(message.message.clone()))
+                                    .await
+                                    .map_err(|e| SessionError::GatewayTransmission(e.to_string()))
                             }
                             None => {
                                 return Err(SessionError::GatewayTransmission(
@@ -211,15 +219,15 @@ impl Session for RequestResponse {
                             }
                         }
                     }
-                    SessionHeaderType::Request => {
-                        // this is a request - set a timer for it
-                        message.info.message_id = Some(header.message_id);
+                    _ => {
+                        // In any other case, we are sending a request
+                        // set the message id to something random
+                        session_header.message_id = rand::random::<u32>();
+                        message.info.message_id = Some(session_header.message_id);
+                        session_header.header_type = i32::from(SessionHeaderType::Request);
+
                         self.send_message_with_timer(message).await
                     }
-                    _ => Err(SessionError::AppTransmission(format!(
-                        "request/reply session: unsupported session type: {:?}",
-                        session_type
-                    ))),
                 }
             }
         }
@@ -263,15 +271,16 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_request_response_on_message() {
-        let (tx_gw, _rx_gw) = tokio::sync::mpsc::channel(1);
+    async fn test_request_response() {
+        let (tx_gw, mut rx_gw) = tokio::sync::mpsc::channel(1);
         let (tx_app, mut rx_app) = tokio::sync::mpsc::channel(1);
 
         let session_config = RequestResponseConfiguration {
             max_retries: 0,
-            timeout: std::time::Duration::from_millis(1000),
+            timeout: std::time::Duration::from_millis(100),
         };
 
+        // create a new session
         let session = RequestResponse::new(
             0,
             session_config,
@@ -280,25 +289,20 @@ mod tests {
             tx_app,
         );
 
-        let payload = vec![0x1, 0x2, 0x3, 0x4];
+        let request_msg = "thisistherequest";
+        let response_msg = "thisistheresponse";
 
-        let mut msg = ProtoMessage::new_publish(
+        let msg = ProtoMessage::new_publish(
             &Agent::from_strings("cisco", "default", "local_agent", 0),
             &AgentType::from_strings("cisco", "default", "remote_agent"),
             Some(0),
             None,
             "msg",
-            vec![0x1, 0x2, 0x3, 0x4],
+            request_msg.as_bytes().to_vec(),
         );
 
-        // set the session type to request
-        let header = msg.session_header_mut();
-        header.header_type = i32::from(SessionHeaderType::Request);
-
-        // set the session id in the message
-        header.session_id = 1;
-
-        let session_message = SessionMessage::from(msg);
+        let mut session_message = SessionMessage::from(msg);
+        session_message.info.id = session.id();
 
         // Send a message to the underlying gateway
         let res = session
@@ -307,12 +311,93 @@ mod tests {
 
         assert!(res.is_ok(), "{}", res.unwrap_err());
 
-        // we will wait for a response, but as no one is reply, we will get a timeout
-        let res = rx_app.recv().await.expect("no message received");
-        assert!(res.is_err(), "{}", res.unwrap_err());
+        // Let's receive the message and send a response back to the app
+        let msg = rx_gw
+            .recv()
+            .await
+            .expect("no message received")
+            .expect("error receiving message");
 
-        // We also should get the message back in the error
-        let err = res.unwrap_err();
+        // Make sure this is a request
+        let header = msg.session_header();
+        assert_eq!(header.header_type, i32::from(SessionHeaderType::Request));
+        assert_eq!(header.session_id, session.id());
+
+        // Create the session message starting from the received message
+        let mut session_message = SessionMessage::from(msg);
+
+        // Send a reply back to the app
+        let mut reply = ProtoMessage::new_publish(
+            &Agent::from_strings("cisco", "default", "local_agent", 0),
+            &AgentType::from_strings("cisco", "default", "remote_agent"),
+            Some(0),
+            None,
+            "msg",
+            response_msg.as_bytes().to_vec(),
+        );
+
+        // Get the reply header
+        let header = reply.session_header_mut();
+
+        // Manually set message_id and header_type as this message is not passing
+        // through the gateway
+        header.message_id = session_message.info.message_id.unwrap();
+        header.header_type = i32::from(SessionHeaderType::Reply);
+
+        // use the same session message to send the reply
+        session_message.message = reply;
+
+        // Send the message to the app
+        let res = session
+            .on_message(session_message, MessageDirection::North)
+            .await;
+        assert!(res.is_ok(), "{}", res.unwrap_err());
+
+        // The message should be received by the app
+        let res = rx_app
+            .recv()
+            .await
+            .expect("no message received")
+            .expect("error receiving message");
+
+        // Make sure this is what we sent
+        let header = res.message.session_header();
+        assert_eq!(header.header_type, i32::from(SessionHeaderType::Reply));
+        assert_eq!(header.session_id, session.id());
+
+        // Let's trigger now a timeout
+        // Send a message to the underlying gateway
+
+        let msg = ProtoMessage::new_publish(
+            &Agent::from_strings("cisco", "default", "local_agent", 0),
+            &AgentType::from_strings("cisco", "default", "remote_agent"),
+            Some(0),
+            None,
+            "msg",
+            request_msg.as_bytes().to_vec(),
+        );
+
+        let mut session_message = SessionMessage::from(msg);
+        session_message.info.id = session.id();
+
+        // Send a message to the underlying gateway
+        let res = session
+            .on_message(session_message, MessageDirection::South)
+            .await;
+
+        assert!(res.is_ok(), "{}", res.unwrap_err());
+
+        // Wait for 200ms to trigger the timeout
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+
+        // Make sure we received an error
+        let err = rx_app
+            .recv()
+            .await
+            .expect("no message received")
+            .expect_err("error receiving message");
+
+        // Make sure this is a timeout error
         match err {
             SessionError::Timeout {
                 error: _error,
@@ -324,7 +409,7 @@ mod tests {
                     .expect("error getting message")
                     .blob
                     .clone();
-                assert_eq!(blob, payload);
+                assert_eq!(blob, request_msg.as_bytes());
             }
             _ => panic!("unexpected error"),
         }

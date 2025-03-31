@@ -503,7 +503,7 @@ impl Service {
         flags: AgpHeaderFlags,
         blob: Vec<u8>,
     ) -> Result<(), ServiceError> {
-        debug!("sending publication to {}/{:?}", agent_type, agent_id);
+        debug!("sending publication to {}/{:?}. Flags: {}", agent_type, agent_id, flags);
 
         let msg = Message::new_publish(source, agent_type, agent_id, Some(flags), "msg", blob);
 

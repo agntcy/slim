@@ -9,7 +9,7 @@ use crate::errors::SessionError;
 use crate::fire_and_forget::FireAndForgetConfiguration;
 use crate::request_response::RequestResponseConfiguration;
 use agp_datapath::messages::encoder::Agent;
-use agp_datapath::pubsub::proto::pubsub::v1::Message;
+use agp_datapath::pubsub::proto::pubsub::v1::{Message, SessionHeaderType};
 
 /// Session ID
 pub type Id = u32;
@@ -68,6 +68,8 @@ pub struct Info {
     pub id: Id,
     /// The message nonce used to identify the message
     pub message_id: Option<u32>,
+    /// The Message Type
+    pub session_header_type: SessionHeaderType,
     /// The identifier of the agent that sent the message
     pub message_source: Option<Agent>,
     /// The input connection id
@@ -80,6 +82,7 @@ impl Info {
         Info {
             id,
             message_id: None,
+            session_header_type: SessionHeaderType::Unspecified,
             message_source: None,
             input_connection: None,
         }
@@ -95,10 +98,13 @@ impl From<&Message> for Info {
         let message_id = session_header.message_id;
         let message_source = message.get_source();
         let input_connection = agp_header.incoming_conn;
+        let session_header_type = session_header.header_type;
 
         Info {
             id,
             message_id: Some(message_id),
+            session_header_type: SessionHeaderType::try_from(session_header_type)
+                .unwrap_or(SessionHeaderType::Unspecified),
             message_source: Some(message_source),
             input_connection,
         }
