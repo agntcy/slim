@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::collections::HashMap;
+use std::time::Duration;
 
 use rand::Rng;
 use tokio::sync::RwLock;
@@ -16,13 +17,16 @@ use crate::session::{
 };
 
 use crate::streaming;
-use agp_datapath::messages::utils;
+use agp_datapath::messages::{utils, Agent};
 use agp_datapath::pubsub::proto::pubsub::v1::SessionHeaderType;
 
 /// SessionLayer
 pub(crate) struct SessionLayer {
     /// Session pool
     pool: RwLock<HashMap<Id, Box<dyn Session + Send + Sync>>>,
+
+    /// Name of the local agent
+    agent_name: Agent,
 
     /// ID of the local connection
     conn_id: u64,
@@ -41,12 +45,14 @@ impl std::fmt::Debug for SessionLayer {
 impl SessionLayer {
     /// Create a new session pool
     pub(crate) fn new(
+        agent_name: &Agent,
         conn_id: u64,
         tx_gw: GwChannelSender,
         tx_app: AppChannelSender,
     ) -> SessionLayer {
         SessionLayer {
             pool: RwLock::new(HashMap::new()),
+            agent_name: agent_name.clone(),
             conn_id,
             tx_gw,
             tx_app,
@@ -64,6 +70,10 @@ impl SessionLayer {
 
     pub(crate) fn conn_id(&self) -> u64 {
         self.conn_id
+    }
+
+    pub(crate) fn agent_name(&self) -> &Agent {
+        &self.agent_name
     }
 
     /// Insert a new session into the pool
@@ -241,6 +251,17 @@ impl SessionLayer {
                 )
                 .await?
             }
+            SessionHeaderType::Stream => {
+                self.create_session(
+                    SessionConfig::Streaming(streaming::StreamingConfiguration {
+                        source: self.agent_name().clone(),
+                        max_retries: Some(10),
+                        timeout: Some(Duration::from_millis(1000)),
+                    }),
+                    Some(id),
+                )
+                .await?
+            }
             _ => {
                 return Err(SessionError::SessionUnknown(
                     session_type.as_str_name().to_string(),
@@ -284,13 +305,14 @@ mod tests {
     use super::*;
     use crate::fire_and_forget::{FireAndForget, FireAndForgetConfiguration};
 
-    use agp_datapath::messages::encoder;
+    use agp_datapath::messages::encoder::{self, encode_agent};
 
     fn create_session_layer() -> SessionLayer {
         let (tx_gw, _) = tokio::sync::mpsc::channel(128);
         let (tx_app, _) = tokio::sync::mpsc::channel(128);
+        let agent = encode_agent("org", "ns", "type", 0);
 
-        SessionLayer::new(0, tx_gw, tx_app)
+        SessionLayer::new(&agent, 0, tx_gw, tx_app)
     }
 
     #[tokio::test]
@@ -304,8 +326,9 @@ mod tests {
     async fn test_insert_session() {
         let (tx_gw, _) = tokio::sync::mpsc::channel(1);
         let (tx_app, _) = tokio::sync::mpsc::channel(1);
+        let agent = encode_agent("org", "ns", "type", 0);
 
-        let session_layer = SessionLayer::new(0, tx_gw.clone(), tx_app.clone());
+        let session_layer = SessionLayer::new(&agent, 0, tx_gw.clone(), tx_app.clone());
         let session_config = FireAndForgetConfiguration {};
 
         let session = Box::new(FireAndForget::new(
@@ -324,8 +347,9 @@ mod tests {
     async fn test_remove_session() {
         let (tx_gw, _) = tokio::sync::mpsc::channel(1);
         let (tx_app, _) = tokio::sync::mpsc::channel(1);
+        let agent = encode_agent("org", "ns", "type", 0);
 
-        let session_layer = SessionLayer::new(0, tx_gw.clone(), tx_app.clone());
+        let session_layer = SessionLayer::new(&agent, 0, tx_gw.clone(), tx_app.clone());
         let session_config = FireAndForgetConfiguration {};
 
         let session = Box::new(FireAndForget::new(
@@ -346,8 +370,9 @@ mod tests {
     async fn test_create_session() {
         let (tx_gw, _) = tokio::sync::mpsc::channel(1);
         let (tx_app, _) = tokio::sync::mpsc::channel(1);
+        let agent = encode_agent("org", "ns", "type", 0);
 
-        let session_layer = SessionLayer::new(0, tx_gw.clone(), tx_app.clone());
+        let session_layer = SessionLayer::new(&agent, 0, tx_gw.clone(), tx_app.clone());
 
         let res = session_layer
             .create_session(
@@ -362,8 +387,9 @@ mod tests {
     async fn test_handle_message() {
         let (tx_gw, _) = tokio::sync::mpsc::channel(1);
         let (tx_app, mut rx_app) = tokio::sync::mpsc::channel(1);
+        let agent = encode_agent("org", "ns", "type", 0);
 
-        let session_layer = SessionLayer::new(0, tx_gw.clone(), tx_app.clone());
+        let session_layer = SessionLayer::new(&agent, 0, tx_gw.clone(), tx_app.clone());
 
         let session_config = FireAndForgetConfiguration {};
 
