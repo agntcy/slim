@@ -18,7 +18,7 @@ use producer_buffer::ProducerBuffer;
 use receiver_buffer::ReceiverBuffer;
 
 use agp_datapath::{
-    messages::utils::{get_msg_id, get_payload_from_msg},
+    messages::utils::{get_incoming_connection, get_msg_id, get_payload_from_msg},
     pubsub::proto::pubsub::v1::SessionHeaderType,
 };
 use agp_datapath::{
@@ -200,7 +200,7 @@ impl Streaming {
             }
         };
         let mut producer_name: Option<Agent> = None;
-        //let state = self.common.state().clone();
+        let mut producer_conn: Option<u64> = None;
         let mut timer_rx_closed = false;
         tokio::spawn(async move {
             debug!("starting message processing on session {}", session_id);
@@ -269,7 +269,16 @@ impl Streaming {
                                                                 continue;
                                                             }
                                                         };
-                                                        create_rtx_publication(&source, pkt_src.agent_type(), pkt_src.agent_id_option(), false, session_id, msg_rtx_id, Some(payload.to_vec()))
+
+                                                        let incoming_conn = match get_incoming_connection(&msg) {
+                                                            Ok(conn) => conn,
+                                                            Err(e) => {
+                                                                error!("error parsing packet: {}", e.to_string());
+                                                                continue;
+                                                            }
+                                                        };
+
+                                                        create_rtx_publication(&source, pkt_src.agent_type(), pkt_src.agent_id_option(), false, session_id, msg_rtx_id, incoming_conn, Some(payload.to_vec()))
                                                     }
                                                     None => {
                                                         // the packet does not exist so do nothing
@@ -361,6 +370,15 @@ impl Streaming {
                                                 }
                                             };
                                             producer_name = Some(pkt_source);
+
+                                            let incoming_conn = match get_incoming_connection(&msg) {
+                                                Ok(conn) => conn,
+                                                Err(e) => {
+                                                    error!("error parsing packet: {}", e.to_string());
+                                                    continue;
+                                                }
+                                            };
+                                            producer_conn = incoming_conn;
                                         }
 
                                         match receiver.buffer.on_received_message(msg){
@@ -385,7 +403,7 @@ impl Streaming {
                                                 for r in rtx {
                                                     debug!("send a rtx for message {} from receiver session {}", r, session_id);
                                                     let dest = producer_name.as_ref().unwrap(); // this cannot panic a this point
-                                                    let rtx = create_rtx_publication(&source, dest.agent_type(), Some(dest.agent_id()), true, session_id, r, Some(vec![]));
+                                                    let rtx = create_rtx_publication(&source, dest.agent_type(), Some(dest.agent_id()), true, session_id, r, producer_conn, Some(vec![]));
 
                                                     // set state for RTX
                                                     let timer = Timer::new(r, timeout.as_millis().try_into().unwrap(), max_retries);
@@ -773,6 +791,7 @@ mod tests {
             true,
             1,
             2,
+            Some(0),
             Some(vec![]),
         );
 

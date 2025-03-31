@@ -390,6 +390,7 @@ pub fn create_error_publication(error: String) -> ProtoMessage {
     )
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn create_rtx_publication(
     source: &Agent,
     name_type: &AgentType,
@@ -397,9 +398,10 @@ pub fn create_rtx_publication(
     is_request: bool,
     session: u32,
     msg_id: u32,
+    forward_to: Option<u64>,
     content: Option<Vec<u8>>,
 ) -> ProtoMessage {
-    let agp_header = create_agp_header(source, name_type, name_id, None, None, None, None);
+    let agp_header = create_agp_header(source, name_type, name_id, None, forward_to, None, None);
     let mut rtx_type = SessionHeaderType::RtxRequest;
     if !is_request {
         rtx_type = SessionHeaderType::RtxReply;
