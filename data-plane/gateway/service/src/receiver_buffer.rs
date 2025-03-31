@@ -65,7 +65,7 @@ impl ReceiverBuffer {
         debug!("Received message id {}", msg_id);
         // no loss detected, return message
         // if this is the first packet received (case last_sent == usize::MAX) we consider it
-        // valid one and the buffer is initilaized accordingly. in this way a stream can start from
+        // valid one and the buffer is initialized accordingly. in this way a stream can start from
         // a random number or it can be joined at any time
         if self.last_sent == usize::MAX
             || (msg_id == (self.last_sent + 1)) && (self.buffer.is_empty())

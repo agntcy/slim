@@ -132,50 +132,43 @@ impl Streaming {
     ) -> Streaming {
         let (tx, rx) = mpsc::channel(128);
         let (timer_tx, timer_rx) = mpsc::channel(128);
-        if session_direction == SessionDirection::Sender {
-            let prod = Producer {
-                buffer: ProducerBuffer::with_capacity(500),
-                next_id: 0,
-            };
-            let stream = Streaming {
-                common: Common::new(
-                    id,
-                    session_direction,
-                    SessionConfig::Streaming(session_config),
-                    tx_gw,
-                    tx_app,
-                ),
-                buffer: Arc::new(RwLock::new(Endpoint::Producer(prod))),
-                tx,
-            };
-            stream.process_message(rx, timer_rx);
-            stream
-        } else {
-            let observer = RtxTimerObserver { channel: timer_tx };
-
-            let recv = Receiver {
-                config: session_config.clone(),
-                buffer: ReceiverBuffer::default(),
-                timer_observer: Arc::new(observer),
-                rtx_map: HashMap::new(),
-                timers_map: HashMap::new(),
-            };
-
-            let stream = Streaming {
-                common: Common::new(
-                    id,
-                    session_direction,
-                    SessionConfig::Streaming(session_config),
-                    tx_gw,
-                    tx_app,
-                ),
-                buffer: Arc::new(RwLock::new(Endpoint::Receiver(recv))),
-                tx,
-            };
-
-            stream.process_message(rx, timer_rx);
-            stream
-        }
+        let buffer = match session_direction {
+            SessionDirection::Sender => {
+                let prod = Producer {
+                    buffer: ProducerBuffer::with_capacity(500),
+                    next_id: 0,
+                };
+                Arc::new(RwLock::new(Endpoint::Producer(prod)))
+            }
+            SessionDirection::Receiver => {
+                let observer = RtxTimerObserver { channel: timer_tx };
+                let recv = Receiver {
+                    config: session_config.clone(),
+                    buffer: ReceiverBuffer::default(),
+                    timer_observer: Arc::new(observer),
+                    rtx_map: HashMap::new(),
+                    timers_map: HashMap::new(),
+                };
+                Arc::new(RwLock::new(Endpoint::Receiver(recv)))
+            }
+            _ => {
+                error!("invalid session direction");
+                Arc::new(RwLock::new(Endpoint::Unknown))
+            }
+        };
+        let stream = Streaming {
+            common: Common::new(
+                id,
+                session_direction,
+                SessionConfig::Streaming(session_config),
+                tx_gw,
+                tx_app,
+            ),
+            buffer,
+            tx,
+        };
+        stream.process_message(rx, timer_rx);
+        stream
     }
 
     fn process_message(
@@ -232,7 +225,6 @@ impl Streaming {
                                                             error!("received invalid packet type on producer session {}: not RTX request", session_id);
                                                             continue;
                                                         }
-                                                        session_type
                                                     }
                                                     Err(_) => {
                                                         error!("received invalid packet type on producer session {}: missing header type", session_id);
