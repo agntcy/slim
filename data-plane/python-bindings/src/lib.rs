@@ -835,21 +835,11 @@ async fn receive_impl(svc: PyService) -> Result<(PySessionInfo, Vec<u8>), Servic
         "no local agent created".to_string(),
     ))?;
 
-    let res = rx
+    let msg = rx
         .recv()
         .await
-        .ok_or(ServiceError::ConfigError("no message received".to_string()))
+        .ok_or(ServiceError::ConfigError("no message received".to_string()))?
         .map_err(|e| ServiceError::ReceiveError(e.to_string()))?;
-
-    let msg = match res {
-        Ok(msg) => msg,
-        Err(e) => {
-            return Err(ServiceError::ReceiveError(format!(
-                "error receiving message: {}",
-                e
-            )))
-        }
-    };
 
     // extract agent and payload
     let content = match msg.message.message_type {

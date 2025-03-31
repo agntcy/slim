@@ -536,6 +536,12 @@ impl Service {
                                     }
                                     Err(e) => {
                                         error!("error receiving message: {}", e);
+
+                                        // if internal error, forward it to application
+                                        let tx_app = session_layer.tx_app();
+                                        tx_app.send(Err(errors::SessionError::Forward(e.to_string())))
+                                            .await
+                                            .expect("error sending error to application");
                                     }
                                 }
                             }

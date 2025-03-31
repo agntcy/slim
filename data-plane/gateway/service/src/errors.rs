@@ -43,6 +43,8 @@ pub enum SessionError {
     GatewayReception(String),
     #[error("error sending message to gateway: {0}")]
     GatewayTransmission(String),
+    #[error("error in message forwarding: {0}")]
+    Forward(String),
     #[error("error receiving message from app: {0}")]
     AppReception(String),
     #[error("error sending message to app: {0}")]

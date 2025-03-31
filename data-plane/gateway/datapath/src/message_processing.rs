@@ -445,9 +445,7 @@ impl MessageProcessor {
         let connection = self
             .forwarder()
             .get_connection(conn)
-            .ok_or_else(|| {
-                DataPathError::SubscriptionError("connection not found".to_string())
-            })?;
+            .ok_or_else(|| DataPathError::SubscriptionError("connection not found".to_string()))?;
 
         debug!(
             "subscription update (add = {}) for agent type: {} (agent id: {:?}) - connection: {}",
@@ -589,16 +587,23 @@ impl MessageProcessor {
         match connection {
             Some(conn) => {
                 debug!("try to notify the error to the local application");
-                let err_msg =
-                    Message::new_publish_with_error("error", err.to_string().into_bytes());
                 if let Channel::Server(tx) = conn.channel() {
-                    if tx.send(Ok(err_msg)).await.is_err() {
+                    // create Status error
+                    let status = Status::new(
+                        tonic::Code::Internal,
+                        format!("error processing message: {:?}", err),
+                    );
+
+                    if tx.send(Err(status)).await.is_err() {
                         debug!("unable to notify the error to the local app");
                     }
                 }
             }
             None => {
-                error!("connection {:?} not found", conn_index);
+                error!(
+                    "error sending error to local app: connection {:?} not found",
+                    conn_index
+                );
             }
         }
     }
@@ -676,9 +681,10 @@ impl MessageProcessor {
                                 match result {
                                     Ok(msg) => {
                                         if let Err(e) = self_clone.handle_new_message(conn_index, is_local, msg).await {
-                                            error!("error processing incoming message from connection{}: {:?}", conn_index, e);
+                                            error!(%conn_index, %e, "error processing incoming message");
                                             // If the message is coming from a local app, notify it
                                             if is_local {
+                                                // try to forward error to the local app
                                                 self_clone.send_error_to_local_app(conn_index, e).await;
                                             }
                                         }
