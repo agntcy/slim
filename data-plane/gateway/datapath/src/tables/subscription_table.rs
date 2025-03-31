@@ -398,7 +398,7 @@ fn add_subscription_to_sub_table(
 ) {
     match table.get_mut(agent.agent_type()) {
         None => {
-            let uid = *agent.agent_id();
+            let uid = agent.agent_id();
             debug!(
                 "subscription table: add first subscription for type {:?}, agent_id {:?} on connection {}",
                 agent.agent_type(), uid, conn,
@@ -411,7 +411,7 @@ fn add_subscription_to_sub_table(
             table.insert(agent.agent_type().clone(), state);
         }
         Some(state) => {
-            state.insert(*agent.agent_id(), conn, is_local);
+            state.insert(agent.agent_id(), conn, is_local);
         }
     }
 }
@@ -465,7 +465,7 @@ fn remove_subscription_from_sub_table(
             Err(SubscriptionTableError::SubscriptionNotFound)
         }
         Some(state) => {
-            state.remove(agent.agent_id(), conn_index, is_local)?;
+            state.remove(&agent.agent_id(), conn_index, is_local)?;
             // we may need to remove the state
             if state.ids.is_empty() {
                 table.remove(agent.agent_type());

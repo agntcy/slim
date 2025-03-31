@@ -4,17 +4,23 @@
 pub mod errors;
 pub mod producer_buffer;
 pub mod receiver_buffer;
+#[macro_use]
 pub mod session;
 pub mod timer;
 
 mod fire_and_forget;
+mod request_response;
 mod session_layer;
+
+pub use fire_and_forget::FireAndForgetConfiguration;
+pub use request_response::RequestResponseConfiguration;
+pub use session::SessionMessage;
 
 use agp_datapath::messages::utils;
 use agp_datapath::messages::{Agent, AgentType};
 use agp_datapath::pubsub::MessageType;
 use serde::Deserialize;
-use session::MessageDirection;
+use session::{AppChannelReceiver, MessageDirection};
 use session_layer::SessionLayer;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -179,10 +185,7 @@ impl Service {
     }
 
     // APP APIs
-    pub fn create_agent(
-        &mut self,
-        agent_name: &Agent,
-    ) -> Result<mpsc::Receiver<(Message, session::Info)>, ServiceError> {
+    pub fn create_agent(&mut self, agent_name: &Agent) -> Result<AppChannelReceiver, ServiceError> {
         // make sure the agent is not already registered
         if self.session_layers.contains_key(agent_name) {
             error!("agent {:?} already exists", agent_name);
@@ -348,8 +351,8 @@ impl Service {
     async fn send_message(
         &self,
         agent: &Agent,
-        session_id: Option<session::Id>,
         msg: Message,
+        info: Option<session::Info>,
     ) -> Result<(), ServiceError> {
         let session = match self.session_layers.get(agent) {
             None => {
@@ -359,14 +362,18 @@ impl Service {
             Some(layer) => layer,
         };
 
-        match session_id {
-            Some(id) => session
-                .handle_message(msg, MessageDirection::South, Some(id))
-                .await
-                .map_err(|e| {
-                    error!("error sending the message to session {}: {}", id, e);
-                    ServiceError::SessionSendError(e.to_string())
-                }),
+        // save session id for later use
+        match info {
+            Some(info) => {
+                let id = info.id;
+                session
+                    .handle_message(SessionMessage::from((msg, info)), MessageDirection::South)
+                    .await
+                    .map_err(|e| {
+                        error!("error sending the message to session {}: {}", id, e);
+                        ServiceError::SessionError(e.to_string())
+                    })
+            }
             None => session.tx_gw().send(Ok(msg)).await.map_err(|e| {
                 error!("error sending the subscription {}", e);
                 ServiceError::SubscriptionError(e.to_string())
@@ -384,7 +391,7 @@ impl Service {
         debug!("subscribe to {}/{:?}", agent_type, agent_id);
 
         let msg = utils::create_subscription(local_agent, agent_type, agent_id, None, conn);
-        self.send_message(local_agent, None, msg).await
+        self.send_message(local_agent, msg, None).await
     }
 
     pub async fn unsubscribe(
@@ -397,7 +404,7 @@ impl Service {
         debug!("unsubscribe from {}/{:?}", agent_type, agent_id);
 
         let msg = utils::create_unsubscription(local_agent, agent_type, agent_id, None, conn);
-        self.send_message(local_agent, None, msg).await
+        self.send_message(local_agent, msg, None).await
     }
 
     pub async fn set_route(
@@ -411,7 +418,7 @@ impl Service {
 
         // send a message with subscription from
         let msg = utils::create_subscription(local_agent, agent_type, agent_id, Some(conn), None);
-        self.send_message(local_agent, None, msg).await
+        self.send_message(local_agent, msg, None).await
     }
 
     pub async fn remove_route(
@@ -425,27 +432,35 @@ impl Service {
 
         //  send a message with unsubscription from
         let msg = utils::create_unsubscription(local_agent, agent_type, agent_id, Some(conn), None);
-        self.send_message(local_agent, None, msg).await
+        self.send_message(local_agent, msg, None).await
     }
 
     pub async fn publish(
         &self,
         source: &Agent,
-        session_id: session::Id,
+        session_info: session::Info,
         agent_type: &AgentType,
         agent_id: Option<u64>,
         fanout: u32,
         blob: Vec<u8>,
     ) -> Result<(), ServiceError> {
-        self.publish_to(source, session_id, agent_type, agent_id, fanout, blob, None)
-            .await
+        self.publish_to(
+            source,
+            session_info,
+            agent_type,
+            agent_id,
+            fanout,
+            blob,
+            None,
+        )
+        .await
     }
 
     #[allow(clippy::too_many_arguments)]
     pub async fn publish_to(
         &self,
         source: &Agent,
-        session_id: session::Id,
+        session_info: session::Info,
         agent_type: &AgentType,
         agent_id: Option<u64>,
         fanout: u32,
@@ -458,7 +473,7 @@ impl Service {
             source, agent_type, agent_id, None, out_conn, fanout, "msg", blob,
         );
 
-        self.send_message(source, Some(session_id), msg).await
+        self.send_message(source, msg, Some(session_info)).await
     }
 
     /// Receive messages from gateway and forward them to the appropriate session
@@ -478,7 +493,7 @@ impl Service {
             let subscribe_msg = utils::create_subscription(
                 &agent,
                 agent.agent_type(),
-                Some(*agent.agent_id()),
+                Some(agent.agent_id()),
                 None,
                 None,
             );
@@ -513,7 +528,7 @@ impl Service {
 
                                         // Handle the message
                                         let res = session_layer
-                                            .handle_message(msg, MessageDirection::North, None)
+                                            .handle_message(SessionMessage::from(msg), MessageDirection::North)
                                             .await;
 
                                         if let Err(e) = res {
@@ -540,8 +555,8 @@ impl Service {
     pub async fn create_session(
         &self,
         agent: &Agent,
-        session_type: session::SessionType,
-    ) -> Result<session::Id, ServiceError> {
+        session_config: session::SessionConfig,
+    ) -> Result<session::Info, ServiceError> {
         // check if agent was registered
         let layer = self.session_layers.get(agent);
 
@@ -553,10 +568,40 @@ impl Service {
         let layer = layer.unwrap();
 
         // create a new fire and forget session
-        layer.create_session(session_type, None).await.map_err(|e| {
-            error!("error creating session: {}", e);
-            ServiceError::SessionCreationError(e.to_string())
-        })
+        layer
+            .create_session(session_config, None)
+            .await
+            .map_err(|e| {
+                error!("error creating session: {}", e);
+                ServiceError::SessionError(e.to_string())
+            })
+    }
+
+    /// Set config for a session
+    pub async fn set_session_config(
+        &self,
+        agent: &Agent,
+        session_id: session::Id,
+        session_config: &session::SessionConfig,
+    ) -> Result<(), ServiceError> {
+        // check if agent was registered
+        let layer = self.session_layers.get(agent);
+
+        if layer.is_none() {
+            error!("agent {} not found", agent);
+            return Err(ServiceError::AgentNotFound(agent.to_string()));
+        }
+
+        let layer = layer.unwrap();
+
+        // set the session config
+        layer
+            .set_session_config(session_id, session_config)
+            .await
+            .map_err(|e| {
+                error!("error setting session config: {}", e);
+                ServiceError::SessionError(e.to_string())
+            })
     }
 
     /// delete a session
@@ -580,7 +625,7 @@ impl Service {
             true => Ok(()),
             false => {
                 error!("error deleting session");
-                Err(ServiceError::SessionDeletionError("unknown".to_string()))
+                Err(ServiceError::SessionError("unknown".to_string()))
             }
         }
     }
@@ -650,7 +695,7 @@ impl ComponentBuilder for ServiceBuilder {
 // tests
 #[cfg(test)]
 mod tests {
-    use crate::session::SessionType;
+    use crate::session::SessionConfig;
 
     use super::*;
     use agp_config::grpc::server::ServerConfig;
@@ -733,8 +778,11 @@ mod tests {
         // subscription is done automatically.
 
         // create a fire and forget session
-        let session_id = service
-            .create_session(&publisher_agent, SessionType::FireAndForget)
+        let session_info = service
+            .create_session(
+                &publisher_agent,
+                SessionConfig::FireAndForget(FireAndForgetConfiguration::default()),
+            )
             .await
             .unwrap();
 
@@ -743,9 +791,9 @@ mod tests {
         service
             .publish(
                 &publisher_agent,
-                session_id,
+                session_info.clone(),
                 &subscriber_agent.agent_type(),
-                Some(*subscriber_agent.agent_id()),
+                Some(subscriber_agent.agent_id()),
                 1,
                 message_blob.clone(),
             )
@@ -753,11 +801,15 @@ mod tests {
             .unwrap();
 
         // wait for the message to arrive
-        let (msg, info) = sub_rx.recv().await.unwrap();
+        let msg = sub_rx
+            .recv()
+            .await
+            .expect("no message received")
+            .expect("error");
 
         // make sure message is a publication
-        assert!(msg.message_type.is_some());
-        let publ = match msg.message_type.unwrap() {
+        assert!(msg.message.message_type.is_some());
+        let publ = match msg.message.message_type.unwrap() {
             MessageType::Publish(p) => p,
             _ => panic!("expected a publication"),
         };
@@ -766,15 +818,15 @@ mod tests {
         assert_eq!(utils::get_payload(&publ), message_blob);
 
         // make also sure the session ids correspond
-        assert_eq!(session_id, info.id);
+        assert_eq!(session_info.id, msg.info.id);
 
         // Now remove the session from the 2 agents
         service
-            .delete_session(&publisher_agent, session_id)
+            .delete_session(&publisher_agent, session_info.id)
             .await
             .unwrap();
         service
-            .delete_session(&subscriber_agent, session_id)
+            .delete_session(&subscriber_agent, session_info.id)
             .await
             .unwrap();
 

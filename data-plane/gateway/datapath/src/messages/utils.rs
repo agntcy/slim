@@ -26,18 +26,20 @@ pub enum MessageError {
     ControlHeaderNotFound,
 }
 
-// utils functions for names
-fn create_agent_name(name: &Agent) -> Option<ProtoAgent> {
-    let mut id = None;
-    if name.agent_id() != &DEFAULT_AGENT_ID {
-        id = Some(*name.agent_id())
+impl From<&Agent> for ProtoAgent {
+    fn from(agent: &Agent) -> Self {
+        let mut id = None;
+        if agent.agent_id() != DEFAULT_AGENT_ID {
+            id = Some(agent.agent_id())
+        }
+
+        Self {
+            organization: *agent.agent_type().organization(),
+            namespace: *agent.agent_type().namespace(),
+            agent_type: *agent.agent_type().agent_type(),
+            agent_id: id,
+        }
     }
-    Some(ProtoAgent {
-        organization: *name.agent_type().organization(),
-        namespace: *name.agent_type().namespace(),
-        agent_type: *name.agent_type().agent_type(),
-        agent_id: id,
-    })
 }
 
 pub fn create_agent_from_type(agent_type: &AgentType, agent_id: Option<u64>) -> Option<ProtoAgent> {
@@ -69,7 +71,7 @@ pub fn create_agp_header(
     error: Option<bool>,
 ) -> Option<AgpHeader> {
     Some(AgpHeader {
-        source: create_agent_name(source),
+        source: Some(ProtoAgent::from(source)),
         destination: create_agent_from_type(name_type, name_id),
         recv_from,
         forward_to,
@@ -173,14 +175,10 @@ pub fn get_error(msg: &ProtoMessage) -> Result<Option<bool>, MessageError> {
     }
 }
 
-pub fn get_source(msg: &ProtoMessage) -> Result<(AgentType, Option<u64>), MessageError> {
+pub fn get_source(msg: &ProtoMessage) -> Result<Agent, MessageError> {
     match get_agp_header(msg) {
         Some(header) => match header.source {
-            Some(source) => {
-                let agent_type =
-                    AgentType::new(source.organization, source.namespace, source.agent_type);
-                Ok((agent_type, source.agent_id))
-            }
+            Some(source) => Ok(Agent::from(&source)),
             None => Err(MessageError::SourceNotFound),
         },
         None => Err(MessageError::AgpHeaderNotFound),
@@ -465,9 +463,7 @@ mod tests {
         assert_eq!(None, get_recv_from(&sub).unwrap());
         assert_eq!(None, get_forward_to(&sub).unwrap());
         assert_eq!(None, get_incoming_connection(&sub).unwrap());
-        let (got_source, got_source_id) = get_source(&sub).unwrap();
-        assert_eq!(*source.agent_type(), got_source);
-        assert_eq!(Some(1), got_source_id);
+        assert_eq!(source, get_source(&sub).unwrap());
         let (got_name, got_name_id) = get_name(&sub).unwrap();
         assert_eq!(name, got_name);
         assert_eq!(Some(2), got_name_id);
@@ -487,9 +483,7 @@ mod tests {
         assert_eq!(Some(50), get_recv_from(&sub_from).unwrap());
         assert_eq!(None, get_forward_to(&sub_from).unwrap());
         assert_eq!(None, get_incoming_connection(&sub_from).unwrap());
-        let (got_source, got_source_id) = get_source(&sub_from).unwrap();
-        assert_eq!(*Agent::default().agent_type(), got_source);
-        assert_eq!(Agent::default().agent_id_option(), got_source_id);
+        assert_eq!(source, get_source(&sub).unwrap());
         let (got_name, got_name_id) = get_name(&sub_from).unwrap();
         assert_eq!(name, got_name);
         assert_eq!(Some(2), got_name_id);
@@ -501,9 +495,7 @@ mod tests {
         assert_eq!(None, get_recv_from(&sub_fwd).unwrap());
         assert_eq!(Some(30), get_forward_to(&sub_fwd).unwrap());
         assert_eq!(None, get_incoming_connection(&sub_fwd).unwrap());
-        let (got_source, got_source_id) = get_source(&sub_fwd).unwrap();
-        assert_eq!(*source.agent_type(), got_source);
-        assert_eq!(Some(1), got_source_id);
+        assert_eq!(source, get_source(&sub).unwrap());
         let (got_name, got_name_id) = get_name(&sub_fwd).unwrap();
         assert_eq!(name, got_name);
         assert_eq!(None, got_name_id);
@@ -520,9 +512,7 @@ mod tests {
         assert_eq!(Some(50), get_recv_from(&unsub_from).unwrap());
         assert_eq!(None, get_forward_to(&unsub_from).unwrap());
         assert_eq!(None, get_incoming_connection(&sub_from).unwrap());
-        let (got_source, got_source_id) = get_source(&unsub_from).unwrap();
-        assert_eq!(*Agent::default().agent_type(), got_source);
-        assert_eq!(Agent::default().agent_id_option(), got_source_id);
+        assert_eq!(source, get_source(&sub).unwrap());
         let (got_name, got_name_id) = get_name(&unsub_from).unwrap();
         assert_eq!(name, got_name);
         assert_eq!(Some(2), got_name_id);
@@ -533,9 +523,7 @@ mod tests {
         assert_eq!(None, get_recv_from(&unsub_fwd).unwrap());
         assert_eq!(Some(30), get_forward_to(&unsub_fwd).unwrap());
         assert_eq!(None, get_incoming_connection(&unsub_fwd).unwrap());
-        let (got_source, got_source_id) = get_source(&unsub_fwd).unwrap();
-        assert_eq!(*source.agent_type(), got_source);
-        assert_eq!(Some(1), got_source_id);
+        assert_eq!(source, get_source(&sub).unwrap());
         let (got_name, got_name_id) = get_name(&unsub_fwd).unwrap();
         assert_eq!(name, got_name);
         assert_eq!(None, got_name_id);
@@ -558,9 +546,7 @@ mod tests {
         assert_eq!(None, get_recv_from(&p).unwrap());
         assert_eq!(None, get_forward_to(&p).unwrap());
         assert_eq!(None, get_incoming_connection(&p).unwrap());
-        let (got_source, got_source_id) = get_source(&sub).unwrap();
-        assert_eq!(*source.agent_type(), got_source);
-        assert_eq!(Some(1), got_source_id);
+        assert_eq!(source, get_source(&sub).unwrap());
         let (got_name, got_name_id) = get_name(&sub).unwrap();
         assert_eq!(name, got_name);
         assert_eq!(Some(2), got_name_id);

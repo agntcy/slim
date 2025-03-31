@@ -7,7 +7,10 @@ use tracing::info;
 
 use agp_datapath::messages::encoder::{encode_agent, encode_agent_type};
 use agp_gw::config;
-use agp_service::session::SessionType;
+use agp_service::{
+    session::{self, SessionConfig},
+    FireAndForgetConfiguration,
+};
 
 mod args;
 
@@ -69,20 +72,21 @@ async fn main() {
     // wait for the connection to be established
     tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
 
-    let mut session = u32::MAX;
-
     // check what to do with the message
     if let Some(msg) = message {
         // create a fire and forget session
         let res = svc
-            .create_session(&agent_name, SessionType::FireAndForget)
+            .create_session(
+                &agent_name,
+                SessionConfig::FireAndForget(FireAndForgetConfiguration {}),
+            )
             .await;
         if res.is_err() {
             panic!("error creating fire and forget session");
         }
 
         // get the session
-        session = res.unwrap();
+        let session = res.unwrap();
 
         // publish message
         svc.publish(&agent_name, session, &route, None, 1, msg.into())
@@ -91,7 +95,7 @@ async fn main() {
     }
 
     // wait for messages
-    let mut messages = std::collections::VecDeque::<String>::new();
+    let mut messages = std::collections::VecDeque::<(String, session::Info)>::new();
     loop {
         tokio::select! {
             _ = agp_signal::shutdown() => {
@@ -102,7 +106,7 @@ async fn main() {
                 // send a message back
                 let msg = messages.pop_front();
                 if let Some(msg) = msg {
-                    svc.publish(&agent_name, session, &route, None, 1, msg.into())
+                    svc.publish(&agent_name, msg.1, &route, None, 1, msg.0.into())
                         .await
                         .unwrap();
                 }
@@ -112,16 +116,9 @@ async fn main() {
                     break;
                 }
 
-                let (msg, session_info) = next.unwrap();
+                let session_msg = next.unwrap().expect("error");
 
-                // make sure the session is the same
-                if session != u32::MAX && session_info.id != session {
-                    panic!("wrong session id {}", session_info.id);
-                } else {
-                    session = session_info.id;
-                }
-
-                match &msg.message_type.unwrap() {
+                match &session_msg.message.message_type.unwrap() {
                     agp_datapath::pubsub::ProtoPublishType(msg) => {
                         let payload = agp_datapath::messages::utils::get_payload(msg);
                         info!(
@@ -136,7 +133,7 @@ async fn main() {
                 }
 
                 let msg = format!("hello from the {}", local_agent);
-                messages.push_back(msg);
+                messages.push_back((msg, session_msg.info));
             }
         }
     }

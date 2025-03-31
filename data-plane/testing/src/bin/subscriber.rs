@@ -117,7 +117,7 @@ async fn main() {
             .subscribe(
                 &agent_name,
                 s.agent_type(),
-                Some(*s.agent_id()),
+                Some(s.agent_id()),
                 Some(conn_id),
             )
             .await
@@ -134,12 +134,11 @@ async fn main() {
     info!("waiting for incoming messages");
     // wait for messages
     loop {
-        let (recv_msg, session_info) = rx.recv().await.unwrap();
+        let recv_msg = rx.recv().await.unwrap().expect("error");
         let pub_id;
         let msg_len;
-        let source_type;
-        let source_id;
-        match &recv_msg.message_type {
+        let source;
+        match &recv_msg.message.message_type {
             None => {
                 panic!("message type is missing");
             }
@@ -153,13 +152,12 @@ async fn main() {
                         panic!("error parsing message, unexpected payload format");
                     }
                     pub_id = u64::from_be_bytes(payload[0..8].try_into().unwrap());
-                    (source_type, source_id) =
-                        match agp_datapath::messages::utils::get_source(&recv_msg) {
-                            Ok((source_type, source_id)) => (source_type, source_id),
-                            Err(e) => {
-                                panic!("error parsing message {}", e);
-                            }
-                        };
+                    source = match agp_datapath::messages::utils::get_source(&recv_msg.message) {
+                        Ok(s) => s,
+                        Err(e) => {
+                            panic!("error parsing message {}", e);
+                        }
+                    };
                 }
                 t => {
                     panic!("received unexpected message: {:?}", t);
@@ -183,9 +181,9 @@ async fn main() {
         // send message
         svc.publish_to(
             &agent_name,
-            session_info.id,
-            &source_type,
-            source_id,
+            recv_msg.info,
+            source.agent_type(),
+            Some(source.agent_id()),
             1,
             out_vec,
             Some(conn_id),

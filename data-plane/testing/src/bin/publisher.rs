@@ -195,7 +195,9 @@ async fn main() {
     let res = svc
         .create_session(
             &agent_name,
-            agp_service::session::SessionType::FireAndForget,
+            agp_service::session::SessionConfig::FireAndForget(
+                agp_service::FireAndForgetConfiguration {},
+            ),
         )
         .await;
     if res.is_err() {
@@ -203,7 +205,8 @@ async fn main() {
     }
 
     // get the session
-    let session_id = res.unwrap();
+    let session_info = res.unwrap();
+    let session_id = session_info.id;
 
     // start receiving loop
     let results_list = Arc::new(RwLock::new(HashMap::new()));
@@ -221,7 +224,13 @@ async fn main() {
                             break;
                         }
                         Some(msg_info) => {
-                            let (msg, session_info) = msg_info;
+                            if msg_info.is_err() {
+                                error!("error receiving message");
+                                continue;
+                            }
+
+                            let msg_info = msg_info.unwrap();
+                            let msg = msg_info.message;
 
                             // make sure the session matches
                             if session_info.id != session_id {
@@ -295,7 +304,7 @@ async fn main() {
         // send message
         // at the moment we have only one connection so we can use it to send all messages there
         // the match will be performed by the remote GW.
-        let agent_id = *p.1.agent_id();
+        let agent_id = p.1.agent_id();
         let name_id = if agent_id == 0 { None } else { Some(agent_id) };
 
         // for the moment we send the message in anycast
@@ -303,7 +312,7 @@ async fn main() {
         if svc
             .publish(
                 &agent_name,
-                session_id,
+                session_info.clone(),
                 p.1.agent_type(),
                 name_id,
                 1,

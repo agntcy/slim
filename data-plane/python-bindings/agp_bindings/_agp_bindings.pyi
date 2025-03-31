@@ -5,7 +5,7 @@ import builtins
 import typing
 from enum import Enum, auto
 
-class PyAgentClass:
+class PyAgentType:
     r"""
     agent class
     """
@@ -64,24 +64,24 @@ def create_session(svc:PyService, session_type:PySessionType) -> typing.Any:
 def disconnect(svc:PyService, conn:builtins.int) -> typing.Any:
     ...
 
-def publish(svc:PyService, session_id:builtins.int, fanout:builtins.int, blob:typing.Sequence[builtins.int], name:typing.Optional[PyAgentClass]=None, id:typing.Optional[builtins.int]=None, agent:typing.Optional[PyAgentSource]=None) -> typing.Any:
+def publish(svc:PyService, session_id:builtins.int, fanout:builtins.int, blob:typing.Sequence[builtins.int], name:typing.Optional[PyAgentType]=None, id:typing.Optional[builtins.int]=None, agent:typing.Optional[PyAgentSource]=None) -> typing.Any:
     ...
 
 def receive(svc:PyService) -> typing.Any:
     ...
 
-def remove_route(svc:PyService, conn:builtins.int, name:PyAgentClass, id:typing.Optional[builtins.int]=None) -> typing.Any:
+def remove_route(svc:PyService, conn:builtins.int, name:PyAgentType, id:typing.Optional[builtins.int]=None) -> typing.Any:
     ...
 
 def serve(svc:PyService) -> typing.Any:
     ...
 
-def set_route(svc:PyService, conn:builtins.int, name:PyAgentClass, id:typing.Optional[builtins.int]=None) -> typing.Any:
+def set_route(svc:PyService, conn:builtins.int, name:PyAgentType, id:typing.Optional[builtins.int]=None) -> typing.Any:
     ...
 
-def subscribe(svc:PyService, conn:builtins.int, name:PyAgentClass, id:typing.Optional[builtins.int]=None) -> typing.Any:
+def subscribe(svc:PyService, conn:builtins.int, name:PyAgentType, id:typing.Optional[builtins.int]=None) -> typing.Any:
     ...
 
-def unsubscribe(svc:PyService, conn:builtins.int, name:PyAgentClass, id:typing.Optional[builtins.int]=None) -> typing.Any:
+def unsubscribe(svc:PyService, conn:builtins.int, name:PyAgentType, id:typing.Optional[builtins.int]=None) -> typing.Any:
     ...
 
