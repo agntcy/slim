@@ -3,10 +3,7 @@
 
 use std::collections::HashSet;
 
-use agp_datapath::{
-    messages::utils::{get_message_as_publish, get_msg_id},
-    pubsub::proto::pubsub::v1::Message,
-};
+use agp_datapath::{messages::utils::get_msg_id, pubsub::proto::pubsub::v1::Message};
 
 use thiserror::Error;
 use tracing::{debug, error, info, trace};
@@ -17,8 +14,7 @@ pub enum ReceiverBufferError {
     ProcessingError(String),
 }
 
-#[allow(dead_code)]
-struct ReceiverBuffer {
+pub(crate) struct ReceiverBuffer {
     // ID of the last packet sent to the application
     // Init to usize max and it takes the values of the first
     // packet received in the buffer
@@ -48,114 +44,114 @@ impl Default for ReceiverBuffer {
     }
 }
 
-#[allow(dead_code)]
 impl ReceiverBuffer {
+    // returns a vec of messages to send to the application
+    // in case the vector contains a None it means that the packet is lost
+    // and cannot be recovered. the second vector contains the ids of the
+    // packets lost that requires an RTX. If both vectors are empty the
+    // caller has nothing to do
     pub fn on_received_message(
         &mut self,
         msg: Message,
-    ) -> Result<Vec<Option<Message>>, ReceiverBufferError> {
-        if let Some(publish) = get_message_as_publish(&msg) {
-            let msg_id = match get_msg_id(publish) {
-                Err(e) => {
-                    error!("the message does not contain a valid id, drop it");
-                    return Err(ReceiverBufferError::ProcessingError(e.to_string()));
-                }
-                Ok(msg_id) => msg_id as usize,
-            };
+    ) -> Result<(Vec<Option<Message>>, Vec<u32>), ReceiverBufferError> {
+        let msg_id = match get_msg_id(&msg) {
+            Err(e) => {
+                error!("the message does not contain a valid id, drop it");
+                return Err(ReceiverBufferError::ProcessingError(e.to_string()));
+            }
+            Ok(msg_id) => msg_id as usize,
+        };
 
-            debug!("Received message id {}", msg_id);
-            // no loss detected, return message
-            // if this is the first packet received (case last_sent == usize::MAX) we consider it
-            // valid one and the buffer is initilaized accordingly. in this way a stream can start from
-            // a random number or it can be joined at any time
-            if self.last_sent == usize::MAX
-                || (msg_id == (self.last_sent + 1)) && (self.buffer.is_empty())
-            {
-                debug!("No loss detected, return message {}", msg_id);
-                self.last_sent = msg_id;
-                return Ok(vec![Some(msg)]);
+        debug!("Received message id {}", msg_id);
+        // no loss detected, return message
+        // if this is the first packet received (case last_sent == usize::MAX) we consider it
+        // valid one and the buffer is initialized accordingly. in this way a stream can start from
+        // a random number or it can be joined at any time
+        if self.last_sent == usize::MAX
+            || (msg_id == (self.last_sent + 1)) && (self.buffer.is_empty())
+        {
+            debug!("No loss detected, return message {}", msg_id);
+            self.last_sent = msg_id;
+            return Ok((vec![Some(msg)], vec![]));
+        }
+
+        // the message is an OOO check what to do with the message
+        if msg_id <= self.last_sent {
+            // this message is not useful anymore because we have already sent
+            // content for this ID to the application. It can be a duplicated
+            // msg or a message that arrived too late. Log and drop
+            info!("Received possibly DUP message, drop it");
+            return Ok((vec![], vec![]));
+        }
+
+        if self.buffer.is_empty() {
+            // init the buffer and send required rtx
+            self.first_entry = 0;
+            // fill the buffer with an empty entry for each hole
+            // detected in the message stream
+            self.buffer = vec![None; msg_id - (self.last_sent + 1)];
+            debug!("Losses found, missing {} packets", self.buffer.len());
+            self.buffer.push(Some(msg));
+            let mut rtx: Vec<u32> = Vec::new();
+            for i in (self.last_sent + 1)..(msg_id) {
+                trace!("add {} to rtx vector", i);
+                rtx.push(i as u32);
             }
 
-            // the message is an OOO check what to do with the message
-            if msg_id <= self.last_sent {
-                // this message is not useful anymore because we have already sent
-                // content for this ID to the application. It can be a duplicated
-                // msg or a message that arrived too late. Log and drop
-                info!("Received possibly DUP message, drop it");
-                return Ok(vec![]);
-            }
-
-            if self.buffer.is_empty() {
-                // init the buffer and send required rtx
-                self.first_entry = 0;
-                // fill the buffer with an empty entry for each hole
-                // detected in the message stream
-                self.buffer = vec![None; msg_id - (self.last_sent + 1)];
-                debug!("Losses found, missing {} packets", self.buffer.len());
-                self.buffer.push(Some(msg));
-
-                // TODO: For each None in the buffer send an RTX
-                Ok(vec![])
-            } else {
-                debug!(
-                    "buffer is not empty and received OOO packet {}, process it",
-                    msg_id
-                );
-                trace!(
-                    "buffer status: last sent {}, first entry {}, len {}",
-                    self.last_sent,
-                    self.first_entry,
-                    self.buffer.len()
-                );
-                // check if the msg_id fits inside the buffer range
-                if msg_id <= (self.last_sent + (self.buffer.len() - self.first_entry)) {
-                    debug!(
-                        "message {} is inside the buffer range {} - {}",
-                        msg_id,
-                        (self.last_sent + 1),
-                        (self.buffer.len() - self.first_entry)
-                    );
-                    // find the position of the message in the buffer
-                    let pos = msg_id - (self.last_sent + 1) + self.first_entry;
-                    debug!("try to insert message {} at pos {}", msg_id, pos);
-                    if self.buffer[pos].is_some() {
-                        // this is a duplicate message, drop it and do nothing
-                        info!("Received DUP message, drop it");
-                        return Ok(vec![]);
-                    }
-                    debug!(
-                        "add message {} at pos {} and try to release msgs",
-                        msg_id, pos
-                    );
-                    // add the message to the buffer and check if it is possible
-                    // to send some message to the application
-                    self.buffer[pos] = Some(msg);
-
-                    // return the messages if possible
-                    Ok(self.release_msgs())
-                } else {
-                    // the message is out of the current buffer
-                    // add more entries to it and return an empty vec
-                    // the next id to add at the end of the buffer is
-                    // ((self.last_sent + 1) + (self.buffer.len() - self.first_entry))
-                    // loop up to msg_id - 1 (the last element is not in the range)
-                    for _i in
-                        ((self.last_sent + 1) + (self.buffer.len() - self.first_entry))..msg_id
-                    {
-                        self.buffer.push(None);
-                        // TODO trigger RTX for each missing ID
-                        debug!("detect packet loss to add at the end of the buffer");
-                    }
-                    debug!("add packet {} at the end of the buffer", msg_id);
-                    self.buffer.push(Some(msg));
-                    Ok(vec![])
-                }
-            }
+            Ok((vec![], rtx))
         } else {
-            error!("the message is not a valid publication, drop it");
-            Err(ReceiverBufferError::ProcessingError(
-                "wrong packet type".to_string(),
-            ))
+            debug!(
+                "buffer is not empty and received OOO packet {}, process it",
+                msg_id
+            );
+            trace!(
+                "buffer status: last sent {}, first entry {}, len {}",
+                self.last_sent,
+                self.first_entry,
+                self.buffer.len()
+            );
+            // check if the msg_id fits inside the buffer range
+            if msg_id <= (self.last_sent + (self.buffer.len() - self.first_entry)) {
+                debug!(
+                    "message {} is inside the buffer range {} - {}",
+                    msg_id,
+                    (self.last_sent + 1),
+                    (self.buffer.len() - self.first_entry)
+                );
+                // find the position of the message in the buffer
+                let pos = msg_id - (self.last_sent + 1) + self.first_entry;
+                debug!("try to insert message {} at pos {}", msg_id, pos);
+                if self.buffer[pos].is_some() {
+                    // this is a duplicate message, drop it and do nothing
+                    info!("Received DUP message, drop it");
+                    return Ok((vec![], vec![]));
+                }
+                debug!(
+                    "add message {} at pos {} and try to release msgs",
+                    msg_id, pos
+                );
+                // add the message to the buffer and check if it is possible
+                // to send some message to the application
+                self.buffer[pos] = Some(msg);
+
+                // return the messages if possible
+                Ok((self.release_msgs(), vec![]))
+            } else {
+                // the message is out of the current buffer
+                // add more entries to it and return an empty vec
+                // the next id to add at the end of the buffer is
+                // ((self.last_sent + 1) + (self.buffer.len() - self.first_entry))
+                // loop up to msg_id - 1 (the last element is not in the range)
+                let mut rtx = Vec::new();
+                for i in ((self.last_sent + 1) + (self.buffer.len() - self.first_entry))..msg_id {
+                    self.buffer.push(None);
+                    rtx.push(i as u32);
+                    debug!("detect packet loss {} to add at the end of the buffer", i);
+                }
+                debug!("add packet {} at the end of the buffer", msg_id);
+                self.buffer.push(Some(msg));
+                Ok((vec![], rtx))
+            }
         }
     }
 
@@ -252,12 +248,12 @@ mod tests {
 
         let agp_header = create_agp_header(&src, &name_type, Some(1), None, None, None, None);
 
-        let h0 = create_session_header(SessionHeaderType::Fnf.into(), 0, 0, None, None);
-        let h1 = create_session_header(SessionHeaderType::Fnf.into(), 0, 1, None, None);
-        let h2 = create_session_header(SessionHeaderType::Fnf.into(), 0, 2, None, None);
-        let h3 = create_session_header(SessionHeaderType::Fnf.into(), 0, 3, None, None);
-        let h4 = create_session_header(SessionHeaderType::Fnf.into(), 0, 4, None, None);
-        let h5 = create_session_header(SessionHeaderType::Fnf.into(), 0, 5, None, None);
+        let h0 = create_session_header(SessionHeaderType::Fnf.into(), 0, 0);
+        let h1 = create_session_header(SessionHeaderType::Fnf.into(), 0, 1);
+        let h2 = create_session_header(SessionHeaderType::Fnf.into(), 0, 2);
+        let h3 = create_session_header(SessionHeaderType::Fnf.into(), 0, 3);
+        let h4 = create_session_header(SessionHeaderType::Fnf.into(), 0, 4);
+        let h5 = create_session_header(SessionHeaderType::Fnf.into(), 0, 5);
 
         let p0 = create_publication_with_header(agp_header, h0, HashMap::new(), 1, "", vec![]);
         let p1 = create_publication_with_header(None, h1, HashMap::new(), 1, "", vec![]);
@@ -271,73 +267,84 @@ mod tests {
 
         let ret = buffer.on_received_message(p0.clone());
         assert!(ret.is_ok());
-        let vec = ret.unwrap();
-        assert_eq!(vec.len(), 1);
-        assert_eq!(vec[0], Some(p0.clone()));
+        let (recv, rtx) = ret.unwrap();
+        assert_eq!(recv.len(), 1);
+        assert_eq!(rtx.len(), 0);
+        assert_eq!(recv[0], Some(p0.clone()));
 
         let ret = buffer.on_received_message(p1.clone());
         assert!(ret.is_ok());
-        let vec = ret.unwrap();
-        assert_eq!(vec.len(), 1);
-        assert_eq!(vec[0], Some(p1.clone()));
+        let (recv, rtx) = ret.unwrap();
+        assert_eq!(recv.len(), 1);
+        assert_eq!(rtx.len(), 0);
+        assert_eq!(recv[0], Some(p1.clone()));
 
         let ret = buffer.on_received_message(p2.clone());
         assert!(ret.is_ok());
-        let vec = ret.unwrap();
-        assert_eq!(vec.len(), 1);
-        assert_eq!(vec[0], Some(p2.clone()));
+        let (recv, rtx) = ret.unwrap();
+        assert_eq!(recv.len(), 1);
+        assert_eq!(rtx.len(), 0);
+        assert_eq!(recv[0], Some(p2.clone()));
 
         let ret = buffer.on_received_message(p3.clone());
         assert!(ret.is_ok());
-        let vec = ret.unwrap();
-        assert_eq!(vec.len(), 1);
-        assert_eq!(vec[0], Some(p3.clone()));
+        let (recv, rtx) = ret.unwrap();
+        assert_eq!(recv.len(), 1);
+        assert_eq!(rtx.len(), 0);
+        assert_eq!(recv[0], Some(p3.clone()));
 
         let ret = buffer.on_received_message(p4.clone());
         assert!(ret.is_ok());
-        let vec = ret.unwrap();
-        assert_eq!(vec.len(), 1);
-        assert_eq!(vec[0], Some(p4.clone()));
+        let (recv, rtx) = ret.unwrap();
+        assert_eq!(recv.len(), 1);
+        assert_eq!(rtx.len(), 0);
+        assert_eq!(recv[0], Some(p4.clone()));
 
         // insert in order but skip first packets
         let mut buffer = ReceiverBuffer::default();
 
         let ret = buffer.on_received_message(p2.clone());
         assert!(ret.is_ok());
-        let vec = ret.unwrap();
-        assert_eq!(vec.len(), 1);
-        assert_eq!(vec[0], Some(p2.clone()));
+        let (recv, rtx) = ret.unwrap();
+        assert_eq!(recv.len(), 1);
+        assert_eq!(rtx.len(), 0);
+        assert_eq!(recv[0], Some(p2.clone()));
 
         let ret = buffer.on_received_message(p3.clone());
         assert!(ret.is_ok());
-        let vec = ret.unwrap();
-        assert_eq!(vec.len(), 1);
-        assert_eq!(vec[0], Some(p3.clone()));
+        let (recv, rtx) = ret.unwrap();
+        assert_eq!(recv.len(), 1);
+        assert_eq!(rtx.len(), 0);
+        assert_eq!(recv[0], Some(p3.clone()));
 
         let ret = buffer.on_received_message(p4.clone());
         assert!(ret.is_ok());
-        let vec = ret.unwrap();
-        assert_eq!(vec.len(), 1);
-        assert_eq!(vec[0], Some(p4.clone()));
+        let (recv, rtx) = ret.unwrap();
+        assert_eq!(recv.len(), 1);
+        assert_eq!(rtx.len(), 0);
+        assert_eq!(recv[0], Some(p4.clone()));
 
         // receive DUP packets and old packets
         let mut buffer = ReceiverBuffer::default();
 
         let ret = buffer.on_received_message(p4.clone());
         assert!(ret.is_ok());
-        let vec = ret.unwrap();
-        assert_eq!(vec.len(), 1);
-        assert_eq!(vec[0], Some(p4.clone()));
+        let (recv, rtx) = ret.unwrap();
+        assert_eq!(recv.len(), 1);
+        assert_eq!(rtx.len(), 0);
+        assert_eq!(recv[0], Some(p4.clone()));
 
         let ret = buffer.on_received_message(p4.clone());
         assert!(ret.is_ok());
-        let vec = ret.unwrap();
-        assert_eq!(vec.len(), 0);
+        let (recv, rtx) = ret.unwrap();
+        assert_eq!(recv.len(), 0);
+        assert_eq!(rtx.len(), 0);
 
         let ret = buffer.on_received_message(p0.clone());
         assert!(ret.is_ok());
-        let vec = ret.unwrap();
-        assert_eq!(vec.len(), 0);
+        let (recv, rtx) = ret.unwrap();
+        assert_eq!(recv.len(), 0);
+        assert_eq!(rtx.len(), 0);
 
         // insertion order 1, 4, 4, 2, 2, 3
         let mut buffer = ReceiverBuffer::default();
@@ -345,42 +352,50 @@ mod tests {
         // release 1
         let ret = buffer.on_received_message(p1.clone());
         assert!(ret.is_ok());
-        let vec = ret.unwrap();
-        assert_eq!(vec.len(), 1);
-        assert_eq!(vec[0], Some(p1.clone()));
+        let (recv, rtx) = ret.unwrap();
+        assert_eq!(recv.len(), 1);
+        assert_eq!(rtx.len(), 0);
+        assert_eq!(recv[0], Some(p1.clone()));
 
-        // detect loss for 2 and 3, return nothing
+        // detect loss for 2 and 3
         let ret = buffer.on_received_message(p4.clone());
         assert!(ret.is_ok());
-        let vec = ret.unwrap();
-        assert_eq!(vec.len(), 0);
+        let (recv, rtx) = ret.unwrap();
+        assert_eq!(recv.len(), 0);
+        assert_eq!(rtx.len(), 2);
+        assert_eq!(rtx[0], 2);
+        assert_eq!(rtx[1], 3);
 
         // DUP packet, return nothing
         let ret = buffer.on_received_message(p4.clone());
         assert!(ret.is_ok());
-        let vec = ret.unwrap();
-        assert_eq!(vec.len(), 0);
+        let (recv, rtx) = ret.unwrap();
+        assert_eq!(recv.len(), 0);
+        assert_eq!(rtx.len(), 0);
 
         // release packet 2
         let ret = buffer.on_received_message(p2.clone());
         assert!(ret.is_ok());
-        let vec = ret.unwrap();
-        assert_eq!(vec.len(), 1);
-        assert_eq!(vec[0], Some(p2.clone()));
+        let (recv, rtx) = ret.unwrap();
+        assert_eq!(recv.len(), 1);
+        assert_eq!(rtx.len(), 0);
+        assert_eq!(recv[0], Some(p2.clone()));
 
         // Old packet, return nothing
         let ret = buffer.on_received_message(p2.clone());
         assert!(ret.is_ok());
-        let vec = ret.unwrap();
-        assert_eq!(vec.len(), 0);
+        let (recv, rtx) = ret.unwrap();
+        assert_eq!(recv.len(), 0);
+        assert_eq!(rtx.len(), 0);
 
         // release packet 3 and 4
         let ret = buffer.on_received_message(p3.clone());
         assert!(ret.is_ok());
-        let vec = ret.unwrap();
-        assert_eq!(vec.len(), 2);
-        assert_eq!(vec[0], Some(p3.clone()));
-        assert_eq!(vec[1], Some(p4.clone()));
+        let (recv, rtx) = ret.unwrap();
+        assert_eq!(recv.len(), 2);
+        assert_eq!(rtx.len(), 0);
+        assert_eq!(recv[0], Some(p3.clone()));
+        assert_eq!(recv[1], Some(p4.clone()));
 
         // insertion order 0, 2, 5, 2, 3, 4, 1
         let mut buffer = ReceiverBuffer::default();
@@ -388,50 +403,60 @@ mod tests {
         // release 0
         let ret = buffer.on_received_message(p0.clone());
         assert!(ret.is_ok());
-        let vec = ret.unwrap();
-        assert_eq!(vec.len(), 1);
-        assert_eq!(vec[0], Some(p0.clone()));
+        let (recv, rtx) = ret.unwrap();
+        assert_eq!(recv.len(), 1);
+        assert_eq!(rtx.len(), 0);
+        assert_eq!(recv[0], Some(p0.clone()));
 
-        // detect loss for 1 and return nothing
+        // detect loss for 1
         let ret = buffer.on_received_message(p2.clone());
         assert!(ret.is_ok());
-        let vec = ret.unwrap();
-        assert_eq!(vec.len(), 0);
+        let (recv, rtx) = ret.unwrap();
+        assert_eq!(recv.len(), 0);
+        assert_eq!(rtx.len(), 1);
+        assert_eq!(rtx[0], 1);
 
-        // detect loss for 3 and 4 and return nothing
+        // detect loss for 3 and 4
         let ret = buffer.on_received_message(p5.clone());
         assert!(ret.is_ok());
-        let vec = ret.unwrap();
-        assert_eq!(vec.len(), 0);
+        let (recv, rtx) = ret.unwrap();
+        assert_eq!(recv.len(), 0);
+        assert_eq!(rtx.len(), 2);
+        assert_eq!(rtx[0], 3);
+        assert_eq!(rtx[1], 4);
 
         // dup 2 return nothing
         let ret = buffer.on_received_message(p2.clone());
         assert!(ret.is_ok());
-        let vec = ret.unwrap();
-        assert_eq!(vec.len(), 0);
+        let (recv, rtx) = ret.unwrap();
+        assert_eq!(recv.len(), 0);
+        assert_eq!(rtx.len(), 0);
 
-        // add 3 to the buffer, return nothing
+        // add 3 to the buffer
         let ret = buffer.on_received_message(p3.clone());
         assert!(ret.is_ok());
-        let vec = ret.unwrap();
-        assert_eq!(vec.len(), 0);
+        let (recv, rtx) = ret.unwrap();
+        assert_eq!(recv.len(), 0);
+        assert_eq!(rtx.len(), 0);
 
-        // add 4 to the buffer, return nothing
+        // add 4 to the buffer
         let ret = buffer.on_received_message(p4.clone());
         assert!(ret.is_ok());
-        let vec = ret.unwrap();
-        assert_eq!(vec.len(), 0);
+        let (recv, rtx) = ret.unwrap();
+        assert_eq!(recv.len(), 0);
+        assert_eq!(rtx.len(), 0);
 
         // release 1, 2, 3, 4, 5
         let ret = buffer.on_received_message(p1.clone());
         assert!(ret.is_ok());
-        let vec = ret.unwrap();
-        assert_eq!(vec.len(), 5);
-        assert_eq!(vec[0], Some(p1.clone()));
-        assert_eq!(vec[1], Some(p2.clone()));
-        assert_eq!(vec[2], Some(p3.clone()));
-        assert_eq!(vec[3], Some(p4.clone()));
-        assert_eq!(vec[4], Some(p5.clone()));
+        let (recv, rtx) = ret.unwrap();
+        assert_eq!(recv.len(), 5);
+        assert_eq!(rtx.len(), 0);
+        assert_eq!(recv[0], Some(p1.clone()));
+        assert_eq!(recv[1], Some(p2.clone()));
+        assert_eq!(recv[2], Some(p3.clone()));
+        assert_eq!(recv[3], Some(p4.clone()));
+        assert_eq!(recv[4], Some(p5.clone()));
 
         // insertion order 0, 2, 4, loss(1), 5, loss(3)
         let mut buffer = ReceiverBuffer::default();
@@ -439,43 +464,49 @@ mod tests {
         // release 0
         let ret = buffer.on_received_message(p0.clone());
         assert!(ret.is_ok());
-        let vec = ret.unwrap();
-        assert_eq!(vec.len(), 1);
-        assert_eq!(vec[0], Some(p0.clone()));
+        let (recv, rtx) = ret.unwrap();
+        assert_eq!(recv.len(), 1);
+        assert_eq!(rtx.len(), 0);
+        assert_eq!(recv[0], Some(p0.clone()));
 
-        // detect loss for 1 and return nothing
+        // detect loss for 1
         let ret = buffer.on_received_message(p2.clone());
         assert!(ret.is_ok());
-        let vec = ret.unwrap();
-        assert_eq!(vec.len(), 0);
+        let (recv, rtx) = ret.unwrap();
+        assert_eq!(recv.len(), 0);
+        assert_eq!(rtx.len(), 1);
+        assert_eq!(rtx[0], 1);
 
-        // detect loss for 3 and return nothing
+        // detect loss for 3
         let ret = buffer.on_received_message(p4.clone());
         assert!(ret.is_ok());
-        let vec = ret.unwrap();
-        assert_eq!(vec.len(), 0);
+        let (recv, rtx) = ret.unwrap();
+        assert_eq!(recv.len(), 0);
+        assert_eq!(rtx.len(), 1);
+        assert_eq!(rtx[0], 3);
 
         // 1 is lost, return up to 2
         let ret = buffer.on_lost_message(1);
         assert!(ret.is_ok());
-        let vec = ret.unwrap();
-        assert_eq!(vec.len(), 2);
-        assert_eq!(vec[0], None);
-        assert_eq!(vec[1], Some(p2.clone()));
+        let recv = ret.unwrap();
+        assert_eq!(recv.len(), 2);
+        assert_eq!(recv[0], None);
+        assert_eq!(recv[1], Some(p2.clone()));
 
-        // 5 is lost return nothing
+        // 5 is lost
         let ret = buffer.on_lost_message(5);
         assert!(ret.is_ok());
-        let vec = ret.unwrap();
-        assert_eq!(vec.len(), 0);
+        let recv = ret.unwrap();
+        assert_eq!(recv.len(), 0);
 
         // add 3, return up to 5
         let ret = buffer.on_received_message(p3.clone());
         assert!(ret.is_ok());
-        let vec = ret.unwrap();
-        assert_eq!(vec.len(), 3);
-        assert_eq!(vec[0], Some(p3.clone()));
-        assert_eq!(vec[1], Some(p4.clone()));
-        assert_eq!(vec[2], None);
+        let (recv, rtx) = ret.unwrap();
+        assert_eq!(recv.len(), 3);
+        assert_eq!(rtx.len(), 0);
+        assert_eq!(recv[0], Some(p3.clone()));
+        assert_eq!(recv[1], Some(p4.clone()));
+        assert_eq!(recv[2], None);
     }
 }
