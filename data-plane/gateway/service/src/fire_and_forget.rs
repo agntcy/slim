@@ -95,7 +95,10 @@ delegate_common_behavior!(FireAndForget, common);
 #[cfg(test)]
 mod tests {
     use super::*;
-    use agp_datapath::{messages::{Agent, AgentType}, pubsub::ProtoMessage};
+    use agp_datapath::{
+        messages::{Agent, AgentType},
+        pubsub::ProtoMessage,
+    };
 
     #[tokio::test]
     async fn test_fire_and_forget_create() {

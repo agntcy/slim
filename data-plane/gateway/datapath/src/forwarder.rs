@@ -174,7 +174,8 @@ mod tests {
             fwd.on_publish_msg_match(agent_class.clone(), Some(2), 100, 1),
             Err(SubscriptionTableError::NoMatch(format!(
                 "{}, {:?}",
-                agent_class, Some(2)
+                agent_class,
+                Some(2)
             )))
         );
 

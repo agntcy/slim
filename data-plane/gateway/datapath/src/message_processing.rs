@@ -475,13 +475,16 @@ impl MessageProcessor {
 
                 // send message
                 match self.send_msg(msg, out_conn).await {
-                    Ok(_) => Ok(self.forwarder().on_forwarded_subscription(
-                        source_agent,
-                        agent_type,
-                        agent_id,
-                        out_conn,
-                        add,
-                    )),
+                    Ok(_) => {
+                        self.forwarder().on_forwarded_subscription(
+                            source_agent,
+                            agent_type,
+                            agent_id,
+                            out_conn,
+                            add,
+                        );
+                        Ok(())
+                    }
                     Err(e) => Err(DataPathError::UnsubscriptionError(e.to_string())),
                 }
             }

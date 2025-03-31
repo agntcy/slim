@@ -729,7 +729,8 @@ mod tests {
             t.match_all(agent_type1.clone(), None, 1),
             Err(SubscriptionTableError::NoMatch(format!(
                 "{}, {:?}",
-                agent_type1, Option::<u64>::None
+                agent_type1,
+                Option::<u64>::None
             )))
         );
 
@@ -821,7 +822,8 @@ mod tests {
             t.match_one(agent_type1.clone(), Some(1), 100),
             Err(SubscriptionTableError::NoMatch(format!(
                 "{}, {:?}",
-                agent_type1, Some(1)
+                agent_type1,
+                Some(1)
             )))
         );
         assert_eq!(

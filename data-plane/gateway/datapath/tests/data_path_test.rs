@@ -151,8 +151,7 @@ mod tests {
         tx.send(Ok(fwd_to)).await.unwrap();
 
         tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
-        let expected_msg =
-            "forward subscription (add = true) to 0";
+        let expected_msg = "forward subscription (add = true) to 0";
         assert!(logs_contain(&expected_msg));
     }
 

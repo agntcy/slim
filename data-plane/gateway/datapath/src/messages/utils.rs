@@ -53,7 +53,7 @@ impl From<(&AgentType, Option<u64>)> for ProtoAgent {
             organization: agent_type.organization(),
             namespace: agent_type.namespace(),
             agent_type: agent_type.agent_type(),
-            agent_id: agent_id,
+            agent_id,
         }
     }
 }
@@ -69,6 +69,46 @@ impl Display for MessageType {
     }
 }
 
+/// Struct grouping the AGPHeaeder flags for convenience
+#[derive(Debug, Clone)]
+pub struct AgpHeaderFlags {
+    pub fanout: u32,
+    pub recv_from: Option<u64>,
+    pub forward_to: Option<u64>,
+    pub incoming_conn: Option<u64>,
+    pub error: Option<bool>,
+}
+
+impl Default for AgpHeaderFlags {
+    fn default() -> Self {
+        Self {
+            fanout: 1,
+            recv_from: None,
+            forward_to: None,
+            incoming_conn: None,
+            error: None,
+        }
+    }
+}
+
+impl AgpHeaderFlags {
+    pub fn new(
+        fanout: u32,
+        recv_from: Option<u64>,
+        forward_to: Option<u64>,
+        incoming_conn: Option<u64>,
+        error: Option<bool>,
+    ) -> Self {
+        Self {
+            fanout,
+            recv_from,
+            forward_to,
+            incoming_conn,
+            error,
+        }
+    }
+}
+
 /// AGP Header
 /// This header is used to identify the source and destination of the message
 /// and to manage the connections used to send and receive the message
@@ -77,18 +117,18 @@ impl AgpHeader {
         source: &Agent,
         name_type: &AgentType,
         name_id: Option<u64>,
-        recv_from: Option<u64>,
-        forward_to: Option<u64>,
-        incoming_conn: Option<u64>,
-        error: Option<bool>,
+        flags: Option<AgpHeaderFlags>,
     ) -> Self {
+        let flags = flags.unwrap_or(AgpHeaderFlags::default());
+
         Self {
             source: Some(ProtoAgent::from(source)),
             destination: Some(ProtoAgent::from((name_type, name_id))),
-            recv_from,
-            forward_to,
-            incoming_conn,
-            error,
+            fanout: flags.fanout,
+            recv_from: flags.recv_from,
+            forward_to: flags.forward_to,
+            incoming_conn: flags.incoming_conn,
+            error: flags.error,
         }
     }
 
@@ -127,6 +167,10 @@ impl AgpHeader {
         }
     }
 
+    pub fn get_fanout(&self) -> u32 {
+        self.fanout
+    }
+
     pub fn set_recv_from(&mut self, recv_from: Option<u64>) {
         self.recv_from = recv_from;
     }
@@ -145,6 +189,10 @@ impl AgpHeader {
 
     pub fn set_error_flag(&mut self, error: Option<bool>) {
         self.error = error;
+    }
+
+    pub fn set_fanout(&mut self, fanout: u32) {
+        self.fanout = fanout;
     }
 
     // returns the connection to use to process correctly the message
@@ -248,12 +296,9 @@ impl ProtoSubscribe {
         source: &Agent,
         agent_type: &AgentType,
         agent_id: Option<u64>,
-        recv_from: Option<u64>,
-        forward_to: Option<u64>,
+        flags: Option<AgpHeaderFlags>,
     ) -> Self {
-        let header = Some(AgpHeader::new(
-            source, agent_type, agent_id, recv_from, forward_to, None, None,
-        ));
+        let header = Some(AgpHeader::new(source, agent_type, agent_id, flags));
 
         Self::with_header(header)
     }
@@ -280,12 +325,9 @@ impl ProtoUnsubscribe {
         source: &Agent,
         agent_type: &AgentType,
         agent_id: Option<u64>,
-        recv_from: Option<u64>,
-        forward_to: Option<u64>,
+        flags: Option<AgpHeaderFlags>,
     ) -> Self {
-        let header = Some(AgpHeader::new(
-            source, agent_type, agent_id, recv_from, forward_to, None, None,
-        ));
+        let header = Some(AgpHeader::new(source, agent_type, agent_id, flags));
 
         Self::with_header(header)
     }
@@ -307,13 +349,11 @@ impl ProtoPublish {
     pub fn with_header(
         header: Option<AgpHeader>,
         session: Option<SessionHeader>,
-        fanout: u32,
         payload: Option<Content>,
     ) -> Self {
         ProtoPublish {
             header,
             control: session,
-            fanout: fanout,
             msg: payload,
         }
     }
@@ -322,15 +362,11 @@ impl ProtoPublish {
         source: &Agent,
         agent_type: &AgentType,
         agent_id: Option<u64>,
-        recv_from: Option<u64>,
-        forward_to: Option<u64>,
-        fanout: u32,
+        flags: Option<AgpHeaderFlags>,
         content_type: &str,
         blob: Vec<u8>,
     ) -> Self {
-        let agp_header = Some(AgpHeader::new(
-            source, agent_type, agent_id, recv_from, forward_to, None, None,
-        ));
+        let agp_header = Some(AgpHeader::new(source, agent_type, agent_id, flags));
 
         let session_header = Some(SessionHeader::default());
 
@@ -339,7 +375,7 @@ impl ProtoPublish {
             blob,
         });
 
-        Self::with_header(agp_header, session_header, fanout, msg)
+        Self::with_header(agp_header, session_header, msg)
     }
 
     pub fn get_agp_header(&self) -> &AgpHeader {
@@ -387,10 +423,9 @@ impl ProtoMessage {
         source: &Agent,
         agent_type: &AgentType,
         agent_id: Option<u64>,
-        recv_from: Option<u64>,
-        forward_to: Option<u64>,
+        flags: Option<AgpHeaderFlags>,
     ) -> Self {
-        let subscribe = ProtoSubscribe::new(source, agent_type, agent_id, recv_from, forward_to);
+        let subscribe = ProtoSubscribe::new(source, agent_type, agent_id, flags);
 
         Self::new(HashMap::new(), ProtoSubscribeType(subscribe))
     }
@@ -399,11 +434,9 @@ impl ProtoMessage {
         source: &Agent,
         agent_type: &AgentType,
         agent_id: Option<u64>,
-        recv_from: Option<u64>,
-        forward_to: Option<u64>,
+        flags: Option<AgpHeaderFlags>,
     ) -> Self {
-        let unsubscribe =
-            ProtoUnsubscribe::new(source, agent_type, agent_id, recv_from, forward_to);
+        let unsubscribe = ProtoUnsubscribe::new(source, agent_type, agent_id, flags);
 
         Self::new(HashMap::new(), ProtoUnsubscribeType(unsubscribe))
     }
@@ -412,39 +445,11 @@ impl ProtoMessage {
         source: &Agent,
         agent_type: &AgentType,
         agent_id: Option<u64>,
-        recv_from: Option<u64>,
-        forward_to: Option<u64>,
-        fanout: u32,
+        flags: Option<AgpHeaderFlags>,
         content_type: &str,
         blob: Vec<u8>,
     ) -> Self {
-        let publish = ProtoPublish::new(
-            source,
-            agent_type,
-            agent_id,
-            recv_from,
-            forward_to,
-            fanout,
-            content_type,
-            blob,
-        );
-
-        Self::new(HashMap::new(), ProtoPublishType(publish))
-    }
-
-    pub fn new_publish_with_error(content_type: &str, payload: Vec<u8>) -> Self {
-        let mut header = AgpHeader::default();
-        header.error = Some(true);
-
-        let publish = ProtoPublish::with_header(
-            Some(header),
-            None,
-            1,
-            Some(Content {
-                content_type: content_type.to_string(),
-                blob: payload,
-            }),
-        );
+        let publish = ProtoPublish::new(source, agent_type, agent_id, flags, content_type, blob);
 
         Self::new(HashMap::new(), ProtoPublishType(publish))
     }
@@ -452,14 +457,12 @@ impl ProtoMessage {
     pub fn new_publish_with_headers(
         agp_header: Option<AgpHeader>,
         session_header: Option<SessionHeader>,
-        fanout: u32,
         content_type: &str,
         blob: Vec<u8>,
     ) -> Self {
         let publish = ProtoPublish::with_header(
             agp_header,
             session_header,
-            fanout,
             Some(Content {
                 content_type: content_type.to_string(),
                 blob,
@@ -588,12 +591,7 @@ impl ProtoMessage {
     }
 
     pub fn get_fanout(&self) -> u32 {
-        match &self.message_type {
-            Some(ProtoPublishType(p)) => p.fanout,
-            Some(ProtoSubscribeType(_)) => panic!("fanout not found"),
-            Some(ProtoUnsubscribeType(_)) => panic!("fanout not found"),
-            None => panic!("message type not found"),
-        }
+        self.agp_header().get_fanout()
     }
 
     pub fn recv_from(&self) -> Option<u64> {
@@ -613,7 +611,7 @@ impl ProtoMessage {
     }
 
     pub fn get_name(&self) -> (AgentType, Option<u64>) {
-        return self.agp_header().get_dst();
+        self.agp_header().get_dst()
     }
 
     pub fn get_type(&self) -> &MessageType {
@@ -648,24 +646,15 @@ impl ProtoMessage {
     }
 
     pub fn is_publish(&self) -> bool {
-        match &self.get_type() {
-            MessageType::Publish(_) => true,
-            _ => false,
-        }
+        matches!(self.get_type(), MessageType::Publish(_))
     }
 
     pub fn is_subscribe(&self) -> bool {
-        match &self.get_type() {
-            MessageType::Subscribe(_) => true,
-            _ => false,
-        }
+        matches!(self.get_type(), MessageType::Subscribe(_))
     }
 
     pub fn is_unsubscribe(&self) -> bool {
-        match &self.get_type() {
-            MessageType::Unsubscribe(_) => true,
-            _ => false,
-        }
+        matches!(self.get_type(), MessageType::Unsubscribe(_))
     }
 }
 

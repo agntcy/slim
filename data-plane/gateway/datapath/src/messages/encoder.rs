@@ -44,11 +44,7 @@ impl AgentType {
         }
     }
 
-    pub fn from_strings(
-        organization: &str,
-        namespace: &str,
-        agent_type: &str,
-    ) -> Self {
+    pub fn from_strings(organization: &str, namespace: &str, agent_type: &str) -> Self {
         Self {
             organization: calculate_hash(organization),
             namespace: calculate_hash(namespace),
