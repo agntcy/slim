@@ -14,7 +14,7 @@ message Unsubscribe { AGPHeader header = 1; }
 
 message Publish {
   AGPHeader header = 1;
-  SessionHeader control = 2;
+  SessionHeader session = 2;
   Content msg = 4;
 }
 
@@ -55,26 +55,13 @@ enum SessionHeaderType {
 // REQUEST = nonce
 // REPLY = nonce of the associated REQUEST
 // STREAM = sequential incremental ID
-// RTX_REQUEST = nonce
-// RTX_REPLY = nonce of the associated RTX_REQUEST
-
-// Session.stream meaning according to the SessionHeaderType
-// STREAM = stream for which the id field is valid
-// RTX_REQUEST = stream for this RTX_REQUEST
-// RTX_REPLY = same as the on in the associated RTX_REQUEST
-// None in all the other cases
-
-// Session.rtx meaning according to SessionHeaderType
-// RTX_REQUEST = id of the missing packet to retransmit
-// RTX_REPLY = id of the retransmitted packet
-// None in all the other cases
+// RTX_REQUEST = ID of the lost packet
+// RTX_REPLY = ID of the retransmitted packet
 
 message SessionHeader {
   SessionHeaderType header_type = 1;
   uint32 session_id = 2;
   uint32 message_id = 3;
-  optional uint32 stream = 4;
-  optional uint32 rtx = 5;
 }
 
 message Content {

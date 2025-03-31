@@ -132,6 +132,7 @@ pub(crate) enum MessageDirection {
 pub enum SessionConfig {
     FireAndForget(FireAndForgetConfiguration),
     RequestResponse(RequestResponseConfiguration),
+    Streaming(StreamingConfiguration),
 }
 
 impl std::fmt::Display for SessionConfig {
@@ -139,6 +140,7 @@ impl std::fmt::Display for SessionConfig {
         match self {
             SessionConfig::FireAndForget(ff) => write!(f, "{}", ff),
             SessionConfig::RequestResponse(rr) => write!(f, "{}", rr),
+            SessionConfig::Streaming(s) => write!(f, "{}", s),
         }
     }
 }

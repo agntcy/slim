@@ -3,6 +3,11 @@
 
 use std::sync::Arc;
 
+<<<<<<< HEAD
+=======
+use agp_datapath::messages::utils::get_error;
+use agp_datapath::messages::utils::get_payload;
+>>>>>>> main
 use pyo3::exceptions::PyException;
 use pyo3::prelude::*;
 use pyo3_stub_gen::define_stub_info_gatherer;
@@ -19,8 +24,12 @@ use agp_config::grpc::{
     server::AuthenticationConfig as ServerAuthenticationConfig, server::ServerConfig,
 };
 use agp_config::tls::{client::TlsClientConfig, server::TlsServerConfig};
+<<<<<<< HEAD
 use agp_datapath::messages::encoder::{Agent, AgentType};
 use agp_datapath::messages::utils::AgpHeaderFlags;
+=======
+use agp_datapath::messages::encoder::{encode_agent, encode_agent_type, Agent, AgentType};
+>>>>>>> main
 use agp_service::session;
 use agp_service::{Service, ServiceError};
 
@@ -267,6 +276,18 @@ impl Into<AgentType> for PyAgentType {
 impl Into<AgentType> for &PyAgentType {
     fn into(self) -> AgentType {
         AgentType::from_strings(&self.organization, &self.namespace, &self.agent_type)
+    }
+}
+
+impl Into<AgentType> for PyAgentType {
+    fn into(self) -> AgentType {
+        encode_agent_type(&self.organization, &self.namespace, &self.class)
+    }
+}
+
+impl Into<AgentType> for &PyAgentType {
+    fn into(self) -> AgentType {
+        encode_agent_type(&self.organization, &self.namespace, &self.class)
     }
 }
 
@@ -788,7 +809,19 @@ async fn publish_impl(
         Some(agent) => {
             service
                 .service
+<<<<<<< HEAD
                 .publish_with_flags(agent, session_info, &agent_type, agent_id, flags, blob)
+=======
+                .publish_to(
+                    agent,
+                    session_info,
+                    &agent_type,
+                    agent_id,
+                    fanout,
+                    blob,
+                    conn_out,
+                )
+>>>>>>> main
                 .await
         }
         None => Err(ServiceError::AgentNotFound(
@@ -830,16 +863,54 @@ async fn receive_impl(svc: PyService) -> Result<(PySessionInfo, Vec<u8>), Servic
         "no local agent created".to_string(),
     ))?;
 
+<<<<<<< HEAD
     let msg = rx
+=======
+    let res = rx
+>>>>>>> main
         .recv()
         .await
         .ok_or(ServiceError::ConfigError("no message received".to_string()))?
         .map_err(|e| ServiceError::ReceiveError(e.to_string()))?;
 
+<<<<<<< HEAD
     // extract agent and payload
     let content = match msg.message.message_type {
         Some(ref msg_type) => match msg_type {
             agp_datapath::pubsub::ProtoPublishType(publish) => &publish.get_payload().blob,
+=======
+    let msg = match res {
+        Ok(msg) => msg,
+        Err(e) => {
+            return Err(ServiceError::ReceiveError(format!(
+                "error receiving message: {}",
+                e
+            )))
+        }
+    };
+
+    // Check if the message is an error
+    // TODO(msardara): remove this part
+    match get_error(&msg.message) {
+        Ok(err) => {
+            if err.is_some() && err.unwrap() {
+                return Err(ServiceError::ReceiveError(
+                    "an error occurred processing a message".to_string(),
+                ));
+            }
+        }
+        Err(_) => {
+            return Err(ServiceError::ReceiveError(
+                "received malformed packet, no header available".to_string(),
+            ));
+        }
+    }
+
+    // extract agent and payload
+    let content = match msg.message.message_type {
+        Some(ref msg_type) => match msg_type {
+            agp_datapath::pubsub::ProtoPublishType(publish) => get_payload(publish),
+>>>>>>> main
             _ => Err(ServiceError::ReceiveError(
                 "receive publish message type".to_string(),
             ))?,
