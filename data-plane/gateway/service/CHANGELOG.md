@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0](https://github.com/agntcy/agp/compare/agp-service-v0.2.1...agp-service-v0.3.0) - 2025-03-31
+
+### Added
+
+- streaming session type ([#132](https://github.com/agntcy/agp/pull/132))
+- request/reply session type ([#124](https://github.com/agntcy/agp/pull/124))
+- add timers for rtx ([#117](https://github.com/agntcy/agp/pull/117))
+- rename protobuf fields ([#116](https://github.com/agntcy/agp/pull/116))
+- add receiver buffer ([#107](https://github.com/agntcy/agp/pull/107))
+- producer buffer ([#105](https://github.com/agntcy/agp/pull/105))
+- *(data-plane/service)* [**breaking**] first draft of session layer ([#106](https://github.com/agntcy/agp/pull/106))
+
+### Other
+
+- *(service)* simplify session trait with async_trait ([#121](https://github.com/agntcy/agp/pull/121))
+- add Python SDK test cases for failure scenarios
+- update copyright ([#109](https://github.com/agntcy/agp/pull/109))
+
 ## [0.2.1](https://github.com/agntcy/agp/compare/agp-service-v0.2.0...agp-service-v0.2.1) - 2025-03-19
 
 ### Other
