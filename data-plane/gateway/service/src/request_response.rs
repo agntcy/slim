@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::collections::HashMap;
-use std::sync::Arc;
 use std::num::TryFromIntError;
+use std::sync::Arc;
 
 use async_trait::async_trait;
 use parking_lot::RwLock;

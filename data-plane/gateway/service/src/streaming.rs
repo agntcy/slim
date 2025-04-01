@@ -732,7 +732,11 @@ mod tests {
             &Agent::from_strings("cisco", "default", "sender", 0),
             &AgentType::from_strings("cisco", "default", "receiver"),
             Some(0),
-            Some(AgpHeaderFlags::default().with_forward_to(0).with_incoming_conn(123)), // set incoming conn, as it is required for the rtx
+            Some(
+                AgpHeaderFlags::default()
+                    .with_forward_to(0)
+                    .with_incoming_conn(123),
+            ), // set incoming conn, as it is required for the rtx
         ));
 
         let session_header = Some(SessionHeader::new(

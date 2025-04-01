@@ -648,7 +648,10 @@ impl ProtoMessage {
     }
 
     pub fn get_header_type(&self) -> SessionHeaderType {
-        self.session_header().header_type.try_into().unwrap_or_default()
+        self.session_header()
+            .header_type
+            .try_into()
+            .unwrap_or_default()
     }
 
     pub fn clear_agp_header(&mut self) {
