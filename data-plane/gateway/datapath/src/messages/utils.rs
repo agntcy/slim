@@ -619,7 +619,7 @@ impl ProtoMessage {
         self.get_agp_header().get_incoming_conn().unwrap()
     }
 
-    pub fn get_incoming_conn_opt(&self) -> Option<u64> {
+    pub fn try_get_incoming_conn(&self) -> Option<u64> {
         self.get_agp_header().get_incoming_conn()
     }
 
@@ -743,7 +743,7 @@ mod tests {
         assert_eq!(sub.is_unsubscribe(), !subscription);
         assert_eq!(flags.as_ref().unwrap().recv_from, sub.get_recv_from());
         assert_eq!(flags.as_ref().unwrap().forward_to, sub.get_forward_to());
-        assert_eq!(None, sub.get_incoming_conn_opt());
+        assert_eq!(None, sub.try_get_incoming_conn());
         assert_eq!(source, sub.get_source());
         let (got_name, got_name_id) = sub.get_name();
         assert_eq!(name, got_name);
@@ -776,7 +776,7 @@ mod tests {
         assert_eq!(pub_msg.is_unsubscribe(), false);
         assert_eq!(flags.as_ref().unwrap().recv_from, pub_msg.get_recv_from());
         assert_eq!(flags.as_ref().unwrap().forward_to, pub_msg.get_forward_to());
-        assert_eq!(None, pub_msg.get_incoming_conn_opt());
+        assert_eq!(None, pub_msg.try_get_incoming_conn());
         assert_eq!(source, pub_msg.get_source());
         let (got_name, got_name_id) = pub_msg.get_name();
         assert_eq!(name, got_name);
