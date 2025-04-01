@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::{collections::HashMap, sync::Arc};
-use tokio::sync::{mpsc, RwLock};
+use tokio::sync::mpsc;
 
 use crate::{
     errors::SessionError,
@@ -39,8 +39,8 @@ use tracing::{debug, error, info, trace, warn};
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct StreamingConfiguration {
     pub source: Agent,
-    pub max_retries: Option<u32>,
-    pub timeout: Option<std::time::Duration>,
+    pub max_retries: u32,
+    pub timeout: std::time::Duration,
 }
 
 impl std::fmt::Display for StreamingConfiguration {
@@ -48,10 +48,8 @@ impl std::fmt::Display for StreamingConfiguration {
         write!(
             f,
             "StreamingConfiguration: max_retries: {}, timeout: {} ms, source: {}",
-            self.max_retries.unwrap_or(0),
-            self.timeout
-                .unwrap_or(std::time::Duration::new(0, 0))
-                .as_millis(),
+            self.max_retries,
+            self.timeout.as_millis(),
             self.source,
         )
     }
@@ -98,30 +96,25 @@ struct Producer {
     next_id: u32,
 }
 
-#[allow(dead_code)]
 struct Receiver {
-    config: StreamingConfiguration,
+    //config: StreamingConfiguration,
     buffer: ReceiverBuffer,
     timer_observer: Arc<RtxTimerObserver>,
     rtx_map: HashMap<u32, Message>,
     timers_map: HashMap<u32, Timer>,
 }
 
-#[allow(dead_code)]
 enum Endpoint {
     Producer(Producer),
     Receiver(Receiver),
-    Unknown,
 }
 
-#[allow(dead_code)]
 pub(crate) struct Streaming {
     common: Common,
-    buffer: Arc<RwLock<Endpoint>>,
     tx: mpsc::Sender<Result<(Message, MessageDirection), Status>>,
+    //tx_timers: mpsc::Sender<Result<(u32, bool), Status>>,
 }
 
-#[allow(dead_code)]
 impl Streaming {
     pub(crate) fn new(
         id: Id,
@@ -131,8 +124,8 @@ impl Streaming {
         tx_app: AppChannelSender,
     ) -> Streaming {
         let (tx, rx) = mpsc::channel(128);
-        let (timer_tx, timer_rx) = mpsc::channel(128);
-        let buffer = match session_direction {
+        //let (timer_tx, timer_rx) = mpsc::channel(128);
+        /*let buffer = match session_direction {
             SessionDirection::Sender => {
                 let prod = Producer {
                     buffer: ProducerBuffer::with_capacity(500),
@@ -155,41 +148,69 @@ impl Streaming {
                 error!("invalid session direction");
                 Arc::new(RwLock::new(Endpoint::Unknown))
             }
-        };
+        };*/
         let stream = Streaming {
             common: Common::new(
                 id,
-                session_direction,
-                SessionConfig::Streaming(session_config),
+                session_direction.clone(),
+                SessionConfig::Streaming(session_config.clone()),
                 tx_gw,
                 tx_app,
             ),
-            buffer,
             tx,
+            //tx_timers: timer_tx,
         };
-        stream.process_message(rx, timer_rx);
+        stream.process_message(rx, session_direction);
         stream
     }
 
     fn process_message(
         &self,
         mut rx: mpsc::Receiver<Result<(Message, MessageDirection), Status>>,
-        mut timer_rx: mpsc::Receiver<Result<(u32, bool), Status>>,
+        //mut timer_rx: mpsc::Receiver<Result<(u32, bool), Status>>,
+        //session_config: StreamingConfiguration,
+        session_direction: SessionDirection,
     ) {
-        let buffer_clone = self.buffer.clone();
+        //let buffer_clone = self.buffer.clone();
         let session_id = self.common.id();
         let send_gw = self.common.tx_gw();
         let send_app = self.common.tx_app();
+
+
         let (source, max_retries, timeout) = match self.common.session_config() {
             SessionConfig::Streaming(streaming_configuration) => (
                 streaming_configuration.source,
-                streaming_configuration.max_retries.unwrap_or(0),
+                streaming_configuration.max_retries,
                 streaming_configuration
-                    .timeout
-                    .unwrap_or(std::time::Duration::new(0, 0)),
+                    .timeout,
             ),
             _ => {
                 panic!("unable to parse streaming configuration");
+            }
+        };
+
+        let (timer_tx, mut timer_rx) = mpsc::channel(128);
+        let mut endpoint = match session_direction {
+            SessionDirection::Sender => {
+                let prod = Producer {
+                    buffer: ProducerBuffer::with_capacity(500),
+                    next_id: 0,
+                };
+                Endpoint::Producer(prod)
+            }
+            SessionDirection::Receiver => {
+                let observer = RtxTimerObserver { channel: timer_tx };
+                let recv = Receiver {
+                    //config: session_config.clone(),
+                    buffer: ReceiverBuffer::default(),
+                    timer_observer: Arc::new(observer),
+                    rtx_map: HashMap::new(),
+                    timers_map: HashMap::new(),
+                };
+                Endpoint::Receiver(recv)
+            }
+            _ => {
+                panic!("invalid session direction");
             }
         };
         let mut producer_name: Option<Agent> = None;
@@ -212,7 +233,7 @@ impl Streaming {
                                     continue;
                                 }
                                 let (mut msg, direction) = result.unwrap();
-                                match &mut *buffer_clone.write().await {
+                                match &mut endpoint {
                                     Endpoint::Producer(producer) => {
                                         match direction {
                                             MessageDirection::North => {
@@ -415,10 +436,6 @@ impl Streaming {
                                             }
                                         }
                                     }
-                                    Endpoint::Unknown => {
-                                        error!("unknown session type");
-                                        continue;
-                                    },
                                 }
                             }
                         }
@@ -437,7 +454,7 @@ impl Streaming {
                                 }
 
                                 let (msg_id, retry) = result.unwrap();
-                                match &mut *buffer_clone.write().await {
+                                match &mut endpoint {
                                     Endpoint::Receiver(receiver) => {
                                         if retry {
                                             trace!("try to send rtx for packet {} on receiver session {}", msg_id, session_id);
@@ -496,10 +513,6 @@ impl Streaming {
                                         error!("received timer on a producer buffer");
                                         continue;
                                     }
-                                    Endpoint::Unknown => {
-                                        error!("unknown session type");
-                                        continue;
-                                    },
                                 }
                             }
                         }
@@ -547,8 +560,8 @@ mod tests {
 
         let session_config = StreamingConfiguration {
             source: encoder::encode_agent("cisco", "default", "local_agent", 0),
-            max_retries: None,
-            timeout: None,
+            max_retries: 0,
+            timeout: Duration::from_millis(0),
         };
 
         let session = Streaming::new(
@@ -593,14 +606,14 @@ mod tests {
 
         let session_config_sender = StreamingConfiguration {
             source: encoder::encode_agent("cisco", "default", "sender", 0),
-            max_retries: None,
-            timeout: None,
+            max_retries: 0,
+            timeout: Duration::from_millis(0),
         };
 
         let session_config_receiver = StreamingConfiguration {
             source: encoder::encode_agent("cisco", "default", "receiver", 0),
-            max_retries: Some(5),
-            timeout: Some(std::time::Duration::from_millis(500)),
+            max_retries: 5,
+            timeout: Duration::from_millis(500),
         };
 
         let sender = Streaming::new(
@@ -668,8 +681,8 @@ mod tests {
 
         let session_config = StreamingConfiguration {
             source: encoder::encode_agent("cisco", "default", "sender", 0),
-            max_retries: Some(5),
-            timeout: Some(std::time::Duration::from_millis(500)),
+            max_retries: 5,
+            timeout: Duration::from_millis(500),
         };
 
         let session = Streaming::new(0, session_config, SessionDirection::Receiver, tx_gw, tx_app);
@@ -735,8 +748,8 @@ mod tests {
 
         let session_config = StreamingConfiguration {
             source: encoder::encode_agent("cisco", "default", "receiver", 0),
-            max_retries: Some(5),
-            timeout: Some(std::time::Duration::from_millis(500)),
+            max_retries: 5,
+            timeout: Duration::from_millis(500),
         };
 
         let session = Streaming::new(120, session_config, SessionDirection::Sender, tx_gw, tx_app);
@@ -818,14 +831,14 @@ mod tests {
 
         let session_config_sender = StreamingConfiguration {
             source: encoder::encode_agent("cisco", "default", "sender", 0),
-            max_retries: None,
-            timeout: None,
+            max_retries: 0,
+            timeout: Duration::from_millis(0),
         };
 
         let session_config_receiver = StreamingConfiguration {
             source: encoder::encode_agent("cisco", "default", "receiver", 0),
-            max_retries: Some(5),
-            timeout: Some(std::time::Duration::from_millis(500)),
+            max_retries: 5,
+            timeout: std::time::Duration::from_millis(500),
         };
 
         let sender = Streaming::new(
