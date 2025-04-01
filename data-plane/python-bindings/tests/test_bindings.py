@@ -57,10 +57,6 @@ async def test_end_to_end(server):
         svc_alice, agp_bindings.PyFireAndForgetConfiguration()
     )
 
-    # wait for the routes to be set
-    # TODO remove this sleep
-    await asyncio.sleep(1)
-
     # send msg from Alice to Bob
     msg = [1, 2, 3, 4, 5, 6, 7, 8, 9]
     await agp_bindings.publish(svc_alice, session_info, 1, msg, bob_class, None)
@@ -135,14 +131,9 @@ async def test_gateway_wrapper(server):
         agp_bindings.PyFireAndForgetConfiguration()
     )
 
-    # TODO remove this sleep
-    await asyncio.sleep(1)
-
     # publish message
     msg = [1, 2, 3, 4, 5, 6, 7, 8, 9]
     await gateway2.publish(session_info, msg, org, ns, agent1)
-
-    await asyncio.sleep(1)
 
     # # receive message
     session_info_rec, msg_rcv = await gateway1.receive()

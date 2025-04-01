@@ -67,9 +67,6 @@ async def test_request_reply(server):
     # create request/reply session with default config
     session_info = await gateway2.create_rr_session()
 
-    # TODO remove this sleep
-    await asyncio.sleep(1)
-
     # messages
     pub_msg = str.encode("thisistherequest")
     res_msg = str.encode("thisistheresponse")
