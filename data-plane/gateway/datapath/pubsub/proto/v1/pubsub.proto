@@ -40,13 +40,13 @@ message Agent {
 }
 
 enum SessionHeaderType {
-  FNF = 0;
-  REQUEST = 1;
-  REPLY = 2;
-  STREAM = 3;
-  RTX_REQUEST = 4;
-  RTX_REPLY = 5;
-  UNSPECIFIED = 6;
+  UNSPECIFIED = 0;
+  FNF = 1;
+  REQUEST = 2;
+  REPLY = 3;
+  STREAM = 4;
+  RTX_REQUEST = 5;
+  RTX_REPLY = 6;
 }
 // Session.session_id is the ID of the session
 
