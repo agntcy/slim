@@ -210,7 +210,7 @@ impl Streaming {
                                                 trace!("received message from the gataway on producer session {}", session_id);
                                                 // received a message from the GW
                                                 // this must be an RTX message otherwise drop it
-                                                match msg.session_header().header_type() {
+                                                match msg.get_session_header().header_type() {
                                                     SessionHeaderType::RtxRequest => {}
                                                     _ => {
                                                         error!("received invalid packet type on producer session {}: not RTX request", session_id);
@@ -236,7 +236,7 @@ impl Streaming {
                                                             }
                                                         };
 
-                                                        let incoming_conn = msg.incoming_conn();
+                                                        let incoming_conn = msg.get_incoming_conn();
 
                                                         let agp_header = Some(AgpHeader::new(
                                                             &source,
@@ -317,7 +317,7 @@ impl Streaming {
 
                                         if producer_name.is_none() {
                                             producer_name = Some(msg.get_source());
-                                            producer_conn = Some(msg.incoming_conn());
+                                            producer_conn = Some(msg.get_incoming_conn());
                                         }
 
                                         match receiver.buffer.on_received_message(msg){
@@ -587,7 +587,7 @@ mod tests {
         );
 
         // set the session id in the message
-        let header = message.session_header_mut();
+        let header = message.get_session_header_mut();
         header.session_id = 0;
 
         // set session header type for test check
@@ -641,7 +641,7 @@ mod tests {
         );
 
         // set the session type
-        let header = message.session_header_mut();
+        let header = message.get_session_header_mut();
         header.header_type = SessionHeaderType::Stream.into();
 
         let session_msg: SessionMessage = SessionMessage::new(message.clone(), Info::new(0));
@@ -656,7 +656,7 @@ mod tests {
         assert_eq!(msg.info.id, 0);
 
         // set msg id = 2 this will trigger a loss detection
-        let header = message.session_header_mut();
+        let header = message.get_session_header_mut();
         header.message_id = 2;
 
         let session_msg = SessionMessage::new(message.clone(), Info::new(0));
@@ -668,7 +668,7 @@ mod tests {
         // read rtxs from the gw channel, the original one + 5 retries
         for _ in 0..6 {
             let rtx_msg = rx_gw.recv().await.unwrap().unwrap();
-            let rtx_header = rtx_msg.session_header();
+            let rtx_header = rtx_msg.get_session_header();
             assert_eq!(rtx_header.session_id, 0);
             assert_eq!(rtx_header.message_id, 1);
             assert_eq!(rtx_header.header_type, SessionHeaderType::RtxRequest.into());
@@ -706,7 +706,7 @@ mod tests {
         );
 
         // set the session id in the message
-        let header = message.session_header_mut();
+        let header = message.get_session_header_mut();
         header.session_id = 120;
 
         let session_msg: SessionMessage = SessionMessage::new(message.clone(), Info::new(120));
@@ -722,7 +722,7 @@ mod tests {
         // read the 3 messages from the gw channel
         for i in 0..3 {
             let msg = rx_gw.recv().await.unwrap().unwrap();
-            let msg_header = msg.session_header();
+            let msg_header = msg.get_session_header();
             assert_eq!(msg_header.session_id, 120);
             assert_eq!(msg_header.message_id, i);
             assert_eq!(msg_header.header_type, SessionHeaderType::Stream.into());
@@ -758,7 +758,7 @@ mod tests {
 
         // get rtx reply message from gw
         let msg = rx_gw.recv().await.unwrap().unwrap();
-        let msg_header = msg.session_header();
+        let msg_header = msg.get_session_header();
         assert_eq!(msg_header.session_id, 120);
         assert_eq!(msg_header.message_id, 2);
         assert_eq!(msg_header.header_type, SessionHeaderType::RtxReply.into());
@@ -824,7 +824,7 @@ mod tests {
         // forward message 1 and 3 to the receiver
         for i in 0..3 {
             let msg = rx_gw_sender.recv().await.unwrap().unwrap();
-            let msg_header = msg.session_header();
+            let msg_header = msg.get_session_header();
             assert_eq!(msg_header.session_id, 0);
             assert_eq!(msg_header.message_id, i);
             assert_eq!(msg_header.header_type, SessionHeaderType::Stream.into());
@@ -841,7 +841,7 @@ mod tests {
 
         // the receiver app should get the packet 0
         let msg = rx_app_receiver.recv().await.unwrap().unwrap();
-        let msg_header = msg.message.session_header();
+        let msg_header = msg.message.get_session_header();
         assert_eq!(msg_header.session_id, 0);
         assert_eq!(msg_header.message_id, 0);
         assert_eq!(msg_header.header_type, SessionHeaderType::Stream.into());
@@ -859,7 +859,7 @@ mod tests {
 
         // get the RTX and drop the first one before send it to sender
         let msg = rx_gw_receiver.recv().await.unwrap().unwrap();
-        let msg_header = msg.session_header();
+        let msg_header = msg.get_session_header();
         assert_eq!(msg_header.session_id, 0);
         assert_eq!(msg_header.message_id, 1);
         assert_eq!(msg_header.header_type, SessionHeaderType::RtxRequest.into());
@@ -876,7 +876,7 @@ mod tests {
         );
 
         let msg = rx_gw_receiver.recv().await.unwrap().unwrap();
-        let msg_header = msg.session_header();
+        let msg_header = msg.get_session_header();
         assert_eq!(msg_header.session_id, 0);
         assert_eq!(msg_header.message_id, 1);
         assert_eq!(msg_header.header_type, SessionHeaderType::RtxRequest.into());
@@ -901,7 +901,7 @@ mod tests {
 
         // this should generate an RTX reply
         let msg = rx_gw_sender.recv().await.unwrap().unwrap();
-        let msg_header = msg.session_header();
+        let msg_header = msg.get_session_header();
         assert_eq!(msg_header.session_id, 0);
         assert_eq!(msg_header.message_id, 1);
         assert_eq!(msg_header.header_type, SessionHeaderType::RtxReply.into());
@@ -925,7 +925,7 @@ mod tests {
 
         // the receiver app should get the packet 1 and 2, packet 1 is an RTX
         let msg = rx_app_receiver.recv().await.unwrap().unwrap();
-        let msg_header = msg.message.session_header();
+        let msg_header = msg.message.get_session_header();
         assert_eq!(msg_header.session_id, 0);
         assert_eq!(msg_header.message_id, 1);
         assert_eq!(msg_header.header_type, SessionHeaderType::RtxReply.into());
@@ -942,7 +942,7 @@ mod tests {
         );
 
         let msg = rx_app_receiver.recv().await.unwrap().unwrap();
-        let msg_header = msg.message.session_header();
+        let msg_header = msg.message.get_session_header();
         assert_eq!(msg_header.session_id, 0);
         assert_eq!(msg_header.message_id, 2);
         assert_eq!(msg_header.header_type, SessionHeaderType::Stream.into());

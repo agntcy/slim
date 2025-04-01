@@ -272,11 +272,11 @@ impl SessionHeader {
         }
     }
 
-    pub fn session_id(&self) -> u32 {
+    pub fn get_session_id(&self) -> u32 {
         self.session_id
     }
 
-    pub fn message_id(&self) -> u32 {
+    pub fn get_message_id(&self) -> u32 {
         self.message_id
     }
 
@@ -489,12 +489,12 @@ impl ProtoMessage {
         }
 
         // make sure AGP header is set
-        if self.try_agp_header().is_none() {
+        if self.try_get_agp_header().is_none() {
             return Err(MessageError::AgpHeaderNotFound);
         }
 
         // Get AGP header
-        let agp_header = self.agp_header();
+        let agp_header = self.get_agp_header();
 
         // make sure source and destination are set
         if agp_header.source.is_none() {
@@ -532,7 +532,7 @@ impl ProtoMessage {
         Ok(())
     }
 
-    pub fn agp_header(&self) -> &AgpHeader {
+    pub fn get_agp_header(&self) -> &AgpHeader {
         match &self.message_type {
             Some(ProtoPublishType(publish)) => publish.header.as_ref().unwrap(),
             Some(ProtoSubscribeType(sub)) => sub.header.as_ref().unwrap(),
@@ -541,7 +541,7 @@ impl ProtoMessage {
         }
     }
 
-    pub fn agp_header_mut(&mut self) -> &mut AgpHeader {
+    pub fn get_agp_header_mut(&mut self) -> &mut AgpHeader {
         match &mut self.message_type {
             Some(ProtoPublishType(publish)) => publish.header.as_mut().unwrap(),
             Some(ProtoSubscribeType(sub)) => sub.header.as_mut().unwrap(),
@@ -550,7 +550,7 @@ impl ProtoMessage {
         }
     }
 
-    pub fn try_agp_header(&self) -> Option<&AgpHeader> {
+    pub fn try_get_agp_header(&self) -> Option<&AgpHeader> {
         match &self.message_type {
             Some(ProtoPublishType(publish)) => publish.header.as_ref(),
             Some(ProtoSubscribeType(sub)) => sub.header.as_ref(),
@@ -559,7 +559,7 @@ impl ProtoMessage {
         }
     }
 
-    pub fn session_header(&self) -> &SessionHeader {
+    pub fn get_session_header(&self) -> &SessionHeader {
         match &self.message_type {
             Some(ProtoPublishType(publish)) => publish.session.as_ref().unwrap(),
             Some(ProtoSubscribeType(_)) => panic!("session header not found"),
@@ -568,7 +568,7 @@ impl ProtoMessage {
         }
     }
 
-    pub fn session_header_mut(&mut self) -> &mut SessionHeader {
+    pub fn get_session_header_mut(&mut self) -> &mut SessionHeader {
         match &mut self.message_type {
             Some(ProtoPublishType(publish)) => publish.session.as_mut().unwrap(),
             Some(ProtoSubscribeType(_)) => panic!("session header not found"),
@@ -577,7 +577,7 @@ impl ProtoMessage {
         }
     }
 
-    pub fn try_session_header(&self) -> Option<&SessionHeader> {
+    pub fn try_get_session_header(&self) -> Option<&SessionHeader> {
         match &self.message_type {
             Some(ProtoPublishType(publish)) => publish.session.as_ref(),
             Some(ProtoSubscribeType(_)) => None,
@@ -586,7 +586,7 @@ impl ProtoMessage {
         }
     }
 
-    pub fn try_session_header_mut(&mut self) -> Option<&mut SessionHeader> {
+    pub fn try_get_session_header_mut(&mut self) -> Option<&mut SessionHeader> {
         match &mut self.message_type {
             Some(ProtoPublishType(publish)) => publish.session.as_mut(),
             Some(ProtoSubscribeType(_)) => None,
@@ -596,39 +596,39 @@ impl ProtoMessage {
     }
 
     pub fn get_id(&self) -> u32 {
-        self.session_header().message_id()
+        self.get_session_header().get_message_id()
     }
 
     pub fn get_source(&self) -> Agent {
-        self.agp_header().get_source()
+        self.get_agp_header().get_source()
     }
 
     pub fn get_fanout(&self) -> u32 {
-        self.agp_header().get_fanout()
+        self.get_agp_header().get_fanout()
     }
 
-    pub fn recv_from(&self) -> Option<u64> {
-        self.agp_header().get_recv_from()
+    pub fn get_recv_from(&self) -> Option<u64> {
+        self.get_agp_header().get_recv_from()
     }
 
-    pub fn forward_to(&self) -> Option<u64> {
-        self.agp_header().get_forward_to()
+    pub fn get_forward_to(&self) -> Option<u64> {
+        self.get_agp_header().get_forward_to()
     }
 
-    pub fn incoming_conn(&self) -> u64 {
-        self.agp_header().get_incoming_conn().unwrap()
+    pub fn get_incoming_conn(&self) -> u64 {
+        self.get_agp_header().get_incoming_conn().unwrap()
     }
 
-    pub fn incoming_conn_opt(&self) -> Option<u64> {
-        self.agp_header().get_incoming_conn()
+    pub fn get_incoming_conn_opt(&self) -> Option<u64> {
+        self.get_agp_header().get_incoming_conn()
     }
 
-    pub fn source_agent(&self) -> Agent {
-        self.agp_header().get_source()
+    pub fn get_source_agent(&self) -> Agent {
+        self.get_agp_header().get_source()
     }
 
     pub fn get_name(&self) -> (AgentType, Option<u64>) {
-        self.agp_header().get_dst()
+        self.get_agp_header().get_dst()
     }
 
     pub fn get_type(&self) -> &MessageType {
@@ -648,42 +648,42 @@ impl ProtoMessage {
     }
 
     pub fn get_header_type(&self) -> SessionHeaderType {
-        self.session_header()
+        self.get_session_header()
             .header_type
             .try_into()
             .unwrap_or_default()
     }
 
     pub fn clear_agp_header(&mut self) {
-        self.agp_header_mut().clear();
+        self.get_agp_header_mut().clear();
     }
 
     pub fn set_recv_from(&mut self, recv_from: Option<u64>) {
-        self.agp_header_mut().set_recv_from(recv_from);
+        self.get_agp_header_mut().set_recv_from(recv_from);
     }
 
     pub fn set_forward_to(&mut self, forward_to: Option<u64>) {
-        self.agp_header_mut().set_forward_to(forward_to);
+        self.get_agp_header_mut().set_forward_to(forward_to);
     }
 
     pub fn set_error(&mut self, error: Option<bool>) {
-        self.agp_header_mut().set_error(error);
+        self.get_agp_header_mut().set_error(error);
     }
 
     pub fn set_incoming_conn(&mut self, incoming_conn: Option<u64>) {
-        self.agp_header_mut().set_incoming_conn(incoming_conn);
+        self.get_agp_header_mut().set_incoming_conn(incoming_conn);
     }
 
     pub fn set_error_flag(&mut self, error: Option<bool>) {
-        self.agp_header_mut().set_error_flag(error);
+        self.get_agp_header_mut().set_error_flag(error);
     }
 
     pub fn set_header_type(&mut self, header_type: SessionHeaderType) {
-        self.session_header_mut().set_header_type(header_type);
+        self.get_session_header_mut().set_header_type(header_type);
     }
 
     pub fn set_message_id(&mut self, message_id: u32) {
-        self.session_header_mut().set_message_id(message_id);
+        self.get_session_header_mut().set_message_id(message_id);
     }
 
     pub fn is_publish(&self) -> bool {
@@ -741,9 +741,9 @@ mod tests {
         assert_eq!(sub.is_publish(), false);
         assert_eq!(sub.is_subscribe(), subscription);
         assert_eq!(sub.is_unsubscribe(), !subscription);
-        assert_eq!(flags.as_ref().unwrap().recv_from, sub.recv_from());
-        assert_eq!(flags.as_ref().unwrap().forward_to, sub.forward_to());
-        assert_eq!(None, sub.incoming_conn_opt());
+        assert_eq!(flags.as_ref().unwrap().recv_from, sub.get_recv_from());
+        assert_eq!(flags.as_ref().unwrap().forward_to, sub.get_forward_to());
+        assert_eq!(None, sub.get_incoming_conn_opt());
         assert_eq!(source, sub.get_source());
         let (got_name, got_name_id) = sub.get_name();
         assert_eq!(name, got_name);
@@ -774,9 +774,9 @@ mod tests {
         assert_eq!(pub_msg.is_publish(), true);
         assert_eq!(pub_msg.is_subscribe(), false);
         assert_eq!(pub_msg.is_unsubscribe(), false);
-        assert_eq!(flags.as_ref().unwrap().recv_from, pub_msg.recv_from());
-        assert_eq!(flags.as_ref().unwrap().forward_to, pub_msg.forward_to());
-        assert_eq!(None, pub_msg.incoming_conn_opt());
+        assert_eq!(flags.as_ref().unwrap().recv_from, pub_msg.get_recv_from());
+        assert_eq!(flags.as_ref().unwrap().forward_to, pub_msg.get_forward_to());
+        assert_eq!(None, pub_msg.get_incoming_conn_opt());
         assert_eq!(source, pub_msg.get_source());
         let (got_name, got_name_id) = pub_msg.get_name();
         assert_eq!(name, got_name);
@@ -1048,10 +1048,10 @@ mod tests {
         };
 
         // the operations to retrieve session_id and message_id should not fail with panic
-        let result = std::panic::catch_unwind(|| header.session_id());
+        let result = std::panic::catch_unwind(|| header.get_session_id());
         assert!(result.is_ok());
 
-        let result = std::panic::catch_unwind(|| header.message_id());
+        let result = std::panic::catch_unwind(|| header.get_message_id());
         assert!(result.is_ok());
     }
 
@@ -1064,7 +1064,7 @@ mod tests {
         };
 
         // the operation to retrieve the header should fail with panic
-        let result = std::panic::catch_unwind(|| message.agp_header());
+        let result = std::panic::catch_unwind(|| message.get_agp_header());
         assert!(result.is_err());
 
         // the operation to retrieve the message type should fail with panic
@@ -1076,11 +1076,11 @@ mod tests {
         assert!(result.is_err());
         let result = std::panic::catch_unwind(|| message.get_name());
         assert!(result.is_err());
-        let result = std::panic::catch_unwind(|| message.recv_from());
+        let result = std::panic::catch_unwind(|| message.get_recv_from());
         assert!(result.is_err());
-        let result = std::panic::catch_unwind(|| message.forward_to());
+        let result = std::panic::catch_unwind(|| message.get_forward_to());
         assert!(result.is_err());
-        let result = std::panic::catch_unwind(|| message.incoming_conn());
+        let result = std::panic::catch_unwind(|| message.get_incoming_conn());
         assert!(result.is_err());
         let result = std::panic::catch_unwind(|| message.get_fanout());
         assert!(result.is_err());
@@ -1089,7 +1089,7 @@ mod tests {
     #[test]
     fn test_service_type_to_int() {
         // Get total number of service types
-        let total_service_types = SessionHeaderType::Unspecified as i32;
+        let total_service_types = SessionHeaderType::RtxReply as i32;
 
         for i in 0..total_service_types {
             // int -> ServiceType

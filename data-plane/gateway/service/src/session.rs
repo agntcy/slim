@@ -89,8 +89,8 @@ impl Info {
 
 impl From<&Message> for Info {
     fn from(message: &Message) -> Self {
-        let session_header = message.session_header();
-        let agp_header = message.agp_header();
+        let session_header = message.get_session_header();
+        let agp_header = message.get_agp_header();
 
         let id = session_header.session_id;
         let message_id = session_header.message_id;

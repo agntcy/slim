@@ -175,7 +175,7 @@ impl Session for RequestResponse {
         direction: MessageDirection,
     ) -> Result<(), SessionError> {
         // set the session type
-        let header = message.message.session_header_mut();
+        let header = message.message.get_session_header_mut();
 
         // get session type
         let session_type = header
@@ -316,7 +316,7 @@ mod tests {
         );
 
         // set the session type to request
-        let header = msg.session_header_mut();
+        let header = msg.get_session_header_mut();
         header.header_type = i32::from(SessionHeaderType::Request);
 
         // set the session id in the message

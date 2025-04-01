@@ -190,7 +190,7 @@ impl SessionLayer {
         // check if pool contains the session
         if let Some(session) = self.pool.read().await.get(&message.info.id) {
             // Set session id and session type to message
-            let header = message.message.session_header_mut();
+            let header = message.message.get_session_header_mut();
             header.session_id = message.info.id;
 
             // pass the message to the session
@@ -210,7 +210,7 @@ impl SessionLayer {
     ) -> Result<(), SessionError> {
         let (id, session_type) = {
             // get the session type and the session id from the message
-            let header = message.message.session_header();
+            let header = message.message.get_session_header();
 
             // get the session type from the header
             let session_type = match SessionHeaderType::try_from(header.header_type) {
@@ -418,8 +418,9 @@ mod tests {
         );
 
         // set the session id in the message
-        let header = message.session_header_mut();
+        let header = message.get_session_header_mut();
         header.session_id = 1;
+        header.header_type = i32::from(SessionHeaderType::Fnf);
 
         let res = session_layer
             .handle_message(

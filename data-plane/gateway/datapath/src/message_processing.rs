@@ -344,7 +344,7 @@ impl MessageProcessor {
 
         // if the message already contains an output connection, use that one
         // without performing any match in the subscription table
-        if let Some(val) = msg.forward_to() {
+        if let Some(val) = msg.get_forward_to() {
             debug!("forwarding message to connection {}", val);
             return self
                 .send_msg(msg, val)
@@ -390,7 +390,7 @@ impl MessageProcessor {
         //////////////////////////////////////////////////////
 
         // get header
-        let header = msg.agp_header();
+        let header = msg.get_agp_header();
 
         let (agent_type, agent_id) = header.get_dst();
 
@@ -435,7 +435,7 @@ impl MessageProcessor {
         let (agent_type, agent_id) = msg.get_name();
 
         // get header
-        let header = msg.agp_header();
+        let header = msg.get_agp_header();
 
         // get in and out connections
         let (conn, forward) = header.get_in_out_connections();
