@@ -15,6 +15,8 @@ use crate::session::{
     AppChannelSender, GwChannelSender, Id, Info, MessageDirection, Session, SessionConfig,
     SessionDirection, SessionMessage,
 };
+use crate::streaming;
+use agp_datapath::messages::encoder::Agent;
 use agp_datapath::pubsub::proto::pubsub::v1::SessionHeaderType;
 
 /// SessionLayer
@@ -120,6 +122,19 @@ impl SessionLayer {
                     id,
                     conf,
                     SessionDirection::Bidirectional,
+                    self.tx_gw.clone(),
+                    self.tx_app.clone(),
+                ))
+            }
+            SessionConfig::Streaming(conf) => {
+                let mut direction = SessionDirection::Receiver;
+                if conf.timeout.is_none() {
+                    direction = SessionDirection::Sender;
+                }
+                Box::new(streaming::Streaming::new(
+                    id,
+                    conf,
+                    direction,
                     self.tx_gw.clone(),
                     self.tx_app.clone(),
                 ))
@@ -300,6 +315,7 @@ mod tests {
     fn create_session_layer() -> SessionLayer {
         let (tx_gw, _) = tokio::sync::mpsc::channel(128);
         let (tx_app, _) = tokio::sync::mpsc::channel(128);
+        let agent = Agent::from_strings("org", "ns", "type", 0);
 
         SessionLayer::new(&agent, 0, tx_gw, tx_app)
     }
@@ -315,9 +331,9 @@ mod tests {
     async fn test_insert_session() {
         let (tx_gw, _) = tokio::sync::mpsc::channel(1);
         let (tx_app, _) = tokio::sync::mpsc::channel(1);
-        let agent = encode_agent("org", "ns", "type", 0);
+        let agent = Agent::from_strings("org", "ns", "type", 0);
 
-        let session_layer = SessionLayer::new(0, tx_gw.clone(), tx_app.clone());
+        let session_layer = SessionLayer::new(&agent, 0, tx_gw.clone(), tx_app.clone());
         let session_config = FireAndForgetConfiguration {};
 
         let session = Box::new(FireAndForget::new(
@@ -336,9 +352,9 @@ mod tests {
     async fn test_remove_session() {
         let (tx_gw, _) = tokio::sync::mpsc::channel(1);
         let (tx_app, _) = tokio::sync::mpsc::channel(1);
-        let agent = encode_agent("org", "ns", "type", 0);
+        let agent = Agent::from_strings("org", "ns", "type", 0);
 
-        let session_layer = SessionLayer::new(0, tx_gw.clone(), tx_app.clone());
+        let session_layer = SessionLayer::new(&agent, 0, tx_gw.clone(), tx_app.clone());
         let session_config = FireAndForgetConfiguration {};
 
         let session = Box::new(FireAndForget::new(
@@ -359,7 +375,7 @@ mod tests {
     async fn test_create_session() {
         let (tx_gw, _) = tokio::sync::mpsc::channel(1);
         let (tx_app, _) = tokio::sync::mpsc::channel(1);
-        let agent = encode_agent("org", "ns", "type", 0);
+        let agent = Agent::from_strings("org", "ns", "type", 0);
 
         let session_layer = SessionLayer::new(&agent, 0, tx_gw.clone(), tx_app.clone());
 
@@ -376,11 +392,9 @@ mod tests {
     async fn test_handle_message() {
         let (tx_gw, _) = tokio::sync::mpsc::channel(1);
         let (tx_app, mut rx_app) = tokio::sync::mpsc::channel(1);
-        let agent = encode_agent("org", "ns", "type", 0);
+        let agent = Agent::from_strings("org", "ns", "type", 0);
 
         let session_layer = SessionLayer::new(&agent, 0, tx_gw.clone(), tx_app.clone());
-
-        let session_config = FireAndForgetConfiguration {};
 
         let session_config = FireAndForgetConfiguration {};
 

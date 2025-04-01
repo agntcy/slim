@@ -493,12 +493,9 @@ impl MessageProcessor {
 
     pub async fn process_message(
         &self,
-        mut msg: Message,
+        msg: Message,
         in_connection: u64,
     ) -> Result<(), DataPathError> {
-        // add incoming connection to the AGP header
-        msg.set_incoming_conn(Some(in_connection));
-
         // process each kind of message in a different path
         match msg.get_type() {
             SubscribeType(_) => self.process_subscription(msg, in_connection, true).await,
@@ -530,7 +527,10 @@ impl MessageProcessor {
             return Err(DataPathError::InvalidMessage(err.to_string()));
         }
 
-        // message is valid - from now on we access the field without checking
+        // add incoming connection to the AGP header
+        msg.set_incoming_conn(Some(conn_index));
+
+        // message is valid - from now on we access the field without checking for None
 
         // telemetry /////////////////////////////////////////
         if is_local {
@@ -571,8 +571,6 @@ impl MessageProcessor {
         match self.process_message(msg, conn_index).await {
             Ok(_) => Ok(()),
             Err(e) => {
-                // drop message
-
                 // telemetry /////////////////////////////////////////
                 info!(
                     telemetry = true,
@@ -580,6 +578,7 @@ impl MessageProcessor {
                 );
                 //////////////////////////////////////////////////////
 
+                // drop message
                 Err(DataPathError::ProcessingError(e.to_string()))
             }
         }

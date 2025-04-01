@@ -8,8 +8,9 @@ use tracing::debug;
 
 use super::encoder::{Agent, AgentType, DEFAULT_AGENT_ID};
 use crate::pubsub::{
-    AgpHeader, Content, MessageType, ProtoAgent, ProtoMessage, ProtoPublish, ProtoPublishType,
-    ProtoSubscribe, ProtoSubscribeType, ProtoUnsubscribe, ProtoUnsubscribeType, SessionHeader,
+    proto::pubsub::v1::SessionHeaderType, AgpHeader, Content, MessageType, ProtoAgent,
+    ProtoMessage, ProtoPublish, ProtoPublishType, ProtoSubscribe, ProtoSubscribeType,
+    ProtoUnsubscribe, ProtoUnsubscribeType, SessionHeader,
 };
 
 use thiserror::Error;
@@ -27,6 +28,8 @@ pub enum MessageError {
     SessionHeaderNotFound,
     #[error("message type not found")]
     MessageTypeNotFound,
+    #[error("incoming connection not found")]
+    IncomingConnectionNotFound,
 }
 
 /// ProtoAgent from Agent
@@ -261,19 +264,11 @@ impl AgpHeader {
 /// This header is used to identify the session and the message
 /// and to manage session state
 impl SessionHeader {
-    pub fn new(
-        header_type: i32,
-        session_id: u32,
-        message_id: u32,
-        stream: Option<u32>,
-        rtx: Option<u32>,
-    ) -> Self {
+    pub fn new(header_type: i32, session_id: u32, message_id: u32) -> Self {
         Self {
             header_type,
             session_id,
             message_id,
-            stream,
-            rtx,
         }
     }
 
@@ -285,14 +280,6 @@ impl SessionHeader {
         self.message_id
     }
 
-    pub fn get_stream(&self) -> Option<u32> {
-        self.stream
-    }
-
-    pub fn get_rtx(&self) -> Option<u32> {
-        self.rtx
-    }
-
     pub fn set_session_id(&mut self, session_id: u32) {
         self.session_id = session_id;
     }
@@ -301,19 +288,9 @@ impl SessionHeader {
         self.message_id = message_id;
     }
 
-    pub fn set_stream(&mut self, stream: Option<u32>) {
-        self.stream = stream;
-    }
-
-    pub fn set_rtx(&mut self, rtx: Option<u32>) {
-        self.rtx = rtx;
-    }
-
     pub fn clear(&mut self) {
         self.session_id = 0;
         self.message_id = 0;
-        self.stream = None;
-        self.rtx = None;
     }
 }
 
@@ -385,7 +362,7 @@ impl ProtoPublish {
     ) -> Self {
         ProtoPublish {
             header,
-            control: session,
+            session,
             msg: payload,
         }
     }
@@ -415,7 +392,7 @@ impl ProtoPublish {
     }
 
     pub fn get_session_header(&self) -> &SessionHeader {
-        self.control.as_ref().unwrap()
+        self.session.as_ref().unwrap()
     }
 
     pub fn get_agp_header_as_mut(&mut self) -> &mut AgpHeader {
@@ -423,7 +400,7 @@ impl ProtoPublish {
     }
 
     pub fn get_session_header_as_mut(&mut self) -> &mut SessionHeader {
-        self.control.as_mut().unwrap()
+        self.session.as_mut().unwrap()
     }
 
     pub fn get_payload(&self) -> &Content {
@@ -535,7 +512,7 @@ impl ProtoMessage {
                 }
 
                 // Publish message should have the session header
-                if p.control.is_none() {
+                if p.session.is_none() {
                     return Err(MessageError::SessionHeaderNotFound);
                 }
             }
@@ -584,7 +561,7 @@ impl ProtoMessage {
 
     pub fn session_header(&self) -> &SessionHeader {
         match &self.message_type {
-            Some(ProtoPublishType(publish)) => publish.control.as_ref().unwrap(),
+            Some(ProtoPublishType(publish)) => publish.session.as_ref().unwrap(),
             Some(ProtoSubscribeType(_)) => panic!("session header not found"),
             Some(ProtoUnsubscribeType(_)) => panic!("session header not found"),
             None => panic!("session header not found"),
@@ -593,7 +570,7 @@ impl ProtoMessage {
 
     pub fn session_header_mut(&mut self) -> &mut SessionHeader {
         match &mut self.message_type {
-            Some(ProtoPublishType(publish)) => publish.control.as_mut().unwrap(),
+            Some(ProtoPublishType(publish)) => publish.session.as_mut().unwrap(),
             Some(ProtoSubscribeType(_)) => panic!("session header not found"),
             Some(ProtoUnsubscribeType(_)) => panic!("session header not found"),
             None => panic!("session header not found"),
@@ -602,7 +579,7 @@ impl ProtoMessage {
 
     pub fn try_session_header(&self) -> Option<&SessionHeader> {
         match &self.message_type {
-            Some(ProtoPublishType(publish)) => publish.control.as_ref(),
+            Some(ProtoPublishType(publish)) => publish.session.as_ref(),
             Some(ProtoSubscribeType(_)) => None,
             Some(ProtoUnsubscribeType(_)) => None,
             None => None,
@@ -611,11 +588,15 @@ impl ProtoMessage {
 
     pub fn try_session_header_mut(&mut self) -> Option<&mut SessionHeader> {
         match &mut self.message_type {
-            Some(ProtoPublishType(publish)) => publish.control.as_mut(),
+            Some(ProtoPublishType(publish)) => publish.session.as_mut(),
             Some(ProtoSubscribeType(_)) => None,
             Some(ProtoUnsubscribeType(_)) => None,
             None => None,
         }
+    }
+
+    pub fn get_id(&self) -> u32 {
+        self.session_header().message_id()
     }
 
     pub fn get_source(&self) -> Agent {
@@ -634,7 +615,11 @@ impl ProtoMessage {
         self.agp_header().get_forward_to()
     }
 
-    pub fn incoming_conn(&self) -> Option<u64> {
+    pub fn incoming_conn(&self) -> u64 {
+        self.agp_header().get_incoming_conn().unwrap()
+    }
+
+    pub fn incoming_conn_opt(&self) -> Option<u64> {
         self.agp_header().get_incoming_conn()
     }
 
@@ -651,6 +636,19 @@ impl ProtoMessage {
             Some(t) => t,
             None => panic!("message type not found"),
         }
+    }
+
+    pub fn get_payload(&self) -> Option<&Content> {
+        match &self.message_type {
+            Some(ProtoPublishType(p)) => p.msg.as_ref(),
+            Some(ProtoSubscribeType(_)) => panic!("payload not found"),
+            Some(ProtoUnsubscribeType(_)) => panic!("payload not found"),
+            None => panic!("payload not found"),
+        }
+    }
+
+    pub fn get_header_type(&self) -> SessionHeaderType {
+        self.session_header().header_type.try_into().unwrap_or_default()
     }
 
     pub fn clear_agp_header(&mut self) {
@@ -675,6 +673,14 @@ impl ProtoMessage {
 
     pub fn set_error_flag(&mut self, error: Option<bool>) {
         self.agp_header_mut().set_error_flag(error);
+    }
+
+    pub fn set_header_type(&mut self, header_type: SessionHeaderType) {
+        self.session_header_mut().set_header_type(header_type);
+    }
+
+    pub fn set_message_id(&mut self, message_id: u32) {
+        self.session_header_mut().set_message_id(message_id);
     }
 
     pub fn is_publish(&self) -> bool {
@@ -734,7 +740,7 @@ mod tests {
         assert_eq!(sub.is_unsubscribe(), !subscription);
         assert_eq!(flags.as_ref().unwrap().recv_from, sub.recv_from());
         assert_eq!(flags.as_ref().unwrap().forward_to, sub.forward_to());
-        assert_eq!(None, sub.incoming_conn());
+        assert_eq!(None, sub.incoming_conn_opt());
         assert_eq!(source, sub.get_source());
         let (got_name, got_name_id) = sub.get_name();
         assert_eq!(name, got_name);
@@ -767,7 +773,7 @@ mod tests {
         assert_eq!(pub_msg.is_unsubscribe(), false);
         assert_eq!(flags.as_ref().unwrap().recv_from, pub_msg.recv_from());
         assert_eq!(flags.as_ref().unwrap().forward_to, pub_msg.forward_to());
-        assert_eq!(None, pub_msg.incoming_conn());
+        assert_eq!(None, pub_msg.incoming_conn_opt());
         assert_eq!(source, pub_msg.get_source());
         let (got_name, got_name_id) = pub_msg.get_name();
         assert_eq!(name, got_name);
@@ -1036,8 +1042,6 @@ mod tests {
             header_type: 0,
             session_id: 0,
             message_id: 0,
-            stream: None,
-            rtx: None,
         };
 
         // the operations to retrieve session_id and message_id should not fail with panic
@@ -1045,13 +1049,6 @@ mod tests {
         assert!(result.is_ok());
 
         let result = std::panic::catch_unwind(|| header.message_id());
-        assert!(result.is_ok());
-
-        // the operations to retrieve stream and rtx should not fail with panic
-        let result = std::panic::catch_unwind(|| header.get_stream());
-        assert!(result.is_ok());
-
-        let result = std::panic::catch_unwind(|| header.get_rtx());
         assert!(result.is_ok());
     }
 

@@ -3,6 +3,7 @@
 
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::num::TryFromIntError;
 
 use async_trait::async_trait;
 use parking_lot::RwLock;

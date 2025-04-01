@@ -72,4 +72,6 @@ pub enum SessionError {
     },
     #[error("configuration error: {0}")]
     ConfigurationError(String),
+    #[error("message lost: {0}")]
+    MessageLost(String),
 }
