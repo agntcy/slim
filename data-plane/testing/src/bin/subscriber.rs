@@ -1,7 +1,7 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
-use agp_datapath::messages::encoder::encode_agent;
+use agp_datapath::messages::Agent;
 use std::fs::File;
 use std::io::prelude::*;
 use testing::parse_line;
@@ -97,7 +97,7 @@ async fn main() {
     let svc = config.services.get_mut(&svc_id).unwrap();
 
     // create local agent
-    let agent_name = encode_agent("cisco", "default", "subscriber", id);
+    let agent_name = Agent::from_strings("cisco", "default", "subscriber", id);
     let mut rx = svc
         .create_agent(&agent_name)
         .expect("failed to create agent");
@@ -144,7 +144,7 @@ async fn main() {
             }
             Some(msg_type) => match msg_type {
                 agp_datapath::pubsub::ProtoPublishType(msg) => {
-                    let payload = agp_datapath::messages::utils::get_payload(msg);
+                    let payload = &msg.get_payload().blob;
                     // the payload needs to start with the publication id, so it has to contain
                     // at least 8 bytes
                     msg_len = payload.len();
@@ -152,12 +152,7 @@ async fn main() {
                         panic!("error parsing message, unexpected payload format");
                     }
                     pub_id = u64::from_be_bytes(payload[0..8].try_into().unwrap());
-                    source = match agp_datapath::messages::utils::get_source(&recv_msg.message) {
-                        Ok(s) => s,
-                        Err(e) => {
-                            panic!("error parsing message {}", e);
-                        }
-                    };
+                    source = recv_msg.message.get_source();
                 }
                 t => {
                     panic!("received unexpected message: {:?}", t);
@@ -184,9 +179,8 @@ async fn main() {
             recv_msg.info,
             source.agent_type(),
             Some(source.agent_id()),
-            1,
+            conn_id,
             out_vec,
-            Some(conn_id),
         )
         .await
         .unwrap();

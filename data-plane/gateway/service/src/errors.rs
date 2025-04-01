@@ -43,6 +43,8 @@ pub enum SessionError {
     GatewayReception(String),
     #[error("error sending message to gateway: {0}")]
     GatewayTransmission(String),
+    #[error("error in message forwarding: {0}")]
+    Forward(String),
     #[error("error receiving message from app: {0}")]
     AppReception(String),
     #[error("error sending message to app: {0}")]
@@ -61,8 +63,8 @@ pub enum SessionError {
     SessionNotFound(String),
     #[error("missing session id: {0}")]
     MissingSessionId(String),
-    #[error("lost message in session id: {0}")]
-    LostMessage(u32),
+    #[error("error during message validation: {0}")]
+    ValidationError(String),
     #[error("timeout for message: {error}")]
     Timeout {
         error: String,
@@ -70,4 +72,6 @@ pub enum SessionError {
     },
     #[error("configuration error: {0}")]
     ConfigurationError(String),
+    #[error("message lost: {0}")]
+    MessageLost(String),
 }

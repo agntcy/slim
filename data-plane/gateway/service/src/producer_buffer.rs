@@ -3,7 +3,7 @@
 
 use std::collections::HashMap;
 
-use agp_datapath::{messages::utils::get_msg_id, pubsub::proto::pubsub::v1::Message};
+use agp_datapath::pubsub::proto::pubsub::v1::Message;
 use parking_lot::RwLock;
 
 struct ProducerBufferImpl {
@@ -36,12 +36,7 @@ impl ProducerBufferImpl {
     /// return true if the insertion completes
     fn push(&mut self, msg: Message) -> bool {
         // get message id
-        let id = match get_msg_id(&msg) {
-            Err(_) => {
-                return false;
-            }
-            Ok(id) => id as usize,
-        };
+        let id = msg.get_id() as usize;
 
         // check if the message is already there
         // if yes return
@@ -52,12 +47,7 @@ impl ProducerBufferImpl {
         // remove the message at position next from the map
         // the same message will be overwritten in the buffer
         if let Some(message) = &self.buffer[self.next] {
-            let to_remove = match get_msg_id(message) {
-                Err(_) => {
-                    return false;
-                }
-                Ok(id) => id as usize,
-            };
+            let to_remove = message.get_id() as usize;
             self.map.remove(&to_remove);
         }
 
@@ -117,13 +107,9 @@ impl ProducerBuffer {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use agp_datapath::{
-        messages::{
-            encoder::encode_agent,
-            utils::{create_agp_header, create_publication_with_header, create_session_header},
-        },
-        pubsub::proto::pubsub::v1::SessionHeaderType,
-    };
+    use agp_datapath::messages::encoder::{Agent, AgentType};
+    use agp_datapath::pubsub::proto::pubsub::v1::SessionHeaderType;
+    use agp_datapath::pubsub::{AgpHeader, SessionHeader};
 
     #[test]
     fn test_producer_buffer() {
@@ -131,22 +117,22 @@ mod tests {
 
         assert_eq!(buffer.get_capacity(), 3);
 
-        let src = encode_agent("org", "ns", "type", 0);
-        let name_type = agp_datapath::messages::encoder::encode_agent_type("org", "ns", "type");
+        let src = Agent::from_strings("org", "ns", "type", 0);
+        let name_type = AgentType::from_strings("org", "ns", "type");
 
-        let agp_header = create_agp_header(&src, &name_type, Some(1), None, None, None, None);
+        let agp_header = AgpHeader::new(&src, &name_type, Some(1), None);
 
-        let h0 = create_session_header(SessionHeaderType::Fnf.into(), 0, 0);
-        let h1 = create_session_header(SessionHeaderType::Fnf.into(), 0, 1);
-        let h2 = create_session_header(SessionHeaderType::Fnf.into(), 0, 2);
-        let h3 = create_session_header(SessionHeaderType::Fnf.into(), 0, 3);
-        let h4 = create_session_header(SessionHeaderType::Fnf.into(), 0, 4);
+        let h0 = SessionHeader::new(SessionHeaderType::Fnf.into(), 0, 0);
+        let h1 = SessionHeader::new(SessionHeaderType::Fnf.into(), 0, 1);
+        let h2 = SessionHeader::new(SessionHeaderType::Fnf.into(), 0, 2);
+        let h3 = SessionHeader::new(SessionHeaderType::Fnf.into(), 0, 3);
+        let h4 = SessionHeader::new(SessionHeaderType::Fnf.into(), 0, 4);
 
-        let p0 = create_publication_with_header(agp_header, h0, HashMap::new(), 1, "", vec![]);
-        let p1 = create_publication_with_header(agp_header, h1, HashMap::new(), 1, "", vec![]);
-        let p2 = create_publication_with_header(agp_header, h2, HashMap::new(), 1, "", vec![]);
-        let p3 = create_publication_with_header(agp_header, h3, HashMap::new(), 1, "", vec![]);
-        let p4 = create_publication_with_header(agp_header, h4, HashMap::new(), 1, "", vec![]);
+        let p0 = Message::new_publish_with_headers(Some(agp_header), Some(h0), "", vec![]);
+        let p1 = Message::new_publish_with_headers(Some(agp_header), Some(h1), "", vec![]);
+        let p2 = Message::new_publish_with_headers(Some(agp_header), Some(h2), "", vec![]);
+        let p3 = Message::new_publish_with_headers(Some(agp_header), Some(h3), "", vec![]);
+        let p4 = Message::new_publish_with_headers(Some(agp_header), Some(h4), "", vec![]);
 
         assert_eq!(buffer.push(p0.clone()), true);
 

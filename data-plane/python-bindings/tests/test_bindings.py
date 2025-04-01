@@ -259,7 +259,7 @@ async def test_error_on_nonexistent_subscription(server):
     except asyncio.TimeoutError:
         pytest.fail("timed out waiting for error message on receive channel")
     except Exception as e:
-        assert "an error occurred processing a message" in str(
+        assert "no matching found" in str(
             e
         ), f"Unexpected error message: {str(e)}"
     else:
