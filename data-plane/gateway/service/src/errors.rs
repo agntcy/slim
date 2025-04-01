@@ -31,7 +31,7 @@ pub enum ServiceError {
     ReceiveError(String),
     #[error("session not found: {0}")]
     SessionNotFound(String),
-    #[error("error in session session: {0}")]
+    #[error("error in session: {0}")]
     SessionError(String),
     #[error("unknown error")]
     Unknown,

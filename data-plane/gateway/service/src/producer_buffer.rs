@@ -115,7 +115,7 @@ mod tests {
     fn test_producer_buffer() {
         let buffer = ProducerBuffer::with_capacity(3);
 
-        // assert_eq!(buffer.get_capacity(), 3);
+        assert_eq!(buffer.get_capacity(), 3);
 
         let src = Agent::from_strings("org", "ns", "type", 0);
         let name_type = AgentType::from_strings("org", "ns", "type");

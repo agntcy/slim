@@ -76,7 +76,7 @@ class Gateway:
 
     async def create_ff_session(
         self, session_config: PyFireAndForgetConfiguration
-    ) -> int:
+    ) -> PySessionInfo:
         """
         Create a new session.
 
@@ -91,7 +91,7 @@ class Gateway:
 
     async def create_rr_session(
         self, session_config: PyRequestResponseConfiguration = PyRequestResponseConfiguration()
-    ) -> int:
+    ) -> PySessionInfo:
         """
         Create a new session.
 
