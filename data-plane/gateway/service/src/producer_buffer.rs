@@ -166,13 +166,13 @@ mod tests {
         assert_eq!(buffer.get(3).unwrap(), p3);
         assert_eq!(buffer.get(4).unwrap(), p4);
 
-        // // remove all elements
-        // buffer.clear();
-        // assert_eq!(buffer.get(0), None);
-        // assert_eq!(buffer.get(1), None);
-        // assert_eq!(buffer.get(2), None);
-        // assert_eq!(buffer.get(3), None);
-        // assert_eq!(buffer.get(4), None);
+        // remove all elements
+        buffer.clear();
+        assert_eq!(buffer.get(0), None);
+        assert_eq!(buffer.get(1), None);
+        assert_eq!(buffer.get(2), None);
+        assert_eq!(buffer.get(3), None);
+        assert_eq!(buffer.get(4), None);
 
         // add all msgs and check again
         assert_eq!(buffer.push(p0.clone()), true);
