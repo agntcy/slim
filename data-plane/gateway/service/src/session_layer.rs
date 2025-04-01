@@ -1,7 +1,6 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
-use core::error;
 use std::collections::HashMap;
 use std::time::Duration;
 
@@ -396,8 +395,6 @@ mod tests {
         let agent = Agent::from_strings("org", "ns", "type", 0);
 
         let session_layer = SessionLayer::new(&agent, 0, tx_gw.clone(), tx_app.clone());
-
-        let session_config = FireAndForgetConfiguration {};
 
         let session_config = FireAndForgetConfiguration {};
 
