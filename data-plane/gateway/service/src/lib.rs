@@ -6,6 +6,7 @@ pub mod producer_buffer;
 pub mod receiver_buffer;
 #[macro_use]
 pub mod session;
+pub mod streaming;
 pub mod timer;
 
 mod fire_and_forget;
@@ -202,7 +203,7 @@ impl Service {
         let (tx_app, rx_app) = mpsc::channel(128);
 
         // create session layer
-        let session_layer = Arc::new(SessionLayer::new(conn_id, tx_gw, tx_app));
+        let session_layer = Arc::new(SessionLayer::new(agent_name, conn_id, tx_gw, tx_app));
 
         // register agent within session layers
         self.session_layers

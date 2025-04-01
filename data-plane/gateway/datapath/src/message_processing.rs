@@ -290,7 +290,7 @@ impl MessageProcessor {
                 // reset header fields
                 msg.clear_agp_header();
 
-                // tracing ////////////////////////////////////////////////////////
+                // telemetry ////////////////////////////////////////////////////////
                 let parent_context = extract_parent_context(&msg);
                 let span = tracing::span!(
                     tracing::Level::INFO,
@@ -344,7 +344,7 @@ impl MessageProcessor {
 
         // if the message already contains an output connection, use that one
         // without performing any match in the subscription table
-        if let Some(val) = msg.forward_to() {
+        if let Some(val) = msg.get_forward_to() {
             debug!("forwarding message to connection {}", val);
             return self
                 .send_msg(msg, val)
@@ -390,7 +390,7 @@ impl MessageProcessor {
         //////////////////////////////////////////////////////
 
         // get header
-        let header = msg.agp_header();
+        let header = msg.get_agp_header();
 
         let (agent_type, agent_id) = header.get_dst();
 
@@ -435,7 +435,7 @@ impl MessageProcessor {
         let (agent_type, agent_id) = msg.get_name();
 
         // get header
-        let header = msg.agp_header();
+        let header = msg.get_agp_header();
 
         // get in and out connections
         let (conn, forward) = header.get_in_out_connections();
@@ -493,12 +493,9 @@ impl MessageProcessor {
 
     pub async fn process_message(
         &self,
-        mut msg: Message,
+        msg: Message,
         in_connection: u64,
     ) -> Result<(), DataPathError> {
-        // add incoming connection to the AGP header
-        msg.set_incoming_conn(Some(in_connection));
-
         // process each kind of message in a different path
         match msg.get_type() {
             SubscribeType(_) => self.process_subscription(msg, in_connection, true).await,
@@ -530,7 +527,10 @@ impl MessageProcessor {
             return Err(DataPathError::InvalidMessage(err.to_string()));
         }
 
-        // message is valid - from now on we access the field without checking
+        // add incoming connection to the AGP header
+        msg.set_incoming_conn(Some(conn_index));
+
+        // message is valid - from now on we access the field without checking for None
 
         // telemetry /////////////////////////////////////////
         if is_local {
@@ -571,8 +571,6 @@ impl MessageProcessor {
         match self.process_message(msg, conn_index).await {
             Ok(_) => Ok(()),
             Err(e) => {
-                // drop message
-
                 // telemetry /////////////////////////////////////////
                 info!(
                     telemetry = true,
@@ -580,6 +578,7 @@ impl MessageProcessor {
                 );
                 //////////////////////////////////////////////////////
 
+                // drop message
                 Err(DataPathError::ProcessingError(e.to_string()))
             }
         }

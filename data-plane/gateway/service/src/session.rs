@@ -8,8 +8,9 @@ use tonic::Status;
 use crate::errors::SessionError;
 use crate::fire_and_forget::FireAndForgetConfiguration;
 use crate::request_response::RequestResponseConfiguration;
+use crate::streaming::StreamingConfiguration;
 use agp_datapath::messages::encoder::Agent;
-use agp_datapath::pubsub::proto::pubsub::v1::{Message, SessionHeaderType};
+use agp_datapath::pubsub::proto::pubsub::v1::Message;
 
 /// Session ID
 pub type Id = u32;
@@ -68,8 +69,6 @@ pub struct Info {
     pub id: Id,
     /// The message nonce used to identify the message
     pub message_id: Option<u32>,
-    /// The Message Type
-    pub session_header_type: SessionHeaderType,
     /// The identifier of the agent that sent the message
     pub message_source: Option<Agent>,
     /// The input connection id
@@ -82,7 +81,6 @@ impl Info {
         Info {
             id,
             message_id: None,
-            session_header_type: SessionHeaderType::Unspecified,
             message_source: None,
             input_connection: None,
         }
@@ -91,20 +89,17 @@ impl Info {
 
 impl From<&Message> for Info {
     fn from(message: &Message) -> Self {
-        let session_header = message.session_header();
-        let agp_header = message.agp_header();
+        let session_header = message.get_session_header();
+        let agp_header = message.get_agp_header();
 
         let id = session_header.session_id;
         let message_id = session_header.message_id;
         let message_source = message.get_source();
         let input_connection = agp_header.incoming_conn;
-        let session_header_type = session_header.header_type;
 
         Info {
             id,
             message_id: Some(message_id),
-            session_header_type: SessionHeaderType::try_from(session_header_type)
-                .unwrap_or(SessionHeaderType::Unspecified),
             message_source: Some(message_source),
             input_connection,
         }
@@ -138,6 +133,7 @@ pub(crate) enum MessageDirection {
 pub enum SessionConfig {
     FireAndForget(FireAndForgetConfiguration),
     RequestResponse(RequestResponseConfiguration),
+    Streaming(StreamingConfiguration),
 }
 
 impl std::fmt::Display for SessionConfig {
@@ -145,6 +141,7 @@ impl std::fmt::Display for SessionConfig {
         match self {
             SessionConfig::FireAndForget(ff) => write!(f, "{}", ff),
             SessionConfig::RequestResponse(rr) => write!(f, "{}", rr),
+            SessionConfig::Streaming(s) => write!(f, "{}", s),
         }
     }
 }

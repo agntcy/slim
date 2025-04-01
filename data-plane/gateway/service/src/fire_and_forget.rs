@@ -53,7 +53,7 @@ impl Session for FireAndForget {
         mut message: SessionMessage,
         direction: MessageDirection,
     ) -> Result<(), SessionError> {
-        let header = message.message.session_header_mut();
+        let header = message.message.get_session_header_mut();
 
         // clone tx
         match direction {
@@ -144,8 +144,9 @@ mod tests {
         );
 
         // set the session id in the message
-        let header = message.session_header_mut();
+        let header = message.get_session_header_mut();
         header.session_id = 1;
+        header.header_type = i32::from(SessionHeaderType::Fnf);
 
         let res = session
             .on_message(

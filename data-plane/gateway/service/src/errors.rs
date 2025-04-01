@@ -70,4 +70,8 @@ pub enum SessionError {
         error: String,
         message: Box<SessionMessage>,
     },
+    #[error("configuration error: {0}")]
+    ConfigurationError(String),
+    #[error("message lost: {0}")]
+    MessageLost(String),
 }
