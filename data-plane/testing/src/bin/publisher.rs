@@ -5,11 +5,13 @@ use std::fs::File;
 use std::io::prelude::*;
 use std::{collections::HashMap, sync::Arc};
 
-use agp_datapath::messages::encoder::encode_agent;
+use agp_datapath::messages::encoder::{encode_agent, encode_agent_type};
 use agp_datapath::messages::utils::get_error;
 use parking_lot::RwLock;
 use testing::parse_line;
 use tokio_util::sync::CancellationToken;
+
+use agp_service::streaming::StreamingConfiguration;
 
 use agp_gw::config;
 use clap::Parser;
@@ -19,9 +21,19 @@ use tracing::{debug, error, info};
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
 pub struct Args {
-    /// Workload input file
-    #[arg(short, long, value_name = "WORKLOAD", required = true)]
-    workload: String,
+    /// Workload input file, required if used in workload mode. If this is set the streaming mode is set to false.
+    #[arg(short, long, value_name = "WORKLOAD", required = false)]
+    workload: Option<String>,
+
+    /// Runs in streaming mode.
+    #[arg(
+        short,
+        long,
+        value_name = "STREAMING",
+        required = false,
+        default_value_t = false
+    )]
+    streaming: bool,
 
     /// Agp config file
     #[arg(short, long, value_name = "CONFIGURATION", required = true)]
@@ -55,11 +67,15 @@ pub struct Args {
     #[arg(
         short,
         long,
-        value_name = "SLEEP",
+        value_name = "FREQUENCE",
         required = false,
         default_value_t = 0
     )]
-    sleep: u32,
+    frequence: u32,
+
+    /// used only in streaming mode, defines the maximum number of packets to send
+    #[arg(short, long, value_name = "PACKETS", required = false)]
+    max_packets: Option<u64>,
 }
 
 impl Args {
@@ -67,8 +83,12 @@ impl Args {
         &self.msg_size
     }
 
-    pub fn workload(&self) -> &String {
+    pub fn workload(&self) -> &Option<String> {
         &self.workload
+    }
+
+    pub fn streaming(&self) -> &bool {
+        &self.streaming
     }
 
     pub fn id(&self) -> &u64 {
@@ -83,8 +103,12 @@ impl Args {
         &self.quite
     }
 
-    pub fn sleep(&self) -> &u32 {
-        &self.sleep
+    pub fn frequence(&self) -> &u32 {
+        &self.frequence
+    }
+
+    pub fn max_packets(&self) -> &Option<u64> {
+        &self.max_packets
     }
 }
 
@@ -96,22 +120,119 @@ async fn main() {
     let config_file = args.config();
     let msg_size = *args.msg_size();
     let id = *args.id();
-    let sleep = *args.sleep();
+    let frequence = *args.frequence();
+    let mut streaming = *args.streaming();
+    let max_packets = args.max_packets;
+    if input.is_some() {
+        streaming = false;
+    }
 
+    info!(
+        "configuration -- workload file: {}, agent config {}, publisher id: {}, streaming mode: {}, msg size: {}",
+        input.as_ref().unwrap_or(&"None".to_string()),
+        config_file,
+        id,
+        streaming,
+        msg_size,
+    );
+
+    // start local agent
+    // get service
+    let mut config = config::load_config(config_file).expect("failed to load configuration");
+    let _guard = config.tracing.setup_tracing_subscriber();
+    let svc_id = agp_config::component::id::ID::new_with_str("gateway/0").unwrap();
+    let svc = config.services.get_mut(&svc_id).unwrap();
+
+    // create local agent
+    let agent_name = encode_agent("cisco", "default", "publisher", id);
+    // required in streaming mode
+    let dest_name = encode_agent_type("cisco", "default", "subscriber");
+    _ = svc
+        .create_agent(&agent_name)
+        .expect("failed to create agent");
+
+    // connect to the remote gateway
+    let conn_id = svc.connect(None).await.unwrap();
+    info!("remote connection id = {}", conn_id);
+
+    // subscribe for local name
+    match svc
+        .subscribe(
+            &agent_name,
+            agent_name.agent_type(),
+            agent_name.agent_id_option(),
+            Some(conn_id),
+        )
+        .await
+    {
+        Ok(_) => {}
+        Err(e) => {
+            panic!("an error accoured while adding a subscription {}", e);
+        }
+    }
+
+    svc.set_route(&agent_name, &dest_name, None, conn_id)
+        .await
+        .unwrap();
+
+    // wait for the connection to be established
+    tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+
+    // STREAMING MODE
+    if streaming {
+        // create streaming session
+        let res = svc
+            .create_session(
+                &agent_name,
+                agp_service::session::SessionConfig::Streaming(StreamingConfiguration {
+                    source: agent_name.clone(),
+                    max_retries: None,
+                    timeout: None,
+                }),
+            )
+            .await;
+        if res.is_err() {
+            panic!("error creating fire and forget session");
+        }
+
+        // get the session
+        let session_info = res.unwrap();
+        //let session_id = session_info.id;
+
+        for i in 0..max_packets.unwrap_or(u64::MAX) {
+            let payload: Vec<u8> = vec![120; msg_size as usize]; // ASCII for 'x' = 120
+            info!("publishing message {}", i);
+            if svc
+                .publish(
+                    &agent_name,
+                    session_info.clone(),
+                    &dest_name,
+                    None,
+                    10, // the packet will be sent in broadcast on dest_name
+                    payload,
+                )
+                .await
+                .is_err()
+            {
+                error!("an error occurred sending publication, the test will fail",);
+            }
+            if frequence != 0 {
+                tokio::time::sleep(tokio::time::Duration::from_millis(frequence as u64)).await;
+            }
+        }
+        return;
+    }
+
+    // WORKLOAD MODE
     // setup agent config
     let mut config = config::load_config(config_file).expect("failed to load configuration");
     let _guard = config.tracing.setup_tracing_subscriber();
-
-    info!(
-        "configuration -- input file: {}, agent config: {}, msg size: {}",
-        input, config_file, msg_size
-    );
 
     let mut publication_list = HashMap::new();
     let mut oracle = HashMap::new();
     let mut routes = Vec::new();
 
-    let res = File::open(input);
+    let res = File::open(input.as_ref().unwrap());
     if res.is_err() {
         panic!("error opening the input file");
     }
@@ -331,8 +452,8 @@ async fn main() {
             bar.inc(1);
         }
 
-        if sleep != 0 {
-            tokio::time::sleep(tokio::time::Duration::from_millis(sleep as u64)).await;
+        if frequence != 0 {
+            tokio::time::sleep(tokio::time::Duration::from_millis(frequence as u64)).await;
         }
     }
     let duration = start.elapsed();

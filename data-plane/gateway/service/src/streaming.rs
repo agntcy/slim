@@ -393,7 +393,7 @@ impl Streaming {
                                                     }
                                                 }
                                                 for r in rtx {
-                                                    debug!("send a rtx for message {} from receiver session {}", r, session_id);
+                                                    info!("packet loss detected on session {}, send RTX for id {}", session_id, r);
                                                     let dest = producer_name.as_ref().unwrap(); // this cannot panic a this point
                                                     let rtx = create_rtx_publication(&source, dest.agent_type(), Some(dest.agent_id()), true, session_id, r, producer_conn, Some(vec![]));
 

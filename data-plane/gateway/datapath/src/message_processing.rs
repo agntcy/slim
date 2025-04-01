@@ -341,7 +341,7 @@ impl MessageProcessor {
         // if the message already contains an output connection, use that one
         // without performing any match in the subscription table
         if let Some(val) = get_forward_to(&msg).unwrap_or(None) {
-            info!("forwarding message to connection {:?}", val);
+            debug!("forwarding message to connection {:?}", val);
             return self.send_msg(msg, val).await.map_err(|e| {
                 error!("error sending a message {:?}", e);
                 DataPathError::PublicationError(e.to_string())
