@@ -290,7 +290,7 @@ impl MessageProcessor {
                 // reset header fields
                 msg.clear_agp_header();
 
-                // tracing ////////////////////////////////////////////////////////
+                // telemetry ////////////////////////////////////////////////////////
                 let parent_context = extract_parent_context(&msg);
                 let span = tracing::span!(
                     tracing::Level::INFO,
