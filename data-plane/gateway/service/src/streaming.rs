@@ -17,19 +17,10 @@ use crate::{
 use producer_buffer::ProducerBuffer;
 use receiver_buffer::ReceiverBuffer;
 
+use agp_datapath::messages::utils::AgpHeaderFlags;
 use agp_datapath::{
-    messages::utils::{get_incoming_connection, get_msg_id, get_payload_from_msg},
-    pubsub::proto::pubsub::v1::SessionHeaderType,
-};
-use agp_datapath::{
-    messages::{
-        utils::{
-            create_rtx_publication, get_session_header_type, get_source, service_type_to_int,
-            set_msg_id, set_session_type,
-        },
-        Agent,
-    },
-    pubsub::proto::pubsub::v1::Message,
+    messages::Agent,
+    pubsub::proto::pubsub::v1::{AgpHeader, Message, SessionHeader, SessionHeaderType},
 };
 
 use tonic::{async_trait, Status};
@@ -219,26 +210,15 @@ impl Streaming {
                                                 trace!("received message from the gataway on producer session {}", session_id);
                                                 // received a message from the GW
                                                 // this must be an RTX message otherwise drop it
-                                                match get_session_header_type(&msg){
-                                                    Ok(session_type) => {
-                                                        if session_type != service_type_to_int(SessionHeaderType::RtxRequest) {
-                                                            error!("received invalid packet type on producer session {}: not RTX request", session_id);
-                                                            continue;
-                                                        }
-                                                    }
-                                                    Err(_) => {
-                                                        error!("received invalid packet type on producer session {}: missing header type", session_id);
+                                                match msg.get_session_header().header_type() {
+                                                    SessionHeaderType::RtxRequest => {}
+                                                    _ => {
+                                                        error!("received invalid packet type on producer session {}: not RTX request", session_id);
                                                         continue;
                                                     }
                                                 };
 
-                                                let msg_rtx_id = match get_msg_id(&msg) {
-                                                    Ok(msg_rtx_id) => msg_rtx_id,
-                                                    Err(_) => {
-                                                        error!("error parsing request RTX message on producer session {}", session_id);
-                                                        continue;
-                                                    }
-                                                };
+                                                let msg_rtx_id = msg.get_id();
 
                                                 trace!("received rtx for message {} on producer session {}", msg_rtx_id, session_id);
                                                 // search the packet in the producer buffer
@@ -246,31 +226,32 @@ impl Streaming {
                                                     Some(packet) => {
                                                         trace!("packet {} exists in the producer buffer, create rtx reply", msg_rtx_id);
                                                         // the packet exists, send it to the source of the RTX
-                                                        let pkt_src = match get_source(&msg) {
-                                                            Ok(src) => src,
-                                                            Err(_) => {
-                                                                error!("error parsing received RTX on producer session {}: missing source", session_id);
+                                                        let pkt_src = msg.get_source();
+
+                                                        let payload = match packet.get_payload() {
+                                                            Some(p) => p,
+                                                            None => {
+                                                                error!("unable to get the payload from the packet");
                                                                 continue;
                                                             }
                                                         };
 
-                                                        let payload = match get_payload_from_msg(&packet) {
-                                                            Ok(payload) => payload,
-                                                            Err(e) => {
-                                                                error!("error parsing packet: {}", e.to_string());
-                                                                continue;
-                                                            }
-                                                        };
+                                                        let incoming_conn = msg.get_incoming_conn();
 
-                                                        let incoming_conn = match get_incoming_connection(&msg) {
-                                                            Ok(conn) => conn,
-                                                            Err(e) => {
-                                                                error!("error parsing packet: {}", e.to_string());
-                                                                continue;
-                                                            }
-                                                        };
+                                                        let agp_header = Some(AgpHeader::new(
+                                                            &source,
+                                                            pkt_src.agent_type(),
+                                                            Some(pkt_src.agent_id()),
+                                                            Some(AgpHeaderFlags::default().with_incoming_conn(incoming_conn)),
+                                                        ));
 
-                                                        create_rtx_publication(&source, pkt_src.agent_type(), pkt_src.agent_id_option(), false, session_id, msg_rtx_id, incoming_conn, Some(payload.to_vec()))
+                                                        let session_header = Some(SessionHeader::new(
+                                                            SessionHeaderType::RtxReply.into(),
+                                                            session_id,
+                                                            msg_rtx_id,
+                                                        ));
+
+                                                        Message::new_publish_with_headers(agp_header, session_header, "", payload.blob.to_vec())
                                                     }
                                                     None => {
                                                         // the packet does not exist so do nothing
@@ -291,15 +272,8 @@ impl Streaming {
                                                 // received a message from the APP
                                                 // set the session header, add the message to the buffer and send it
                                                 trace!("received message from the app on producer session {}", session_id);
-                                                if set_session_type(&mut msg, SessionHeaderType::Stream).is_err() {
-                                                    error!("error setting session type on producer session {}", session_id);
-                                                    send_app.send(Err(SessionError::Processing("error setting session header type".to_string()))).await.expect("error notifyng app");
-                                                }
-
-                                                if set_msg_id(&mut msg, producer.next_id).is_err() {
-                                                    error!("error setting msg id on producer session {}", session_id);
-                                                    send_app.send(Err(SessionError::Processing("error setting message id".to_string()))).await.expect("error notifyng app");
-                                                }
+                                                msg.set_header_type(SessionHeaderType::Stream);
+                                                msg.set_message_id(producer.next_id);
 
                                                 trace!("add message {} to the producer buffer on session {}", producer.next_id, session_id);
                                                 if !producer.buffer.push(msg.clone()) {
@@ -318,21 +292,9 @@ impl Streaming {
                                     }
                                     Endpoint::Receiver(receiver) => {
                                         trace!("received message from the gataway on receiver session {}", session_id);
-                                        let header_type = match get_session_header_type(&msg){
-                                            Ok(t) => t,
-                                            Err(_) => {
-                                                error!("unable to get the session header type from the received packet on receiver session {}", session_id);
-                                                continue;
-                                            },
-                                        };
-                                        if header_type == service_type_to_int(SessionHeaderType::RtxReply) {
-                                            let rtx_msg_id = match get_msg_id(&msg){
-                                                Ok(id) => id,
-                                                Err(_) => {
-                                                    error!("unable to get the message id on receiver session {}", session_id);
-                                                    continue;
-                                                },
-                                            };
+                                        let header_type = msg.get_header_type();
+                                        if header_type == SessionHeaderType::RtxReply {
+                                            let rtx_msg_id = msg.get_id();
 
                                             // try to clean local state
                                             match receiver.timers_map.get(&rtx_msg_id) {
@@ -348,29 +310,14 @@ impl Streaming {
                                                 }
                                             }
 
-                                        } else if header_type != service_type_to_int(SessionHeaderType::Stream){
-                                            error!("received packet with invalid header type {} on receiver session {}", header_type, session_id);
+                                        } else if header_type != SessionHeaderType::Stream {
+                                            error!("received packet with invalid header type {} on receiver session {}", i32::from(header_type), session_id);
                                             continue;
                                         }
 
                                         if producer_name.is_none() {
-                                            let pkt_source = match get_source(&msg){
-                                                Ok(a) => a,
-                                                Err(_) => {
-                                                    error!("unable to get the message source on receiver session {}", session_id);
-                                                    continue;
-                                                }
-                                            };
-                                            producer_name = Some(pkt_source);
-
-                                            let incoming_conn = match get_incoming_connection(&msg) {
-                                                Ok(conn) => conn,
-                                                Err(e) => {
-                                                    error!("error parsing packet: {}", e.to_string());
-                                                    continue;
-                                                }
-                                            };
-                                            producer_conn = incoming_conn;
+                                            producer_name = Some(msg.get_source());
+                                            producer_conn = Some(msg.get_incoming_conn());
                                         }
 
                                         match receiver.buffer.on_received_message(msg){
@@ -388,14 +335,28 @@ impl Streaming {
                                                         }
                                                         None => {
                                                             warn!("a message was definitely lost in receiver session {}", session_id);
-                                                            let _ = send_app.send(Err(SessionError::LostMessage(session_id))).await;
+                                                            let _ = send_app.send(Err(SessionError::MessageLost(session_id.to_string()))).await;
                                                         }
                                                     }
                                                 }
                                                 for r in rtx {
                                                     info!("packet loss detected on session {}, send RTX for id {}", session_id, r);
                                                     let dest = producer_name.as_ref().unwrap(); // this cannot panic a this point
-                                                    let rtx = create_rtx_publication(&source, dest.agent_type(), Some(dest.agent_id()), true, session_id, r, producer_conn, Some(vec![]));
+
+                                                    let agp_header = Some(AgpHeader::new(
+                                                        &source,
+                                                        dest.agent_type(),
+                                                        Some(dest.agent_id()),
+                                                        Some(AgpHeaderFlags::default().with_incoming_conn(producer_conn.unwrap())),
+                                                    ));
+
+                                                    let session_header = Some(SessionHeader::new(
+                                                        SessionHeaderType::RtxRequest.into(),
+                                                        session_id,
+                                                        r,
+                                                    ));
+
+                                                    let rtx = Message::new_publish_with_headers(agp_header, session_header, "", vec![]);
 
                                                     // set state for RTX
                                                     let timer = Timer::new(r, timeout.as_millis().try_into().unwrap(), max_retries);
@@ -480,7 +441,7 @@ impl Streaming {
                                                             }
                                                             None => {
                                                                 warn!("a message was definitely lost in session {}", session_id);
-                                                                let _ = send_app.send(Err(SessionError::LostMessage(session_id))).await;
+                                                                let _ = send_app.send(Err(SessionError::MessageLost(session_id.to_string()))).await;
                                                             }
                                                         }
                                                     }
@@ -532,12 +493,10 @@ mod tests {
     use std::time::Duration;
 
     use super::*;
-    use agp_datapath::messages::{
-        encoder,
-        utils::{self, get_name},
-    };
     use tokio::time;
     use tracing_test::traced_test;
+
+    use agp_datapath::messages::AgentType;
 
     #[tokio::test]
     #[traced_test]
@@ -546,7 +505,7 @@ mod tests {
         let (tx_app, _) = tokio::sync::mpsc::channel(1);
 
         let session_config = StreamingConfiguration {
-            source: encoder::encode_agent("cisco", "default", "local_agent", 0),
+            source: Agent::from_strings("cisco", "default", "local_agent", 0),
             max_retries: None,
             timeout: None,
         };
@@ -592,13 +551,13 @@ mod tests {
         let (tx_app_receiver, mut rx_app_receiver) = tokio::sync::mpsc::channel(1);
 
         let session_config_sender = StreamingConfiguration {
-            source: encoder::encode_agent("cisco", "default", "sender", 0),
+            source: Agent::from_strings("cisco", "default", "sender", 0),
             max_retries: None,
             timeout: None,
         };
 
         let session_config_receiver = StreamingConfiguration {
-            source: encoder::encode_agent("cisco", "default", "receiver", 0),
+            source: Agent::from_strings("cisco", "default", "receiver", 0),
             max_retries: Some(5),
             timeout: Some(std::time::Duration::from_millis(500)),
         };
@@ -618,24 +577,22 @@ mod tests {
             tx_app_receiver,
         );
 
-        let mut message = utils::create_publication(
-            &encoder::encode_agent("cisco", "default", "sender", 0),
-            &encoder::encode_agent_type("cisco", "default", "receiver"),
+        let mut message = Message::new_publish(
+            &Agent::from_strings("cisco", "default", "sender", 0),
+            &AgentType::from_strings("cisco", "default", "receiver"),
             Some(0),
-            None,
-            None,
-            1,
+            Some(AgpHeaderFlags::default().with_incoming_conn(123)), // set a fake incoming conn, as it is required for the rtx
             "msg",
             vec![0x1, 0x2, 0x3, 0x4],
         );
 
         // set the session id in the message
-        let header = utils::get_session_header_as_mut(&mut message).unwrap();
+        let header = message.get_session_header_mut();
         header.session_id = 0;
 
         // set session header type for test check
         let mut expected_msg = message.clone();
-        let _ = set_session_type(&mut expected_msg, SessionHeaderType::Stream);
+        let _ = expected_msg.set_header_type(SessionHeaderType::Stream);
 
         let session_msg = SessionMessage::new(message.clone(), Info::new(0));
 
@@ -667,26 +624,24 @@ mod tests {
         let (tx_app, mut rx_app) = tokio::sync::mpsc::channel(1);
 
         let session_config = StreamingConfiguration {
-            source: encoder::encode_agent("cisco", "default", "sender", 0),
+            source: Agent::from_strings("cisco", "default", "sender", 0),
             max_retries: Some(5),
             timeout: Some(std::time::Duration::from_millis(500)),
         };
 
         let session = Streaming::new(0, session_config, SessionDirection::Receiver, tx_gw, tx_app);
 
-        let mut message = utils::create_publication(
-            &encoder::encode_agent("cisco", "default", "sender", 0),
-            &encoder::encode_agent_type("cisco", "default", "receiver"),
+        let mut message = Message::new_publish(
+            &Agent::from_strings("cisco", "default", "sender", 0),
+            &AgentType::from_strings("cisco", "default", "receiver"),
             Some(0),
-            None,
-            None,
-            1,
+            Some(AgpHeaderFlags::default().with_incoming_conn(123)), // set a fake incoming conn, as it is required for the rtx
             "msg",
             vec![0x1, 0x2, 0x3, 0x4],
         );
 
         // set the session type
-        let header = utils::get_session_header_as_mut(&mut message).unwrap();
+        let header = message.get_session_header_mut();
         header.header_type = SessionHeaderType::Stream.into();
 
         let session_msg: SessionMessage = SessionMessage::new(message.clone(), Info::new(0));
@@ -701,7 +656,7 @@ mod tests {
         assert_eq!(msg.info.id, 0);
 
         // set msg id = 2 this will trigger a loss detection
-        let header = utils::get_session_header_as_mut(&mut message).unwrap();
+        let header = message.get_session_header_mut();
         header.message_id = 2;
 
         let session_msg = SessionMessage::new(message.clone(), Info::new(0));
@@ -713,7 +668,7 @@ mod tests {
         // read rtxs from the gw channel, the original one + 5 retries
         for _ in 0..6 {
             let rtx_msg = rx_gw.recv().await.unwrap().unwrap();
-            let rtx_header = utils::get_session_header(&rtx_msg).unwrap();
+            let rtx_header = rtx_msg.get_session_header();
             assert_eq!(rtx_header.session_id, 0);
             assert_eq!(rtx_header.message_id, 1);
             assert_eq!(rtx_header.header_type, SessionHeaderType::RtxRequest.into());
@@ -730,30 +685,28 @@ mod tests {
     #[tokio::test]
     #[traced_test]
     async fn test_stream_rtx_reception() {
-        let (tx_gw, mut rx_gw) = tokio::sync::mpsc::channel(1);
-        let (tx_app, _rx_app) = tokio::sync::mpsc::channel(1);
+        let (tx_gw, mut rx_gw) = tokio::sync::mpsc::channel(8);
+        let (tx_app, _rx_app) = tokio::sync::mpsc::channel(8);
 
         let session_config = StreamingConfiguration {
-            source: encoder::encode_agent("cisco", "default", "receiver", 0),
+            source: Agent::from_strings("cisco", "default", "receiver", 0),
             max_retries: Some(5),
             timeout: Some(std::time::Duration::from_millis(500)),
         };
 
         let session = Streaming::new(120, session_config, SessionDirection::Sender, tx_gw, tx_app);
 
-        let mut message = utils::create_publication(
-            &encoder::encode_agent("cisco", "default", "sender", 0),
-            &encoder::encode_agent_type("cisco", "default", "receiver"),
+        let mut message = Message::new_publish(
+            &Agent::from_strings("cisco", "default", "sender", 0),
+            &AgentType::from_strings("cisco", "default", "receiver"),
             Some(0),
             None,
-            None,
-            1,
-            "msg",
+            "",
             vec![0x1, 0x2, 0x3, 0x4],
         );
 
         // set the session id in the message
-        let header = utils::get_session_header_as_mut(&mut message).unwrap();
+        let header = message.get_session_header_mut();
         header.session_id = 120;
 
         let session_msg: SessionMessage = SessionMessage::new(message.clone(), Info::new(120));
@@ -769,23 +722,31 @@ mod tests {
         // read the 3 messages from the gw channel
         for i in 0..3 {
             let msg = rx_gw.recv().await.unwrap().unwrap();
-            let msg_header = utils::get_session_header(&msg).unwrap();
+            let msg_header = msg.get_session_header();
             assert_eq!(msg_header.session_id, 120);
             assert_eq!(msg_header.message_id, i);
             assert_eq!(msg_header.header_type, SessionHeaderType::Stream.into());
         }
 
-        // receive an RTX for message 2
-        let rtx = create_rtx_publication(
-            &encoder::encode_agent("cisco", "default", "sender", 0),
-            &encoder::encode_agent_type("cisco", "default", "receiver"),
+        let agp_header = Some(AgpHeader::new(
+            &Agent::from_strings("cisco", "default", "sender", 0),
+            &AgentType::from_strings("cisco", "default", "receiver"),
             Some(0),
-            true,
+            Some(
+                AgpHeaderFlags::default()
+                    .with_forward_to(0)
+                    .with_incoming_conn(123),
+            ), // set incoming conn, as it is required for the rtx
+        ));
+
+        let session_header = Some(SessionHeader::new(
+            SessionHeaderType::RtxRequest.into(),
             1,
             2,
-            Some(0),
-            Some(vec![]),
-        );
+        ));
+
+        // receive an RTX for message 2
+        let rtx = Message::new_publish_with_headers(agp_header, session_header, "", vec![]);
 
         let session_msg: SessionMessage = SessionMessage::new(rtx.clone(), Info::new(120));
 
@@ -797,14 +758,11 @@ mod tests {
 
         // get rtx reply message from gw
         let msg = rx_gw.recv().await.unwrap().unwrap();
-        let msg_header = utils::get_session_header(&msg).unwrap();
+        let msg_header = msg.get_session_header();
         assert_eq!(msg_header.session_id, 120);
         assert_eq!(msg_header.message_id, 2);
         assert_eq!(msg_header.header_type, SessionHeaderType::RtxReply.into());
-        assert_eq!(
-            utils::get_payload_from_msg(&msg).unwrap(),
-            vec![0x1, 0x2, 0x3, 0x4]
-        );
+        assert_eq!(msg.get_payload().unwrap().blob, vec![0x1, 0x2, 0x3, 0x4]);
     }
 
     #[tokio::test]
@@ -817,13 +775,13 @@ mod tests {
         let (tx_app_receiver, mut rx_app_receiver) = tokio::sync::mpsc::channel(1);
 
         let session_config_sender = StreamingConfiguration {
-            source: encoder::encode_agent("cisco", "default", "sender", 0),
+            source: Agent::from_strings("cisco", "default", "sender", 0),
             max_retries: None,
             timeout: None,
         };
 
         let session_config_receiver = StreamingConfiguration {
-            source: encoder::encode_agent("cisco", "default", "receiver", 0),
+            source: Agent::from_strings("cisco", "default", "receiver", 0),
             max_retries: Some(5),
             timeout: Some(std::time::Duration::from_millis(500)),
         };
@@ -843,13 +801,11 @@ mod tests {
             tx_app_receiver,
         );
 
-        let message = utils::create_publication(
-            &encoder::encode_agent("cisco", "default", "sender", 0),
-            &encoder::encode_agent_type("cisco", "default", "receiver"),
+        let message = Message::new_publish(
+            &Agent::from_strings("cisco", "default", "sender", 0),
+            &AgentType::from_strings("cisco", "default", "receiver"),
             Some(0),
-            None,
-            None,
-            1,
+            Some(AgpHeaderFlags::default().with_incoming_conn(0)),
             "msg",
             vec![0x1, 0x2, 0x3, 0x4],
         );
@@ -868,7 +824,7 @@ mod tests {
         // forward message 1 and 3 to the receiver
         for i in 0..3 {
             let msg = rx_gw_sender.recv().await.unwrap().unwrap();
-            let msg_header = utils::get_session_header(&msg).unwrap();
+            let msg_header = msg.get_session_header();
             assert_eq!(msg_header.session_id, 0);
             assert_eq!(msg_header.message_id, i);
             assert_eq!(msg_header.header_type, SessionHeaderType::Stream.into());
@@ -885,53 +841,53 @@ mod tests {
 
         // the receiver app should get the packet 0
         let msg = rx_app_receiver.recv().await.unwrap().unwrap();
-        let msg_header = utils::get_session_header(&msg.message).unwrap();
+        let msg_header = msg.message.get_session_header();
         assert_eq!(msg_header.session_id, 0);
         assert_eq!(msg_header.message_id, 0);
         assert_eq!(msg_header.header_type, SessionHeaderType::Stream.into());
         assert_eq!(
-            get_source(&msg.message).unwrap(),
-            encoder::encode_agent("cisco", "default", "sender", 0)
+            msg.message.get_source(),
+            Agent::from_strings("cisco", "default", "sender", 0)
         );
         assert_eq!(
-            get_name(&msg.message).unwrap(),
+            msg.message.get_name(),
             (
-                encoder::encode_agent_type("cisco", "default", "receiver"),
+                AgentType::from_strings("cisco", "default", "receiver"),
                 Some(0)
             )
         );
 
         // get the RTX and drop the first one before send it to sender
         let msg = rx_gw_receiver.recv().await.unwrap().unwrap();
-        let msg_header = utils::get_session_header(&msg).unwrap();
+        let msg_header = msg.get_session_header();
         assert_eq!(msg_header.session_id, 0);
         assert_eq!(msg_header.message_id, 1);
         assert_eq!(msg_header.header_type, SessionHeaderType::RtxRequest.into());
         assert_eq!(
-            get_source(&msg).unwrap(),
-            encoder::encode_agent("cisco", "default", "receiver", 0)
+            msg.get_source(),
+            Agent::from_strings("cisco", "default", "receiver", 0)
         );
         assert_eq!(
-            get_name(&msg).unwrap(),
+            msg.get_name(),
             (
-                encoder::encode_agent_type("cisco", "default", "sender"),
+                AgentType::from_strings("cisco", "default", "sender"),
                 Some(0)
             )
         );
 
         let msg = rx_gw_receiver.recv().await.unwrap().unwrap();
-        let msg_header = utils::get_session_header(&msg).unwrap();
+        let msg_header = msg.get_session_header();
         assert_eq!(msg_header.session_id, 0);
         assert_eq!(msg_header.message_id, 1);
         assert_eq!(msg_header.header_type, SessionHeaderType::RtxRequest.into());
         assert_eq!(
-            get_source(&msg).unwrap(),
-            encoder::encode_agent("cisco", "default", "receiver", 0)
+            msg.get_source(),
+            Agent::from_strings("cisco", "default", "receiver", 0)
         );
         assert_eq!(
-            get_name(&msg).unwrap(),
+            msg.get_name(),
             (
-                encoder::encode_agent_type("cisco", "default", "sender"),
+                AgentType::from_strings("cisco", "default", "sender"),
                 Some(0)
             )
         );
@@ -945,18 +901,18 @@ mod tests {
 
         // this should generate an RTX reply
         let msg = rx_gw_sender.recv().await.unwrap().unwrap();
-        let msg_header = utils::get_session_header(&msg).unwrap();
+        let msg_header = msg.get_session_header();
         assert_eq!(msg_header.session_id, 0);
         assert_eq!(msg_header.message_id, 1);
         assert_eq!(msg_header.header_type, SessionHeaderType::RtxReply.into());
         assert_eq!(
-            get_source(&msg).unwrap(),
-            encoder::encode_agent("cisco", "default", "sender", 0)
+            msg.get_source(),
+            Agent::from_strings("cisco", "default", "sender", 0)
         );
         assert_eq!(
-            get_name(&msg).unwrap(),
+            msg.get_name(),
             (
-                encoder::encode_agent_type("cisco", "default", "receiver"),
+                AgentType::from_strings("cisco", "default", "receiver"),
                 Some(0)
             )
         );
@@ -969,35 +925,35 @@ mod tests {
 
         // the receiver app should get the packet 1 and 2, packet 1 is an RTX
         let msg = rx_app_receiver.recv().await.unwrap().unwrap();
-        let msg_header = utils::get_session_header(&msg.message).unwrap();
+        let msg_header = msg.message.get_session_header();
         assert_eq!(msg_header.session_id, 0);
         assert_eq!(msg_header.message_id, 1);
         assert_eq!(msg_header.header_type, SessionHeaderType::RtxReply.into());
         assert_eq!(
-            get_source(&msg.message).unwrap(),
-            encoder::encode_agent("cisco", "default", "sender", 0)
+            msg.message.get_source(),
+            Agent::from_strings("cisco", "default", "sender", 0)
         );
         assert_eq!(
-            get_name(&msg.message).unwrap(),
+            msg.message.get_name(),
             (
-                encoder::encode_agent_type("cisco", "default", "receiver"),
+                AgentType::from_strings("cisco", "default", "receiver"),
                 Some(0)
             )
         );
 
         let msg = rx_app_receiver.recv().await.unwrap().unwrap();
-        let msg_header = utils::get_session_header(&msg.message).unwrap();
+        let msg_header = msg.message.get_session_header();
         assert_eq!(msg_header.session_id, 0);
         assert_eq!(msg_header.message_id, 2);
         assert_eq!(msg_header.header_type, SessionHeaderType::Stream.into());
         assert_eq!(
-            get_source(&msg.message).unwrap(),
-            encoder::encode_agent("cisco", "default", "sender", 0)
+            msg.message.get_source(),
+            Agent::from_strings("cisco", "default", "sender", 0)
         );
         assert_eq!(
-            get_name(&msg.message).unwrap(),
+            msg.message.get_name(),
             (
-                encoder::encode_agent_type("cisco", "default", "receiver"),
+                AgentType::from_strings("cisco", "default", "receiver"),
                 Some(0)
             )
         );

@@ -9,7 +9,6 @@ use crate::session::{
     AppChannelSender, Common, CommonSession, GwChannelSender, Id, MessageDirection, Session,
     SessionConfig, SessionDirection, SessionMessage, State,
 };
-use agp_datapath::messages::utils;
 use agp_datapath::pubsub::proto::pubsub::v1::SessionHeaderType;
 
 /// Configuration for the Fire and Forget session
@@ -54,26 +53,31 @@ impl Session for FireAndForget {
         mut message: SessionMessage,
         direction: MessageDirection,
     ) -> Result<(), SessionError> {
-        // set the session type
-        let header = utils::get_session_header_as_mut(&mut message.message);
-        if header.is_none() {
-            return Err(SessionError::AppTransmission("missing header".to_string()));
-        }
-
-        let header = header.unwrap();
-        header.header_type = utils::service_type_to_int(SessionHeaderType::Fnf);
+        let header = message.message.get_session_header_mut();
 
         // clone tx
         match direction {
-            MessageDirection::North => self
-                .common
-                .tx_app_ref()
-                .send(Ok(message))
-                .await
-                .map_err(|e| SessionError::AppTransmission(e.to_string())),
+            MessageDirection::North => {
+                // make sure we got a valid fnf message
+                let expected = i32::from(SessionHeaderType::Fnf);
+                if header.header_type != expected {
+                    return Err(SessionError::ValidationError(format!(
+                        "invalid header type: expected {}, got {}",
+                        expected, header.header_type
+                    )));
+                }
+
+                // Let's send the message to the app
+                self.common
+                    .tx_app_ref()
+                    .send(Ok(message))
+                    .await
+                    .map_err(|e| SessionError::AppTransmission(e.to_string()))
+            }
             MessageDirection::South => {
+                // set the session type
+                header.header_type = i32::from(SessionHeaderType::Fnf);
                 // add a nonce to the message
-                let header = utils::get_session_header_as_mut(&mut message.message).unwrap();
                 header.message_id = rand::rng().random();
 
                 self.common
@@ -91,7 +95,10 @@ delegate_common_behavior!(FireAndForget, common);
 #[cfg(test)]
 mod tests {
     use super::*;
-    use agp_datapath::messages::encoder;
+    use agp_datapath::{
+        messages::{Agent, AgentType},
+        pubsub::ProtoMessage,
+    };
 
     #[tokio::test]
     async fn test_fire_and_forget_create() {
@@ -127,20 +134,19 @@ mod tests {
             tx_app,
         );
 
-        let mut message = utils::create_publication(
-            &encoder::encode_agent("cisco", "default", "local_agent", 0),
-            &encoder::encode_agent_type("cisco", "default", "remote_agent"),
+        let mut message = ProtoMessage::new_publish(
+            &Agent::from_strings("cisco", "default", "local_agent", 0),
+            &AgentType::from_strings("cisco", "default", "remote_agent"),
             Some(0),
             None,
-            None,
-            1,
             "msg",
             vec![0x1, 0x2, 0x3, 0x4],
         );
 
         // set the session id in the message
-        let header = utils::get_session_header_as_mut(&mut message).unwrap();
+        let header = message.get_session_header_mut();
         header.session_id = 1;
+        header.header_type = i32::from(SessionHeaderType::Fnf);
 
         let res = session
             .on_message(

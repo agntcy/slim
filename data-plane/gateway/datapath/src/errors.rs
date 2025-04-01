@@ -11,6 +11,8 @@ pub enum DataPathError {
     DisconnectionError(String),
     #[error("unkwon message type {0}")]
     UnknownMsgType(String),
+    #[error("invalid message: {0}")]
+    InvalidMessage(String),
     #[error("unable to set incoming connection")]
     ErrorSettingInConnection(String),
     #[error("error handling subscription: {0}")]

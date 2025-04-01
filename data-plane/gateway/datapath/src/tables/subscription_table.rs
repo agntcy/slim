@@ -595,7 +595,10 @@ impl SubscriptionTable for SubscriptionTableImpl {
         match table.get(&agent_type) {
             None => {
                 debug!("match not found for type {:?}", agent_type);
-                Err(SubscriptionTableError::NoMatch)
+                Err(SubscriptionTableError::NoMatch(format!(
+                    "{}, {:?}",
+                    agent_type, agent_id
+                )))
             }
             Some(state) => {
                 // first try to send the message to the local connections
@@ -610,7 +613,10 @@ impl SubscriptionTable for SubscriptionTableImpl {
                     return Ok(out);
                 }
                 error!("no output connection available");
-                Err(SubscriptionTableError::NoMatch)
+                Err(SubscriptionTableError::NoMatch(format!(
+                    "{}, {:?}",
+                    agent_type, agent_id
+                )))
             }
         }
     }
@@ -625,7 +631,10 @@ impl SubscriptionTable for SubscriptionTableImpl {
         match table.get(&agent_type) {
             None => {
                 debug!("match not found for type {:?}", agent_type);
-                Err(SubscriptionTableError::NoMatch)
+                Err(SubscriptionTableError::NoMatch(format!(
+                    "{}, {:?}",
+                    agent_type, agent_id
+                )))
             }
             Some(state) => {
                 // first try to send the message to the local connections
@@ -640,7 +649,10 @@ impl SubscriptionTable for SubscriptionTableImpl {
                     return Ok(out);
                 }
                 error!("no output connection available");
-                Err(SubscriptionTableError::NoMatch)
+                Err(SubscriptionTableError::NoMatch(format!(
+                    "{}, {:?}",
+                    agent_type, agent_id
+                )))
             }
         }
     }
@@ -650,15 +662,14 @@ impl SubscriptionTable for SubscriptionTableImpl {
 mod tests {
     use super::*;
 
-    use crate::messages::encoder::encode_agent_type;
     use tracing_test::traced_test;
 
     #[test]
     #[traced_test]
     fn test_table() {
-        let agent_type1 = encode_agent_type("Cisco", "Default", "type_ONE");
-        let agent_type2 = encode_agent_type("Cisco", "Default", "type_TWO");
-        let agent_type3 = encode_agent_type("Cisco", "Default", "type_THREE");
+        let agent_type1 = AgentType::from_strings("Cisco", "Default", "type_ONE");
+        let agent_type2 = AgentType::from_strings("Cisco", "Default", "type_TWO");
+        let agent_type3 = AgentType::from_strings("Cisco", "Default", "type_THREE");
 
         let t = SubscriptionTableImpl::default();
 
@@ -716,7 +727,11 @@ mod tests {
         // return no match
         assert_eq!(
             t.match_all(agent_type1.clone(), None, 1),
-            Err(SubscriptionTableError::NoMatch)
+            Err(SubscriptionTableError::NoMatch(format!(
+                "{}, {:?}",
+                agent_type1,
+                Option::<u64>::None
+            )))
         );
 
         // add subscription again
@@ -805,7 +820,11 @@ mod tests {
         );
         assert_eq!(
             t.match_one(agent_type1.clone(), Some(1), 100),
-            Err(SubscriptionTableError::NoMatch)
+            Err(SubscriptionTableError::NoMatch(format!(
+                "{}, {:?}",
+                agent_type1,
+                Some(1)
+            )))
         );
         assert_eq!(
             // this generates a warning

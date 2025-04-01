@@ -2,12 +2,15 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::collections::HashMap;
+use std::fmt::Display;
+
+use tracing::debug;
 
 use super::encoder::{Agent, AgentType, DEFAULT_AGENT_ID};
 use crate::pubsub::{
-    proto::pubsub::v1::SessionHeaderType, AgpHeader, Content, ProtoAgent, ProtoMessage,
-    ProtoPublish, ProtoPublishType, ProtoSubscribe, ProtoSubscribeType, ProtoUnsubscribe,
-    ProtoUnsubscribeType, SessionHeader,
+    proto::pubsub::v1::SessionHeaderType, AgpHeader, Content, MessageType, ProtoAgent,
+    ProtoMessage, ProtoPublish, ProtoPublishType, ProtoSubscribe, ProtoSubscribeType,
+    ProtoUnsubscribe, ProtoUnsubscribeType, SessionHeader,
 };
 
 use thiserror::Error;
@@ -23,10 +26,13 @@ pub enum MessageError {
     DestinationNotFound,
     #[error("session header not found")]
     SessionHeaderNotFound,
-    #[error("payload not found")]
-    PayloadNotFound,
+    #[error("message type not found")]
+    MessageTypeNotFound,
+    #[error("incoming connection not found")]
+    IncomingConnectionNotFound,
 }
 
+/// ProtoAgent from Agent
 impl From<&Agent> for ProtoAgent {
     fn from(agent: &Agent) -> Self {
         let mut id = None;
@@ -35,562 +41,1066 @@ impl From<&Agent> for ProtoAgent {
         }
 
         Self {
-            organization: *agent.agent_type().organization(),
-            namespace: *agent.agent_type().namespace(),
-            agent_type: *agent.agent_type().agent_type(),
+            organization: agent.agent_type().organization(),
+            namespace: agent.agent_type().namespace(),
+            agent_type: agent.agent_type().agent_type(),
             agent_id: id,
         }
     }
 }
 
-pub fn create_agent_from_type(agent_type: &AgentType, agent_id: Option<u64>) -> Option<ProtoAgent> {
-    Some(ProtoAgent {
-        organization: *agent_type.organization(),
-        namespace: *agent_type.namespace(),
-        agent_type: *agent_type.agent_type(),
-        agent_id,
-    })
-}
-
-pub fn message_type_to_str(msg: &ProtoMessage) -> &str {
-    match &msg.message_type {
-        Some(ProtoPublishType(_)) => "publish",
-        Some(ProtoSubscribeType(_)) => "subscribe",
-        Some(ProtoUnsubscribeType(_)) => "unsubscribe",
-        None => "unknown",
-    }
-}
-
-// utils functions for agp header
-pub fn create_agp_header(
-    source: &Agent,
-    name_type: &AgentType,
-    name_id: Option<u64>,
-    recv_from: Option<u64>,
-    forward_to: Option<u64>,
-    incoming_conn: Option<u64>,
-    error: Option<bool>,
-) -> Option<AgpHeader> {
-    Some(AgpHeader {
-        source: Some(ProtoAgent::from(source)),
-        destination: create_agent_from_type(name_type, name_id),
-        recv_from,
-        forward_to,
-        incoming_conn,
-        error,
-    })
-}
-
-pub fn get_agp_header(msg: &ProtoMessage) -> Option<&AgpHeader> {
-    match &msg.message_type {
-        Some(msg_type) => match msg_type {
-            ProtoPublishType(publish) => publish.header.as_ref(),
-            ProtoSubscribeType(sub) => sub.header.as_ref(),
-            ProtoUnsubscribeType(unsub) => unsub.header.as_ref(),
-        },
-        None => None,
-    }
-}
-
-pub fn get_agp_header_as_mut(msg: &mut ProtoMessage) -> Option<&mut AgpHeader> {
-    match &mut msg.message_type {
-        Some(ProtoPublishType(publish)) => publish.header.as_mut(),
-        Some(ProtoSubscribeType(sub)) => sub.header.as_mut(),
-        Some(ProtoUnsubscribeType(unsub)) => unsub.header.as_mut(),
-        None => None,
-    }
-}
-
-pub fn get_session_header(msg: &ProtoMessage) -> Option<&SessionHeader> {
-    match &msg.message_type {
-        Some(ProtoPublishType(publish)) => publish.session.as_ref(),
-        Some(ProtoSubscribeType(_)) => None,
-        Some(ProtoUnsubscribeType(_)) => None,
-        None => None,
-    }
-}
-
-pub fn get_session_header_as_mut(msg: &mut ProtoMessage) -> Option<&mut SessionHeader> {
-    match &mut msg.message_type {
-        Some(ProtoPublishType(publish)) => publish.session.as_mut(),
-        Some(ProtoSubscribeType(_)) => None,
-        Some(ProtoUnsubscribeType(_)) => None,
-        None => None,
-    }
-}
-
-// this function cleans all the AGP header fields except
-// for incoming_conn which is set upon message reception
-pub fn clear_agp_header(msg: &mut ProtoMessage) -> Result<(), MessageError> {
-    match get_agp_header_as_mut(msg) {
-        Some(header) => {
-            header.recv_from = None;
-            header.forward_to = None;
-            header.error = None;
-            Ok(())
+/// ProtoAgent from AgentType
+impl From<(&AgentType, Option<u64>)> for ProtoAgent {
+    fn from((agent_type, agent_id): (&AgentType, Option<u64>)) -> Self {
+        Self {
+            organization: agent_type.organization(),
+            namespace: agent_type.namespace(),
+            agent_type: agent_type.agent_type(),
+            agent_id,
         }
-        None => Err(MessageError::AgpHeaderNotFound),
     }
 }
 
-// set incoming connection
-pub fn set_incoming_connection(
-    msg: &mut ProtoMessage,
-    incoming_conn: Option<u64>,
-) -> Result<(), MessageError> {
-    match get_agp_header_as_mut(msg) {
-        Some(header) => {
-            header.incoming_conn = incoming_conn;
-            Ok(())
+/// Print message type
+impl Display for MessageType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            MessageType::Publish(_) => write!(f, "publish"),
+            MessageType::Subscribe(_) => write!(f, "subscribe"),
+            MessageType::Unsubscribe(_) => write!(f, "unsubscribe"),
         }
-        None => Err(MessageError::AgpHeaderNotFound),
     }
 }
 
-// agp header getters
-pub fn get_recv_from(msg: &ProtoMessage) -> Result<Option<u64>, MessageError> {
-    match get_agp_header(msg) {
-        Some(header) => Ok(header.recv_from),
-        None => Err(MessageError::AgpHeaderNotFound),
-    }
+/// Struct grouping the AGPHeaeder flags for convenience
+#[derive(Debug, Clone)]
+pub struct AgpHeaderFlags {
+    pub fanout: u32,
+    pub recv_from: Option<u64>,
+    pub forward_to: Option<u64>,
+    pub incoming_conn: Option<u64>,
+    pub error: Option<bool>,
 }
 
-pub fn get_forward_to(msg: &ProtoMessage) -> Result<Option<u64>, MessageError> {
-    match get_agp_header(msg) {
-        Some(header) => Ok(header.forward_to),
-        None => Err(MessageError::AgpHeaderNotFound),
-    }
-}
-
-pub fn get_incoming_connection(msg: &ProtoMessage) -> Result<Option<u64>, MessageError> {
-    match get_agp_header(msg) {
-        Some(header) => Ok(header.incoming_conn),
-        None => Err(MessageError::AgpHeaderNotFound),
-    }
-}
-
-pub fn get_error(msg: &ProtoMessage) -> Result<Option<bool>, MessageError> {
-    match get_agp_header(msg) {
-        Some(header) => Ok(header.error),
-        None => Err(MessageError::AgpHeaderNotFound),
-    }
-}
-
-pub fn get_source(msg: &ProtoMessage) -> Result<Agent, MessageError> {
-    match get_agp_header(msg) {
-        Some(header) => match header.source {
-            Some(source) => Ok(Agent::from(&source)),
-            None => Err(MessageError::SourceNotFound),
-        },
-        None => Err(MessageError::AgpHeaderNotFound),
-    }
-}
-
-pub fn get_name(msg: &ProtoMessage) -> Result<(AgentType, Option<u64>), MessageError> {
-    match get_agp_header(msg) {
-        Some(header) => match header.destination {
-            Some(destination) => {
-                let agent_type = AgentType::new(
-                    destination.organization,
-                    destination.namespace,
-                    destination.agent_type,
-                );
-                Ok((agent_type, destination.agent_id))
-            }
-            None => Err(MessageError::DestinationNotFound),
-        },
-        None => Err(MessageError::AgpHeaderNotFound),
-    }
-}
-
-// utils functions for session header
-pub fn create_session_header(
-    header_type: i32,
-    session_id: u32,
-    message_id: u32,
-) -> Option<SessionHeader> {
-    Some(SessionHeader {
-        header_type,
-        session_id,
-        message_id,
-    })
-}
-
-pub fn create_default_session_header() -> Option<SessionHeader> {
-    create_session_header(SessionHeaderType::Fnf.into(), 0, 0)
-}
-
-// getters for session header
-pub fn set_session_type(
-    msg: &mut ProtoMessage,
-    session_type: SessionHeaderType,
-) -> Result<(), MessageError> {
-    match get_session_header_as_mut(msg) {
-        Some(header) => {
-            header.header_type = session_type.into();
-            Ok(())
+impl Default for AgpHeaderFlags {
+    fn default() -> Self {
+        Self {
+            fanout: 1,
+            recv_from: None,
+            forward_to: None,
+            incoming_conn: None,
+            error: None,
         }
-        None => Err(MessageError::SessionHeaderNotFound),
     }
 }
 
-pub fn get_session_header_type(msg: &ProtoMessage) -> Result<i32, MessageError> {
-    match get_session_header(msg) {
-        Some(header) => Ok(header.header_type),
-        None => Err(MessageError::SessionHeaderNotFound),
-    }
-}
-
-pub fn get_msg_id(msg: &ProtoMessage) -> Result<u32, MessageError> {
-    match get_session_header(msg) {
-        Some(header) => Ok(header.message_id),
-        None => Err(MessageError::SessionHeaderNotFound),
-    }
-}
-
-pub fn set_msg_id(msg: &mut ProtoMessage, id: u32) -> Result<(), MessageError> {
-    match get_session_header_as_mut(msg) {
-        Some(header) => {
-            header.message_id = id;
-            Ok(())
+impl AgpHeaderFlags {
+    pub fn new(
+        fanout: u32,
+        recv_from: Option<u64>,
+        forward_to: Option<u64>,
+        incoming_conn: Option<u64>,
+        error: Option<bool>,
+    ) -> Self {
+        Self {
+            fanout,
+            recv_from,
+            forward_to,
+            incoming_conn,
+            error,
         }
-        None => Err(MessageError::SessionHeaderNotFound),
+    }
+
+    pub fn with_fanout(self, fanout: u32) -> Self {
+        Self { fanout, ..self }
+    }
+
+    pub fn with_recv_from(self, recv_from: u64) -> Self {
+        Self {
+            recv_from: Some(recv_from),
+            ..self
+        }
+    }
+
+    pub fn with_forward_to(self, forward_to: u64) -> Self {
+        Self {
+            forward_to: Some(forward_to),
+            ..self
+        }
+    }
+
+    pub fn with_incoming_conn(self, incoming_conn: u64) -> Self {
+        Self {
+            incoming_conn: Some(incoming_conn),
+            ..self
+        }
+    }
+
+    pub fn with_error(self, error: bool) -> Self {
+        Self {
+            error: Some(error),
+            ..self
+        }
     }
 }
 
-pub fn get_session_id(msg: &ProtoPublish) -> Result<u32, MessageError> {
-    match msg.session {
-        Some(header) => Ok(header.session_id),
-        None => Err(MessageError::SessionHeaderNotFound),
+/// AGP Header
+/// This header is used to identify the source and destination of the message
+/// and to manage the connections used to send and receive the message
+impl AgpHeader {
+    pub fn new(
+        source: &Agent,
+        name_type: &AgentType,
+        name_id: Option<u64>,
+        flags: Option<AgpHeaderFlags>,
+    ) -> Self {
+        let flags = flags.unwrap_or_default();
+
+        Self {
+            source: Some(ProtoAgent::from(source)),
+            destination: Some(ProtoAgent::from((name_type, name_id))),
+            fanout: flags.fanout,
+            recv_from: flags.recv_from,
+            forward_to: flags.forward_to,
+            incoming_conn: flags.incoming_conn,
+            error: flags.error,
+        }
+    }
+
+    pub fn clear(&mut self) {
+        self.recv_from = None;
+        self.forward_to = None;
+    }
+
+    pub fn get_recv_from(&self) -> Option<u64> {
+        self.recv_from
+    }
+
+    pub fn get_forward_to(&self) -> Option<u64> {
+        self.forward_to
+    }
+
+    pub fn get_incoming_conn(&self) -> Option<u64> {
+        self.incoming_conn
+    }
+
+    pub fn get_error(&self) -> Option<bool> {
+        self.error
+    }
+
+    pub fn get_source(&self) -> Agent {
+        match &self.source {
+            Some(ref source) => Agent::from(source),
+            None => panic!("source not found"),
+        }
+    }
+
+    pub fn get_dst(&self) -> (AgentType, Option<u64>) {
+        match &self.destination {
+            Some(ref destination) => (AgentType::from(destination), destination.agent_id),
+            None => panic!("destination not found"),
+        }
+    }
+
+    pub fn get_fanout(&self) -> u32 {
+        self.fanout
+    }
+
+    pub fn set_recv_from(&mut self, recv_from: Option<u64>) {
+        self.recv_from = recv_from;
+    }
+
+    pub fn set_forward_to(&mut self, forward_to: Option<u64>) {
+        self.forward_to = forward_to;
+    }
+
+    pub fn set_error(&mut self, error: Option<bool>) {
+        self.error = error;
+    }
+
+    pub fn set_incoming_conn(&mut self, incoming_conn: Option<u64>) {
+        self.incoming_conn = incoming_conn;
+    }
+
+    pub fn set_error_flag(&mut self, error: Option<bool>) {
+        self.error = error;
+    }
+
+    pub fn set_fanout(&mut self, fanout: u32) {
+        self.fanout = fanout;
+    }
+
+    // returns the connection to use to process correctly the message
+    // first connection is from where we received the packet
+    // the second is where to forward the packet if needed
+    pub fn get_in_out_connections(&self) -> (u64, Option<u64>) {
+        // when calling this function, incoming connection is set
+        let incoming = self
+            .get_incoming_conn()
+            .expect("incoming connection not found");
+
+        if let Some(val) = self.get_recv_from() {
+            debug!(
+                "received recv_from command, update state on connection {}",
+                val
+            );
+            return (val, None);
+        }
+
+        if let Some(val) = self.get_forward_to() {
+            debug!(
+                "received forward_to command, update state and forward to connection {}",
+                val
+            );
+            return (incoming, Some(val));
+        }
+
+        // by default, return the incoming connection and None
+        (incoming, None)
     }
 }
 
-// utils functions for messages
-fn create_subscription_internal(
-    header: Option<AgpHeader>,
-    metadata: HashMap<String, String>,
-) -> ProtoMessage {
-    ProtoMessage {
-        metadata,
-        message_type: Some(ProtoSubscribeType(ProtoSubscribe { header })),
+/// Session Header
+/// This header is used to identify the session and the message
+/// and to manage session state
+impl SessionHeader {
+    pub fn new(header_type: i32, session_id: u32, message_id: u32) -> Self {
+        Self {
+            header_type,
+            session_id,
+            message_id,
+        }
+    }
+
+    pub fn get_session_id(&self) -> u32 {
+        self.session_id
+    }
+
+    pub fn get_message_id(&self) -> u32 {
+        self.message_id
+    }
+
+    pub fn set_session_id(&mut self, session_id: u32) {
+        self.session_id = session_id;
+    }
+
+    pub fn set_message_id(&mut self, message_id: u32) {
+        self.message_id = message_id;
+    }
+
+    pub fn clear(&mut self) {
+        self.session_id = 0;
+        self.message_id = 0;
     }
 }
 
-pub fn create_subscription(
-    source: &Agent,
-    agent_type: &AgentType,
-    agent_id: Option<u64>,
-    recv_from: Option<u64>,
-    forward_to: Option<u64>,
-) -> ProtoMessage {
-    // this subscription can be received only from a local connection
-    // when this message is received the subscription is set in the local table
-    // and forwarded to the connection forward_to to set the subscription remotely
-    // before forward the subscription the forward_to needs to be set to None
+/// ProtoSubscribe
+/// This message is used to subscribe to a topic
+impl ProtoSubscribe {
+    pub fn with_header(header: Option<AgpHeader>) -> Self {
+        ProtoSubscribe { header }
+    }
 
-    let header = create_agp_header(
-        source, agent_type, agent_id, recv_from, forward_to, None, None,
-    );
-    create_subscription_internal(header, HashMap::new())
-}
+    pub fn new(
+        source: &Agent,
+        agent_type: &AgentType,
+        agent_id: Option<u64>,
+        flags: Option<AgpHeaderFlags>,
+    ) -> Self {
+        let header = Some(AgpHeader::new(source, agent_type, agent_id, flags));
 
-#[allow(dead_code)]
-fn create_unsubscription_internal(
-    header: Option<AgpHeader>,
-    metadata: HashMap<String, String>,
-) -> ProtoMessage {
-    ProtoMessage {
-        metadata,
-        message_type: Some(ProtoUnsubscribeType(ProtoUnsubscribe { header })),
+        Self::with_header(header)
     }
 }
 
-pub fn create_unsubscription(
-    source: &Agent,
-    agent_type: &AgentType,
-    agent_id: Option<u64>,
-    recv_from: Option<u64>,
-    forward_to: Option<u64>,
-) -> ProtoMessage {
-    // this subscription can be received only from a local connection
-    // when this message is received the subscription is set in the local table
-    // and forwarded to the connection forward_to to set the subscription remotely
-    // before forward the subscription the forward_to needs to be set to None
-
-    let header = create_agp_header(
-        source, agent_type, agent_id, recv_from, forward_to, None, None,
-    );
-    create_unsubscription_internal(header, HashMap::new())
+/// From ProtoMessage to ProtoSubscribe
+impl From<ProtoMessage> for ProtoSubscribe {
+    fn from(message: ProtoMessage) -> Self {
+        match message.message_type {
+            Some(ProtoSubscribeType(s)) => s,
+            _ => panic!("message type is not subscribe"),
+        }
+    }
 }
 
-// TODO(msardara): fix this clippy warning
-#[allow(clippy::too_many_arguments)]
-pub fn create_publication(
-    src: &Agent,
-    dst_type: &AgentType,
-    dst_id: Option<u64>,
-    recv_from: Option<u64>,
-    forward_to: Option<u64>,
-    fanout: u32,
-    content_type: &str,
-    blob: Vec<u8>,
-) -> ProtoMessage {
-    let header = create_agp_header(src, dst_type, dst_id, recv_from, forward_to, None, None);
+/// ProtoUnsubscribe
+/// This message is used to unsubscribe from a topic
+impl ProtoUnsubscribe {
+    pub fn with_header(header: Option<AgpHeader>) -> Self {
+        ProtoUnsubscribe { header }
+    }
 
-    create_publication_with_header(
-        header,
-        create_default_session_header(),
-        std::collections::HashMap::new(),
-        fanout,
-        content_type,
-        blob,
-    )
+    pub fn new(
+        source: &Agent,
+        agent_type: &AgentType,
+        agent_id: Option<u64>,
+        flags: Option<AgpHeaderFlags>,
+    ) -> Self {
+        let header = Some(AgpHeader::new(source, agent_type, agent_id, flags));
+
+        Self::with_header(header)
+    }
 }
 
-pub fn create_publication_with_header(
-    header: Option<AgpHeader>,
-    session: Option<SessionHeader>,
-    metadata: HashMap<String, String>,
-    fanout: u32,
-    content_type: &str,
-    blob: Vec<u8>,
-) -> ProtoMessage {
-    ProtoMessage {
-        metadata,
-        message_type: Some(ProtoPublishType(ProtoPublish {
+/// From ProtoMessage to ProtoUnsubscribe
+impl From<ProtoMessage> for ProtoUnsubscribe {
+    fn from(message: ProtoMessage) -> Self {
+        match message.message_type {
+            Some(ProtoUnsubscribeType(u)) => u,
+            _ => panic!("message type is not unsubscribe"),
+        }
+    }
+}
+
+/// ProtoPublish
+/// This message is used to publish a message to a topic/agent
+impl ProtoPublish {
+    pub fn with_header(
+        header: Option<AgpHeader>,
+        session: Option<SessionHeader>,
+        payload: Option<Content>,
+    ) -> Self {
+        ProtoPublish {
             header,
             session,
-            fanout,
-            msg: Some(Content {
+            msg: payload,
+        }
+    }
+
+    pub fn new(
+        source: &Agent,
+        agent_type: &AgentType,
+        agent_id: Option<u64>,
+        flags: Option<AgpHeaderFlags>,
+        content_type: &str,
+        blob: Vec<u8>,
+    ) -> Self {
+        let agp_header = Some(AgpHeader::new(source, agent_type, agent_id, flags));
+
+        let session_header = Some(SessionHeader::default());
+
+        let msg = Some(Content {
+            content_type: content_type.to_string(),
+            blob,
+        });
+
+        Self::with_header(agp_header, session_header, msg)
+    }
+
+    pub fn get_agp_header(&self) -> &AgpHeader {
+        self.header.as_ref().unwrap()
+    }
+
+    pub fn get_session_header(&self) -> &SessionHeader {
+        self.session.as_ref().unwrap()
+    }
+
+    pub fn get_agp_header_as_mut(&mut self) -> &mut AgpHeader {
+        self.header.as_mut().unwrap()
+    }
+
+    pub fn get_session_header_as_mut(&mut self) -> &mut SessionHeader {
+        self.session.as_mut().unwrap()
+    }
+
+    pub fn get_payload(&self) -> &Content {
+        self.msg.as_ref().unwrap()
+    }
+}
+
+/// From ProtoMessage to ProtoPublish
+impl From<ProtoMessage> for ProtoPublish {
+    fn from(message: ProtoMessage) -> Self {
+        match message.message_type {
+            Some(ProtoPublishType(p)) => p,
+            _ => panic!("message type is not publish"),
+        }
+    }
+}
+
+/// ProtoMessage
+/// This represents a generic message that can be sent over the network
+impl ProtoMessage {
+    fn new(metadata: HashMap<String, String>, message_type: MessageType) -> Self {
+        ProtoMessage {
+            metadata,
+            message_type: Some(message_type),
+        }
+    }
+
+    pub fn new_subscribe(
+        source: &Agent,
+        agent_type: &AgentType,
+        agent_id: Option<u64>,
+        flags: Option<AgpHeaderFlags>,
+    ) -> Self {
+        let subscribe = ProtoSubscribe::new(source, agent_type, agent_id, flags);
+
+        Self::new(HashMap::new(), ProtoSubscribeType(subscribe))
+    }
+
+    pub fn new_unsubscribe(
+        source: &Agent,
+        agent_type: &AgentType,
+        agent_id: Option<u64>,
+        flags: Option<AgpHeaderFlags>,
+    ) -> Self {
+        let unsubscribe = ProtoUnsubscribe::new(source, agent_type, agent_id, flags);
+
+        Self::new(HashMap::new(), ProtoUnsubscribeType(unsubscribe))
+    }
+
+    pub fn new_publish(
+        source: &Agent,
+        agent_type: &AgentType,
+        agent_id: Option<u64>,
+        flags: Option<AgpHeaderFlags>,
+        content_type: &str,
+        blob: Vec<u8>,
+    ) -> Self {
+        let publish = ProtoPublish::new(source, agent_type, agent_id, flags, content_type, blob);
+
+        Self::new(HashMap::new(), ProtoPublishType(publish))
+    }
+
+    pub fn new_publish_with_headers(
+        agp_header: Option<AgpHeader>,
+        session_header: Option<SessionHeader>,
+        content_type: &str,
+        blob: Vec<u8>,
+    ) -> Self {
+        let publish = ProtoPublish::with_header(
+            agp_header,
+            session_header,
+            Some(Content {
                 content_type: content_type.to_string(),
                 blob,
             }),
-        })),
+        );
+
+        Self::new(HashMap::new(), ProtoPublishType(publish))
     }
-}
 
-pub fn create_error_publication(error: String) -> ProtoMessage {
-    let default_name = Agent::default();
-    let header = create_agp_header(
-        &default_name,
-        default_name.agent_type(),
-        None,
-        None,
-        None,
-        None,
-        Some(true),
-    );
-    create_publication_with_header(
-        header,
-        create_default_session_header(),
-        HashMap::new(),
-        1,
-        "",
-        error.into_bytes(),
-    )
-}
+    // validate message
+    pub fn validate(&self) -> Result<(), MessageError> {
+        // make sure the message type is set
+        if self.message_type.is_none() {
+            return Err(MessageError::MessageTypeNotFound);
+        }
 
-#[allow(clippy::too_many_arguments)]
-pub fn create_rtx_publication(
-    source: &Agent,
-    name_type: &AgentType,
-    name_id: Option<u64>,
-    is_request: bool,
-    session: u32,
-    msg_id: u32,
-    forward_to: Option<u64>,
-    content: Option<Vec<u8>>,
-) -> ProtoMessage {
-    let agp_header = create_agp_header(source, name_type, name_id, None, forward_to, None, None);
-    let mut rtx_type = SessionHeaderType::RtxRequest;
-    if !is_request {
-        rtx_type = SessionHeaderType::RtxReply;
+        // make sure AGP header is set
+        if self.try_get_agp_header().is_none() {
+            return Err(MessageError::AgpHeaderNotFound);
+        }
+
+        // Get AGP header
+        let agp_header = self.get_agp_header();
+
+        // make sure source and destination are set
+        if agp_header.source.is_none() {
+            return Err(MessageError::SourceNotFound);
+        }
+        if agp_header.destination.is_none() {
+            return Err(MessageError::DestinationNotFound);
+        }
+
+        match &self.message_type {
+            Some(ProtoPublishType(p)) => {
+                // AGP Header
+                if p.header.is_none() {
+                    return Err(MessageError::AgpHeaderNotFound);
+                }
+
+                // Publish message should have the session header
+                if p.session.is_none() {
+                    return Err(MessageError::SessionHeaderNotFound);
+                }
+            }
+            Some(ProtoSubscribeType(s)) => {
+                if s.header.is_none() {
+                    return Err(MessageError::AgpHeaderNotFound);
+                }
+            }
+            Some(ProtoUnsubscribeType(u)) => {
+                if u.header.is_none() {
+                    return Err(MessageError::AgpHeaderNotFound);
+                }
+            }
+            None => return Err(MessageError::MessageTypeNotFound),
+        }
+
+        Ok(())
     }
-    let session_header = create_session_header(rtx_type.into(), session, msg_id);
-    create_publication_with_header(
-        agp_header,
-        session_header,
-        HashMap::new(),
-        1,
-        "",
-        content.unwrap_or_default(),
-    )
-}
 
-pub fn get_message_as_publish(msg: &ProtoMessage) -> Option<&ProtoPublish> {
-    match &msg.message_type {
-        Some(ProtoPublishType(p)) => Some(p),
-        _ => None,
-    }
-}
-
-pub fn get_fanout(msg: &ProtoPublish) -> u32 {
-    msg.fanout
-}
-
-pub fn get_payload_from_msg(msg: &ProtoMessage) -> Result<&[u8], MessageError> {
-    match get_message_as_publish(msg) {
-        Some(m) => Ok(&m.msg.as_ref().unwrap().blob),
-        None => Err(MessageError::PayloadNotFound),
-    }
-}
-
-pub fn get_payload(msg: &ProtoPublish) -> &[u8] {
-    &msg.msg.as_ref().unwrap().blob
-}
-
-pub fn int_to_service_type(int: i32) -> Option<SessionHeaderType> {
-    match int {
-        1 => Some(SessionHeaderType::Fnf),
-        2 => Some(SessionHeaderType::Request),
-        3 => Some(SessionHeaderType::Reply),
-        4 => Some(SessionHeaderType::Stream),
-        5 => Some(SessionHeaderType::RtxRequest),
-        6 => Some(SessionHeaderType::RtxReply),
-        _ => {
-            error!("unknown service header type: {}", int);
-            None
+    pub fn get_agp_header(&self) -> &AgpHeader {
+        match &self.message_type {
+            Some(ProtoPublishType(publish)) => publish.header.as_ref().unwrap(),
+            Some(ProtoSubscribeType(sub)) => sub.header.as_ref().unwrap(),
+            Some(ProtoUnsubscribeType(unsub)) => unsub.header.as_ref().unwrap(),
+            None => panic!("AGP header not found"),
         }
     }
+
+    pub fn get_agp_header_mut(&mut self) -> &mut AgpHeader {
+        match &mut self.message_type {
+            Some(ProtoPublishType(publish)) => publish.header.as_mut().unwrap(),
+            Some(ProtoSubscribeType(sub)) => sub.header.as_mut().unwrap(),
+            Some(ProtoUnsubscribeType(unsub)) => unsub.header.as_mut().unwrap(),
+            None => panic!("AGP header not found"),
+        }
+    }
+
+    pub fn try_get_agp_header(&self) -> Option<&AgpHeader> {
+        match &self.message_type {
+            Some(ProtoPublishType(publish)) => publish.header.as_ref(),
+            Some(ProtoSubscribeType(sub)) => sub.header.as_ref(),
+            Some(ProtoUnsubscribeType(unsub)) => unsub.header.as_ref(),
+            None => None,
+        }
+    }
+
+    pub fn get_session_header(&self) -> &SessionHeader {
+        match &self.message_type {
+            Some(ProtoPublishType(publish)) => publish.session.as_ref().unwrap(),
+            Some(ProtoSubscribeType(_)) => panic!("session header not found"),
+            Some(ProtoUnsubscribeType(_)) => panic!("session header not found"),
+            None => panic!("session header not found"),
+        }
+    }
+
+    pub fn get_session_header_mut(&mut self) -> &mut SessionHeader {
+        match &mut self.message_type {
+            Some(ProtoPublishType(publish)) => publish.session.as_mut().unwrap(),
+            Some(ProtoSubscribeType(_)) => panic!("session header not found"),
+            Some(ProtoUnsubscribeType(_)) => panic!("session header not found"),
+            None => panic!("session header not found"),
+        }
+    }
+
+    pub fn try_get_session_header(&self) -> Option<&SessionHeader> {
+        match &self.message_type {
+            Some(ProtoPublishType(publish)) => publish.session.as_ref(),
+            Some(ProtoSubscribeType(_)) => None,
+            Some(ProtoUnsubscribeType(_)) => None,
+            None => None,
+        }
+    }
+
+    pub fn try_get_session_header_mut(&mut self) -> Option<&mut SessionHeader> {
+        match &mut self.message_type {
+            Some(ProtoPublishType(publish)) => publish.session.as_mut(),
+            Some(ProtoSubscribeType(_)) => None,
+            Some(ProtoUnsubscribeType(_)) => None,
+            None => None,
+        }
+    }
+
+    pub fn get_id(&self) -> u32 {
+        self.get_session_header().get_message_id()
+    }
+
+    pub fn get_source(&self) -> Agent {
+        self.get_agp_header().get_source()
+    }
+
+    pub fn get_fanout(&self) -> u32 {
+        self.get_agp_header().get_fanout()
+    }
+
+    pub fn get_recv_from(&self) -> Option<u64> {
+        self.get_agp_header().get_recv_from()
+    }
+
+    pub fn get_forward_to(&self) -> Option<u64> {
+        self.get_agp_header().get_forward_to()
+    }
+
+    pub fn get_incoming_conn(&self) -> u64 {
+        self.get_agp_header().get_incoming_conn().unwrap()
+    }
+
+    pub fn try_get_incoming_conn(&self) -> Option<u64> {
+        self.get_agp_header().get_incoming_conn()
+    }
+
+    pub fn get_source_agent(&self) -> Agent {
+        self.get_agp_header().get_source()
+    }
+
+    pub fn get_name(&self) -> (AgentType, Option<u64>) {
+        self.get_agp_header().get_dst()
+    }
+
+    pub fn get_type(&self) -> &MessageType {
+        match &self.message_type {
+            Some(t) => t,
+            None => panic!("message type not found"),
+        }
+    }
+
+    pub fn get_payload(&self) -> Option<&Content> {
+        match &self.message_type {
+            Some(ProtoPublishType(p)) => p.msg.as_ref(),
+            Some(ProtoSubscribeType(_)) => panic!("payload not found"),
+            Some(ProtoUnsubscribeType(_)) => panic!("payload not found"),
+            None => panic!("payload not found"),
+        }
+    }
+
+    pub fn get_header_type(&self) -> SessionHeaderType {
+        self.get_session_header()
+            .header_type
+            .try_into()
+            .unwrap_or_default()
+    }
+
+    pub fn clear_agp_header(&mut self) {
+        self.get_agp_header_mut().clear();
+    }
+
+    pub fn set_recv_from(&mut self, recv_from: Option<u64>) {
+        self.get_agp_header_mut().set_recv_from(recv_from);
+    }
+
+    pub fn set_forward_to(&mut self, forward_to: Option<u64>) {
+        self.get_agp_header_mut().set_forward_to(forward_to);
+    }
+
+    pub fn set_error(&mut self, error: Option<bool>) {
+        self.get_agp_header_mut().set_error(error);
+    }
+
+    pub fn set_incoming_conn(&mut self, incoming_conn: Option<u64>) {
+        self.get_agp_header_mut().set_incoming_conn(incoming_conn);
+    }
+
+    pub fn set_error_flag(&mut self, error: Option<bool>) {
+        self.get_agp_header_mut().set_error_flag(error);
+    }
+
+    pub fn set_header_type(&mut self, header_type: SessionHeaderType) {
+        self.get_session_header_mut().set_header_type(header_type);
+    }
+
+    pub fn set_message_id(&mut self, message_id: u32) {
+        self.get_session_header_mut().set_message_id(message_id);
+    }
+
+    pub fn is_publish(&self) -> bool {
+        matches!(self.get_type(), MessageType::Publish(_))
+    }
+
+    pub fn is_subscribe(&self) -> bool {
+        matches!(self.get_type(), MessageType::Subscribe(_))
+    }
+
+    pub fn is_unsubscribe(&self) -> bool {
+        matches!(self.get_type(), MessageType::Unsubscribe(_))
+    }
 }
 
-pub fn service_type_to_int(service_type: SessionHeaderType) -> i32 {
-    match service_type {
-        SessionHeaderType::Unspecified => 0,
-        SessionHeaderType::Fnf => 1,
-        SessionHeaderType::Request => 2,
-        SessionHeaderType::Reply => 3,
-        SessionHeaderType::Stream => 4,
-        SessionHeaderType::RtxRequest => 5,
-        SessionHeaderType::RtxReply => 6,
+impl AsRef<ProtoPublish> for ProtoMessage {
+    fn as_ref(&self) -> &ProtoPublish {
+        match &self.message_type {
+            Some(ProtoPublishType(p)) => p,
+            _ => panic!("message type is not publish"),
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::messages::encoder::{encode_agent, encode_agent_type};
+    use crate::{
+        messages::encoder::{Agent, AgentType},
+        pubsub::proto::pubsub::v1::SessionHeaderType,
+    };
 
     use super::*;
 
-    #[test]
-    fn test_utils() {
-        // test subscription
-        let source = encode_agent("org", "ns", "type", 1);
-        let name = encode_agent_type("org", "ns", "type");
-        let header = create_agp_header(&source, &name, Some(2), None, None, None, None);
-        let sub = create_subscription_internal(header, HashMap::new());
+    fn test_subscription_template(
+        subscription: bool,
+        source: Agent,
+        name: AgentType,
+        name_id: Option<u64>,
+        flags: Option<AgpHeaderFlags>,
+    ) {
+        let sub = {
+            if subscription {
+                ProtoMessage::new_subscribe(&source, &name, name_id, flags.clone())
+            } else {
+                ProtoMessage::new_unsubscribe(&source, &name, name_id, flags.clone())
+            }
+        };
 
-        assert_eq!(header.as_ref(), get_agp_header(&sub));
-        assert_eq!(None, get_recv_from(&sub).unwrap());
-        assert_eq!(None, get_forward_to(&sub).unwrap());
-        assert_eq!(None, get_incoming_connection(&sub).unwrap());
-        assert_eq!(source, get_source(&sub).unwrap());
-        let (got_name, got_name_id) = get_name(&sub).unwrap();
+        let flags = if let None = flags {
+            Some(AgpHeaderFlags::default())
+        } else {
+            flags
+        };
+
+        assert_eq!(sub.is_publish(), false);
+        assert_eq!(sub.is_subscribe(), subscription);
+        assert_eq!(sub.is_unsubscribe(), !subscription);
+        assert_eq!(flags.as_ref().unwrap().recv_from, sub.get_recv_from());
+        assert_eq!(flags.as_ref().unwrap().forward_to, sub.get_forward_to());
+        assert_eq!(None, sub.try_get_incoming_conn());
+        assert_eq!(source, sub.get_source());
+        let (got_name, got_name_id) = sub.get_name();
         assert_eq!(name, got_name);
-        assert_eq!(Some(2), got_name_id);
+        assert_eq!(name_id, got_name_id);
+    }
 
-        let header_from = create_agp_header(
-            &Agent::default(),
+    fn test_publish_template(
+        source: Agent,
+        name: AgentType,
+        name_id: Option<u64>,
+        flags: Option<AgpHeaderFlags>,
+    ) {
+        let pub_msg = ProtoMessage::new_publish(
+            &source,
             &name,
-            Some(2),
-            Some(50),
-            None,
-            None,
-            None,
-        );
-        let sub_from = create_subscription(&Agent::default(), &name, Some(2), Some(50), None);
-
-        assert_eq!(header_from.as_ref(), get_agp_header(&sub_from));
-        assert_eq!(Some(50), get_recv_from(&sub_from).unwrap());
-        assert_eq!(None, get_forward_to(&sub_from).unwrap());
-        assert_eq!(None, get_incoming_connection(&sub_from).unwrap());
-        assert_eq!(source, get_source(&sub).unwrap());
-        let (got_name, got_name_id) = get_name(&sub_from).unwrap();
-        assert_eq!(name, got_name);
-        assert_eq!(Some(2), got_name_id);
-
-        let header_fwd = create_agp_header(&source, &name, None, None, Some(30), None, None);
-        let mut sub_fwd = create_subscription(&source, &name, None, None, Some(30));
-
-        assert_eq!(header_fwd.as_ref(), get_agp_header(&sub_fwd));
-        assert_eq!(None, get_recv_from(&sub_fwd).unwrap());
-        assert_eq!(Some(30), get_forward_to(&sub_fwd).unwrap());
-        assert_eq!(None, get_incoming_connection(&sub_fwd).unwrap());
-        assert_eq!(source, get_source(&sub).unwrap());
-        let (got_name, got_name_id) = get_name(&sub_fwd).unwrap();
-        assert_eq!(name, got_name);
-        assert_eq!(None, got_name_id);
-        let ret = clear_agp_header(&mut sub_fwd);
-        assert_eq!(Ok(()), ret);
-        assert_eq!(
-            create_agp_header(&source, &name, None, None, None, None, None).as_ref(),
-            get_agp_header(&sub_fwd)
-        );
-
-        let unsub_from = create_unsubscription(&Agent::default(), &name, Some(2), Some(50), None);
-
-        assert_eq!(header_from.as_ref(), get_agp_header(&unsub_from));
-        assert_eq!(Some(50), get_recv_from(&unsub_from).unwrap());
-        assert_eq!(None, get_forward_to(&unsub_from).unwrap());
-        assert_eq!(None, get_incoming_connection(&sub_from).unwrap());
-        assert_eq!(source, get_source(&sub).unwrap());
-        let (got_name, got_name_id) = get_name(&unsub_from).unwrap();
-        assert_eq!(name, got_name);
-        assert_eq!(Some(2), got_name_id);
-
-        let mut unsub_fwd = create_unsubscription(&source, &name, None, None, Some(30));
-
-        assert_eq!(header_fwd.as_ref(), get_agp_header(&unsub_fwd));
-        assert_eq!(None, get_recv_from(&unsub_fwd).unwrap());
-        assert_eq!(Some(30), get_forward_to(&unsub_fwd).unwrap());
-        assert_eq!(None, get_incoming_connection(&unsub_fwd).unwrap());
-        assert_eq!(source, get_source(&sub).unwrap());
-        let (got_name, got_name_id) = get_name(&unsub_fwd).unwrap();
-        assert_eq!(name, got_name);
-        assert_eq!(None, got_name_id);
-        let ret = clear_agp_header(&mut unsub_fwd);
-        assert_eq!(Ok(()), ret);
-        assert_eq!(
-            create_agp_header(&source, &name, None, None, None, None, None).as_ref(),
-            get_agp_header(&unsub_fwd)
-        );
-
-        let mut p = create_publication_with_header(
-            header,
-            create_default_session_header(),
-            HashMap::new(),
-            10,
+            name_id,
+            flags.clone(),
             "str",
             "this is the content of the message".into(),
         );
-        assert_eq!(header.as_ref(), get_agp_header(&p));
-        assert_eq!(None, get_recv_from(&p).unwrap());
-        assert_eq!(None, get_forward_to(&p).unwrap());
-        assert_eq!(None, get_incoming_connection(&p).unwrap());
-        assert_eq!(source, get_source(&sub).unwrap());
-        let (got_name, got_name_id) = get_name(&sub).unwrap();
-        assert_eq!(name, got_name);
-        assert_eq!(Some(2), got_name_id);
 
-        let ret = set_incoming_connection(&mut p, Some(500));
-        assert_eq!(Ok(()), ret);
-        assert_eq!(get_incoming_connection(&p).unwrap(), Some(500));
-        let ret = clear_agp_header(&mut p);
-        assert_eq!(Ok(()), ret);
-        assert_eq!(
-            create_agp_header(&source, &name, Some(2), None, None, Some(500), None).as_ref(),
-            get_agp_header(&p)
-        );
-        let msg = match &p.message_type {
-            Some(ProtoPublishType(msg)) => msg,
-            // this should never happen
-            _ => panic!("wrong message type"),
+        let flags = if let None = flags {
+            Some(AgpHeaderFlags::default())
+        } else {
+            flags
         };
 
-        assert_eq!(get_fanout(&msg), 10);
-        assert_eq!(
-            get_payload(&msg),
-            "this is the content of the message".as_bytes()
+        assert_eq!(pub_msg.is_publish(), true);
+        assert_eq!(pub_msg.is_subscribe(), false);
+        assert_eq!(pub_msg.is_unsubscribe(), false);
+        assert_eq!(flags.as_ref().unwrap().recv_from, pub_msg.get_recv_from());
+        assert_eq!(flags.as_ref().unwrap().forward_to, pub_msg.get_forward_to());
+        assert_eq!(None, pub_msg.try_get_incoming_conn());
+        assert_eq!(source, pub_msg.get_source());
+        let (got_name, got_name_id) = pub_msg.get_name();
+        assert_eq!(name, got_name);
+        assert_eq!(name_id, got_name_id);
+        assert_eq!(flags.as_ref().unwrap().fanout, pub_msg.get_fanout());
+    }
+
+    #[test]
+    fn test_subscription() {
+        let source = Agent::from_strings("org", "ns", "type", 1);
+        let name = AgentType::from_strings("org", "ns", "type");
+
+        // simple
+        test_subscription_template(true, source.clone(), name.clone(), None, None);
+
+        // with name id
+        test_subscription_template(true, source.clone(), name.clone(), Some(2), None);
+
+        // with recv from
+        test_subscription_template(
+            true,
+            source.clone(),
+            name.clone(),
+            None,
+            Some(AgpHeaderFlags::default().with_recv_from(50)),
         );
+
+        // with forward to
+        test_subscription_template(
+            true,
+            source.clone(),
+            name.clone(),
+            None,
+            Some(AgpHeaderFlags::default().with_forward_to(30)),
+        );
+    }
+
+    #[test]
+    fn test_unsubscription() {
+        let source = Agent::from_strings("org", "ns", "type", 1);
+        let name = AgentType::from_strings("org", "ns", "type");
+
+        // simple
+        test_subscription_template(false, source.clone(), name.clone(), None, None);
+
+        // with name id
+        test_subscription_template(false, source.clone(), name.clone(), Some(2), None);
+
+        // with recv from
+        test_subscription_template(
+            false,
+            source.clone(),
+            name.clone(),
+            None,
+            Some(AgpHeaderFlags::default().with_recv_from(50)),
+        );
+
+        // with forward to
+        test_subscription_template(
+            false,
+            source.clone(),
+            name.clone(),
+            None,
+            Some(AgpHeaderFlags::default().with_forward_to(30)),
+        );
+    }
+
+    #[test]
+    fn test_publish() {
+        let source = Agent::from_strings("org", "ns", "type", 1);
+        let name = AgentType::from_strings("org", "ns", "type");
+
+        // simple
+        test_publish_template(
+            source.clone(),
+            name.clone(),
+            None,
+            Some(AgpHeaderFlags::default()),
+        );
+
+        // with name id
+        test_publish_template(
+            source.clone(),
+            name.clone(),
+            Some(2),
+            Some(AgpHeaderFlags::default()),
+        );
+
+        // with recv from
+        test_publish_template(
+            source.clone(),
+            name.clone(),
+            None,
+            Some(AgpHeaderFlags::default().with_recv_from(50)),
+        );
+
+        // with forward to
+        test_publish_template(
+            source.clone(),
+            name.clone(),
+            None,
+            Some(AgpHeaderFlags::default().with_forward_to(30)),
+        );
+
+        // with fanout
+        test_publish_template(
+            source.clone(),
+            name.clone(),
+            None,
+            Some(AgpHeaderFlags::default().with_fanout(2)),
+        );
+    }
+
+    #[test]
+    fn test_conversions() {
+        // ProtoAgent to Agent
+        let agent = Agent::from_strings("org", "ns", "type", 1);
+        let proto_agent = ProtoAgent::from(&agent);
+
+        assert_eq!(proto_agent.organization, agent.agent_type().organization());
+        assert_eq!(proto_agent.namespace, agent.agent_type().namespace());
+        assert_eq!(proto_agent.agent_type, agent.agent_type().agent_type());
+        assert_eq!(proto_agent.agent_id.unwrap(), agent.agent_id());
+
+        // AgentType to ProtoAgent
+        let agent_type = AgentType::from_strings("org", "ns", "type");
+        let proto_agent = ProtoAgent::from((&agent_type, Some(1)));
+
+        assert_eq!(proto_agent.organization, agent_type.organization());
+        assert_eq!(proto_agent.namespace, agent_type.namespace());
+        assert_eq!(proto_agent.agent_type, agent_type.agent_type());
+        assert_eq!(proto_agent.agent_id.unwrap(), 1);
+
+        // ProtoMessage to ProtoSubscribe
+        let proto_subscribe = ProtoMessage::new_subscribe(
+            &agent,
+            &agent_type,
+            Some(1),
+            Some(
+                AgpHeaderFlags::default()
+                    .with_recv_from(2)
+                    .with_forward_to(3),
+            ),
+        );
+        let proto_subscribe = ProtoSubscribe::from(proto_subscribe);
+        assert_eq!(proto_subscribe.header.as_ref().unwrap().get_source(), agent);
+        assert_eq!(
+            proto_subscribe.header.as_ref().unwrap().get_dst(),
+            (agent_type.clone(), Some(1))
+        );
+
+        // ProtoMessage to ProtoUnsubscribe
+        let proto_unsubscribe = ProtoMessage::new_unsubscribe(
+            &agent,
+            &agent_type,
+            Some(1),
+            Some(
+                AgpHeaderFlags::default()
+                    .with_recv_from(2)
+                    .with_forward_to(3),
+            ),
+        );
+        let proto_unsubscribe = ProtoUnsubscribe::from(proto_unsubscribe);
+        assert_eq!(
+            proto_unsubscribe.header.as_ref().unwrap().get_source(),
+            agent
+        );
+        assert_eq!(
+            proto_unsubscribe.header.as_ref().unwrap().get_dst(),
+            (agent_type.clone(), Some(1))
+        );
+
+        // ProtoMessage to ProtoPublish
+        let proto_publish = ProtoMessage::new_publish(
+            &agent,
+            &agent_type,
+            Some(1),
+            Some(
+                AgpHeaderFlags::default()
+                    .with_recv_from(2)
+                    .with_forward_to(3),
+            ),
+            "str",
+            "this is the content of the message".into(),
+        );
+        let proto_publish = ProtoPublish::from(proto_publish);
+        assert_eq!(proto_publish.header.as_ref().unwrap().get_source(), agent);
+        assert_eq!(
+            proto_publish.header.as_ref().unwrap().get_dst(),
+            (agent_type.clone(), Some(1))
+        );
+    }
+
+    #[test]
+    fn test_panic() {
+        let source = Agent::from_strings("org", "ns", "type", 1);
+        let name = AgentType::from_strings("org", "ns", "type");
+
+        // panic if AGP header is not found
+        let msg = ProtoMessage::new_subscribe(
+            &source,
+            &name,
+            None,
+            Some(
+                AgpHeaderFlags::default()
+                    .with_recv_from(2)
+                    .with_forward_to(3),
+            ),
+        );
+
+        // let's try to convert it to a unsubscribe
+        // this should panic because the message type is not unsubscribe
+        let result = std::panic::catch_unwind(|| ProtoUnsubscribe::from(msg.clone()));
+        assert!(result.is_err());
+
+        // try to convert to publish
+        // this should panic because the message type is not publish
+        let result = std::panic::catch_unwind(|| ProtoPublish::from(msg.clone()));
+        assert!(result.is_err());
+
+        // finally make sure the conversion to subscribe works
+        let result = std::panic::catch_unwind(|| ProtoSubscribe::from(msg));
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_panic_header() {
+        // create a unusual AGP header
+        let header = AgpHeader {
+            source: None,
+            destination: None,
+            fanout: 0,
+            recv_from: None,
+            forward_to: None,
+            incoming_conn: None,
+            error: None,
+        };
+
+        // the operations to retrieve source and destination should fail with panic
+        let result = std::panic::catch_unwind(|| header.get_source());
+        assert!(result.is_err());
+
+        let result = std::panic::catch_unwind(|| header.get_dst());
+        assert!(result.is_err());
+
+        // The operations to retrieve recv_from and forward_to should not fail with panic
+        let result = std::panic::catch_unwind(|| header.get_recv_from());
+        assert!(result.is_ok());
+
+        let result = std::panic::catch_unwind(|| header.get_forward_to());
+        assert!(result.is_ok());
+
+        // The operations to retrieve incoming_conn should not fail with panic
+        let result = std::panic::catch_unwind(|| header.get_incoming_conn());
+        assert!(result.is_ok());
+
+        // The operations to retrieve error should not fail with panic
+        let result = std::panic::catch_unwind(|| header.get_error());
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_panic_session_header() {
+        // create a unusual session header
+        let header = SessionHeader {
+            header_type: 0,
+            session_id: 0,
+            message_id: 0,
+        };
+
+        // the operations to retrieve session_id and message_id should not fail with panic
+        let result = std::panic::catch_unwind(|| header.get_session_id());
+        assert!(result.is_ok());
+
+        let result = std::panic::catch_unwind(|| header.get_message_id());
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_panic_proto_message() {
+        // create a unusual proto message
+        let message = ProtoMessage {
+            metadata: HashMap::new(),
+            message_type: None,
+        };
+
+        // the operation to retrieve the header should fail with panic
+        let result = std::panic::catch_unwind(|| message.get_agp_header());
+        assert!(result.is_err());
+
+        // the operation to retrieve the message type should fail with panic
+        let result = std::panic::catch_unwind(|| message.get_type());
+        assert!(result.is_err());
+
+        // all the other ops should fail with panic as well as the header is not set
+        let result = std::panic::catch_unwind(|| message.get_source());
+        assert!(result.is_err());
+        let result = std::panic::catch_unwind(|| message.get_name());
+        assert!(result.is_err());
+        let result = std::panic::catch_unwind(|| message.get_recv_from());
+        assert!(result.is_err());
+        let result = std::panic::catch_unwind(|| message.get_forward_to());
+        assert!(result.is_err());
+        let result = std::panic::catch_unwind(|| message.get_incoming_conn());
+        assert!(result.is_err());
+        let result = std::panic::catch_unwind(|| message.get_fanout());
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_service_type_to_int() {
+        // Get total number of service types
+        let total_service_types = SessionHeaderType::RtxReply as i32;
+
+        for i in 0..total_service_types {
+            // int -> ServiceType
+            let service_type =
+                SessionHeaderType::try_from(i).expect("failed to convert int to service type");
+            let service_type_int = i32::from(service_type);
+            assert_eq!(service_type_int, service_type.into());
+        }
+
+        // Test invalid conversion
+        let invalid_service_type = SessionHeaderType::try_from(total_service_types + 1);
+        assert!(invalid_service_type.is_err());
     }
 }

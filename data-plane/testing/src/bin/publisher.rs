@@ -5,8 +5,8 @@ use std::fs::File;
 use std::io::prelude::*;
 use std::{collections::HashMap, sync::Arc};
 
-use agp_datapath::messages::encoder::{encode_agent, encode_agent_type};
-use agp_datapath::messages::utils::get_error;
+use agp_datapath::messages::{Agent, AgentType};
+use agp_service::AgpHeaderFlags;
 use parking_lot::RwLock;
 use testing::parse_line;
 use tokio_util::sync::CancellationToken;
@@ -144,9 +144,9 @@ async fn main() {
     let svc = config.services.get_mut(&svc_id).unwrap();
 
     // create local agent
-    let agent_name = encode_agent("cisco", "default", "publisher", id);
+    let agent_name = Agent::from_strings("cisco", "default", "publisher", id);
     // required in streaming mode
-    let dest_name = encode_agent_type("cisco", "default", "subscriber");
+    let dest_name = AgentType::from_strings("cisco", "default", "subscriber");
     _ = svc
         .create_agent(&agent_name)
         .expect("failed to create agent");
@@ -202,13 +202,15 @@ async fn main() {
         for i in 0..max_packets.unwrap_or(u64::MAX) {
             let payload: Vec<u8> = vec![120; msg_size as usize]; // ASCII for 'x' = 120
             info!("publishing message {}", i);
+            // set fanout > 1 to send the message in broadcast
+            let flags = AgpHeaderFlags::new(10, None, None, None, None);
             if svc
-                .publish(
+                .publish_with_flags(
                     &agent_name,
                     session_info.clone(),
                     &dest_name,
                     None,
-                    10, // the packet will be sent in broadcast on dest_name
+                    flags,
                     payload,
                 )
                 .await
@@ -270,7 +272,7 @@ async fn main() {
     let svc = config.services.get_mut(&svc_id).unwrap();
 
     // create local agent
-    let agent_name = encode_agent("cisco", "default", "publisher", id);
+    let agent_name = Agent::from_strings("cisco", "default", "publisher", id);
     let mut rx = svc
         .create_agent(&agent_name)
         .expect("failed to create agent");
@@ -358,22 +360,10 @@ async fn main() {
                                 panic!("wrong session id {}", session_info.id);
                             }
 
-                            // checks if the message is an error
-                            match get_error(&msg) {
-                                Ok(err) => {
-                                    if err.is_some() && err.unwrap() {
-                                        error!("An error occurred processing a message");
-                                        continue;
-                                    }
-                                }
-                                Err(err) => {
-                                    panic!("error processing received packet {}", err);
-                                }
-                            }
                             match &msg.message_type.unwrap() {
                                 agp_datapath::pubsub::ProtoPublishType(msg) => {
                                     // parse payload and add info to the result list
-                                    let payload = agp_datapath::messages::utils::get_payload(msg);
+                                    let payload = &msg.get_payload().blob;
                                     // the payload needs to start with the publication id and the received id
                                     // so it must contain at least 18 bytes
                                     if payload.len() < 18 {
@@ -436,7 +426,6 @@ async fn main() {
                 session_info.clone(),
                 p.1.agent_type(),
                 name_id,
-                1,
                 payload,
             )
             .await
