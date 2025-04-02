@@ -1,8 +1,8 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
-use agp_service::streaming::StreamingConfiguration;
 use agp_datapath::messages::Agent;
+use agp_service::streaming::StreamingConfiguration;
 use std::fs::File;
 use std::io::prelude::*;
 use std::time::Duration;

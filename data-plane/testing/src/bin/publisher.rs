@@ -147,7 +147,7 @@ async fn main() {
     let agent_name = Agent::from_strings("cisco", "default", "publisher", id);
     // required in streaming mode
     let dest_name = AgentType::from_strings("cisco", "default", "subscriber");
-    _ = svc
+    let mut rx = svc
         .create_agent(&agent_name)
         .expect("failed to create agent");
 
@@ -199,6 +199,25 @@ async fn main() {
         let session_info = res.unwrap();
         //let session_id = session_info.id;
 
+        tokio::spawn(async move {
+            loop {
+                match rx.recv().await {
+                    None => {
+                        info!(%conn_id, "end of stream");
+                        break;
+                    }
+                    Some(msg_info) => {
+                        if msg_info.is_err() {
+                            error!("error receiving message");
+                            continue;
+                        } else {
+                            info!("received message from the network");
+                        }
+                    }
+                }
+            }
+        });
+
         for i in 0..max_packets.unwrap_or(u64::MAX) {
             let payload: Vec<u8> = vec![120; msg_size as usize]; // ASCII for 'x' = 120
             info!("publishing message {}", i);
@@ -227,9 +246,6 @@ async fn main() {
 
     // WORKLOAD MODE
     // setup agent config
-    let mut config = config::load_config(config_file).expect("failed to load configuration");
-    let _guard = config.tracing.setup_tracing_subscriber();
-
     let mut publication_list = HashMap::new();
     let mut oracle = HashMap::new();
     let mut routes = Vec::new();

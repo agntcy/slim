@@ -242,7 +242,7 @@ impl Streaming {
                                                             &source,
                                                             pkt_src.agent_type(),
                                                             Some(pkt_src.agent_id()),
-                                                            Some(AgpHeaderFlags::default().with_incoming_conn(incoming_conn)),
+                                                            Some(AgpHeaderFlags::default().with_forward_to(incoming_conn)),
                                                         ));
 
                                                         let session_header = Some(SessionHeader::new(
@@ -347,7 +347,7 @@ impl Streaming {
                                                         &source,
                                                         dest.agent_type(),
                                                         Some(dest.agent_id()),
-                                                        Some(AgpHeaderFlags::default().with_incoming_conn(producer_conn.unwrap())),
+                                                        Some(AgpHeaderFlags::default().with_forward_to(producer_conn.unwrap())),
                                                     ));
 
                                                     let session_header = Some(SessionHeader::new(
@@ -478,7 +478,6 @@ impl Session for Streaming {
         message: SessionMessage,
         direction: MessageDirection,
     ) -> Result<(), SessionError> {
-        debug!("receive message");
         self.tx
             .send(Ok((message.message, direction)))
             .await
