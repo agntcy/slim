@@ -67,11 +67,11 @@ pub struct Args {
     #[arg(
         short,
         long,
-        value_name = "FREQUENCE",
+        value_name = "FREQUENCY",
         required = false,
         default_value_t = 0
     )]
-    frequence: u32,
+    frequency: u32,
 
     /// used only in streaming mode, defines the maximum number of packets to send
     #[arg(short, long, value_name = "PACKETS", required = false)]
@@ -103,8 +103,8 @@ impl Args {
         &self.quite
     }
 
-    pub fn frequence(&self) -> &u32 {
-        &self.frequence
+    pub fn frequency(&self) -> &u32 {
+        &self.frequency
     }
 
     pub fn max_packets(&self) -> &Option<u64> {
@@ -120,7 +120,7 @@ async fn main() {
     let config_file = args.config();
     let msg_size = *args.msg_size();
     let id = *args.id();
-    let frequence = *args.frequence();
+    let frequency = *args.frequency();
     let mut streaming = *args.streaming();
     let max_packets = args.max_packets;
     if input.is_some() {
@@ -195,10 +195,7 @@ async fn main() {
             panic!("error creating fire and forget session");
         }
 
-        // get the session
-        let session_info = res.unwrap();
-        //let session_id = session_info.id;
-
+        // loop to listen to errors coming from the local gateway
         tokio::spawn(async move {
             loop {
                 match rx.recv().await {
@@ -208,15 +205,18 @@ async fn main() {
                     }
                     Some(msg_info) => {
                         if msg_info.is_err() {
-                            error!("error receiving message");
+                            error!("received an error message {:?}", msg_info);
                             continue;
                         } else {
-                            info!("received message from the network");
+                            panic!("received a message from the gateway, this should never happen");
                         }
                     }
                 }
             }
         });
+
+        // get the session
+        let session_info = res.unwrap();
 
         for i in 0..max_packets.unwrap_or(u64::MAX) {
             let payload: Vec<u8> = vec![120; msg_size as usize]; // ASCII for 'x' = 120
@@ -237,8 +237,8 @@ async fn main() {
             {
                 error!("an error occurred sending publication, the test will fail",);
             }
-            if frequence != 0 {
-                tokio::time::sleep(tokio::time::Duration::from_millis(frequence as u64)).await;
+            if frequency != 0 {
+                tokio::time::sleep(tokio::time::Duration::from_millis(frequency as u64)).await;
             }
         }
         return;
@@ -279,37 +279,6 @@ async fn main() {
             Err(e) => {
                 panic!("error while parsing the workload file: {}", e);
             }
-        }
-    }
-
-    // start local agent
-    // get service
-    let svc_id = agp_config::component::id::ID::new_with_str("gateway/0").unwrap();
-    let svc = config.services.get_mut(&svc_id).unwrap();
-
-    // create local agent
-    let agent_name = Agent::from_strings("cisco", "default", "publisher", id);
-    let mut rx = svc
-        .create_agent(&agent_name)
-        .expect("failed to create agent");
-
-    // connect to the remote gateway
-    let conn_id = svc.connect(None).await.unwrap();
-    info!("remote connection id = {}", conn_id);
-
-    // subscribe for local name
-    match svc
-        .subscribe(
-            &agent_name,
-            agent_name.agent_type(),
-            agent_name.agent_id_option(),
-            Some(conn_id),
-        )
-        .await
-    {
-        Ok(_) => {}
-        Err(e) => {
-            panic!("an error accoured while adding a subscription {}", e);
         }
     }
 
@@ -457,8 +426,8 @@ async fn main() {
             bar.inc(1);
         }
 
-        if frequence != 0 {
-            tokio::time::sleep(tokio::time::Duration::from_millis(frequence as u64)).await;
+        if frequency != 0 {
+            tokio::time::sleep(tokio::time::Duration::from_millis(frequency as u64)).await;
         }
     }
     let duration = start.elapsed();
