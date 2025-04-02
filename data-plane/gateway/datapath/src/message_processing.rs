@@ -308,7 +308,6 @@ impl MessageProcessor {
                 inject_current_context(&mut msg);
                 ///////////////////////////////////////////////////////////////////
 
-                debug!("------send message to connection {}", out_conn);
                 match conn.channel() {
                     Channel::Server(s) => s
                         .send(Ok(msg))

@@ -102,7 +102,6 @@ struct Producer {
 }
 
 struct Receiver {
-    //config: StreamingConfiguration,
     buffer: ReceiverBuffer,
     timer_observer: Arc<RtxTimerObserver>,
     rtx_map: HashMap<u32, Message>,
@@ -117,7 +116,6 @@ enum Endpoint {
 pub(crate) struct Streaming {
     common: Common,
     tx: mpsc::Sender<Result<(Message, MessageDirection), Status>>,
-    //tx_timers: mpsc::Sender<Result<(u32, bool), Status>>,
 }
 
 impl Streaming {
@@ -129,31 +127,6 @@ impl Streaming {
         tx_app: AppChannelSender,
     ) -> Streaming {
         let (tx, rx) = mpsc::channel(128);
-        //let (timer_tx, timer_rx) = mpsc::channel(128);
-        /*let buffer = match session_direction {
-            SessionDirection::Sender => {
-                let prod = Producer {
-                    buffer: ProducerBuffer::with_capacity(500),
-                    next_id: 0,
-                };
-                Arc::new(RwLock::new(Endpoint::Producer(prod)))
-            }
-            SessionDirection::Receiver => {
-                let observer = RtxTimerObserver { channel: timer_tx };
-                let recv = Receiver {
-                    config: session_config.clone(),
-                    buffer: ReceiverBuffer::default(),
-                    timer_observer: Arc::new(observer),
-                    rtx_map: HashMap::new(),
-                    timers_map: HashMap::new(),
-                };
-                Arc::new(RwLock::new(Endpoint::Receiver(recv)))
-            }
-            _ => {
-                error!("invalid session direction");
-                Arc::new(RwLock::new(Endpoint::Unknown))
-            }
-        };*/
         let stream = Streaming {
             common: Common::new(
                 id,
@@ -163,7 +136,6 @@ impl Streaming {
                 tx_app,
             ),
             tx,
-            //tx_timers: timer_tx,
         };
         stream.process_message(rx, session_direction);
         stream
@@ -172,11 +144,8 @@ impl Streaming {
     fn process_message(
         &self,
         mut rx: mpsc::Receiver<Result<(Message, MessageDirection), Status>>,
-        //mut timer_rx: mpsc::Receiver<Result<(u32, bool), Status>>,
-        //session_config: StreamingConfiguration,
         session_direction: SessionDirection,
     ) {
-        //let buffer_clone = self.buffer.clone();
         let session_id = self.common.id();
         let send_gw = self.common.tx_gw();
         let send_app = self.common.tx_app();
@@ -204,7 +173,6 @@ impl Streaming {
             SessionDirection::Receiver => {
                 let observer = RtxTimerObserver { channel: timer_tx };
                 let recv = Receiver {
-                    //config: session_config.clone(),
                     buffer: ReceiverBuffer::default(),
                     timer_observer: Arc::new(observer),
                     rtx_map: HashMap::new(),
@@ -219,6 +187,7 @@ impl Streaming {
         let mut producer_name: Option<Agent> = None;
         let mut producer_conn: Option<u64> = None;
         let mut timer_rx_closed = false;
+
         tokio::spawn(async move {
             debug!("starting message processing on session {}", session_id);
             loop {
@@ -373,7 +342,7 @@ impl Streaming {
                                                     }
                                                 }
                                                 for r in rtx {
-                                                    info!("packet loss detected on session {}, send RTX for id {}", session_id, r);
+                                                    debug!("packet loss detected on session {}, send RTX for id {}", session_id, r);
                                                     let dest = producer_name.as_ref().unwrap(); // this cannot panic a this point
 
                                                     let agp_header = Some(AgpHeader::new(
@@ -452,7 +421,7 @@ impl Streaming {
                                                 error!("error sending RTX for id {} on receiver session {}", msg_id, session_id);
                                             }
                                         } else {
-                                            trace!("pacekt {} lost, not retries left", msg_id);
+                                            trace!("packet {} lost, not retries left", msg_id);
                                             receiver.rtx_map.remove(&msg_id);
                                             receiver.timers_map.remove(&msg_id);
 
@@ -700,7 +669,7 @@ mod tests {
 
         time::sleep(Duration::from_millis(1000)).await;
 
-        let expected_msg = "pacekt 1 lost, not retries left";
+        let expected_msg = "packet 1 lost, not retries left";
         assert!(logs_contain(expected_msg));
         let expected_msg = "a message was definitely lost in session 0";
         assert!(logs_contain(expected_msg));
@@ -825,7 +794,7 @@ mod tests {
             tx_app_receiver,
         );
 
-        let message = Message::new_publish(
+        let mut message = Message::new_publish(
             &Agent::from_strings("cisco", "default", "sender", 0),
             &AgentType::from_strings("cisco", "default", "receiver"),
             Some(0),
@@ -833,6 +802,7 @@ mod tests {
             "msg",
             vec![0x1, 0x2, 0x3, 0x4],
         );
+        message.set_incoming_conn(Some(0));
 
         let session_msg: SessionMessage = SessionMessage::new(message.clone(), Info::new(0));
         // send 3 messages from the producer app
@@ -847,7 +817,7 @@ mod tests {
         // read the 3 messages from the sender gw channel
         // forward message 1 and 3 to the receiver
         for i in 0..3 {
-            let msg = rx_gw_sender.recv().await.unwrap().unwrap();
+            let mut msg = rx_gw_sender.recv().await.unwrap().unwrap();
             let msg_header = msg.get_session_header();
             assert_eq!(msg_header.session_id, 0);
             assert_eq!(msg_header.message_id, i);
@@ -855,6 +825,8 @@ mod tests {
 
             // the receiver should detect a loss for packet 1
             if i != 1 {
+                // make sure to set the incoming connection to avoid paninc
+                msg.set_incoming_conn(Some(0));
                 let session_msg: SessionMessage = SessionMessage::new(msg.clone(), Info::new(0));
                 let res = receiver
                     .on_message(session_msg.clone(), MessageDirection::North)
@@ -917,7 +889,9 @@ mod tests {
         );
 
         // send the second reply to the producer
-        let session_msg: SessionMessage = SessionMessage::new(msg.clone(), Info::new(0));
+        let mut session_msg: SessionMessage = SessionMessage::new(msg.clone(), Info::new(0));
+        // make sure to set the incoming connection to avoid paninc
+        session_msg.message.set_incoming_conn(Some(0));
         let res = sender
             .on_message(session_msg.clone(), MessageDirection::North)
             .await;
@@ -941,7 +915,9 @@ mod tests {
             )
         );
 
-        let session_msg: SessionMessage = SessionMessage::new(msg.clone(), Info::new(0));
+        let mut session_msg: SessionMessage = SessionMessage::new(msg.clone(), Info::new(0));
+        // make sure to set the incoming connection to avoid paninc
+        session_msg.message.set_incoming_conn(Some(0));
         let res = receiver
             .on_message(session_msg.clone(), MessageDirection::North)
             .await;
