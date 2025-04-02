@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1](https://github.com/agntcy/agp/compare/agp-signal-v0.1.0...agp-signal-v0.1.1) - 2025-04-02
+
+### Other
+
+- update copyright ([#109](https://github.com/agntcy/agp/pull/109))
+
 ## [0.1.0](https://github.com/agntcy/agp/releases/tag/agp-signal-v0.1.0) - 2025-02-10
 
 ### Added

@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0](https://github.com/agntcy/agp/compare/agp-datapath-v0.4.2...agp-datapath-v0.5.0) - 2025-04-02
+
+### Added
+
+- streaming session type ([#132](https://github.com/agntcy/agp/pull/132))
+- request/reply session type ([#124](https://github.com/agntcy/agp/pull/124))
+- add timers for rtx ([#117](https://github.com/agntcy/agp/pull/117))
+- rename protobuf fields ([#116](https://github.com/agntcy/agp/pull/116))
+- add receiver buffer ([#107](https://github.com/agntcy/agp/pull/107))
+- producer buffer ([#105](https://github.com/agntcy/agp/pull/105))
+- *(data-plane/service)* [**breaking**] first draft of session layer ([#106](https://github.com/agntcy/agp/pull/106))
+
+### Fixed
+
+- *(python-bindings)* fix python examples ([#120](https://github.com/agntcy/agp/pull/120))
+- *(datapath)* fix reconnection logic ([#119](https://github.com/agntcy/agp/pull/119))
+
+### Other
+
+- improve utils classes and simplify message processor ([#131](https://github.com/agntcy/agp/pull/131))
+- improve connection pool performance ([#125](https://github.com/agntcy/agp/pull/125))
+- update copyright ([#109](https://github.com/agntcy/agp/pull/109))
+
 ## [0.4.2](https://github.com/agntcy/agp/compare/agp-datapath-v0.4.1...agp-datapath-v0.4.2) - 2025-03-19
 
 ### Added
