@@ -1,7 +1,7 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
-use std::{collections::HashMap, sync::Arc};
+use std::{collections::HashMap, sync::Arc, time::Duration};
 use tokio::sync::mpsc;
 
 use crate::{
@@ -204,7 +204,7 @@ impl Streaming {
                                     error!("error receiving a message on session {}, drop it", session_id);
                                     continue;
                                 }
-                                let (mut msg, direction) = result.unwrap();
+                                let (msg, direction) = result.unwrap();
                                 match &mut endpoint {
                                     Endpoint::Producer(producer) => {
                                         match direction {
@@ -220,163 +220,27 @@ impl Streaming {
                                                     }
                                                 };
 
-                                                let msg_rtx_id = msg.get_id();
-
-                                                trace!("received rtx for message {} on producer session {}", msg_rtx_id, session_id);
-                                                // search the packet in the producer buffer
-                                                let rtx_pub = match producer.buffer.get(msg_rtx_id as usize) {
-                                                    Some(packet) => {
-                                                        trace!("packet {} exists in the producer buffer, create rtx reply", msg_rtx_id);
-                                                        // the packet exists, send it to the source of the RTX
-                                                        let pkt_src = msg.get_source();
-
-                                                        let payload = match packet.get_payload() {
-                                                            Some(p) => p,
-                                                            None => {
-                                                                error!("unable to get the payload from the packet");
-                                                                continue;
-                                                            }
-                                                        };
-
-                                                        let incoming_conn = msg.get_incoming_conn();
-
-                                                        let agp_header = Some(AgpHeader::new(
-                                                            &source,
-                                                            pkt_src.agent_type(),
-                                                            Some(pkt_src.agent_id()),
-                                                            Some(AgpHeaderFlags::default().with_forward_to(incoming_conn)),
-                                                        ));
-
-                                                        let session_header = Some(SessionHeader::new(
-                                                            SessionHeaderType::RtxReply.into(),
-                                                            session_id,
-                                                            msg_rtx_id,
-                                                        ));
-
-                                                        Message::new_publish_with_headers(agp_header, session_header, "", payload.blob.to_vec())
-                                                    }
-                                                    None => {
-                                                        // the packet does not exist so do nothing
-                                                        // TODO(micpapal): improve by returning a rtx nack so that the remote app does not
-                                                        // wait too long for all the retransmissions
-                                                        debug!("received and RTX messages for an old packet on producer session {}", session_id);
-                                                        continue;
-                                                    },
-                                                };
-
-                                                trace!("send rtx reply for message {}", msg_rtx_id);
-                                                if send_gw.send(Ok(rtx_pub)).await.is_err() {
-                                                    error!("error sending RTX packet to the gateway on producer session {}", session_id);
-                                                    continue;
-                                                }
+                                                process_incoming_rtx_request(msg, session_id, producer, &source, send_gw.clone()).await;
                                             }
                                             MessageDirection::South => {
+
                                                 // received a message from the APP
-                                                // set the session header, add the message to the buffer and send it
-                                                trace!("received message from the app on producer session {}", session_id);
-                                                msg.set_header_type(SessionHeaderType::Stream);
-                                                msg.set_message_id(producer.next_id);
-
-                                                trace!("add message {} to the producer buffer on session {}", producer.next_id, session_id);
-                                                if !producer.buffer.push(msg.clone()) {
-                                                    warn!("cannot add packet to the local buffer");
-                                                }
-
-                                                trace!("send message {} to the producer buffer on session {}", producer.next_id, session_id);
-                                                producer.next_id += 1;
-
-                                                if send_gw.send(Ok(msg)).await.is_err() {
-                                                    error!("error sending publication packet to the gateway on producer session {}", session_id);
-                                                    send_app.send(Err(SessionError::Processing("error sending message to the local gateway".to_string()))).await.expect("error notifyng app");
-                                                }
+                                                process_message_from_app(msg, session_id, producer, send_gw.clone(), send_app.clone()).await;
                                             }
                                         }
                                     }
                                     Endpoint::Receiver(receiver) => {
                                         trace!("received message from the gataway on receiver session {}", session_id);
-                                        let header_type = msg.get_header_type();
-                                        if header_type == SessionHeaderType::RtxReply {
-                                            let rtx_msg_id = msg.get_id();
-
-                                            // try to clean local state
-                                            match receiver.timers_map.get(&rtx_msg_id) {
-                                                Some(timer) => {
-                                                    timer.stop();
-                                                    receiver.timers_map.remove(&rtx_msg_id);
-                                                    receiver.rtx_map.remove(&rtx_msg_id);
-                                                }
-                                                None => {
-                                                    warn!("unable to find the timer associated to the received RTX reply");
-                                                    // try to remove the packet anyway
-                                                    receiver.rtx_map.remove(&rtx_msg_id);
-                                                }
-                                            }
-
-                                        } else if header_type != SessionHeaderType::Stream {
-                                            error!("received packet with invalid header type {} on receiver session {}", i32::from(header_type), session_id);
-                                            continue;
-                                        }
 
                                         if producer_name.is_none() {
                                             producer_name = Some(msg.get_source());
                                             producer_conn = Some(msg.get_incoming_conn());
                                         }
 
-                                        match receiver.buffer.on_received_message(msg){
-                                            Ok((recv, rtx)) =>{
-                                                for opt in recv {
-                                                    trace!("send recv packet to the application on receiver session {}", session_id);
-                                                    match opt {
-                                                        Some(m) => {
-                                                            // send message to the app
-                                                            let info = Info::from(&m);
-                                                            let session_msg = SessionMessage::new(m, info);
-                                                            if send_app.send(Ok(session_msg)).await.is_err() {
-                                                                error!("error sending packet to the application on receiver session {}", session_id);
-                                                            }
-                                                        }
-                                                        None => {
-                                                            warn!("a message was definitely lost in receiver session {}", session_id);
-                                                            let _ = send_app.send(Err(SessionError::MessageLost(session_id.to_string()))).await;
-                                                        }
-                                                    }
-                                                }
-                                                for r in rtx {
-                                                    debug!("packet loss detected on session {}, send RTX for id {}", session_id, r);
-                                                    let dest = producer_name.as_ref().unwrap(); // this cannot panic a this point
-
-                                                    let agp_header = Some(AgpHeader::new(
-                                                        &source,
-                                                        dest.agent_type(),
-                                                        Some(dest.agent_id()),
-                                                        Some(AgpHeaderFlags::default().with_forward_to(producer_conn.unwrap())),
-                                                    ));
-
-                                                    let session_header = Some(SessionHeader::new(
-                                                        SessionHeaderType::RtxRequest.into(),
-                                                        session_id,
-                                                        r,
-                                                    ));
-
-                                                    let rtx = Message::new_publish_with_headers(agp_header, session_header, "", vec![]);
-
-                                                    // set state for RTX
-                                                    let timer = Timer::new(r, timeout.as_millis().try_into().unwrap(), max_retries);
-                                                    timer.start(receiver.timer_observer.clone());
-
-                                                    receiver.rtx_map.insert(r, rtx.clone());
-                                                    receiver.timers_map.insert(r, timer);
-
-                                                    if send_gw.send(Ok(rtx)).await.is_err() {
-                                                        error!("error sending RTX for id {} on session {}", r, session_id);
-                                                    }
-                                                }
-                                            }
-                                            Err(e) => {
-                                                error!("error adding message to the buffer: {}", e.to_string());
-                                                continue;
-                                            }
-                                        }
+                                        process_message_form_gw(msg, session_id,
+                                            receiver, &source, producer_name.as_ref().unwrap(),
+                                            producer_conn.unwrap(), max_retries, timeout, send_gw.clone(),
+                                            send_app.clone()).await;
                                     }
                                 }
                             }
@@ -462,6 +326,229 @@ impl Streaming {
                 }
             }
         });
+    }
+}
+
+async fn process_incoming_rtx_request(
+    msg: Message,
+    session_id: u32,
+    producer: &Producer,
+    source: &Agent,
+    send_gw: mpsc::Sender<Result<Message, Status>>,
+) {
+    let msg_rtx_id = msg.get_id();
+
+    trace!(
+        "received rtx for message {} on producer session {}",
+        msg_rtx_id,
+        session_id
+    );
+    // search the packet in the producer buffer
+    let rtx_pub = match producer.buffer.get(msg_rtx_id as usize) {
+        Some(packet) => {
+            trace!(
+                "packet {} exists in the producer buffer, create rtx reply",
+                msg_rtx_id
+            );
+            // the packet exists, send it to the source of the RTX
+            let pkt_src = msg.get_source();
+
+            let payload = match packet.get_payload() {
+                Some(p) => p,
+                None => {
+                    error!("unable to get the payload from the packet");
+                    return;
+                }
+            };
+
+            let incoming_conn = msg.get_incoming_conn();
+
+            let agp_header = Some(AgpHeader::new(
+                source,
+                pkt_src.agent_type(),
+                Some(pkt_src.agent_id()),
+                Some(AgpHeaderFlags::default().with_forward_to(incoming_conn)),
+            ));
+
+            let session_header = Some(SessionHeader::new(
+                SessionHeaderType::RtxReply.into(),
+                session_id,
+                msg_rtx_id,
+            ));
+
+            Message::new_publish_with_headers(agp_header, session_header, "", payload.blob.to_vec())
+        }
+        None => {
+            // the packet does not exist so do nothing
+            // TODO(micpapal): improve by returning a rtx nack so that the remote app does not
+            // wait too long for all the retransmissions
+            debug!(
+                "received and RTX messages for an old packet on producer session {}",
+                session_id
+            );
+            return;
+        }
+    };
+
+    trace!("send rtx reply for message {}", msg_rtx_id);
+    if send_gw.send(Ok(rtx_pub)).await.is_err() {
+        error!(
+            "error sending RTX packet to the gateway on producer session {}",
+            session_id
+        );
+    }
+}
+
+async fn process_message_from_app(
+    mut msg: Message,
+    session_id: u32,
+    producer: &mut Producer,
+    send_gw: mpsc::Sender<Result<Message, Status>>,
+    send_app: mpsc::Sender<Result<SessionMessage, SessionError>>,
+) {
+    // set the session header, add the message to the buffer and send it
+    trace!(
+        "received message from the app on producer session {}",
+        session_id
+    );
+    msg.set_header_type(SessionHeaderType::Stream);
+    msg.set_message_id(producer.next_id);
+
+    trace!(
+        "add message {} to the producer buffer on session {}",
+        producer.next_id,
+        session_id
+    );
+    if !producer.buffer.push(msg.clone()) {
+        warn!("cannot add packet to the local buffer");
+    }
+
+    trace!(
+        "send message {} to the producer buffer on session {}",
+        producer.next_id,
+        session_id
+    );
+    producer.next_id += 1;
+
+    if send_gw.send(Ok(msg)).await.is_err() {
+        error!(
+            "error sending publication packet to the gateway on producer session {}",
+            session_id
+        );
+        send_app
+            .send(Err(SessionError::Processing(
+                "error sending message to the local gateway".to_string(),
+            )))
+            .await
+            .expect("error notifyng app");
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn process_message_form_gw(
+    msg: Message,
+    session_id: u32,
+    receiver: &mut Receiver,
+    source: &Agent,
+    producer_name: &Agent,
+    producer_conn: u64,
+    max_retries: u32,
+    timeout: Duration,
+    send_gw: mpsc::Sender<Result<Message, Status>>,
+    send_app: mpsc::Sender<Result<SessionMessage, SessionError>>,
+) {
+    let header_type = msg.get_header_type();
+    if header_type == SessionHeaderType::RtxReply {
+        let rtx_msg_id = msg.get_id();
+
+        // try to clean local state
+        match receiver.timers_map.get(&rtx_msg_id) {
+            Some(timer) => {
+                timer.stop();
+                receiver.timers_map.remove(&rtx_msg_id);
+                receiver.rtx_map.remove(&rtx_msg_id);
+            }
+            None => {
+                warn!("unable to find the timer associated to the received RTX reply");
+                // try to remove the packet anyway
+                receiver.rtx_map.remove(&rtx_msg_id);
+            }
+        }
+    } else if header_type != SessionHeaderType::Stream {
+        error!(
+            "received packet with invalid header type {} on receiver session {}",
+            i32::from(header_type),
+            session_id
+        );
+        return;
+    }
+
+    match receiver.buffer.on_received_message(msg) {
+        Ok((recv, rtx)) => {
+            for opt in recv {
+                trace!(
+                    "send recv packet to the application on receiver session {}",
+                    session_id
+                );
+                match opt {
+                    Some(m) => {
+                        // send message to the app
+                        let info = Info::from(&m);
+                        let session_msg = SessionMessage::new(m, info);
+                        if send_app.send(Ok(session_msg)).await.is_err() {
+                            error!(
+                                "error sending packet to the application on receiver session {}",
+                                session_id
+                            );
+                        }
+                    }
+                    None => {
+                        warn!(
+                            "a message was definitely lost in receiver session {}",
+                            session_id
+                        );
+                        let _ = send_app
+                            .send(Err(SessionError::MessageLost(session_id.to_string())))
+                            .await;
+                    }
+                }
+            }
+            for r in rtx {
+                debug!(
+                    "packet loss detected on session {}, send RTX for id {}",
+                    session_id, r
+                );
+
+                let agp_header = Some(AgpHeader::new(
+                    source,
+                    producer_name.agent_type(),
+                    Some(producer_name.agent_id()),
+                    Some(AgpHeaderFlags::default().with_forward_to(producer_conn)),
+                ));
+
+                let session_header = Some(SessionHeader::new(
+                    SessionHeaderType::RtxRequest.into(),
+                    session_id,
+                    r,
+                ));
+
+                let rtx = Message::new_publish_with_headers(agp_header, session_header, "", vec![]);
+
+                // set state for RTX
+                let timer = Timer::new(r, timeout.as_millis().try_into().unwrap(), max_retries);
+                timer.start(receiver.timer_observer.clone());
+
+                receiver.rtx_map.insert(r, rtx.clone());
+                receiver.timers_map.insert(r, timer);
+
+                if send_gw.send(Ok(rtx)).await.is_err() {
+                    error!("error sending RTX for id {} on session {}", r, session_id);
+                }
+            }
+        }
+        Err(e) => {
+            error!("error adding message to the buffer: {}", e.to_string());
+        }
     }
 }
 
