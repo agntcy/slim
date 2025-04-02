@@ -5,8 +5,8 @@ use thiserror::Error;
 
 #[derive(Error, Debug, PartialEq)]
 pub enum SubscriptionTableError {
-    #[error("no matching found")]
-    NoMatch,
+    #[error("no matching found for {0}")]
+    NoMatch(String),
     #[error("subscription not fund")]
     SubscriptionNotFound,
     #[error("agent id not fund")]

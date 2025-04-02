@@ -15,9 +15,8 @@ use crate::session::{
     AppChannelSender, GwChannelSender, Id, Info, MessageDirection, Session, SessionConfig,
     SessionDirection, SessionMessage,
 };
-
 use crate::streaming;
-use agp_datapath::messages::{utils, Agent};
+use agp_datapath::messages::encoder::Agent;
 use agp_datapath::pubsub::proto::pubsub::v1::SessionHeaderType;
 
 /// SessionLayer
@@ -161,6 +160,20 @@ impl SessionLayer {
         message: SessionMessage,
         direction: MessageDirection,
     ) -> Result<(), SessionError> {
+        // Validate the message as first operation to prevent possible panic in case
+        // necessary fields are missing
+        if let Err(e) = message.message.validate() {
+            return Err(SessionError::ValidationError(e.to_string()));
+        }
+
+        // Also make sure the message is a publication
+        if !message.message.is_publish() {
+            return Err(SessionError::ValidationError(
+                "message is not a publish".to_string(),
+            ));
+        }
+
+        // good to go
         match direction {
             MessageDirection::North => self.handle_message_from_gateway(message, direction).await,
             MessageDirection::South => self.handle_message_from_app(message, direction).await,
@@ -177,12 +190,7 @@ impl SessionLayer {
         // check if pool contains the session
         if let Some(session) = self.pool.read().await.get(&message.info.id) {
             // Set session id and session type to message
-            let header = utils::get_session_header_as_mut(&mut message.message);
-            if header.is_none() {
-                return Err(SessionError::MissingSessionHeader);
-            }
-
-            let header = header.unwrap();
+            let header = message.message.get_session_header_mut();
             header.session_id = message.info.id;
 
             // pass the message to the session
@@ -202,29 +210,23 @@ impl SessionLayer {
     ) -> Result<(), SessionError> {
         let (id, session_type) = {
             // get the session type and the session id from the message
-            let header = utils::get_session_header(&message.message);
-
-            // if header is None, return an error
-            if header.is_none() {
-                return Err(SessionError::MissingAgpHeader(
-                    "missing AGP header".to_string(),
-                ));
-            }
-
-            let header = header.unwrap();
+            let header = message.message.get_session_header();
 
             // get the session type from the header
-            let session_type = utils::int_to_service_type(header.header_type);
-
-            // if the session type is not specified, return an error
-            if session_type.is_none() {
-                return Err(SessionError::SessionUnknown(header.header_type.to_string()));
-            }
+            let session_type = match SessionHeaderType::try_from(header.header_type) {
+                Ok(session_type) => session_type,
+                Err(e) => {
+                    return Err(SessionError::ValidationError(format!(
+                        "session type is not valid: {}",
+                        e
+                    )));
+                }
+            };
 
             // get the session ID
             let id = header.session_id;
 
-            (id, session_type.unwrap())
+            (id, session_type)
         };
 
         // check if pool contains the session
@@ -305,12 +307,15 @@ mod tests {
     use super::*;
     use crate::fire_and_forget::{FireAndForget, FireAndForgetConfiguration};
 
-    use agp_datapath::messages::encoder::{self, encode_agent};
+    use agp_datapath::{
+        messages::{Agent, AgentType},
+        pubsub::ProtoMessage,
+    };
 
     fn create_session_layer() -> SessionLayer {
         let (tx_gw, _) = tokio::sync::mpsc::channel(128);
         let (tx_app, _) = tokio::sync::mpsc::channel(128);
-        let agent = encode_agent("org", "ns", "type", 0);
+        let agent = Agent::from_strings("org", "ns", "type", 0);
 
         SessionLayer::new(&agent, 0, tx_gw, tx_app)
     }
@@ -326,7 +331,7 @@ mod tests {
     async fn test_insert_session() {
         let (tx_gw, _) = tokio::sync::mpsc::channel(1);
         let (tx_app, _) = tokio::sync::mpsc::channel(1);
-        let agent = encode_agent("org", "ns", "type", 0);
+        let agent = Agent::from_strings("org", "ns", "type", 0);
 
         let session_layer = SessionLayer::new(&agent, 0, tx_gw.clone(), tx_app.clone());
         let session_config = FireAndForgetConfiguration {};
@@ -347,7 +352,7 @@ mod tests {
     async fn test_remove_session() {
         let (tx_gw, _) = tokio::sync::mpsc::channel(1);
         let (tx_app, _) = tokio::sync::mpsc::channel(1);
-        let agent = encode_agent("org", "ns", "type", 0);
+        let agent = Agent::from_strings("org", "ns", "type", 0);
 
         let session_layer = SessionLayer::new(&agent, 0, tx_gw.clone(), tx_app.clone());
         let session_config = FireAndForgetConfiguration {};
@@ -370,7 +375,7 @@ mod tests {
     async fn test_create_session() {
         let (tx_gw, _) = tokio::sync::mpsc::channel(1);
         let (tx_app, _) = tokio::sync::mpsc::channel(1);
-        let agent = encode_agent("org", "ns", "type", 0);
+        let agent = Agent::from_strings("org", "ns", "type", 0);
 
         let session_layer = SessionLayer::new(&agent, 0, tx_gw.clone(), tx_app.clone());
 
@@ -387,7 +392,7 @@ mod tests {
     async fn test_handle_message() {
         let (tx_gw, _) = tokio::sync::mpsc::channel(1);
         let (tx_app, mut rx_app) = tokio::sync::mpsc::channel(1);
-        let agent = encode_agent("org", "ns", "type", 0);
+        let agent = Agent::from_strings("org", "ns", "type", 0);
 
         let session_layer = SessionLayer::new(&agent, 0, tx_gw.clone(), tx_app.clone());
 
@@ -403,20 +408,19 @@ mod tests {
 
         session_layer.insert_session(1, session).await.unwrap();
 
-        let mut message = utils::create_publication(
-            &encoder::encode_agent("cisco", "default", "local_agent", 0),
-            &encoder::encode_agent_type("cisco", "default", "remote_agent"),
+        let mut message = ProtoMessage::new_publish(
+            &Agent::from_strings("cisco", "default", "local_agent", 0),
+            &AgentType::from_strings("cisco", "default", "remote_agent"),
             Some(0),
             None,
-            None,
-            1,
             "msg",
             vec![0x1, 0x2, 0x3, 0x4],
         );
 
         // set the session id in the message
-        let header = utils::get_session_header_as_mut(&mut message).unwrap();
+        let header = message.get_session_header_mut();
         header.session_id = 1;
+        header.header_type = i32::from(SessionHeaderType::Fnf);
 
         let res = session_layer
             .handle_message(

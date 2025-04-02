@@ -15,8 +15,6 @@ pub struct Publish {
     pub header: ::core::option::Option<AgpHeader>,
     #[prost(message, optional, tag = "2")]
     pub session: ::core::option::Option<SessionHeader>,
-    #[prost(uint32, tag = "3")]
-    pub fanout: u32,
     #[prost(message, optional, tag = "4")]
     pub msg: ::core::option::Option<Content>,
 }
@@ -30,13 +28,15 @@ pub struct AgpHeader {
     pub source: ::core::option::Option<Agent>,
     #[prost(message, optional, tag = "2")]
     pub destination: ::core::option::Option<Agent>,
-    #[prost(uint64, optional, tag = "3")]
-    pub recv_from: ::core::option::Option<u64>,
+    #[prost(uint32, tag = "3")]
+    pub fanout: u32,
     #[prost(uint64, optional, tag = "4")]
-    pub forward_to: ::core::option::Option<u64>,
+    pub recv_from: ::core::option::Option<u64>,
     #[prost(uint64, optional, tag = "5")]
+    pub forward_to: ::core::option::Option<u64>,
+    #[prost(uint64, optional, tag = "6")]
     pub incoming_conn: ::core::option::Option<u64>,
-    #[prost(bool, optional, tag = "6")]
+    #[prost(bool, optional, tag = "7")]
     pub error: ::core::option::Option<bool>,
 }
 #[derive(Clone, Copy, PartialEq, ::prost::Message)]

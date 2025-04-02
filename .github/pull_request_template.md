@@ -1,26 +1,28 @@
-<!--
-Thank you for your Pull Request. Please provide a description above and review
-the requirements below.
+# Description
 
-Bug fixes and new features should include tests.
+Please provide a meaningful description of what this change will do, or is for.
+Bonus points for including links to related issues, other PRs, or technical
+references.
 
-Contributors guide: https://github.com/agentcy/agp/blob/master/CONTRIBUTING.md
+Note that by _not_ including a description, you are asking reviewers to do extra
+work to understand the context of this change, which may lead to your PR taking
+much longer to review, or result in it not being reviewed at all.
 
-The contributors guide includes instructions for running rustfmt and building the
-documentation, which requires special commands beyond `cargo fmt` and `cargo doc`.
--->
+## Type of Change
 
-## Motivation
+- [ ] Bugfix
+- [ ] New Feature
+- [ ] Breaking Change
+- [ ] Refactor
+- [ ] Documentation
+- [ ] Other (please describe)
 
-<!--
-Explain the context and why you're making that change. What is the problem
-you're trying to solve? In some cases there is not a problem and this can be
-thought of as being the motivation for your change.
--->
+## Checklist
 
-## Solution
-
-<!--
-Summarize the solution and provide any necessary context needed to understand
-the code change.
--->
+- [ ] I have read the [contributing guidelines](/agntcy/repo-template/blob/main/CONTRIBUTING.md)
+- [ ] Existing issues have been referenced (where applicable)
+- [ ] I have verified this change is not present in other open pull requests
+- [ ] Functionality is documented
+- [ ] All code style checks pass
+- [ ] New code contribution is covered by automated tests
+- [ ] All new and existing tests pass

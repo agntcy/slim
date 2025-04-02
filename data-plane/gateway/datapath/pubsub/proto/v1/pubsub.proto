@@ -8,18 +8,13 @@ service PubSubService {
   rpc OpenChannel(stream Message) returns (stream Message) {}
 }
 
-message Subscribe {
-  AGPHeader header = 1;
-}
+message Subscribe { AGPHeader header = 1; }
 
-message Unsubscribe {
-  AGPHeader header = 1;
-}
+message Unsubscribe { AGPHeader header = 1; }
 
 message Publish {
   AGPHeader header = 1;
   SessionHeader session = 2;
-  uint32 fanout = 3;
   Content msg = 4;
 }
 
@@ -30,10 +25,11 @@ message Publish {
 message AGPHeader {
   Agent source = 1;
   Agent destination = 2;
-  optional uint64 recvFrom = 3;
-  optional uint64 forwardTo = 4;
-  optional uint64 incomingConn = 5;
-  optional bool error = 6;
+  uint32 fanout = 3;
+  optional uint64 recvFrom = 4;
+  optional uint64 forwardTo = 5;
+  optional uint64 incomingConn = 6;
+  optional bool error = 7;
 }
 
 message Agent {

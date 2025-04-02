@@ -144,13 +144,12 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::messages::encoder::encode_agent_type;
     use tracing_test::traced_test;
 
     #[test]
     #[traced_test]
     fn test_forwarder() {
-        let agent_class = encode_agent_type("Cisco", "Default", "class_ONE");
+        let agent_class = AgentType::from_strings("Cisco", "Default", "class_ONE");
 
         let fwd = Forwarder::<u32>::new();
 
@@ -173,7 +172,11 @@ mod tests {
         );
         assert_eq!(
             fwd.on_publish_msg_match(agent_class.clone(), Some(2), 100, 1),
-            Err(SubscriptionTableError::NoMatch)
+            Err(SubscriptionTableError::NoMatch(format!(
+                "{}, {:?}",
+                agent_class,
+                Some(2)
+            )))
         );
 
         assert_eq!(

@@ -3,7 +3,7 @@
 
 use std::collections::HashSet;
 
-use agp_datapath::{messages::utils::get_msg_id, pubsub::proto::pubsub::v1::Message};
+use agp_datapath::pubsub::proto::pubsub::v1::Message;
 
 use thiserror::Error;
 use tracing::{debug, error, info, trace};
@@ -54,13 +54,7 @@ impl ReceiverBuffer {
         &mut self,
         msg: Message,
     ) -> Result<(Vec<Option<Message>>, Vec<u32>), ReceiverBufferError> {
-        let msg_id = match get_msg_id(&msg) {
-            Err(e) => {
-                error!("the message does not contain a valid id, drop it");
-                return Err(ReceiverBufferError::ProcessingError(e.to_string()));
-            }
-            Ok(msg_id) => msg_id as usize,
-        };
+        let msg_id = msg.get_id() as usize;
 
         debug!("Received message id {}", msg_id);
         // no loss detected, return message
@@ -228,39 +222,34 @@ impl ReceiverBuffer {
 // tests
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
+    use agp_datapath::messages::encoder::{Agent, AgentType};
+    use agp_datapath::pubsub::proto::pubsub::v1::SessionHeaderType;
+    use agp_datapath::pubsub::{AgpHeader, SessionHeader};
     use tracing_test::traced_test;
 
     use super::*;
-    use agp_datapath::{
-        messages::{
-            encoder::encode_agent,
-            utils::{create_agp_header, create_publication_with_header, create_session_header},
-        },
-        pubsub::proto::pubsub::v1::SessionHeaderType,
-    };
 
     #[test]
     #[traced_test]
     fn test_receiver_buffer() {
-        let src = encode_agent("org", "ns", "type", 0);
-        let name_type = agp_datapath::messages::encoder::encode_agent_type("org", "ns", "type");
+        let src = Agent::from_strings("org", "ns", "type", 0);
+        let name_type = AgentType::from_strings("org", "ns", "type");
 
-        let agp_header = create_agp_header(&src, &name_type, Some(1), None, None, None, None);
+        let agp_header = AgpHeader::new(&src, &name_type, Some(1), None);
 
-        let h0 = create_session_header(SessionHeaderType::Fnf.into(), 0, 0);
-        let h1 = create_session_header(SessionHeaderType::Fnf.into(), 0, 1);
-        let h2 = create_session_header(SessionHeaderType::Fnf.into(), 0, 2);
-        let h3 = create_session_header(SessionHeaderType::Fnf.into(), 0, 3);
-        let h4 = create_session_header(SessionHeaderType::Fnf.into(), 0, 4);
-        let h5 = create_session_header(SessionHeaderType::Fnf.into(), 0, 5);
+        let h0 = SessionHeader::new(SessionHeaderType::Fnf.into(), 0, 0);
+        let h1 = SessionHeader::new(SessionHeaderType::Fnf.into(), 0, 1);
+        let h2 = SessionHeader::new(SessionHeaderType::Fnf.into(), 0, 2);
+        let h3 = SessionHeader::new(SessionHeaderType::Fnf.into(), 0, 3);
+        let h4 = SessionHeader::new(SessionHeaderType::Fnf.into(), 0, 4);
+        let h5 = SessionHeader::new(SessionHeaderType::Fnf.into(), 0, 5);
 
-        let p0 = create_publication_with_header(agp_header, h0, HashMap::new(), 1, "", vec![]);
-        let p1 = create_publication_with_header(None, h1, HashMap::new(), 1, "", vec![]);
-        let p2 = create_publication_with_header(None, h2, HashMap::new(), 1, "", vec![]);
-        let p3 = create_publication_with_header(None, h3, HashMap::new(), 1, "", vec![]);
-        let p4 = create_publication_with_header(None, h4, HashMap::new(), 1, "", vec![]);
-        let p5 = create_publication_with_header(None, h5, HashMap::new(), 1, "", vec![]);
+        let p0 = Message::new_publish_with_headers(Some(agp_header), Some(h0), "", vec![]);
+        let p1 = Message::new_publish_with_headers(Some(agp_header), Some(h1), "", vec![]);
+        let p2 = Message::new_publish_with_headers(Some(agp_header), Some(h2), "", vec![]);
+        let p3 = Message::new_publish_with_headers(Some(agp_header), Some(h3), "", vec![]);
+        let p4 = Message::new_publish_with_headers(Some(agp_header), Some(h4), "", vec![]);
+        let p5 = Message::new_publish_with_headers(Some(agp_header), Some(h5), "", vec![]);
 
         // insert in order
         let mut buffer = ReceiverBuffer::default();

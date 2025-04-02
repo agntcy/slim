@@ -20,10 +20,6 @@ use tracing_opentelemetry::OpenTelemetrySpanExt;
 use crate::connection::{Channel, Connection, Type as ConnectionType};
 use crate::errors::DataPathError;
 use crate::forwarder::Forwarder;
-use crate::messages::utils::{
-    clear_agp_header, create_error_publication, create_subscription, get_fanout, get_forward_to,
-    get_name, get_recv_from, get_source, message_type_to_str, set_incoming_connection,
-};
 use crate::messages::AgentType;
 use crate::pubsub::proto::pubsub::v1::message::MessageType::Publish as PublishType;
 use crate::pubsub::proto::pubsub::v1::message::MessageType::Subscribe as SubscribeType;
@@ -287,24 +283,21 @@ impl MessageProcessor {
         (conn_id, tx1, rx2)
     }
 
-    pub async fn send_msg(
-        &self,
-        mut msg: Message,
-        out_conn: u64,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    pub async fn send_msg(&self, mut msg: Message, out_conn: u64) -> Result<(), DataPathError> {
         let connection = self.forwarder().get_connection(out_conn);
         match connection {
             Some(conn) => {
                 // reset header fields
-                clear_agp_header(&mut msg)?;
+                msg.clear_agp_header();
 
+                // telemetry ////////////////////////////////////////////////////////
                 let parent_context = extract_parent_context(&msg);
                 let span = tracing::span!(
                     tracing::Level::INFO,
                     "send_message",
                     instance_id = %INSTANCE_ID.as_str(),
                     connection_id = out_conn,
-                    message_type = message_type_to_str(&msg),
+                    message_type = msg.get_type().to_string(),
                     telemetry = true
                 );
 
@@ -313,16 +306,27 @@ impl MessageProcessor {
                 }
                 let _guard = span.enter();
                 inject_current_context(&mut msg);
+                ///////////////////////////////////////////////////////////////////
 
                 match conn.channel() {
-                    Channel::Server(s) => s.send(Ok(msg)).await?,
-                    Channel::Client(s) => s.send(msg).await?,
-                    _ => error!("error reading channel"),
+                    Channel::Server(s) => s
+                        .send(Ok(msg))
+                        .await
+                        .map_err(|e| DataPathError::MessageSendError(e.to_string())),
+                    Channel::Client(s) => s
+                        .send(msg)
+                        .await
+                        .map_err(|e| DataPathError::MessageSendError(e.to_string())),
+                    _ => Err(DataPathError::MessageSendError(
+                        "connection not found".to_string(),
+                    )),
                 }
             }
-            None => error!("connection {:?} not found", out_conn),
+            None => Err(DataPathError::MessageSendError(format!(
+                "connection {:?} not found",
+                out_conn
+            ))),
         }
-        Ok(())
     }
 
     async fn match_and_forward_msg(
@@ -334,18 +338,18 @@ impl MessageProcessor {
         agent_id: Option<u64>,
     ) -> Result<(), DataPathError> {
         debug!(
-            "match and forward message: class: {:?} - agent_id: {:?} - fanout: {:?}",
+            "match and forward message: type: {} - agent_id: {:?} - fanout: {}",
             agent_type, agent_id, fanout,
         );
 
         // if the message already contains an output connection, use that one
         // without performing any match in the subscription table
-        if let Some(val) = get_forward_to(&msg).unwrap_or(None) {
-            info!("forwarding message to connection {:?}", val);
-            return self.send_msg(msg, val).await.map_err(|e| {
-                error!("error sending a message {:?}", e);
-                DataPathError::PublicationError(e.to_string())
-            });
+        if let Some(val) = msg.get_forward_to() {
+            debug!("forwarding message to connection {}", val);
+            return self
+                .send_msg(msg, val)
+                .await
+                .map_err(|e| DataPathError::PublicationError(e.to_string()));
         }
 
         match self
@@ -357,94 +361,47 @@ impl MessageProcessor {
                 // in the other cases clone only len - 1 times.
                 let mut i = 0;
                 while i < out_vec.len() - 1 {
-                    self.send_msg(msg.clone(), out_vec[i]).await.map_err(|e| {
-                        error!("error sending a message {:?}", e);
-                        DataPathError::PublicationError(e.to_string())
-                    })?;
+                    self.send_msg(msg.clone(), out_vec[i])
+                        .await
+                        .map_err(|e| DataPathError::PublicationError(e.to_string()))?;
                     i += 1;
                 }
-                self.send_msg(msg, out_vec[i]).await.map_err(|e| {
-                    error!("error sending a message {:?}", e);
-                    DataPathError::PublicationError(e.to_string())
-                })?;
+                self.send_msg(msg, out_vec[i])
+                    .await
+                    .map_err(|e| DataPathError::PublicationError(e.to_string()))?;
                 Ok(())
             }
-            Err(e) => {
-                error!("error sending a message {:?}", e);
-                Err(DataPathError::PublicationError(e.to_string()))
-            }
+            Err(e) => Err(DataPathError::PublicationError(e.to_string())),
         }
     }
 
     async fn process_publish(&self, msg: Message, in_connection: u64) -> Result<(), DataPathError> {
-        let pubmsg = match &msg.message_type {
-            Some(PublishType(p)) => p,
-            // this should never happen
-            _ => panic!("wrong message type"),
-        };
+        debug!(
+            "received publication from connection {}: {:?}",
+            in_connection, msg
+        );
 
-        match get_name(&msg) {
-            Ok((agent_type, agent_id)) => {
-                let fanout = get_fanout(pubmsg);
+        // telemetry /////////////////////////////////////////
+        info!(
+            telemetry = true,
+            monotonic_counter.num_messages_by_type = 1,
+            method = "publish"
+        );
+        //////////////////////////////////////////////////////
 
-                debug!(
-                    "received publication from connection {}: {:?}",
-                    in_connection, pubmsg
-                );
+        // get header
+        let header = msg.get_agp_header();
 
-                // if we get valid type also the name is valid so we can safely unwrap
-                return self
-                    .match_and_forward_msg(msg, agent_type, in_connection, fanout, agent_id)
-                    .await;
-            }
-            Err(e) => {
-                error!("error processing publication message {:?}", e);
-                Err(DataPathError::PublicationError(e.to_string()))
-            }
-        }
-    }
+        let (agent_type, agent_id) = header.get_dst();
 
-    // returns the connection to use to process correctly the message
-    // first connection is from where we received the packet
-    // the second is where to forward the packet if needed
-    fn process_agp_header(
-        &self,
-        msg: &Message,
-        in_connection: u64,
-    ) -> Result<(u64, Option<u64>), DataPathError> {
-        match get_recv_from(msg) {
-            Ok(recv_from) => {
-                if let Some(val) = recv_from {
-                    debug!(
-                        "received recv_from command, update state on connection {}",
-                        val
-                    );
-                    return Ok((val, None));
-                }
-            }
-            Err(e) => {
-                error! {"error agp header: {:?}", e};
-                return Err(DataPathError::CommandError(e.to_string()));
-            }
-        }
+        // this function may panic, but at this point we are sure we are processing
+        // a publish message
+        let fanout = msg.get_fanout();
 
-        match get_forward_to(msg) {
-            Ok(fwd_to) => {
-                if fwd_to.is_some() {
-                    debug!(
-                        "received forward_to command, update state and forward to connection {}",
-                        fwd_to.unwrap()
-                    );
-                    return Ok((in_connection, fwd_to));
-                }
-            }
-            Err(e) => {
-                error! {"error agp header: {:?}", e};
-                return Err(DataPathError::CommandError(e.to_string()));
-            }
-        }
-
-        Ok((in_connection, None))
+        // if we get valid type also the name is valid so we can safely unwrap
+        return self
+            .match_and_forward_msg(msg, agent_type, in_connection, fanout, agent_id)
+            .await;
     }
 
     // Use a single function to process subscription and unsubscription packets.
@@ -461,142 +418,89 @@ impl MessageProcessor {
             add, in_connection, msg
         );
 
-        match get_name(&msg) {
-            Ok((agent_type, agent_id)) => {
-                let (conn, forward) = match self.process_agp_header(&msg, in_connection) {
-                    Ok((c, f)) => (c, f),
-                    Err(e) => return Err(e),
-                };
-
-                let connection = self.forwarder().get_connection(conn);
-                if connection.is_none() {
-                    // this should never happen
-                    error!("incoming connection does not exists");
-                    return Err(DataPathError::SubscriptionError(
-                        "incoming connection does not exists".to_string(),
-                    ));
+        // telemetry /////////////////////////////////////////
+        info!(
+            telemetry = true,
+            monotonic_counter.num_messages_by_type = 1,
+            message_type = {
+                if add {
+                    "subscribe"
+                } else {
+                    "unsubscribe"
                 }
+            }
+        );
+        //////////////////////////////////////////////////////
 
-                match self.forwarder().on_subscription_msg(
-                    agent_type.clone(),
-                    agent_id,
-                    conn,
-                    connection.unwrap().is_local_connection(),
-                    add,
-                ) {
-                    Ok(_) => {}
-                    Err(e) => {
-                        return Err(DataPathError::SubscriptionError(e.to_string()));
-                    }
-                }
+        let (agent_type, agent_id) = msg.get_name();
 
-                if forward.is_some() {
-                    debug!("forward subscription (add = {}) to {:?}", add, forward);
-                    let out_conn = forward.unwrap();
+        // get header
+        let header = msg.get_agp_header();
 
-                    let source_agent = match get_source(&msg) {
-                        Ok(src) => src,
-                        Err(e) => {
-                            error!(
-                                "error processing subscription (add = {}) source: {:?}",
-                                add, e
-                            );
-                            return Err(DataPathError::UnsubscriptionError(e.to_string()));
-                        }
-                    };
-                    match self.send_msg(msg, out_conn).await {
-                        Ok(_) => {
-                            self.forwarder().on_forwarded_subscription(
-                                source_agent,
-                                agent_type,
-                                agent_id,
-                                out_conn,
-                                add,
-                            );
-                        }
-                        Err(e) => {
-                            error!("error sending a message: {:?}", e);
-                            return Err(DataPathError::UnsubscriptionError(e.to_string()));
-                        }
-                    };
-                }
+        // get in and out connections
+        let (conn, forward) = header.get_in_out_connections();
+
+        // get input connection. As connection is deleted only after the processing,
+        // it is safe to assume that at this point the connection must exist.
+        let connection = self
+            .forwarder()
+            .get_connection(conn)
+            .ok_or_else(|| DataPathError::SubscriptionError("connection not found".to_string()))?;
+
+        debug!(
+            "subscription update (add = {}) for agent type: {} (agent id: {:?}) - connection: {}",
+            add, agent_type, agent_id, conn
+        );
+
+        if let Err(e) = self.forwarder().on_subscription_msg(
+            agent_type.clone(),
+            agent_id,
+            conn,
+            connection.is_local_connection(),
+            add,
+        ) {
+            return Err(DataPathError::SubscriptionError(e.to_string()));
+        }
+
+        match forward {
+            None => {
+                // if the subscription is not forwarded, we are done
                 Ok(())
             }
-            Err(e) => {
-                error!(
-                    "error processing subscription message (add = {}): {:?}",
-                    add, e
-                );
-                Err(DataPathError::SubscriptionError(e.to_string()))
+            Some(out_conn) => {
+                debug!("forward subscription (add = {}) to {}", add, out_conn);
+
+                // get source name
+                let source_agent = msg.get_source();
+
+                // send message
+                match self.send_msg(msg, out_conn).await {
+                    Ok(_) => {
+                        self.forwarder().on_forwarded_subscription(
+                            source_agent,
+                            agent_type,
+                            agent_id,
+                            out_conn,
+                            add,
+                        );
+                        Ok(())
+                    }
+                    Err(e) => Err(DataPathError::UnsubscriptionError(e.to_string())),
+                }
             }
         }
     }
 
     pub async fn process_message(
         &self,
-        mut msg: Message,
+        msg: Message,
         in_connection: u64,
     ) -> Result<(), DataPathError> {
-        // add incoming connection to the AGP header
-        match set_incoming_connection(&mut msg, Some(in_connection)) {
-            Ok(_) => {}
-            Err(e) => {
-                error!("error setting incoming connection {:?}", e);
-                return Err(DataPathError::ErrorSettingInConnection(e.to_string()));
-            }
-        }
-
-        match &msg.message_type {
-            None => {
-                error!(
-                    "received message without message type from connection {}: {:?}",
-                    in_connection, msg
-                );
-                info!(
-                    telemetry = true,
-                    monotonic_counter.num_messages_by_type = 1,
-                    message_type = "none"
-                );
-                Err(DataPathError::UnknownMsgType("".to_string()))
-            }
-            Some(msg_type) => match msg_type {
-                SubscribeType(s) => {
-                    debug!(
-                        "received subscription from connection {}: {:?}",
-                        in_connection, s
-                    );
-                    info!(
-                        telemetry = true,
-                        monotonic_counter.num_messages_by_type = 1,
-                        message_type = "subscribe"
-                    );
-                    self.process_subscription(msg, in_connection, true).await?;
-                    Ok(())
-                }
-                UnsubscribeType(u) => {
-                    debug!(
-                        "Received ubsubscription from client {}: {:?}",
-                        in_connection, u
-                    );
-                    info!(
-                        telemetry = true,
-                        monotonic_counter.num_messages_by_type = 1,
-                        message_type = "unsubscribe"
-                    );
-                    self.process_subscription(msg, in_connection, false).await?;
-                    Ok(())
-                }
-                PublishType(p) => {
-                    debug!("Received publish from client {}: {:?}", in_connection, p);
-                    info!(
-                        telemetry = true,
-                        monotonic_counter.num_messages_by_type = 1,
-                        method = "publish"
-                    );
-                    self.process_publish(msg, in_connection).await?;
-                    Ok(())
-                }
-            },
+        // process each kind of message in a different path
+        match msg.get_type() {
+            SubscribeType(_) => self.process_subscription(msg, in_connection, true).await,
+            UnsubscribeType(_) => self.process_subscription(msg, in_connection, false).await,
+            PublishType(_) => self.process_publish(msg, in_connection).await,
         }
     }
 
@@ -606,12 +510,29 @@ impl MessageProcessor {
         is_local: bool,
         mut msg: Message,
     ) -> Result<(), DataPathError> {
-        debug!(%conn_index, "Received message from connection");
+        debug!(%conn_index, "received message from connection");
         info!(
             telemetry = true,
             monotonic_counter.num_processed_messages = 1
         );
 
+        // validate message
+        if let Err(err) = msg.validate() {
+            info!(
+                telemetry = true,
+                monotonic_counter.num_messages_by_type = 1,
+                message_type = "none"
+            );
+
+            return Err(DataPathError::InvalidMessage(err.to_string()));
+        }
+
+        // add incoming connection to the AGP header
+        msg.set_incoming_conn(Some(conn_index));
+
+        // message is valid - from now on we access the field without checking for None
+
+        // telemetry /////////////////////////////////////////
         if is_local {
             // handling the message from the local application
             let span = tracing::span!(
@@ -619,7 +540,7 @@ impl MessageProcessor {
                 "process_local",
                 instance_id = %INSTANCE_ID.as_str(),
                 connection_id = conn_index,
-                message_type = message_type_to_str(&msg),
+                message_type = msg.get_type().to_string(),
                 telemetry = true
             );
             let _guard = span.enter();
@@ -634,7 +555,7 @@ impl MessageProcessor {
                 "process_remote",
                 instance_id = %INSTANCE_ID.as_str(),
                 connection_id = conn_index,
-                message_type = message_type_to_str(&msg),
+                message_type = msg.get_type().to_string(),
                 telemetry = true
             );
 
@@ -645,19 +566,19 @@ impl MessageProcessor {
 
             inject_current_context(&mut msg);
         }
+        //////////////////////////////////////////////////////
 
         match self.process_message(msg, conn_index).await {
             Ok(_) => Ok(()),
             Err(e) => {
-                // drop message and log
-                error!(
-                    "error processing message from connection {:?}: {:?}",
-                    conn_index, e
-                );
+                // telemetry /////////////////////////////////////////
                 info!(
                     telemetry = true,
                     monotonic_counter.num_message_process_errors = 1
                 );
+                //////////////////////////////////////////////////////
+
+                // drop message
                 Err(DataPathError::ProcessingError(e.to_string()))
             }
         }
@@ -668,15 +589,23 @@ impl MessageProcessor {
         match connection {
             Some(conn) => {
                 debug!("try to notify the error to the local application");
-                let err_msg = create_error_publication(err.to_string());
                 if let Channel::Server(tx) = conn.channel() {
-                    if tx.send(Ok(err_msg)).await.is_err() {
+                    // create Status error
+                    let status = Status::new(
+                        tonic::Code::Internal,
+                        format!("error processing message: {:?}", err),
+                    );
+
+                    if tx.send(Err(status)).await.is_err() {
                         debug!("unable to notify the error to the local app");
                     }
                 }
             }
             None => {
-                error!("connection {:?} not found", conn_index);
+                error!(
+                    "error sending error to local app: connection {:?} not found",
+                    conn_index
+                );
             }
         }
     }
@@ -709,11 +638,10 @@ impl MessageProcessor {
                         info!("connection re-established");
                         // the subscription table should be ok already
                         for r in remote_subscriptions.iter() {
-                            let sub_msg = create_subscription(
+                            let sub_msg = Message::new_subscribe(
                                 r.source(),
                                 r.name().agent_type(),
                                 r.name().agent_id_option(),
-                                None,
                                 None,
                             );
                             if self.send_msg(sub_msg, conn_index).await.is_err() {
@@ -754,9 +682,10 @@ impl MessageProcessor {
                                 match result {
                                     Ok(msg) => {
                                         if let Err(e) = self_clone.handle_new_message(conn_index, is_local, msg).await {
-                                            error!("error processing incoming messages {:?}", e);
+                                            error!(%conn_index, %e, "error processing incoming message");
                                             // If the message is coming from a local app, notify it
                                             if is_local {
+                                                // try to forward error to the local app
                                                 self_clone.send_error_to_local_app(conn_index, e).await;
                                             }
                                         }
