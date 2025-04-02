@@ -340,7 +340,7 @@ impl Streaming {
                                                     }
                                                 }
                                                 for r in rtx {
-                                                    info!("packet loss detected on session {}, send RTX for id {}", session_id, r);
+                                                    debug!("packet loss detected on session {}, send RTX for id {}", session_id, r);
                                                     let dest = producer_name.as_ref().unwrap(); // this cannot panic a this point
 
                                                     let agp_header = Some(AgpHeader::new(
@@ -800,7 +800,7 @@ mod tests {
             tx_app_receiver,
         );
 
-        let message = Message::new_publish(
+        let mut message = Message::new_publish(
             &Agent::from_strings("cisco", "default", "sender", 0),
             &AgentType::from_strings("cisco", "default", "receiver"),
             Some(0),
@@ -808,6 +808,7 @@ mod tests {
             "msg",
             vec![0x1, 0x2, 0x3, 0x4],
         );
+        message.set_incoming_conn(Some(0));
 
         let session_msg: SessionMessage = SessionMessage::new(message.clone(), Info::new(0));
         // send 3 messages from the producer app
@@ -822,7 +823,7 @@ mod tests {
         // read the 3 messages from the sender gw channel
         // forward message 1 and 3 to the receiver
         for i in 0..3 {
-            let msg = rx_gw_sender.recv().await.unwrap().unwrap();
+            let mut msg = rx_gw_sender.recv().await.unwrap().unwrap();
             let msg_header = msg.get_session_header();
             assert_eq!(msg_header.session_id, 0);
             assert_eq!(msg_header.message_id, i);
@@ -830,6 +831,8 @@ mod tests {
 
             // the receiver should detect a loss for packet 1
             if i != 1 {
+                // make sure to set the incoming connection to avoid paninc
+                msg.set_incoming_conn(Some(0));
                 let session_msg: SessionMessage = SessionMessage::new(msg.clone(), Info::new(0));
                 let res = receiver
                     .on_message(session_msg.clone(), MessageDirection::North)
@@ -892,7 +895,9 @@ mod tests {
         );
 
         // send the second reply to the producer
-        let session_msg: SessionMessage = SessionMessage::new(msg.clone(), Info::new(0));
+        let mut session_msg: SessionMessage = SessionMessage::new(msg.clone(), Info::new(0));
+        // make sure to set the incoming connection to avoid paninc
+        session_msg.message.set_incoming_conn(Some(0));
         let res = sender
             .on_message(session_msg.clone(), MessageDirection::North)
             .await;
@@ -916,7 +921,9 @@ mod tests {
             )
         );
 
-        let session_msg: SessionMessage = SessionMessage::new(msg.clone(), Info::new(0));
+        let mut session_msg: SessionMessage = SessionMessage::new(msg.clone(), Info::new(0));
+        // make sure to set the incoming connection to avoid paninc
+        session_msg.message.set_incoming_conn(Some(0));
         let res = receiver
             .on_message(session_msg.clone(), MessageDirection::North)
             .await;
