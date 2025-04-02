@@ -164,11 +164,11 @@ async fn main() {
     let res = svc
         .create_session(
             &agent_name,
-            agp_service::session::SessionConfig::Streaming(StreamingConfiguration {
-                source: agent_name.clone(),
-                max_retries: Some(10),
-                timeout: Some(Duration::from_millis(1000)),
-            }),
+            agp_service::session::SessionConfig::Streaming(StreamingConfiguration::new(
+                agent_name.clone(),
+                Some(10),
+                Some(Duration::from_millis(1000)),
+            )),
         )
         .await;
     if res.is_err() {
