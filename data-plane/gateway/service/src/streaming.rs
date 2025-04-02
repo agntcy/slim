@@ -46,6 +46,20 @@ impl std::fmt::Display for StreamingConfiguration {
     }
 }
 
+impl StreamingConfiguration {
+    pub fn new(
+        source: Agent,
+        max_retries: Option<u32>,
+        timeout: Option<std::time::Duration>,
+    ) -> Self {
+        StreamingConfiguration {
+            source,
+            max_retries: max_retries.unwrap_or(0),
+            timeout: timeout.unwrap_or(std::time::Duration::from_millis(0)),
+        }
+    }
+}
+
 #[allow(dead_code)]
 struct RtxTimerObserver {
     channel: mpsc::Sender<Result<(u32, bool), Status>>,
@@ -167,13 +181,11 @@ impl Streaming {
         let send_gw = self.common.tx_gw();
         let send_app = self.common.tx_app();
 
-
         let (source, max_retries, timeout) = match self.common.session_config() {
             SessionConfig::Streaming(streaming_configuration) => (
                 streaming_configuration.source,
                 streaming_configuration.max_retries,
-                streaming_configuration
-                    .timeout,
+                streaming_configuration.timeout,
             ),
             _ => {
                 panic!("unable to parse streaming configuration");

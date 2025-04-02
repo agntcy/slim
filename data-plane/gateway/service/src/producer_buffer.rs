@@ -3,7 +3,7 @@
 
 use std::collections::HashMap;
 
-use agp_datapath::{messages::utils::get_msg_id, pubsub::proto::pubsub::v1::Message};
+use agp_datapath::pubsub::proto::pubsub::v1::Message;
 
 pub struct ProducerBuffer {
     capacity: usize,
