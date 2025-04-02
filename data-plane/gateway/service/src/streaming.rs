@@ -62,7 +62,8 @@ impl StreamingConfiguration {
 
 #[allow(dead_code)]
 struct RtxTimerObserver {
-    channel: mpsc::Sender<Result<(u32, bool), Status>>,
+    producer_name: Agent,
+    channel: mpsc::Sender<Result<(u32, bool, Agent), Status>>,
 }
 
 #[async_trait]
@@ -71,7 +72,12 @@ impl TimerObserver for RtxTimerObserver {
         trace!("timeout number {} for rtx {}, retry", timeouts, timer_id);
 
         // notify the process loop
-        if self.channel.send(Ok((timer_id, true))).await.is_err() {
+        if self
+            .channel
+            .send(Ok((timer_id, true, self.producer_name.clone())))
+            .await
+            .is_err()
+        {
             error!("error notifying the process loop");
         }
     }
@@ -84,7 +90,12 @@ impl TimerObserver for RtxTimerObserver {
         );
 
         // notify the process loop
-        if self.channel.send(Ok((timer_id, false))).await.is_err() {
+        if self
+            .channel
+            .send(Ok((timer_id, false, self.producer_name.clone())))
+            .await
+            .is_err()
+        {
             error!("error notifying the process loop");
         }
     }
@@ -95,8 +106,7 @@ impl TimerObserver for RtxTimerObserver {
     }
 }
 
-#[allow(dead_code)]
-struct Producer {
+struct ProducerState {
     buffer: ProducerBuffer,
     next_id: u32,
 }
@@ -108,9 +118,13 @@ struct Receiver {
     timers_map: HashMap<u32, Timer>,
 }
 
+struct ReceiverState {
+    buffers: HashMap<Agent, Receiver>,
+}
+
 enum Endpoint {
-    Producer(Producer),
-    Receiver(Receiver),
+    Producer(ProducerState),
+    Receiver(ReceiverState),
 }
 
 pub(crate) struct Streaming {
@@ -164,19 +178,15 @@ impl Streaming {
         let (timer_tx, mut timer_rx) = mpsc::channel(128);
         let mut endpoint = match session_direction {
             SessionDirection::Sender => {
-                let prod = Producer {
+                let prod = ProducerState {
                     buffer: ProducerBuffer::with_capacity(500),
                     next_id: 0,
                 };
                 Endpoint::Producer(prod)
             }
             SessionDirection::Receiver => {
-                let observer = RtxTimerObserver { channel: timer_tx };
-                let recv = Receiver {
-                    buffer: ReceiverBuffer::default(),
-                    timer_observer: Arc::new(observer),
-                    rtx_map: HashMap::new(),
-                    timers_map: HashMap::new(),
+                let recv = ReceiverState {
+                    buffers: HashMap::new(),
                 };
                 Endpoint::Receiver(recv)
             }
@@ -184,8 +194,7 @@ impl Streaming {
                 panic!("invalid session direction");
             }
         };
-        let mut producer_name: Option<Agent> = None;
-        let mut producer_conn: Option<u64> = None;
+
         let mut timer_rx_closed = false;
 
         tokio::spawn(async move {
@@ -232,14 +241,32 @@ impl Streaming {
                                     Endpoint::Receiver(receiver) => {
                                         trace!("received message from the gataway on receiver session {}", session_id);
 
-                                        if producer_name.is_none() {
-                                            producer_name = Some(msg.get_source());
-                                            producer_conn = Some(msg.get_incoming_conn());
-                                        }
+                                        let producer_name = msg.get_source();
+                                        let producer_conn = msg.get_incoming_conn();
+
+                                        let receiver_state = match receiver.buffers.get_mut(&producer_name) {
+                                            Some(state) => state,
+                                            None => {
+                                                let state = Receiver {
+                                                    buffer: ReceiverBuffer::default(),
+                                                    timer_observer: Arc::new(RtxTimerObserver {
+                                                        producer_name: producer_name.clone(),
+                                                        channel:timer_tx.clone()
+                                                    }),
+                                                    rtx_map: HashMap::new(),
+                                                    timers_map: HashMap::new(),
+                                                };
+                                                // Insert the state into receiver.buffers
+                                                receiver.buffers.insert(producer_name.clone(), state);
+                                                // Return a reference to the newly inserted state
+                                                receiver.buffers.get_mut(&producer_name).expect("State should be present")
+                                            }
+                                        };
+
 
                                         process_message_form_gw(msg, session_id,
-                                            receiver, &source, producer_name.as_ref().unwrap(),
-                                            producer_conn.unwrap(), max_retries, timeout, send_gw.clone(),
+                                            receiver_state, &source, &producer_name,
+                                            producer_conn, max_retries, timeout, send_gw.clone(),
                                             send_app.clone()).await;
                                     }
                                 }
@@ -259,60 +286,27 @@ impl Streaming {
                                     continue;
                                 }
 
-                                let (msg_id, retry) = result.unwrap();
+                                let (msg_id, retry, producer_name) = result.unwrap();
                                 match &mut endpoint {
                                     Endpoint::Receiver(receiver) => {
                                         if retry {
-                                            trace!("try to send rtx for packet {} on receiver session {}", msg_id, session_id);
-                                            // send the RTX again
-                                            let rtx = match receiver.rtx_map.get(&msg_id) {
-                                                Some(rtx) => rtx,
+                                            let receiver_state = match receiver.buffers.get_mut(&producer_name){
+                                                Some(r) => r,
                                                 None => {
-                                                    error!("rtx message does not exist in the map, skip retransmission and try to stop the timer");
-                                                    let timer = match receiver.timers_map.get(&msg_id) {
-                                                        Some(t) => t,
-                                                        None => {
-                                                            error!("timer not found");
-                                                            continue;
-                                                        },
-                                                    };
-                                                    timer.stop();
+                                                    error!("received a timeout, but there is no state");
                                                     continue;
                                                 }
                                             };
-
-                                            if send_gw.send(Ok(rtx.clone())).await.is_err() {
-                                                error!("error sending RTX for id {} on receiver session {}", msg_id, session_id);
-                                            }
+                                            handle_timeout(receiver_state, msg_id, session_id, send_gw.clone()).await;
                                         } else {
-                                            trace!("packet {} lost, not retries left", msg_id);
-                                            receiver.rtx_map.remove(&msg_id);
-                                            receiver.timers_map.remove(&msg_id);
-
-                                            match receiver.buffer.on_lost_message(msg_id) {
-                                                Ok(recv) => {
-                                                    for opt in recv {
-                                                        match opt {
-                                                            Some(m) => {
-                                                                let info = Info::from(&m);
-                                                                let session_msg = SessionMessage::new(m, info);
-                                                                // send message to the app
-                                                                if send_app.send(Ok(session_msg)).await.is_err() {
-                                                                    error!("error sending packet to the gateway on session {}", session_id);
-                                                                }
-                                                            }
-                                                            None => {
-                                                                warn!("a message was definitely lost in session {}", session_id);
-                                                                let _ = send_app.send(Err(SessionError::MessageLost(session_id.to_string()))).await;
-                                                            }
-                                                        }
-                                                    }
-                                                }
-                                                Err(e) => {
-                                                    error!("error adding message lost to the buffer: {}", e.to_string());
+                                            let receiver_state = match receiver.buffers.get_mut(&producer_name){
+                                                Some(r) => r,
+                                                None => {
+                                                    error!("received a timer failure, but there is no state");
                                                     continue;
                                                 }
                                             };
+                                            handle_failure(receiver_state, msg_id, session_id, send_app.clone()).await;
                                         }
                                     }
                                     Endpoint::Producer(_) => {
@@ -332,7 +326,7 @@ impl Streaming {
 async fn process_incoming_rtx_request(
     msg: Message,
     session_id: u32,
-    producer: &Producer,
+    producer: &ProducerState,
     source: &Agent,
     send_gw: mpsc::Sender<Result<Message, Status>>,
 ) {
@@ -402,7 +396,7 @@ async fn process_incoming_rtx_request(
 async fn process_message_from_app(
     mut msg: Message,
     session_id: u32,
-    producer: &mut Producer,
+    producer: &mut ProducerState,
     send_gw: mpsc::Sender<Result<Message, Status>>,
     send_app: mpsc::Sender<Result<SessionMessage, SessionError>>,
 ) {
@@ -550,6 +544,82 @@ async fn process_message_form_gw(
             error!("error adding message to the buffer: {}", e.to_string());
         }
     }
+}
+
+async fn handle_timeout(
+    receiver: &mut Receiver,
+    msg_id: u32,
+    session_id: u32,
+    send_gw: mpsc::Sender<Result<Message, Status>>,
+) {
+    trace!(
+        "try to send rtx for packet {} on receiver session {}",
+        msg_id,
+        session_id
+    );
+    // send the RTX again
+    let rtx = match receiver.rtx_map.get(&msg_id) {
+        Some(rtx) => rtx,
+        None => {
+            error!("rtx message does not exist in the map, skip retransmission and try to stop the timer");
+            let timer = match receiver.timers_map.get(&msg_id) {
+                Some(t) => t,
+                None => {
+                    error!("timer not found");
+                    return;
+                }
+            };
+            timer.stop();
+            return;
+        }
+    };
+
+    if send_gw.send(Ok(rtx.clone())).await.is_err() {
+        error!(
+            "error sending RTX for id {} on receiver session {}",
+            msg_id, session_id
+        );
+    }
+}
+
+async fn handle_failure(
+    receiver: &mut Receiver,
+    msg_id: u32,
+    session_id: u32,
+    send_app: mpsc::Sender<Result<SessionMessage, SessionError>>,
+) {
+    trace!("packet {} lost, not retries left", msg_id);
+    receiver.rtx_map.remove(&msg_id);
+    receiver.timers_map.remove(&msg_id);
+
+    match receiver.buffer.on_lost_message(msg_id) {
+        Ok(recv) => {
+            for opt in recv {
+                match opt {
+                    Some(m) => {
+                        let info = Info::from(&m);
+                        let session_msg = SessionMessage::new(m, info);
+                        // send message to the app
+                        if send_app.send(Ok(session_msg)).await.is_err() {
+                            error!(
+                                "error sending packet to the gateway on session {}",
+                                session_id
+                            );
+                        }
+                    }
+                    None => {
+                        warn!("a message was definitely lost in session {}", session_id);
+                        let _ = send_app
+                            .send(Err(SessionError::MessageLost(session_id.to_string())))
+                            .await;
+                    }
+                }
+            }
+        }
+        Err(e) => {
+            error!("error adding message lost to the buffer: {}", e.to_string());
+        }
+    };
 }
 
 #[async_trait]
