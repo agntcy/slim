@@ -185,6 +185,7 @@ async fn main() {
             .create_session(
                 &agent_name,
                 agp_service::session::SessionConfig::Streaming(StreamingConfiguration::new(
+                    agp_service::session::SessionDirection::Sender,
                     agent_name.clone(),
                     None,
                     None,

@@ -8,14 +8,14 @@ use rand::Rng;
 use tokio::sync::RwLock;
 
 use crate::errors::SessionError;
-use crate::fire_and_forget;
 use crate::fire_and_forget::FireAndForgetConfiguration;
 use crate::request_response;
 use crate::session::{
     AppChannelSender, GwChannelSender, Id, Info, MessageDirection, Session, SessionConfig,
     SessionDirection, SessionMessage,
 };
-use crate::streaming;
+use crate::streaming::{self, StreamingConfiguration};
+use crate::{fire_and_forget, session};
 use agp_datapath::messages::encoder::Agent;
 use agp_datapath::pubsub::proto::pubsub::v1::SessionHeaderType;
 
@@ -127,10 +127,7 @@ impl SessionLayer {
                 ))
             }
             SessionConfig::Streaming(conf) => {
-                let mut direction = SessionDirection::Receiver;
-                if conf.max_retries == 0 {
-                    direction = SessionDirection::Sender;
-                }
+                let direction = conf.direction.clone();
                 Box::new(streaming::Streaming::new(
                     id,
                     conf,
@@ -254,15 +251,14 @@ impl SessionLayer {
                 .await?
             }
             SessionHeaderType::Stream => {
-                self.create_session(
-                    SessionConfig::Streaming(streaming::StreamingConfiguration {
-                        source: self.agent_name().clone(),
-                        max_retries: 10,
-                        timeout: Duration::from_millis(1000),
-                    }),
-                    Some(id),
-                )
-                .await?
+                let session_conf = StreamingConfiguration::new(
+                    SessionDirection::Receiver,
+                    self.agent_name().clone(),
+                    Some(10),
+                    Some(Duration::from_millis(1000)),
+                );
+                self.create_session(session::SessionConfig::Streaming(session_conf), Some(id))
+                    .await?
             }
             _ => {
                 return Err(SessionError::SessionUnknown(

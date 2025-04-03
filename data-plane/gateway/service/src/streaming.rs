@@ -27,8 +27,9 @@ use tonic::{async_trait, Status};
 use tracing::{debug, error, info, trace, warn};
 
 /// Configuration for the Streaming session
-#[derive(Debug, Clone, PartialEq, Default)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct StreamingConfiguration {
+    pub direction: SessionDirection,
     pub source: Agent,
     pub max_retries: u32,
     pub timeout: std::time::Duration,
@@ -48,11 +49,13 @@ impl std::fmt::Display for StreamingConfiguration {
 
 impl StreamingConfiguration {
     pub fn new(
+        direction: SessionDirection,
         source: Agent,
         max_retries: Option<u32>,
         timeout: Option<std::time::Duration>,
     ) -> Self {
         StreamingConfiguration {
+            direction,
             source,
             max_retries: max_retries.unwrap_or(0),
             timeout: timeout.unwrap_or(std::time::Duration::from_millis(0)),
@@ -702,11 +705,12 @@ mod tests {
         let (tx_gw, _) = tokio::sync::mpsc::channel(1);
         let (tx_app, _) = tokio::sync::mpsc::channel(1);
 
-        let session_config = StreamingConfiguration {
-            source: Agent::from_strings("cisco", "default", "local_agent", 0),
-            max_retries: 0,
-            timeout: Duration::from_millis(0),
-        };
+        let session_config: StreamingConfiguration = StreamingConfiguration::new(
+            SessionDirection::Sender,
+            Agent::from_strings("cisco", "default", "local_agent", 0),
+            None,
+            None,
+        );
 
         let session = Streaming::new(
             0,
@@ -721,6 +725,13 @@ mod tests {
         assert_eq!(
             session.session_config(),
             SessionConfig::Streaming(session_config.clone())
+        );
+
+        let session_config: StreamingConfiguration = StreamingConfiguration::new(
+            SessionDirection::Receiver,
+            Agent::from_strings("cisco", "default", "local_agent", 0),
+            Some(10),
+            Some(Duration::from_millis(1000)),
         );
 
         let session = Streaming::new(
@@ -748,17 +759,18 @@ mod tests {
         let (tx_gw_receiver, _rx_gw_receiver) = tokio::sync::mpsc::channel(1);
         let (tx_app_receiver, mut rx_app_receiver) = tokio::sync::mpsc::channel(1);
 
-        let session_config_sender = StreamingConfiguration {
-            source: Agent::from_strings("cisco", "default", "sender", 0),
-            max_retries: 0,
-            timeout: Duration::from_millis(0),
-        };
-
-        let session_config_receiver = StreamingConfiguration {
-            source: Agent::from_strings("cisco", "default", "receiver", 0),
-            max_retries: 5,
-            timeout: Duration::from_millis(500),
-        };
+        let session_config_sender: StreamingConfiguration = StreamingConfiguration::new(
+            SessionDirection::Sender,
+            Agent::from_strings("cisco", "default", "sender", 0),
+            None,
+            None,
+        );
+        let session_config_receiver: StreamingConfiguration = StreamingConfiguration::new(
+            SessionDirection::Receiver,
+            Agent::from_strings("cisco", "default", "receiver", 0),
+            Some(5),
+            Some(Duration::from_millis(500)),
+        );
 
         let sender = Streaming::new(
             0,
@@ -821,11 +833,12 @@ mod tests {
         let (tx_gw, mut rx_gw) = tokio::sync::mpsc::channel(1);
         let (tx_app, mut rx_app) = tokio::sync::mpsc::channel(1);
 
-        let session_config = StreamingConfiguration {
-            source: Agent::from_strings("cisco", "default", "sender", 0),
-            max_retries: 5,
-            timeout: Duration::from_millis(500),
-        };
+        let session_config: StreamingConfiguration = StreamingConfiguration::new(
+            SessionDirection::Receiver,
+            Agent::from_strings("cisco", "default", "receiver", 0),
+            Some(5),
+            Some(Duration::from_millis(500)),
+        );
 
         let session = Streaming::new(0, session_config, SessionDirection::Receiver, tx_gw, tx_app);
 
@@ -886,11 +899,12 @@ mod tests {
         let (tx_gw, mut rx_gw) = tokio::sync::mpsc::channel(8);
         let (tx_app, _rx_app) = tokio::sync::mpsc::channel(8);
 
-        let session_config = StreamingConfiguration {
-            source: Agent::from_strings("cisco", "default", "receiver", 0),
-            max_retries: 5,
-            timeout: Duration::from_millis(500),
-        };
+        let session_config: StreamingConfiguration = StreamingConfiguration::new(
+            SessionDirection::Receiver,
+            Agent::from_strings("cisco", "default", "receiver", 0),
+            Some(5),
+            Some(Duration::from_millis(500)),
+        );
 
         let session = Streaming::new(120, session_config, SessionDirection::Sender, tx_gw, tx_app);
 
@@ -972,17 +986,18 @@ mod tests {
         let (tx_gw_receiver, mut rx_gw_receiver) = tokio::sync::mpsc::channel(1);
         let (tx_app_receiver, mut rx_app_receiver) = tokio::sync::mpsc::channel(1);
 
-        let session_config_sender = StreamingConfiguration {
-            source: Agent::from_strings("cisco", "default", "sender", 0),
-            max_retries: 0,
-            timeout: Duration::from_millis(0),
-        };
-
-        let session_config_receiver = StreamingConfiguration {
-            source: Agent::from_strings("cisco", "default", "receiver", 0),
-            max_retries: 5,
-            timeout: std::time::Duration::from_millis(500),
-        };
+        let session_config_sender: StreamingConfiguration = StreamingConfiguration::new(
+            SessionDirection::Sender,
+            Agent::from_strings("cisco", "default", "sender", 0),
+            None,
+            None,
+        );
+        let session_config_receiver: StreamingConfiguration = StreamingConfiguration::new(
+            SessionDirection::Receiver,
+            Agent::from_strings("cisco", "default", "receiver", 0),
+            Some(5),
+            Some(Duration::from_millis(500)),
+        );
 
         let sender = Streaming::new(
             0,
