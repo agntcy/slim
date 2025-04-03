@@ -1,0 +1,20 @@
+// Copyright AGNTCY Contributors (https://github.com/agntcy)
+// SPDX-License-Identifier: Apache-2.0
+
+syntax = "proto3";
+package controller.proto.v1;
+
+service ControllerService {
+  rpc OpenChannel(stream Message) returns (stream Message) {}
+}
+
+message Subscribe { }
+message Unsubscribe { }
+
+message Message {
+  oneof messageType {
+    Subscribe subscribe = 1;
+    Unsubscribe unsubscribe = 2;
+  }
+  map<string, string> metadata = 4;
+}
