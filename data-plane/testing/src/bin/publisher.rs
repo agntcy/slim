@@ -3,6 +3,7 @@
 
 use std::fs::File;
 use std::io::prelude::*;
+use std::time::Duration;
 use std::{collections::HashMap, sync::Arc};
 
 use agp_datapath::messages::{Agent, AgentType};
@@ -34,6 +35,16 @@ pub struct Args {
         default_value_t = false
     )]
     streaming: bool,
+
+    /// Runs in pub/sub mode.
+    #[arg(
+        short,
+        long,
+        value_name = "PUBSUB",
+        required = false,
+        default_value_t = false
+    )]
+    pubsub: bool,
 
     /// Agp config file
     #[arg(short, long, value_name = "CONFIGURATION", required = true)]
@@ -91,6 +102,10 @@ impl Args {
         &self.streaming
     }
 
+    pub fn pubsub(&self) -> &bool {
+        &self.pubsub
+    }
+
     pub fn id(&self) -> &u64 {
         &self.id
     }
@@ -122,17 +137,29 @@ async fn main() {
     let id = *args.id();
     let frequency = *args.frequency();
     let mut streaming = *args.streaming();
+    let mut pubsub = *args.pubsub();
     let max_packets = args.max_packets;
+
+    // if a workload file is given put streaming and pubsub to false
     if input.is_some() {
         streaming = false;
+        pubsub = false;
+    }
+
+    // be sure that is streaming is set pubsub is not and viceversa
+    if pubsub {
+        streaming = false;
+    } else if streaming {
+        pubsub = false;
     }
 
     info!(
-        "configuration -- workload file: {}, agent config {}, publisher id: {}, streaming mode: {}, msg size: {}",
+        "configuration -- workload file: {}, agent config {}, publisher id: {}, streaming mode: {}, pubsub mode: {}, msg size: {}",
         input.as_ref().unwrap_or(&"None".to_string()),
         config_file,
         id,
         streaming,
+        pubsub,
         msg_size,
     );
 
@@ -145,8 +172,7 @@ async fn main() {
 
     // create local agent
     let agent_name = Agent::from_strings("cisco", "default", "publisher", id);
-    // required in streaming mode
-    let dest_name = AgentType::from_strings("cisco", "default", "subscriber");
+
     let mut rx = svc
         .create_agent(&agent_name)
         .expect("failed to create agent");
@@ -171,32 +197,69 @@ async fn main() {
         }
     }
 
-    svc.set_route(&agent_name, &dest_name, None, conn_id)
-        .await
-        .unwrap();
-
     // wait for the connection to be established
     tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
 
-    // STREAMING MODE
-    if streaming {
-        // create streaming session
-        let res = svc
-            .create_session(
-                &agent_name,
-                agp_service::session::SessionConfig::Streaming(StreamingConfiguration::new(
-                    agp_service::session::SessionDirection::Sender,
-                    agent_name.clone(),
-                    None,
-                    None,
-                )),
-            )
-            .await;
+    // STREAMING/PUBSUB MODE
+    if streaming || pubsub {
+        // set route for the topic
+        let topic = match streaming {
+            true => AgentType::from_strings("cisco", "default", "subscriber"),
+            false => AgentType::from_strings("topic", "topic", "topic"),
+        };
+
+        // subscribe for the topic
+        match svc
+            .subscribe(&agent_name, &topic, None, Some(conn_id))
+            .await
+        {
+            Ok(_) => {}
+            Err(e) => {
+                panic!("an error accoured while adding a subscription {}", e);
+            }
+        }
+
+        svc.set_route(&agent_name, &topic, None, conn_id)
+            .await
+            .unwrap();
+
+        // create session
+        let res = match streaming {
+            true => {
+                // create a producer streaming session
+                svc.create_session(
+                    &agent_name,
+                    agp_service::session::SessionConfig::Streaming(StreamingConfiguration::new(
+                        agp_service::session::SessionDirection::Sender,
+                        agent_name.clone(),
+                        None,
+                        None,
+                        None,
+                    )),
+                )
+                .await
+            }
+            false => {
+                // create a pubsub session
+                svc.create_session(
+                    &agent_name,
+                    agp_service::session::SessionConfig::Streaming(StreamingConfiguration::new(
+                        agp_service::session::SessionDirection::Bidirectional,
+                        agent_name.clone(),
+                        Some(topic.clone()),
+                        Some(10),
+                        Some(Duration::from_millis(1000)),
+                    )),
+                )
+                .await
+            }
+        };
+
         if res.is_err() {
             panic!("error creating fire and forget session");
         }
 
-        // loop to listen to errors coming from the local gateway
+        // receive packets from gateway
         tokio::spawn(async move {
             loop {
                 match rx.recv().await {
@@ -204,14 +267,27 @@ async fn main() {
                         info!(%conn_id, "end of stream");
                         break;
                     }
-                    Some(msg_info) => {
-                        if msg_info.is_err() {
-                            error!("received an error message {:?}", msg_info);
-                            continue;
-                        } else {
-                            panic!("received a message from the gateway, this should never happen");
+                    Some(msg_info) => match msg_info {
+                        Ok(msg) => {
+                            if streaming {
+                                panic!(
+                                    "received message from the gateway, this should never happe"
+                                );
+                            }
+                            if pubsub {
+                                let publisher_id =
+                                    msg.message.get_agp_header().get_source().agent_id();
+                                info!(
+                                    "received message {} from publisher {}",
+                                    msg.info.message_id.unwrap(),
+                                    publisher_id
+                                ); // TODO put message id + pub id
+                            }
                         }
-                    }
+                        Err(e) => {
+                            error!("received an error message {:?}", e);
+                        }
+                    },
                 }
             }
         });
@@ -228,7 +304,7 @@ async fn main() {
                 .publish_with_flags(
                     &agent_name,
                     session_info.clone(),
-                    &dest_name,
+                    &topic,
                     None,
                     flags,
                     payload,

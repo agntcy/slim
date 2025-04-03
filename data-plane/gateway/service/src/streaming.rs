@@ -17,7 +17,7 @@ use crate::{
 use producer_buffer::ProducerBuffer;
 use receiver_buffer::ReceiverBuffer;
 
-use agp_datapath::messages::utils::AgpHeaderFlags;
+use agp_datapath::messages::{utils::AgpHeaderFlags, AgentType};
 use agp_datapath::{
     messages::Agent,
     pubsub::proto::pubsub::v1::{AgpHeader, Message, SessionHeader, SessionHeaderType},
@@ -31,6 +31,7 @@ use tracing::{debug, error, info, trace, warn};
 pub struct StreamingConfiguration {
     pub direction: SessionDirection,
     pub source: Agent,
+    pub topic: AgentType,
     pub max_retries: u32,
     pub timeout: std::time::Duration,
 }
@@ -51,12 +52,14 @@ impl StreamingConfiguration {
     pub fn new(
         direction: SessionDirection,
         source: Agent,
+        topic: Option<AgentType>,
         max_retries: Option<u32>,
         timeout: Option<std::time::Duration>,
     ) -> Self {
         StreamingConfiguration {
             direction,
             source,
+            topic: topic.unwrap_or_default(),
             max_retries: max_retries.unwrap_or(0),
             timeout: timeout.unwrap_or(std::time::Duration::from_millis(0)),
         }
@@ -273,6 +276,10 @@ impl Streaming {
                                                     SessionHeaderType::RtxRequest => {
                                                         // handle RTX request
                                                         process_incoming_rtx_request(msg, session_id, &state.producer, &source, send_gw.clone()).await;
+                                                    }
+                                                    SessionHeaderType::RtxReply => {
+                                                        // received a reply for an RTX
+                                                        process_message_form_gw(msg, session_id, &mut state.receiver, &source, max_retries, timeout, timer_tx.clone(), send_gw.clone(), send_app.clone()).await;
                                                     }
                                                     _ => {
                                                         error!("received invalid packet type on bidirection session {}", session_id);
@@ -719,6 +726,7 @@ mod tests {
             Agent::from_strings("cisco", "default", "local_agent", 0),
             None,
             None,
+            None,
         );
 
         let session = Streaming::new(
@@ -739,6 +747,7 @@ mod tests {
         let session_config: StreamingConfiguration = StreamingConfiguration::new(
             SessionDirection::Receiver,
             Agent::from_strings("cisco", "default", "local_agent", 0),
+            None,
             Some(10),
             Some(Duration::from_millis(1000)),
         );
@@ -773,10 +782,12 @@ mod tests {
             Agent::from_strings("cisco", "default", "sender", 0),
             None,
             None,
+            None,
         );
         let session_config_receiver: StreamingConfiguration = StreamingConfiguration::new(
             SessionDirection::Receiver,
             Agent::from_strings("cisco", "default", "receiver", 0),
+            None,
             Some(5),
             Some(Duration::from_millis(500)),
         );
@@ -845,6 +856,7 @@ mod tests {
         let session_config: StreamingConfiguration = StreamingConfiguration::new(
             SessionDirection::Receiver,
             Agent::from_strings("cisco", "default", "receiver", 0),
+            None,
             Some(5),
             Some(Duration::from_millis(500)),
         );
@@ -911,6 +923,7 @@ mod tests {
         let session_config: StreamingConfiguration = StreamingConfiguration::new(
             SessionDirection::Receiver,
             Agent::from_strings("cisco", "default", "receiver", 0),
+            None,
             Some(5),
             Some(Duration::from_millis(500)),
         );
@@ -1000,10 +1013,12 @@ mod tests {
             Agent::from_strings("cisco", "default", "sender", 0),
             None,
             None,
+            None,
         );
         let session_config_receiver: StreamingConfiguration = StreamingConfiguration::new(
             SessionDirection::Receiver,
             Agent::from_strings("cisco", "default", "receiver", 0),
+            None,
             Some(5),
             Some(Duration::from_millis(500)),
         );

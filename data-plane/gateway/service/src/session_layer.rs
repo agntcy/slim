@@ -104,7 +104,7 @@ impl SessionLayer {
         // session ID and the agent ID, to prevent collisions.
 
         // generate a new session ID
-        let id = match id {
+        let mut id = match id {
             Some(id) => id,
             None => rand::rng().random(),
         };
@@ -129,6 +129,13 @@ impl SessionLayer {
             }
             SessionConfig::Streaming(conf) => {
                 let direction = conf.direction.clone();
+                if direction == SessionDirection::Bidirectional {
+                    // TODO(micpapal/msardara): this is a temporary solution to get a session
+                    // id that is common to all the agents that subscribe
+                    // for the same topic.
+                    id = (agp_datapath::messages::encoder::calculate_hash(&conf.topic)
+                        % (u32::MAX as u64)) as u32;
+                }
                 Box::new(streaming::Streaming::new(
                     id,
                     conf,
@@ -255,6 +262,7 @@ impl SessionLayer {
                 let session_conf = StreamingConfiguration::new(
                     SessionDirection::Receiver,
                     self.agent_name().clone(),
+                    None,
                     Some(10),
                     Some(Duration::from_millis(1000)),
                 );
