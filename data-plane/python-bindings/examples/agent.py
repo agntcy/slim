@@ -43,7 +43,9 @@ async def run_client(
         return
 
     # create new gateway object
-    gateway = await agp_bindings.Gateway.new(local_organization, local_namespace, local_agent)
+    gateway = await agp_bindings.Gateway.new(
+        local_organization, local_namespace, local_agent
+    )
 
     # Configure gateway
     config = GatewayConfig(endpoint=address, insecure=True)
@@ -181,6 +183,7 @@ async def main():
         args.iterations,
         args.enable_opentelemetry,
     )
+
 
 if __name__ == "__main__":
     try:

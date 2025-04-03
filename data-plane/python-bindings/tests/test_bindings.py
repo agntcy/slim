@@ -7,10 +7,9 @@ import pytest
 import pytest_asyncio
 import agp_bindings
 
+
 @pytest_asyncio.fixture(scope="function")
 async def server(request):
-    print("Starting server", request.param)
-
     # create new server
     global svc_server
     svc_server = await agp_bindings.create_pyservice("cisco", "default", "server")
@@ -239,9 +238,7 @@ async def test_error_on_nonexistent_subscription(server):
     except asyncio.TimeoutError:
         pytest.fail("timed out waiting for error message on receive channel")
     except Exception as e:
-        assert "no matching found" in str(
-            e
-        ), f"Unexpected error message: {str(e)}"
+        assert "no matching found" in str(e), f"Unexpected error message: {str(e)}"
     else:
         pytest.fail(f"Expected an exception, but received message: {received}")
 
