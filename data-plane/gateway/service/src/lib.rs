@@ -44,14 +44,36 @@ pub use errors::ServiceError;
 pub const KIND: &str = "gateway";
 
 #[derive(Debug, Clone, Deserialize, Default)]
-pub struct ServiceConfiguration {
-    /// The GRPC server settings
+pub struct PubsubConfig {
+    /// Pubsub GRPC server settings
     #[serde(default)]
     server: Option<ServerConfig>,
 
-    /// Client config to connect to other services
+    /// Pubsub client config to connect to other services
     #[serde(default)]
     clients: Vec<ClientConfig>,
+}
+
+#[derive(Debug, Clone, Deserialize, Default)]
+pub struct ControllerConfig {
+    /// Controller GRPC server settings
+    #[serde(default)]
+    server: Option<ServerConfig>,
+
+    /// Controller client config to connect to control plane
+    #[serde(default)]
+    client: Option<ClientConfig>,
+}
+
+#[derive(Debug, Clone, Deserialize, Default)]
+pub struct ServiceConfiguration {
+    /// Pubsub API configuration
+    #[serde(default)]
+    pub pubsub: PubsubConfig,
+
+    /// Controller API configuration
+    #[serde(default)]
+    pub controller: ControllerConfig,
 }
 
 impl ServiceConfiguration {
@@ -59,20 +81,30 @@ impl ServiceConfiguration {
         ServiceConfiguration::default()
     }
 
-    pub fn with_server(self, server: Option<ServerConfig>) -> Self {
-        ServiceConfiguration { server, ..self }
+    pub fn with_server(mut self, server: Option<ServerConfig>) -> Self {
+        self.pubsub.server = server;
+        self
     }
 
-    pub fn with_client(self, clients: Vec<ClientConfig>) -> Self {
-        ServiceConfiguration { clients, ..self }
+    pub fn with_client(mut self, clients: Vec<ClientConfig>) -> Self {
+        self.pubsub.clients = clients;
+        self
     }
 
     pub fn server(&self) -> Option<&ServerConfig> {
-        self.server.as_ref()
+        self.pubsub.server.as_ref()
     }
 
     pub fn clients(&self) -> &[ClientConfig] {
-        &self.clients
+        &self.pubsub.clients
+    }
+
+    pub fn controller_server(&self) -> Option<&ServerConfig> {
+        self.controller.server.as_ref()
+    }
+
+    pub fn controller_client(&self) -> Option<&ClientConfig> {
+        self.controller.client.as_ref()
     }
 
     pub fn build_server(&self, id: ID) -> Result<Service, ServiceError> {
@@ -83,12 +115,19 @@ impl ServiceConfiguration {
 
 impl Configuration for ServiceConfiguration {
     fn validate(&self) -> Result<(), ConfigurationError> {
-        // Validate client and server configurations
-        if let Some(server) = self.server.as_ref() {
+        // Validate the pubsub server and clients
+        if let Some(server) = self.pubsub.server.as_ref() {
             server.validate()?;
         }
+        for client in &self.pubsub.clients {
+            client.validate()?;
+        }
 
-        for client in self.clients.iter() {
+        // Validate the control server and client
+        if let Some(server) = self.controller.server.as_ref() {
+            server.validate()?;
+        }
+        if let Some(client) = self.controller.client.as_ref() {
             client.validate()?;
         }
 
@@ -158,7 +197,7 @@ impl Service {
     /// Run the service
     pub async fn run(&self) -> Result<(), ServiceError> {
         // Check that at least one client or server is configured
-        if self.config.server().is_none() && self.config.clients.is_empty() {
+        if self.config.server().is_none() && self.config.pubsub.clients.is_empty() {
             return Err(ServiceError::ConfigError(
                 "no server or clients configured".to_string(),
             ));
@@ -169,7 +208,7 @@ impl Service {
             self.serve(None)?;
         }
 
-        for (i, client) in self.config.clients.iter().enumerate() {
+        for (i, client) in self.config.pubsub.clients.iter().enumerate() {
             info!("connecting client {} to {}", i, client.endpoint);
 
             let channel = client
@@ -305,7 +344,7 @@ impl Service {
             Some(c) => c,
             None => {
                 // make sure at least one client is configured
-                if self.config.clients.is_empty() {
+                if self.config.pubsub.clients.is_empty() {
                     error!("no client configured");
                     return Err(ServiceError::ConfigError(
                         "no client configured".to_string(),
@@ -313,7 +352,7 @@ impl Service {
                 }
 
                 // get the first client
-                &self.config.clients[0]
+                &self.config.pubsub.clients[0]
             }
         };
 

@@ -13,11 +13,12 @@ runtime:
 
 services:
   gateway/0:
-    clients:
-      - endpoint: "https://localhost:46357"
-        tls:
-          ca_file: "./config/crypto/server-ca-cert.pem"
-        auth:
-          basic:
-            username: username
-            password: ${env:PASSWORD}
+    pubsub:
+      clients:
+        - endpoint: "https://localhost:46357"
+          tls:
+            ca_file: "./config/crypto/server-ca-cert.pem"
+          auth:
+            basic:
+              username: username
+              password: ${env:PASSWORD}

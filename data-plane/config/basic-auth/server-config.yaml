@@ -13,14 +13,15 @@ runtime:
 
 services:
   gateway/0:
-    server:
-      endpoint: "0.0.0.0:46357"
-      tls:
-        cert_file: "./config/crypto/server-cert.pem"
-        key_file: "./config/crypto/server-key.pem"
-      auth:
-        basic:
-          username: username
-          password: ${env:PASSWORD}
+    pubsub:
+      server:
+        endpoint: "0.0.0.0:46357"
+        tls:
+          cert_file: "./config/crypto/server-cert.pem"
+          key_file: "./config/crypto/server-key.pem"
+        auth:
+          basic:
+            username: username
+            password: ${env:PASSWORD}
 
-    clients: []
+      clients: []
