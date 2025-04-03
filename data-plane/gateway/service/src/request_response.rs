@@ -71,7 +71,8 @@ impl timer::TimerObserver for RequestResponseInternal {
             .common
             .tx_app_ref()
             .send(Err(SessionError::Timeout {
-                error: message_id.to_string(),
+                session_id: self.common.id(),
+                message_id: message_id,
                 message: Box::new(message),
             }))
             .await
@@ -348,8 +349,9 @@ mod tests {
         let err = res.unwrap_err();
         match err {
             SessionError::Timeout {
-                error: _error,
+                session_id,
                 message,
+                ..
             } => {
                 let blob = ProtoPublish::from(message.message)
                     .msg
@@ -358,6 +360,7 @@ mod tests {
                     .blob
                     .clone();
                 assert_eq!(blob, payload);
+                assert_eq!(session_id, session.id());
             }
             _ => panic!("unexpected error"),
         }

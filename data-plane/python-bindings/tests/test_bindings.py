@@ -7,37 +7,41 @@ import pytest
 import pytest_asyncio
 import agp_bindings
 
-# create svcs
-svc_server = agp_bindings.PyService("gateway/server")
-svc_server.configure(
-    agp_bindings.GatewayConfig(endpoint="0.0.0.0:12345", insecure=True)
-)
+@pytest_asyncio.fixture(scope="function")
+async def server(request):
+    print("Starting server", request.param)
 
+    # create new server
+    global svc_server
+    svc_server = await agp_bindings.create_pyservice("cisco", "default", "server")
 
-@pytest_asyncio.fixture(scope="module")
-async def server():
+    # configure it
+    svc_server.configure(
+        agp_bindings.GatewayConfig(endpoint=request.param, insecure=True)
+    )
+
     # init tracing
-    agp_bindings.init_tracing()
+    agp_bindings.init_tracing(log_level="info")
 
     # run gateway server in background
-    await agp_bindings.serve(svc_server)
+    ret = await agp_bindings.serve(svc_server)
 
     # wait for the server to start
     await asyncio.sleep(1)
 
+    # return the server
+    yield svc_server
+
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("server", ["127.0.0.1:12344"], indirect=True)
 async def test_end_to_end(server):
     # create 2 clients, Alice and Bob
-    svc_alice = agp_bindings.PyService("gateway/alice")
-    svc_alice.configure(agp_bindings.GatewayConfig(endpoint="http://127.0.0.1:12345"))
+    svc_alice = await agp_bindings.create_pyservice("cisco", "default", "alice", 1234)
+    svc_alice.configure(agp_bindings.GatewayConfig(endpoint="http://127.0.0.1:12344"))
 
-    svc_bob = agp_bindings.PyService("gateway/bob")
-    svc_bob.configure(agp_bindings.GatewayConfig(endpoint="http://127.0.0.1:12345"))
-
-    # connect to the gateway server
-    await agp_bindings.create_agent(svc_alice, "cisco", "default", "alice", 1234)
-    await agp_bindings.create_agent(svc_bob, "cisco", "default", "bob", 1234)
+    svc_bob = await agp_bindings.create_pyservice("cisco", "default", "bob", 1234)
+    svc_bob.configure(agp_bindings.GatewayConfig(endpoint="http://127.0.0.1:12344"))
 
     # connect to the service
     conn_id_alice = await agp_bindings.connect(svc_alice)
@@ -89,19 +93,17 @@ async def test_end_to_end(server):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("server", ["127.0.0.1:12345"], indirect=True)
 async def test_gateway_wrapper(server):
-    # create new gateway object
-    gateway1 = agp_bindings.Gateway("gateway/gateway1")
-    gateway1.configure(
-        agp_bindings.GatewayConfig(endpoint="http://127.0.0.1:12345", insecure=True)
-    )
-
     org = "cisco"
     ns = "default"
     agent1 = "gateway1"
 
-    # Connect to the gateway server
-    local_agent_id1 = await gateway1.create_agent(org, ns, agent1)
+    # create new gateway object
+    gateway1 = await agp_bindings.Gateway.new(org, ns, agent1)
+    gateway1.configure(
+        agp_bindings.GatewayConfig(endpoint="http://127.0.0.1:12345", insecure=True)
+    )
 
     # Connect to the service and subscribe for the local name
     _ = await gateway1.connect()
@@ -110,18 +112,15 @@ async def test_gateway_wrapper(server):
     await gateway1.subscribe(org, ns, agent1)
 
     # create second local agent
-    gateway2 = agp_bindings.Gateway("gateway/gateway2")
+    agent2 = "gateway2"
+    gateway2 = await agp_bindings.Gateway.new(org, ns, agent2)
     gateway2.configure(
         agp_bindings.GatewayConfig(endpoint="http://127.0.0.1:12345", insecure=True)
     )
 
-    agent2 = "gateway2"
-
-    local_agent_id2 = await gateway2.create_agent(org, ns, agent2)
-
     # Connect to gateway server
     _ = await gateway2.connect()
-    await gateway2.subscribe(org, ns, agent2, local_agent_id2)
+    await gateway2.subscribe(org, ns, agent2, gateway2.id())
 
     # set route
     await gateway2.set_route("cisco", "default", agent1)
@@ -135,8 +134,11 @@ async def test_gateway_wrapper(server):
     msg = [1, 2, 3, 4, 5, 6, 7, 8, 9]
     await gateway2.publish(session_info, msg, org, ns, agent1)
 
-    # # receive message
-    session_info_rec, msg_rcv = await gateway1.receive()
+    # wait for a new session
+    session_info_rec, _ = await gateway1.receive()
+
+    # new session received! listen for the message
+    session_info_rec, msg_rcv = await gateway1.receive(session=session_info_rec.id)
 
     # check if the message is correct
     assert msg_rcv == bytes(msg)
@@ -148,30 +150,20 @@ async def test_gateway_wrapper(server):
     await gateway1.publish_to(session_info_rec, msg_rcv)
 
     # wait for message
-    _, msg_rcv = await gateway2.receive()
+    _, msg_rcv = await gateway2.receive(session=session_info.id)
 
     # check if the message is correct
     assert msg_rcv == bytes(msg)
 
 
 @pytest.mark.asyncio
-async def test_auto_reconnect_after_server_restart():
-    # set up a new server
-    svc_server = agp_bindings.PyService("gateway/server1")
-    svc_server.configure(
-        agp_bindings.GatewayConfig(endpoint="0.0.0.0:12346", insecure=True)
-    )
-    await agp_bindings.serve(svc_server)
-
-    # setup two clients (Alice and Bob)
-    svc_alice = agp_bindings.PyService("gateway/alice")
+@pytest.mark.parametrize("server", ["127.0.0.1:12346"], indirect=True)
+async def test_auto_reconnect_after_server_restart(server):
+    svc_alice = await agp_bindings.create_pyservice("cisco", "default", "alice", 1234)
     svc_alice.configure(agp_bindings.GatewayConfig(endpoint="http://127.0.0.1:12346"))
-    svc_bob = agp_bindings.PyService("gateway/bob")
-    svc_bob.configure(agp_bindings.GatewayConfig(endpoint="http://127.0.0.1:12346"))
 
-    # create agents for Alice and Bob
-    await agp_bindings.create_agent(svc_alice, "cisco", "default", "alice", 1234)
-    await agp_bindings.create_agent(svc_bob, "cisco", "default", "bob", 1234)
+    svc_bob = await agp_bindings.create_pyservice("cisco", "default", "bob", 1234)
+    svc_bob.configure(agp_bindings.GatewayConfig(endpoint="http://127.0.0.1:12346"))
 
     # connect clients and subscribe for messages
     conn_id_alice = await agp_bindings.connect(svc_alice)
@@ -217,13 +209,10 @@ async def test_auto_reconnect_after_server_restart():
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("server", ["127.0.0.1:12347"], indirect=True)
 async def test_error_on_nonexistent_subscription(server):
-    # setup one client (Alice, but there is no Bob this time)
-    svc_alice = agp_bindings.PyService("gateway/alice")
-    svc_alice.configure(agp_bindings.GatewayConfig(endpoint="http://127.0.0.1:12345"))
-
-    # create agent for Alice
-    await agp_bindings.create_agent(svc_alice, "cisco", "default", "alice", 1234)
+    svc_alice = await agp_bindings.create_pyservice("cisco", "default", "alice", 1234)
+    svc_alice.configure(agp_bindings.GatewayConfig(endpoint="http://127.0.0.1:12347"))
 
     # connect client and subscribe for messages
     conn_id_alice = await agp_bindings.connect(svc_alice)

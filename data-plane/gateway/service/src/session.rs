@@ -15,6 +15,10 @@ use agp_datapath::pubsub::proto::pubsub::v1::{Message, SessionHeaderType};
 /// Session ID
 pub type Id = u32;
 
+/// Reserved session id
+pub const SESSION_RANGE: std::ops::Range<u32> = 0..(u32::MAX - 1000);
+pub const SESSION_UNSPECIFIED: u32 = u32::MAX;
+
 /// Message wrapper
 #[derive(Clone, PartialEq, Debug)]
 pub struct SessionMessage {

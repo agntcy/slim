@@ -39,13 +39,14 @@ async fn main() {
 
     // get service
     let id = agp_config::component::id::ID::new_with_str("gateway/0").unwrap();
-    let mut svc = config.services.remove(&id).unwrap();
+    let svc = config.services.remove(&id).unwrap();
 
     // create local agent
     let agent_id = 0;
     let agent_name = Agent::from_strings("cisco", "default", local_agent, agent_id);
     let mut rx = svc
         .create_agent(&agent_name)
+        .await
         .expect("failed to create agent");
 
     // connect to the remote gateway

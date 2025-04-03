@@ -7,7 +7,7 @@ import time
 import os
 
 import agp_bindings
-from agp_bindings import GatewayConfig
+from agp_bindings import GatewayConfig, PySessionInfo
 
 
 class color:
@@ -24,7 +24,7 @@ class color:
 
 
 def format_message(message1, message2):
-    return f"{color.BOLD}{color.CYAN}{message1.capitalize() :<40}{color.END}{message2}"
+    return f"{color.BOLD}{color.CYAN}{message1.capitalize() :<45}{color.END}{message2}"
 
 
 async def run_client(
@@ -42,22 +42,18 @@ async def run_client(
         print("Error: IDs must be in the format organization/namespace/agent.")
         return
 
-    # Define the service based on the local agent
-    gateway = agp_bindings.Gateway()
+    # create new gateway object
+    gateway = await agp_bindings.Gateway.new(local_organization, local_namespace, local_agent)
 
     # Configure gateway
     config = GatewayConfig(endpoint=address, insecure=True)
     gateway.configure(config)
 
-    # Connect to the gateway server
-    local_agent_id = await gateway.create_agent(
-        local_organization, local_namespace, local_agent
-    )
-
     # Connect to the service and subscribe for the local name
+    print(format_message(f"connecting to:", address))
     _ = await gateway.connect()
     await gateway.subscribe(
-        local_organization, local_namespace, local_agent, local_agent_id
+        local_organization, local_namespace, local_agent, gateway.id()
     )
 
     if message:
@@ -75,15 +71,15 @@ async def run_client(
         await gateway.set_route(remote_organization, remote_namespace, remote_agent)
 
         # create a session
-        session_id = await gateway.create_session(
-            agp_bindings.PySessionType.FireAndForget
+        session = await gateway.create_ff_session(
+            agp_bindings.PyFireAndForgetConfiguration()
         )
 
         for i in range(0, iterations):
             try:
                 # Send the message
                 await gateway.publish(
-                    session_id,
+                    session,
                     message.encode(),
                     remote_organization,
                     remote_namespace,
@@ -92,7 +88,7 @@ async def run_client(
                 print(format_message(f"{local_agent} sent:", message))
 
                 # Wait for a reply
-                session_info, src, msg = await gateway.receive()
+                session_info, msg = await gateway.receive(session=session.id)
                 print(
                     format_message(
                         f"{local_agent.capitalize()} received (from session {session_info.id}):",
@@ -109,18 +105,31 @@ async def run_client(
 
         # Wait for a message and reply in a loop
         while True:
-            session_info, src, msg = await gateway.receive()
+            session_info, _ = await gateway.receive()
             print(
                 format_message(
-                    f"{local_agent.capitalize()} received (from session {session_info.id}):",
-                    f"{msg.decode()}",
+                    f"{local_agent.capitalize()} received a new session:",
+                    f"{session_info.id}",
                 )
             )
 
-            ret = f"{msg.decode()} from {instance}"
+            async def background_task():
+                while True:
+                    # Receive the message from the session
+                    session, msg = await gateway.receive(session=session_info.id)
+                    print(
+                        format_message(
+                            f"{local_agent.capitalize()} received (from session {session.id}):",
+                            f"{msg.decode()}",
+                        )
+                    )
 
-            await gateway.publish_to(session_info.id, ret.encode(), src)
-            print(format_message(f"{local_agent.capitalize()} replies:", ret))
+                    ret = f"{msg.decode()} from {instance}"
+
+                    await gateway.publish_to(session, ret.encode())
+                    print(format_message(f"{local_agent.capitalize()} replies:", ret))
+
+            asyncio.create_task(background_task())
 
 
 async def main():
