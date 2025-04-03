@@ -122,9 +122,15 @@ struct ReceiverState {
     buffers: HashMap<Agent, Receiver>,
 }
 
+struct BidirectionalState {
+    receiver: ReceiverState,
+    producer: ProducerState,
+}
+
 enum Endpoint {
     Producer(ProducerState),
     Receiver(ReceiverState),
+    Bidirectional(BidirectionalState),
 }
 
 pub(crate) struct Streaming {
@@ -190,8 +196,16 @@ impl Streaming {
                 };
                 Endpoint::Receiver(recv)
             }
-            _ => {
-                panic!("invalid session direction");
+            SessionDirection::Bidirectional => {
+                let producer = ProducerState {
+                    buffer: ProducerBuffer::with_capacity(500),
+                    next_id: 0,
+                };
+                let receiver = ReceiverState {
+                    buffers: HashMap::new(),
+                };
+                let state = BidirectionalState { receiver, producer };
+                Endpoint::Bidirectional(state)
             }
         };
 
@@ -240,34 +254,31 @@ impl Streaming {
                                     }
                                     Endpoint::Receiver(receiver) => {
                                         trace!("received message from the gataway on receiver session {}", session_id);
+                                        process_message_form_gw(msg, session_id, receiver, &source, max_retries, timeout, timer_tx.clone(), send_gw.clone(), send_app.clone()).await;
+                                    }
+                                    Endpoint::Bidirectional(state) => {
+                                        match direction {
+                                            MessageDirection::North => {
+                                                // in this case the message can be a stream message to send to the app, or a rtx request
+                                                trace!("received message from the gataway on bidirectional session {}", session_id);
+                                                match msg.get_session_header().header_type() {
+                                                    SessionHeaderType::Stream => {
+                                                        // send the packet to the application
+                                                        process_message_form_gw(msg, session_id, &mut state.receiver, &source, max_retries, timeout, timer_tx.clone(), send_gw.clone(), send_app.clone()).await;
 
-                                        let producer_name = msg.get_source();
-                                        let producer_conn = msg.get_incoming_conn();
-
-                                        let receiver_state = match receiver.buffers.get_mut(&producer_name) {
-                                            Some(state) => state,
-                                            None => {
-                                                let state = Receiver {
-                                                    buffer: ReceiverBuffer::default(),
-                                                    timer_observer: Arc::new(RtxTimerObserver {
-                                                        producer_name: producer_name.clone(),
-                                                        channel:timer_tx.clone()
-                                                    }),
-                                                    rtx_map: HashMap::new(),
-                                                    timers_map: HashMap::new(),
-                                                };
-                                                // Insert the state into receiver.buffers
-                                                receiver.buffers.insert(producer_name.clone(), state);
-                                                // Return a reference to the newly inserted state
-                                                receiver.buffers.get_mut(&producer_name).expect("State should be present")
+                                                    }
+                                                    SessionHeaderType::RtxRequest => {
+                                                        // handle RTX request
+                                                        process_incoming_rtx_request(msg, session_id, &state.producer, &source, send_gw.clone()).await;
+                                                    }
+                                                    _ => {
+                                                        error!("received invalid packet type on bidirection session {}", session_id);
+                                                        continue;
+                                                    }
+                                                }
                                             }
+                                            MessageDirection::South => todo!(),
                                         };
-
-
-                                        process_message_form_gw(msg, session_id,
-                                            receiver_state, &source, &producer_name,
-                                            producer_conn, max_retries, timeout, send_gw.clone(),
-                                            send_app.clone()).await;
                                     }
                                 }
                             }
@@ -290,28 +301,21 @@ impl Streaming {
                                 match &mut endpoint {
                                     Endpoint::Receiver(receiver) => {
                                         if retry {
-                                            let receiver_state = match receiver.buffers.get_mut(&producer_name){
-                                                Some(r) => r,
-                                                None => {
-                                                    error!("received a timeout, but there is no state");
-                                                    continue;
-                                                }
-                                            };
-                                            handle_timeout(receiver_state, msg_id, session_id, send_gw.clone()).await;
+                                            handle_timeout(receiver, &producer_name, msg_id, session_id, send_gw.clone()).await;
                                         } else {
-                                            let receiver_state = match receiver.buffers.get_mut(&producer_name){
-                                                Some(r) => r,
-                                                None => {
-                                                    error!("received a timer failure, but there is no state");
-                                                    continue;
-                                                }
-                                            };
-                                            handle_failure(receiver_state, msg_id, session_id, send_app.clone()).await;
+                                            handle_failure(receiver, &producer_name, msg_id, session_id, send_app.clone()).await;
                                         }
                                     }
                                     Endpoint::Producer(_) => {
                                         error!("received timer on a producer buffer");
                                         continue;
+                                    }
+                                    Endpoint::Bidirectional(state) => {
+                                        if retry {
+                                            handle_timeout(&mut state.receiver, &producer_name, msg_id, session_id, send_gw.clone()).await;
+                                        } else {
+                                            handle_failure(&mut state.receiver, &producer_name, msg_id, session_id, send_app.clone()).await;
+                                        }
                                     }
                                 }
                             }
@@ -442,15 +446,39 @@ async fn process_message_from_app(
 async fn process_message_form_gw(
     msg: Message,
     session_id: u32,
-    receiver: &mut Receiver,
+    receiver_state: &mut ReceiverState,
     source: &Agent,
-    producer_name: &Agent,
-    producer_conn: u64,
     max_retries: u32,
     timeout: Duration,
+    timer_tx: mpsc::Sender<Result<(u32, bool, Agent), Status>>,
     send_gw: mpsc::Sender<Result<Message, Status>>,
     send_app: mpsc::Sender<Result<SessionMessage, SessionError>>,
 ) {
+    let producer_name = msg.get_source();
+    let producer_conn = msg.get_incoming_conn();
+
+    let receiver = match receiver_state.buffers.get_mut(&producer_name) {
+        Some(state) => state,
+        None => {
+            let state = Receiver {
+                buffer: ReceiverBuffer::default(),
+                timer_observer: Arc::new(RtxTimerObserver {
+                    producer_name: producer_name.clone(),
+                    channel: timer_tx.clone(),
+                }),
+                rtx_map: HashMap::new(),
+                timers_map: HashMap::new(),
+            };
+            // Insert the state into receiver.buffers
+            receiver_state.buffers.insert(producer_name.clone(), state);
+            // Return a reference to the newly inserted state
+            receiver_state
+                .buffers
+                .get_mut(&producer_name)
+                .expect("State should be present")
+        }
+    };
+
     let header_type = msg.get_header_type();
     if header_type == SessionHeaderType::RtxReply {
         let rtx_msg_id = msg.get_id();
@@ -547,7 +575,8 @@ async fn process_message_form_gw(
 }
 
 async fn handle_timeout(
-    receiver: &mut Receiver,
+    receiver_state: &mut ReceiverState,
+    producer_name: &Agent,
     msg_id: u32,
     session_id: u32,
     send_gw: mpsc::Sender<Result<Message, Status>>,
@@ -557,6 +586,15 @@ async fn handle_timeout(
         msg_id,
         session_id
     );
+
+    let receiver = match receiver_state.buffers.get_mut(producer_name) {
+        Some(r) => r,
+        None => {
+            error!("received a timeout, but there is no state");
+            return;
+        }
+    };
+
     // send the RTX again
     let rtx = match receiver.rtx_map.get(&msg_id) {
         Some(rtx) => rtx,
@@ -583,12 +621,22 @@ async fn handle_timeout(
 }
 
 async fn handle_failure(
-    receiver: &mut Receiver,
+    receiver_state: &mut ReceiverState,
+    producer_name: &Agent,
     msg_id: u32,
     session_id: u32,
     send_app: mpsc::Sender<Result<SessionMessage, SessionError>>,
 ) {
     trace!("packet {} lost, not retries left", msg_id);
+
+    let receiver = match receiver_state.buffers.get_mut(producer_name) {
+        Some(r) => r,
+        None => {
+            error!("received a timeout, but there is no state");
+            return;
+        }
+    };
+
     receiver.rtx_map.remove(&msg_id);
     receiver.timers_map.remove(&msg_id);
 
