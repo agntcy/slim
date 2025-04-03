@@ -442,7 +442,7 @@ class Gateway:
                     if reason == "timeout":
                         err = TimeoutError(message_id, session_id)
                     else:
-                        # we don't know the resason, just raise the original exception
+                        # we don't know the reason, just raise the original exception
                         raise e
 
                     if session_id in self.sessions:

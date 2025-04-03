@@ -72,7 +72,7 @@ impl timer::TimerObserver for RequestResponseInternal {
             .tx_app_ref()
             .send(Err(SessionError::Timeout {
                 session_id: self.common.id(),
-                message_id: message_id,
+                message_id,
                 message: Box::new(message),
             }))
             .await

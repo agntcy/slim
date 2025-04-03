@@ -37,9 +37,7 @@ tasks:
     deps:
       - python-bindings:build
     cmds:
-      - uv run pytest -s {{.TARGET}}
-    vars:
-      TARGET: '{{.TARGET | default ""}}'
+      - uv run pytest -s
 
   python-bindings:packaging:
     desc: "Generate the Python bindings for python versions 3.9, 3.10, 3.11, 3.12 and 3.13"
