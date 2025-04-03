@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::{collections::HashMap, sync::Arc};
-use tokio::sync::{mpsc, RwLock};
+use tokio::sync::mpsc;
 
 use crate::{
     errors::SessionError,
@@ -30,8 +30,8 @@ use tracing::{debug, error, info, trace, warn};
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct StreamingConfiguration {
     pub source: Agent,
-    pub max_retries: Option<u32>,
-    pub timeout: Option<std::time::Duration>,
+    pub max_retries: u32,
+    pub timeout: std::time::Duration,
 }
 
 impl std::fmt::Display for StreamingConfiguration {
@@ -39,12 +39,24 @@ impl std::fmt::Display for StreamingConfiguration {
         write!(
             f,
             "StreamingConfiguration: max_retries: {}, timeout: {} ms, source: {}",
-            self.max_retries.unwrap_or(0),
-            self.timeout
-                .unwrap_or(std::time::Duration::new(0, 0))
-                .as_millis(),
+            self.max_retries,
+            self.timeout.as_millis(),
             self.source,
         )
+    }
+}
+
+impl StreamingConfiguration {
+    pub fn new(
+        source: Agent,
+        max_retries: Option<u32>,
+        timeout: Option<std::time::Duration>,
+    ) -> Self {
+        StreamingConfiguration {
+            source,
+            max_retries: max_retries.unwrap_or(0),
+            timeout: timeout.unwrap_or(std::time::Duration::from_millis(0)),
+        }
     }
 }
 
@@ -89,30 +101,23 @@ struct Producer {
     next_id: u32,
 }
 
-#[allow(dead_code)]
 struct Receiver {
-    config: StreamingConfiguration,
     buffer: ReceiverBuffer,
     timer_observer: Arc<RtxTimerObserver>,
     rtx_map: HashMap<u32, Message>,
     timers_map: HashMap<u32, Timer>,
 }
 
-#[allow(dead_code)]
 enum Endpoint {
     Producer(Producer),
     Receiver(Receiver),
-    Unknown,
 }
 
-#[allow(dead_code)]
 pub(crate) struct Streaming {
     common: Common,
-    buffer: Arc<RwLock<Endpoint>>,
     tx: mpsc::Sender<Result<(Message, MessageDirection), Status>>,
 }
 
-#[allow(dead_code)]
 impl Streaming {
     pub(crate) fn new(
         id: Id,
@@ -122,70 +127,67 @@ impl Streaming {
         tx_app: AppChannelSender,
     ) -> Streaming {
         let (tx, rx) = mpsc::channel(128);
-        let (timer_tx, timer_rx) = mpsc::channel(128);
-        let buffer = match session_direction {
-            SessionDirection::Sender => {
-                let prod = Producer {
-                    buffer: ProducerBuffer::with_capacity(500),
-                    next_id: 0,
-                };
-                Arc::new(RwLock::new(Endpoint::Producer(prod)))
-            }
-            SessionDirection::Receiver => {
-                let observer = RtxTimerObserver { channel: timer_tx };
-                let recv = Receiver {
-                    config: session_config.clone(),
-                    buffer: ReceiverBuffer::default(),
-                    timer_observer: Arc::new(observer),
-                    rtx_map: HashMap::new(),
-                    timers_map: HashMap::new(),
-                };
-                Arc::new(RwLock::new(Endpoint::Receiver(recv)))
-            }
-            _ => {
-                error!("invalid session direction");
-                Arc::new(RwLock::new(Endpoint::Unknown))
-            }
-        };
         let stream = Streaming {
             common: Common::new(
                 id,
-                session_direction,
-                SessionConfig::Streaming(session_config),
+                session_direction.clone(),
+                SessionConfig::Streaming(session_config.clone()),
                 tx_gw,
                 tx_app,
             ),
-            buffer,
             tx,
         };
-        stream.process_message(rx, timer_rx);
+        stream.process_message(rx, session_direction);
         stream
     }
 
     fn process_message(
         &self,
         mut rx: mpsc::Receiver<Result<(Message, MessageDirection), Status>>,
-        mut timer_rx: mpsc::Receiver<Result<(u32, bool), Status>>,
+        session_direction: SessionDirection,
     ) {
-        let buffer_clone = self.buffer.clone();
         let session_id = self.common.id();
         let send_gw = self.common.tx_gw();
         let send_app = self.common.tx_app();
+
         let (source, max_retries, timeout) = match self.common.session_config() {
             SessionConfig::Streaming(streaming_configuration) => (
                 streaming_configuration.source,
-                streaming_configuration.max_retries.unwrap_or(0),
-                streaming_configuration
-                    .timeout
-                    .unwrap_or(std::time::Duration::new(0, 0)),
+                streaming_configuration.max_retries,
+                streaming_configuration.timeout,
             ),
             _ => {
                 panic!("unable to parse streaming configuration");
             }
         };
+
+        let (timer_tx, mut timer_rx) = mpsc::channel(128);
+        let mut endpoint = match session_direction {
+            SessionDirection::Sender => {
+                let prod = Producer {
+                    buffer: ProducerBuffer::with_capacity(500),
+                    next_id: 0,
+                };
+                Endpoint::Producer(prod)
+            }
+            SessionDirection::Receiver => {
+                let observer = RtxTimerObserver { channel: timer_tx };
+                let recv = Receiver {
+                    buffer: ReceiverBuffer::default(),
+                    timer_observer: Arc::new(observer),
+                    rtx_map: HashMap::new(),
+                    timers_map: HashMap::new(),
+                };
+                Endpoint::Receiver(recv)
+            }
+            _ => {
+                panic!("invalid session direction");
+            }
+        };
         let mut producer_name: Option<Agent> = None;
         let mut producer_conn: Option<u64> = None;
         let mut timer_rx_closed = false;
+
         tokio::spawn(async move {
             debug!("starting message processing on session {}", session_id);
             loop {
@@ -203,7 +205,7 @@ impl Streaming {
                                     continue;
                                 }
                                 let (mut msg, direction) = result.unwrap();
-                                match &mut *buffer_clone.write().await {
+                                match &mut endpoint {
                                     Endpoint::Producer(producer) => {
                                         match direction {
                                             MessageDirection::North => {
@@ -242,7 +244,7 @@ impl Streaming {
                                                             &source,
                                                             pkt_src.agent_type(),
                                                             Some(pkt_src.agent_id()),
-                                                            Some(AgpHeaderFlags::default().with_incoming_conn(incoming_conn)),
+                                                            Some(AgpHeaderFlags::default().with_forward_to(incoming_conn)),
                                                         ));
 
                                                         let session_header = Some(SessionHeader::new(
@@ -340,14 +342,14 @@ impl Streaming {
                                                     }
                                                 }
                                                 for r in rtx {
-                                                    debug!("send a rtx for message {} from receiver session {}", r, session_id);
+                                                    debug!("packet loss detected on session {}, send RTX for id {}", session_id, r);
                                                     let dest = producer_name.as_ref().unwrap(); // this cannot panic a this point
 
                                                     let agp_header = Some(AgpHeader::new(
                                                         &source,
                                                         dest.agent_type(),
                                                         Some(dest.agent_id()),
-                                                        Some(AgpHeaderFlags::default().with_incoming_conn(producer_conn.unwrap())),
+                                                        Some(AgpHeaderFlags::default().with_forward_to(producer_conn.unwrap())),
                                                     ));
 
                                                     let session_header = Some(SessionHeader::new(
@@ -376,10 +378,6 @@ impl Streaming {
                                             }
                                         }
                                     }
-                                    Endpoint::Unknown => {
-                                        error!("unknown session type");
-                                        continue;
-                                    },
                                 }
                             }
                         }
@@ -398,7 +396,7 @@ impl Streaming {
                                 }
 
                                 let (msg_id, retry) = result.unwrap();
-                                match &mut *buffer_clone.write().await {
+                                match &mut endpoint {
                                     Endpoint::Receiver(receiver) => {
                                         if retry {
                                             trace!("try to send rtx for packet {} on receiver session {}", msg_id, session_id);
@@ -423,7 +421,7 @@ impl Streaming {
                                                 error!("error sending RTX for id {} on receiver session {}", msg_id, session_id);
                                             }
                                         } else {
-                                            trace!("pacekt {} lost, not retries left", msg_id);
+                                            trace!("packet {} lost, not retries left", msg_id);
                                             receiver.rtx_map.remove(&msg_id);
                                             receiver.timers_map.remove(&msg_id);
 
@@ -457,10 +455,6 @@ impl Streaming {
                                         error!("received timer on a producer buffer");
                                         continue;
                                     }
-                                    Endpoint::Unknown => {
-                                        error!("unknown session type");
-                                        continue;
-                                    },
                                 }
                             }
                         }
@@ -478,7 +472,6 @@ impl Session for Streaming {
         message: SessionMessage,
         direction: MessageDirection,
     ) -> Result<(), SessionError> {
-        debug!("receive message");
         self.tx
             .send(Ok((message.message, direction)))
             .await
@@ -506,8 +499,8 @@ mod tests {
 
         let session_config = StreamingConfiguration {
             source: Agent::from_strings("cisco", "default", "local_agent", 0),
-            max_retries: None,
-            timeout: None,
+            max_retries: 0,
+            timeout: Duration::from_millis(0),
         };
 
         let session = Streaming::new(
@@ -552,14 +545,14 @@ mod tests {
 
         let session_config_sender = StreamingConfiguration {
             source: Agent::from_strings("cisco", "default", "sender", 0),
-            max_retries: None,
-            timeout: None,
+            max_retries: 0,
+            timeout: Duration::from_millis(0),
         };
 
         let session_config_receiver = StreamingConfiguration {
             source: Agent::from_strings("cisco", "default", "receiver", 0),
-            max_retries: Some(5),
-            timeout: Some(std::time::Duration::from_millis(500)),
+            max_retries: 5,
+            timeout: Duration::from_millis(500),
         };
 
         let sender = Streaming::new(
@@ -625,8 +618,8 @@ mod tests {
 
         let session_config = StreamingConfiguration {
             source: Agent::from_strings("cisco", "default", "sender", 0),
-            max_retries: Some(5),
-            timeout: Some(std::time::Duration::from_millis(500)),
+            max_retries: 5,
+            timeout: Duration::from_millis(500),
         };
 
         let session = Streaming::new(0, session_config, SessionDirection::Receiver, tx_gw, tx_app);
@@ -676,7 +669,7 @@ mod tests {
 
         time::sleep(Duration::from_millis(1000)).await;
 
-        let expected_msg = "pacekt 1 lost, not retries left";
+        let expected_msg = "packet 1 lost, not retries left";
         assert!(logs_contain(expected_msg));
         let expected_msg = "a message was definitely lost in session 0";
         assert!(logs_contain(expected_msg));
@@ -690,8 +683,8 @@ mod tests {
 
         let session_config = StreamingConfiguration {
             source: Agent::from_strings("cisco", "default", "receiver", 0),
-            max_retries: Some(5),
-            timeout: Some(std::time::Duration::from_millis(500)),
+            max_retries: 5,
+            timeout: Duration::from_millis(500),
         };
 
         let session = Streaming::new(120, session_config, SessionDirection::Sender, tx_gw, tx_app);
@@ -776,14 +769,14 @@ mod tests {
 
         let session_config_sender = StreamingConfiguration {
             source: Agent::from_strings("cisco", "default", "sender", 0),
-            max_retries: None,
-            timeout: None,
+            max_retries: 0,
+            timeout: Duration::from_millis(0),
         };
 
         let session_config_receiver = StreamingConfiguration {
             source: Agent::from_strings("cisco", "default", "receiver", 0),
-            max_retries: Some(5),
-            timeout: Some(std::time::Duration::from_millis(500)),
+            max_retries: 5,
+            timeout: std::time::Duration::from_millis(500),
         };
 
         let sender = Streaming::new(
@@ -801,7 +794,7 @@ mod tests {
             tx_app_receiver,
         );
 
-        let message = Message::new_publish(
+        let mut message = Message::new_publish(
             &Agent::from_strings("cisco", "default", "sender", 0),
             &AgentType::from_strings("cisco", "default", "receiver"),
             Some(0),
@@ -809,6 +802,7 @@ mod tests {
             "msg",
             vec![0x1, 0x2, 0x3, 0x4],
         );
+        message.set_incoming_conn(Some(0));
 
         let session_msg: SessionMessage = SessionMessage::new(message.clone(), Info::new(0));
         // send 3 messages from the producer app
@@ -823,7 +817,7 @@ mod tests {
         // read the 3 messages from the sender gw channel
         // forward message 1 and 3 to the receiver
         for i in 0..3 {
-            let msg = rx_gw_sender.recv().await.unwrap().unwrap();
+            let mut msg = rx_gw_sender.recv().await.unwrap().unwrap();
             let msg_header = msg.get_session_header();
             assert_eq!(msg_header.session_id, 0);
             assert_eq!(msg_header.message_id, i);
@@ -831,6 +825,8 @@ mod tests {
 
             // the receiver should detect a loss for packet 1
             if i != 1 {
+                // make sure to set the incoming connection to avoid paninc
+                msg.set_incoming_conn(Some(0));
                 let session_msg: SessionMessage = SessionMessage::new(msg.clone(), Info::new(0));
                 let res = receiver
                     .on_message(session_msg.clone(), MessageDirection::North)
@@ -893,7 +889,9 @@ mod tests {
         );
 
         // send the second reply to the producer
-        let session_msg: SessionMessage = SessionMessage::new(msg.clone(), Info::new(0));
+        let mut session_msg: SessionMessage = SessionMessage::new(msg.clone(), Info::new(0));
+        // make sure to set the incoming connection to avoid paninc
+        session_msg.message.set_incoming_conn(Some(0));
         let res = sender
             .on_message(session_msg.clone(), MessageDirection::North)
             .await;
@@ -917,7 +915,9 @@ mod tests {
             )
         );
 
-        let session_msg: SessionMessage = SessionMessage::new(msg.clone(), Info::new(0));
+        let mut session_msg: SessionMessage = SessionMessage::new(msg.clone(), Info::new(0));
+        // make sure to set the incoming connection to avoid paninc
+        session_msg.message.set_incoming_conn(Some(0));
         let res = receiver
             .on_message(session_msg.clone(), MessageDirection::North)
             .await;

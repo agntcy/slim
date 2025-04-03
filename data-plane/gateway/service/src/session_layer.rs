@@ -132,7 +132,7 @@ impl SessionLayer {
             }
             SessionConfig::Streaming(conf) => {
                 let mut direction = SessionDirection::Receiver;
-                if conf.timeout.is_none() {
+                if conf.max_retries == 0 {
                     direction = SessionDirection::Sender;
                 }
                 Box::new(streaming::Streaming::new(
@@ -266,8 +266,8 @@ impl SessionLayer {
                 self.create_session(
                     SessionConfig::Streaming(streaming::StreamingConfiguration {
                         source: self.agent_name().clone(),
-                        max_retries: Some(10),
-                        timeout: Some(Duration::from_millis(1000)),
+                        max_retries: 10,
+                        timeout: Duration::from_millis(1000),
                     }),
                     Some(id),
                 )
