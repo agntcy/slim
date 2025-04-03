@@ -6,6 +6,7 @@ use std::time::Duration;
 
 use rand::Rng;
 use tokio::sync::RwLock;
+use tracing::warn;
 
 use crate::errors::SessionError;
 use crate::fire_and_forget::FireAndForgetConfiguration;
@@ -259,6 +260,12 @@ impl SessionLayer {
                 );
                 self.create_session(session::SessionConfig::Streaming(session_conf), Some(id))
                     .await?
+            }
+            SessionHeaderType::PubSub => {
+                warn!("received pub/sub message with unknown session id");
+                return Err(SessionError::SessionUnknown(
+                    session_type.as_str_name().to_string(),
+                ));
             }
             _ => {
                 return Err(SessionError::SessionUnknown(

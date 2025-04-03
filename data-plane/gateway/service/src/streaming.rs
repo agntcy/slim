@@ -251,7 +251,7 @@ impl Streaming {
                                             MessageDirection::South => {
 
                                                 // received a message from the APP
-                                                process_message_from_app(msg, session_id, producer, send_gw.clone(), send_app.clone()).await;
+                                                process_message_from_app(msg, session_id, producer, false, send_gw.clone(), send_app.clone()).await;
                                             }
                                         }
                                     }
@@ -265,7 +265,7 @@ impl Streaming {
                                                 // in this case the message can be a stream message to send to the app, or a rtx request
                                                 trace!("received message from the gataway on bidirectional session {}", session_id);
                                                 match msg.get_session_header().header_type() {
-                                                    SessionHeaderType::Stream => {
+                                                    SessionHeaderType::PubSub => {
                                                         // send the packet to the application
                                                         process_message_form_gw(msg, session_id, &mut state.receiver, &source, max_retries, timeout, timer_tx.clone(), send_gw.clone(), send_app.clone()).await;
 
@@ -280,7 +280,10 @@ impl Streaming {
                                                     }
                                                 }
                                             }
-                                            MessageDirection::South => todo!(),
+                                            MessageDirection::South => {
+                                                // received a message from the APP
+                                                process_message_from_app(msg, session_id, &mut state.producer, true, send_gw.clone(), send_app.clone()).await;
+                                            }
                                         };
                                     }
                                 }
@@ -404,6 +407,7 @@ async fn process_message_from_app(
     mut msg: Message,
     session_id: u32,
     producer: &mut ProducerState,
+    is_bidirectional: bool,
     send_gw: mpsc::Sender<Result<Message, Status>>,
     send_app: mpsc::Sender<Result<SessionMessage, SessionError>>,
 ) {
@@ -412,7 +416,12 @@ async fn process_message_from_app(
         "received message from the app on producer session {}",
         session_id
     );
-    msg.set_header_type(SessionHeaderType::Stream);
+
+    if is_bidirectional {
+        msg.set_header_type(SessionHeaderType::PubSub);
+    } else {
+        msg.set_header_type(SessionHeaderType::Stream);
+    }
     msg.set_message_id(producer.next_id);
 
     trace!(
@@ -499,7 +508,7 @@ async fn process_message_form_gw(
                 receiver.rtx_map.remove(&rtx_msg_id);
             }
         }
-    } else if header_type != SessionHeaderType::Stream {
+    } else if header_type != SessionHeaderType::Stream && header_type != SessionHeaderType::PubSub {
         error!(
             "received packet with invalid header type {} on receiver session {}",
             i32::from(header_type),
