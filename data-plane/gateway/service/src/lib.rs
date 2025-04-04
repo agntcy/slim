@@ -16,6 +16,7 @@ mod session_layer;
 pub use agp_datapath::messages::utils::AgpHeaderFlags;
 pub use fire_and_forget::FireAndForgetConfiguration;
 pub use request_response::RequestResponseConfiguration;
+pub use streaming::StreamingConfiguration;
 pub use session::SessionMessage;
 
 use agp_datapath::messages::{Agent, AgentType};

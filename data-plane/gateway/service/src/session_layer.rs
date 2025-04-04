@@ -118,6 +118,7 @@ impl SessionLayer {
                 id,
                 conf,
                 SessionDirection::Bidirectional,
+                self.agent_name().clone(),
                 self.tx_gw.clone(),
                 self.tx_app.clone(),
             )),
@@ -126,6 +127,7 @@ impl SessionLayer {
                     id,
                     conf,
                     SessionDirection::Bidirectional,
+                    self.agent_name().clone(),
                     self.tx_gw.clone(),
                     self.tx_app.clone(),
                 ))
@@ -135,10 +137,13 @@ impl SessionLayer {
                 if conf.max_retries == 0 {
                     direction = SessionDirection::Sender;
                 }
+
+
                 Box::new(streaming::Streaming::new(
                     id,
                     conf,
                     direction,
+                    self.agent_name().clone(),
                     self.tx_gw.clone(),
                     self.tx_app.clone(),
                 ))
@@ -265,7 +270,6 @@ impl SessionLayer {
             SessionHeaderType::Stream => {
                 self.create_session(
                     SessionConfig::Streaming(streaming::StreamingConfiguration {
-                        source: self.agent_name().clone(),
                         max_retries: 10,
                         timeout: Duration::from_millis(1000),
                     }),

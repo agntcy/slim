@@ -15,6 +15,7 @@ use crate::session::{
     Common, CommonSession, Id, MessageDirection, Session, SessionDirection, State,
 };
 use crate::{timer, SessionMessage};
+use agp_datapath::messages::encoder::Agent;
 use agp_datapath::pubsub::proto::pubsub::v1::SessionHeaderType;
 
 /// Configuration for the Request Response session
@@ -94,6 +95,7 @@ impl RequestResponse {
         id: Id,
         session_config: RequestResponseConfiguration,
         session_direction: SessionDirection,
+        source: Agent,
         tx_gw: GwChannelSender,
         tx_app: AppChannelSender,
     ) -> RequestResponse {
@@ -102,6 +104,7 @@ impl RequestResponse {
                 id,
                 session_direction,
                 SessionConfig::RequestResponse(session_config),
+                source,
                 tx_gw,
                 tx_app,
             ),
@@ -280,10 +283,13 @@ mod tests {
             timeout: std::time::Duration::from_millis(1000),
         };
 
+        let source = Agent::from_strings("cisco", "default", "local_agent", 0);
+
         let session = RequestResponse::new(
             0,
             session_config.clone(),
             SessionDirection::Bidirectional,
+            source,
             tx_gw,
             tx_app,
         );
@@ -306,10 +312,13 @@ mod tests {
             timeout: std::time::Duration::from_millis(1000),
         };
 
+        let source = Agent::from_strings("cisco", "default", "local_agent", 0);
+
         let session = RequestResponse::new(
             0,
             session_config,
             SessionDirection::Bidirectional,
+            source,
             tx_gw,
             tx_app,
         );
