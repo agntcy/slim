@@ -157,7 +157,7 @@ pub enum State {
 
 /// The type of a session
 #[derive(Clone, PartialEq, Debug)]
-pub(crate) enum SessionDirection {
+pub enum SessionDirection {
     #[allow(dead_code)]
     Sender,
     #[allow(dead_code)]
