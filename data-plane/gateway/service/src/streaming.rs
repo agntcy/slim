@@ -30,7 +30,6 @@ use tracing::{debug, error, info, trace, warn};
 #[derive(Debug, Clone, PartialEq)]
 pub struct StreamingConfiguration {
     pub direction: SessionDirection,
-    pub source: Agent,
     pub topic: AgentType,
     pub max_retries: u32,
     pub timeout: std::time::Duration,
@@ -40,10 +39,9 @@ impl std::fmt::Display for StreamingConfiguration {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "StreamingConfiguration: max_retries: {}, timeout: {} ms, source: {}",
+            "StreamingConfiguration: max_retries: {}, timeout: {} ms",
             self.max_retries,
             self.timeout.as_millis(),
-            self.source,
         )
     }
 }
@@ -51,14 +49,12 @@ impl std::fmt::Display for StreamingConfiguration {
 impl StreamingConfiguration {
     pub fn new(
         direction: SessionDirection,
-        source: Agent,
         topic: Option<AgentType>,
         max_retries: Option<u32>,
         timeout: Option<std::time::Duration>,
     ) -> Self {
         StreamingConfiguration {
             direction,
-            source,
             topic: topic.unwrap_or_default(),
             max_retries: max_retries.unwrap_or(0),
             timeout: timeout.unwrap_or(std::time::Duration::from_millis(0)),
@@ -149,6 +145,7 @@ impl Streaming {
         id: Id,
         session_config: StreamingConfiguration,
         session_direction: SessionDirection,
+        agent: Agent,
         tx_gw: GwChannelSender,
         tx_app: AppChannelSender,
     ) -> Streaming {
@@ -158,6 +155,7 @@ impl Streaming {
                 id,
                 session_direction.clone(),
                 SessionConfig::Streaming(session_config.clone()),
+                agent,
                 tx_gw,
                 tx_app,
             ),
@@ -175,10 +173,10 @@ impl Streaming {
         let session_id = self.common.id();
         let send_gw = self.common.tx_gw();
         let send_app = self.common.tx_app();
+        let source = self.common.source().clone();
 
-        let (source, max_retries, timeout) = match self.common.session_config() {
+        let (max_retries, timeout) = match self.common.session_config() {
             SessionConfig::Streaming(streaming_configuration) => (
-                streaming_configuration.source,
                 streaming_configuration.max_retries,
                 streaming_configuration.timeout,
             ),
@@ -721,18 +719,16 @@ mod tests {
         let (tx_gw, _) = tokio::sync::mpsc::channel(1);
         let (tx_app, _) = tokio::sync::mpsc::channel(1);
 
-        let session_config: StreamingConfiguration = StreamingConfiguration::new(
-            SessionDirection::Sender,
-            Agent::from_strings("cisco", "default", "local_agent", 0),
-            None,
-            None,
-            None,
-        );
+        let source = Agent::from_strings("cisco", "default", "local_agent", 0);
+
+        let session_config: StreamingConfiguration =
+            StreamingConfiguration::new(SessionDirection::Sender, None, None, None);
 
         let session = Streaming::new(
             0,
             session_config.clone(),
             SessionDirection::Sender,
+            source.clone(),
             tx_gw.clone(),
             tx_app.clone(),
         );
@@ -746,7 +742,6 @@ mod tests {
 
         let session_config: StreamingConfiguration = StreamingConfiguration::new(
             SessionDirection::Receiver,
-            Agent::from_strings("cisco", "default", "local_agent", 0),
             None,
             Some(10),
             Some(Duration::from_millis(1000)),
@@ -756,6 +751,7 @@ mod tests {
             1,
             session_config.clone(),
             SessionDirection::Receiver,
+            source.clone(),
             tx_gw,
             tx_app,
         );
@@ -777,16 +773,10 @@ mod tests {
         let (tx_gw_receiver, _rx_gw_receiver) = tokio::sync::mpsc::channel(1);
         let (tx_app_receiver, mut rx_app_receiver) = tokio::sync::mpsc::channel(1);
 
-        let session_config_sender: StreamingConfiguration = StreamingConfiguration::new(
-            SessionDirection::Sender,
-            Agent::from_strings("cisco", "default", "sender", 0),
-            None,
-            None,
-            None,
-        );
+        let session_config_sender: StreamingConfiguration =
+            StreamingConfiguration::new(SessionDirection::Sender, None, None, None);
         let session_config_receiver: StreamingConfiguration = StreamingConfiguration::new(
             SessionDirection::Receiver,
-            Agent::from_strings("cisco", "default", "receiver", 0),
             None,
             Some(5),
             Some(Duration::from_millis(500)),
@@ -796,6 +786,7 @@ mod tests {
             0,
             session_config_sender,
             SessionDirection::Sender,
+            Agent::from_strings("cisco", "default", "sender", 0),
             tx_gw_sender,
             tx_app_sender,
         );
@@ -803,6 +794,7 @@ mod tests {
             0,
             session_config_receiver,
             SessionDirection::Receiver,
+            Agent::from_strings("cisco", "default", "receiver", 0),
             tx_gw_receiver,
             tx_app_receiver,
         );
@@ -855,13 +847,19 @@ mod tests {
 
         let session_config: StreamingConfiguration = StreamingConfiguration::new(
             SessionDirection::Receiver,
-            Agent::from_strings("cisco", "default", "receiver", 0),
             None,
             Some(5),
             Some(Duration::from_millis(500)),
         );
 
-        let session = Streaming::new(0, session_config, SessionDirection::Receiver, tx_gw, tx_app);
+        let session = Streaming::new(
+            0,
+            session_config,
+            SessionDirection::Receiver,
+            Agent::from_strings("cisco", "default", "sender", 0),
+            tx_gw,
+            tx_app,
+        );
 
         let mut message = Message::new_publish(
             &Agent::from_strings("cisco", "default", "sender", 0),
@@ -922,13 +920,19 @@ mod tests {
 
         let session_config: StreamingConfiguration = StreamingConfiguration::new(
             SessionDirection::Receiver,
-            Agent::from_strings("cisco", "default", "receiver", 0),
             None,
             Some(5),
             Some(Duration::from_millis(500)),
         );
 
-        let session = Streaming::new(120, session_config, SessionDirection::Sender, tx_gw, tx_app);
+        let session = Streaming::new(
+            120,
+            session_config,
+            SessionDirection::Sender,
+            Agent::from_strings("cisco", "default", "receiver", 0),
+            tx_gw,
+            tx_app,
+        );
 
         let mut message = Message::new_publish(
             &Agent::from_strings("cisco", "default", "sender", 0),
@@ -1008,16 +1012,10 @@ mod tests {
         let (tx_gw_receiver, mut rx_gw_receiver) = tokio::sync::mpsc::channel(1);
         let (tx_app_receiver, mut rx_app_receiver) = tokio::sync::mpsc::channel(1);
 
-        let session_config_sender: StreamingConfiguration = StreamingConfiguration::new(
-            SessionDirection::Sender,
-            Agent::from_strings("cisco", "default", "sender", 0),
-            None,
-            None,
-            None,
-        );
+        let session_config_sender: StreamingConfiguration =
+            StreamingConfiguration::new(SessionDirection::Sender, None, None, None);
         let session_config_receiver: StreamingConfiguration = StreamingConfiguration::new(
             SessionDirection::Receiver,
-            Agent::from_strings("cisco", "default", "receiver", 0),
             None,
             Some(5),
             Some(Duration::from_millis(500)),
@@ -1027,6 +1025,7 @@ mod tests {
             0,
             session_config_sender,
             SessionDirection::Sender,
+            Agent::from_strings("cisco", "default", "sender", 0),
             tx_gw_sender,
             tx_app_sender,
         );
@@ -1034,6 +1033,7 @@ mod tests {
             0,
             session_config_receiver,
             SessionDirection::Receiver,
+            Agent::from_strings("cisco", "default", "receiver", 0),
             tx_gw_receiver,
             tx_app_receiver,
         );

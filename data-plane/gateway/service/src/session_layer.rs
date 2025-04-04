@@ -119,6 +119,7 @@ impl SessionLayer {
                 id,
                 conf,
                 SessionDirection::Bidirectional,
+                self.agent_name().clone(),
                 self.tx_gw.clone(),
                 self.tx_app.clone(),
             )),
@@ -127,6 +128,7 @@ impl SessionLayer {
                     id,
                     conf,
                     SessionDirection::Bidirectional,
+                    self.agent_name().clone(),
                     self.tx_gw.clone(),
                     self.tx_app.clone(),
                 ))
@@ -140,10 +142,12 @@ impl SessionLayer {
                     id = (agp_datapath::messages::encoder::calculate_hash(&conf.topic)
                         % (u32::MAX as u64)) as u32;
                 }
+
                 Box::new(streaming::Streaming::new(
                     id,
                     conf,
                     direction,
+                    self.agent_name().clone(),
                     self.tx_gw.clone(),
                     self.tx_app.clone(),
                 ))
@@ -270,7 +274,6 @@ impl SessionLayer {
             SessionHeaderType::Stream => {
                 let session_conf = StreamingConfiguration::new(
                     SessionDirection::Receiver,
-                    self.agent_name().clone(),
                     None,
                     Some(10),
                     Some(Duration::from_millis(1000)),

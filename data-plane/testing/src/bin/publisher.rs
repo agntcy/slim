@@ -232,7 +232,6 @@ async fn main() {
                     &agent_name,
                     agp_service::session::SessionConfig::Streaming(StreamingConfiguration::new(
                         agp_service::session::SessionDirection::Sender,
-                        agent_name.clone(),
                         None,
                         None,
                         None,
@@ -246,7 +245,6 @@ async fn main() {
                     &agent_name,
                     agp_service::session::SessionConfig::Streaming(StreamingConfiguration::new(
                         agp_service::session::SessionDirection::Bidirectional,
-                        agent_name.clone(),
                         Some(topic.clone()),
                         Some(10),
                         Some(Duration::from_millis(1000)),

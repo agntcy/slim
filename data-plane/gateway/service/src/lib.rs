@@ -17,6 +17,7 @@ pub use agp_datapath::messages::utils::AgpHeaderFlags;
 pub use fire_and_forget::FireAndForgetConfiguration;
 pub use request_response::RequestResponseConfiguration;
 pub use session::SessionMessage;
+pub use streaming::StreamingConfiguration;
 
 use agp_datapath::messages::{Agent, AgentType};
 use agp_datapath::pubsub::MessageType;

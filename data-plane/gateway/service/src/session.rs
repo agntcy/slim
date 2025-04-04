@@ -197,6 +197,8 @@ pub(crate) trait CommonSession {
     #[allow(dead_code)]
     fn state(&self) -> &State;
 
+    fn source(&self) -> &Agent;
+
     // get the session config
     #[allow(dead_code)]
     fn session_config(&self) -> SessionConfig;
@@ -233,6 +235,9 @@ pub(crate) struct Common {
     #[allow(dead_code)]
     session_direction: SessionDirection,
 
+    /// Source agent
+    source: Agent,
+
     /// Sender for messages to gw
     tx_gw: GwChannelSender,
 
@@ -247,6 +252,10 @@ impl CommonSession for Common {
 
     fn state(&self) -> &State {
         &self.state
+    }
+
+    fn source(&self) -> &Agent {
+        &self.source
     }
 
     fn session_config(&self) -> SessionConfig {
@@ -266,6 +275,7 @@ impl Common {
         id: Id,
         session_direction: SessionDirection,
         session_type: SessionConfig,
+        source: Agent,
         tx_gw: GwChannelSender,
         tx_app: AppChannelSender,
     ) -> Common {
@@ -274,6 +284,7 @@ impl Common {
             state: State::Active,
             session_direction,
             session_config: RwLock::new(session_type),
+            source,
             tx_gw,
             tx_app,
         }
@@ -317,6 +328,10 @@ macro_rules! delegate_common_behavior {
 
             fn set_session_config(&self, session_config: &SessionConfig) -> Result<(), SessionError> {
                 self.$($tokens).+.set_session_config(session_config)
+            }
+
+            fn source(&self) -> &Agent {
+                self.$($tokens).+.source()
             }
         }
     };
