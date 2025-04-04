@@ -138,7 +138,6 @@ impl SessionLayer {
                     direction = SessionDirection::Sender;
                 }
 
-
                 Box::new(streaming::Streaming::new(
                     id,
                     conf,
