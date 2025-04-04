@@ -376,7 +376,11 @@ async fn process_incoming_rtx_request(
                 source,
                 pkt_src.agent_type(),
                 Some(pkt_src.agent_id()),
-                Some(AgpHeaderFlags::default().with_forward_to(incoming_conn)),
+                Some(
+                    AgpHeaderFlags::default()
+                        .with_forward_to(incoming_conn)
+                        .with_fanout(1),
+                ),
             ));
 
             let session_header = Some(SessionHeader::new(
@@ -428,6 +432,7 @@ async fn process_message_from_app(
         msg.set_header_type(SessionHeaderType::Stream);
     }
     msg.set_message_id(producer.next_id);
+    msg.set_fanout(50); // set a fanout > 1 to send a broadcast message
 
     trace!(
         "add message {} to the producer buffer on session {}",
