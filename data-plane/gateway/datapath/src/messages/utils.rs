@@ -94,6 +94,16 @@ impl Default for AgpHeaderFlags {
     }
 }
 
+impl Display for AgpHeaderFlags {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "fanout: {}, recv_from: {:?}, forward_to: {:?}, incoming_conn: {:?}, error: {:?}",
+            self.fanout, self.recv_from, self.forward_to, self.incoming_conn, self.error
+        )
+    }
+}
+
 impl AgpHeaderFlags {
     pub fn new(
         fanout: u32,

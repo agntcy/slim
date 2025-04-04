@@ -379,99 +379,40 @@ impl PySessionInfo {
 #[pyclass]
 #[derive(Clone)]
 struct PyService {
-    sdk: Arc<tokio::sync::RwLock<PyServiceInternal>>,
+    sdk: Arc<PyServiceInternal>,
     config: Option<PyGatewayConfig>,
 }
 
 struct PyServiceInternal {
     service: Service,
-    agent: Option<Agent>,
-    rx: Option<session::AppChannelReceiver>,
+    agent: Agent,
+    rx: RwLock<session::AppChannelReceiver>,
 }
 
 #[gen_stub_pymethods]
 #[pymethods]
 impl PyService {
-    #[new]
-    pub fn new(id: &str) -> Self {
-        let svc_id = agp_config::component::id::ID::new_with_str(id).unwrap();
-        PyService {
-            sdk: Arc::new(RwLock::new(PyServiceInternal {
-                service: Service::new(svc_id),
-                agent: None,
-                rx: None,
-            })),
-            config: None,
-        }
-    }
-
     #[pyo3(signature = (config))]
     pub fn configure(&mut self, config: PyGatewayConfig) {
         self.config = Some(config);
     }
-}
 
-async fn create_agent_impl(
-    svc: PyService,
-    agent_org: String,
-    agent_ns: String,
-    agent_class: String,
-    agent_id: Option<u64>,
-) -> Result<u64, ServiceError> {
-    let id = match agent_id {
-        Some(v) => v,
-        None => {
-            let mut rng = rand::rng();
-            rng.random()
-        }
-    };
-
-    // create local agent
-    let agent = Agent::from_strings(&agent_org, &agent_ns, &agent_class, id);
-    let mut service = svc.sdk.write().await;
-    let rx = service.service.create_agent(&agent)?;
-    service.rx = Some(rx);
-    service.agent = Some(agent);
-
-    Ok(id)
-}
-
-#[gen_stub_pyfunction]
-#[pyfunction]
-#[pyo3(signature = (svc, agent_org, agent_ns, agent_class, agent_id=None))]
-fn create_agent(
-    py: Python,
-    svc: PyService,
-    agent_org: String,
-    agent_ns: String,
-    agent_class: String,
-    agent_id: Option<u64>,
-) -> PyResult<Bound<PyAny>> {
-    let clone = svc.clone();
-    pyo3_async_runtimes::tokio::future_into_py(py, async move {
-        create_agent_impl(clone, agent_org, agent_ns, agent_class, agent_id)
-            .await
-            .map_err(|e| PyErr::new::<PyException, _>(format!("{}", e.to_string())))
-    })
+    #[getter]
+    pub fn id(&self) -> u64 {
+        self.sdk.agent.agent_id() as u64
+    }
 }
 
 async fn create_session_impl(
     svc: PyService,
     session_config: session::SessionConfig,
 ) -> Result<PySessionInfo, ServiceError> {
-    // create local agent
-    let service = svc.sdk.write().await;
-
-    match &service.agent {
-        Some(agent) => {
-            let session_info = service
-                .service
-                .create_session(agent, session_config)
-                .await?;
-            Ok(PySessionInfo::from(session_info))
-        }
-        None => Err(ServiceError::AgentNotFound("no agent found".to_string())),
-    }
+    Ok(PySessionInfo::from(
+        svc.sdk
+            .service
+            .create_session(&svc.sdk.agent, session_config)
+            .await?,
+    ))
 }
 
 #[gen_stub_pyfunction]
@@ -521,9 +462,7 @@ async fn serve_impl(svc: PyService) -> Result<(), ServiceError> {
     };
 
     let server_config = config.to_server_config()?;
-
-    let service = svc.sdk.write().await;
-    service.service.serve(Some(server_config))
+    svc.sdk.service.serve(Some(server_config))
 }
 
 #[gen_stub_pyfunction]
@@ -540,10 +479,7 @@ fn serve(py: Python, svc: PyService) -> PyResult<Bound<PyAny>> {
 }
 
 async fn stop_impl(svc: PyService) -> Result<(), ServiceError> {
-    let service = svc.sdk.write().await;
-    service.service.stop();
-
-    Ok(())
+    Ok(svc.sdk.service.stop())
 }
 
 #[gen_stub_pyfunction]
@@ -574,8 +510,7 @@ async fn connect_impl(svc: PyService) -> Result<u64, ServiceError> {
     let client_config = config.to_client_config()?;
 
     // Get service and connect
-    let mut service = svc.sdk.write().await;
-    service.service.connect(Some(client_config)).await
+    svc.sdk.service.connect(Some(client_config)).await
 }
 
 #[gen_stub_pyfunction]
@@ -592,8 +527,7 @@ fn connect(py: Python, svc: PyService) -> PyResult<Bound<PyAny>> {
 }
 
 async fn disconnect_impl(svc: PyService, conn: u64) -> Result<(), ServiceError> {
-    let mut service = svc.sdk.write().await;
-    service.service.disconnect(conn)
+    svc.sdk.service.disconnect(conn)
 }
 
 #[gen_stub_pyfunction]
@@ -614,19 +548,11 @@ async fn subscribe_impl(
     id: Option<u64>,
 ) -> Result<(), ServiceError> {
     let class = AgentType::from_strings(&name.organization, &name.namespace, &name.agent_type);
-    let service = svc.sdk.read().await;
 
-    match &service.agent {
-        Some(agent) => {
-            service
-                .service
-                .subscribe(agent, &class, id, Some(conn))
-                .await
-        }
-        None => Err(ServiceError::AgentNotFound(
-            "missing from service".to_string(),
-        )),
-    }
+    svc.sdk
+        .service
+        .subscribe(&svc.sdk.agent, &class, id, Some(conn))
+        .await
 }
 
 #[gen_stub_pyfunction]
@@ -654,19 +580,10 @@ async fn unsubscribe_impl(
     id: Option<u64>,
 ) -> Result<(), ServiceError> {
     let class = AgentType::from_strings(&name.organization, &name.namespace, &name.agent_type);
-    let service = svc.sdk.read().await;
-
-    match &service.agent {
-        Some(agent) => {
-            service
-                .service
-                .unsubscribe(agent, &class, id, Some(conn))
-                .await
-        }
-        None => Err(ServiceError::AgentNotFound(
-            "missing from service".to_string(),
-        )),
-    }
+    svc.sdk
+        .service
+        .unsubscribe(&svc.sdk.agent, &class, id, Some(conn))
+        .await
 }
 
 #[gen_stub_pyfunction]
@@ -694,14 +611,10 @@ async fn set_route_impl(
     id: Option<u64>,
 ) -> Result<(), ServiceError> {
     let class = AgentType::from_strings(&name.organization, &name.namespace, &name.agent_type);
-    let service = svc.sdk.read().await;
-
-    match &service.agent {
-        Some(agent) => service.service.set_route(agent, &class, id, conn).await,
-        None => Err(ServiceError::AgentNotFound(
-            "missing from service".to_string(),
-        )),
-    }
+    svc.sdk
+        .service
+        .set_route(&svc.sdk.agent, &class, id, conn)
+        .await
 }
 
 #[gen_stub_pyfunction]
@@ -729,14 +642,10 @@ async fn remove_route_impl(
     id: Option<u64>,
 ) -> Result<(), ServiceError> {
     let class = AgentType::from_strings(&name.organization, &name.namespace, &name.agent_type);
-    let service = svc.sdk.read().await;
-
-    match &service.agent {
-        Some(agent) => service.service.remove_route(agent, &class, id, conn).await,
-        None => Err(ServiceError::AgentNotFound(
-            "missing from service".to_string(),
-        )),
-    }
+    svc.sdk
+        .service
+        .remove_route(&svc.sdk.agent, &class, id, conn)
+        .await
 }
 
 #[gen_stub_pyfunction]
@@ -780,21 +689,20 @@ async fn publish_impl(
         }
     };
 
-    let service = svc.sdk.read().await;
-
     // set flags
     let flags = AgpHeaderFlags::new(fanout, None, conn_out, None, None);
-    match &service.agent {
-        Some(agent) => {
-            service
-                .service
-                .publish_with_flags(agent, session_info, &agent_type, agent_id, flags, blob)
-                .await
-        }
-        None => Err(ServiceError::AgentNotFound(
-            "missing from service".to_string(),
-        )),
-    }
+
+    svc.sdk
+        .service
+        .publish_with_flags(
+            &svc.sdk.agent,
+            session_info,
+            &agent_type,
+            agent_id,
+            flags,
+            blob,
+        )
+        .await
 }
 
 #[gen_stub_pyfunction]
@@ -824,11 +732,7 @@ fn publish(
 }
 
 async fn receive_impl(svc: PyService) -> Result<(PySessionInfo, Vec<u8>), ServiceError> {
-    let mut service = svc.sdk.write().await;
-
-    let rx = service.rx.as_mut().ok_or(ServiceError::ReceiveError(
-        "no local agent created".to_string(),
-    ))?;
+    let mut rx = svc.sdk.rx.write().await;
 
     let msg = rx
         .recv()
@@ -856,11 +760,15 @@ async fn receive_impl(svc: PyService) -> Result<(PySessionInfo, Vec<u8>), Servic
 #[pyfunction]
 #[pyo3(signature = (svc))]
 fn receive(py: Python, svc: PyService) -> PyResult<Bound<PyAny>> {
-    pyo3_async_runtimes::tokio::future_into_py(py, async move {
-        receive_impl(svc.clone())
-            .await
-            .map_err(|e| PyErr::new::<PyException, _>(format!("{}", e.to_string())))
-    })
+    pyo3_async_runtimes::tokio::future_into_py_with_locals(
+        py,
+        pyo3_async_runtimes::tokio::get_current_locals(py)?,
+        async move {
+            receive_impl(svc.clone())
+                .await
+                .map_err(|e| PyErr::new::<PyException, _>(format!("{}", e.to_string())))
+        },
+    )
 }
 
 async fn init_tracing_impl(log_level: String, enable_opentelemetry: bool) {
@@ -887,6 +795,61 @@ fn init_tracing(py: Python, log_level: String, enable_opentelemetry: bool) {
     });
 }
 
+async fn create_pyservice_impl(
+    organization: String,
+    namespace: String,
+    agent_type: String,
+    id: Option<u64>,
+) -> Result<PyService, ServiceError> {
+    let id = match id {
+        Some(v) => v,
+        None => {
+            let mut rng = rand::rng();
+            rng.random()
+        }
+    };
+
+    // create local agent
+    let agent = Agent::from_strings(&organization, &namespace, &agent_type, id);
+
+    // create service ID
+    let svc_id = agp_config::component::id::ID::new_with_str(&agent.to_string()).unwrap();
+
+    // create local service
+    let svc = Service::new(svc_id);
+
+    // Get the rx channel
+    let rx = svc.create_agent(&agent).await?;
+
+    // create the service
+    let sdk = Arc::new(PyServiceInternal {
+        service: svc,
+        agent: agent,
+        rx: RwLock::new(rx),
+    });
+
+    Ok(PyService {
+        sdk: sdk,
+        config: None,
+    })
+}
+
+#[pyfunction]
+#[pyo3(signature = (organization, namespace, agent_type, id=None))]
+fn create_pyservice(
+    py: Python,
+    organization: String,
+    namespace: String,
+    agent_type: String,
+    id: Option<u64>,
+) -> PyResult<Bound<PyAny>> {
+    pyo3_async_runtimes::tokio::future_into_py(py, async move {
+        create_pyservice_impl(organization, namespace, agent_type, id)
+            .await
+            .map_err(|e| PyErr::new::<PyException, _>(format!("{}", e.to_string())))
+    })
+}
+
 #[pymodule]
 fn _agp_bindings(_py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyGatewayConfig>()?;
@@ -896,7 +859,7 @@ fn _agp_bindings(_py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyFireAndForgetConfiguration>()?;
     m.add_class::<PyRequestResponseConfiguration>()?;
 
-    m.add_function(wrap_pyfunction!(create_agent, m)?)?;
+    m.add_function(wrap_pyfunction!(create_pyservice, m)?)?;
     m.add_function(wrap_pyfunction!(create_ff_session, m)?)?;
     m.add_function(wrap_pyfunction!(create_rr_session, m)?)?;
     m.add_function(wrap_pyfunction!(subscribe, m)?)?;
@@ -910,6 +873,8 @@ fn _agp_bindings(_py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(disconnect, m)?)?;
     m.add_function(wrap_pyfunction!(receive, m)?)?;
     m.add_function(wrap_pyfunction!(init_tracing, m)?)?;
+
+    m.add("SESSION_UNSPECIFIED", session::SESSION_UNSPECIFIED)?;
 
     Ok(())
 }

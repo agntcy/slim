@@ -13,7 +13,7 @@ use crate::fire_and_forget::FireAndForgetConfiguration;
 use crate::request_response;
 use crate::session::{
     AppChannelSender, GwChannelSender, Id, Info, MessageDirection, Session, SessionConfig,
-    SessionDirection, SessionMessage,
+    SessionDirection, SessionMessage, SESSION_RANGE,
 };
 use crate::streaming;
 use agp_datapath::messages::encoder::Agent;
@@ -75,25 +75,6 @@ impl SessionLayer {
         &self.agent_name
     }
 
-    /// Insert a new session into the pool
-    pub(crate) async fn insert_session(
-        &self,
-        id: Id,
-        session: Box<dyn Session + Send + Sync>,
-    ) -> Result<(), SessionError> {
-        // get the write lock
-        let mut pool = self.pool.write().await;
-
-        // check if the session already exists
-        if pool.contains_key(&id) {
-            return Err(SessionError::SessionIdAlreadyUsed(id.to_string()));
-        }
-
-        pool.insert(id, session);
-
-        Ok(())
-    }
-
     pub(crate) async fn create_session(
         &self,
         session_config: SessionConfig,
@@ -102,10 +83,33 @@ impl SessionLayer {
         // TODO(msardara): the session identifier should be a combination of the
         // session ID and the agent ID, to prevent collisions.
 
-        // generate a new session ID
+        // get a lock on the session pool
+        let mut pool = self.pool.write().await;
+
+        // generate a new session ID in the SESSION_RANGE if not provided
         let id = match id {
-            Some(id) => id,
-            None => rand::rng().random(),
+            Some(id) => {
+                // make sure provided id is in range
+                if !SESSION_RANGE.contains(&id) {
+                    return Err(SessionError::InvalidSessionId(id.to_string()));
+                }
+
+                // check if the session ID is already used
+                if pool.contains_key(&id) {
+                    return Err(SessionError::SessionIdAlreadyUsed(id.to_string()));
+                }
+
+                id
+            }
+            None => {
+                // generate a new session ID
+                loop {
+                    let id = rand::rng().random_range(SESSION_RANGE);
+                    if !pool.contains_key(&id) {
+                        break id;
+                    }
+                }
+            }
         };
 
         // create a new session
@@ -142,7 +146,12 @@ impl SessionLayer {
         };
 
         // insert the session into the pool
-        self.insert_session(id, session).await?;
+        let ret = pool.insert(id, session);
+
+        // This should never happen, but just in case
+        if ret.is_some() {
+            panic!("session already exists: {}", ret.is_some());
+        }
 
         Ok(Info::new(id))
     }
@@ -305,7 +314,7 @@ impl SessionLayer {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::fire_and_forget::{FireAndForget, FireAndForgetConfiguration};
+    use crate::fire_and_forget::FireAndForgetConfiguration;
 
     use agp_datapath::{
         messages::{Agent, AgentType},
@@ -328,27 +337,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_insert_session() {
-        let (tx_gw, _) = tokio::sync::mpsc::channel(1);
-        let (tx_app, _) = tokio::sync::mpsc::channel(1);
-        let agent = Agent::from_strings("org", "ns", "type", 0);
-
-        let session_layer = SessionLayer::new(&agent, 0, tx_gw.clone(), tx_app.clone());
-        let session_config = FireAndForgetConfiguration {};
-
-        let session = Box::new(FireAndForget::new(
-            1,
-            session_config,
-            SessionDirection::Bidirectional,
-            tx_gw.clone(),
-            tx_app.clone(),
-        ));
-
-        let res = session_layer.insert_session(1, session).await;
-        assert!(res.is_ok());
-    }
-
-    #[tokio::test]
     async fn test_remove_session() {
         let (tx_gw, _) = tokio::sync::mpsc::channel(1);
         let (tx_app, _) = tokio::sync::mpsc::channel(1);
@@ -357,17 +345,13 @@ mod tests {
         let session_layer = SessionLayer::new(&agent, 0, tx_gw.clone(), tx_app.clone());
         let session_config = FireAndForgetConfiguration {};
 
-        let session = Box::new(FireAndForget::new(
-            1,
-            session_config,
-            SessionDirection::Bidirectional,
-            tx_gw.clone(),
-            tx_app.clone(),
-        ));
+        let ret = session_layer
+            .create_session(SessionConfig::FireAndForget(session_config), Some(1))
+            .await;
 
-        session_layer.insert_session(1, session).await.unwrap();
+        assert!(ret.is_ok());
+
         let res = session_layer.remove_session(1).await;
-
         assert!(res);
     }
 
@@ -398,15 +382,11 @@ mod tests {
 
         let session_config = FireAndForgetConfiguration {};
 
-        let session = Box::new(FireAndForget::new(
-            1,
-            session_config,
-            SessionDirection::Bidirectional,
-            tx_gw.clone(),
-            tx_app.clone(),
-        ));
-
-        session_layer.insert_session(1, session).await.unwrap();
+        // create a new session
+        let res = session_layer
+            .create_session(SessionConfig::FireAndForget(session_config), Some(1))
+            .await;
+        assert!(res.is_ok());
 
         let mut message = ProtoMessage::new_publish(
             &Agent::from_strings("cisco", "default", "local_agent", 0),

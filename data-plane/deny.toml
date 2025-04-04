@@ -8,10 +8,6 @@ targets = [
 [advisories]
 db-path = "~/.cargo/advisory-db"
 db-urls = ["https://github.com/rustsec/advisory-db"]
-ignore = [
-    # ignore paste until it gets remove from aws-lc-rs
-    { id = "RUSTSEC-2024-0436" },
-]
 
 [licenses]
 allow = [
