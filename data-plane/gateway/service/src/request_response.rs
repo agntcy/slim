@@ -199,7 +199,7 @@ impl Session for RequestResponse {
                         }
                     }
                     SessionHeaderType::Request => {
-                        // this is a request - set the session_type pf the session
+                        // this is a request - set the session_type of the session
                         // info to reply to allow the app to reply using this session info
                         message.info.session_header_type = SessionHeaderType::Reply;
                     }

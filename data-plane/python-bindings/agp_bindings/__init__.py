@@ -242,7 +242,7 @@ class Gateway:
             organization (str): The organization of the agent.
             namespace (str): The namespace of the agent.
             agent (str): The name of the agent.
-            id (int): The ID of the agent.
+            id (int): Optional ID of the agent.
 
         Returns:
             None
@@ -261,6 +261,7 @@ class Gateway:
             organization (str): The organization of the agent.
             namespace (str): The namespace of the agent.
             agent (str): The name of the agent.
+            id (int): Optional ID of the agent.
 
         Returns:
             None
@@ -277,7 +278,7 @@ class Gateway:
             organization (str): The organization of the agent.
             namespace (str): The namespace of the agent.
             agent (str): The name of the agent.
-            id (int): The ID of the agent.
+            id (int): Optional ID of the agent.
 
         Returns:
             None
@@ -294,7 +295,7 @@ class Gateway:
             organization (str): The organization of the agent.
             namespace (str): The namespace of the agent.
             agent (str): The name of the agent.
-            id (int): The ID of the agent.
+            id (int): Optional ID of the agent.
 
         Returns:
             None
@@ -303,7 +304,7 @@ class Gateway:
         unsub = PyAgentType(organization, namespace, agent)
         await unsubscribe(self.svc, self.conn_id, unsub, id)
 
-    async def publish(self, session, msg, organization, namespace, agent):
+    async def publish(self, session, msg, organization, namespace, agent, id=None):
         """
         Publish a message to an agent via normal matching in subscription table.
 
@@ -313,13 +314,14 @@ class Gateway:
             organization (str): The organization of the agent.
             namespace (str): The namespace of the agent.
             agent (str): The name of the agent.
+            id (int): Optional ID of the agent.
 
         Returns:
             None
         """
 
         dest = PyAgentType(organization, namespace, agent)
-        await publish(self.svc, session, 1, msg, dest, None)
+        await publish(self.svc, session, 1, msg, dest, id)
 
     async def request_reply(
         self, session, msg, organization, namespace, agent

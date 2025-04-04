@@ -283,38 +283,6 @@ async fn main() {
         }
     }
 
-    // start local agent
-    // get service
-    let svc_id = agp_config::component::id::ID::new_with_str("gateway/0").unwrap();
-    let svc = config.services.get_mut(&svc_id).unwrap();
-
-    // create local agent
-    let agent_name = Agent::from_strings("cisco", "default", "publisher", id);
-    let mut rx = svc
-        .create_agent(&agent_name)
-        .await
-        .expect("failed to create agent");
-
-    // connect to the remote gateway
-    let conn_id = svc.connect(None).await.unwrap();
-    info!("remote connection id = {}", conn_id);
-
-    // subscribe for local name
-    match svc
-        .subscribe(
-            &agent_name,
-            agent_name.agent_type(),
-            agent_name.agent_id_option(),
-            Some(conn_id),
-        )
-        .await
-    {
-        Ok(_) => {}
-        Err(e) => {
-            panic!("an error accoured while adding a subscription {}", e);
-        }
-    }
-
     // set routes for all subscriptions
     for r in routes {
         match svc
