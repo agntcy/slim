@@ -13,8 +13,11 @@ from ._agp_bindings import (
     PySessionInfo,
     PyFireAndForgetConfiguration,
     PyRequestResponseConfiguration,
+    PyStreamingConfiguration,
+    PySessionDirection,
     create_ff_session,
     create_rr_session,
+    create_streaming_session,
     create_pyservice,
     connect,
     disconnect,
@@ -43,7 +46,6 @@ class TimeoutError(RuntimeError):
     def __init__(self, message_id: int, session_id: int):
         self.message = f"Timeout error: message={message_id} session={session_id}"
         super().__init__(self.message)
-
 
 
 class Gateway:
@@ -176,6 +178,28 @@ class Gateway:
         self.sessions[session.id] = (session, asyncio.Queue(queue_size))
         return session
 
+    async def create_streaming_session(
+        self,
+        session_config: PyStreamingConfiguration,
+        queue_size: Optional[int] = 0,
+    ) -> PySessionInfo:
+        """
+        Create a new streaming session.
+
+        Args:
+            session_config (PyStreamingConfiguration): The session configuration.
+            queue_size (int): The size of the queue for the session.
+                                If 0, the queue will be unbounded.
+                                If a positive integer, the queue will be bounded to that size.
+
+        Returns:
+            ID of the session
+        """
+
+        session = await create_streaming_session(self.svc, session_config)
+        self.sessions[session.id] = (session, asyncio.Queue(queue_size))
+        return session
+
     async def run_server(self):
         """
         Start the server part of the Gateway service. The server will be started only
@@ -234,7 +258,9 @@ class Gateway:
 
         await disconnect(self.svc, self.conn_id)
 
-    async def set_route(self, organization, namespace, agent, id: Optional[int] = None):
+    async def set_route(
+        self, organization: str, namespace: str, agent: str, id: Optional[int] = None
+    ):
         """
         Set route for outgoing messages via the connected gateway.
 
@@ -252,7 +278,7 @@ class Gateway:
         await set_route(self.svc, self.conn_id, name, id)
 
     async def remove_route(
-        self, organization, namespace, agent, id: Optional[int] = None
+        self, organization: str, namespace: str, agent: str, id: Optional[int] = None
     ):
         """
         Remove route for outgoing messages via the connected gateway.
@@ -270,7 +296,7 @@ class Gateway:
         name = PyAgentType(organization, namespace, agent)
         await remove_route(self.svc, self.conn_id, name, id)
 
-    async def subscribe(self, organization, namespace, agent, id=None):
+    async def subscribe(self, organization: str, namespace: str, agent: str, id=None):
         """
         Subscribe to receive messages for the given agent.
 
@@ -287,7 +313,9 @@ class Gateway:
         sub = PyAgentType(organization, namespace, agent)
         await subscribe(self.svc, self.conn_id, sub, id)
 
-    async def unsubscribe(self, organization, namespace, agent, id=None):
+    async def unsubscribe(
+        self, organization: str, namespace: str, agent: str, id: Optional[int] = None
+    ):
         """
         Unsubscribe from receiving messages for the given agent.
 
@@ -304,7 +332,15 @@ class Gateway:
         unsub = PyAgentType(organization, namespace, agent)
         await unsubscribe(self.svc, self.conn_id, unsub, id)
 
-    async def publish(self, session, msg, organization, namespace, agent, id=None):
+    async def publish(
+        self,
+        session: PySessionInfo,
+        msg: bytes,
+        organization: str,
+        namespace: str,
+        agent: str,
+        id: Optional[int] = None,
+    ):
         """
         Publish a message to an agent via normal matching in subscription table.
 
@@ -324,7 +360,13 @@ class Gateway:
         await publish(self.svc, session, 1, msg, dest, id)
 
     async def request_reply(
-        self, session, msg, organization, namespace, agent
+        self,
+        session: PySessionInfo,
+        msg: bytes,
+        organization: str,
+        namespace: str,
+        agent: str,
+        id: Optional[int] = None,
     ) -> Tuple[PySessionInfo, bytes]:
         """
         Publish a message and wait for the first response.
@@ -345,7 +387,7 @@ class Gateway:
             raise Exception("Session ID not found")
 
         dest = PyAgentType(organization, namespace, agent)
-        await publish(self.svc, session, 1, msg, dest, None)
+        await publish(self.svc, session, 1, msg, dest, id)
 
         # Wait for a reply in the corresponding session queue
         session_info, msg = await self.receive(session.id)
