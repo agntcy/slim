@@ -175,6 +175,7 @@ async fn main() {
 
     let mut rx = svc
         .create_agent(&agent_name)
+        .await
         .expect("failed to create agent");
 
     // connect to the remote gateway

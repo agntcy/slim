@@ -91,6 +91,7 @@ async fn main() {
     let agent_name = Agent::from_strings("cisco", "default", "subscriber", id);
     let mut rx = svc
         .create_agent(&agent_name)
+        .await
         .expect("failed to create agent");
 
     // connect to the remote gateway
