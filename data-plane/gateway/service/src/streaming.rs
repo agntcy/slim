@@ -249,18 +249,18 @@ impl Streaming {
                                                     }
                                                 };
 
-                                                process_incoming_rtx_request(msg, session_id, producer, &source, send_gw.clone()).await;
+                                                process_incoming_rtx_request(msg, session_id, producer, &source, &send_gw).await;
                                             }
                                             MessageDirection::South => {
 
                                                 // received a message from the APP
-                                                process_message_from_app(msg, session_id, producer, false, send_gw.clone(), send_app.clone()).await;
+                                                process_message_from_app(msg, session_id, producer, false, &send_gw, &send_app).await;
                                             }
                                         }
                                     }
                                     Endpoint::Receiver(receiver) => {
                                         trace!("received message from the gataway on receiver session {}", session_id);
-                                        process_message_form_gw(msg, session_id, receiver, &source, max_retries, timeout, timer_tx.clone(), send_gw.clone(), send_app.clone()).await;
+                                        process_message_from_gw(msg, session_id, receiver, &source, max_retries, timeout, &timer_tx, &send_gw, &send_app).await;
                                     }
                                     Endpoint::Bidirectional(state) => {
                                         match direction {
@@ -270,16 +270,16 @@ impl Streaming {
                                                 match msg.get_session_header().header_type() {
                                                     SessionHeaderType::PubSub => {
                                                         // send the packet to the application
-                                                        process_message_form_gw(msg, session_id, &mut state.receiver, &source, max_retries, timeout, timer_tx.clone(), send_gw.clone(), send_app.clone()).await;
+                                                        process_message_from_gw(msg, session_id, &mut state.receiver, &source, max_retries, timeout, &timer_tx, &send_gw, &send_app).await;
 
                                                     }
                                                     SessionHeaderType::RtxRequest => {
                                                         // handle RTX request
-                                                        process_incoming_rtx_request(msg, session_id, &state.producer, &source, send_gw.clone()).await;
+                                                        process_incoming_rtx_request(msg, session_id, &state.producer, &source, &send_gw).await;
                                                     }
                                                     SessionHeaderType::RtxReply => {
                                                         // received a reply for an RTX
-                                                        process_message_form_gw(msg, session_id, &mut state.receiver, &source, max_retries, timeout, timer_tx.clone(), send_gw.clone(), send_app.clone()).await;
+                                                        process_message_from_gw(msg, session_id, &mut state.receiver, &source, max_retries, timeout, &timer_tx, &send_gw, &send_app).await;
                                                     }
                                                     _ => {
                                                         error!("received invalid packet type on bidirection session {}", session_id);
@@ -289,7 +289,7 @@ impl Streaming {
                                             }
                                             MessageDirection::South => {
                                                 // received a message from the APP
-                                                process_message_from_app(msg, session_id, &mut state.producer, true, send_gw.clone(), send_app.clone()).await;
+                                                process_message_from_app(msg, session_id, &mut state.producer, true, &send_gw, &send_app).await;
                                             }
                                         };
                                     }
@@ -314,9 +314,9 @@ impl Streaming {
                                 match &mut endpoint {
                                     Endpoint::Receiver(receiver) => {
                                         if retry {
-                                            handle_timeout(receiver, &producer_name, msg_id, session_id, send_gw.clone()).await;
+                                            handle_timeout(receiver, &producer_name, msg_id, session_id, &send_gw).await;
                                         } else {
-                                            handle_failure(receiver, &producer_name, msg_id, session_id, send_app.clone()).await;
+                                            handle_failure(receiver, &producer_name, msg_id, session_id, &send_app).await;
                                         }
                                     }
                                     Endpoint::Producer(_) => {
@@ -325,9 +325,9 @@ impl Streaming {
                                     }
                                     Endpoint::Bidirectional(state) => {
                                         if retry {
-                                            handle_timeout(&mut state.receiver, &producer_name, msg_id, session_id, send_gw.clone()).await;
+                                            handle_timeout(&mut state.receiver, &producer_name, msg_id, session_id, &send_gw).await;
                                         } else {
-                                            handle_failure(&mut state.receiver, &producer_name, msg_id, session_id, send_app.clone()).await;
+                                            handle_failure(&mut state.receiver, &producer_name, msg_id, session_id, &send_app).await;
                                         }
                                     }
                                 }
@@ -345,7 +345,7 @@ async fn process_incoming_rtx_request(
     session_id: u32,
     producer: &ProducerState,
     source: &Agent,
-    send_gw: mpsc::Sender<Result<Message, Status>>,
+    send_gw: &mpsc::Sender<Result<Message, Status>>,
 ) {
     let msg_rtx_id = msg.get_id();
 
@@ -415,8 +415,8 @@ async fn process_message_from_app(
     session_id: u32,
     producer: &mut ProducerState,
     is_bidirectional: bool,
-    send_gw: mpsc::Sender<Result<Message, Status>>,
-    send_app: mpsc::Sender<Result<SessionMessage, SessionError>>,
+    send_gw: &mpsc::Sender<Result<Message, Status>>,
+    send_app: &mpsc::Sender<Result<SessionMessage, SessionError>>,
 ) {
     // set the session header, add the message to the buffer and send it
     trace!(
@@ -462,16 +462,16 @@ async fn process_message_from_app(
 }
 
 #[allow(clippy::too_many_arguments)]
-async fn process_message_form_gw(
+async fn process_message_from_gw(
     msg: Message,
     session_id: u32,
     receiver_state: &mut ReceiverState,
     source: &Agent,
     max_retries: u32,
     timeout: Duration,
-    timer_tx: mpsc::Sender<Result<(u32, bool, Agent), Status>>,
-    send_gw: mpsc::Sender<Result<Message, Status>>,
-    send_app: mpsc::Sender<Result<SessionMessage, SessionError>>,
+    timer_tx: &mpsc::Sender<Result<(u32, bool, Agent), Status>>,
+    send_gw: &mpsc::Sender<Result<Message, Status>>,
+    send_app: &mpsc::Sender<Result<SessionMessage, SessionError>>,
 ) {
     let producer_name = msg.get_source();
     let producer_conn = msg.get_incoming_conn();
@@ -598,7 +598,7 @@ async fn handle_timeout(
     producer_name: &Agent,
     msg_id: u32,
     session_id: u32,
-    send_gw: mpsc::Sender<Result<Message, Status>>,
+    send_gw: &mpsc::Sender<Result<Message, Status>>,
 ) {
     trace!(
         "try to send rtx for packet {} on receiver session {}",
@@ -644,7 +644,7 @@ async fn handle_failure(
     producer_name: &Agent,
     msg_id: u32,
     session_id: u32,
-    send_app: mpsc::Sender<Result<SessionMessage, SessionError>>,
+    send_app: &mpsc::Sender<Result<SessionMessage, SessionError>>,
 ) {
     trace!("packet {} lost, not retries left", msg_id);
 
