@@ -721,12 +721,8 @@ mod tests {
 
         let source = Agent::from_strings("cisco", "default", "local_agent", 0);
 
-        let session_config: StreamingConfiguration = StreamingConfiguration::new(
-            SessionDirection::Sender,
-            None,
-            None,
-            None,
-        );
+        let session_config: StreamingConfiguration =
+            StreamingConfiguration::new(SessionDirection::Sender, None, None, None);
 
         let session = Streaming::new(
             0,
@@ -746,7 +742,6 @@ mod tests {
 
         let session_config: StreamingConfiguration = StreamingConfiguration::new(
             SessionDirection::Receiver,
-            Agent::from_strings("cisco", "default", "local_agent", 0),
             None,
             Some(10),
             Some(Duration::from_millis(1000)),
@@ -778,12 +773,8 @@ mod tests {
         let (tx_gw_receiver, _rx_gw_receiver) = tokio::sync::mpsc::channel(1);
         let (tx_app_receiver, mut rx_app_receiver) = tokio::sync::mpsc::channel(1);
 
-        let session_config_sender: StreamingConfiguration = StreamingConfiguration::new(
-            SessionDirection::Sender,
-            None,
-            None,
-            None,
-        );
+        let session_config_sender: StreamingConfiguration =
+            StreamingConfiguration::new(SessionDirection::Sender, None, None, None);
         let session_config_receiver: StreamingConfiguration = StreamingConfiguration::new(
             SessionDirection::Receiver,
             None,
@@ -1021,12 +1012,8 @@ mod tests {
         let (tx_gw_receiver, mut rx_gw_receiver) = tokio::sync::mpsc::channel(1);
         let (tx_app_receiver, mut rx_app_receiver) = tokio::sync::mpsc::channel(1);
 
-        let session_config_sender: StreamingConfiguration = StreamingConfiguration::new(
-            SessionDirection::Sender,
-            None,
-            None,
-            None,
-        );
+        let session_config_sender: StreamingConfiguration =
+            StreamingConfiguration::new(SessionDirection::Sender, None, None, None);
         let session_config_receiver: StreamingConfiguration = StreamingConfiguration::new(
             SessionDirection::Receiver,
             None,
