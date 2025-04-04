@@ -615,6 +615,10 @@ impl ProtoMessage {
         self.get_agp_header().get_forward_to()
     }
 
+    pub fn get_error(&self) -> Option<bool> {
+        self.get_agp_header().get_error()
+    }
+
     pub fn get_incoming_conn(&self) -> u64 {
         self.get_agp_header().get_incoming_conn().unwrap()
     }
