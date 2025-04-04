@@ -45,8 +45,9 @@ enum SessionHeaderType {
   REQUEST = 2;
   REPLY = 3;
   STREAM = 4;
-  RTX_REQUEST = 5;
-  RTX_REPLY = 6;
+  PUB_SUB = 5;
+  RTX_REQUEST = 6;
+  RTX_REPLY = 7;
 }
 // Session.session_id is the ID of the session
 
@@ -55,6 +56,7 @@ enum SessionHeaderType {
 // REQUEST = nonce
 // REPLY = nonce of the associated REQUEST
 // STREAM = sequential incremental ID
+// PUBSUB = sequential incremental ID
 // RTX_REQUEST = ID of the lost packet
 // RTX_REPLY = ID of the retransmitted packet
 

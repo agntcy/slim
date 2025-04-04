@@ -6,16 +6,17 @@ use std::time::Duration;
 
 use rand::Rng;
 use tokio::sync::RwLock;
+use tracing::warn;
 
 use crate::errors::SessionError;
-use crate::fire_and_forget;
 use crate::fire_and_forget::FireAndForgetConfiguration;
 use crate::request_response;
 use crate::session::{
     AppChannelSender, GwChannelSender, Id, Info, MessageDirection, Session, SessionConfig,
     SessionDirection, SessionMessage, SESSION_RANGE,
 };
-use crate::streaming;
+use crate::streaming::{self, StreamingConfiguration};
+use crate::{fire_and_forget, session};
 use agp_datapath::messages::encoder::Agent;
 use agp_datapath::pubsub::proto::pubsub::v1::SessionHeaderType;
 
@@ -87,7 +88,7 @@ impl SessionLayer {
         let mut pool = self.pool.write().await;
 
         // generate a new session ID in the SESSION_RANGE if not provided
-        let id = match id {
+        let mut id = match id {
             Some(id) => {
                 // make sure provided id is in range
                 if !SESSION_RANGE.contains(&id) {
@@ -133,9 +134,13 @@ impl SessionLayer {
                 ))
             }
             SessionConfig::Streaming(conf) => {
-                let mut direction = SessionDirection::Receiver;
-                if conf.max_retries == 0 {
-                    direction = SessionDirection::Sender;
+                let direction = conf.direction.clone();
+                if direction == SessionDirection::Bidirectional {
+                    // TODO(micpapal/msardara): this is a temporary solution to get a session
+                    // id that is common to all the agents that subscribe
+                    // for the same topic.
+                    id = (agp_datapath::messages::encoder::calculate_hash(&conf.topic)
+                        % (u32::MAX as u64)) as u32;
                 }
 
                 Box::new(streaming::Streaming::new(
@@ -267,14 +272,20 @@ impl SessionLayer {
                 .await?
             }
             SessionHeaderType::Stream => {
-                self.create_session(
-                    SessionConfig::Streaming(streaming::StreamingConfiguration {
-                        max_retries: 10,
-                        timeout: Duration::from_millis(1000),
-                    }),
-                    Some(id),
-                )
-                .await?
+                let session_conf = StreamingConfiguration::new(
+                    SessionDirection::Receiver,
+                    None,
+                    Some(10),
+                    Some(Duration::from_millis(1000)),
+                );
+                self.create_session(session::SessionConfig::Streaming(session_conf), Some(id))
+                    .await?
+            }
+            SessionHeaderType::PubSub => {
+                warn!("received pub/sub message with unknown session id");
+                return Err(SessionError::SessionUnknown(
+                    session_type.as_str_name().to_string(),
+                ));
             }
             _ => {
                 return Err(SessionError::SessionUnknown(

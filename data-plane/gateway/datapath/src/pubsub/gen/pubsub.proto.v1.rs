@@ -96,8 +96,9 @@ pub enum SessionHeaderType {
     Request = 2,
     Reply = 3,
     Stream = 4,
-    RtxRequest = 5,
-    RtxReply = 6,
+    PubSub = 5,
+    RtxRequest = 6,
+    RtxReply = 7,
 }
 impl SessionHeaderType {
     /// String value of the enum field names used in the ProtoBuf definition.
@@ -111,6 +112,7 @@ impl SessionHeaderType {
             Self::Request => "REQUEST",
             Self::Reply => "REPLY",
             Self::Stream => "STREAM",
+            Self::PubSub => "PUB_SUB",
             Self::RtxRequest => "RTX_REQUEST",
             Self::RtxReply => "RTX_REPLY",
         }
@@ -123,6 +125,7 @@ impl SessionHeaderType {
             "REQUEST" => Some(Self::Request),
             "REPLY" => Some(Self::Reply),
             "STREAM" => Some(Self::Stream),
+            "PUB_SUB" => Some(Self::PubSub),
             "RTX_REQUEST" => Some(Self::RtxRequest),
             "RTX_REPLY" => Some(Self::RtxReply),
             _ => None,

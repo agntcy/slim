@@ -1,7 +1,7 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
-use std::{collections::HashMap, sync::Arc};
+use std::{collections::HashMap, sync::Arc, time::Duration};
 use tokio::sync::mpsc;
 
 use crate::{
@@ -17,7 +17,7 @@ use crate::{
 use producer_buffer::ProducerBuffer;
 use receiver_buffer::ReceiverBuffer;
 
-use agp_datapath::messages::utils::AgpHeaderFlags;
+use agp_datapath::messages::{utils::AgpHeaderFlags, AgentType};
 use agp_datapath::{
     messages::Agent,
     pubsub::proto::pubsub::v1::{AgpHeader, Message, SessionHeader, SessionHeaderType},
@@ -27,8 +27,10 @@ use tonic::{async_trait, Status};
 use tracing::{debug, error, info, trace, warn};
 
 /// Configuration for the Streaming session
-#[derive(Debug, Clone, PartialEq, Default)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct StreamingConfiguration {
+    pub direction: SessionDirection,
+    pub topic: AgentType,
     pub max_retries: u32,
     pub timeout: std::time::Duration,
 }
@@ -45,8 +47,15 @@ impl std::fmt::Display for StreamingConfiguration {
 }
 
 impl StreamingConfiguration {
-    pub fn new(max_retries: Option<u32>, timeout: Option<std::time::Duration>) -> Self {
+    pub fn new(
+        direction: SessionDirection,
+        topic: Option<AgentType>,
+        max_retries: Option<u32>,
+        timeout: Option<std::time::Duration>,
+    ) -> Self {
         StreamingConfiguration {
+            direction,
+            topic: topic.unwrap_or_default(),
             max_retries: max_retries.unwrap_or(0),
             timeout: timeout.unwrap_or(std::time::Duration::from_millis(0)),
         }
@@ -55,7 +64,8 @@ impl StreamingConfiguration {
 
 #[allow(dead_code)]
 struct RtxTimerObserver {
-    channel: mpsc::Sender<Result<(u32, bool), Status>>,
+    producer_name: Agent,
+    channel: mpsc::Sender<Result<(u32, bool, Agent), Status>>,
 }
 
 #[async_trait]
@@ -64,7 +74,12 @@ impl TimerObserver for RtxTimerObserver {
         trace!("timeout number {} for rtx {}, retry", timeouts, timer_id);
 
         // notify the process loop
-        if self.channel.send(Ok((timer_id, true))).await.is_err() {
+        if self
+            .channel
+            .send(Ok((timer_id, true, self.producer_name.clone())))
+            .await
+            .is_err()
+        {
             error!("error notifying the process loop");
         }
     }
@@ -77,7 +92,12 @@ impl TimerObserver for RtxTimerObserver {
         );
 
         // notify the process loop
-        if self.channel.send(Ok((timer_id, false))).await.is_err() {
+        if self
+            .channel
+            .send(Ok((timer_id, false, self.producer_name.clone())))
+            .await
+            .is_err()
+        {
             error!("error notifying the process loop");
         }
     }
@@ -88,8 +108,7 @@ impl TimerObserver for RtxTimerObserver {
     }
 }
 
-#[allow(dead_code)]
-struct Producer {
+struct ProducerState {
     buffer: ProducerBuffer,
     next_id: u32,
 }
@@ -101,9 +120,19 @@ struct Receiver {
     timers_map: HashMap<u32, Timer>,
 }
 
+struct ReceiverState {
+    buffers: HashMap<Agent, Receiver>,
+}
+
+struct BidirectionalState {
+    receiver: ReceiverState,
+    producer: ProducerState,
+}
+
 enum Endpoint {
-    Producer(Producer),
-    Receiver(Receiver),
+    Producer(ProducerState),
+    Receiver(ReceiverState),
+    Bidirectional(BidirectionalState),
 }
 
 pub(crate) struct Streaming {
@@ -159,28 +188,31 @@ impl Streaming {
         let (timer_tx, mut timer_rx) = mpsc::channel(128);
         let mut endpoint = match session_direction {
             SessionDirection::Sender => {
-                let prod = Producer {
+                let prod = ProducerState {
                     buffer: ProducerBuffer::with_capacity(500),
                     next_id: 0,
                 };
                 Endpoint::Producer(prod)
             }
             SessionDirection::Receiver => {
-                let observer = RtxTimerObserver { channel: timer_tx };
-                let recv = Receiver {
-                    buffer: ReceiverBuffer::default(),
-                    timer_observer: Arc::new(observer),
-                    rtx_map: HashMap::new(),
-                    timers_map: HashMap::new(),
+                let recv = ReceiverState {
+                    buffers: HashMap::new(),
                 };
                 Endpoint::Receiver(recv)
             }
-            _ => {
-                panic!("invalid session direction");
+            SessionDirection::Bidirectional => {
+                let producer = ProducerState {
+                    buffer: ProducerBuffer::with_capacity(500),
+                    next_id: 0,
+                };
+                let receiver = ReceiverState {
+                    buffers: HashMap::new(),
+                };
+                let state = BidirectionalState { receiver, producer };
+                Endpoint::Bidirectional(state)
             }
         };
-        let mut producer_name: Option<Agent> = None;
-        let mut producer_conn: Option<u64> = None;
+
         let mut timer_rx_closed = false;
 
         tokio::spawn(async move {
@@ -199,7 +231,7 @@ impl Streaming {
                                     error!("error receiving a message on session {}, drop it", session_id);
                                     continue;
                                 }
-                                let (mut msg, direction) = result.unwrap();
+                                let (msg, direction) = result.unwrap();
                                 match &mut endpoint {
                                     Endpoint::Producer(producer) => {
                                         match direction {
@@ -215,163 +247,49 @@ impl Streaming {
                                                     }
                                                 };
 
-                                                let msg_rtx_id = msg.get_id();
-
-                                                trace!("received rtx for message {} on producer session {}", msg_rtx_id, session_id);
-                                                // search the packet in the producer buffer
-                                                let rtx_pub = match producer.buffer.get(msg_rtx_id as usize) {
-                                                    Some(packet) => {
-                                                        trace!("packet {} exists in the producer buffer, create rtx reply", msg_rtx_id);
-                                                        // the packet exists, send it to the source of the RTX
-                                                        let pkt_src = msg.get_source();
-
-                                                        let payload = match packet.get_payload() {
-                                                            Some(p) => p,
-                                                            None => {
-                                                                error!("unable to get the payload from the packet");
-                                                                continue;
-                                                            }
-                                                        };
-
-                                                        let incoming_conn = msg.get_incoming_conn();
-
-                                                        let agp_header = Some(AgpHeader::new(
-                                                            &source,
-                                                            pkt_src.agent_type(),
-                                                            Some(pkt_src.agent_id()),
-                                                            Some(AgpHeaderFlags::default().with_forward_to(incoming_conn)),
-                                                        ));
-
-                                                        let session_header = Some(SessionHeader::new(
-                                                            SessionHeaderType::RtxReply.into(),
-                                                            session_id,
-                                                            msg_rtx_id,
-                                                        ));
-
-                                                        Message::new_publish_with_headers(agp_header, session_header, "", payload.blob.to_vec())
-                                                    }
-                                                    None => {
-                                                        // the packet does not exist so do nothing
-                                                        // TODO(micpapal): improve by returning a rtx nack so that the remote app does not
-                                                        // wait too long for all the retransmissions
-                                                        debug!("received and RTX messages for an old packet on producer session {}", session_id);
-                                                        continue;
-                                                    },
-                                                };
-
-                                                trace!("send rtx reply for message {}", msg_rtx_id);
-                                                if send_gw.send(Ok(rtx_pub)).await.is_err() {
-                                                    error!("error sending RTX packet to the gateway on producer session {}", session_id);
-                                                    continue;
-                                                }
+                                                process_incoming_rtx_request(msg, session_id, producer, &source, &send_gw).await;
                                             }
                                             MessageDirection::South => {
+
                                                 // received a message from the APP
-                                                // set the session header, add the message to the buffer and send it
-                                                trace!("received message from the app on producer session {}", session_id);
-                                                msg.set_header_type(SessionHeaderType::Stream);
-                                                msg.set_message_id(producer.next_id);
-
-                                                trace!("add message {} to the producer buffer on session {}", producer.next_id, session_id);
-                                                if !producer.buffer.push(msg.clone()) {
-                                                    warn!("cannot add packet to the local buffer");
-                                                }
-
-                                                trace!("send message {} to the producer buffer on session {}", producer.next_id, session_id);
-                                                producer.next_id += 1;
-
-                                                if send_gw.send(Ok(msg)).await.is_err() {
-                                                    error!("error sending publication packet to the gateway on producer session {}", session_id);
-                                                    send_app.send(Err(SessionError::Processing("error sending message to the local gateway".to_string()))).await.expect("error notifyng app");
-                                                }
+                                                process_message_from_app(msg, session_id, producer, false, &send_gw, &send_app).await;
                                             }
                                         }
                                     }
                                     Endpoint::Receiver(receiver) => {
                                         trace!("received message from the gataway on receiver session {}", session_id);
-                                        let header_type = msg.get_header_type();
-                                        if header_type == SessionHeaderType::RtxReply {
-                                            let rtx_msg_id = msg.get_id();
+                                        process_message_from_gw(msg, session_id, receiver, &source, max_retries, timeout, &timer_tx, &send_gw, &send_app).await;
+                                    }
+                                    Endpoint::Bidirectional(state) => {
+                                        match direction {
+                                            MessageDirection::North => {
+                                                // in this case the message can be a stream message to send to the app, or a rtx request
+                                                trace!("received message from the gataway on bidirectional session {}", session_id);
+                                                match msg.get_session_header().header_type() {
+                                                    SessionHeaderType::PubSub => {
+                                                        // send the packet to the application
+                                                        process_message_from_gw(msg, session_id, &mut state.receiver, &source, max_retries, timeout, &timer_tx, &send_gw, &send_app).await;
 
-                                            // try to clean local state
-                                            match receiver.timers_map.get(&rtx_msg_id) {
-                                                Some(timer) => {
-                                                    timer.stop();
-                                                    receiver.timers_map.remove(&rtx_msg_id);
-                                                    receiver.rtx_map.remove(&rtx_msg_id);
-                                                }
-                                                None => {
-                                                    warn!("unable to find the timer associated to the received RTX reply");
-                                                    // try to remove the packet anyway
-                                                    receiver.rtx_map.remove(&rtx_msg_id);
-                                                }
-                                            }
-
-                                        } else if header_type != SessionHeaderType::Stream {
-                                            error!("received packet with invalid header type {} on receiver session {}", i32::from(header_type), session_id);
-                                            continue;
-                                        }
-
-                                        if producer_name.is_none() {
-                                            producer_name = Some(msg.get_source());
-                                            producer_conn = Some(msg.get_incoming_conn());
-                                        }
-
-                                        match receiver.buffer.on_received_message(msg){
-                                            Ok((recv, rtx)) =>{
-                                                for opt in recv {
-                                                    trace!("send recv packet to the application on receiver session {}", session_id);
-                                                    match opt {
-                                                        Some(m) => {
-                                                            // send message to the app
-                                                            let info = Info::from(&m);
-                                                            let session_msg = SessionMessage::new(m, info);
-                                                            if send_app.send(Ok(session_msg)).await.is_err() {
-                                                                error!("error sending packet to the application on receiver session {}", session_id);
-                                                            }
-                                                        }
-                                                        None => {
-                                                            warn!("a message was definitely lost in receiver session {}", session_id);
-                                                            let _ = send_app.send(Err(SessionError::MessageLost(session_id.to_string()))).await;
-                                                        }
                                                     }
-                                                }
-                                                for r in rtx {
-                                                    debug!("packet loss detected on session {}, send RTX for id {}", session_id, r);
-                                                    let dest = producer_name.as_ref().unwrap(); // this cannot panic a this point
-
-                                                    let agp_header = Some(AgpHeader::new(
-                                                        &source,
-                                                        dest.agent_type(),
-                                                        Some(dest.agent_id()),
-                                                        Some(AgpHeaderFlags::default().with_forward_to(producer_conn.unwrap())),
-                                                    ));
-
-                                                    let session_header = Some(SessionHeader::new(
-                                                        SessionHeaderType::RtxRequest.into(),
-                                                        session_id,
-                                                        r,
-                                                    ));
-
-                                                    let rtx = Message::new_publish_with_headers(agp_header, session_header, "", vec![]);
-
-                                                    // set state for RTX
-                                                    let timer = Timer::new(r, timeout.as_millis().try_into().unwrap(), max_retries);
-                                                    timer.start(receiver.timer_observer.clone());
-
-                                                    receiver.rtx_map.insert(r, rtx.clone());
-                                                    receiver.timers_map.insert(r, timer);
-
-                                                    if send_gw.send(Ok(rtx)).await.is_err() {
-                                                        error!("error sending RTX for id {} on session {}", r, session_id);
+                                                    SessionHeaderType::RtxRequest => {
+                                                        // handle RTX request
+                                                        process_incoming_rtx_request(msg, session_id, &state.producer, &source, &send_gw).await;
+                                                    }
+                                                    SessionHeaderType::RtxReply => {
+                                                        // received a reply for an RTX
+                                                        process_message_from_gw(msg, session_id, &mut state.receiver, &source, max_retries, timeout, &timer_tx, &send_gw, &send_app).await;
+                                                    }
+                                                    _ => {
+                                                        error!("received invalid packet type on bidirection session {}", session_id);
+                                                        continue;
                                                     }
                                                 }
                                             }
-                                            Err(e) => {
-                                                error!("error adding message to the buffer: {}", e.to_string());
-                                                continue;
+                                            MessageDirection::South => {
+                                                // received a message from the APP
+                                                process_message_from_app(msg, session_id, &mut state.producer, true, &send_gw, &send_app).await;
                                             }
-                                        }
+                                        };
                                     }
                                 }
                             }
@@ -390,65 +308,25 @@ impl Streaming {
                                     continue;
                                 }
 
-                                let (msg_id, retry) = result.unwrap();
+                                let (msg_id, retry, producer_name) = result.unwrap();
                                 match &mut endpoint {
                                     Endpoint::Receiver(receiver) => {
                                         if retry {
-                                            trace!("try to send rtx for packet {} on receiver session {}", msg_id, session_id);
-                                            // send the RTX again
-                                            let rtx = match receiver.rtx_map.get(&msg_id) {
-                                                Some(rtx) => rtx,
-                                                None => {
-                                                    error!("rtx message does not exist in the map, skip retransmission and try to stop the timer");
-                                                    let timer = match receiver.timers_map.get(&msg_id) {
-                                                        Some(t) => t,
-                                                        None => {
-                                                            error!("timer not found");
-                                                            continue;
-                                                        },
-                                                    };
-                                                    timer.stop();
-                                                    continue;
-                                                }
-                                            };
-
-                                            if send_gw.send(Ok(rtx.clone())).await.is_err() {
-                                                error!("error sending RTX for id {} on receiver session {}", msg_id, session_id);
-                                            }
+                                            handle_timeout(receiver, &producer_name, msg_id, session_id, &send_gw).await;
                                         } else {
-                                            trace!("packet {} lost, not retries left", msg_id);
-                                            receiver.rtx_map.remove(&msg_id);
-                                            receiver.timers_map.remove(&msg_id);
-
-                                            match receiver.buffer.on_lost_message(msg_id) {
-                                                Ok(recv) => {
-                                                    for opt in recv {
-                                                        match opt {
-                                                            Some(m) => {
-                                                                let info = Info::from(&m);
-                                                                let session_msg = SessionMessage::new(m, info);
-                                                                // send message to the app
-                                                                if send_app.send(Ok(session_msg)).await.is_err() {
-                                                                    error!("error sending packet to the gateway on session {}", session_id);
-                                                                }
-                                                            }
-                                                            None => {
-                                                                warn!("a message was definitely lost in session {}", session_id);
-                                                                let _ = send_app.send(Err(SessionError::MessageLost(session_id.to_string()))).await;
-                                                            }
-                                                        }
-                                                    }
-                                                }
-                                                Err(e) => {
-                                                    error!("error adding message lost to the buffer: {}", e.to_string());
-                                                    continue;
-                                                }
-                                            };
+                                            handle_failure(receiver, &producer_name, msg_id, session_id, &send_app).await;
                                         }
                                     }
                                     Endpoint::Producer(_) => {
                                         error!("received timer on a producer buffer");
                                         continue;
+                                    }
+                                    Endpoint::Bidirectional(state) => {
+                                        if retry {
+                                            handle_timeout(&mut state.receiver, &producer_name, msg_id, session_id, &send_gw).await;
+                                        } else {
+                                            handle_failure(&mut state.receiver, &producer_name, msg_id, session_id, &send_app).await;
+                                        }
                                     }
                                 }
                             }
@@ -458,6 +336,355 @@ impl Streaming {
             }
         });
     }
+}
+
+async fn process_incoming_rtx_request(
+    msg: Message,
+    session_id: u32,
+    producer: &ProducerState,
+    source: &Agent,
+    send_gw: &mpsc::Sender<Result<Message, Status>>,
+) {
+    let msg_rtx_id = msg.get_id();
+
+    trace!(
+        "received rtx for message {} on producer session {}",
+        msg_rtx_id,
+        session_id
+    );
+    // search the packet in the producer buffer
+    let rtx_pub = match producer.buffer.get(msg_rtx_id as usize) {
+        Some(packet) => {
+            trace!(
+                "packet {} exists in the producer buffer, create rtx reply",
+                msg_rtx_id
+            );
+            // the packet exists, send it to the source of the RTX
+            let pkt_src = msg.get_source();
+
+            let payload = match packet.get_payload() {
+                Some(p) => p,
+                None => {
+                    error!("unable to get the payload from the packet");
+                    return;
+                }
+            };
+
+            let incoming_conn = msg.get_incoming_conn();
+
+            let agp_header = Some(AgpHeader::new(
+                source,
+                pkt_src.agent_type(),
+                Some(pkt_src.agent_id()),
+                Some(AgpHeaderFlags::default().with_forward_to(incoming_conn)),
+            ));
+
+            let session_header = Some(SessionHeader::new(
+                SessionHeaderType::RtxReply.into(),
+                session_id,
+                msg_rtx_id,
+            ));
+
+            Message::new_publish_with_headers(agp_header, session_header, "", payload.blob.to_vec())
+        }
+        None => {
+            // the packet does not exist so do nothing
+            // TODO(micpapal): improve by returning a rtx nack so that the remote app does not
+            // wait too long for all the retransmissions
+            debug!(
+                "received and RTX messages for an old packet on producer session {}",
+                session_id
+            );
+            return;
+        }
+    };
+
+    trace!("send rtx reply for message {}", msg_rtx_id);
+    if send_gw.send(Ok(rtx_pub)).await.is_err() {
+        error!(
+            "error sending RTX packet to the gateway on producer session {}",
+            session_id
+        );
+    }
+}
+
+async fn process_message_from_app(
+    mut msg: Message,
+    session_id: u32,
+    producer: &mut ProducerState,
+    is_bidirectional: bool,
+    send_gw: &mpsc::Sender<Result<Message, Status>>,
+    send_app: &mpsc::Sender<Result<SessionMessage, SessionError>>,
+) {
+    // set the session header, add the message to the buffer and send it
+    trace!(
+        "received message from the app on producer session {}",
+        session_id
+    );
+
+    if is_bidirectional {
+        msg.set_header_type(SessionHeaderType::PubSub);
+    } else {
+        msg.set_header_type(SessionHeaderType::Stream);
+    }
+    msg.set_message_id(producer.next_id);
+
+    trace!(
+        "add message {} to the producer buffer on session {}",
+        producer.next_id,
+        session_id
+    );
+    if !producer.buffer.push(msg.clone()) {
+        warn!("cannot add packet to the local buffer");
+    }
+
+    trace!(
+        "send message {} to the producer buffer on session {}",
+        producer.next_id,
+        session_id
+    );
+    producer.next_id += 1;
+
+    if send_gw.send(Ok(msg)).await.is_err() {
+        error!(
+            "error sending publication packet to the gateway on producer session {}",
+            session_id
+        );
+        send_app
+            .send(Err(SessionError::Processing(
+                "error sending message to the local gateway".to_string(),
+            )))
+            .await
+            .expect("error notifyng app");
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn process_message_from_gw(
+    msg: Message,
+    session_id: u32,
+    receiver_state: &mut ReceiverState,
+    source: &Agent,
+    max_retries: u32,
+    timeout: Duration,
+    timer_tx: &mpsc::Sender<Result<(u32, bool, Agent), Status>>,
+    send_gw: &mpsc::Sender<Result<Message, Status>>,
+    send_app: &mpsc::Sender<Result<SessionMessage, SessionError>>,
+) {
+    let producer_name = msg.get_source();
+    let producer_conn = msg.get_incoming_conn();
+
+    let receiver = match receiver_state.buffers.get_mut(&producer_name) {
+        Some(state) => state,
+        None => {
+            let state = Receiver {
+                buffer: ReceiverBuffer::default(),
+                timer_observer: Arc::new(RtxTimerObserver {
+                    producer_name: producer_name.clone(),
+                    channel: timer_tx.clone(),
+                }),
+                rtx_map: HashMap::new(),
+                timers_map: HashMap::new(),
+            };
+            // Insert the state into receiver.buffers
+            receiver_state.buffers.insert(producer_name.clone(), state);
+            // Return a reference to the newly inserted state
+            receiver_state
+                .buffers
+                .get_mut(&producer_name)
+                .expect("State should be present")
+        }
+    };
+
+    let header_type = msg.get_header_type();
+    if header_type == SessionHeaderType::RtxReply {
+        let rtx_msg_id = msg.get_id();
+
+        // try to clean local state
+        match receiver.timers_map.get(&rtx_msg_id) {
+            Some(timer) => {
+                timer.stop();
+                receiver.timers_map.remove(&rtx_msg_id);
+                receiver.rtx_map.remove(&rtx_msg_id);
+            }
+            None => {
+                warn!("unable to find the timer associated to the received RTX reply");
+                // try to remove the packet anyway
+                receiver.rtx_map.remove(&rtx_msg_id);
+            }
+        }
+    } else if header_type != SessionHeaderType::Stream && header_type != SessionHeaderType::PubSub {
+        error!(
+            "received packet with invalid header type {} on receiver session {}",
+            i32::from(header_type),
+            session_id
+        );
+        return;
+    }
+
+    match receiver.buffer.on_received_message(msg) {
+        Ok((recv, rtx)) => {
+            for opt in recv {
+                trace!(
+                    "send recv packet to the application on receiver session {}",
+                    session_id
+                );
+                match opt {
+                    Some(m) => {
+                        // send message to the app
+                        let info = Info::from(&m);
+                        let session_msg = SessionMessage::new(m, info);
+                        if send_app.send(Ok(session_msg)).await.is_err() {
+                            error!(
+                                "error sending packet to the application on receiver session {}",
+                                session_id
+                            );
+                        }
+                    }
+                    None => {
+                        warn!(
+                            "a message was definitely lost in receiver session {}",
+                            session_id
+                        );
+                        let _ = send_app
+                            .send(Err(SessionError::MessageLost(session_id.to_string())))
+                            .await;
+                    }
+                }
+            }
+            for r in rtx {
+                debug!(
+                    "packet loss detected on session {}, send RTX for id {}",
+                    session_id, r
+                );
+
+                let agp_header = Some(AgpHeader::new(
+                    source,
+                    producer_name.agent_type(),
+                    Some(producer_name.agent_id()),
+                    Some(AgpHeaderFlags::default().with_forward_to(producer_conn)),
+                ));
+
+                let session_header = Some(SessionHeader::new(
+                    SessionHeaderType::RtxRequest.into(),
+                    session_id,
+                    r,
+                ));
+
+                let rtx = Message::new_publish_with_headers(agp_header, session_header, "", vec![]);
+
+                // set state for RTX
+                let timer = Timer::new(r, timeout.as_millis().try_into().unwrap(), max_retries);
+                timer.start(receiver.timer_observer.clone());
+
+                receiver.rtx_map.insert(r, rtx.clone());
+                receiver.timers_map.insert(r, timer);
+
+                if send_gw.send(Ok(rtx)).await.is_err() {
+                    error!("error sending RTX for id {} on session {}", r, session_id);
+                }
+            }
+        }
+        Err(e) => {
+            error!("error adding message to the buffer: {}", e.to_string());
+        }
+    }
+}
+
+async fn handle_timeout(
+    receiver_state: &mut ReceiverState,
+    producer_name: &Agent,
+    msg_id: u32,
+    session_id: u32,
+    send_gw: &mpsc::Sender<Result<Message, Status>>,
+) {
+    trace!(
+        "try to send rtx for packet {} on receiver session {}",
+        msg_id,
+        session_id
+    );
+
+    let receiver = match receiver_state.buffers.get_mut(producer_name) {
+        Some(r) => r,
+        None => {
+            error!("received a timeout, but there is no state");
+            return;
+        }
+    };
+
+    // send the RTX again
+    let rtx = match receiver.rtx_map.get(&msg_id) {
+        Some(rtx) => rtx,
+        None => {
+            error!("rtx message does not exist in the map, skip retransmission and try to stop the timer");
+            let timer = match receiver.timers_map.get(&msg_id) {
+                Some(t) => t,
+                None => {
+                    error!("timer not found");
+                    return;
+                }
+            };
+            timer.stop();
+            return;
+        }
+    };
+
+    if send_gw.send(Ok(rtx.clone())).await.is_err() {
+        error!(
+            "error sending RTX for id {} on receiver session {}",
+            msg_id, session_id
+        );
+    }
+}
+
+async fn handle_failure(
+    receiver_state: &mut ReceiverState,
+    producer_name: &Agent,
+    msg_id: u32,
+    session_id: u32,
+    send_app: &mpsc::Sender<Result<SessionMessage, SessionError>>,
+) {
+    trace!("packet {} lost, not retries left", msg_id);
+
+    let receiver = match receiver_state.buffers.get_mut(producer_name) {
+        Some(r) => r,
+        None => {
+            error!("received a timeout, but there is no state");
+            return;
+        }
+    };
+
+    receiver.rtx_map.remove(&msg_id);
+    receiver.timers_map.remove(&msg_id);
+
+    match receiver.buffer.on_lost_message(msg_id) {
+        Ok(recv) => {
+            for opt in recv {
+                match opt {
+                    Some(m) => {
+                        let info = Info::from(&m);
+                        let session_msg = SessionMessage::new(m, info);
+                        // send message to the app
+                        if send_app.send(Ok(session_msg)).await.is_err() {
+                            error!(
+                                "error sending packet to the gateway on session {}",
+                                session_id
+                            );
+                        }
+                    }
+                    None => {
+                        warn!("a message was definitely lost in session {}", session_id);
+                        let _ = send_app
+                            .send(Err(SessionError::MessageLost(session_id.to_string())))
+                            .await;
+                    }
+                }
+            }
+        }
+        Err(e) => {
+            error!("error adding message lost to the buffer: {}", e.to_string());
+        }
+    };
 }
 
 #[async_trait]
@@ -494,10 +721,12 @@ mod tests {
 
         let source = Agent::from_strings("cisco", "default", "local_agent", 0);
 
-        let session_config = StreamingConfiguration {
-            max_retries: 0,
-            timeout: Duration::from_millis(0),
-        };
+        let session_config: StreamingConfiguration = StreamingConfiguration::new(
+            SessionDirection::Sender,
+            None,
+            None,
+            None,
+        );
 
         let session = Streaming::new(
             0,
@@ -513,6 +742,14 @@ mod tests {
         assert_eq!(
             session.session_config(),
             SessionConfig::Streaming(session_config.clone())
+        );
+
+        let session_config: StreamingConfiguration = StreamingConfiguration::new(
+            SessionDirection::Receiver,
+            Agent::from_strings("cisco", "default", "local_agent", 0),
+            None,
+            Some(10),
+            Some(Duration::from_millis(1000)),
         );
 
         let session = Streaming::new(
@@ -541,15 +778,18 @@ mod tests {
         let (tx_gw_receiver, _rx_gw_receiver) = tokio::sync::mpsc::channel(1);
         let (tx_app_receiver, mut rx_app_receiver) = tokio::sync::mpsc::channel(1);
 
-        let session_config_sender = StreamingConfiguration {
-            max_retries: 0,
-            timeout: Duration::from_millis(0),
-        };
-
-        let session_config_receiver = StreamingConfiguration {
-            max_retries: 5,
-            timeout: Duration::from_millis(500),
-        };
+        let session_config_sender: StreamingConfiguration = StreamingConfiguration::new(
+            SessionDirection::Sender,
+            None,
+            None,
+            None,
+        );
+        let session_config_receiver: StreamingConfiguration = StreamingConfiguration::new(
+            SessionDirection::Receiver,
+            None,
+            Some(5),
+            Some(Duration::from_millis(500)),
+        );
 
         let sender = Streaming::new(
             0,
@@ -614,10 +854,12 @@ mod tests {
         let (tx_gw, mut rx_gw) = tokio::sync::mpsc::channel(1);
         let (tx_app, mut rx_app) = tokio::sync::mpsc::channel(1);
 
-        let session_config = StreamingConfiguration {
-            max_retries: 5,
-            timeout: Duration::from_millis(500),
-        };
+        let session_config: StreamingConfiguration = StreamingConfiguration::new(
+            SessionDirection::Receiver,
+            None,
+            Some(5),
+            Some(Duration::from_millis(500)),
+        );
 
         let session = Streaming::new(
             0,
@@ -685,10 +927,12 @@ mod tests {
         let (tx_gw, mut rx_gw) = tokio::sync::mpsc::channel(8);
         let (tx_app, _rx_app) = tokio::sync::mpsc::channel(8);
 
-        let session_config = StreamingConfiguration {
-            max_retries: 5,
-            timeout: Duration::from_millis(500),
-        };
+        let session_config: StreamingConfiguration = StreamingConfiguration::new(
+            SessionDirection::Receiver,
+            None,
+            Some(5),
+            Some(Duration::from_millis(500)),
+        );
 
         let session = Streaming::new(
             120,
@@ -777,15 +1021,18 @@ mod tests {
         let (tx_gw_receiver, mut rx_gw_receiver) = tokio::sync::mpsc::channel(1);
         let (tx_app_receiver, mut rx_app_receiver) = tokio::sync::mpsc::channel(1);
 
-        let session_config_sender = StreamingConfiguration {
-            max_retries: 0,
-            timeout: Duration::from_millis(0),
-        };
-
-        let session_config_receiver = StreamingConfiguration {
-            max_retries: 5,
-            timeout: std::time::Duration::from_millis(500),
-        };
+        let session_config_sender: StreamingConfiguration = StreamingConfiguration::new(
+            SessionDirection::Sender,
+            None,
+            None,
+            None,
+        );
+        let session_config_receiver: StreamingConfiguration = StreamingConfiguration::new(
+            SessionDirection::Receiver,
+            None,
+            Some(5),
+            Some(Duration::from_millis(500)),
+        );
 
         let sender = Streaming::new(
             0,
