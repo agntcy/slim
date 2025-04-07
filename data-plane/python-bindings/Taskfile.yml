@@ -183,6 +183,22 @@ tasks:
       CONSUMER_ID:
         sh: "head -c1 < /dev/urandom | base64 | tr -d '+=/'"
 
+  python-bindings:example:pubsub:
+    desc: "Run the responder example"
+    env:
+      AGP_INSTANCE_ID: consumer-{{.CONSUMER_ID}}
+    cmds:
+      - |
+        uv run python ./examples/pubsub.py         \
+          -l cisco/default/consumer-{{.CONSUMER_ID}}  \
+          -r cisco/default/stream                     \
+          -g http://localhost:12345                   \
+          {{.EXTRA_ARGS}}
+    vars:
+      EXTRA_ARGS: '{{.EXTRA_ARGS | default ""}}'
+      CONSUMER_ID:
+        sh: "head -c1 < /dev/urandom | base64 | tr -d '+=/'"
+
   python-bindings:generate-stub:
     desc: "Generate stub file for the Python bindings"
     cmds:

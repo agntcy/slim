@@ -9,38 +9,17 @@ import os
 import agp_bindings
 from agp_bindings import GatewayConfig, PySessionInfo
 
-
-class color:
-    PURPLE = "\033[95m"
-    CYAN = "\033[96m"
-    DARKCYAN = "\033[36m"
-    BLUE = "\033[94m"
-    GREEN = "\033[92m"
-    YELLOW = "\033[93m"
-    RED = "\033[91m"
-    BOLD = "\033[1m"
-    UNDERLINE = "\033[4m"
-    END = "\033[0m"
+from common import format_message, split_id
 
 
-def format_message(message1, message2):
-    return f"{color.BOLD}{color.CYAN}{message1.capitalize() :<45}{color.END}{message2}"
-
-
-async def run_client(
-    local_id, remote_id, message, address, enable_opentelemetry: bool
-):
+async def run_client(local_id, remote_id, message, address, enable_opentelemetry: bool):
     # init tracing
     agp_bindings.init_tracing(
         log_level="info", enable_opentelemetry=enable_opentelemetry
     )
 
     # Split the IDs into their respective components
-    try:
-        local_organization, local_namespace, local_agent = local_id.split("/")
-    except ValueError:
-        print("Error: IDs must be in the format organization/namespace/agent.")
-        return
+    local_organization, local_namespace, local_agent = split_id(local_id)
 
     # create new gateway object
     gateway = await agp_bindings.Gateway.new(
@@ -61,11 +40,7 @@ async def run_client(
     async with gateway:
         if message:
             # Split the IDs into their respective components
-            try:
-                remote_organization, remote_namespace, remote_agent = remote_id.split("/")
-            except ValueError:
-                print("Error: IDs must be in the format organization/namespace/agent.")
-                return
+            remote_organization, remote_namespace, remote_agent = split_id(remote_id)
 
             # Create a route to the remote ID
             await gateway.set_route(remote_organization, remote_namespace, remote_agent)

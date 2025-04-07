@@ -58,9 +58,7 @@ async def run_client(
 
     # Split the IDs into their respective components
     try:
-        remote_organization, remote_namespace, broadcast_topic = (
-            remote_id.split("/")
-        )
+        remote_organization, remote_namespace, broadcast_topic = remote_id.split("/")
     except ValueError:
         print("Error: IDs must be in the format organization/namespace/agent.")
         return
@@ -93,7 +91,7 @@ async def run_client(
                     # Send a message
                     print(
                         format_message(
-                            f"{instance} streaming message to session {session_info.id}: ",
+                            f"{instance} streaming message to {remote_organization}/{remote_namespace}/{broadcast_topic}: ",
                             f"{count}",
                         )
                     )
@@ -113,7 +111,7 @@ async def run_client(
                 finally:
                     await asyncio.sleep(1)
         else:
-            # sibscribe to streaming session
+            # subscribe to streaming session
             await gateway.subscribe(
                 remote_organization, remote_namespace, broadcast_topic
             )
@@ -134,7 +132,7 @@ async def run_client(
                         session, msg = await gateway.receive(session=session_info.id)
                         print(
                             format_message(
-                                f"{local_agent.capitalize()} received (from session {session.id}):",
+                                f"{local_agent.capitalize()} received from {remote_organization}/{remote_namespace}/{broadcast_topic}: ",
                                 f"{msg.decode()}",
                             )
                         )

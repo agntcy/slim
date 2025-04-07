@@ -4,142 +4,118 @@
 import argparse
 import asyncio
 import datetime
-import time
-import os
+import signal
 
 import agp_bindings
-from agp_bindings import GatewayConfig, PySessionInfo
+
+from common import split_id
 
 
-class color:
-    PURPLE = "\033[95m"
-    CYAN = "\033[96m"
-    DARKCYAN = "\033[36m"
-    BLUE = "\033[94m"
-    GREEN = "\033[92m"
-    YELLOW = "\033[93m"
-    RED = "\033[91m"
-    BOLD = "\033[1m"
-    UNDERLINE = "\033[4m"
-    END = "\033[0m"
-
-
-def format_message(message1, message2):
-    return f"{color.BOLD}{color.CYAN}{message1.capitalize() :<45}{color.END}{message2}"
-
-
-async def run_client(
-    local_id, remote_id, address, producer, enable_opentelemetry: bool
-):
+async def run_client(local_id, remote_id, address, enable_opentelemetry: bool):
     # init tracing
     agp_bindings.init_tracing(
         log_level="info", enable_opentelemetry=enable_opentelemetry
     )
 
-    # Split the IDs into their respective components
-    try:
-        local_organization, local_namespace, local_agent = local_id.split("/")
-    except ValueError:
-        print("Error: IDs must be in the format organization/namespace/agent.")
-        return
+    # Split the local IDs into their respective components
+    local_organization, local_namespace, local_agent = split_id(local_id)
 
-    # create new gateway object
-    gateway = await agp_bindings.Gateway.new(
+    # Split the remote IDs into their respective components
+    remote_organization, remote_namespace, broadcast_topic = split_id(remote_id)
+
+    name = f"{local_agent}"
+
+    print(f"Creating participant {name}...")
+
+    participant = await agp_bindings.Gateway.new(
         local_organization, local_namespace, local_agent
     )
+    participant.configure(agp_bindings.GatewayConfig(endpoint=address, insecure=True))
 
-    # Configure gateway
-    config = GatewayConfig(endpoint=address, insecure=True)
-    gateway.configure(config)
+    # Connect to gateway server
+    _ = await participant.connect()
 
-    # Connect to the service and subscribe for the local name
-    print(format_message(f"connecting to:", address))
-    _ = await gateway.connect()
+    # set route for the chat, so that messages can be sent to the other participants
+    await participant.set_route(remote_organization, remote_namespace, broadcast_topic)
 
-    # Split the IDs into their respective components
-    try:
-        remote_organization, remote_namespace, broadcast_topic = (
-            remote_id.split("/")
-        )
-    except ValueError:
-        print("Error: IDs must be in the format organization/namespace/agent.")
-        return
+    # Subscribe to the producer topic
+    await participant.subscribe(remote_organization, remote_namespace, broadcast_topic)
 
-    # Get the local agent instance from env
-    instance = os.getenv("AGP_INSTANCE_ID", local_agent)
-
-    async with gateway:
-        if producer:
-            # Create a route to the remote ID
-            await gateway.set_route(
+    print(f"{name} -> Creating new pubsub sessions...")
+    # create pubsubb session. A pubsub session is a just a bidirectional
+    # streaming session, where participants are both sender and receivers
+    session_info = await participant.create_streaming_session(
+        agp_bindings.PyStreamingConfiguration(
+            agp_bindings.PySessionDirection.BIDIRECTIONAL,
+            topic=agp_bindings.PyAgentType(
                 remote_organization, remote_namespace, broadcast_topic
-            )
+            ),
+            max_retries=5,
+            timeout=datetime.timedelta(seconds=5),
+        )
+    )
 
-            # create streaming session with default config
-            session_info = await gateway.create_streaming_session(
-                agp_bindings.PyStreamingConfiguration(
-                    agp_bindings.PySessionDirection.SENDER,
-                    topic=None,
-                    max_retries=5,
-                    timeout=datetime.timedelta(seconds=5),
-                )
-            )
+    # define the background task
+    async def background_task():
+        msg = f"Hello from {local_agent}"
 
-            # initialize count
-            count = 0
-
+        async with participant:
             while True:
                 try:
-                    # Send a message
-                    print(
-                        format_message(
-                            f"{instance} streaming message to session {session_info.id}: ",
-                            f"{count}",
+                    # receive message from session
+                    recv_session, msg_rcv = await participant.receive(
+                        session=session_info.id
+                    )
+
+                    # Check if the message is calling this specific participant
+                    # if not, ignore it
+                    if local_agent in msg_rcv.decode():
+                        # print the message
+                        print(f"{name} -> Received message for me: {msg_rcv.decode()}")
+
+                        # send the message to the next participant
+                        await participant.publish(
+                            recv_session,
+                            msg.encode(),
+                            remote_organization,
+                            remote_namespace,
+                            broadcast_topic,
                         )
-                    )
 
-                    # Send the message and wait for a reply
-                    await gateway.publish(
-                        session_info,
-                        f"{count}".encode(),
-                        remote_organization,
-                        remote_namespace,
-                        broadcast_topic,
-                    )
-
-                    count += 1
+                        print(f"{name} -> Sending message to all participants: {msg}")
+                    else:
+                        print(
+                            f"{name} -> Receiving message: {msg_rcv.decode()} - not for me."
+                        )
+                except asyncio.CancelledError:
+                    break
                 except Exception as e:
-                    print("received error: ", e)
-                finally:
-                    await asyncio.sleep(1)
-        else:
-            # sibscribe to streaming session
-            await gateway.subscribe(
-                remote_organization, remote_namespace, broadcast_topic
+                    print(f"{name} -> Error receiving message: {e}")
+                    break
+
+    receive_task = asyncio.create_task(background_task())
+
+    async def background_task_keyboard():
+        while True:
+            user_input = await asyncio.to_thread(input, "message> ")
+            if user_input == "exit":
+                break
+
+            # Send the message to the all participants
+            await participant.publish(
+                session_info,
+                f"{user_input}".encode(),
+                remote_organization,
+                remote_namespace,
+                broadcast_topic,
             )
 
-            # Wait for messages and not reply
-            while True:
-                session_info, _ = await gateway.receive()
-                print(
-                    format_message(
-                        f"{instance.capitalize()} received a new session:",
-                        f"{session_info.id}",
-                    )
-                )
+        receive_task.cancel()
 
-                async def background_task():
-                    while True:
-                        # Receive the message from the session
-                        session, msg = await gateway.receive(session=session_info.id)
-                        print(
-                            format_message(
-                                f"{local_agent.capitalize()} received (from session {session.id}):",
-                                f"{msg.decode()}",
-                            )
-                        )
+    send_task = asyncio.create_task(background_task_keyboard())
 
-                asyncio.create_task(background_task())
+    # Wait for both tasks to finish
+    await asyncio.gather(receive_task, send_task)
 
 
 async def main():
@@ -172,13 +148,6 @@ async def main():
         default=False,
         help="Enable OpenTelemetry tracing.",
     )
-    parser.add_argument(
-        "-p",
-        "--producer",
-        action="store_true",
-        default=False,
-        help="Enable producer mode.",
-    )
 
     args = parser.parse_args()
 
@@ -187,7 +156,6 @@ async def main():
         args.local,
         args.remote,
         args.gateway,
-        args.producer,
         args.enable_opentelemetry,
     )
 
