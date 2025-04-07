@@ -35,6 +35,8 @@ use agp_config::component::id::{Kind, ID};
 use agp_config::component::{Component, ComponentBuilder, ComponentError};
 use agp_config::grpc::client::ClientConfig;
 use agp_config::grpc::server::ServerConfig;
+use agp_datapath::controller_service::Service as ControllerService;
+use agp_datapath::controller::proto::controller::v1::controller_service_server::ControllerServiceServer;
 use agp_datapath::message_processing::MessageProcessor;
 use agp_datapath::pubsub::proto::pubsub::v1::pub_sub_service_server::PubSubServiceServer;
 use agp_datapath::pubsub::proto::pubsub::v1::Message;
@@ -196,7 +198,7 @@ impl Service {
 
     /// Run the service
     pub async fn run(&self) -> Result<(), ServiceError> {
-        // Check that at least one client or server is configured
+        // Check that at least one pubsub client or server is configured
         if self.config.server().is_none() && self.config.pubsub.clients.is_empty() {
             return Err(ServiceError::ConfigError(
                 "no server or clients configured".to_string(),
@@ -204,12 +206,12 @@ impl Service {
         }
 
         if self.config.server().is_some() {
-            info!("starting server");
+            info!("starting pubsub server");
             self.serve(None)?;
         }
 
         for (i, client) in self.config.pubsub.clients.iter().enumerate() {
-            info!("connecting client {} to {}", i, client.endpoint);
+            info!("connecting pubsub client {} to {}", i, client.endpoint);
 
             let channel = client
                 .to_channel()
@@ -218,7 +220,20 @@ impl Service {
             self.message_processor
                 .connect(channel, None, None, None)
                 .await
-                .expect("error connecting client");
+                .expect("error pubsub connecting client");
+        }
+
+        if self.config.controller_server().is_some() {
+            self.serve_controller()?;
+        }
+
+        if let Some(controller_client) = self.config.controller_client() {
+            info!("connecting controller client {}", controller_client.endpoint);
+            /*let channel = controller_client
+                .to_channel()
+                .map_err(|e| ServiceError::ConfigError(e.to_string()))?;*/
+
+            //TODO
         }
 
         Ok(())
@@ -703,6 +718,48 @@ impl Service {
                 Err(ServiceError::SessionError("unknown".to_string()))
             }
         }
+    }
+
+    fn serve_controller(&self) -> Result<(), ServiceError> {
+        let controller_server_config = match self.config.controller_server() {
+            Some(s) => s.clone(),
+            None => {
+                error!("no controller server configured");
+                return Err(ServiceError::ConfigError("no controller server configured".into()));
+            }
+        };
+
+        info!("controller server configured: setting it up");
+
+        // register a local connection for the controller service
+        let (_, tx_gw, rx_gw) = self.message_processor.register_local_connection();
+        let controller_service = ControllerService::new(tx_gw, rx_gw);
+        
+        let server_future = controller_server_config
+        .to_server_future(&[{
+            ControllerServiceServer::new(controller_service)
+        }])
+        .map_err(|e| ServiceError::ConfigError(e.to_string()))?;
+
+        let token = self.cancellation_token.clone();
+
+        tokio::spawn(async move {
+            info!("Controller server running");
+            tokio::select! {
+                res = server_future => {
+                    match res {
+                        Ok(_) => info!("Controller server shutdown"),
+                        Err(e) => error!("Controller server error: {:?}", e),
+                    }
+                }
+                _ = token.cancelled() => {
+                    info!("Shutting down controller server (cancellation token triggered)");
+                }
+            }
+        });
+    
+
+        Ok(())
     }
 }
 
