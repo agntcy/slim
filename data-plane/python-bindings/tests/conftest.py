@@ -2,6 +2,7 @@ import pytest_asyncio
 import agp_bindings
 import asyncio
 
+
 @pytest_asyncio.fixture(scope="function")
 async def server(request):
     # create new server

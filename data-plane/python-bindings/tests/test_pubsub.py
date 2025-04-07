@@ -80,7 +80,9 @@ async def test_streaming(server):
             while True:
                 try:
                     # receive message from session
-                    recv_session, msg_rcv = await participant.receive(session=session_info.id)
+                    recv_session, msg_rcv = await participant.receive(
+                        session=session_info.id
+                    )
 
                     # increase the count
                     local_count += 1
@@ -103,9 +105,7 @@ async def test_streaming(server):
                         # reply to the session and call out the next participant
                         next_participant = (index + 1) % participants_count
                         next_participant_name = f"participant-{next_participant}"
-                        print(
-                            f"{name} -> Calling out {next_participant_name}..."
-                        )
+                        print(f"{name} -> Calling out {next_participant_name}...")
                         await participant.publish(
                             recv_session,
                             f"{message} - {next_participant_name}".encode(),
@@ -114,7 +114,9 @@ async def test_streaming(server):
                             chat,
                         )
                     else:
-                        print(f"{name} -> Receving message: {msg_rcv.decode()} - not for me. Local count: {local_count}")
+                        print(
+                            f"{name} -> Receving message: {msg_rcv.decode()} - not for me. Local count: {local_count}"
+                        )
 
                     # If we received as many messages as the number of participants, we can exit
                     if local_count >= (participants_count - 1):
@@ -134,4 +136,3 @@ async def test_streaming(server):
     # Wait for the task to complete
     for task in participants:
         await task
-
