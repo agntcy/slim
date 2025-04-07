@@ -10,22 +10,7 @@ import os
 import agp_bindings
 from agp_bindings import GatewayConfig, PySessionInfo
 
-
-class color:
-    PURPLE = "\033[95m"
-    CYAN = "\033[96m"
-    DARKCYAN = "\033[36m"
-    BLUE = "\033[94m"
-    GREEN = "\033[92m"
-    YELLOW = "\033[93m"
-    RED = "\033[91m"
-    BOLD = "\033[1m"
-    UNDERLINE = "\033[4m"
-    END = "\033[0m"
-
-
-def format_message(message1, message2):
-    return f"{color.BOLD}{color.CYAN}{message1.capitalize() :<45}{color.END}{message2}"
+from common import format_message, split_id
 
 
 async def run_client(
@@ -37,11 +22,7 @@ async def run_client(
     )
 
     # Split the IDs into their respective components
-    try:
-        local_organization, local_namespace, local_agent = local_id.split("/")
-    except ValueError:
-        print("Error: IDs must be in the format organization/namespace/agent.")
-        return
+    local_organization, local_namespace, local_agent = split_id(local_id)
 
     # create new gateway object
     gateway = await agp_bindings.Gateway.new(
@@ -57,11 +38,7 @@ async def run_client(
     _ = await gateway.connect()
 
     # Split the IDs into their respective components
-    try:
-        remote_organization, remote_namespace, broadcast_topic = remote_id.split("/")
-    except ValueError:
-        print("Error: IDs must be in the format organization/namespace/agent.")
-        return
+    remote_organization, remote_namespace, broadcast_topic = split_id(remote_id)
 
     # Get the local agent instance from env
     instance = os.getenv("AGP_INSTANCE_ID", local_agent)
