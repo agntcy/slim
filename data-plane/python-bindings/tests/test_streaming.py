@@ -5,32 +5,7 @@ import asyncio
 import time
 import datetime
 import pytest
-import pytest_asyncio
 import agp_bindings
-
-
-@pytest_asyncio.fixture(scope="function")
-async def server(request):
-    # create new server
-    global svc_server
-    svc_server = await agp_bindings.create_pyservice("cisco", "default", "server")
-
-    # configure it
-    svc_server.configure(
-        agp_bindings.GatewayConfig(endpoint=request.param, insecure=True)
-    )
-
-    # init tracing
-    agp_bindings.init_tracing(log_level="info")
-
-    # run gateway server in background
-    ret = await agp_bindings.serve(svc_server)
-
-    # wait for the server to start
-    await asyncio.sleep(1)
-
-    # return the server
-    yield svc_server
 
 
 @pytest.mark.asyncio
@@ -53,42 +28,39 @@ async def test_streaming(server):
     # Connect to the service and subscribe for the local name
     _ = await producer.connect()
 
-    # subscribe to the service, so that it can receive messages from consumer agents
-    # asking for retransmissions
-    await producer.subscribe(org, ns, agent, producer.id())
-
     # set route for the producer, so that messages can be sent to consumer that
     # subscribed to the producer topic
     await producer.set_route(org, ns, broadcast_topic)
 
-    # message counr
+    # message count
     count = 10000
 
-    # create 10 consumer agents
+    # consumer count
+    consumers_count = 10
     consumers = []
-    for i in range(10):
 
-        async def background_task(index):
-            name = f"consumer-{index}"
+    # count array
+    # each consumer will have its own count
+    counts = []
 
-            print(f"Creating consumer {name}...")
+    # define the background task
+    async def background_task(index):
+        name = f"consumer-{index}"
 
-            consumer = await agp_bindings.Gateway.new(org, ns, name)
-            consumer.configure(
-                agp_bindings.GatewayConfig(
-                    endpoint="http://127.0.0.1:12365", insecure=True
-                )
-            )
+        print(f"Creating consumer {name}...")
 
-            # Connect to gateway server
-            _ = await consumer.connect()
+        consumer = await agp_bindings.Gateway.new(org, ns, name)
+        consumer.configure(
+            agp_bindings.GatewayConfig(endpoint="http://127.0.0.1:12365", insecure=True)
+        )
 
-            # Subscribe as consumer
-            await consumer.subscribe(org, ns, name, consumer.id())
+        # Connect to gateway server
+        _ = await consumer.connect()
 
-            # Subscribe to the producer topic
-            await consumer.subscribe(org, ns, broadcast_topic)
+        # Subscribe to the producer topic
+        await consumer.subscribe(org, ns, broadcast_topic)
 
+        async with consumer:
             print(f"{name} -> Waiting for new sessions...")
             recv_session, _ = await consumer.receive()
 
@@ -100,9 +72,7 @@ async def test_streaming(server):
             while True:
                 try:
                     # receive message from session
-                    recv_session, msg_rcv = await consumer.receive(
-                        session=recv_session.id
-                    )
+                    recv_session, msg_rcv = await consumer.receive(session=recv_session.id)
 
                     # increase the count
                     local_count += 1
@@ -115,6 +85,9 @@ async def test_streaming(server):
                         f"{name} -> Received: {msg_rcv.decode()}, local count: {local_count}"
                     )
 
+                    # increment the count
+                    counts[index] += 1
+
                     # if we reached the count, exit
                     if local_count >= count:
                         print(f"{name} -> Received all messages, exiting...")
@@ -124,6 +97,11 @@ async def test_streaming(server):
                     break
 
             print(f"{name} -> Exiting...")
+
+    # start consumers in background
+    for i in range(consumers_count):
+        # Init count array
+        counts.append(0)
 
         task = asyncio.create_task(background_task(i))
         task.set_name(f"consumer-{i}")
@@ -157,3 +135,9 @@ async def test_streaming(server):
     # Wait for the task to complete
     for task in consumers:
         await task
+
+    # make sure the counts are correct
+    for i in range(consumers_count):
+        assert (
+            counts[i] == count
+        ), f"Consumer {i} received {counts[i]} messages, expected {count}"

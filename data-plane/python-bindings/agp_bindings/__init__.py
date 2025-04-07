@@ -52,7 +52,9 @@ class Gateway:
     def __init__(
         self,
         svc: PyService,
-        id: Optional[int] = None,
+        organization: str,
+        namespace: str,
+        agent: str,
     ):
         """
         Create a new Gateway instance. A gateway instamce is associated to one single
@@ -72,16 +74,56 @@ class Gateway:
         # Initialize service
         self.svc = svc
 
-        # Run receiver loop in the background
-        self.task = asyncio.create_task(self._receive_loop())
-
         # Create sessions map
         self.sessions: Dict[int, Tuple[PySessionInfo, asyncio.Queue]] = {
             SESSION_UNSPECIFIED: (None, asyncio.Queue()),
         }
 
-        # Task for receiving messages
-        self.task: Optional[asyncio.Task] = None
+        # Save local names
+        self.local_name = PyAgentType(organization, namespace, agent)
+        self.local_id = self.svc.id
+
+    async def __aenter__(self):
+        """
+        Start the receiver loop in the background.
+        This function is called when the Gateway instance is used in a
+        context manager (with statement).
+        It will start the receiver loop in the background and return the
+        Gateway instance.
+        Args:
+            None
+        Returns:
+            Gateway: The Gateway instance.
+
+        """
+
+        # Run receiver loop in the background
+        self.task = asyncio.create_task(self._receive_loop())
+        return self
+
+    async def __aexit__(self, exc_type, exc_value, traceback):
+        """
+        Stop the receiver loop.
+        This function is called when the Gateway instance is used in a
+        context manager (with statement).
+        It will stop the receiver loop and wait for it to finish.
+        Args:
+            exc_type: The exception type.
+            exc_value: The exception value.
+            traceback: The traceback object.
+        Returns:
+            None
+        """
+
+        # Cancel the receiver loop task
+        self.task.cancel()
+
+        # Wait for the task to finish
+        try:
+            await self.task
+        except asyncio.CancelledError:
+            pass
+
 
     @classmethod
     async def new(
@@ -106,7 +148,12 @@ class Gateway:
             Gateway: A new Gateway instance
         """
 
-        return cls(await create_pyservice(organization, namespace, agent, id))
+        return cls(
+            await create_pyservice(organization, namespace, agent, id),
+            organization,
+            namespace,
+            agent,
+        )
 
     def id(self) -> int:
         """
@@ -241,6 +288,10 @@ class Gateway:
 
         self.conn_id = await connect(self.svc)
 
+        # Subscribe to the local name
+        await subscribe(self.svc, self.conn_id, self.local_name, self.local_id)
+
+        # return the connection ID
         return self.conn_id
 
     async def disconnect(self):
@@ -475,6 +526,8 @@ class Gateway:
                     await self.sessions[SESSION_UNSPECIFIED][1].put(session_info_msg)
 
                 await self.sessions[id][1].put(session_info_msg)
+            except asyncio.CancelledError:
+                raise
             except Exception as e:
                 print(e)
 
