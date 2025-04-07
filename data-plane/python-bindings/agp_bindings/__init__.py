@@ -13,8 +13,11 @@ from ._agp_bindings import (
     PySessionInfo,
     PyFireAndForgetConfiguration,
     PyRequestResponseConfiguration,
+    PyStreamingConfiguration,
+    PySessionDirection,
     create_ff_session,
     create_rr_session,
+    create_streaming_session,
     create_pyservice,
     connect,
     disconnect,
@@ -45,12 +48,13 @@ class TimeoutError(RuntimeError):
         super().__init__(self.message)
 
 
-
 class Gateway:
     def __init__(
         self,
         svc: PyService,
-        id: Optional[int] = None,
+        organization: str,
+        namespace: str,
+        agent: str,
     ):
         """
         Create a new Gateway instance. A gateway instamce is associated to one single
@@ -70,16 +74,56 @@ class Gateway:
         # Initialize service
         self.svc = svc
 
-        # Run receiver loop in the background
-        self.task = asyncio.create_task(self._receive_loop())
-
         # Create sessions map
         self.sessions: Dict[int, Tuple[PySessionInfo, asyncio.Queue]] = {
             SESSION_UNSPECIFIED: (None, asyncio.Queue()),
         }
 
-        # Task for receiving messages
-        self.task: Optional[asyncio.Task] = None
+        # Save local names
+        self.local_name = PyAgentType(organization, namespace, agent)
+        self.local_id = self.svc.id
+
+    async def __aenter__(self):
+        """
+        Start the receiver loop in the background.
+        This function is called when the Gateway instance is used in a
+        context manager (with statement).
+        It will start the receiver loop in the background and return the
+        Gateway instance.
+        Args:
+            None
+        Returns:
+            Gateway: The Gateway instance.
+
+        """
+
+        # Run receiver loop in the background
+        self.task = asyncio.create_task(self._receive_loop())
+        return self
+
+    async def __aexit__(self, exc_type, exc_value, traceback):
+        """
+        Stop the receiver loop.
+        This function is called when the Gateway instance is used in a
+        context manager (with statement).
+        It will stop the receiver loop and wait for it to finish.
+        Args:
+            exc_type: The exception type.
+            exc_value: The exception value.
+            traceback: The traceback object.
+        Returns:
+            None
+        """
+
+        # Cancel the receiver loop task
+        self.task.cancel()
+
+        # Wait for the task to finish
+        try:
+            await self.task
+        except asyncio.CancelledError:
+            pass
+
 
     @classmethod
     async def new(
@@ -104,7 +148,12 @@ class Gateway:
             Gateway: A new Gateway instance
         """
 
-        return cls(await create_pyservice(organization, namespace, agent, id))
+        return cls(
+            await create_pyservice(organization, namespace, agent, id),
+            organization,
+            namespace,
+            agent,
+        )
 
     def id(self) -> int:
         """
@@ -176,6 +225,28 @@ class Gateway:
         self.sessions[session.id] = (session, asyncio.Queue(queue_size))
         return session
 
+    async def create_streaming_session(
+        self,
+        session_config: PyStreamingConfiguration,
+        queue_size: Optional[int] = 0,
+    ) -> PySessionInfo:
+        """
+        Create a new streaming session.
+
+        Args:
+            session_config (PyStreamingConfiguration): The session configuration.
+            queue_size (int): The size of the queue for the session.
+                                If 0, the queue will be unbounded.
+                                If a positive integer, the queue will be bounded to that size.
+
+        Returns:
+            ID of the session
+        """
+
+        session = await create_streaming_session(self.svc, session_config)
+        self.sessions[session.id] = (session, asyncio.Queue(queue_size))
+        return session
+
     async def run_server(self):
         """
         Start the server part of the Gateway service. The server will be started only
@@ -217,6 +288,10 @@ class Gateway:
 
         self.conn_id = await connect(self.svc)
 
+        # Subscribe to the local name
+        await subscribe(self.svc, self.conn_id, self.local_name, self.local_id)
+
+        # return the connection ID
         return self.conn_id
 
     async def disconnect(self):
@@ -234,7 +309,9 @@ class Gateway:
 
         await disconnect(self.svc, self.conn_id)
 
-    async def set_route(self, organization, namespace, agent, id: Optional[int] = None):
+    async def set_route(
+        self, organization: str, namespace: str, agent: str, id: Optional[int] = None
+    ):
         """
         Set route for outgoing messages via the connected gateway.
 
@@ -252,7 +329,7 @@ class Gateway:
         await set_route(self.svc, self.conn_id, name, id)
 
     async def remove_route(
-        self, organization, namespace, agent, id: Optional[int] = None
+        self, organization: str, namespace: str, agent: str, id: Optional[int] = None
     ):
         """
         Remove route for outgoing messages via the connected gateway.
@@ -270,7 +347,7 @@ class Gateway:
         name = PyAgentType(organization, namespace, agent)
         await remove_route(self.svc, self.conn_id, name, id)
 
-    async def subscribe(self, organization, namespace, agent, id=None):
+    async def subscribe(self, organization: str, namespace: str, agent: str, id=None):
         """
         Subscribe to receive messages for the given agent.
 
@@ -287,7 +364,9 @@ class Gateway:
         sub = PyAgentType(organization, namespace, agent)
         await subscribe(self.svc, self.conn_id, sub, id)
 
-    async def unsubscribe(self, organization, namespace, agent, id=None):
+    async def unsubscribe(
+        self, organization: str, namespace: str, agent: str, id: Optional[int] = None
+    ):
         """
         Unsubscribe from receiving messages for the given agent.
 
@@ -304,7 +383,15 @@ class Gateway:
         unsub = PyAgentType(organization, namespace, agent)
         await unsubscribe(self.svc, self.conn_id, unsub, id)
 
-    async def publish(self, session, msg, organization, namespace, agent, id=None):
+    async def publish(
+        self,
+        session: PySessionInfo,
+        msg: bytes,
+        organization: str,
+        namespace: str,
+        agent: str,
+        id: Optional[int] = None,
+    ):
         """
         Publish a message to an agent via normal matching in subscription table.
 
@@ -324,7 +411,13 @@ class Gateway:
         await publish(self.svc, session, 1, msg, dest, id)
 
     async def request_reply(
-        self, session, msg, organization, namespace, agent
+        self,
+        session: PySessionInfo,
+        msg: bytes,
+        organization: str,
+        namespace: str,
+        agent: str,
+        id: Optional[int] = None,
     ) -> Tuple[PySessionInfo, bytes]:
         """
         Publish a message and wait for the first response.
@@ -345,7 +438,7 @@ class Gateway:
             raise Exception("Session ID not found")
 
         dest = PyAgentType(organization, namespace, agent)
-        await publish(self.svc, session, 1, msg, dest, None)
+        await publish(self.svc, session, 1, msg, dest, id)
 
         # Wait for a reply in the corresponding session queue
         session_info, msg = await self.receive(session.id)
@@ -433,6 +526,8 @@ class Gateway:
                     await self.sessions[SESSION_UNSPECIFIED][1].put(session_info_msg)
 
                 await self.sessions[id][1].put(session_info_msg)
+            except asyncio.CancelledError:
+                raise
             except Exception as e:
                 print(e)
 

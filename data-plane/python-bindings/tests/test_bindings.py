@@ -8,30 +8,6 @@ import pytest_asyncio
 import agp_bindings
 
 
-@pytest_asyncio.fixture(scope="function")
-async def server(request):
-    # create new server
-    global svc_server
-    svc_server = await agp_bindings.create_pyservice("cisco", "default", "server")
-
-    # configure it
-    svc_server.configure(
-        agp_bindings.GatewayConfig(endpoint=request.param, insecure=True)
-    )
-
-    # init tracing
-    agp_bindings.init_tracing(log_level="info")
-
-    # run gateway server in background
-    ret = await agp_bindings.serve(svc_server)
-
-    # wait for the server to start
-    await asyncio.sleep(1)
-
-    # return the server
-    yield svc_server
-
-
 @pytest.mark.asyncio
 @pytest.mark.parametrize("server", ["127.0.0.1:12344"], indirect=True)
 async def test_end_to_end(server):
@@ -107,8 +83,8 @@ async def test_gateway_wrapper(server):
     # Connect to the service and subscribe for the local name
     _ = await gateway1.connect()
 
-    # subscribe to the service
-    await gateway1.subscribe(org, ns, agent1)
+    # # subscribe to the service
+    # await gateway1.subscribe(org, ns, agent1)
 
     # create second local agent
     agent2 = "gateway2"
@@ -119,7 +95,6 @@ async def test_gateway_wrapper(server):
 
     # Connect to gateway server
     _ = await gateway2.connect()
-    await gateway2.subscribe(org, ns, agent2, gateway2.id())
 
     # set route
     await gateway2.set_route("cisco", "default", agent1)
@@ -129,30 +104,31 @@ async def test_gateway_wrapper(server):
         agp_bindings.PyFireAndForgetConfiguration()
     )
 
-    # publish message
-    msg = [1, 2, 3, 4, 5, 6, 7, 8, 9]
-    await gateway2.publish(session_info, msg, org, ns, agent1)
+    async with gateway1, gateway2:
+        # publish message
+        msg = [1, 2, 3, 4, 5, 6, 7, 8, 9]
+        await gateway2.publish(session_info, msg, org, ns, agent1)
 
-    # wait for a new session
-    session_info_rec, _ = await gateway1.receive()
+        # wait for a new session
+        session_info_rec, _ = await gateway1.receive()
 
-    # new session received! listen for the message
-    session_info_rec, msg_rcv = await gateway1.receive(session=session_info_rec.id)
+        # new session received! listen for the message
+        session_info_rec, msg_rcv = await gateway1.receive(session=session_info_rec.id)
 
-    # check if the message is correct
-    assert msg_rcv == bytes(msg)
+        # check if the message is correct
+        assert msg_rcv == bytes(msg)
 
-    # make sure the session info is correct
-    assert session_info.id == session_info_rec.id
+        # make sure the session info is correct
+        assert session_info.id == session_info_rec.id
 
-    # reply to Alice
-    await gateway1.publish_to(session_info_rec, msg_rcv)
+        # reply to Alice
+        await gateway1.publish_to(session_info_rec, msg_rcv)
 
-    # wait for message
-    _, msg_rcv = await gateway2.receive(session=session_info.id)
+        # wait for message
+        _, msg_rcv = await gateway2.receive(session=session_info.id)
 
-    # check if the message is correct
-    assert msg_rcv == bytes(msg)
+        # check if the message is correct
+        assert msg_rcv == bytes(msg)
 
 
 @pytest.mark.asyncio
@@ -191,9 +167,9 @@ async def test_auto_reconnect_after_server_restart(server):
     assert received == bytes(baseline_msg)
 
     # restart the server
-    await agp_bindings.stop(svc_server)
+    await agp_bindings.stop(server)
     await asyncio.sleep(3)  # allow time for the server to fully shut down
-    await agp_bindings.serve(svc_server)
+    await agp_bindings.serve(server)
     await asyncio.sleep(2)  # allow time for automatic reconnection
 
     # test that the message exchange resumes normally after the simulated restart

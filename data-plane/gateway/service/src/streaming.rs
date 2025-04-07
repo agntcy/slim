@@ -26,6 +26,8 @@ use agp_datapath::{
 use tonic::{async_trait, Status};
 use tracing::{debug, error, info, trace, warn};
 
+const STREAM_BROADCAST: u32 = 50;
+
 /// Configuration for the Streaming session
 #[derive(Debug, Clone, PartialEq)]
 pub struct StreamingConfiguration {
@@ -376,7 +378,11 @@ async fn process_incoming_rtx_request(
                 source,
                 pkt_src.agent_type(),
                 Some(pkt_src.agent_id()),
-                Some(AgpHeaderFlags::default().with_forward_to(incoming_conn)),
+                Some(
+                    AgpHeaderFlags::default()
+                        .with_forward_to(incoming_conn)
+                        .with_fanout(1),
+                ),
             ));
 
             let session_header = Some(SessionHeader::new(
@@ -428,6 +434,7 @@ async fn process_message_from_app(
         msg.set_header_type(SessionHeaderType::Stream);
     }
     msg.set_message_id(producer.next_id);
+    msg.set_fanout(STREAM_BROADCAST);
 
     trace!(
         "add message {} to the producer buffer on session {}",
@@ -815,6 +822,7 @@ mod tests {
         // set session header type for test check
         let mut expected_msg = message.clone();
         let _ = expected_msg.set_header_type(SessionHeaderType::Stream);
+        expected_msg.set_fanout(STREAM_BROADCAST);
 
         let session_msg = SessionMessage::new(message.clone(), Info::new(0));
 

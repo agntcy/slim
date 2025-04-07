@@ -197,11 +197,11 @@ impl Service {
 
         // make sure the agent is not already registered
         if session_layers.contains_key(agent_name) {
-            error!("agent {:?} already exists", agent_name);
+            error!(%agent_name, "agent already exists");
             return Err(ServiceError::AgentAlreadyRegistered);
         }
 
-        info!("creating agent {:?}", agent_name);
+        info!(%agent_name, "creating agent");
 
         // Channels to communicate with the gateway
         let (conn_id, tx_gw, rx_gw) = self.message_processor.register_local_connection();

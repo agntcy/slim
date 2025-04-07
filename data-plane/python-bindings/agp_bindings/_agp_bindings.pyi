@@ -2,18 +2,22 @@
 # ruff: noqa: E501, F401
 
 import builtins
+import datetime
 import typing
+from enum import Enum, auto
 
 class PyAgentType:
     r"""
     agent class
     """
+    organization: builtins.str
+    namespace: builtins.str
+    agent_type: builtins.str
     def __new__(cls,agent_org:builtins.str, agent_ns:builtins.str, agent_class:builtins.str): ...
-    ...
 
 class PyFireAndForgetConfiguration:
     r"""
-    session config
+    fire and forget session config
     """
     def __new__(cls,): ...
     ...
@@ -37,7 +41,7 @@ class PyGatewayConfig:
 
 class PyRequestResponseConfiguration:
     r"""
-    session config
+    request response session config
     """
     max_retries: builtins.int
     timeout: builtins.int
@@ -50,7 +54,7 @@ class PyRequestResponseConfiguration:
 
 
 class PyService:
-    def __new__(cls,id:builtins.str): ...
+    id: builtins.int
     def configure(self, config:PyGatewayConfig) -> None:
         ...
 
@@ -59,16 +63,33 @@ class PySessionInfo:
     id: builtins.int
     def __new__(cls,session_id:builtins.int): ...
 
-def connect(svc:PyService) -> typing.Any:
-    ...
+class PyStreamingConfiguration:
+    r"""
+    streaming session config
+    """
+    direction: PySessionDirection
+    topic: typing.Optional[PyAgentType]
+    max_retries: builtins.int
+    def __new__(cls,direction:PySessionDirection, topic:typing.Optional[PyAgentType], max_retries:typing.Optional[builtins.int]=None, timeout:typing.Optional[datetime.timedelta]=None): ...
 
-def create_agent(svc:PyService, agent_org:builtins.str, agent_ns:builtins.str, agent_class:builtins.str, agent_id:typing.Optional[builtins.int]=None) -> typing.Any:
+class PySessionDirection(Enum):
+    r"""
+    session direction
+    """
+    SENDER = auto()
+    RECEIVER = auto()
+    BIDIRECTIONAL = auto()
+
+def connect(svc:PyService) -> typing.Any:
     ...
 
 def create_ff_session(svc:PyService, config:PyFireAndForgetConfiguration=...) -> typing.Any:
     ...
 
 def create_rr_session(svc:PyService, config:PyRequestResponseConfiguration=...) -> typing.Any:
+    ...
+
+def create_streaming_session(svc:PyService, config:PyStreamingConfiguration) -> typing.Any:
     ...
 
 def disconnect(svc:PyService, conn:builtins.int) -> typing.Any:

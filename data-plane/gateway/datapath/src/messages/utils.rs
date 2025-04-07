@@ -680,6 +680,10 @@ impl ProtoMessage {
         self.get_agp_header_mut().set_error(error);
     }
 
+    pub fn set_fanout(&mut self, fanout: u32) {
+        self.get_agp_header_mut().set_fanout(fanout);
+    }
+
     pub fn set_incoming_conn(&mut self, incoming_conn: Option<u64>) {
         self.get_agp_header_mut().set_incoming_conn(incoming_conn);
     }
