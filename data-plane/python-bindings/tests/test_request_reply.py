@@ -150,7 +150,9 @@ async def test_request_reply(server):
                     recv_session, _ = await gateway1.receive()
 
                     # receive message from session
-                    recv_session, msg_rcv = await gateway1.receive(session=recv_session.id)
+                    recv_session, msg_rcv = await gateway1.receive(
+                        session=recv_session.id
+                    )
 
                     # make sure the message is correct
                     assert msg_rcv == bytes(pub_msg)

@@ -115,7 +115,7 @@ async def test_streaming(server):
                         )
                     else:
                         print(
-                            f"{name} -> Receving message: {msg_rcv.decode()} - not for me. Local count: {local_count}"
+                            f"{name} -> Receiving message: {msg_rcv.decode()} - not for me. Local count: {local_count}"
                         )
 
                     # If we received as many messages as the number of participants, we can exit
