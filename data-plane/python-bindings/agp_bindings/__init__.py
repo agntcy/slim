@@ -2,40 +2,36 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import asyncio
-import logging
-from typing import Optional, Tuple, Dict, Union
+from typing import Optional
+
+from ._agp_bindings import (
+    SESSION_UNSPECIFIED,
+    PyAgentType,
+    PyFireAndForgetConfiguration,
+    PyRequestResponseConfiguration,
+    PyService,
+    PySessionInfo,
+    PyStreamingConfiguration,
+    connect,
+    create_ff_session,
+    create_pyservice,
+    create_rr_session,
+    create_streaming_session,
+    disconnect,
+    publish,
+    receive,
+    remove_route,
+    serve,
+    set_route,
+    stop,
+    subscribe,
+    unsubscribe,
+)
 
 # import the contents of the Rust library into the Python extension
 from ._agp_bindings import (
     PyGatewayConfig as GatewayConfig,
-    PyService,
-    PyAgentType,
-    PySessionInfo,
-    PyFireAndForgetConfiguration,
-    PyRequestResponseConfiguration,
-    PyStreamingConfiguration,
-    PySessionDirection,
-    create_ff_session,
-    create_rr_session,
-    create_streaming_session,
-    create_pyservice,
-    connect,
-    disconnect,
-    publish,
-    receive,
-    init_tracing,
-    subscribe,
-    unsubscribe,
-    serve,
-    stop,
-    set_route,
-    remove_route,
-    SESSION_UNSPECIFIED,
 )
-from ._agp_bindings import __all__
-
-# optional: include the documentation from the Rust module
-from ._agp_bindings import __doc__  # noqa: F401
 
 
 class TimeoutError(RuntimeError):
@@ -75,7 +71,7 @@ class Gateway:
         self.svc = svc
 
         # Create sessions map
-        self.sessions: Dict[int, Tuple[PySessionInfo, asyncio.Queue]] = {
+        self.sessions: dict[int, tuple[PySessionInfo, asyncio.Queue]] = {
             SESSION_UNSPECIFIED: (None, asyncio.Queue()),
         }
 
@@ -308,9 +304,7 @@ class Gateway:
 
         await disconnect(self.svc, self.conn_id)
 
-    async def set_route(
-        self, organization: str, namespace: str, agent: str, id: Optional[int] = None
-    ):
+    async def set_route(self, organization: str, namespace: str, agent: str, id: Optional[int] = None):
         """
         Set route for outgoing messages via the connected gateway.
 
@@ -327,9 +321,7 @@ class Gateway:
         name = PyAgentType(organization, namespace, agent)
         await set_route(self.svc, self.conn_id, name, id)
 
-    async def remove_route(
-        self, organization: str, namespace: str, agent: str, id: Optional[int] = None
-    ):
+    async def remove_route(self, organization: str, namespace: str, agent: str, id: Optional[int] = None):
         """
         Remove route for outgoing messages via the connected gateway.
 
@@ -346,9 +338,7 @@ class Gateway:
         name = PyAgentType(organization, namespace, agent)
         await remove_route(self.svc, self.conn_id, name, id)
 
-    async def subscribe(
-        self, organization: str, namespace: str, agent: str, id: Optional[int] = None
-    ):
+    async def subscribe(self, organization: str, namespace: str, agent: str, id: Optional[int] = None):
         """
         Subscribe to receive messages for the given agent.
 
@@ -365,9 +355,7 @@ class Gateway:
         sub = PyAgentType(organization, namespace, agent)
         await subscribe(self.svc, self.conn_id, sub, id)
 
-    async def unsubscribe(
-        self, organization: str, namespace: str, agent: str, id: Optional[int] = None
-    ):
+    async def unsubscribe(self, organization: str, namespace: str, agent: str, id: Optional[int] = None):
         """
         Unsubscribe from receiving messages for the given agent.
 
@@ -419,7 +407,7 @@ class Gateway:
         namespace: str,
         agent: str,
         id: Optional[int] = None,
-    ) -> Tuple[PySessionInfo, bytes]:
+    ) -> tuple[PySessionInfo, bytes]:
         """
         Publish a message and wait for the first response.
 
@@ -461,9 +449,7 @@ class Gateway:
 
         await publish(self.svc, session, 1, msg)
 
-    async def receive(
-        self, session: int = None
-    ) -> Tuple[PySessionInfo, Optional[bytes]]:
+    async def receive(self, session: int = None) -> tuple[PySessionInfo, Optional[bytes]]:
         """
         Receive a message , optionally waiting for a specific session ID.
         If session ID is None, it will wait for new sessions to be created.
@@ -548,7 +534,7 @@ class Gateway:
                         )
                     else:
                         print(self.sessions.keys())
-                except:
+                except Exception:
                     raise e
 
 

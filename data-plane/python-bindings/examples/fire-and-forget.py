@@ -3,13 +3,12 @@
 
 import argparse
 import asyncio
-import time
 import os
 
-import agp_bindings
-from agp_bindings import GatewayConfig, PySessionInfo
-
 from common import format_message, split_id
+
+import agp_bindings
+from agp_bindings import GatewayConfig
 
 
 async def run_client(
@@ -21,23 +20,19 @@ async def run_client(
     enable_opentelemetry: bool,
 ):
     # init tracing
-    agp_bindings.init_tracing(
-        log_level="info", enable_opentelemetry=enable_opentelemetry
-    )
+    agp_bindings.init_tracing(log_level="info", enable_opentelemetry=enable_opentelemetry)
 
     local_organization, local_namespace, local_agent = split_id(local_id)
 
     # create new gateway object
-    gateway = await agp_bindings.Gateway.new(
-        local_organization, local_namespace, local_agent
-    )
+    gateway = await agp_bindings.Gateway.new(local_organization, local_namespace, local_agent)
 
     # Configure gateway
     config = GatewayConfig(endpoint=address, insecure=True)
     gateway.configure(config)
 
     # Connect to remote gateway server
-    print(format_message(f"connecting to:", address))
+    print(format_message(f"connecting to: {address}"))
     _ = await gateway.connect()
 
     # Get the local agent instance from env
@@ -52,9 +47,7 @@ async def run_client(
             await gateway.set_route(remote_organization, remote_namespace, remote_agent)
 
             # create a session
-            session = await gateway.create_ff_session(
-                agp_bindings.PyFireAndForgetConfiguration()
-            )
+            session = await gateway.create_ff_session(agp_bindings.PyFireAndForgetConfiguration())
 
             for i in range(0, iterations):
                 try:
@@ -111,9 +104,7 @@ async def run_client(
 
 
 async def main():
-    parser = argparse.ArgumentParser(
-        description="Command line client for message passing."
-    )
+    parser = argparse.ArgumentParser(description="Command line client for message passing.")
     parser.add_argument(
         "-l",
         "--local",

@@ -2,9 +2,9 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import asyncio
-import time
+
 import pytest
-import pytest_asyncio
+
 import agp_bindings
 
 
@@ -32,9 +32,7 @@ async def test_end_to_end(server):
     await agp_bindings.set_route(svc_alice, conn_id_alice, bob_class, None)
 
     # create fire and forget session
-    session_info = await agp_bindings.create_ff_session(
-        svc_alice, agp_bindings.PyFireAndForgetConfiguration()
-    )
+    session_info = await agp_bindings.create_ff_session(svc_alice, agp_bindings.PyFireAndForgetConfiguration())
 
     # send msg from Alice to Bob
     msg = [1, 2, 3, 4, 5, 6, 7, 8, 9]
@@ -76,9 +74,7 @@ async def test_gateway_wrapper(server):
 
     # create new gateway object
     gateway1 = await agp_bindings.Gateway.new(org, ns, agent1)
-    gateway1.configure(
-        agp_bindings.GatewayConfig(endpoint="http://127.0.0.1:12345", insecure=True)
-    )
+    gateway1.configure(agp_bindings.GatewayConfig(endpoint="http://127.0.0.1:12345", insecure=True))
 
     # Connect to the service and subscribe for the local name
     _ = await gateway1.connect()
@@ -89,9 +85,7 @@ async def test_gateway_wrapper(server):
     # create second local agent
     agent2 = "gateway2"
     gateway2 = await agp_bindings.Gateway.new(org, ns, agent2)
-    gateway2.configure(
-        agp_bindings.GatewayConfig(endpoint="http://127.0.0.1:12345", insecure=True)
-    )
+    gateway2.configure(agp_bindings.GatewayConfig(endpoint="http://127.0.0.1:12345", insecure=True))
 
     # Connect to gateway server
     _ = await gateway2.connect()
@@ -100,9 +94,7 @@ async def test_gateway_wrapper(server):
     await gateway2.set_route("cisco", "default", agent1)
 
     # create session
-    session_info = await gateway2.create_ff_session(
-        agp_bindings.PyFireAndForgetConfiguration()
-    )
+    session_info = await gateway2.create_ff_session(agp_bindings.PyFireAndForgetConfiguration())
 
     async with gateway1, gateway2:
         # publish message
@@ -153,15 +145,11 @@ async def test_auto_reconnect_after_server_restart(server):
     await agp_bindings.set_route(svc_alice, conn_id_alice, bob_class, None)
 
     # create fire and forget session
-    session_info = await agp_bindings.create_ff_session(
-        svc_alice, agp_bindings.PyFireAndForgetConfiguration()
-    )
+    session_info = await agp_bindings.create_ff_session(svc_alice, agp_bindings.PyFireAndForgetConfiguration())
 
     # verify baseline message exchange before the simulated server restart
     baseline_msg = [1, 2, 3]
-    await agp_bindings.publish(
-        svc_alice, session_info, 1, baseline_msg, bob_class, None
-    )
+    await agp_bindings.publish(svc_alice, session_info, 1, baseline_msg, bob_class, None)
 
     _, received = await agp_bindings.receive(svc_bob)
     assert received == bytes(baseline_msg)
@@ -195,9 +183,7 @@ async def test_error_on_nonexistent_subscription(server):
     await agp_bindings.subscribe(svc_alice, conn_id_alice, alice_class, 1234)
 
     # create fire and forget session
-    session_info = await agp_bindings.create_ff_session(
-        svc_alice, agp_bindings.PyFireAndForgetConfiguration()
-    )
+    session_info = await agp_bindings.create_ff_session(svc_alice, agp_bindings.PyFireAndForgetConfiguration())
 
     # create Bob's agent class, but do not instantiate or subscribe Bob
     bob_class = agp_bindings.PyAgentType("cisco", "default", "bob")
@@ -208,9 +194,7 @@ async def test_error_on_nonexistent_subscription(server):
 
     # an exception should be raised on receive
     try:
-        _, src, received = await asyncio.wait_for(
-            agp_bindings.receive(svc_alice), timeout=5
-        )
+        _, src, received = await asyncio.wait_for(agp_bindings.receive(svc_alice), timeout=5)
     except asyncio.TimeoutError:
         pytest.fail("timed out waiting for error message on receive channel")
     except Exception as e:

@@ -2,9 +2,9 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import asyncio
-import time
+
 import pytest
-import pytest_asyncio
+
 import agp_bindings
 
 
@@ -17,9 +17,7 @@ async def test_request_reply_base(server):
 
     # create new gateway object
     gateway1 = await agp_bindings.Gateway.new(org, ns, agent1)
-    gateway1.configure(
-        agp_bindings.GatewayConfig(endpoint="http://127.0.0.1:12355", insecure=True)
-    )
+    gateway1.configure(agp_bindings.GatewayConfig(endpoint="http://127.0.0.1:12355", insecure=True))
 
     # Connect to the service and subscribe for the local name
     _ = await gateway1.connect()
@@ -30,9 +28,7 @@ async def test_request_reply_base(server):
     # create second local agent
     agent2 = "gateway2"
     gateway2 = await agp_bindings.Gateway.new(org, ns, agent2)
-    gateway2.configure(
-        agp_bindings.GatewayConfig(endpoint="http://127.0.0.1:12355", insecure=True)
-    )
+    gateway2.configure(agp_bindings.GatewayConfig(endpoint="http://127.0.0.1:12355", insecure=True))
 
     # Connect to gateway server
     _ = await gateway2.connect()
@@ -76,9 +72,7 @@ async def test_request_reply_base(server):
 
         # wait for message on Alice
         try:
-            _, msg_rcv = await asyncio.wait_for(
-                gateway2.receive(session=session_info.id), timeout=3
-            )
+            _, msg_rcv = await asyncio.wait_for(gateway2.receive(session=session_info.id), timeout=3)
         except asyncio.TimeoutError:
             msg_rcv = None
 
@@ -114,9 +108,7 @@ async def test_request_reply(server):
 
     # create new gateway object
     gateway1 = await agp_bindings.Gateway.new(org, ns, agent1)
-    gateway1.configure(
-        agp_bindings.GatewayConfig(endpoint="http://127.0.0.1:12356", insecure=True)
-    )
+    gateway1.configure(agp_bindings.GatewayConfig(endpoint="http://127.0.0.1:12356", insecure=True))
 
     # Connect to the service and subscribe for the local name
     _ = await gateway1.connect()
@@ -124,9 +116,7 @@ async def test_request_reply(server):
     # create second local agent
     agent2 = "gateway2"
     gateway2 = await agp_bindings.Gateway.new(org, ns, agent2)
-    gateway2.configure(
-        agp_bindings.GatewayConfig(endpoint="http://127.0.0.1:12356", insecure=True)
-    )
+    gateway2.configure(agp_bindings.GatewayConfig(endpoint="http://127.0.0.1:12356", insecure=True))
 
     # Connect to gateway server
     _ = await gateway2.connect()
@@ -150,9 +140,7 @@ async def test_request_reply(server):
                     recv_session, _ = await gateway1.receive()
 
                     # receive message from session
-                    recv_session, msg_rcv = await gateway1.receive(
-                        session=recv_session.id
-                    )
+                    recv_session, msg_rcv = await gateway1.receive(session=recv_session.id)
 
                     # make sure the message is correct
                     assert msg_rcv == bytes(pub_msg)
@@ -166,9 +154,7 @@ async def test_request_reply(server):
         asyncio.create_task(background_task())
 
         # send a request and expect a response in gateway2
-        session_info, message = await gateway2.request_reply(
-            session_info, pub_msg, org, ns, agent1
-        )
+        session_info, message = await gateway2.request_reply(session_info, pub_msg, org, ns, agent1)
 
         # check if the message is correct
         assert message == bytes(res_msg)

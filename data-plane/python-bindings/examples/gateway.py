@@ -11,9 +11,7 @@ from agp_bindings import GatewayConfig
 
 async def run_server(address: str, enable_opentelemetry: bool):
     # init tracing
-    agp_bindings.init_tracing(
-        log_level="debug", enable_opentelemetry=enable_opentelemetry
-    )
+    agp_bindings.init_tracing(log_level="debug", enable_opentelemetry=enable_opentelemetry)
 
     global gateway
     # create new gateway object
@@ -28,12 +26,8 @@ async def run_server(address: str, enable_opentelemetry: bool):
 
 
 async def main():
-    parser = argparse.ArgumentParser(
-        description="Command line client for gateway server."
-    )
-    parser.add_argument(
-        "-g", "--gateway", type=str, help="Gateway address.", default="127.0.0.1:12345"
-    )
+    parser = argparse.ArgumentParser(description="Command line client for gateway server.")
+    parser.add_argument("-g", "--gateway", type=str, help="Gateway address.", default="127.0.0.1:12345")
     parser.add_argument(
         "--enable-opentelemetry",
         "-t",
@@ -57,9 +51,7 @@ async def main():
     loop.add_signal_handler(SIGINT, shutdown)
 
     # Run the client task
-    client_task = asyncio.create_task(
-        run_server(args.gateway, args.enable_opentelemetry)
-    )
+    client_task = asyncio.create_task(run_server(args.gateway, args.enable_opentelemetry))
 
     # Wait until the stop event is set
     await stop_event.wait()

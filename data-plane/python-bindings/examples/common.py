@@ -16,7 +16,7 @@ class color:
 
 
 def format_message(message1, message2):
-    return f"{color.BOLD}{color.CYAN}{message1.capitalize() :<45}{color.END}{message2}"
+    return f"{color.BOLD}{color.CYAN}{message1.capitalize():<45}{color.END}{message2}"
 
 
 def split_id(id):
