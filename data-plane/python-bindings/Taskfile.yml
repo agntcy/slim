@@ -86,7 +86,7 @@ tasks:
       AGP_INSTANCE_ID: alice1
     cmds:
       - |
-        uv run python ./examples/ff.py \
+        uv run python ./examples/agent.py \
           -l cisco/default/alice          \
           -g http://localhost:12345       \
           -t
@@ -97,7 +97,7 @@ tasks:
       AGP_INSTANCE_ID: alice2
     cmds:
       - |
-        uv run python ./examples/ff.py \
+        uv run python ./examples/agent.py \
           -l cisco/default/alice          \
           -g http://localhost:12345       \
           -t
@@ -108,7 +108,7 @@ tasks:
       AGP_INSTANCE_ID: bob
     cmds:
       - |
-        uv run python ./examples/ff.py   \
+        uv run python ./examples/agent.py   \
           -l cisco/default/bob              \
           -r cisco/default/alice            \
           -g http://localhost:12345         \
