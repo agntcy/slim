@@ -787,7 +787,7 @@ impl PubSubService for MessageProcessor {
             .with_local_addr(local_addr)
             .with_channel(Channel::Server(tx));
 
-        info!(
+        debug!(
             "new connection received from remote: (remote: {:?} - local: {:?})",
             connection.remote_addr(),
             connection.local_addr()

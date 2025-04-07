@@ -8,8 +8,10 @@ from ._agp_bindings import (
     SESSION_UNSPECIFIED,
     PyAgentType,
     PyFireAndForgetConfiguration,
+    PyGatewayConfig as GatewayConfig,
     PyRequestResponseConfiguration,
     PyService,
+    PySessionDirection as PySessionDirection,
     PySessionInfo,
     PyStreamingConfiguration,
     connect,
@@ -18,6 +20,7 @@ from ._agp_bindings import (
     create_rr_session,
     create_streaming_session,
     disconnect,
+    init_tracing as init_tracing,
     publish,
     receive,
     remove_route,
@@ -26,11 +29,6 @@ from ._agp_bindings import (
     stop,
     subscribe,
     unsubscribe,
-)
-
-# import the contents of the Rust library into the Python extension
-from ._agp_bindings import (
-    PyGatewayConfig as GatewayConfig,
 )
 
 
@@ -179,7 +177,7 @@ class Gateway:
     async def create_ff_session(
         self,
         session_config: PyFireAndForgetConfiguration = PyFireAndForgetConfiguration(),
-        queue_size: Optional[int] = 0,
+        queue_size: int = 0,
     ) -> PySessionInfo:
         """
         Create a new session.
@@ -201,7 +199,7 @@ class Gateway:
     async def create_rr_session(
         self,
         session_config: PyRequestResponseConfiguration = PyRequestResponseConfiguration(),
-        queue_size: Optional[int] = 0,
+        queue_size: int = 0,
     ) -> PySessionInfo:
         """
         Create a new session.
@@ -223,7 +221,7 @@ class Gateway:
     async def create_streaming_session(
         self,
         session_config: PyStreamingConfiguration,
-        queue_size: Optional[int] = 0,
+        queue_size: int = 0,
     ) -> PySessionInfo:
         """
         Create a new streaming session.
@@ -304,7 +302,9 @@ class Gateway:
 
         await disconnect(self.svc, self.conn_id)
 
-    async def set_route(self, organization: str, namespace: str, agent: str, id: Optional[int] = None):
+    async def set_route(
+        self, organization: str, namespace: str, agent: str, id: Optional[int] = None
+    ):
         """
         Set route for outgoing messages via the connected gateway.
 
@@ -321,7 +321,9 @@ class Gateway:
         name = PyAgentType(organization, namespace, agent)
         await set_route(self.svc, self.conn_id, name, id)
 
-    async def remove_route(self, organization: str, namespace: str, agent: str, id: Optional[int] = None):
+    async def remove_route(
+        self, organization: str, namespace: str, agent: str, id: Optional[int] = None
+    ):
         """
         Remove route for outgoing messages via the connected gateway.
 
@@ -338,7 +340,9 @@ class Gateway:
         name = PyAgentType(organization, namespace, agent)
         await remove_route(self.svc, self.conn_id, name, id)
 
-    async def subscribe(self, organization: str, namespace: str, agent: str, id: Optional[int] = None):
+    async def subscribe(
+        self, organization: str, namespace: str, agent: str, id: Optional[int] = None
+    ):
         """
         Subscribe to receive messages for the given agent.
 
@@ -355,7 +359,9 @@ class Gateway:
         sub = PyAgentType(organization, namespace, agent)
         await subscribe(self.svc, self.conn_id, sub, id)
 
-    async def unsubscribe(self, organization: str, namespace: str, agent: str, id: Optional[int] = None):
+    async def unsubscribe(
+        self, organization: str, namespace: str, agent: str, id: Optional[int] = None
+    ):
         """
         Unsubscribe from receiving messages for the given agent.
 
@@ -407,7 +413,7 @@ class Gateway:
         namespace: str,
         agent: str,
         id: Optional[int] = None,
-    ) -> tuple[PySessionInfo, bytes]:
+    ) -> tuple[PySessionInfo, Optional[bytes]]:
         """
         Publish a message and wait for the first response.
 
@@ -430,9 +436,9 @@ class Gateway:
         await publish(self.svc, session, 1, msg, dest, id)
 
         # Wait for a reply in the corresponding session queue
-        session_info, msg = await self.receive(session.id)
+        session_info, message = await self.receive(session.id)
 
-        return session_info, msg
+        return session_info, message
 
     async def publish_to(self, session, msg):
         """
@@ -449,7 +455,9 @@ class Gateway:
 
         await publish(self.svc, session, 1, msg)
 
-    async def receive(self, session: int = None) -> tuple[PySessionInfo, Optional[bytes]]:
+    async def receive(
+        self, session: Optional[int] = None
+    ) -> tuple[PySessionInfo, Optional[bytes]]:
         """
         Receive a message , optionally waiting for a specific session ID.
         If session ID is None, it will wait for new sessions to be created.
@@ -487,7 +495,7 @@ class Gateway:
             # Otherwise, return the message
             return ret
 
-    async def _receive_loop(self):
+    async def _receive_loop(self) -> None:
         """
         Receive messages in a loop running in the background.
 
