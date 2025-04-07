@@ -201,7 +201,7 @@ impl Service {
             return Err(ServiceError::AgentAlreadyRegistered);
         }
 
-        info!(%agent_name, "creating agent");
+        debug!(%agent_name, "creating agent");
 
         // Channels to communicate with the gateway
         let (conn_id, tx_gw, rx_gw) = self.message_processor.register_local_connection();
@@ -553,7 +553,7 @@ impl Service {
                     next = rx.recv() => {
                         match next {
                             None => {
-                                info!("no more messages to process");
+                                debug!("no more messages to process");
                                 break;
                             }
                             Some(msg) => {
@@ -595,7 +595,7 @@ impl Service {
                         }
                     }
                     _ = watch.clone().signaled() => {
-                        info!("shutting down processing on drain for agent: {}", agent);
+                        debug!("shutting down processing on drain for agent: {}", agent);
                         break;
                     }
                 }

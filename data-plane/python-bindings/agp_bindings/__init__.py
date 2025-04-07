@@ -124,7 +124,6 @@ class Gateway:
         except asyncio.CancelledError:
             pass
 
-
     @classmethod
     async def new(
         cls,
@@ -347,7 +346,9 @@ class Gateway:
         name = PyAgentType(organization, namespace, agent)
         await remove_route(self.svc, self.conn_id, name, id)
 
-    async def subscribe(self, organization: str, namespace: str, agent: str, id=None):
+    async def subscribe(
+        self, organization: str, namespace: str, agent: str, id: Optional[int] = None
+    ):
         """
         Subscribe to receive messages for the given agent.
 
@@ -529,8 +530,7 @@ class Gateway:
             except asyncio.CancelledError:
                 raise
             except Exception as e:
-                print(e)
-
+                print("Error receiving message:", e)
                 # Try to parse the error message
                 try:
                     message_id, session_id, reason = parse_error_message(str(e))

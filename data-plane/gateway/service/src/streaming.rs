@@ -224,7 +224,7 @@ impl Streaming {
                     next = rx.recv() => {
                         match next {
                             None => {
-                                info!("no more messages to process on session {}", session_id);
+                                debug!("no more messages to process on session {}", session_id);
                                 break;
                             }
                             Some(result) => {

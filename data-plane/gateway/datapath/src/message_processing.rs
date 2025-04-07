@@ -148,7 +148,7 @@ impl MessageProcessor {
                         .with_channel(Channel::Client(tx))
                         .with_cancellation_token(Some(cancellation_token.clone()));
 
-                    info!(
+                    debug!(
                         "new connection initiated locally: (remote: {:?} - local: {:?})",
                         connection.remote_addr(),
                         connection.local_addr()
@@ -166,7 +166,7 @@ impl MessageProcessor {
                     }
 
                     let conn_index = opt.unwrap();
-                    info!(
+                    debug!(
                         "new connection index = {:?}, is local {:?}",
                         conn_index, false
                     );
@@ -250,7 +250,7 @@ impl MessageProcessor {
         // create a pair tx, rx to be able to send messages with the standard processing loop
         let (tx1, rx1) = mpsc::channel(128);
 
-        info!("establishing new local app connection");
+        debug!("establishing new local app connection");
 
         // create a pair tx, rx to be able to receive messages and insert it into the connection table
         let (tx2, rx2) = mpsc::channel(128);
@@ -597,7 +597,7 @@ impl MessageProcessor {
                     );
 
                     if tx.send(Err(status)).await.is_err() {
-                        debug!("unable to notify the error to the local app");
+                        debug!("unable to notify the error to the local app: {:?}", err);
                     }
                 }
             }
@@ -709,12 +709,12 @@ impl MessageProcessor {
                         }
                     }
                     _ = self_clone.get_drain_watch().signaled() => {
-                        info!("shutting down stream on drain: {}", conn_index);
+                        debug!("shutting down stream on drain: {}", conn_index);
                         try_to_reconnect = false;
                         break;
                     }
                     _ = token_clone.cancelled() => {
-                        info!("shutting down stream on cancellation token: {}", conn_index);
+                        debug!("shutting down stream on cancellation token: {}", conn_index);
                         try_to_reconnect = false;
                         break;
                     }
@@ -731,7 +731,7 @@ impl MessageProcessor {
             if try_to_reconnect && client_conf_clone.is_some() {
                 connected = self_clone.reconnect(client_conf_clone, conn_index).await;
             } else {
-                info!("close connection {}", conn_index)
+                debug!("close connection {}", conn_index)
             }
 
             if !connected {

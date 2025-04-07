@@ -594,7 +594,7 @@ impl SubscriptionTable for SubscriptionTableImpl {
         let table = self.table.read();
         match table.get(&agent_type) {
             None => {
-                debug!("match not found for type {:?}", agent_type);
+                debug!("match not found for type {:}", agent_type);
                 Err(SubscriptionTableError::NoMatch(format!(
                     "{}, {:?}",
                     agent_type, agent_id
@@ -630,7 +630,7 @@ impl SubscriptionTable for SubscriptionTableImpl {
         let table = self.table.read();
         match table.get(&agent_type) {
             None => {
-                debug!("match not found for type {:?}", agent_type);
+                debug!("match not found for type {:}", agent_type);
                 Err(SubscriptionTableError::NoMatch(format!(
                     "{}, {:?}",
                     agent_type, agent_id

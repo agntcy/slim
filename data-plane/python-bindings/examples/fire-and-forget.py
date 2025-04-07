@@ -54,84 +54,82 @@ async def run_client(
     # Connect to the service and subscribe for the local name
     print(format_message(f"connecting to:", address))
     _ = await gateway.connect()
-    await gateway.subscribe(
-        local_organization, local_namespace, local_agent, gateway.id()
-    )
 
-    if message:
-        if not iterations:
-            iterations = 1
+    # Get the local agent instance from env
+    instance = os.getenv("AGP_INSTANCE_ID", local_agent)
 
-        # Split the IDs into their respective components
-        try:
-            remote_organization, remote_namespace, remote_agent = remote_id.split("/")
-        except ValueError:
-            print("Error: IDs must be in the format organization/namespace/agent.")
-            return
+    async with gateway:
+        if message:
+            if not iterations:
+                iterations = 1
 
-        # Create a route to the remote ID
-        await gateway.set_route(remote_organization, remote_namespace, remote_agent)
-
-        # create a session
-        session = await gateway.create_ff_session(
-            agp_bindings.PyFireAndForgetConfiguration()
-        )
-
-        for i in range(0, iterations):
+            # Split the IDs into their respective components
             try:
-                # Send the message
-                await gateway.publish(
-                    session,
-                    message.encode(),
-                    remote_organization,
-                    remote_namespace,
-                    remote_agent,
-                )
-                print(format_message(f"{local_agent} sent:", message))
+                remote_organization, remote_namespace, remote_agent = remote_id.split("/")
+            except ValueError:
+                print("Error: IDs must be in the format organization/namespace/agent.")
+                return
 
-                # Wait for a reply
-                session_info, msg = await gateway.receive(session=session.id)
-                print(
-                    format_message(
-                        f"{local_agent.capitalize()} received (from session {session_info.id}):",
-                        f"{msg.decode()}",
-                    )
-                )
-            except Exception as e:
-                print("received error: ", e)
+            # Create a route to the remote ID
+            await gateway.set_route(remote_organization, remote_namespace, remote_agent)
 
-            time.sleep(1)
-    else:
-        # Get the local agent instance from env
-        instance = os.getenv("AGP_INSTANCE_ID", local_agent)
-
-        # Wait for a message and reply in a loop
-        while True:
-            session_info, _ = await gateway.receive()
-            print(
-                format_message(
-                    f"{local_agent.capitalize()} received a new session:",
-                    f"{session_info.id}",
-                )
+            # create a session
+            session = await gateway.create_ff_session(
+                agp_bindings.PyFireAndForgetConfiguration()
             )
 
-            async def background_task():
-                while True:
-                    # Receive the message from the session
-                    session, msg = await gateway.receive(session=session_info.id)
+            for i in range(0, iterations):
+                try:
+                    # Send the message
+                    await gateway.publish(
+                        session,
+                        message.encode(),
+                        remote_organization,
+                        remote_namespace,
+                        remote_agent,
+                    )
+                    print(format_message(f"{instance} sent:", message))
+
+                    # Wait for a reply
+                    session_info, msg = await gateway.receive(session=session.id)
                     print(
                         format_message(
-                            f"{local_agent.capitalize()} received (from session {session.id}):",
+                            f"{instance.capitalize()} received (from session {session_info.id}):",
                             f"{msg.decode()}",
                         )
                     )
+                except Exception as e:
+                    print("received error: ", e)
 
-                    ret = f"{msg.decode()} from {instance}"
+                await asyncio.sleep(1)
+        else:
+            # Wait for a message and reply in a loop
+            while True:
+                session_info, _ = await gateway.receive()
+                print(
+                    format_message(
+                        f"{instance.capitalize()} received a new session:",
+                        f"{session_info.id}",
+                    )
+                )
 
-                    await gateway.publish_to(session, ret.encode())
-                    print(format_message(f"{local_agent.capitalize()} replies:", ret))
+                async def background_task():
+                    while True:
+                        # Receive the message from the session
+                        session, msg = await gateway.receive(session=session_info.id)
+                        print(
+                            format_message(
+                                f"{instance.capitalize()} received (from session {session.id}):",
+                                f"{msg.decode()}",
+                            )
+                        )
 
-            asyncio.create_task(background_task())
+                        ret = f"{msg.decode()} from {instance}"
+
+                        await gateway.publish_to(session, ret.encode())
+                        print(format_message(f"{instance.capitalize()} replies:", ret))
+
+                asyncio.create_task(background_task())
 
 
 async def main():
