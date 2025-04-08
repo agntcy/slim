@@ -4,19 +4,19 @@ pub struct Subscribe {}
 #[derive(Clone, Copy, PartialEq, ::prost::Message)]
 pub struct Unsubscribe {}
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct Message {
+pub struct Command {
     #[prost(map = "string, string", tag = "4")]
     pub metadata: ::std::collections::HashMap<
         ::prost::alloc::string::String,
         ::prost::alloc::string::String,
     >,
-    #[prost(oneof = "message::MessageType", tags = "1, 2")]
-    pub message_type: ::core::option::Option<message::MessageType>,
+    #[prost(oneof = "command::CommandType", tags = "1, 2")]
+    pub command_type: ::core::option::Option<command::CommandType>,
 }
-/// Nested message and enum types in `Message`.
-pub mod message {
+/// Nested message and enum types in `Command`.
+pub mod command {
     #[derive(Clone, Copy, PartialEq, ::prost::Oneof)]
-    pub enum MessageType {
+    pub enum CommandType {
         #[prost(message, tag = "1")]
         Subscribe(super::Subscribe),
         #[prost(message, tag = "2")]
@@ -116,9 +116,9 @@ pub mod controller_service_client {
         }
         pub async fn open_channel(
             &mut self,
-            request: impl tonic::IntoStreamingRequest<Message = super::Message>,
+            request: impl tonic::IntoStreamingRequest<Message = super::Command>,
         ) -> std::result::Result<
-            tonic::Response<tonic::codec::Streaming<super::Message>>,
+            tonic::Response<tonic::codec::Streaming<super::Command>>,
             tonic::Status,
         > {
             self.inner
@@ -160,13 +160,13 @@ pub mod controller_service_server {
     pub trait ControllerService: std::marker::Send + std::marker::Sync + 'static {
         /// Server streaming response type for the OpenChannel method.
         type OpenChannelStream: tonic::codegen::tokio_stream::Stream<
-                Item = std::result::Result<super::Message, tonic::Status>,
+                Item = std::result::Result<super::Command, tonic::Status>,
             >
             + std::marker::Send
             + 'static;
         async fn open_channel(
             &self,
-            request: tonic::Request<tonic::Streaming<super::Message>>,
+            request: tonic::Request<tonic::Streaming<super::Command>>,
         ) -> std::result::Result<
             tonic::Response<Self::OpenChannelStream>,
             tonic::Status,
@@ -253,9 +253,9 @@ pub mod controller_service_server {
                     struct OpenChannelSvc<T: ControllerService>(pub Arc<T>);
                     impl<
                         T: ControllerService,
-                    > tonic::server::StreamingService<super::Message>
+                    > tonic::server::StreamingService<super::Command>
                     for OpenChannelSvc<T> {
-                        type Response = super::Message;
+                        type Response = super::Command;
                         type ResponseStream = T::OpenChannelStream;
                         type Future = BoxFuture<
                             tonic::Response<Self::ResponseStream>,
@@ -263,7 +263,7 @@ pub mod controller_service_server {
                         >;
                         fn call(
                             &mut self,
-                            request: tonic::Request<tonic::Streaming<super::Message>>,
+                            request: tonic::Request<tonic::Streaming<super::Command>>,
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
                             let fut = async move {

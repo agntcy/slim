@@ -5,14 +5,14 @@ syntax = "proto3";
 package controller.proto.v1;
 
 service ControllerService {
-  rpc OpenChannel(stream Message) returns (stream Message) {}
+  rpc OpenChannel(stream Command) returns (stream Command) {}
 }
 
 message Subscribe { }
 message Unsubscribe { }
 
-message Message {
-  oneof messageType {
+message Command {
+  oneof commandType {
     Subscribe subscribe = 1;
     Unsubscribe unsubscribe = 2;
   }
