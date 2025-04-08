@@ -9,6 +9,7 @@ use crate::session::{
     AppChannelSender, Common, CommonSession, GwChannelSender, Id, MessageDirection, Session,
     SessionConfig, SessionDirection, SessionMessage, State,
 };
+use agp_datapath::messages::encoder::Agent;
 use agp_datapath::pubsub::proto::pubsub::v1::SessionHeaderType;
 
 /// Configuration for the Fire and Forget session
@@ -31,6 +32,7 @@ impl FireAndForget {
         id: Id,
         session_config: FireAndForgetConfiguration,
         session_direction: SessionDirection,
+        agent: Agent,
         tx_gw: GwChannelSender,
         tx_app: AppChannelSender,
     ) -> FireAndForget {
@@ -39,6 +41,7 @@ impl FireAndForget {
                 id,
                 session_direction,
                 SessionConfig::FireAndForget(session_config),
+                agent,
                 tx_gw,
                 tx_app,
             ),
@@ -105,10 +108,13 @@ mod tests {
         let (tx_gw, _) = tokio::sync::mpsc::channel(1);
         let (tx_app, _) = tokio::sync::mpsc::channel(1);
 
+        let source = Agent::from_strings("cisco", "default", "local_agent", 0);
+
         let session = FireAndForget::new(
             0,
             FireAndForgetConfiguration {},
             SessionDirection::Bidirectional,
+            source,
             tx_gw,
             tx_app,
         );
@@ -126,10 +132,13 @@ mod tests {
         let (tx_gw, _rx_gw) = tokio::sync::mpsc::channel(1);
         let (tx_app, mut rx_app) = tokio::sync::mpsc::channel(1);
 
+        let source = Agent::from_strings("cisco", "default", "local_agent", 0);
+
         let session = FireAndForget::new(
             0,
             FireAndForgetConfiguration {},
             SessionDirection::Bidirectional,
+            source,
             tx_gw,
             tx_app,
         );

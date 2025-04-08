@@ -8,31 +8,26 @@ from signal import SIGINT
 import agp_bindings
 from agp_bindings import GatewayConfig
 
-# Create a service
-gateway = agp_bindings.Gateway()
-
 
 async def run_server(address: str, enable_opentelemetry: bool):
     # init tracing
-    agp_bindings.init_tracing(
-        log_level="debug", enable_opentelemetry=enable_opentelemetry
-    )
+    agp_bindings.init_tracing(log_level="debug", enable_opentelemetry=enable_opentelemetry)
+
+    global gateway
+    # create new gateway object
+    gateway = await agp_bindings.Gateway.new("cisco", "default", "gateway")
 
     # Configure gateway
     config = GatewayConfig(endpoint=address, insecure=True)
     gateway.configure(config)
 
     # Run as server
-    await gateway.serve()
+    await gateway.run_server()
 
 
 async def main():
-    parser = argparse.ArgumentParser(
-        description="Command line client for gateway server."
-    )
-    parser.add_argument(
-        "-g", "--gateway", type=str, help="Gateway address.", default="127.0.0.1:12345"
-    )
+    parser = argparse.ArgumentParser(description="Command line client for gateway server.")
+    parser.add_argument("-g", "--gateway", type=str, help="Gateway address.", default="127.0.0.1:12345")
     parser.add_argument(
         "--enable-opentelemetry",
         "-t",
@@ -56,9 +51,7 @@ async def main():
     loop.add_signal_handler(SIGINT, shutdown)
 
     # Run the client task
-    client_task = asyncio.create_task(
-        run_server(args.gateway, args.enable_opentelemetry)
-    )
+    client_task = asyncio.create_task(run_server(args.gateway, args.enable_opentelemetry))
 
     # Wait until the stop event is set
     await stop_event.wait()

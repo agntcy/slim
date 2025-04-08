@@ -400,7 +400,7 @@ fn add_subscription_to_sub_table(
         None => {
             let uid = agent.agent_id();
             debug!(
-                "subscription table: add first subscription for type {:?}, agent_id {:?} on connection {}",
+                "subscription table: add first subscription for type {}, agent_id {} on connection {}",
                 agent.agent_type(), uid, conn,
             );
             // the subscription does not exists, init
@@ -425,7 +425,7 @@ fn add_subscription_to_connection(
     match set {
         None => {
             debug!(
-                "add first subscription for type {:?}, agent_id {} on connection {}",
+                "add first subscription for type {}, agent_id {} on connection {}",
                 agent.agent_type(),
                 agent.agent_id(),
                 conn_index,
@@ -437,7 +437,7 @@ fn add_subscription_to_connection(
         Some(s) => {
             if !s.insert(agent.clone()) {
                 warn!(
-                    "subscription for type {:?}, agent_id {} already exists for connection {}, ignore the message",
+                    "subscription for type {}, agent_id {} already exists for connection {}, ignore the message",
                     agent.agent_type(), agent.agent_id(), conn_index,
                 );
                 return Ok(());
@@ -445,7 +445,7 @@ fn add_subscription_to_connection(
         }
     }
     debug!(
-        "subscription for type {:?}, agent_id {} successfully added on connection {}",
+        "subscription for type {}, agent_id {} successfully added on connection {}",
         agent.agent_type(),
         agent.agent_id(),
         conn_index,
@@ -489,7 +489,7 @@ fn remove_subscription_from_connection(
         Some(s) => {
             if !s.remove(agent) {
                 warn!(
-                    "subscription for type {:?}, agent_id {} not found on connection {}",
+                    "subscription for type {}, agent_id {} not found on connection {}",
                     agent.agent_type(),
                     agent.agent_id(),
                     conn_index,
@@ -502,7 +502,7 @@ fn remove_subscription_from_connection(
         }
     }
     debug!(
-        "subscription for type {:?}, agent_id {} successfully removed on connection {}",
+        "subscription for type {}, agent_id {} successfully removed on connection {}",
         agent.agent_type(),
         agent.agent_id(),
         conn_index,
@@ -594,7 +594,7 @@ impl SubscriptionTable for SubscriptionTableImpl {
         let table = self.table.read();
         match table.get(&agent_type) {
             None => {
-                debug!("match not found for type {:?}", agent_type);
+                debug!("match not found for type {:}", agent_type);
                 Err(SubscriptionTableError::NoMatch(format!(
                     "{}, {:?}",
                     agent_type, agent_id
@@ -630,7 +630,7 @@ impl SubscriptionTable for SubscriptionTableImpl {
         let table = self.table.read();
         match table.get(&agent_type) {
             None => {
-                debug!("match not found for type {:?}", agent_type);
+                debug!("match not found for type {:}", agent_type);
                 Err(SubscriptionTableError::NoMatch(format!(
                     "{}, {:?}",
                     agent_type, agent_id

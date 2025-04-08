@@ -10,10 +10,14 @@ use crate::fire_and_forget::FireAndForgetConfiguration;
 use crate::request_response::RequestResponseConfiguration;
 use crate::streaming::StreamingConfiguration;
 use agp_datapath::messages::encoder::Agent;
-use agp_datapath::pubsub::proto::pubsub::v1::Message;
+use agp_datapath::pubsub::proto::pubsub::v1::{Message, SessionHeaderType};
 
 /// Session ID
 pub type Id = u32;
+
+/// Reserved session id
+pub const SESSION_RANGE: std::ops::Range<u32> = 0..(u32::MAX - 1000);
+pub const SESSION_UNSPECIFIED: u32 = u32::MAX;
 
 /// Message wrapper
 #[derive(Clone, PartialEq, Debug)]
@@ -69,6 +73,8 @@ pub struct Info {
     pub id: Id,
     /// The message nonce used to identify the message
     pub message_id: Option<u32>,
+    /// The Message Type
+    pub session_header_type: SessionHeaderType,
     /// The identifier of the agent that sent the message
     pub message_source: Option<Agent>,
     /// The input connection id
@@ -81,9 +87,42 @@ impl Info {
         Info {
             id,
             message_id: None,
+            session_header_type: SessionHeaderType::Unspecified,
             message_source: None,
             input_connection: None,
         }
+    }
+
+    pub fn set_message_id(&mut self, message_id: u32) {
+        self.message_id = Some(message_id);
+    }
+
+    pub fn set_session_header_type(&mut self, session_header_type: SessionHeaderType) {
+        self.session_header_type = session_header_type;
+    }
+
+    pub fn set_message_source(&mut self, message_source: Agent) {
+        self.message_source = Some(message_source);
+    }
+
+    pub fn set_input_connection(&mut self, input_connection: u64) {
+        self.input_connection = Some(input_connection);
+    }
+
+    pub fn get_message_id(&self) -> Option<u32> {
+        self.message_id
+    }
+
+    pub fn get_session_header_type(&self) -> SessionHeaderType {
+        self.session_header_type
+    }
+
+    pub fn get_message_source(&self) -> Option<Agent> {
+        self.message_source.clone()
+    }
+
+    pub fn get_input_connection(&self) -> Option<u64> {
+        self.input_connection
     }
 }
 
@@ -96,10 +135,13 @@ impl From<&Message> for Info {
         let message_id = session_header.message_id;
         let message_source = message.get_source();
         let input_connection = agp_header.incoming_conn;
+        let session_header_type = session_header.header_type;
 
         Info {
             id,
             message_id: Some(message_id),
+            session_header_type: SessionHeaderType::try_from(session_header_type)
+                .unwrap_or(SessionHeaderType::Unspecified),
             message_source: Some(message_source),
             input_connection,
         }
@@ -155,6 +197,8 @@ pub(crate) trait CommonSession {
     #[allow(dead_code)]
     fn state(&self) -> &State;
 
+    fn source(&self) -> &Agent;
+
     // get the session config
     #[allow(dead_code)]
     fn session_config(&self) -> SessionConfig;
@@ -191,6 +235,9 @@ pub(crate) struct Common {
     #[allow(dead_code)]
     session_direction: SessionDirection,
 
+    /// Source agent
+    source: Agent,
+
     /// Sender for messages to gw
     tx_gw: GwChannelSender,
 
@@ -205,6 +252,10 @@ impl CommonSession for Common {
 
     fn state(&self) -> &State {
         &self.state
+    }
+
+    fn source(&self) -> &Agent {
+        &self.source
     }
 
     fn session_config(&self) -> SessionConfig {
@@ -224,6 +275,7 @@ impl Common {
         id: Id,
         session_direction: SessionDirection,
         session_type: SessionConfig,
+        source: Agent,
         tx_gw: GwChannelSender,
         tx_app: AppChannelSender,
     ) -> Common {
@@ -232,6 +284,7 @@ impl Common {
             state: State::Active,
             session_direction,
             session_config: RwLock::new(session_type),
+            source,
             tx_gw,
             tx_app,
         }
@@ -275,6 +328,10 @@ macro_rules! delegate_common_behavior {
 
             fn set_session_config(&self, session_config: &SessionConfig) -> Result<(), SessionError> {
                 self.$($tokens).+.set_session_config(session_config)
+            }
+
+            fn source(&self) -> &Agent {
+                self.$($tokens).+.source()
             }
         }
     };

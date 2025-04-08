@@ -94,6 +94,16 @@ impl Default for AgpHeaderFlags {
     }
 }
 
+impl Display for AgpHeaderFlags {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "fanout: {}, recv_from: {:?}, forward_to: {:?}, incoming_conn: {:?}, error: {:?}",
+            self.fanout, self.recv_from, self.forward_to, self.incoming_conn, self.error
+        )
+    }
+}
+
 impl AgpHeaderFlags {
     pub fn new(
         fanout: u32,
@@ -672,6 +682,10 @@ impl ProtoMessage {
 
     pub fn set_error(&mut self, error: Option<bool>) {
         self.get_agp_header_mut().set_error(error);
+    }
+
+    pub fn set_fanout(&mut self, fanout: u32) {
+        self.get_agp_header_mut().set_fanout(fanout);
     }
 
     pub fn set_incoming_conn(&mut self, incoming_conn: Option<u64>) {

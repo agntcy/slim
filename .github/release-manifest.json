@@ -1,4 +1,4 @@
 {
-    "data-plane/python-bindings": "0.1.14",
+    "data-plane/python-bindings": "0.2.0",
     "charts/agp": "0.1.2"
 }

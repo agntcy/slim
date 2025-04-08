@@ -17,6 +17,7 @@ pub use agp_datapath::messages::utils::AgpHeaderFlags;
 pub use fire_and_forget::FireAndForgetConfiguration;
 pub use request_response::RequestResponseConfiguration;
 pub use session::SessionMessage;
+pub use streaming::StreamingConfiguration;
 
 use agp_datapath::messages::{Agent, AgentType};
 use agp_datapath::pubsub::MessageType;
@@ -26,6 +27,7 @@ use session_layer::SessionLayer;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::mpsc;
+use tokio::sync::RwLock;
 use tokio_util::sync::CancellationToken;
 use tonic::Status;
 use tracing::{debug, error, info};
@@ -108,7 +110,7 @@ pub struct Service {
     config: ServiceConfiguration,
 
     /// pool of sessions for the service
-    session_layers: HashMap<Agent, Arc<SessionLayer>>,
+    session_layers: RwLock<HashMap<Agent, Arc<SessionLayer>>>,
 
     /// drain watch to shutdown the service
     watch: drain::Watch,
@@ -129,7 +131,7 @@ impl Service {
             id,
             message_processor: Arc::new(MessageProcessor::with_drain_channel(watch.clone())),
             config: ServiceConfiguration::new(),
-            session_layers: HashMap::new(),
+            session_layers: RwLock::new(HashMap::new()),
             watch,
             signal,
             cancellation_token: CancellationToken::new(),
@@ -186,14 +188,20 @@ impl Service {
     }
 
     // APP APIs
-    pub fn create_agent(&mut self, agent_name: &Agent) -> Result<AppChannelReceiver, ServiceError> {
+    pub async fn create_agent(
+        &self,
+        agent_name: &Agent,
+    ) -> Result<AppChannelReceiver, ServiceError> {
+        // get a write lock on the session layers
+        let mut session_layers = self.session_layers.write().await;
+
         // make sure the agent is not already registered
-        if self.session_layers.contains_key(agent_name) {
-            error!("agent {:?} already exists", agent_name);
-            return Err(ServiceError::AgentAlreadyRegistered(agent_name.to_string()));
+        if session_layers.contains_key(agent_name) {
+            error!(%agent_name, "agent already exists");
+            return Err(ServiceError::AgentAlreadyRegistered);
         }
 
-        info!("creating agent {:?}", agent_name);
+        debug!(%agent_name, "creating agent");
 
         // Channels to communicate with the gateway
         let (conn_id, tx_gw, rx_gw) = self.message_processor.register_local_connection();
@@ -206,8 +214,7 @@ impl Service {
         let session_layer = Arc::new(SessionLayer::new(agent_name, conn_id, tx_gw, tx_app));
 
         // register agent within session layers
-        self.session_layers
-            .insert(agent_name.clone(), session_layer.clone());
+        session_layers.insert(agent_name.clone(), session_layer.clone());
 
         // start message processing using the rx channel
         self.process_messages(agent_name.clone(), session_layer, rx_gw);
@@ -216,8 +223,11 @@ impl Service {
         Ok(rx_app)
     }
 
-    pub fn delete_agent(&mut self, agent_name: &Agent) -> Result<(), ServiceError> {
-        match self.session_layers.remove(agent_name) {
+    pub async fn delete_agent(&self, agent_name: &Agent) -> Result<(), ServiceError> {
+        // get a write lock on the session layers
+        let mut session_layers = self.session_layers.write().await;
+
+        match session_layers.remove(agent_name) {
             None => {
                 error!("agent {:?} not found", agent_name);
                 Err(ServiceError::AgentNotFound(agent_name.to_string()))
@@ -230,7 +240,7 @@ impl Service {
                     .disconnect(layer.conn_id())
                     .map_err(|e| {
                         error!("error disconnecting agent: {}", e);
-                        ServiceError::DisconnectError
+                        ServiceError::DisconnectError(e.to_string())
                     })
             }
         }
@@ -299,7 +309,7 @@ impl Service {
         self.cancellation_token.cancel();
     }
 
-    pub async fn connect(&mut self, new_config: Option<ClientConfig>) -> Result<u64, ServiceError> {
+    pub async fn connect(&self, new_config: Option<ClientConfig>) -> Result<u64, ServiceError> {
         // if no new config is provided, try to get it from local configuration
         let config = match &new_config {
             Some(c) => c,
@@ -341,12 +351,12 @@ impl Service {
         }
     }
 
-    pub fn disconnect(&mut self, conn: u64) -> Result<(), ServiceError> {
+    pub fn disconnect(&self, conn: u64) -> Result<(), ServiceError> {
         info!("disconnect from conn {}", conn);
-        if self.message_processor.disconnect(conn).is_err() {
-            return Err(ServiceError::DisconnectError);
-        }
-        Ok(())
+
+        self.message_processor
+            .disconnect(conn)
+            .map_err(|e| ServiceError::DisconnectError(e.to_string()))
     }
 
     async fn send_message(
@@ -355,7 +365,10 @@ impl Service {
         msg: Message,
         info: Option<session::Info>,
     ) -> Result<(), ServiceError> {
-        let session = match self.session_layers.get(agent) {
+        // get a read lock on the session layers
+        let session_layers = self.session_layers.read().await;
+
+        let session = match session_layers.get(agent) {
             None => {
                 error!("agent {} not found", agent);
                 return Err(ServiceError::AgentNotFound(agent.to_string()));
@@ -504,7 +517,10 @@ impl Service {
         flags: AgpHeaderFlags,
         blob: Vec<u8>,
     ) -> Result<(), ServiceError> {
-        debug!("sending publication to {}/{:?}", agent_type, agent_id);
+        debug!(
+            "sending publication to {}/{:?}. Flags: {}",
+            agent_type, agent_id, flags
+        );
 
         let msg = Message::new_publish(source, agent_type, agent_id, Some(flags), "msg", blob);
 
@@ -537,7 +553,7 @@ impl Service {
                     next = rx.recv() => {
                         match next {
                             None => {
-                                info!("no more messages to process");
+                                debug!("no more messages to process");
                                 break;
                             }
                             Some(msg) => {
@@ -566,7 +582,7 @@ impl Service {
                                         }
                                     }
                                     Err(e) => {
-                                        error!("error receiving message: {}", e);
+                                        error!("error: {}", e);
 
                                         // if internal error, forward it to application
                                         let tx_app = session_layer.tx_app();
@@ -579,7 +595,7 @@ impl Service {
                         }
                     }
                     _ = watch.clone().signaled() => {
-                        info!("shutting down processing on drain for agent: {}", agent);
+                        debug!("shutting down processing on drain for agent: {}", agent);
                         break;
                     }
                 }
@@ -593,8 +609,11 @@ impl Service {
         agent: &Agent,
         session_config: session::SessionConfig,
     ) -> Result<session::Info, ServiceError> {
+        // get a read lock on the session layers
+        let session_layers = self.session_layers.read().await;
+
         // check if agent was registered
-        let layer = self.session_layers.get(agent);
+        let layer = session_layers.get(agent);
 
         if layer.is_none() {
             error!("agent {} not found", agent);
@@ -620,8 +639,11 @@ impl Service {
         session_id: session::Id,
         session_config: &session::SessionConfig,
     ) -> Result<(), ServiceError> {
+        // get a read lock on the session layers
+        let session_layers = self.session_layers.read().await;
+
         // check if agent was registered
-        let layer = self.session_layers.get(agent);
+        let layer = session_layers.get(agent);
 
         if layer.is_none() {
             error!("agent {} not found", agent);
@@ -646,8 +668,11 @@ impl Service {
         agent: &Agent,
         session_id: session::Id,
     ) -> Result<(), ServiceError> {
+        // get a read lock on the session layers
+        let session_layers = self.session_layers.read().await;
+
         // check if agent was registered
-        let layer = self.session_layers.get(agent);
+        let layer = session_layers.get(agent);
 
         if layer.is_none() {
             error!("agent {} not found", agent);
@@ -791,7 +816,7 @@ mod tests {
         let server_config =
             ServerConfig::with_endpoint("0.0.0.0:12345").with_tls_settings(tls_config);
         let config = ServiceConfiguration::new().with_server(Some(server_config));
-        let mut service = config
+        let service = config
             .build_server(ID::new_with_name(Kind::new(KIND).unwrap(), "test").unwrap())
             .unwrap();
 
@@ -799,11 +824,15 @@ mod tests {
         let subscriber_agent = Agent::from_strings("cisco", "default", "subscriber_agent", 0);
         let mut sub_rx = service
             .create_agent(&subscriber_agent)
+            .await
             .expect("failed to create agent");
 
         // create a publisher
         let publisher_agent = Agent::from_strings("cisco", "default", "publisher_agent", 0);
-        let _pub_rx = service.create_agent(&publisher_agent);
+        let _pub_rx = service
+            .create_agent(&publisher_agent)
+            .await
+            .expect("failed to create agent");
 
         // sleep to allow the subscription to be processed
         time::sleep(Duration::from_millis(100)).await;
@@ -865,8 +894,8 @@ mod tests {
             .unwrap();
 
         // And remove the agents
-        service.delete_agent(&publisher_agent).unwrap();
-        service.delete_agent(&subscriber_agent).unwrap();
+        service.delete_agent(&publisher_agent).await.unwrap();
+        service.delete_agent(&subscriber_agent).await.unwrap();
 
         // sleep to allow the deletion to be processed
         time::sleep(Duration::from_millis(100)).await;

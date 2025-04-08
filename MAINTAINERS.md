@@ -1,7 +1,7 @@
 # Maintainers
 
-- [GitHub Username](https://github.com/msardara), Mauro Sardara
-- [GitHub Username](https://github.com/micpapal), Michele Papalini
-- [GitHub Username](https://github.com/muscariello), Luca Muscariello
-- [GitHub Username](https://github.com/pbalogh-sa), Peter Balogh
-- [GitHub Username](https://github.com/zsoltkacsandi), Zsolt Kacsandi
+- [msardara](https://github.com/msardara), Mauro Sardara
+- [micpapal](https://github.com/micpapal), Michele Papalini
+- [muscariello](https://github.com/muscariello), Luca Muscariello
+- [pbalogh-sa](https://github.com/pbalogh-sa), Peter Balogh
+- [zsoltkacsandi](https://github.com/zsoltkacsandi), Zsolt Kacsandi

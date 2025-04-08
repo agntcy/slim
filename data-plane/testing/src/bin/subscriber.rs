@@ -91,6 +91,7 @@ async fn main() {
     let agent_name = Agent::from_strings("cisco", "default", "subscriber", id);
     let mut rx = svc
         .create_agent(&agent_name)
+        .await
         .expect("failed to create agent");
 
     // connect to the remote gateway
@@ -166,7 +167,6 @@ async fn main() {
             &agent_name,
             agp_service::session::SessionConfig::Streaming(StreamingConfiguration::new(
                 agp_service::session::SessionDirection::Receiver,
-                agent_name.clone(),
                 None,
                 Some(10),
                 Some(Duration::from_millis(1000)),

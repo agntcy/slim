@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.2.0](https://github.com/agntcy/agp/compare/agp-bindings-v0.1.14...agp-bindings-v0.2.0) (2025-04-08)
+
+
+### ⚠ BREAKING CHANGES
+
+* **data-plane/service:** This change breaks the python binding interface.
+
+### Features
+
+* **data-plane/service:** first draft of session layer ([#106](https://github.com/agntcy/agp/issues/106)) ([6ae63eb](https://github.com/agntcy/agp/commit/6ae63eb76a13be3c231d1c81527bb0b1fd901bac))
+* **python-bindings:** add examples ([#153](https://github.com/agntcy/agp/issues/153)) ([a97ac2f](https://github.com/agntcy/agp/commit/a97ac2fc11bfbcd2c38d8f26902b1447a05ad4ac))
+* request/reply session type ([#124](https://github.com/agntcy/agp/issues/124)) ([0b4c4a5](https://github.com/agntcy/agp/commit/0b4c4a5239f79efc85b86d47cd3c752bd380391f))
+
+
+### Bug Fixes
+
+* **python-bindings:** fix python examples ([#120](https://github.com/agntcy/agp/issues/120)) ([efbe776](https://github.com/agntcy/agp/commit/efbe7768d37b2a8fa86eea8afb8228a5345cbf95))
+
 ## [0.1.14](https://github.com/agntcy/agp/compare/agp-bindings-v0.1.13...agp-bindings-v0.1.14) (2025-03-19)
 
 

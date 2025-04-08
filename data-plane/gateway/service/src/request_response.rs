@@ -15,6 +15,7 @@ use crate::session::{
     Common, CommonSession, Id, MessageDirection, Session, SessionDirection, State,
 };
 use crate::{timer, SessionMessage};
+use agp_datapath::messages::encoder::Agent;
 use agp_datapath::pubsub::proto::pubsub::v1::SessionHeaderType;
 
 /// Configuration for the Request Response session
@@ -71,7 +72,8 @@ impl timer::TimerObserver for RequestResponseInternal {
             .common
             .tx_app_ref()
             .send(Err(SessionError::Timeout {
-                error: message_id.to_string(),
+                session_id: self.common.id(),
+                message_id,
                 message: Box::new(message),
             }))
             .await
@@ -93,6 +95,7 @@ impl RequestResponse {
         id: Id,
         session_config: RequestResponseConfiguration,
         session_direction: SessionDirection,
+        source: Agent,
         tx_gw: GwChannelSender,
         tx_app: AppChannelSender,
     ) -> RequestResponse {
@@ -101,6 +104,7 @@ impl RequestResponse {
                 id,
                 session_direction,
                 SessionConfig::RequestResponse(session_config),
+                source,
                 tx_gw,
                 tx_app,
             ),
@@ -174,22 +178,16 @@ impl Session for RequestResponse {
         mut message: SessionMessage,
         direction: MessageDirection,
     ) -> Result<(), SessionError> {
-        // set the session type
-        let header = message.message.get_session_header_mut();
-
-        // get session type
-        let session_type = header
-            .header_type
-            .try_into()
-            .map_err(|_| SessionError::ValidationError("unknown session type".to_string()))?;
+        // session header
+        let session_header = message.message.get_session_header_mut();
 
         // clone tx
         match direction {
             MessageDirection::North => {
-                match session_type {
+                match message.info.session_header_type {
                     SessionHeaderType::Reply => {
                         // this is a reply - remove the timer
-                        let message_id = header.message_id;
+                        let message_id = session_header.message_id;
                         match self.internal.timers.write().remove(&message_id) {
                             Some((timer, _message)) => {
                                 // stop the timer
@@ -204,11 +202,13 @@ impl Session for RequestResponse {
                         }
                     }
                     SessionHeaderType::Request => {
-                        // this is a request - send it to app
+                        // this is a request - set the session_type of the session
+                        // info to reply to allow the app to reply using this session info
+                        message.info.session_header_type = SessionHeaderType::Reply;
                     }
                     _ => Err(SessionError::AppTransmission(format!(
                         "request/reply session: unsupported session type: {:?}",
-                        session_type
+                        message.info.session_header_type
                     )))?,
                 }
 
@@ -220,13 +220,25 @@ impl Session for RequestResponse {
                     .map_err(|e| SessionError::AppTransmission(e.to_string()))
             }
             MessageDirection::South => {
-                match session_type {
+                // we are sending the message over the gateway.
+                // Let's start setting the session header
+                session_header.session_id = self.internal.common.id();
+                message.info.id = self.internal.common.id();
+
+                match message.info.session_header_type {
                     SessionHeaderType::Reply => {
                         // this is a reply - make sure the message_id matches the request
                         match message.info.message_id {
                             Some(message_id) => {
-                                header.message_id = message_id;
-                                Ok(())
+                                session_header.message_id = message_id;
+                                session_header.header_type = i32::from(SessionHeaderType::Reply);
+
+                                self.internal
+                                    .common
+                                    .tx_gw_ref()
+                                    .send(Ok(message.message.clone()))
+                                    .await
+                                    .map_err(|e| SessionError::GatewayTransmission(e.to_string()))
                             }
                             None => {
                                 return Err(SessionError::GatewayTransmission(
@@ -235,15 +247,16 @@ impl Session for RequestResponse {
                             }
                         }
                     }
-                    SessionHeaderType::Request => {
-                        // this is a request - set a timer for it
-                        message.info.message_id = Some(header.message_id);
+                    _ => {
+                        // In any other case, we are sending a request
+                        // set the message id to something random
+                        session_header.set_message_id(rand::random::<u32>());
+                        session_header.set_header_type(SessionHeaderType::Request);
+
+                        message.info.set_message_id(session_header.message_id);
+
                         self.send_message_with_timer(message).await
                     }
-                    _ => Err(SessionError::AppTransmission(format!(
-                        "request/reply session: unsupported session type: {:?}",
-                        session_type
-                    ))),
                 }
             }
         }
@@ -270,10 +283,13 @@ mod tests {
             timeout: std::time::Duration::from_millis(1000),
         };
 
+        let source = Agent::from_strings("cisco", "default", "local_agent", 0);
+
         let session = RequestResponse::new(
             0,
             session_config.clone(),
             SessionDirection::Bidirectional,
+            source,
             tx_gw,
             tx_app,
         );
@@ -296,10 +312,13 @@ mod tests {
             timeout: std::time::Duration::from_millis(1000),
         };
 
+        let source = Agent::from_strings("cisco", "default", "local_agent", 0);
+
         let session = RequestResponse::new(
             0,
             session_config,
             SessionDirection::Bidirectional,
+            source,
             tx_gw,
             tx_app,
         );
@@ -339,8 +358,9 @@ mod tests {
         let err = res.unwrap_err();
         match err {
             SessionError::Timeout {
-                error: _error,
+                session_id,
                 message,
+                ..
             } => {
                 let blob = ProtoPublish::from(message.message)
                     .msg
@@ -349,6 +369,7 @@ mod tests {
                     .blob
                     .clone();
                 assert_eq!(blob, payload);
+                assert_eq!(session_id, session.id());
             }
             _ => panic!("unexpected error"),
         }
