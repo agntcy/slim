@@ -2,9 +2,10 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import asyncio
-import time
 import datetime
+
 import pytest
+
 import agp_bindings
 
 
@@ -21,9 +22,7 @@ async def test_streaming(server):
 
     # create new gateway object
     producer = await agp_bindings.Gateway.new(org, ns, agent)
-    producer.configure(
-        agp_bindings.GatewayConfig(endpoint="http://127.0.0.1:12365", insecure=True)
-    )
+    producer.configure(agp_bindings.GatewayConfig(endpoint="http://127.0.0.1:12365", insecure=True))
 
     # Connect to the service and subscribe for the local name
     _ = await producer.connect()
@@ -50,9 +49,7 @@ async def test_streaming(server):
         print(f"Creating consumer {name}...")
 
         consumer = await agp_bindings.Gateway.new(org, ns, name)
-        consumer.configure(
-            agp_bindings.GatewayConfig(endpoint="http://127.0.0.1:12365", insecure=True)
-        )
+        consumer.configure(agp_bindings.GatewayConfig(endpoint="http://127.0.0.1:12365", insecure=True))
 
         # Connect to gateway server
         _ = await consumer.connect()
@@ -81,9 +78,7 @@ async def test_streaming(server):
                     assert msg_rcv.startswith(bytes(pub_msg.encode()))
 
                     # print the message
-                    print(
-                        f"{name} -> Received: {msg_rcv.decode()}, local count: {local_count}"
-                    )
+                    print(f"{name} -> Received: {msg_rcv.decode()}, local count: {local_count}")
 
                     # increment the count
                     counts[index] += 1
@@ -138,6 +133,4 @@ async def test_streaming(server):
 
     # make sure the counts are correct
     for i in range(consumers_count):
-        assert (
-            counts[i] == count
-        ), f"Consumer {i} received {counts[i]} messages, expected {count}"
+        assert counts[i] == count, f"Consumer {i} received {counts[i]} messages, expected {count}"

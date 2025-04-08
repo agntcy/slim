@@ -59,7 +59,7 @@ features = ["pyo3/extension-module"]
 module-name = "agp_bindings._agp_bindings"
 
 [tool.ruff.format]
-quote-style = 'single'
+quote-style = 'double'
 
 [tool.pytest.ini_options]
 testpaths = 'tests'
@@ -67,6 +67,7 @@ testpaths = 'tests'
 [tool.ruff]
 line-length = 120
 target-version = 'py39'
+extend-exclude = ["agp_bindings/_agp_bindings.pyi"]
 
 [tool.ruff.lint]
 extend-select = ['Q', 'RUF100', 'C90', 'I', 'UP']
