@@ -11,7 +11,7 @@ use testing::parse_line;
 use agp_gw::config;
 use clap::Parser;
 use indicatif::ProgressBar;
-use tracing::{debug, info};
+use tracing::{debug, info, error};
 
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
@@ -120,12 +120,26 @@ async fn main() {
 
         info!("waiting for incoming messages");
         loop {
-            let recv_msg = rx.recv().await.unwrap().expect("error");
-            info!(
-                "received message {} from session {}",
-                recv_msg.info.message_id.unwrap(),
-                recv_msg.info.id
-            );
+            match rx.recv().await {
+                Some(res) => match res {
+                    Ok(recv_msg) => {
+                        info!(
+                            "received message {} from session {}",
+                            recv_msg.info.message_id.unwrap(),
+                            recv_msg.info.id
+                        );
+                    },
+                    Err(e) => {
+                        error!(
+                            "received error {}", e
+                        )
+                    }
+                }
+                None => {
+                    error!("stream close");
+                    return;
+                }
+            };
         }
     }
 
