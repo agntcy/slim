@@ -37,7 +37,7 @@ impl GrpcControllerService for ControllerService {
         let stream = request.into_inner();
         let (tx, rx) = mpsc::channel(128);
 
-        //self.process_stream(stream, CancellationToken::new());
+        //self.process_stream(stream, tx, CancellationToken::new());
 
         let out_stream = ReceiverStream::new(rx);
         Ok(Response::new(
