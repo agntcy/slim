@@ -15,7 +15,7 @@ class color:
     END = "\033[0m"
 
 
-def format_message(message1, message2):
+def format_message(message1, message2=""):
     return f"{color.BOLD}{color.CYAN}{message1.capitalize():<45}{color.END}{message2}"
 
 

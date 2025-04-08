@@ -153,7 +153,7 @@ tasks:
       EXTRA_ARGS: '{{.EXTRA_ARGS | default ""}}'
 
   python-bindings:example:stream:producer:
-    desc: "Run the stream producer"
+    desc: "Run the producer stream example"
     env:
       AGP_INSTANCE_ID: producer
     cmds:
@@ -168,7 +168,7 @@ tasks:
       EXTRA_ARGS: '{{.EXTRA_ARGS | default ""}}'
 
   python-bindings:example:stream:consumer:
-    desc: "Run the responder example"
+    desc: "Run the consumer stream example"
     env:
       AGP_INSTANCE_ID: consumer-{{.CONSUMER_ID}}
     cmds:
@@ -184,13 +184,13 @@ tasks:
         sh: "head -c1 < /dev/urandom | base64 | tr -d '+=/'"
 
   python-bindings:example:pubsub:
-    desc: "Run the responder example"
+    desc: "Run the pubsub example"
     env:
-      AGP_INSTANCE_ID: consumer-{{.CONSUMER_ID}}
+      AGP_INSTANCE_ID: participant-{{.CONSUMER_ID}}
     cmds:
       - |
         uv run python ./examples/pubsub.py         \
-          -l cisco/default/consumer-{{.CONSUMER_ID}}  \
+          -l cisco/default/participant-{{.CONSUMER_ID}}  \
           -r cisco/default/stream                     \
           -g http://localhost:12345                   \
           {{.EXTRA_ARGS}}

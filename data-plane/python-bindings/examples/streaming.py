@@ -92,10 +92,10 @@ async def run_client(local_id, remote_id, address, producer, enable_opentelemetr
                     )
                 )
 
-                async def background_task():
+                async def background_task(session_info):
                     while True:
                         # Receive the message from the session
-                        session, msg = await gateway.receive(session=session_info.id)
+                        session, msg = await gateway.receive(session=session_info)
                         print(
                             format_message(
                                 f"{local_agent.capitalize()} received from {remote_organization}/{remote_namespace}/{broadcast_topic}: ",
@@ -103,7 +103,7 @@ async def run_client(local_id, remote_id, address, producer, enable_opentelemetr
                             )
                         )
 
-                asyncio.create_task(background_task())
+                asyncio.create_task(background_task(session_info.id))
 
 
 async def main():

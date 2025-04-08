@@ -84,13 +84,13 @@ async def run_client(
                     )
                 )
 
-                async def background_task():
+                async def background_task(session_id):
                     while True:
                         # Receive the message from the session
-                        session, msg = await gateway.receive(session=session_info.id)
+                        session, msg = await gateway.receive(session=session_id)
                         print(
                             format_message(
-                                f"{instance.capitalize()} received (from session {session.id}):",
+                                f"{instance.capitalize()} received (from session {session_id}):",
                                 f"{msg.decode()}",
                             )
                         )
@@ -100,7 +100,7 @@ async def run_client(
                         await gateway.publish_to(session, ret.encode())
                         print(format_message(f"{instance.capitalize()} replies:", ret))
 
-                asyncio.create_task(background_task())
+                asyncio.create_task(background_task(session_info.id))
 
 
 async def main():
