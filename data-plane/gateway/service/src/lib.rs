@@ -35,7 +35,7 @@ use agp_config::component::id::{Kind, ID};
 use agp_config::component::{Component, ComponentBuilder, ComponentError};
 use agp_config::grpc::client::ClientConfig;
 use agp_config::grpc::server::ServerConfig;
-use agp_datapath::controller_service::Service as ControllerService;
+use agp_datapath::controller_service::ControllerService;
 use agp_datapath::controller::proto::controller::v1::controller_service_server::ControllerServiceServer;
 use agp_datapath::message_processing::MessageProcessor;
 use agp_datapath::pubsub::proto::pubsub::v1::pub_sub_service_server::PubSubServiceServer;
@@ -145,6 +145,9 @@ pub struct Service {
     /// underlying message processor
     message_processor: Arc<MessageProcessor>,
 
+    /// controller service
+    controller: Arc<ControllerService>,
+
     /// the configuration of the service
     config: ServiceConfiguration,
 
@@ -166,9 +169,16 @@ impl Service {
     pub fn new(id: ID) -> Self {
         let (signal, watch) = drain::channel();
 
+        let message_processor = Arc::new(MessageProcessor::with_drain_channel(watch.clone()));
+        
+        // register a local connection for the controller service
+        let (_, mp_tx, mp_rx) = message_processor.register_local_connection();
+        let controller = Arc::new(ControllerService::new(mp_tx, mp_rx));
+
         Service {
             id,
-            message_processor: Arc::new(MessageProcessor::with_drain_channel(watch.clone())),
+            message_processor: message_processor,
+            controller: controller,
             config: ServiceConfiguration::new(),
             session_layers: HashMap::new(),
             watch,
@@ -201,7 +211,7 @@ impl Service {
         // Check that at least one pubsub client or server is configured
         if self.config.server().is_none() && self.config.pubsub.clients.is_empty() {
             return Err(ServiceError::ConfigError(
-                "no server or clients configured".to_string(),
+                "no pubsub server or clients configured".to_string(),
             ));
         }
 
@@ -220,21 +230,28 @@ impl Service {
             self.message_processor
                 .connect(channel, None, None, None)
                 .await
-                .expect("error pubsub connecting client");
+                .expect("error connecting pubsub client");
         }
 
+        // Controller service
         if self.config.controller_server().is_some() {
+            info!("starting controller server");
             self.serve_controller()?;
         }
 
-        if let Some(controller_client) = self.config.controller_client() {
+        // TODO(zkacsand): finish client connection
+        /*if let Some(controller_client) = self.config.controller_client() {
             info!("connecting controller client {}", controller_client.endpoint);
-            /*let channel = controller_client
+            let channel = controller_client
                 .to_channel()
-                .map_err(|e| ServiceError::ConfigError(e.to_string()))?;*/
+                .map_err(|e| ServiceError::ConfigError(e.to_string()))?;
 
-            //TODO
-        }
+            controller
+                    .connect(channel)
+                    .await
+                    .expect("error connecting controller client");
+            }
+        }*/
 
         Ok(())
     }
@@ -731,14 +748,16 @@ impl Service {
 
         info!("controller server configured: setting it up");
 
-        // register a local connection for the controller service
-        let (_, tx_gw, rx_gw) = self.message_processor.register_local_connection();
-        let controller_service = ControllerService::new(tx_gw, rx_gw);
+        //let server_future = config
+        //    .to_server_future(&[PubSubServiceServer::from_arc(
+        //        self.message_processor.clone(),
+        //    )])
+        //    .map_err(|e| ServiceError::ConfigError(e.to_string()))?;
         
         let server_future = controller_server_config
-        .to_server_future(&[{
-            ControllerServiceServer::new(controller_service)
-        }])
+            .to_server_future(&[ControllerServiceServer::from_arc(
+                self.controller.clone())
+            ])
         .map_err(|e| ServiceError::ConfigError(e.to_string()))?;
 
         let token = self.cancellation_token.clone();
