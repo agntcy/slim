@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.2](https://github.com/agntcy/agp/compare/agp-bindings-v0.2.1...agp-bindings-v0.2.2) (2025-04-09)
+
+
+### Bug Fixes
+
+* **python-bindings:** update example name in readme ([#158](https://github.com/agntcy/agp/issues/158)) ([8ecad2b](https://github.com/agntcy/agp/commit/8ecad2b69f0ed8caa0103b74b3ce3523d6695576))
+
 ## [0.2.1](https://github.com/agntcy/agp/compare/agp-bindings-v0.2.0...agp-bindings-v0.2.1) (2025-04-09)
 
 
