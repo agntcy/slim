@@ -14,9 +14,9 @@ pip install agp-bindings
 
 ```toml
 [project]
-name = "agw-example"
+name = "agp-example"
 version = "0.1.0"
-description = "Python program using AGW"
+description = "Python program using AGP"
 requires-python = ">=3.9"
 dependencies = [
     "agp-bindings>=0.1.0"
@@ -27,9 +27,9 @@ dependencies = [
 
 ```toml
 [tool.poetry]
-name = "agw-example"
+name = "agp-example"
 version = "0.1.0"
-description = "Python program using AGW"
+description = "Python program using AGP"
 
 [tool.poetry.dependencies]
 python = ">=3.9,<3.14"
