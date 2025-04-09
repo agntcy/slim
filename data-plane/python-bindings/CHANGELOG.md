@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.3](https://github.com/agntcy/agp/compare/agp-bindings-v0.2.2...agp-bindings-v0.2.3) (2025-04-09)
+
+
+### Bug Fixes
+
+* **agp-bindings:** build pypi package on ubuntu 22.04 ([#160](https://github.com/agntcy/agp/issues/160)) ([a9768c1](https://github.com/agntcy/agp/commit/a9768c189d0afd5cf24efd5f2b3f610d780cf762))
+
 ## [0.2.2](https://github.com/agntcy/agp/compare/agp-bindings-v0.2.1...agp-bindings-v0.2.2) (2025-04-09)
 
 
