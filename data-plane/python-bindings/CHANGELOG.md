@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.1](https://github.com/agntcy/agp/compare/agp-bindings-v0.2.0...agp-bindings-v0.2.1) (2025-04-09)
+
+
+### Bug Fixes
+
+* service name in python bindings ([#155](https://github.com/agntcy/agp/issues/155)) ([66a5247](https://github.com/agntcy/agp/commit/66a524757bae335a5cb2b888ba77af95e94dc132))
+
 ## [0.2.0](https://github.com/agntcy/agp/compare/agp-bindings-v0.1.14...agp-bindings-v0.2.0) (2025-04-08)
 
 
