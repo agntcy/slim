@@ -854,7 +854,7 @@ async def main():
         type=str,
         help="Remote ID in the format organization/namespace/agent.",
     )
-    parser.add_argument("-m", "--message", type=str, help="Message to send.")
+    parser.add_argument("-m", "--message", type=str, help="Message to send")
     parser.add_argument(
         "-g",
         "--gateway",
