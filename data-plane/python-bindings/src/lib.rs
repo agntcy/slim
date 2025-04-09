@@ -488,7 +488,7 @@ async fn create_pyservice_impl(
     let agent = Agent::from_strings(&organization, &namespace, &agent_type, id);
 
     // create service ID
-    let svc_id = agp_config::component::id::ID::new_with_str(&agent.to_string()).unwrap();
+    let svc_id = agp_config::component::id::ID::new_with_str("service/0").unwrap();
 
     // create local service
     let svc = Service::new(svc_id);
