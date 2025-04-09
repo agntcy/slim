@@ -16,10 +16,10 @@ jobs:
     strategy:
       matrix:
         platform:
-          - runner: ubuntu-24.04
+          - runner: ubuntu-22.04
             os: linux
             target: x86_64
-          - runner: ubuntu-24.04-arm
+          - runner: ubuntu-22.04-arm
             os: linux
             target: aarch64
           - runner: windows-latest
