@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.3](https://github.com/agntcy/agp/compare/agp-helm-v0.1.2...agp-helm-v0.1.3) (2025-04-10)
+
+
+### Features
+
+* **charts/agp:** update agp image version ([#162](https://github.com/agntcy/agp/issues/162)) ([e545a49](https://github.com/agntcy/agp/commit/e545a49e26fa0b860a658fa0e9fa4640c5b64694))
+
 ## [0.1.2](https://github.com/agntcy/agp/compare/agp-helm-v0.1.1...agp-helm-v0.1.2) (2025-03-24)
 
 
