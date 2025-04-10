@@ -535,7 +535,11 @@ async fn main() {
         let lock = results_list.read();
         if oracle.len() != lock.len() {
             succeeded = false;
-            error!("test failed, the number of publications received is different from the number of publications sent. sent {} received {}", oracle.len(), lock.len());
+            error!(
+                "test failed, the number of publications received is different from the number of publications sent. sent {} received {}",
+                oracle.len(),
+                lock.len()
+            );
         }
     }
     for p in oracle.iter() {

@@ -110,7 +110,7 @@ mod tests {
 
         // set an env variable to test
         unsafe {
-        std::env::set_var("HOME", "/home/user");
+            std::env::set_var("HOME", "/home/user");
         }
 
         // Declare a resolver

@@ -6,7 +6,7 @@ use std::{
     task::{Context, Poll},
 };
 
-use http::{header::HeaderMap, Request, Response};
+use http::{Request, Response, header::HeaderMap};
 use tower_layer::Layer;
 use tower_service::Service;
 

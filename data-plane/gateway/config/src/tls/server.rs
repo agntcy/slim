@@ -4,9 +4,9 @@
 use std::path::Path;
 
 use rustls::{
+    RootCertStore, ServerConfig as RustlsServerConfig,
     server::WebPkiClientVerifier,
     version::{TLS12, TLS13},
-    RootCertStore, ServerConfig as RustlsServerConfig,
 };
 use rustls_pki_types::pem::PemObject;
 use rustls_pki_types::{CertificateDer, PrivateKeyDer};
@@ -189,7 +189,7 @@ impl TlsServerConfig {
             _ => {
                 return Err(ConfigError::InvalidTlsVersion(
                     self.config.tls_version.clone(),
-                ))
+                ));
             }
         };
 

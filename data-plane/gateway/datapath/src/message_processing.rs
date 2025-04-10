@@ -25,7 +25,7 @@ use crate::pubsub::proto::pubsub::v1::message::MessageType::Publish as PublishTy
 use crate::pubsub::proto::pubsub::v1::message::MessageType::Subscribe as SubscribeType;
 use crate::pubsub::proto::pubsub::v1::message::MessageType::Unsubscribe as UnsubscribeType;
 use crate::pubsub::proto::pubsub::v1::pub_sub_service_client::PubSubServiceClient;
-use crate::pubsub::proto::pubsub::v1::{pub_sub_service_server::PubSubService, Message};
+use crate::pubsub::proto::pubsub::v1::{Message, pub_sub_service_server::PubSubService};
 
 // Implementation based on: https://docs.rs/opentelemetry-tonic/latest/src/opentelemetry_tonic/lib.rs.html#1-134
 struct MetadataExtractor<'a>(&'a std::collections::HashMap<String, String>);
@@ -422,13 +422,7 @@ impl MessageProcessor {
         info!(
             telemetry = true,
             monotonic_counter.num_messages_by_type = 1,
-            message_type = {
-                if add {
-                    "subscribe"
-                } else {
-                    "unsubscribe"
-                }
-            }
+            message_type = { if add { "subscribe" } else { "unsubscribe" } }
         );
         //////////////////////////////////////////////////////
 

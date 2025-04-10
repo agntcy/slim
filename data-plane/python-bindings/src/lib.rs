@@ -132,7 +132,7 @@ async fn serve_impl(svc: PyService) -> Result<(), ServiceError> {
         None => {
             return Err(ServiceError::ConfigError(
                 "No configuration set on service".to_string(),
-            ))
+            ));
         }
     };
 
@@ -177,7 +177,7 @@ async fn connect_impl(svc: PyService) -> Result<u64, ServiceError> {
         None => {
             return Err(ServiceError::ConfigError(
                 "No configuration set on service".to_string(),
-            ))
+            ));
         }
     };
 

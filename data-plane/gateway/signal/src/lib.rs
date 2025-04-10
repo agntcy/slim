@@ -7,7 +7,7 @@ pub async fn shutdown() {
 
 #[cfg(unix)]
 mod imp {
-    use tokio::signal::unix::{signal, SignalKind};
+    use tokio::signal::unix::{SignalKind, signal};
     use tracing::info;
 
     pub(super) async fn shutdown() {

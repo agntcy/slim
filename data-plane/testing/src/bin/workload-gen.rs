@@ -139,7 +139,10 @@ fn main() {
     let subscribers = *args.agents();
     let output = args.output();
 
-    println!("configuration -- subscriptions: {}, publications: {}, agents per type: {}, agents: {}, output: {}", max_subscriptions, max_publications, max_agents_per_type, subscribers, output);
+    println!(
+        "configuration -- subscriptions: {}, publications: {}, agents per type: {}, agents: {}, output: {}",
+        max_subscriptions, max_publications, max_agents_per_type, subscribers, output
+    );
 
     // number of subscription created
     let mut subscriptions = 0;

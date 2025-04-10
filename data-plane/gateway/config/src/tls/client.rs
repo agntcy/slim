@@ -4,10 +4,10 @@
 use std::{path::Path, sync::Arc};
 
 use rustls::{
-    client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier},
-    version::{TLS12, TLS13},
     ClientConfig as RustlsClientConfig, DigitallySignedStruct, Error, RootCertStore,
     SignatureScheme,
+    client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier},
+    version::{TLS12, TLS13},
 };
 use rustls_pki_types::pem::PemObject;
 use rustls_pki_types::{CertificateDer, PrivateKeyDer, ServerName, UnixTime};

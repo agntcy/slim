@@ -4,7 +4,7 @@
 use serde::Deserialize;
 
 use agp_config::component::configuration::{Configuration, ConfigurationError};
-use agp_config::component::id::{Kind, ID};
+use agp_config::component::id::{ID, Kind};
 use agp_config::component::{Component, ComponentBuilder, ComponentError};
 use agp_config::grpc::client::ClientConfig;
 

@@ -8,9 +8,9 @@ use tracing::debug;
 
 use super::encoder::{Agent, AgentType, DEFAULT_AGENT_ID};
 use crate::pubsub::{
-    proto::pubsub::v1::SessionHeaderType, AgpHeader, Content, MessageType, ProtoAgent,
-    ProtoMessage, ProtoPublish, ProtoPublishType, ProtoSubscribe, ProtoSubscribeType,
-    ProtoUnsubscribe, ProtoUnsubscribeType, SessionHeader,
+    AgpHeader, Content, MessageType, ProtoAgent, ProtoMessage, ProtoPublish, ProtoPublishType,
+    ProtoSubscribe, ProtoSubscribeType, ProtoUnsubscribe, ProtoUnsubscribeType, SessionHeader,
+    proto::pubsub::v1::SessionHeaderType,
 };
 
 use thiserror::Error;

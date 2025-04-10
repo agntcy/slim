@@ -1,6 +1,6 @@
 use agp_datapath::tables::pool::Pool;
 use bit_vec::BitVec;
-use criterion::{black_box, criterion_group, criterion_main, Criterion};
+use criterion::{Criterion, black_box, criterion_group, criterion_main};
 use std::mem::MaybeUninit;
 
 fn bench_lookup(c: &mut Criterion) {
