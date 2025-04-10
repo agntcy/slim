@@ -354,7 +354,7 @@ async fn publish_impl(
         None => {
             // use the session_info to set a name
             match &session_info.message_source {
-                Some(ref agent) => (
+                Some(agent) => (
                     agent.agent_type().clone(),
                     Some(agent.agent_id()),
                     session_info.input_connection.clone(),

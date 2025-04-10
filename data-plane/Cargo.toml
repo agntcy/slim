@@ -10,7 +10,7 @@ members = [
     "gateway/signal",
     "gateway/tracing",
     "python-bindings",
-    "testing", 
+    "testing",
 ]
 
 default-members = [
@@ -29,3 +29,4 @@ resolver = "2"
 
 [workspace.package]
 license = "Apache-2.0"
+edition = "2024"

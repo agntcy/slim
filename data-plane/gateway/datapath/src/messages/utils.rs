@@ -200,14 +200,14 @@ impl AgpHeader {
 
     pub fn get_source(&self) -> Agent {
         match &self.source {
-            Some(ref source) => Agent::from(source),
+            Some(source) => Agent::from(source),
             None => panic!("source not found"),
         }
     }
 
     pub fn get_dst(&self) -> (AgentType, Option<u64>) {
         match &self.destination {
-            Some(ref destination) => (AgentType::from(destination), destination.agent_id),
+            Some(destination) => (AgentType::from(destination), destination.agent_id),
             None => panic!("destination not found"),
         }
     }

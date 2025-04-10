@@ -278,7 +278,7 @@ impl ClientConfig {
                                   + Send
                                   + 'static,
                 Future: Send,
-            > + Send,
+            > + Send + use<>,
         ConfigError,
     > {
         // Make sure the endpoint is set and is valid
