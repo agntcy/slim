@@ -1,7 +1,7 @@
 [package]
 name = "agp-datapath"
 version = "0.5.0"
-edition = "2021"
+edition = { workspace = true }
 license = { workspace = true }
 description = "Core data plane functionality for AGP"
 

@@ -8,9 +8,9 @@ use tracing::debug;
 
 use super::encoder::{Agent, AgentType, DEFAULT_AGENT_ID};
 use crate::pubsub::{
-    proto::pubsub::v1::SessionHeaderType, AgpHeader, Content, MessageType, ProtoAgent,
-    ProtoMessage, ProtoPublish, ProtoPublishType, ProtoSubscribe, ProtoSubscribeType,
-    ProtoUnsubscribe, ProtoUnsubscribeType, SessionHeader,
+    AgpHeader, Content, MessageType, ProtoAgent, ProtoMessage, ProtoPublish, ProtoPublishType,
+    ProtoSubscribe, ProtoSubscribeType, ProtoUnsubscribe, ProtoUnsubscribeType, SessionHeader,
+    proto::pubsub::v1::SessionHeaderType,
 };
 
 use thiserror::Error;
@@ -200,14 +200,14 @@ impl AgpHeader {
 
     pub fn get_source(&self) -> Agent {
         match &self.source {
-            Some(ref source) => Agent::from(source),
+            Some(source) => Agent::from(source),
             None => panic!("source not found"),
         }
     }
 
     pub fn get_dst(&self) -> (AgentType, Option<u64>) {
         match &self.destination {
-            Some(ref destination) => (AgentType::from(destination), destination.agent_id),
+            Some(destination) => (AgentType::from(destination), destination.agent_id),
             None => panic!("destination not found"),
         }
     }

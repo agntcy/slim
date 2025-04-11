@@ -184,7 +184,10 @@ impl ReceiverBuffer {
                     // position of the buffer will not be used anymore
                     self.last_sent += 1;
                     self.first_entry += 1;
-                    debug!("message {} is lost, return none, new buffer state: last_sent {}, first_index {}", self.last_sent, self.last_sent, self.first_entry);
+                    debug!(
+                        "message {} is lost, return none, new buffer state: last_sent {}, first_index {}",
+                        self.last_sent, self.last_sent, self.first_entry
+                    );
                 } else {
                     // we need to wait a bit more
                     break;

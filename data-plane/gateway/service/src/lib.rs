@@ -26,20 +26,20 @@ use session::{AppChannelReceiver, MessageDirection};
 use session_layer::SessionLayer;
 use std::collections::HashMap;
 use std::sync::Arc;
-use tokio::sync::mpsc;
 use tokio::sync::RwLock;
+use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 use tonic::Status;
 use tracing::{debug, error, info};
 
 use agp_config::component::configuration::{Configuration, ConfigurationError};
-use agp_config::component::id::{Kind, ID};
+use agp_config::component::id::{ID, Kind};
 use agp_config::component::{Component, ComponentBuilder, ComponentError};
 use agp_config::grpc::client::ClientConfig;
 use agp_config::grpc::server::ServerConfig;
 use agp_datapath::message_processing::MessageProcessor;
-use agp_datapath::pubsub::proto::pubsub::v1::pub_sub_service_server::PubSubServiceServer;
 use agp_datapath::pubsub::proto::pubsub::v1::Message;
+use agp_datapath::pubsub::proto::pubsub::v1::pub_sub_service_server::PubSubServiceServer;
 pub use errors::ServiceError;
 
 // Define the kind of the component as static string

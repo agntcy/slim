@@ -132,7 +132,7 @@ async fn serve_impl(svc: PyService) -> Result<(), ServiceError> {
         None => {
             return Err(ServiceError::ConfigError(
                 "No configuration set on service".to_string(),
-            ))
+            ));
         }
     };
 
@@ -177,7 +177,7 @@ async fn connect_impl(svc: PyService) -> Result<u64, ServiceError> {
         None => {
             return Err(ServiceError::ConfigError(
                 "No configuration set on service".to_string(),
-            ))
+            ));
         }
     };
 
@@ -354,7 +354,7 @@ async fn publish_impl(
         None => {
             // use the session_info to set a name
             match &session_info.message_source {
-                Some(ref agent) => (
+                Some(agent) => (
                     agent.agent_type().clone(),
                     Some(agent.agent_id()),
                     session_info.input_connection.clone(),

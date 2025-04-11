@@ -14,7 +14,7 @@ use crate::session::{AppChannelSender, GwChannelSender, SessionConfig};
 use crate::session::{
     Common, CommonSession, Id, MessageDirection, Session, SessionDirection, State,
 };
-use crate::{timer, SessionMessage};
+use crate::{SessionMessage, timer};
 use agp_datapath::messages::encoder::Agent;
 use agp_datapath::pubsub::proto::pubsub::v1::SessionHeaderType;
 
@@ -129,7 +129,7 @@ impl RequestResponse {
             _ => {
                 return Err(SessionError::AppTransmission(
                     "invalid session config".to_string(),
-                ))
+                ));
             }
         };
 
@@ -197,7 +197,7 @@ impl Session for RequestResponse {
                                 return Err(SessionError::AppTransmission(format!(
                                     "timer not found for message id {}",
                                     message_id
-                                )))
+                                )));
                             }
                         }
                     }
@@ -243,7 +243,7 @@ impl Session for RequestResponse {
                             None => {
                                 return Err(SessionError::GatewayTransmission(
                                     "missing message id for reply".to_string(),
-                                ))
+                                ));
                             }
                         }
                     }

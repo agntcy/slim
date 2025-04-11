@@ -12,8 +12,8 @@ use crate::errors::SessionError;
 use crate::fire_and_forget::FireAndForgetConfiguration;
 use crate::request_response;
 use crate::session::{
-    AppChannelSender, GwChannelSender, Id, Info, MessageDirection, Session, SessionConfig,
-    SessionDirection, SessionMessage, SESSION_RANGE,
+    AppChannelSender, GwChannelSender, Id, Info, MessageDirection, SESSION_RANGE, Session,
+    SessionConfig, SessionDirection, SessionMessage,
 };
 use crate::streaming::{self, StreamingConfiguration};
 use crate::{fire_and_forget, session};
@@ -290,7 +290,7 @@ impl SessionLayer {
             _ => {
                 return Err(SessionError::SessionUnknown(
                     session_type.as_str_name().to_string(),
-                ))
+                ));
             }
         };
 

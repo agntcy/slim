@@ -12,7 +12,7 @@ mod tests {
     use agp_config::grpc::{client::ClientConfig, server::ServerConfig};
     use agp_datapath::message_processing::MessageProcessor;
     use agp_datapath::pubsub::proto::pubsub::v1::{
-        pub_sub_service_server::PubSubServiceServer, Message,
+        Message, pub_sub_service_server::PubSubServiceServer,
     };
 
     #[tokio::test]

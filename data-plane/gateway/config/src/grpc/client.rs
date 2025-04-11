@@ -17,9 +17,9 @@ use tracing::warn;
 use super::compression::CompressionType;
 use super::errors::ConfigError;
 use super::headers_middleware::SetRequestHeaderLayer;
+use crate::auth::ClientAuthenticator;
 use crate::auth::basic::Config as BasicAuthenticationConfig;
 use crate::auth::bearer::Config as BearerAuthenticationConfig;
-use crate::auth::ClientAuthenticator;
 use crate::component::configuration::{Configuration, ConfigurationError};
 use crate::tls::{client::TlsClientConfig as TLSSetting, common::RustlsConfigLoader};
 
@@ -176,8 +176,21 @@ fn default_request_timeout() -> Duration {
 // Display for ClientConfig
 impl std::fmt::Display for ClientConfig {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "ClientConfig {{ endpoint: {}, origin: {:?}, compression: {:?}, rate_limit: {:?}, tls_setting: {:?}, keepalive: {:?}, connect_timeout: {:?}, request_timeout: {:?}, buffer_size: {:?}, headers: {:?}, auth: {:?} }}",
-            self.endpoint, self.origin, self.compression, self.rate_limit, self.tls_setting, self.keepalive, self.connect_timeout, self.request_timeout, self.buffer_size, self.headers, self.auth)
+        write!(
+            f,
+            "ClientConfig {{ endpoint: {}, origin: {:?}, compression: {:?}, rate_limit: {:?}, tls_setting: {:?}, keepalive: {:?}, connect_timeout: {:?}, request_timeout: {:?}, buffer_size: {:?}, headers: {:?}, auth: {:?} }}",
+            self.endpoint,
+            self.origin,
+            self.compression,
+            self.rate_limit,
+            self.tls_setting,
+            self.keepalive,
+            self.connect_timeout,
+            self.request_timeout,
+            self.buffer_size,
+            self.headers,
+            self.auth
+        )
     }
 }
 
@@ -272,13 +285,14 @@ impl ClientConfig {
         &self,
     ) -> Result<
         impl tonic::client::GrpcService<
-                tonic::body::BoxBody,
-                Error: Into<StdError> + Send,
-                ResponseBody: Body<Data = Bytes, Error: Into<StdError> + std::marker::Send>
-                                  + Send
-                                  + 'static,
-                Future: Send,
-            > + Send,
+            tonic::body::BoxBody,
+            Error: Into<StdError> + Send,
+            ResponseBody: Body<Data = Bytes, Error: Into<StdError> + std::marker::Send>
+                              + Send
+                              + 'static,
+            Future: Send,
+        > + Send
+        + use<>,
         ConfigError,
     > {
         // Make sure the endpoint is set and is valid

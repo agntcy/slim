@@ -109,7 +109,9 @@ mod tests {
         debug!("testdata_path: {}", testdata_path);
 
         // set an env variable to test
-        std::env::set_var("HOME", "/home/user");
+        unsafe {
+            std::env::set_var("HOME", "/home/user");
+        }
 
         // Declare a resolver
         let resolver = ConfigResolver::new();
