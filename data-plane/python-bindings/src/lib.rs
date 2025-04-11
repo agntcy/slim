@@ -17,6 +17,7 @@ use pysession::PyStreamingConfiguration;
 use rand::Rng;
 use tokio::sync::OnceCell;
 use tokio::sync::RwLock;
+use tokio_util::sync::CancellationToken;
 
 use crate::pysession::{PyFireAndForgetConfiguration, PyRequestResponseConfiguration};
 use agp_datapath::messages::encoder::{Agent, AgentType};
@@ -44,6 +45,7 @@ struct PyServiceInternal {
     service: Service,
     agent: Agent,
     rx: RwLock<session::AppChannelReceiver>,
+    cancellation_token: tokio_util::sync::CancellationToken,
 }
 
 #[gen_stub_pymethods]
@@ -409,26 +411,34 @@ fn publish(
 async fn receive_impl(svc: PyService) -> Result<(PySessionInfo, Vec<u8>), ServiceError> {
     let mut rx = svc.sdk.rx.write().await;
 
-    let msg = rx
-        .recv()
-        .await
-        .ok_or(ServiceError::ConfigError("no message received".to_string()))?
-        .map_err(|e| ServiceError::ReceiveError(e.to_string()))?;
+    // tokio select
+    tokio::select! {
+        _ = svc.sdk.cancellation_token.cancelled() => {
+            Err(ServiceError::ReceiveError("operation canceled".to_string()))
+        }
+        msg = rx.recv() => {
+            if msg.is_none() {
+                return Err(ServiceError::ReceiveError("no message received".to_string()));
+            }
 
-    // extract agent and payload
-    let content = match msg.message.message_type {
-        Some(ref msg_type) => match msg_type {
-            agp_datapath::pubsub::ProtoPublishType(publish) => &publish.get_payload().blob,
-            _ => Err(ServiceError::ReceiveError(
-                "receive publish message type".to_string(),
-            ))?,
-        },
-        _ => Err(ServiceError::ReceiveError(
-            "no message received".to_string(),
-        ))?,
-    };
+            let msg = msg.unwrap().map_err(|e| ServiceError::ReceiveError(e.to_string()))?;
 
-    Ok((PySessionInfo::from(msg.info), content.to_vec()))
+            // extract agent and payload
+            let content = match msg.message.message_type {
+                Some(ref msg_type) => match msg_type {
+                    agp_datapath::pubsub::ProtoPublishType(publish) => &publish.get_payload().blob,
+                    _ => Err(ServiceError::ReceiveError(
+                        "receive publish message type".to_string(),
+                    ))?,
+                },
+                _ => Err(ServiceError::ReceiveError(
+                    "no message received".to_string(),
+                ))?,
+            };
+
+            Ok((PySessionInfo::from(msg.info), content.to_vec()))
+        }
+    }
 }
 
 #[gen_stub_pyfunction]
@@ -501,6 +511,7 @@ async fn create_pyservice_impl(
         service: svc,
         agent: agent,
         rx: RwLock::new(rx),
+        cancellation_token: CancellationToken::new(),
     });
 
     Ok(PyService {
