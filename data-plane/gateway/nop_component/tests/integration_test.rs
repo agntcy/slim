@@ -4,8 +4,8 @@
 use std::fs::File;
 use std::io::Read;
 
-use agp_config::component::id::{Kind, ID};
 use agp_config::component::Component;
+use agp_config::component::id::{ID, Kind};
 use agp_nop_component::{NopComponent, NopComponentBuilder, NopComponentConfig};
 use serde_yaml::Error;
 

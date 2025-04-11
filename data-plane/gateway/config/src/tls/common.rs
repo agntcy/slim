@@ -1,11 +1,11 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
-use rustls::server::VerifierBuilderError;
 use rustls::RootCertStore;
+use rustls::server::VerifierBuilderError;
 use rustls_native_certs;
-use rustls_pki_types::pem::PemObject;
 use rustls_pki_types::CertificateDer;
+use rustls_pki_types::pem::PemObject;
 use serde::Deserialize;
 use std::path::Path;
 use std::time::Duration;

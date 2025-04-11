@@ -13,9 +13,9 @@ use serde::Deserialize;
 use tonic::transport::server::TcpIncoming;
 
 use super::errors::ConfigError;
+use crate::auth::ServerAuthenticator;
 use crate::auth::basic::Config as BasicAuthenticationConfig;
 use crate::auth::bearer::Config as BearerAuthenticationConfig;
-use crate::auth::ServerAuthenticator;
 use crate::component::configuration::{Configuration, ConfigurationError};
 use crate::tls::{common::RustlsConfigLoader, server::TlsServerConfig as TLSSetting};
 
@@ -396,7 +396,7 @@ impl ServerConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::testutils::{helloworld::greeter_server::GreeterServer, Empty};
+    use crate::testutils::{Empty, helloworld::greeter_server::GreeterServer};
 
     static TEST_DATA_PATH: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/testdata/grpc");
 

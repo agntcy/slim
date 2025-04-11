@@ -11,7 +11,7 @@ use testing::parse_line;
 use agp_gw::config;
 use clap::Parser;
 use indicatif::ProgressBar;
-use tracing::{debug, info, error};
+use tracing::{debug, error, info};
 
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
@@ -128,13 +128,11 @@ async fn main() {
                             recv_msg.info.message_id.unwrap(),
                             recv_msg.info.id
                         );
-                    },
-                    Err(e) => {
-                        error!(
-                            "received error {}", e
-                        )
                     }
-                }
+                    Err(e) => {
+                        error!("received error {}", e)
+                    }
+                },
                 None => {
                     error!("stream close");
                     return;

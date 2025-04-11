@@ -5,6 +5,7 @@ use std::{collections::HashMap, sync::Arc, time::Duration};
 use tokio::sync::mpsc;
 
 use crate::{
+    MessageDirection, SessionMessage,
     errors::SessionError,
     producer_buffer, receiver_buffer,
     session::{
@@ -12,18 +13,17 @@ use crate::{
         SessionDirection, State,
     },
     timer::{Timer, TimerObserver},
-    MessageDirection, SessionMessage,
 };
 use producer_buffer::ProducerBuffer;
 use receiver_buffer::ReceiverBuffer;
 
-use agp_datapath::messages::{utils::AgpHeaderFlags, AgentType};
+use agp_datapath::messages::{AgentType, utils::AgpHeaderFlags};
 use agp_datapath::{
     messages::Agent,
     pubsub::proto::pubsub::v1::{AgpHeader, Message, SessionHeader, SessionHeaderType},
 };
 
-use tonic::{async_trait, Status};
+use tonic::{Status, async_trait};
 use tracing::{debug, error, info, trace, warn};
 
 const STREAM_BROADCAST: u32 = 50;
@@ -89,8 +89,7 @@ impl TimerObserver for RtxTimerObserver {
     async fn on_failure(&self, timer_id: u32, timeouts: u32) {
         trace!(
             "timeout number {} for rtx {}, stop retry",
-            timeouts,
-            timer_id
+            timeouts, timer_id
         );
 
         // notify the process loop
@@ -350,8 +349,7 @@ async fn process_incoming_rtx_request(
 
     trace!(
         "received rtx for message {} on producer session {}",
-        msg_rtx_id,
-        session_id
+        msg_rtx_id, session_id
     );
     // search the packet in the producer buffer
     let pkt_src = msg.get_source();
@@ -395,7 +393,7 @@ async fn process_incoming_rtx_request(
         None => {
             // the packet does not exist return an empty RtxReply with the error flag set
             debug!(
-                "received and RTX messages for an old packet on session {}",
+                "received an RTX messages for an old packet on session {}",
                 session_id
             );
 
@@ -450,8 +448,7 @@ async fn process_message_from_app(
 
     trace!(
         "add message {} to the producer buffer on session {}",
-        producer.next_id,
-        session_id
+        producer.next_id, session_id
     );
     if !producer.buffer.push(msg.clone()) {
         warn!("cannot add packet to the local buffer");
@@ -459,8 +456,7 @@ async fn process_message_from_app(
 
     trace!(
         "send message {} to the producer buffer on session {}",
-        producer.next_id,
-        session_id
+        producer.next_id, session_id
     );
     producer.next_id += 1;
 
@@ -613,9 +609,8 @@ async fn handle_timeout(
     send_gw: &mpsc::Sender<Result<Message, Status>>,
 ) {
     trace!(
-        "try to send rtx for packet {} on session {}",
-        msg_id,
-        session_id
+        "try to send rtx for packet {} on receiver session {}",
+        msg_id, session_id
     );
 
     let receiver = match receiver_state.buffers.get_mut(producer_name) {
@@ -630,7 +625,9 @@ async fn handle_timeout(
     let rtx = match receiver.rtx_map.get(&msg_id) {
         Some(rtx) => rtx,
         None => {
-            error!("rtx message does not exist in the map, skip retransmission and try to stop the timer");
+            error!(
+                "rtx message does not exist in the map, skip retransmission and try to stop the timer"
+            );
             let timer = match receiver.timers_map.get(&msg_id) {
                 Some(t) => t,
                 None => {

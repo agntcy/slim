@@ -8,8 +8,8 @@ use tracing::info;
 
 use agp_gw::config;
 use agp_service::{
-    session::{self, SessionConfig},
     FireAndForgetConfiguration,
+    session::{self, SessionConfig},
 };
 
 mod args;

@@ -4,12 +4,12 @@
 use std::collections::{HashMap, HashSet};
 use std::fmt::{Display, Formatter};
 
-use parking_lot::{lock_api::RwLockWriteGuard, RawRwLock, RwLock};
+use parking_lot::{RawRwLock, RwLock, lock_api::RwLockWriteGuard};
 use rand::Rng;
 use tracing::{debug, error, warn};
 
 use super::pool::Pool;
-use super::{errors::SubscriptionTableError, SubscriptionTable};
+use super::{SubscriptionTable, errors::SubscriptionTableError};
 use crate::messages::encoder::DEFAULT_AGENT_ID;
 use crate::messages::{Agent, AgentType};
 
@@ -330,11 +330,7 @@ impl AgentTypeState {
                                 out.push(*c);
                             }
                         }
-                        if out.is_empty() {
-                            None
-                        } else {
-                            Some(out)
-                        }
+                        if out.is_empty() { None } else { Some(out) }
                     }
                 }
             }
@@ -401,7 +397,9 @@ fn add_subscription_to_sub_table(
             let uid = agent.agent_id();
             debug!(
                 "subscription table: add first subscription for type {}, agent_id {} on connection {}",
-                agent.agent_type(), uid, conn,
+                agent.agent_type(),
+                uid,
+                conn,
             );
             // the subscription does not exists, init
             // create and init type state
@@ -438,7 +436,9 @@ fn add_subscription_to_connection(
             if !s.insert(agent.clone()) {
                 warn!(
                     "subscription for type {}, agent_id {} already exists for connection {}, ignore the message",
-                    agent.agent_type(), agent.agent_id(), conn_index,
+                    agent.agent_type(),
+                    agent.agent_id(),
+                    conn_index,
                 );
                 return Ok(());
             }

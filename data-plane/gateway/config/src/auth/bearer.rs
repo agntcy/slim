@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use serde::Deserialize;
-use tower_http::auth::{require_authorization::Bearer, AddAuthorizationLayer};
+use tower_http::auth::{AddAuthorizationLayer, require_authorization::Bearer};
 use tower_http::validate_request::ValidateRequestHeaderLayer;
 
 use super::{AuthError, ClientAuthenticator, ServerAuthenticator};

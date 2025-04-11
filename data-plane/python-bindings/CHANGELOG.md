@@ -1,5 +1,26 @@
 # Changelog
 
+## [0.2.3](https://github.com/agntcy/agp/compare/agp-bindings-v0.2.2...agp-bindings-v0.2.3) (2025-04-09)
+
+
+### Bug Fixes
+
+* **agp-bindings:** build pypi package on ubuntu 22.04 ([#160](https://github.com/agntcy/agp/issues/160)) ([a9768c1](https://github.com/agntcy/agp/commit/a9768c189d0afd5cf24efd5f2b3f610d780cf762))
+
+## [0.2.2](https://github.com/agntcy/agp/compare/agp-bindings-v0.2.1...agp-bindings-v0.2.2) (2025-04-09)
+
+
+### Bug Fixes
+
+* **python-bindings:** update example name in readme ([#158](https://github.com/agntcy/agp/issues/158)) ([8ecad2b](https://github.com/agntcy/agp/commit/8ecad2b69f0ed8caa0103b74b3ce3523d6695576))
+
+## [0.2.1](https://github.com/agntcy/agp/compare/agp-bindings-v0.2.0...agp-bindings-v0.2.1) (2025-04-09)
+
+
+### Bug Fixes
+
+* service name in python bindings ([#155](https://github.com/agntcy/agp/issues/155)) ([66a5247](https://github.com/agntcy/agp/commit/66a524757bae335a5cb2b888ba77af95e94dc132))
+
 ## [0.2.0](https://github.com/agntcy/agp/compare/agp-bindings-v0.1.14...agp-bindings-v0.2.0) (2025-04-08)
 
 
