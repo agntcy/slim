@@ -270,7 +270,6 @@ impl Streaming {
                                                     SessionHeaderType::PubSub => {
                                                         // send the packet to the application
                                                         process_message_from_gw(msg, session_id, &mut state.receiver, &source, max_retries, timeout, &timer_tx, &send_gw, &send_app).await;
-
                                                     }
                                                     SessionHeaderType::RtxRequest => {
                                                         // handle RTX request
@@ -353,15 +352,17 @@ async fn process_incoming_rtx_request(
         msg_rtx_id, session_id
     );
     // search the packet in the producer buffer
+    let pkt_src = msg.get_source();
+    let incoming_conn = msg.get_incoming_conn();
+
     let rtx_pub = match producer.buffer.get(msg_rtx_id as usize) {
         Some(packet) => {
             trace!(
                 "packet {} exists in the producer buffer, create rtx reply",
                 msg_rtx_id
             );
-            // the packet exists, send it to the source of the RTX
-            let pkt_src = msg.get_source();
 
+            // the packet exists, send it to the source of the RTX
             let payload = match packet.get_payload() {
                 Some(p) => p,
                 None => {
@@ -369,8 +370,6 @@ async fn process_incoming_rtx_request(
                     return;
                 }
             };
-
-            let incoming_conn = msg.get_incoming_conn();
 
             let agp_header = Some(AgpHeader::new(
                 source,
@@ -392,21 +391,37 @@ async fn process_incoming_rtx_request(
             Message::new_publish_with_headers(agp_header, session_header, "", payload.blob.to_vec())
         }
         None => {
-            // the packet does not exist so do nothing
-            // TODO(micpapal): improve by returning a rtx nack so that the remote app does not
-            // wait too long for all the retransmissions
+            // the packet does not exist return an empty RtxReply with the error flag set
             debug!(
-                "received and RTX messages for an old packet on producer session {}",
+                "received an RTX messages for an old packet on session {}",
                 session_id
             );
-            return;
+
+            let flags = AgpHeaderFlags::default()
+                .with_forward_to(incoming_conn)
+                .with_error(true);
+
+            let agp_header = Some(AgpHeader::new(
+                source,
+                pkt_src.agent_type(),
+                Some(pkt_src.agent_id()),
+                Some(flags),
+            ));
+
+            let session_header = Some(SessionHeader::new(
+                SessionHeaderType::RtxReply.into(),
+                session_id,
+                msg_rtx_id,
+            ));
+
+            Message::new_publish_with_headers(agp_header, session_header, "", vec![])
         }
     };
 
     trace!("send rtx reply for message {}", msg_rtx_id);
     if send_gw.send(Ok(rtx_pub)).await.is_err() {
         error!(
-            "error sending RTX packet to the gateway on producer session {}",
+            "error sending RTX packet to the gateway on session {}",
             session_id
         );
     }
@@ -421,10 +436,7 @@ async fn process_message_from_app(
     send_app: &mpsc::Sender<Result<SessionMessage, SessionError>>,
 ) {
     // set the session header, add the message to the buffer and send it
-    trace!(
-        "received message from the app on producer session {}",
-        session_id
-    );
+    trace!("received message from the app on session {}", session_id);
 
     if is_bidirectional {
         msg.set_header_type(SessionHeaderType::PubSub);
@@ -450,7 +462,7 @@ async fn process_message_from_app(
 
     if send_gw.send(Ok(msg)).await.is_err() {
         error!(
-            "error sending publication packet to the gateway on producer session {}",
+            "error sending publication packet to the gateway on session {}",
             session_id
         );
         send_app
@@ -500,8 +512,12 @@ async fn process_message_from_gw(
     };
 
     let header_type = msg.get_header_type();
+    let mut error_rtx = false;
     if header_type == SessionHeaderType::RtxReply {
         let rtx_msg_id = msg.get_id();
+        if msg.get_error().is_some() && msg.get_error().unwrap() {
+            error_rtx = true;
+        }
 
         // try to clean local state
         match receiver.timers_map.get(&rtx_msg_id) {
@@ -518,43 +534,34 @@ async fn process_message_from_gw(
         }
     } else if header_type != SessionHeaderType::Stream && header_type != SessionHeaderType::PubSub {
         error!(
-            "received packet with invalid header type {} on receiver session {}",
+            "received packet with invalid header type {} on session {}",
             i32::from(header_type),
             session_id
         );
         return;
     }
 
+    if error_rtx {
+        // a message cannot be recovered
+        let msg_id = msg.get_id();
+        debug!("received an error RTX reply for message {}", msg_id);
+        match receiver.buffer.on_lost_message(msg_id) {
+            Ok(recv) => {
+                send_message_to_app(recv, session_id, send_app).await;
+            }
+            Err(e) => {
+                error!("error adding message lost to the buffer: {}", e.to_string());
+            }
+        }
+        return;
+    }
+
     match receiver.buffer.on_received_message(msg) {
         Ok((recv, rtx)) => {
-            for opt in recv {
-                trace!(
-                    "send recv packet to the application on receiver session {}",
-                    session_id
-                );
-                match opt {
-                    Some(m) => {
-                        // send message to the app
-                        let info = Info::from(&m);
-                        let session_msg = SessionMessage::new(m, info);
-                        if send_app.send(Ok(session_msg)).await.is_err() {
-                            error!(
-                                "error sending packet to the application on receiver session {}",
-                                session_id
-                            );
-                        }
-                    }
-                    None => {
-                        warn!(
-                            "a message was definitely lost in receiver session {}",
-                            session_id
-                        );
-                        let _ = send_app
-                            .send(Err(SessionError::MessageLost(session_id.to_string())))
-                            .await;
-                    }
-                }
-            }
+            // send packets to the app
+            send_message_to_app(recv, session_id, send_app).await;
+
+            // send RTX
             for r in rtx {
                 debug!(
                     "packet loss detected on session {}, send RTX for id {}",
@@ -635,7 +642,7 @@ async fn handle_timeout(
 
     if send_gw.send(Ok(rtx.clone())).await.is_err() {
         error!(
-            "error sending RTX for id {} on receiver session {}",
+            "error sending RTX for id {} on session {}",
             msg_id, session_id
         );
     }
@@ -663,32 +670,40 @@ async fn handle_failure(
 
     match receiver.buffer.on_lost_message(msg_id) {
         Ok(recv) => {
-            for opt in recv {
-                match opt {
-                    Some(m) => {
-                        let info = Info::from(&m);
-                        let session_msg = SessionMessage::new(m, info);
-                        // send message to the app
-                        if send_app.send(Ok(session_msg)).await.is_err() {
-                            error!(
-                                "error sending packet to the gateway on session {}",
-                                session_id
-                            );
-                        }
-                    }
-                    None => {
-                        warn!("a message was definitely lost in session {}", session_id);
-                        let _ = send_app
-                            .send(Err(SessionError::MessageLost(session_id.to_string())))
-                            .await;
-                    }
-                }
-            }
+            send_message_to_app(recv, session_id, send_app).await;
         }
         Err(e) => {
             error!("error adding message lost to the buffer: {}", e.to_string());
         }
     };
+}
+
+async fn send_message_to_app(
+    messages: Vec<Option<Message>>,
+    session_id: u32,
+    send_app: &mpsc::Sender<Result<SessionMessage, SessionError>>,
+) {
+    for opt in messages {
+        match opt {
+            Some(m) => {
+                let info = Info::from(&m);
+                let session_msg = SessionMessage::new(m, info);
+                // send message to the app
+                if send_app.send(Ok(session_msg)).await.is_err() {
+                    error!(
+                        "error sending packet to the gateway on session {}",
+                        session_id
+                    );
+                }
+            }
+            None => {
+                warn!("a message was definitely lost in session {}", session_id);
+                let _ = send_app
+                    .send(Err(SessionError::MessageLost(session_id.to_string())))
+                    .await;
+            }
+        }
+    }
 }
 
 #[async_trait]
