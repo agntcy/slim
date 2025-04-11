@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.4](https://github.com/agntcy/agp/compare/agp-bindings-v0.2.3...agp-bindings-v0.2.4) (2025-04-11)
+
+
+### Features
+
+* **session layer:** send rtx error if the packet is not in the producer buffer ([#166](https://github.com/agntcy/agp/issues/166)) ([2cadb50](https://github.com/agntcy/agp/commit/2cadb501458c1a729ca8e2329da642f7a96575c0))
+
 ## [0.2.3](https://github.com/agntcy/agp/compare/agp-bindings-v0.2.2...agp-bindings-v0.2.3) (2025-04-09)
 
 
