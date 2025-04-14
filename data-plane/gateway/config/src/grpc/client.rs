@@ -1,9 +1,6 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
-#[cfg(feature = "pyo3")]
-use pyo3::prelude::*;
-
 use duration_str::deserialize_duration;
 use std::time::Duration;
 use std::{collections::HashMap, str::FromStr};
@@ -31,7 +28,6 @@ use crate::tls::{client::TlsClientConfig as TLSSetting, common::RustlsConfigLoad
 /// the timeout duration for the keepalive, and whether to permit
 /// keepalive without an active stream.
 #[derive(Debug, Deserialize, PartialEq, Clone)]
-#[cfg_attr(feature = "pyo3", derive(FromPyObject), pyo3(from_item_all))]
 pub struct KeepaliveConfig {
     /// The duration of the keepalive time for TCP
     #[serde(
@@ -85,8 +81,7 @@ fn default_keep_alive_while_idle() -> bool {
 }
 
 /// Enum holding one configuration for the client.
-#[derive(Debug, Deserialize, Clone, PartialEq)]
-#[cfg_attr(feature = "pyo3", derive(FromPyObject), pyo3(from_item_all))]
+#[derive(Debug, Default, Deserialize, Clone, PartialEq)]
 #[serde(rename_all = "snake_case")]
 pub enum AuthenticationConfig {
     /// Basic authentication configuration.
@@ -94,13 +89,8 @@ pub enum AuthenticationConfig {
     /// Bearer authentication configuration.
     Bearer(BearerAuthenticationConfig),
     /// None
-    None(String),
-}
-
-impl Default for AuthenticationConfig {
-    fn default() -> Self {
-        AuthenticationConfig::None("None".to_string())
-    }
+    #[default]
+    None,
 }
 
 /// Struct for the client configuration.
@@ -109,7 +99,6 @@ impl Default for AuthenticationConfig {
 /// headers, and auth settings.
 /// The client configuration can be converted to a tonic channel.
 #[derive(Debug, Deserialize, Clone, PartialEq)]
-#[cfg_attr(feature = "pyo3", derive(FromPyObject), pyo3(from_item_all))]
 pub struct ClientConfig {
     /// The target the client will connect to.
     pub endpoint: String,
@@ -171,7 +160,7 @@ impl Default for ClientConfig {
             request_timeout: default_request_timeout(),
             buffer_size: None,
             headers: HashMap::new(),
-            auth: AuthenticationConfig::None("None".to_string()),
+            auth: AuthenticationConfig::None,
         }
     }
 }
@@ -447,7 +436,7 @@ impl ClientConfig {
                     .service(channel)
                     .boxed())
             }
-            AuthenticationConfig::None(_) => Ok(tower::ServiceBuilder::new()
+            AuthenticationConfig::None => Ok(tower::ServiceBuilder::new()
                 .layer(SetRequestHeaderLayer::new(header_map))
                 .service(channel)
                 .boxed()),
@@ -512,7 +501,7 @@ mod test {
         assert_eq!(client.request_timeout, Duration::from_secs(0));
         assert_eq!(client.buffer_size, None);
         assert_eq!(client.headers, HashMap::new());
-        assert_eq!(client.auth, AuthenticationConfig::default());
+        assert_eq!(client.auth, AuthenticationConfig::None);
     }
 
     #[test]

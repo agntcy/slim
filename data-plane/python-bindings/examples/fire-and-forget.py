@@ -27,13 +27,9 @@ async def run_client(
     # create new gateway object
     gateway = await agp_bindings.Gateway.new(local_organization, local_namespace, local_agent)
 
-    # Configure gateway
-    config = GatewayConfig(endpoint=address, insecure=True)
-    gateway.configure(config)
-
     # Connect to remote gateway server
     print(format_message(f"connecting to: {address}"))
-    _ = await gateway.connect()
+    _ = await gateway.connect({"endpoint": address, "tls_settings": {"insecure": True}})
 
     # Get the local agent instance from env
     instance = os.getenv("AGP_INSTANCE_ID", local_agent)

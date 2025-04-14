@@ -6,14 +6,17 @@ use agp_service::session;
 use agp_service::{Service, ServiceError};
 use pyo3::exceptions::PyException;
 use pyo3::prelude::*;
+use pyo3::types::PyDict;
 use pyo3_stub_gen::derive::gen_stub_pyclass;
 use pyo3_stub_gen::derive::gen_stub_pyfunction;
 use pyo3_stub_gen::derive::gen_stub_pymethods;
 use rand::Rng;
+use serde_pyobject::from_pyobject;
 use tokio::sync::RwLock;
 use tokio_util::sync::CancellationToken;
 
-use crate::pyconfig::{PyGrpcClientConfig, PyGrpcServerConfig};
+use agp_config::grpc::client::ClientConfig as PyGrpcClientConfig;
+use agp_config::grpc::server::ServerConfig as PyGrpcServerConfig;
 use crate::pysession::PySessionInfo;
 use crate::pysession::PyStreamingConfiguration;
 use crate::pysession::{PyFireAndForgetConfiguration, PyRequestResponseConfiguration};
@@ -80,9 +83,7 @@ impl PyService {
             cancellation_token: CancellationToken::new(),
         });
 
-        Ok(PyService {
-            sdk: sdk,
-        })
+        Ok(PyService { sdk: sdk })
     }
 
     async fn create_session_impl(
@@ -298,8 +299,8 @@ pub fn create_streaming_session(
 #[pyo3(signature = (
     svc, config,
 ))]
-pub fn run_server(py: Python, svc: PyService, config: PyObject) -> PyResult<Bound<PyAny>> {
-    let config = config.extract::<PyGrpcServerConfig>(py)?;
+pub fn run_server(py: Python, svc: PyService, config: Py<PyDict>) -> PyResult<Bound<PyAny>> {
+    let config: PyGrpcServerConfig = from_pyobject(config.into_bound(py))?;
 
     pyo3_async_runtimes::tokio::future_into_py(py, async move {
         svc.serve_impl(config)
@@ -328,8 +329,8 @@ pub fn stop_server(py: Python, svc: PyService, endpoint: String) -> PyResult<Bou
     svc,
     config
 ))]
-pub fn connect(py: Python, svc: PyService, config: PyObject) -> PyResult<Bound<PyAny>> {
-    let config = config.extract::<PyGrpcClientConfig>(py)?;
+pub fn connect(py: Python, svc: PyService, config: Py<PyDict>) -> PyResult<Bound<PyAny>> {
+    let config: PyGrpcClientConfig = from_pyobject(config.into_bound(py))?;
 
     pyo3_async_runtimes::tokio::future_into_py(py, async move {
         svc.connect_impl(config)

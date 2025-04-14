@@ -29,6 +29,7 @@ dependencies = [
  "pyo3-async-runtimes",
  "pyo3-stub-gen",
  "rand 0.9.0",
+ "serde-pyobject",
  "tokio",
  "tokio-util",
 ]
@@ -46,13 +47,11 @@ dependencies = [
  "lazy_static",
  "prost",
  "protoc-bin-vendored",
- "pyo3",
  "regex",
  "rustls",
  "rustls-native-certs",
  "rustls-pki-types",
  "serde",
- "serde_json",
  "serde_yaml",
  "thiserror",
  "tokio",
@@ -2616,6 +2615,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "02fc4265df13d6fa1d00ecff087228cc0a2b5f3c0e87e258d8b94a156e984c70"
 dependencies = [
  "serde_derive",
+]
+
+[[package]]
+name = "serde-pyobject"
+version = "0.6.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8448b99b12404bbb03ee8fe18f4ddbc693a0859074ea7b746bc17e47e510299c"
+dependencies = [
+ "pyo3",
+ "serde",
 ]
 
 [[package]]

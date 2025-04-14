@@ -1,9 +1,6 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
-#[cfg(feature = "pyo3")]
-use pyo3::prelude::*;
-
 use std::fmt;
 use std::str::FromStr;
 
@@ -13,7 +10,6 @@ use serde::Deserialize;
 /// The supported types are: Gzip, Zlib, Deflate, Snappy, Zstd, Lz4, None, and Empty.
 /// The default type is None.
 #[derive(Debug, Deserialize, PartialEq, Clone, Default)]
-#[cfg_attr(feature = "pyo3", pyclass(eq, eq_int))]
 pub enum CompressionType {
     Gzip,
     Zlib,
@@ -24,21 +20,6 @@ pub enum CompressionType {
     #[default]
     None,
     Empty,
-}
-
-impl std::fmt::Display for CompressionType {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            CompressionType::Gzip => write!(f, "gzip"),
-            CompressionType::Zlib => write!(f, "zlib"),
-            CompressionType::Deflate => write!(f, "deflate"),
-            CompressionType::Snappy => write!(f, "snappy"),
-            CompressionType::Zstd => write!(f, "zstd"),
-            CompressionType::Lz4 => write!(f, "lz4"),
-            CompressionType::None => write!(f, "none"),
-            CompressionType::Empty => write!(f, ""),
-        }
-    }
 }
 
 impl CompressionType {

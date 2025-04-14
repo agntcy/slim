@@ -31,5 +31,8 @@ tracing = "0.1.41"
 [dev-dependencies]
 tracing-test = "0.2.5"
 
+[build-dependencies]
+agp-config = { path = "../config", version = "0.1.6" }
+
 [target.x86_64-unknown-linux-gnu.dependencies]
 jemallocator = { version = "0.5" }

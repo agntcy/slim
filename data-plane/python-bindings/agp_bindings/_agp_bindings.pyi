@@ -22,12 +22,6 @@ class PyFireAndForgetConfiguration:
     def __new__(cls,): ...
     ...
 
-class PyGrpcClientConfig:
-    ...
-
-class PyGrpcServerConfig:
-    ...
-
 class PyRequestResponseConfiguration:
     r"""
     request response session config
@@ -66,7 +60,7 @@ class PySessionDirection(Enum):
     RECEIVER = auto()
     BIDIRECTIONAL = auto()
 
-def connect(svc:PyService, config:PyGrpcClientConfig) -> typing.Any:
+def connect(svc:PyService, config:dict) -> typing.Any:
     ...
 
 def create_ff_session(svc:PyService, config:PyFireAndForgetConfiguration=...) -> typing.Any:
@@ -90,7 +84,7 @@ def receive(svc:PyService) -> typing.Any:
 def remove_route(svc:PyService, conn:builtins.int, name:PyAgentType, id:typing.Optional[builtins.int]=None) -> typing.Any:
     ...
 
-def run_server(svc:PyService, config:PyGrpcServerConfig) -> typing.Any:
+def run_server(svc:PyService, config:dict) -> typing.Any:
     ...
 
 def set_route(svc:PyService, conn:builtins.int, name:PyAgentType, id:typing.Optional[builtins.int]=None) -> typing.Any:

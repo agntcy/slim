@@ -8,6 +8,7 @@ use pyo3_stub_gen::derive::gen_stub_pymethods;
 
 use crate::utils::PyAgentType;
 use agp_service::session;
+pub use agp_service::session::SESSION_UNSPECIFIED;
 
 #[gen_stub_pyclass]
 #[pyclass]

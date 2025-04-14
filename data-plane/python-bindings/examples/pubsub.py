@@ -25,10 +25,9 @@ async def run_client(local_id, remote_id, address, enable_opentelemetry: bool):
     print(f"Creating participant {name}...")
 
     participant = await agp_bindings.Gateway.new(local_organization, local_namespace, local_agent)
-    participant.configure(agp_bindings.GatewayConfig(endpoint=address, insecure=True))
 
     # Connect to gateway server
-    _ = await participant.connect()
+    _ = await participant.connect({"endpoint": address, "tls_settings": {"insecure": True}})
 
     # set route for the chat, so that messages can be sent to the other participants
     await participant.set_route(remote_organization, remote_namespace, broadcast_topic)

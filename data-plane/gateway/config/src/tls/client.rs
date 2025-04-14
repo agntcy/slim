@@ -1,9 +1,6 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
-#[cfg(feature = "pyo3")]
-use pyo3::FromPyObject;
-
 use std::{path::Path, sync::Arc};
 
 use rustls::{
@@ -22,7 +19,6 @@ use super::common::{Config, ConfigError, RustlsConfigLoader};
 use crate::component::configuration::{Configuration, ConfigurationError};
 
 #[derive(Debug, Deserialize, PartialEq, Clone)]
-#[cfg_attr(feature = "pyo3", derive(FromPyObject), pyo3(from_item_all))]
 pub struct TlsClientConfig {
     /// The Config struct
     #[serde(flatten, default)]

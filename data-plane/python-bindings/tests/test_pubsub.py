@@ -31,10 +31,11 @@ async def test_streaming(server):
         print(f"Creating participant {name}...")
 
         participant = await agp_bindings.Gateway.new(org, ns, chat)
-        participant.configure(agp_bindings.GatewayConfig(endpoint="http://127.0.0.1:12375", insecure=True))
 
         # Connect to gateway server
-        _ = await participant.connect()
+        _ = await participant.connect(
+            {"endpoint": "http://127.0.0.1:12375", "tls_settings": {"insecure": True}}
+        )
 
         # set route for the chat, so that messages can be sent to the other participants
         await participant.set_route(org, ns, chat)
@@ -79,7 +80,9 @@ async def test_streaming(server):
             while True:
                 try:
                     # receive message from session
-                    recv_session, msg_rcv = await participant.receive(session=session_info.id)
+                    recv_session, msg_rcv = await participant.receive(
+                        session=session_info.id
+                    )
 
                     # increase the count
                     local_count += 1
@@ -91,7 +94,9 @@ async def test_streaming(server):
                     # if not, ignore it
                     if msg_rcv.decode().endswith(name):
                         # print the message
-                        print(f"{name} -> Received: {msg_rcv.decode()}, local count: {local_count}")
+                        print(
+                            f"{name} -> Received: {msg_rcv.decode()}, local count: {local_count}"
+                        )
 
                         # wait a moment to simulate processing time
                         time.sleep(1)

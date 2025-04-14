@@ -17,10 +17,11 @@ async def test_request_reply_base(server):
 
     # create new gateway object
     gateway1 = await agp_bindings.Gateway.new(org, ns, agent1)
-    gateway1.configure(agp_bindings.GatewayConfig(endpoint="http://127.0.0.1:12355", insecure=True))
 
     # Connect to the service and subscribe for the local name
-    _ = await gateway1.connect()
+    _ = await gateway1.connect(
+        {"endpoint": "http://127.0.0.1:12355", "tls_settings": {"insecure": True}}
+    )
 
     # # subscribe to the service
     # await gateway1.subscribe(org, ns, agent1)
@@ -28,10 +29,11 @@ async def test_request_reply_base(server):
     # create second local agent
     agent2 = "gateway2"
     gateway2 = await agp_bindings.Gateway.new(org, ns, agent2)
-    gateway2.configure(agp_bindings.GatewayConfig(endpoint="http://127.0.0.1:12355", insecure=True))
 
     # Connect to gateway server
-    _ = await gateway2.connect()
+    _ = await gateway2.connect(
+        {"endpoint": "http://127.0.0.1:12355", "tls_settings": {"insecure": True}}
+    )
 
     # set route
     await gateway2.set_route("cisco", "default", agent1)
@@ -72,7 +74,9 @@ async def test_request_reply_base(server):
 
         # wait for message on Alice
         try:
-            _, msg_rcv = await asyncio.wait_for(gateway2.receive(session=session_info.id), timeout=3)
+            _, msg_rcv = await asyncio.wait_for(
+                gateway2.receive(session=session_info.id), timeout=3
+            )
         except asyncio.TimeoutError:
             msg_rcv = None
 
@@ -108,18 +112,20 @@ async def test_request_reply(server):
 
     # create new gateway object
     gateway1 = await agp_bindings.Gateway.new(org, ns, agent1)
-    gateway1.configure(agp_bindings.GatewayConfig(endpoint="http://127.0.0.1:12356", insecure=True))
 
     # Connect to the service and subscribe for the local name
-    _ = await gateway1.connect()
+    _ = await gateway1.connect(
+        {"endpoint": "http://127.0.0.1:12356", "tls_settings": {"insecure": True}}
+    )
 
     # create second local agent
     agent2 = "gateway2"
     gateway2 = await agp_bindings.Gateway.new(org, ns, agent2)
-    gateway2.configure(agp_bindings.GatewayConfig(endpoint="http://127.0.0.1:12356", insecure=True))
 
     # Connect to gateway server
-    _ = await gateway2.connect()
+    _ = await gateway2.connect(
+        {"endpoint": "http://127.0.0.1:12356", "tls_settings": {"insecure": True}}
+    )
 
     # set route
     await gateway2.set_route("cisco", "default", agent1)
@@ -140,7 +146,9 @@ async def test_request_reply(server):
                     recv_session, _ = await gateway1.receive()
 
                     # receive message from session
-                    recv_session, msg_rcv = await gateway1.receive(session=recv_session.id)
+                    recv_session, msg_rcv = await gateway1.receive(
+                        session=recv_session.id
+                    )
 
                     # make sure the message is correct
                     assert msg_rcv == bytes(pub_msg)
@@ -154,7 +162,9 @@ async def test_request_reply(server):
         asyncio.create_task(background_task())
 
         # send a request and expect a response in gateway2
-        session_info, message = await gateway2.request_reply(session_info, pub_msg, org, ns, agent1)
+        session_info, message = await gateway2.request_reply(
+            session_info, pub_msg, org, ns, agent1
+        )
 
         # check if the message is correct
         assert message == bytes(res_msg)

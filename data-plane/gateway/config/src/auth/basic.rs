@@ -1,9 +1,6 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
-#[cfg(feature = "pyo3")]
-use pyo3::FromPyObject;
-
 use serde::Deserialize;
 use tower_http::auth::{AddAuthorizationLayer, require_authorization::Basic};
 use tower_http::validate_request::ValidateRequestHeaderLayer;
@@ -12,7 +9,6 @@ use super::{AuthError, ClientAuthenticator, ServerAuthenticator};
 use crate::opaque::OpaqueString;
 
 #[derive(Debug, Deserialize, Clone, PartialEq)]
-#[cfg_attr(feature = "pyo3", derive(FromPyObject), pyo3(from_item_all))]
 pub struct Config {
     /// The target the client will connect to.
     username: String,

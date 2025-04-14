@@ -4,5 +4,5 @@
 use agp_config::buildinfo;
 
 fn main() {
-    buildinfo::fill("agp-gw-v*");
+    buildinfo::fill("agp-bindings-v*");
 }

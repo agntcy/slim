@@ -1,9 +1,6 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
-#[cfg(feature = "pyo3")]
-use pyo3::prelude::*;
-
 use std::convert::Infallible;
 use std::future::Future;
 use std::pin::Pin;
@@ -23,7 +20,6 @@ use crate::component::configuration::{Configuration, ConfigurationError};
 use crate::tls::{common::RustlsConfigLoader, server::TlsServerConfig as TLSSetting};
 
 #[derive(Debug, Deserialize, PartialEq, Clone)]
-#[cfg_attr(feature = "pyo3", derive(FromPyObject), pyo3(from_item_all))]
 pub struct KeepaliveServerParameters {
     /// max_connection_idle sets the time after which an idle connection is closed.
     #[serde(
@@ -58,69 +54,58 @@ pub struct KeepaliveServerParameters {
 /// Enum holding one configuration for the client.
 #[derive(Debug, Deserialize, Clone, PartialEq)]
 #[serde(rename_all = "snake_case")]
-#[cfg_attr(feature = "pyo3", derive(FromPyObject), pyo3(from_item_all))]
 pub enum AuthenticationConfig {
     /// Basic authentication configuration.
     Basic(BasicAuthenticationConfig),
     /// Bearer authentication configuration.
     Bearer(BearerAuthenticationConfig),
     /// None
-    None(String),
+    None,
 }
 
 impl Default for AuthenticationConfig {
     fn default() -> Self {
-        AuthenticationConfig::None("None".to_string())
+        Self::None
     }
 }
 
 #[derive(Debug, Deserialize, PartialEq, Clone)]
-#[cfg_attr(feature = "pyo3", derive(FromPyObject), pyo3(from_item_all))]
 pub struct ServerConfig {
     /// Endpoint is the address to listen on.
     pub endpoint: String,
 
     /// Configures the protocol to use TLS.
-    #[serde(default)]
-    #[cfg_attr(feature = "pyo3", pyo3(default))]
-    pub tls: TLSSetting,
+    #[serde(default, rename = "tls")]
+    pub tls_setting: TLSSetting,
 
     /// Use HTTP 2 only.
     #[serde(default = "default_http2_only")]
-    #[cfg_attr(feature = "pyo3", pyo3(default = default_http2_only()))]
     pub http2_only: bool,
 
     /// Maximum size (in MiB) of messages accepted by the server.
-    #[cfg_attr(feature = "pyo3", pyo3(default))]
     pub max_frame_size: Option<u32>,
 
     /// MaxConcurrentStreams sets the limit on the number of concurrent streams to each ServerTransport.
-    #[cfg_attr(feature = "pyo3", pyo3(default))]
     pub max_concurrent_streams: Option<u32>,
 
     /// Max header list size
-    #[cfg_attr(feature = "pyo3", pyo3(default))]
     pub max_header_list_size: Option<u32>,
 
     /// ReadBufferSize for gRPC server.
     // TODO(msardara): not implemented yet
-    #[cfg_attr(feature = "pyo3", pyo3(default))]
     pub read_buffer_size: Option<usize>,
 
     /// WriteBufferSize for gRPC server.
     // TODO(msardara): not implemented yet
-    #[cfg_attr(feature = "pyo3", pyo3(default))]
     pub write_buffer_size: Option<usize>,
 
     /// Keepalive anchor for all the settings related to keepalive.
     #[serde(default)]
-    #[cfg_attr(feature = "pyo3", pyo3(default))]
     pub keepalive: KeepaliveServerParameters,
 
     /// Auth for this receiver.
     #[serde(default)]
     #[serde(with = "serde_yaml::with::singleton_map")]
-    #[cfg_attr(feature = "pyo3", pyo3(default))]
     pub auth: AuthenticationConfig,
 }
 
@@ -162,7 +147,7 @@ impl Default for ServerConfig {
     fn default() -> Self {
         Self {
             endpoint: String::new(),
-            tls: TLSSetting::default(),
+            tls_setting: TLSSetting::default(),
             http2_only: default_http2_only(),
             max_frame_size: Some(4),
             max_concurrent_streams: Some(100),
@@ -187,7 +172,7 @@ impl std::fmt::Display for ServerConfig {
             f,
             "ServerConfig {{ endpoint: {}, tls_setting: {}, http2_only: {}, max_frame_size: {:?}, max_concurrent_streams: {:?}, max_header_list_size: {:?}, read_buffer_size: {:?}, write_buffer_size: {:?}, keepalive: {:?}, auth: {:?} }}",
             self.endpoint,
-            self.tls,
+            self.tls_setting,
             self.http2_only,
             self.max_frame_size,
             self.max_concurrent_streams,
@@ -203,7 +188,7 @@ impl std::fmt::Display for ServerConfig {
 impl Configuration for ServerConfig {
     fn validate(&self) -> Result<(), ConfigurationError> {
         // Validate the client configuration
-        self.tls.validate()
+        self.tls_setting.validate()
     }
 }
 
@@ -224,7 +209,7 @@ impl ServerConfig {
 
     pub fn with_tls_settings(self, tls_setting: TLSSetting) -> Self {
         Self {
-            tls: tls_setting,
+            tls_setting,
             ..self
         }
     }
@@ -340,7 +325,7 @@ impl ServerConfig {
         let mut builder = builder.max_connection_age(self.keepalive.max_connection_age);
 
         // TLS configuration
-        let tls_config = TLSSetting::load_rustls_config(&self.tls)
+        let tls_config = TLSSetting::load_rustls_config(&self.tls_setting)
             .map_err(|e| ConfigError::TLSSettingError(e.to_string()))?;
 
         match &self.auth {
@@ -388,7 +373,7 @@ impl ServerConfig {
 
                 Ok(router.serve_with_incoming(incoming).boxed())
             }
-            AuthenticationConfig::None(_) => {
+            AuthenticationConfig::None => {
                 let mut router = builder.add_service(svc[0].clone());
                 for s in svc.iter().skip(1) {
                     router = builder.add_service(s.clone());
@@ -432,7 +417,7 @@ mod tests {
     fn test_default_server_config() {
         let server_config = ServerConfig::default();
         assert_eq!(server_config.endpoint, String::new());
-        assert_eq!(server_config.tls, TLSSetting::default());
+        assert_eq!(server_config.tls_setting, TLSSetting::default());
         assert_eq!(server_config.http2_only, default_http2_only());
         assert_eq!(server_config.max_frame_size, Some(4));
         assert_eq!(server_config.max_concurrent_streams, Some(100));
@@ -443,7 +428,7 @@ mod tests {
             server_config.keepalive,
             KeepaliveServerParameters::default()
         );
-        assert_eq!(server_config.auth, AuthenticationConfig::default());
+        assert_eq!(server_config.auth, AuthenticationConfig::None);
     }
 
     #[tokio::test]
@@ -467,7 +452,7 @@ mod tests {
         assert!(ret.is_err_and(|e| { e.to_string().contains("tls setting error") }));
 
         // set the tls setting to insecure. Now it should return a server future
-        server_config.tls.insecure = true;
+        server_config.tls_setting.insecure = true;
         let ret = server_config.to_server_future(&[GreeterServer::from_arc(empty_service.clone())]);
         assert!(ret.is_ok());
 
@@ -475,9 +460,9 @@ mod tests {
         let _ = ret.unwrap();
 
         // Set insecure to false and set the path to the cert and key files
-        server_config.tls.insecure = false;
-        server_config.tls.config.cert_file = Some(format!("{}/server.crt", TEST_DATA_PATH));
-        server_config.tls.config.key_file = Some(format!("{}/server.key", TEST_DATA_PATH));
+        server_config.tls_setting.insecure = false;
+        server_config.tls_setting.config.cert_file = Some(format!("{}/server.crt", TEST_DATA_PATH));
+        server_config.tls_setting.config.key_file = Some(format!("{}/server.key", TEST_DATA_PATH));
         let ret = server_config.to_server_future(&[GreeterServer::from_arc(empty_service.clone())]);
         assert!(ret.is_ok());
     }

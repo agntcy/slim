@@ -170,7 +170,7 @@ impl Service {
     }
 
     /// Run the service
-    pub async fn run(&mut self) -> Result<(), ServiceError> {
+    pub async fn run(&self) -> Result<(), ServiceError> {
         // Check that at least one client or server is configured
         if self.config.servers().is_empty() && self.config.clients.is_empty() {
             return Err(ServiceError::ConfigError(
@@ -697,7 +697,7 @@ impl Component for Service {
         &self.id
     }
 
-    async fn start(&mut self) -> Result<(), ComponentError> {
+    async fn start(&self) -> Result<(), ComponentError> {
         info!("starting service");
         self.run()
             .await

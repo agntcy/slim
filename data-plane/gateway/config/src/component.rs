@@ -23,7 +23,7 @@ pub trait Component {
 
     // start the component
     #[allow(async_fn_in_trait)]
-    async fn start(&mut self) -> Result<(), ComponentError>;
+    async fn start(&self) -> Result<(), ComponentError>;
 }
 
 pub trait ComponentBuilder {

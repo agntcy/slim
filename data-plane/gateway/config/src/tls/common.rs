@@ -1,9 +1,6 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
-#[cfg(feature = "pyo3")]
-use pyo3::FromPyObject;
-
 use rustls::RootCertStore;
 use rustls::server::VerifierBuilderError;
 use rustls_native_certs;
@@ -15,7 +12,6 @@ use std::time::Duration;
 use thiserror::Error;
 
 #[derive(Debug, Deserialize, PartialEq, Clone)]
-#[cfg_attr(feature = "pyo3", derive(FromPyObject), pyo3(from_item_all))]
 pub struct Config {
     /// Path to the CA cert. For a client this verifies the server certificate.
     /// For a server this verifies client certificates. If empty uses system root CA.
