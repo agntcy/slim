@@ -285,7 +285,7 @@ impl ClientConfig {
         &self,
     ) -> Result<
         impl tonic::client::GrpcService<
-            tonic::body::BoxBody,
+            tonic::body::Body,
             Error: Into<StdError> + Send,
             ResponseBody: Body<Data = Bytes, Error: Into<StdError> + std::marker::Send>
                               + Send

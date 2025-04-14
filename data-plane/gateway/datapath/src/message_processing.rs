@@ -127,7 +127,7 @@ impl MessageProcessor {
         max_retry: u32,
     ) -> Result<(tokio::task::JoinHandle<()>, u64), DataPathError>
     where
-        C: tonic::client::GrpcService<tonic::body::BoxBody>,
+        C: tonic::client::GrpcService<tonic::body::Body>,
         C::Error: Into<StdError>,
         C::ResponseBody: Body<Data = bytes::Bytes> + std::marker::Send + 'static,
         <C::ResponseBody as Body>::Error: Into<StdError> + std::marker::Send,
@@ -205,7 +205,7 @@ impl MessageProcessor {
         remote: Option<SocketAddr>,
     ) -> Result<(tokio::task::JoinHandle<()>, u64), DataPathError>
     where
-        C: tonic::client::GrpcService<tonic::body::BoxBody>,
+        C: tonic::client::GrpcService<tonic::body::Body>,
         C::Error: Into<StdError>,
         C::ResponseBody: Body<Data = bytes::Bytes> + std::marker::Send + 'static,
         <C::ResponseBody as Body>::Error: Into<StdError> + std::marker::Send,

@@ -264,8 +264,8 @@ impl ServerConfig {
     pub fn to_server_future<S>(&self, svc: &[S]) -> Result<ServerFuture, ConfigError>
     where
         S: tower_service::Service<
-                http::Request<tonic::body::BoxBody>,
-                Response = http::Response<tonic::body::BoxBody>,
+                http::Request<tonic::body::Body>,
+                Response = http::Response<tonic::body::Body>,
                 Error = Infallible,
             >
             + tonic::server::NamedService
@@ -290,8 +290,8 @@ impl ServerConfig {
             .map_err(|e| ConfigError::EndpointParseError(e.to_string()))?;
 
         // create a new TcpIncoming
-        let incoming = TcpIncoming::new(addr, false, None)
-            .map_err(|e| ConfigError::TcpIncomingError(e.to_string()))?;
+        let incoming =
+            TcpIncoming::bind(addr).map_err(|e| ConfigError::TcpIncomingError(e.to_string()))?;
 
         // Create initial server config
         let builder: tonic::transport::Server =
