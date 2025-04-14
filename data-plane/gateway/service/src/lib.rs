@@ -62,7 +62,10 @@ impl ServiceConfiguration {
     }
 
     pub fn with_server(self, server: Vec<ServerConfig>) -> Self {
-        ServiceConfiguration { servers: server, ..self }
+        ServiceConfiguration {
+            servers: server,
+            ..self
+        }
     }
 
     pub fn with_client(self, clients: Vec<ClientConfig>) -> Self {
@@ -119,10 +122,10 @@ pub struct Service {
     signal: drain::Signal,
 
     /// cancellation tokens to stop the servers main loop
-    cancellation_tokens: HashMap<String, CancellationToken>,
+    cancellation_tokens: parking_lot::RwLock<HashMap<String, CancellationToken>>,
 
-    /// set of clients crated from configuration
-    clients: HashSet<u64>,
+    /// clients created by the service
+    clients: parking_lot::RwLock<HashMap<String, u64>>,
 }
 
 impl Service {
@@ -137,8 +140,8 @@ impl Service {
             session_layers: RwLock::new(HashMap::new()),
             watch,
             signal,
-            cancellation_tokens: HashMap::new(),
-            clients: HashSet::new(),
+            cancellation_tokens: parking_lot::RwLock::new(HashMap::new()),
+            clients: parking_lot::RwLock::new(HashMap::new()),
         }
     }
 
@@ -153,6 +156,11 @@ impl Service {
             message_processor,
             ..self
         }
+    }
+
+    /// get the service configuration
+    pub fn config(&self) -> &ServiceConfiguration {
+        &self.config
     }
 
     /// get signal used to shutdown the service
@@ -170,16 +178,14 @@ impl Service {
             ));
         }
 
-        for server in self.config.servers.clone().iter() {
+        for server in self.config.servers.iter() {
             info!("starting server {}", server.endpoint);
             self.run_server(server)?;
         }
 
         for client in self.config.clients.iter() {
             info!("connecting client to {}", client.endpoint);
-            let conn_id = self.connect(client).await?;
-            debug!("client connected with id {}", conn_id);
-            self.clients.insert(conn_id);
+            _ = self.connect(client).await?;
         }
 
         Ok(())
@@ -244,7 +250,7 @@ impl Service {
         }
     }
 
-    pub fn run_server(&mut self, config: &ServerConfig) -> Result<(), ServiceError> {
+    pub fn run_server(&self, config: &ServerConfig) -> Result<(), ServiceError> {
         info!(%config, "server configured: setting it up");
         let server_future = config
             .to_server_future(&[PubSubServiceServer::from_arc(
@@ -258,6 +264,7 @@ impl Service {
         // create a new cancellation token
         let token = CancellationToken::new();
         self.cancellation_tokens
+            .write()
             .insert(config.endpoint.clone(), token.clone());
 
         // spawn server acceptor in a new task
@@ -289,9 +296,9 @@ impl Service {
         Ok(())
     }
 
-    pub fn stop_server(&mut self, endpoint: &str) {
+    pub fn stop_server(&self, endpoint: &str) {
         // stop the server
-        if let Some(token) = self.cancellation_tokens.remove(endpoint) {
+        if let Some(token) = self.cancellation_tokens.write().remove(endpoint) {
             token.cancel();
         } else {
             error!("server {} not found", endpoint);
@@ -299,6 +306,15 @@ impl Service {
     }
 
     pub async fn connect(&self, config: &ClientConfig) -> Result<u64, ServiceError> {
+        // make sure there is no other client connected to the same endpoint
+        // TODO(msardara): we might want to allow multiple clients to connect to the same endpoint,
+        // but we need to introduce an identifier in the configuration for it
+        if self.clients.read().contains_key(&config.endpoint) {
+            return Err(ServiceError::ClientAlreadyConnected(
+                config.endpoint.clone(),
+            ));
+        }
+
         match config.to_channel() {
             Err(e) => {
                 error!("error reading channel config {:?}", e);
@@ -312,13 +328,21 @@ impl Service {
                     .await
                     .map_err(|e| ServiceError::ConnectionError(e.to_string()));
 
-                match ret {
+                let conn_id = match ret {
                     Err(e) => {
                         error!("connection error: {:?}", e);
-                        Err(ServiceError::ConnectionError(e.to_string()))
+                        return Err(ServiceError::ConnectionError(e.to_string()));
                     }
-                    Ok(conn_id) => Ok(conn_id.1),
-                }
+                    Ok(conn_id) => conn_id.1,
+                };
+
+                // register the client
+                self.clients
+                    .write()
+                    .insert(config.endpoint.clone(), conn_id);
+
+                // return the connection id
+                Ok(conn_id)
             }
         }
     }
@@ -329,6 +353,10 @@ impl Service {
         self.message_processor
             .disconnect(conn)
             .map_err(|e| ServiceError::DisconnectError(e.to_string()))
+    }
+
+    pub fn get_connection_id(&self, endpoint: &str) -> Option<u64> {
+        self.clients.read().get(endpoint).cloned()
     }
 
     async fn send_message(
@@ -751,7 +779,7 @@ mod tests {
         let server_config =
             ServerConfig::with_endpoint("0.0.0.0:12345").with_tls_settings(tls_config);
         let config = ServiceConfiguration::new().with_server([server_config].to_vec());
-        let service = config
+        let mut service = config
             .build_server(ID::new_with_name(Kind::new(KIND).unwrap(), "test").unwrap())
             .unwrap();
 

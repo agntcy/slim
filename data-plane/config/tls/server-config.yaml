@@ -13,10 +13,10 @@ runtime:
 
 services:
   gateway/0:
-    server:
-      endpoint: "0.0.0.0:46357"
-      tls:
-        cert_file: "./config/crypto/server-cert.pem"
-        key_file: "./config/crypto/server-key.pem"
+    servers:
+      - endpoint: "0.0.0.0:46357"
+        tls:
+          cert_file: "./config/crypto/server-cert.pem"
+          key_file: "./config/crypto/server-key.pem"
 
     clients: []

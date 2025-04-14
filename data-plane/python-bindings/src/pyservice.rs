@@ -13,7 +13,7 @@ use rand::Rng;
 use tokio::sync::RwLock;
 use tokio_util::sync::CancellationToken;
 
-use crate::gateway_config::PyGatewayConfig;
+use crate::pyconfig::PyGatewayConfig;
 use crate::pysession::PySessionInfo;
 use crate::pysession::PyStreamingConfiguration;
 use crate::pysession::{PyFireAndForgetConfiguration, PyRequestResponseConfiguration};
