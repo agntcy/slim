@@ -24,7 +24,7 @@ use agp_datapath::pubsub::MessageType;
 use serde::Deserialize;
 use session::{AppChannelReceiver, MessageDirection};
 use session_layer::SessionLayer;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tokio::sync::mpsc;
@@ -61,7 +61,7 @@ impl ServiceConfiguration {
         ServiceConfiguration::default()
     }
 
-    pub fn with_server(self, server: Option<ServerConfig>) -> Self {
+    pub fn with_server(self, server: Vec<ServerConfig>) -> Self {
         ServiceConfiguration { servers: server, ..self }
     }
 
@@ -86,7 +86,7 @@ impl ServiceConfiguration {
 impl Configuration for ServiceConfiguration {
     fn validate(&self) -> Result<(), ConfigurationError> {
         // Validate client and server configurations
-        if let Some(server) = self.servers.as_ref() {
+        for server in self.servers.iter() {
             server.validate()?;
         }
 
@@ -118,8 +118,11 @@ pub struct Service {
     /// signal to shutdown the service
     signal: drain::Signal,
 
-    /// cancellation token to stop the server main loop
+    /// cancellation tokens to stop the servers main loop
     cancellation_tokens: HashMap<String, CancellationToken>,
+
+    /// set of clients crated from configuration
+    clients: HashSet<u64>,
 }
 
 impl Service {
@@ -135,6 +138,7 @@ impl Service {
             watch,
             signal,
             cancellation_tokens: HashMap::new(),
+            clients: HashSet::new(),
         }
     }
 
@@ -158,31 +162,24 @@ impl Service {
     }
 
     /// Run the service
-    pub async fn run(&self) -> Result<(), ServiceError> {
+    pub async fn run(&mut self) -> Result<(), ServiceError> {
         // Check that at least one client or server is configured
-        if self.config.servers().is_none() && self.config.clients.is_empty() {
+        if self.config.servers().is_empty() && self.config.clients.is_empty() {
             return Err(ServiceError::ConfigError(
                 "no server or clients configured".to_string(),
             ));
         }
 
-        for server in self.config.servers() {
+        for server in self.config.servers.clone().iter() {
             info!("starting server {}", server.endpoint);
-            self.run_server(server)
-                .map_err(|e| ServiceError::ConfigError(e.to_string()))?;
+            self.run_server(server)?;
         }
 
-        for (i, client) in self.config.clients.iter().enumerate() {
-            info!("connecting client {} to {}", i, client.endpoint);
-
-            let channel = client
-                .to_channel()
-                .map_err(|e| ServiceError::ConfigError(e.to_string()))?;
-
-            self.message_processor
-                .connect(channel, None, None, None)
-                .await
-                .expect("error connecting client");
+        for client in self.config.clients.iter() {
+            info!("connecting client to {}", client.endpoint);
+            let conn_id = self.connect(client).await?;
+            debug!("client connected with id {}", conn_id);
+            self.clients.insert(conn_id);
         }
 
         Ok(())
@@ -247,7 +244,7 @@ impl Service {
         }
     }
 
-    pub fn run_server(&self, config: &ServerConfig) -> Result<(), ServiceError> {
+    pub fn run_server(&mut self, config: &ServerConfig) -> Result<(), ServiceError> {
         info!(%config, "server configured: setting it up");
         let server_future = config
             .to_server_future(&[PubSubServiceServer::from_arc(
@@ -301,7 +298,7 @@ impl Service {
         }
     }
 
-    pub async fn connect(&self, config: ClientConfig) -> Result<u64, ServiceError> {
+    pub async fn connect(&self, config: &ClientConfig) -> Result<u64, ServiceError> {
         match config.to_channel() {
             Err(e) => {
                 error!("error reading channel config {:?}", e);
@@ -672,7 +669,7 @@ impl Component for Service {
         &self.id
     }
 
-    async fn start(&self) -> Result<(), ComponentError> {
+    async fn start(&mut self) -> Result<(), ComponentError> {
         info!("starting service");
         self.run()
             .await
@@ -743,7 +740,7 @@ mod tests {
     #[tokio::test]
     async fn test_service_configuration() {
         let config = ServiceConfiguration::new();
-        assert_eq!(config.servers(), None);
+        assert_eq!(config.servers(), &[]);
         assert_eq!(config.clients(), &[]);
     }
 
@@ -753,7 +750,7 @@ mod tests {
         let tls_config = TlsServerConfig::new().with_insecure(true);
         let server_config =
             ServerConfig::with_endpoint("0.0.0.0:12345").with_tls_settings(tls_config);
-        let config = ServiceConfiguration::new().with_server(Some(server_config));
+        let config = ServiceConfiguration::new().with_server([server_config].to_vec());
         let service = config
             .build_server(ID::new_with_name(Kind::new(KIND).unwrap(), "test").unwrap())
             .unwrap();
@@ -790,7 +787,7 @@ mod tests {
         let tls_config = TlsServerConfig::new().with_insecure(true);
         let server_config =
             ServerConfig::with_endpoint("0.0.0.0:12345").with_tls_settings(tls_config);
-        let config = ServiceConfiguration::new().with_server(Some(server_config));
+        let config = ServiceConfiguration::new().with_server([server_config].to_vec());
         let service = config
             .build_server(ID::new_with_name(Kind::new(KIND).unwrap(), "test").unwrap())
             .unwrap();
