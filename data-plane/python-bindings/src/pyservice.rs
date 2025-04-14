@@ -13,7 +13,6 @@ use pyo3_stub_gen::derive::gen_stub_pymethods;
 use rand::Rng;
 use serde_pyobject::from_pyobject;
 use tokio::sync::RwLock;
-use tokio_util::sync::CancellationToken;
 
 use crate::pysession::PySessionInfo;
 use crate::pysession::PyStreamingConfiguration;
@@ -36,7 +35,6 @@ struct PyServiceInternal {
     service: Service,
     agent: Agent,
     rx: RwLock<session::AppChannelReceiver>,
-    cancellation_token: tokio_util::sync::CancellationToken,
 }
 
 #[gen_stub_pymethods]
@@ -80,7 +78,6 @@ impl PyService {
             service: svc,
             agent: agent,
             rx: RwLock::new(rx),
-            cancellation_token: CancellationToken::new(),
         });
 
         Ok(PyService { sdk: sdk })
@@ -214,9 +211,6 @@ impl PyService {
 
         // tokio select
         tokio::select! {
-            _ = self.sdk.cancellation_token.cancelled() => {
-                Err(ServiceError::ReceiveError("operation canceled".to_string()))
-            }
             msg = rx.recv() => {
                 if msg.is_none() {
                     return Err(ServiceError::ReceiveError("no message received".to_string()));

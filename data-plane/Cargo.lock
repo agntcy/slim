@@ -31,7 +31,6 @@ dependencies = [
  "rand 0.9.0",
  "serde-pyobject",
  "tokio",
- "tokio-util",
 ]
 
 [[package]]

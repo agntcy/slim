@@ -20,7 +20,6 @@ pyo3-stub-gen = "0.7.0"
 rand = "0.9.0"
 serde-pyobject = "0.6.1"
 tokio = "1.43.0"
-tokio-util = "0.7.14"
 
 [build-dependencies]
 agp-config = { path = "../gateway/config", version = "0.1.6" }
