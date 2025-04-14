@@ -29,7 +29,6 @@ mod _agp_bindings {
     #[pymodule_export]
     use utils::{PyAgentType, init_tracing};
 
-
     #[pymodule_init]
     fn module_init(m: &Bound<'_, PyModule>) -> PyResult<()> {
         m.add("__version__", build_info::BUILD_INFO.version)?;

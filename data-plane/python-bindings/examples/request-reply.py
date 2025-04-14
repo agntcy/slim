@@ -13,13 +13,17 @@ from agp_bindings import GatewayConfig
 
 async def run_client(local_id, remote_id, message, address, enable_opentelemetry: bool):
     # init tracing
-    agp_bindings.init_tracing(log_level="info", enable_opentelemetry=enable_opentelemetry)
+    agp_bindings.init_tracing(
+        log_level="info", enable_opentelemetry=enable_opentelemetry
+    )
 
     # Split the IDs into their respective components
     local_organization, local_namespace, local_agent = split_id(local_id)
 
     # create new gateway object
-    gateway = await agp_bindings.Gateway.new(local_organization, local_namespace, local_agent)
+    gateway = await agp_bindings.Gateway.new(
+        local_organization, local_namespace, local_agent
+    )
 
     # Connect to the service and subscribe for the local name
     print(format_message("connecting to:", address))
@@ -37,7 +41,9 @@ async def run_client(local_id, remote_id, message, address, enable_opentelemetry
             await gateway.set_route(remote_organization, remote_namespace, remote_agent)
 
             # create a session
-            session = await gateway.create_rr_session(agp_bindings.PyRequestResponseConfiguration())
+            session = await gateway.create_rr_session(
+                agp_bindings.PyRequestResponseConfiguration()
+            )
 
             try:
                 # Send the message and wait for a reply
@@ -91,7 +97,9 @@ async def run_client(local_id, remote_id, message, address, enable_opentelemetry
 
 
 async def main():
-    parser = argparse.ArgumentParser(description="Command line client for message passing.")
+    parser = argparse.ArgumentParser(
+        description="Command line client for message passing."
+    )
     parser.add_argument(
         "-l",
         "--local",

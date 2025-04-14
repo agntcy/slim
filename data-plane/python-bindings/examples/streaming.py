@@ -12,15 +12,21 @@ import agp_bindings
 from agp_bindings import GatewayConfig
 
 
-async def run_client(local_id, remote_id, address, producer, enable_opentelemetry: bool):
+async def run_client(
+    local_id, remote_id, address, producer, enable_opentelemetry: bool
+):
     # init tracing
-    agp_bindings.init_tracing(log_level="info", enable_opentelemetry=enable_opentelemetry)
+    agp_bindings.init_tracing(
+        log_level="info", enable_opentelemetry=enable_opentelemetry
+    )
 
     # Split the IDs into their respective components
     local_organization, local_namespace, local_agent = split_id(local_id)
 
     # create new gateway object
-    gateway = await agp_bindings.Gateway.new(local_organization, local_namespace, local_agent)
+    gateway = await agp_bindings.Gateway.new(
+        local_organization, local_namespace, local_agent
+    )
 
     # Connect to the service and subscribe for the local name
     print(format_message("connecting to:", address))
@@ -35,7 +41,9 @@ async def run_client(local_id, remote_id, address, producer, enable_opentelemetr
     async with gateway:
         if producer:
             # Create a route to the remote ID
-            await gateway.set_route(remote_organization, remote_namespace, broadcast_topic)
+            await gateway.set_route(
+                remote_organization, remote_namespace, broadcast_topic
+            )
 
             # create streaming session with default config
             session_info = await gateway.create_streaming_session(
@@ -76,7 +84,9 @@ async def run_client(local_id, remote_id, address, producer, enable_opentelemetr
                     await asyncio.sleep(1)
         else:
             # subscribe to streaming session
-            await gateway.subscribe(remote_organization, remote_namespace, broadcast_topic)
+            await gateway.subscribe(
+                remote_organization, remote_namespace, broadcast_topic
+            )
 
             # Wait for messages and not reply
             while True:
@@ -103,7 +113,9 @@ async def run_client(local_id, remote_id, address, producer, enable_opentelemetr
 
 
 async def main():
-    parser = argparse.ArgumentParser(description="Command line client for message passing.")
+    parser = argparse.ArgumentParser(
+        description="Command line client for message passing."
+    )
     parser.add_argument(
         "-l",
         "--local",

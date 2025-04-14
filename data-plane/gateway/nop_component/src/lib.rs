@@ -65,7 +65,7 @@ impl Component for NopComponent {
     }
 
     // Start the component
-    async fn start(&mut self) -> Result<(), ComponentError> {
+    async fn start(&self) -> Result<(), ComponentError> {
         // Start the component
         Ok(())
     }

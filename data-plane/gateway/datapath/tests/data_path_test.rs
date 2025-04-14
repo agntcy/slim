@@ -20,7 +20,7 @@ mod tests {
     async fn test_connection() {
         // setup server from configuration
         let mut server_conf = ServerConfig::with_endpoint("127.0.0.1:50051");
-        server_conf.tls.insecure = true;
+        server_conf.tls_setting.insecure = true;
 
         let (processor, _signal) = MessageProcessor::new();
         let svc = Arc::new(processor);

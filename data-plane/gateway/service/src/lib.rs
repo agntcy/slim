@@ -299,7 +299,8 @@ impl Service {
     pub fn stop_server(&self, endpoint: &str) -> Result<(), ServiceError> {
         // stop the server
         if let Some(token) = self.cancellation_tokens.write().remove(endpoint) {
-            Ok(token.cancel())
+            token.cancel();
+            Ok(())
         } else {
             Err(ServiceError::ServerNotFound(endpoint.to_string()))
         }
@@ -779,7 +780,7 @@ mod tests {
         let server_config =
             ServerConfig::with_endpoint("0.0.0.0:12345").with_tls_settings(tls_config);
         let config = ServiceConfiguration::new().with_server([server_config].to_vec());
-        let mut service = config
+        let service = config
             .build_server(ID::new_with_name(Kind::new(KIND).unwrap(), "test").unwrap())
             .unwrap();
 

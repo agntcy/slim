@@ -39,7 +39,7 @@ async fn main() {
 
     // get service
     let id = agp_config::component::id::ID::new_with_str("gateway/0").unwrap();
-    let mut svc = config.services.remove(&id).unwrap();
+    let svc = config.services.remove(&id).unwrap();
 
     // create local agent
     let agent_id = 0;

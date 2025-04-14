@@ -15,12 +15,12 @@ use serde_pyobject::from_pyobject;
 use tokio::sync::RwLock;
 use tokio_util::sync::CancellationToken;
 
-use agp_config::grpc::client::ClientConfig as PyGrpcClientConfig;
-use agp_config::grpc::server::ServerConfig as PyGrpcServerConfig;
 use crate::pysession::PySessionInfo;
 use crate::pysession::PyStreamingConfiguration;
 use crate::pysession::{PyFireAndForgetConfiguration, PyRequestResponseConfiguration};
 use crate::utils::PyAgentType;
+use agp_config::grpc::client::ClientConfig as PyGrpcClientConfig;
+use agp_config::grpc::server::ServerConfig as PyGrpcServerConfig;
 
 // TODO(msardara): most of the structs here shouhld be generated with a macro
 // to reflect any change that may occur in the gateway code
