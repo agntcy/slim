@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
 pub mod auth;
-pub mod buildinfo;
 pub mod component;
 pub mod grpc;
 pub mod provider;
