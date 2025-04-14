@@ -12,7 +12,7 @@ use crate::{
         AppChannelSender, Common, CommonSession, GwChannelSender, Id, Info, Session, SessionConfig,
         SessionDirection, State,
     },
-    timer::{Timer, TimerObserver},
+    timer,
 };
 use producer_buffer::ProducerBuffer;
 use receiver_buffer::ReceiverBuffer;
@@ -64,14 +64,13 @@ impl StreamingConfiguration {
     }
 }
 
-#[allow(dead_code)]
 struct RtxTimerObserver {
     producer_name: Agent,
     channel: mpsc::Sender<Result<(u32, bool, Agent), Status>>,
 }
 
 #[async_trait]
-impl TimerObserver for RtxTimerObserver {
+impl timer::TimerObserver for RtxTimerObserver {
     async fn on_timeout(&self, timer_id: u32, timeouts: u32) {
         trace!("timeout number {} for rtx {}, retry", timeouts, timer_id);
 
@@ -118,7 +117,7 @@ struct Receiver {
     buffer: ReceiverBuffer,
     timer_observer: Arc<RtxTimerObserver>,
     rtx_map: HashMap<u32, Message>,
-    timers_map: HashMap<u32, Timer>,
+    timers_map: HashMap<u32, timer::Timer>,
 }
 
 struct ReceiverState {
@@ -584,7 +583,13 @@ async fn process_message_from_gw(
                 let rtx = Message::new_publish_with_headers(agp_header, session_header, "", vec![]);
 
                 // set state for RTX
-                let timer = Timer::new(r, timeout.as_millis().try_into().unwrap(), max_retries);
+                let timer = timer::Timer::new(
+                    r,
+                    timer::TimerType::Constant,
+                    timeout,
+                    None,
+                    Some(max_retries),
+                );
                 timer.start(receiver.timer_observer.clone());
 
                 receiver.rtx_map.insert(r, rtx.clone());
