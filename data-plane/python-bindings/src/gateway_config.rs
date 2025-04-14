@@ -231,3 +231,9 @@ impl PyGatewayConfig {
         Ok(config)
     }
 }
+
+#[derive(IntoPyObject)]
+#[pyo3(transparent)]
+struct PyBasicAuth {
+    inner: BasicAuthConfig,
+}
