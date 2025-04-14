@@ -37,6 +37,7 @@ dependencies = [
 name = "agp-config"
 version = "0.1.6"
 dependencies = [
+ "agp-tracing",
  "duration-str",
  "futures",
  "http",
@@ -50,7 +51,6 @@ dependencies = [
  "rustls-native-certs",
  "rustls-pki-types",
  "serde",
- "serde_json",
  "serde_yaml",
  "thiserror",
  "tokio",
@@ -175,6 +175,7 @@ dependencies = [
  "opentelemetry-stdout",
  "opentelemetry_sdk",
  "serde",
+ "serde_json",
  "tracing",
  "tracing-opentelemetry",
  "tracing-subscriber",
