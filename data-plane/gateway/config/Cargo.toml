@@ -16,7 +16,7 @@ hyper-rustls = { version = "0.27", features = [
 ], default-features = false }
 hyper-util = "0.1.10"
 lazy_static = "1.5.0"
-prost = "0.13.4"
+prost = "0.13"
 regex = "1.11.1"
 rustls = "0.23.19"
 rustls-native-certs = "0.8.1"
@@ -25,8 +25,8 @@ serde = { version = "1.0", features = ["derive"] }
 serde_yaml = "0.9.34"
 thiserror = "2.0.5"
 tokio = "1.42.0"
-tonic = { version = "0.12" }
-tonic-tls = { version = "0.2.1", default-features = false, features = [
+tonic = { version = "0.13" }
+tonic-tls = { version = "0.3", default-features = false, features = [
     "rustls",
 ] }
 tower = "0.5.2"
@@ -41,4 +41,4 @@ tracing-test = "0.2.5"
 
 [build-dependencies]
 protoc-bin-vendored = "3.1.0"
-tonic-build = { version = "0.12.3", features = ["prost"] }
+tonic-build = { version = "0.13", features = ["prost"] }
