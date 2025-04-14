@@ -26,6 +26,7 @@ use agp_datapath::{
 use tonic::{Status, async_trait};
 use tracing::{debug, error, info, trace, warn};
 
+// this must be a number > 1
 const STREAM_BROADCAST: u32 = 50;
 
 /// Configuration for the Streaming session
@@ -108,9 +109,39 @@ impl timer::TimerObserver for RtxTimerObserver {
     }
 }
 
+struct ProducerTimerObserver {
+    channel: mpsc::Sender<Result<(), Status>>,
+}
+
+#[async_trait]
+impl timer::TimerObserver for ProducerTimerObserver {
+    async fn on_timeout(&self, _timer_id: u32, timeouts: u32) {
+        trace!(
+            "timeout number {} for producer timer, send beacon",
+            timeouts
+        );
+
+        // notify the process loop
+        if self.channel.send(Ok(())).await.is_err() {
+            error!("error notifying the process loop");
+        }
+    }
+
+    async fn on_failure(&self, _timer_id: u32, _timeouts: u32) {
+        panic!("received on failure event on producer timer",);
+    }
+
+    async fn on_stop(&self, _timer_id: u32) {
+        trace!("producer timer cancelled");
+        // nothing to do
+    }
+}
+
 struct ProducerState {
     buffer: ProducerBuffer,
     next_id: u32,
+    timer_observer: Arc<ProducerTimerObserver>,
+    timer: timer::Timer,
 }
 
 struct Receiver {
@@ -185,11 +216,23 @@ impl Streaming {
             }
         };
 
-        let (timer_tx, mut timer_rx) = mpsc::channel(128);
+        let (rtx_timer_tx, mut rtx_timer_rx) = mpsc::channel(128);
+        let (prod_timer_tx, mut prod_timer_rx) = mpsc::channel(128);
+
         let mut endpoint = match session_direction {
             SessionDirection::Sender => {
                 let prod = ProducerState {
                     buffer: ProducerBuffer::with_capacity(500),
+                    timer_observer: Arc::new(ProducerTimerObserver {
+                        channel: prod_timer_tx,
+                    }),
+                    timer: timer::Timer::new(
+                        1,
+                        timer::TimerType::Exponential,
+                        Duration::from_millis(500),
+                        Some(Duration::from_secs(30)),
+                        None,
+                    ),
                     next_id: 0,
                 };
                 Endpoint::Producer(prod)
@@ -203,6 +246,16 @@ impl Streaming {
             SessionDirection::Bidirectional => {
                 let producer = ProducerState {
                     buffer: ProducerBuffer::with_capacity(500),
+                    timer_observer: Arc::new(ProducerTimerObserver {
+                        channel: prod_timer_tx,
+                    }),
+                    timer: timer::Timer::new(
+                        1,
+                        timer::TimerType::Exponential,
+                        Duration::from_millis(500),
+                        Some(Duration::from_secs(30)),
+                        None,
+                    ),
                     next_id: 0,
                 };
                 let receiver = ReceiverState {
@@ -213,7 +266,8 @@ impl Streaming {
             }
         };
 
-        let mut timer_rx_closed = false;
+        let mut rtx_timer_rx_closed = false;
+        let mut prod_timer_rx_closed = false;
 
         tokio::spawn(async move {
             debug!("starting message processing on session {}", session_id);
@@ -250,7 +304,6 @@ impl Streaming {
                                                 process_incoming_rtx_request(msg, session_id, producer, &source, &send_gw).await;
                                             }
                                             MessageDirection::South => {
-
                                                 // received a message from the APP
                                                 process_message_from_app(msg, session_id, producer, false, &send_gw, &send_app).await;
                                             }
@@ -258,7 +311,7 @@ impl Streaming {
                                     }
                                     Endpoint::Receiver(receiver) => {
                                         trace!("received message from the gataway on receiver session {}", session_id);
-                                        process_message_from_gw(msg, session_id, receiver, &source, max_retries, timeout, &timer_tx, &send_gw, &send_app).await;
+                                        process_message_from_gw(msg, session_id, receiver, &source, max_retries, timeout, &rtx_timer_tx, &send_gw, &send_app).await;
                                     }
                                     Endpoint::Bidirectional(state) => {
                                         match direction {
@@ -268,7 +321,7 @@ impl Streaming {
                                                 match msg.get_session_header().header_type() {
                                                     SessionHeaderType::PubSub => {
                                                         // send the packet to the application
-                                                        process_message_from_gw(msg, session_id, &mut state.receiver, &source, max_retries, timeout, &timer_tx, &send_gw, &send_app).await;
+                                                        process_message_from_gw(msg, session_id, &mut state.receiver, &source, max_retries, timeout, &rtx_timer_tx, &send_gw, &send_app).await;
                                                     }
                                                     SessionHeaderType::RtxRequest => {
                                                         // handle RTX request
@@ -276,7 +329,7 @@ impl Streaming {
                                                     }
                                                     SessionHeaderType::RtxReply => {
                                                         // received a reply for an RTX
-                                                        process_message_from_gw(msg, session_id, &mut state.receiver, &source, max_retries, timeout, &timer_tx, &send_gw, &send_app).await;
+                                                        process_message_from_gw(msg, session_id, &mut state.receiver, &source, max_retries, timeout, &rtx_timer_tx, &send_gw, &send_app).await;
                                                     }
                                                     _ => {
                                                         error!("received invalid packet type on bidirection session {}", session_id);
@@ -294,16 +347,16 @@ impl Streaming {
                             }
                         }
                     }
-                    next_timer = timer_rx.recv(), if !timer_rx_closed => {
-                        match next_timer {
+                    next_rtx_timer = rtx_timer_rx.recv(), if !rtx_timer_rx_closed => {
+                        match next_rtx_timer {
                             None => {
-                                info!("no more timers to process");
+                                info!("no more rtx timers to process");
                                 // close the timer channel
-                                timer_rx_closed = true;
+                                rtx_timer_rx_closed = true;
                             },
                             Some(result) => {
                                 if result.is_err() {
-                                    error!("error receiving a timer, skip it");
+                                    error!("error receiving an RTX timer, skip it");
                                     continue;
                                 }
 
@@ -317,7 +370,7 @@ impl Streaming {
                                         }
                                     }
                                     Endpoint::Producer(_) => {
-                                        error!("received timer on a producer buffer");
+                                        error!("received rtx timer on a producer buffer");
                                         continue;
                                     }
                                     Endpoint::Bidirectional(state) => {
@@ -329,6 +382,33 @@ impl Streaming {
                                     }
                                 }
                             }
+                        }
+                    }
+                    next_prod_timer = prod_timer_rx.recv(), if !prod_timer_rx_closed => {
+                        match next_prod_timer {
+                            None => {
+                                info!("no more prod timers to process");
+                                // close the timer channel
+                                prod_timer_rx_closed = true;
+                            },
+                            Some(result) => match result {
+                                Ok(_) => {
+                                    match &mut endpoint {
+                                        Endpoint::Producer(producer) => {
+                                            info!("received producer timer, last packet = {}", producer.next_id - 1);
+                                            continue;
+                                        }
+                                        _ => {
+                                            error!("received producer timer on a non producer buffer");
+                                            continue;
+                                        }
+                                    }
+                                }
+                                Err(_) => {
+                                    error!("error receiving a producer timer, skip it");
+                                    continue;
+                                }
+                            },
                         }
                     }
                 }
@@ -471,6 +551,9 @@ async fn process_message_from_app(
             .await
             .expect("error notifyng app");
     }
+
+    // set timer for this message
+    producer.timer.reset(producer.timer_observer.clone());
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -481,7 +564,7 @@ async fn process_message_from_gw(
     source: &Agent,
     max_retries: u32,
     timeout: Duration,
-    timer_tx: &mpsc::Sender<Result<(u32, bool, Agent), Status>>,
+    rtx_timer_tx: &mpsc::Sender<Result<(u32, bool, Agent), Status>>,
     send_gw: &mpsc::Sender<Result<Message, Status>>,
     send_app: &mpsc::Sender<Result<SessionMessage, SessionError>>,
 ) {
@@ -495,7 +578,7 @@ async fn process_message_from_gw(
                 buffer: ReceiverBuffer::default(),
                 timer_observer: Arc::new(RtxTimerObserver {
                     producer_name: producer_name.clone(),
-                    channel: timer_tx.clone(),
+                    channel: rtx_timer_tx.clone(),
                 }),
                 rtx_map: HashMap::new(),
                 timers_map: HashMap::new(),
