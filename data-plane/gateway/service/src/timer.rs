@@ -30,11 +30,11 @@ pub struct Timer {
 
     /// constant timer: timer duration
     /// exponential timer: min timer duration. at every new timer the duration is computers as last_duration * 2
-    duration: u32,
+    duration: Duration,
 
     /// constant timer: None
     /// exponential timer: maximum timer duration. once the duration reaches this time it will not be encreased anymore
-    max_duration: Option<u32>,
+    max_duration: Option<Duration>,
 
     /// if not None, it indicates the maximum number of retryes before call on_failure
     /// if set to None the timer will go on forever unless cancelled
@@ -48,8 +48,8 @@ impl Timer {
     pub fn new(
         timer_id: u32,
         timer_type: TimerType,
-        duration: u32,
-        max_duration: Option<u32>,
+        duration: Duration,
+        max_duration: Option<Duration>,
         max_retries: Option<u32>,
     ) -> Self {
         Timer {
@@ -78,8 +78,12 @@ impl Timer {
             loop {
                 let timer_duration = match timer_type {
                     TimerType::Constant => {
-                        trace!("constant timer {}, next in {} ms", timer_id, duration);
-                        Duration::from_millis(duration as u64)
+                        trace!(
+                            "constant timer {}, next in {} ms",
+                            timer_id,
+                            duration.as_millis()
+                        );
+                        duration
                     }
                     TimerType::Exponential => {
                         let mut d = duration;
@@ -88,22 +92,31 @@ impl Timer {
                         }
                         match max_duration {
                             None => {
-                                trace!("exponential timer {}, next in {} ms", timer_id, d);
+                                trace!(
+                                    "exponential timer {}, next in {} ms",
+                                    timer_id,
+                                    d.as_millis()
+                                );
                                 last_duration = d;
-                                Duration::from_millis(d as u64)
+                                d
                             }
                             Some(max_d) => {
                                 if d > max_d {
                                     trace!(
                                         "exponential timer {}, next in {} ms (use max duration)",
-                                        timer_id, max_d
+                                        timer_id,
+                                        max_d.as_millis()
                                     );
                                     last_duration = max_d;
-                                    Duration::from_millis(max_d as u64)
+                                    max_d
                                 } else {
-                                    trace!("exponential timer {}, next in {} ms", timer_id, d);
+                                    trace!(
+                                        "exponential timer {}, next in {} ms",
+                                        timer_id,
+                                        d.as_millis()
+                                    );
                                     last_duration = d;
-                                    Duration::from_millis(d as u64)
+                                    d
                                 }
                             }
                         }
@@ -180,7 +193,13 @@ mod tests {
     #[traced_test]
     async fn test_timer() {
         let o = Arc::new(Observer { id: 10 });
-        let t = Timer::new(o.id, TimerType::Constant, 100, None, Some(3));
+        let t = Timer::new(
+            o.id,
+            TimerType::Constant,
+            Duration::from_millis(100),
+            None,
+            Some(3),
+        );
 
         t.start(o);
 
@@ -197,7 +216,13 @@ mod tests {
         assert!(logs_contain(expected_msg));
 
         let o = Arc::new(Observer { id: 20 });
-        let t = Timer::new(o.id, TimerType::Exponential, 100, Some(400), Some(3));
+        let t = Timer::new(
+            o.id,
+            TimerType::Exponential,
+            Duration::from_millis(100),
+            Some(Duration::from_millis(400)),
+            Some(3),
+        );
 
         t.start(o);
         time::sleep(Duration::from_millis(1200)).await;
@@ -214,7 +239,13 @@ mod tests {
         assert!(logs_contain(expected_msg));
 
         let o = Arc::new(Observer { id: 30 });
-        let t = Timer::new(o.id, TimerType::Exponential, 100, None, None);
+        let t = Timer::new(
+            o.id,
+            TimerType::Exponential,
+            Duration::from_millis(100),
+            None,
+            None,
+        );
 
         t.start(o);
 
@@ -240,7 +271,13 @@ mod tests {
     async fn test_timer_stop() {
         let o = Arc::new(Observer { id: 10 });
 
-        let t = Timer::new(o.id, TimerType::Constant, 100, None, Some(5));
+        let t = Timer::new(
+            o.id,
+            TimerType::Constant,
+            Duration::from_millis(100),
+            None,
+            Some(5),
+        );
 
         t.start(o);
 
@@ -268,9 +305,27 @@ mod tests {
         let o2 = Arc::new(Observer { id: 2 });
         let o3 = Arc::new(Observer { id: 3 });
 
-        let t1 = Timer::new(o1.id, TimerType::Constant, 100, None, Some(5));
-        let t2 = Timer::new(o2.id, TimerType::Constant, 200, None, Some(5));
-        let t3 = Timer::new(o3.id, TimerType::Constant, 200, None, Some(5));
+        let t1 = Timer::new(
+            o1.id,
+            TimerType::Constant,
+            Duration::from_millis(100),
+            None,
+            Some(5),
+        );
+        let t2 = Timer::new(
+            o2.id,
+            TimerType::Constant,
+            Duration::from_millis(200),
+            None,
+            Some(5),
+        );
+        let t3 = Timer::new(
+            o3.id,
+            TimerType::Constant,
+            Duration::from_millis(200),
+            None,
+            Some(5),
+        );
 
         t1.start(o1);
         t2.start(o2);

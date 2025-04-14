@@ -64,7 +64,6 @@ impl StreamingConfiguration {
     }
 }
 
-#[allow(dead_code)]
 struct RtxTimerObserver {
     producer_name: Agent,
     channel: mpsc::Sender<Result<(u32, bool, Agent), Status>>,
@@ -587,7 +586,7 @@ async fn process_message_from_gw(
                 let timer = timer::Timer::new(
                     r,
                     timer::TimerType::Constant,
-                    timeout.as_millis().try_into().unwrap(),
+                    timeout,
                     None,
                     Some(max_retries),
                 );
