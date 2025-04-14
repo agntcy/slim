@@ -49,7 +49,7 @@ pub const KIND: &str = "gateway";
 pub struct ServiceConfiguration {
     /// The GRPC server settings
     #[serde(default)]
-    server: Option<ServerConfig>,
+    servers: Vec<ServerConfig>,
 
     /// Client config to connect to other services
     #[serde(default)]
@@ -61,16 +61,19 @@ impl ServiceConfiguration {
         ServiceConfiguration::default()
     }
 
-    pub fn with_server(self, server: Option<ServerConfig>) -> Self {
-        ServiceConfiguration { server, ..self }
+    pub fn with_server(self, server: Vec<ServerConfig>) -> Self {
+        ServiceConfiguration {
+            servers: server,
+            ..self
+        }
     }
 
     pub fn with_client(self, clients: Vec<ClientConfig>) -> Self {
         ServiceConfiguration { clients, ..self }
     }
 
-    pub fn server(&self) -> Option<&ServerConfig> {
-        self.server.as_ref()
+    pub fn servers(&self) -> &[ServerConfig] {
+        self.servers.as_ref()
     }
 
     pub fn clients(&self) -> &[ClientConfig] {
@@ -86,7 +89,7 @@ impl ServiceConfiguration {
 impl Configuration for ServiceConfiguration {
     fn validate(&self) -> Result<(), ConfigurationError> {
         // Validate client and server configurations
-        if let Some(server) = self.server.as_ref() {
+        for server in self.servers.iter() {
             server.validate()?;
         }
 
@@ -118,8 +121,11 @@ pub struct Service {
     /// signal to shutdown the service
     signal: drain::Signal,
 
-    /// cancellation token to stop the server main loop
-    cancellation_token: CancellationToken,
+    /// cancellation tokens to stop the servers main loop
+    cancellation_tokens: parking_lot::RwLock<HashMap<String, CancellationToken>>,
+
+    /// clients created by the service
+    clients: parking_lot::RwLock<HashMap<String, u64>>,
 }
 
 impl Service {
@@ -134,7 +140,8 @@ impl Service {
             session_layers: RwLock::new(HashMap::new()),
             watch,
             signal,
-            cancellation_token: CancellationToken::new(),
+            cancellation_tokens: parking_lot::RwLock::new(HashMap::new()),
+            clients: parking_lot::RwLock::new(HashMap::new()),
         }
     }
 
@@ -151,6 +158,11 @@ impl Service {
         }
     }
 
+    /// get the service configuration
+    pub fn config(&self) -> &ServiceConfiguration {
+        &self.config
+    }
+
     /// get signal used to shutdown the service
     /// NOTE: this method consumes the service!
     pub fn signal(self) -> drain::Signal {
@@ -158,30 +170,22 @@ impl Service {
     }
 
     /// Run the service
-    pub async fn run(&self) -> Result<(), ServiceError> {
+    pub async fn run(&mut self) -> Result<(), ServiceError> {
         // Check that at least one client or server is configured
-        if self.config.server().is_none() && self.config.clients.is_empty() {
+        if self.config.servers().is_empty() && self.config.clients.is_empty() {
             return Err(ServiceError::ConfigError(
                 "no server or clients configured".to_string(),
             ));
         }
 
-        if self.config.server().is_some() {
-            info!("starting server");
-            self.serve(None)?;
+        for server in self.config.servers.iter() {
+            info!("starting server {}", server.endpoint);
+            self.run_server(server)?;
         }
 
-        for (i, client) in self.config.clients.iter().enumerate() {
-            info!("connecting client {} to {}", i, client.endpoint);
-
-            let channel = client
-                .to_channel()
-                .map_err(|e| ServiceError::ConfigError(e.to_string()))?;
-
-            self.message_processor
-                .connect(channel, None, None, None)
-                .await
-                .expect("error connecting client");
+        for client in self.config.clients.iter() {
+            info!("connecting client to {}", client.endpoint);
+            _ = self.connect(client).await?;
         }
 
         Ok(())
@@ -246,25 +250,8 @@ impl Service {
         }
     }
 
-    pub fn serve(&self, new_config: Option<ServerConfig>) -> Result<(), ServiceError> {
-        // if no new config is provided, try to get it from local configuration
-        let config = match &new_config {
-            Some(c) => c,
-            None => {
-                // make sure at least one client is configured
-                if self.config.server().is_none() {
-                    error!("no server configured");
-                    return Err(ServiceError::ConfigError(
-                        "no server configured".to_string(),
-                    ));
-                }
-
-                // get the server config
-                self.config.server().unwrap()
-            }
-        };
-
-        info!("server configured: setting it up");
+    pub fn run_server(&self, config: &ServerConfig) -> Result<(), ServiceError> {
+        info!(%config, "server configured: setting it up");
         let server_future = config
             .to_server_future(&[PubSubServiceServer::from_arc(
                 self.message_processor.clone(),
@@ -274,7 +261,11 @@ impl Service {
         // clone the watcher to be notified when the service is shutting down
         let drain_rx = self.watch.clone();
 
-        let token = self.cancellation_token.clone();
+        // create a new cancellation token
+        let token = CancellationToken::new();
+        self.cancellation_tokens
+            .write()
+            .insert(config.endpoint.clone(), token.clone());
 
         // spawn server acceptor in a new task
         tokio::spawn(async move {
@@ -305,27 +296,24 @@ impl Service {
         Ok(())
     }
 
-    pub fn stop(&self) {
-        self.cancellation_token.cancel();
+    pub fn stop_server(&self, endpoint: &str) {
+        // stop the server
+        if let Some(token) = self.cancellation_tokens.write().remove(endpoint) {
+            token.cancel();
+        } else {
+            error!("server {} not found", endpoint);
+        }
     }
 
-    pub async fn connect(&self, new_config: Option<ClientConfig>) -> Result<u64, ServiceError> {
-        // if no new config is provided, try to get it from local configuration
-        let config = match &new_config {
-            Some(c) => c,
-            None => {
-                // make sure at least one client is configured
-                if self.config.clients.is_empty() {
-                    error!("no client configured");
-                    return Err(ServiceError::ConfigError(
-                        "no client configured".to_string(),
-                    ));
-                }
-
-                // get the first client
-                &self.config.clients[0]
-            }
-        };
+    pub async fn connect(&self, config: &ClientConfig) -> Result<u64, ServiceError> {
+        // make sure there is no other client connected to the same endpoint
+        // TODO(msardara): we might want to allow multiple clients to connect to the same endpoint,
+        // but we need to introduce an identifier in the configuration for it
+        if self.clients.read().contains_key(&config.endpoint) {
+            return Err(ServiceError::ClientAlreadyConnected(
+                config.endpoint.clone(),
+            ));
+        }
 
         match config.to_channel() {
             Err(e) => {
@@ -340,13 +328,21 @@ impl Service {
                     .await
                     .map_err(|e| ServiceError::ConnectionError(e.to_string()));
 
-                match ret {
+                let conn_id = match ret {
                     Err(e) => {
                         error!("connection error: {:?}", e);
-                        Err(ServiceError::ConnectionError(e.to_string()))
+                        return Err(ServiceError::ConnectionError(e.to_string()));
                     }
-                    Ok(conn_id) => Ok(conn_id.1),
-                }
+                    Ok(conn_id) => conn_id.1,
+                };
+
+                // register the client
+                self.clients
+                    .write()
+                    .insert(config.endpoint.clone(), conn_id);
+
+                // return the connection id
+                Ok(conn_id)
             }
         }
     }
@@ -357,6 +353,10 @@ impl Service {
         self.message_processor
             .disconnect(conn)
             .map_err(|e| ServiceError::DisconnectError(e.to_string()))
+    }
+
+    pub fn get_connection_id(&self, endpoint: &str) -> Option<u64> {
+        self.clients.read().get(endpoint).cloned()
     }
 
     async fn send_message(
@@ -697,7 +697,7 @@ impl Component for Service {
         &self.id
     }
 
-    async fn start(&self) -> Result<(), ComponentError> {
+    async fn start(&mut self) -> Result<(), ComponentError> {
         info!("starting service");
         self.run()
             .await
@@ -768,7 +768,7 @@ mod tests {
     #[tokio::test]
     async fn test_service_configuration() {
         let config = ServiceConfiguration::new();
-        assert_eq!(config.server(), None);
+        assert_eq!(config.servers(), &[]);
         assert_eq!(config.clients(), &[]);
     }
 
@@ -778,8 +778,8 @@ mod tests {
         let tls_config = TlsServerConfig::new().with_insecure(true);
         let server_config =
             ServerConfig::with_endpoint("0.0.0.0:12345").with_tls_settings(tls_config);
-        let config = ServiceConfiguration::new().with_server(Some(server_config));
-        let service = config
+        let config = ServiceConfiguration::new().with_server([server_config].to_vec());
+        let mut service = config
             .build_server(ID::new_with_name(Kind::new(KIND).unwrap(), "test").unwrap())
             .unwrap();
 
@@ -815,7 +815,7 @@ mod tests {
         let tls_config = TlsServerConfig::new().with_insecure(true);
         let server_config =
             ServerConfig::with_endpoint("0.0.0.0:12345").with_tls_settings(tls_config);
-        let config = ServiceConfiguration::new().with_server(Some(server_config));
+        let config = ServiceConfiguration::new().with_server([server_config].to_vec());
         let service = config
             .build_server(ID::new_with_name(Kind::new(KIND).unwrap(), "test").unwrap())
             .unwrap();

@@ -137,7 +137,7 @@ async fn serve_impl(svc: PyService) -> Result<(), ServiceError> {
     };
 
     let server_config = config.to_server_config()?;
-    svc.sdk.service.serve(Some(server_config))
+    svc.sdk.service.run_server(&server_config)
 }
 
 #[gen_stub_pyfunction]
@@ -154,7 +154,13 @@ fn serve(py: Python, svc: PyService) -> PyResult<Bound<PyAny>> {
 }
 
 async fn stop_impl(svc: PyService) -> Result<(), ServiceError> {
-    Ok(svc.sdk.service.stop())
+    if svc.config.is_none() {
+        return Err(ServiceError::ConfigError(
+            "no server configured on service".to_string(),
+        ));
+    }
+
+    Ok(svc.sdk.service.stop_server(&svc.config.unwrap().endpoint))
 }
 
 #[gen_stub_pyfunction]
@@ -185,7 +191,7 @@ async fn connect_impl(svc: PyService) -> Result<u64, ServiceError> {
     let client_config = config.to_client_config()?;
 
     // Get service and connect
-    svc.sdk.service.connect(Some(client_config)).await
+    svc.sdk.service.connect(&client_config).await
 }
 
 #[gen_stub_pyfunction]
