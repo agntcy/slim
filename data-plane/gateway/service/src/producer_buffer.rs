@@ -3,13 +3,15 @@
 
 use std::collections::HashMap;
 
-use agp_datapath::pubsub::proto::pubsub::v1::Message;
+use agp_datapath::{messages::AgentType, pubsub::proto::pubsub::v1::Message};
 
 pub struct ProducerBuffer {
     capacity: usize,
     next: usize,
     buffer: Vec<Option<Message>>,
     map: HashMap<usize, usize>,
+    destination_name: AgentType,
+    destination_id: Option<u64>,
 }
 
 impl ProducerBuffer {
@@ -20,6 +22,8 @@ impl ProducerBuffer {
             next: 0,
             buffer: vec![None; capacity],
             map: HashMap::new(),
+            destination_name: AgentType::default(),
+            destination_id: None,
         }
     }
 
@@ -27,9 +31,22 @@ impl ProducerBuffer {
         self.capacity
     }
 
+    pub fn get_destination_name(&self) -> &AgentType {
+        &self.destination_name
+    }
+
+    pub fn get_destination_id(&self) -> Option<u64> {
+        self.destination_id
+    }
+
     /// Add message to the buffer.
     /// return true if the insertion completes
     pub fn push(&mut self, msg: Message) -> bool {
+        // if map is empty init the destination name
+        if self.map.is_empty() {
+            (self.destination_name, self.destination_id) = msg.get_name();
+        }
+
         // get message id
         let id = msg.get_id() as usize;
 

@@ -99,6 +99,7 @@ pub enum SessionHeaderType {
     PubSub = 5,
     RtxRequest = 6,
     RtxReply = 7,
+    Beacon = 8,
 }
 impl SessionHeaderType {
     /// String value of the enum field names used in the ProtoBuf definition.
@@ -115,6 +116,7 @@ impl SessionHeaderType {
             Self::PubSub => "PUB_SUB",
             Self::RtxRequest => "RTX_REQUEST",
             Self::RtxReply => "RTX_REPLY",
+            Self::Beacon => "BEACON",
         }
     }
     /// Creates an enum from field names used in the ProtoBuf definition.
@@ -128,6 +130,7 @@ impl SessionHeaderType {
             "PUB_SUB" => Some(Self::PubSub),
             "RTX_REQUEST" => Some(Self::RtxRequest),
             "RTX_REPLY" => Some(Self::RtxReply),
+            "BEACON" => Some(Self::Beacon),
             _ => None,
         }
     }

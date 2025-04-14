@@ -364,9 +364,9 @@ impl Streaming {
                                 match &mut endpoint {
                                     Endpoint::Receiver(receiver) => {
                                         if retry {
-                                            handle_timeout(receiver, &producer_name, msg_id, session_id, &send_gw).await;
+                                            handle_rtx_timeout(receiver, &producer_name, msg_id, session_id, &send_gw).await;
                                         } else {
-                                            handle_failure(receiver, &producer_name, msg_id, session_id, &send_app).await;
+                                            handle_rtx_failure(receiver, &producer_name, msg_id, session_id, &send_app).await;
                                         }
                                     }
                                     Endpoint::Producer(_) => {
@@ -375,9 +375,9 @@ impl Streaming {
                                     }
                                     Endpoint::Bidirectional(state) => {
                                         if retry {
-                                            handle_timeout(&mut state.receiver, &producer_name, msg_id, session_id, &send_gw).await;
+                                            handle_rtx_timeout(&mut state.receiver, &producer_name, msg_id, session_id, &send_gw).await;
                                         } else {
-                                            handle_failure(&mut state.receiver, &producer_name, msg_id, session_id, &send_app).await;
+                                            handle_rtx_failure(&mut state.receiver, &producer_name, msg_id, session_id, &send_app).await;
                                         }
                                     }
                                 }
@@ -395,8 +395,16 @@ impl Streaming {
                                 Ok(_) => {
                                     match &mut endpoint {
                                         Endpoint::Producer(producer) => {
-                                            info!("received producer timer, last packet = {}", producer.next_id - 1);
-                                            continue;
+                                            let last_msg_id = producer.next_id - 1;
+                                            info!("received producer timer, last packet = {}", last_msg_id);
+
+                                            send_beacon_msg(&source, producer.buffer.get_destination_name(), last_msg_id, session_id, &send_gw).await;
+                                        }
+                                        Endpoint::Bidirectional(state) => {
+                                            let last_msg_id = state.producer.next_id;
+                                            info!("received producer timer, last packet = {}", last_msg_id);
+
+                                            send_beacon_msg(&source, state.producer.buffer.get_destination_name(), last_msg_id, session_id, &send_gw).await;
                                         }
                                         _ => {
                                             error!("received producer timer on a non producer buffer");
@@ -689,7 +697,7 @@ async fn process_message_from_gw(
     }
 }
 
-async fn handle_timeout(
+async fn handle_rtx_timeout(
     receiver_state: &mut ReceiverState,
     producer_name: &Agent,
     msg_id: u32,
@@ -736,7 +744,7 @@ async fn handle_timeout(
     }
 }
 
-async fn handle_failure(
+async fn handle_rtx_failure(
     receiver_state: &mut ReceiverState,
     producer_name: &Agent,
     msg_id: u32,
@@ -764,6 +772,38 @@ async fn handle_failure(
             error!("error adding message lost to the buffer: {}", e.to_string());
         }
     };
+}
+
+async fn send_beacon_msg(
+    source: &Agent,
+    topic: &AgentType,
+    last_msg_id: u32,
+    session_id: u32,
+    send_gw: &mpsc::Sender<Result<Message, Status>>,
+) {
+    let agp_header = Some(AgpHeader::new(
+        source,
+        topic,
+        None,
+        Some(AgpHeaderFlags::default().with_fanout(STREAM_BROADCAST)),
+    ));
+
+    let session_header = Some(SessionHeader::new(
+        SessionHeaderType::Beacon.into(),
+        session_id,
+        last_msg_id,
+    ));
+
+    let msg = Message::new_publish_with_headers(agp_header, session_header, "", vec![]);
+
+    info!("beacon to send {:?}", msg);
+
+    if send_gw.send(Ok(msg)).await.is_err() {
+        error!(
+            "error sending beacon msg to the gateway on session {}",
+            session_id
+        );
+    }
 }
 
 async fn send_message_to_app(
