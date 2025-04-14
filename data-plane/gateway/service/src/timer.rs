@@ -5,6 +5,8 @@ use tonic::async_trait;
 use tokio::time::{self, Duration};
 use tokio_util::sync::CancellationToken;
 
+use tracing::trace;
+
 #[async_trait]
 pub trait TimerObserver {
     async fn on_timeout(&self, timer_id: u32, timeouts: u32);
@@ -12,21 +14,49 @@ pub trait TimerObserver {
     async fn on_stop(&self, timer_id: u32);
 }
 
-#[allow(dead_code)]
+#[derive(Debug, Clone)]
+pub enum TimerType {
+    Constant = 0,
+    Exponential = 1,
+}
+
 #[derive(Debug)]
 pub struct Timer {
+    /// timer id
     timer_id: u32,
+
+    /// timer type
+    timer_type: TimerType,
+
+    /// constant timer: timer duration
+    /// exponential timer: min timer duration. at every new timer the duration is computers as last_duration * 2
     duration: u32,
-    max_retries: u32,
+
+    /// constant timer: None
+    /// exponential timer: maximum timer duration. once the duration reaches this time it will not be encreased anymore
+    max_duration: Option<u32>,
+
+    /// if not None, it indicates the maximum number of retryes before call on_failure
+    /// if set to None the timer will go on forever unless cancelled
+    max_retries: Option<u32>,
+
+    /// token used to cancel the timer
     cancellation_token: CancellationToken,
 }
 
-#[allow(dead_code)]
 impl Timer {
-    pub fn new(timer_id: u32, duration: u32, max_retries: u32) -> Self {
+    pub fn new(
+        timer_id: u32,
+        timer_type: TimerType,
+        duration: u32,
+        max_duration: Option<u32>,
+        max_retries: Option<u32>,
+    ) -> Self {
         Timer {
             timer_id,
+            timer_type,
             duration,
+            max_duration,
             max_retries,
             cancellation_token: CancellationToken::new(),
         }
@@ -34,26 +64,68 @@ impl Timer {
 
     pub fn start<T: TimerObserver + Send + Sync + 'static>(&self, observer: Arc<T>) {
         let timer_id = self.timer_id;
+        let timer_type = self.timer_type.clone();
         let duration = self.duration;
         let max_retries = self.max_retries;
+        let max_duration = self.max_duration;
         let cancellation_token = self.cancellation_token.clone();
 
         tokio::spawn(async move {
             let mut retry = 0;
             let mut timeouts = 0;
+            let mut last_duration = duration;
 
             loop {
-                let timer = time::sleep(Duration::from_millis(duration as u64));
+                let timer_duration = match timer_type {
+                    TimerType::Constant => {
+                        trace!("constant timer {}, next in {} ms", timer_id, duration);
+                        Duration::from_millis(duration as u64)
+                    }
+                    TimerType::Exponential => {
+                        let mut d = duration;
+                        if timeouts != 0 {
+                            d = last_duration * 2;
+                        }
+                        match max_duration {
+                            None => {
+                                trace!("exponential timer {}, next in {} ms", timer_id, d);
+                                last_duration = d;
+                                Duration::from_millis(d as u64)
+                            }
+                            Some(max_d) => {
+                                if d > max_d {
+                                    trace!(
+                                        "exponential timer {}, next in {} ms (use max duration)",
+                                        timer_id, max_d
+                                    );
+                                    last_duration = max_d;
+                                    Duration::from_millis(max_d as u64)
+                                } else {
+                                    trace!("exponential timer {}, next in {} ms", timer_id, d);
+                                    last_duration = d;
+                                    Duration::from_millis(d as u64)
+                                }
+                            }
+                        }
+                    }
+                };
+
+                let timer = time::sleep(timer_duration);
                 tokio::pin!(timer);
 
                 tokio::select! {
                     _ = timer.as_mut() => {
                         timeouts += 1;
-                        if retry < max_retries {
-                            observer.on_timeout(timer_id, timeouts).await;
-                        } else {
-                            observer.on_failure(timer_id, timeouts).await;
-                            break;
+                        match max_retries {
+                            Some(max) => {
+                                if retry < max {
+                                    observer.on_timeout(timer_id, timeouts).await
+                                } else {
+                                    observer.on_failure(timer_id, timeouts).await;
+                                    break;
+                                }
+                            }
+                            None => observer.on_timeout(timer_id, timeouts).await
                         }
                         retry += 1;
                     },
@@ -108,8 +180,7 @@ mod tests {
     #[traced_test]
     async fn test_timer() {
         let o = Arc::new(Observer { id: 10 });
-
-        let t = Timer::new(o.id, 100, 3);
+        let t = Timer::new(o.id, TimerType::Constant, 100, None, Some(3));
 
         t.start(o);
 
@@ -124,6 +195,44 @@ mod tests {
         assert!(logs_contain(expected_msg));
         let expected_msg = "timeout number 4 for timer id 10, stop retry";
         assert!(logs_contain(expected_msg));
+
+        let o = Arc::new(Observer { id: 20 });
+        let t = Timer::new(o.id, TimerType::Exponential, 100, Some(400), Some(3));
+
+        t.start(o);
+        time::sleep(Duration::from_millis(1200)).await;
+
+        let expected_msg = "exponential timer 20, next in 100 ms";
+        assert!(logs_contain(expected_msg));
+        let expected_msg = "exponential timer 20, next in 200 ms";
+        assert!(logs_contain(expected_msg));
+        let expected_msg = "exponential timer 20, next in 400 ms";
+        assert!(logs_contain(expected_msg));
+        let expected_msg = "exponential timer 20, next in 400 ms (use max duration)";
+        assert!(logs_contain(expected_msg));
+        let expected_msg = "timeout number 4 for timer id 20, stop retry";
+        assert!(logs_contain(expected_msg));
+
+        let o = Arc::new(Observer { id: 30 });
+        let t = Timer::new(o.id, TimerType::Exponential, 100, None, None);
+
+        t.start(o);
+
+        time::sleep(Duration::from_millis(2000)).await;
+        t.stop();
+        time::sleep(Duration::from_millis(500)).await;
+        let expected_msg = "exponential timer 30, next in 100 ms";
+        assert!(logs_contain(expected_msg));
+        let expected_msg = "exponential timer 30, next in 200 ms";
+        assert!(logs_contain(expected_msg));
+        let expected_msg = "exponential timer 30, next in 400 ms";
+        assert!(logs_contain(expected_msg));
+        let expected_msg = "exponential timer 30, next in 800 ms";
+        assert!(logs_contain(expected_msg));
+        let expected_msg = "exponential timer 30, next in 1600 ms";
+        assert!(logs_contain(expected_msg));
+        let expected_msg = "timer id 30 cancelled";
+        assert!(logs_contain(expected_msg))
     }
 
     #[tokio::test]
@@ -131,7 +240,7 @@ mod tests {
     async fn test_timer_stop() {
         let o = Arc::new(Observer { id: 10 });
 
-        let t = Timer::new(o.id, 100, 5);
+        let t = Timer::new(o.id, TimerType::Constant, 100, None, Some(5));
 
         t.start(o);
 
@@ -159,9 +268,9 @@ mod tests {
         let o2 = Arc::new(Observer { id: 2 });
         let o3 = Arc::new(Observer { id: 3 });
 
-        let t1 = Timer::new(o1.id, 100, 5);
-        let t2 = Timer::new(o2.id, 200, 5);
-        let t3 = Timer::new(o3.id, 200, 5);
+        let t1 = Timer::new(o1.id, TimerType::Constant, 100, None, Some(5));
+        let t2 = Timer::new(o2.id, TimerType::Constant, 200, None, Some(5));
+        let t3 = Timer::new(o3.id, TimerType::Constant, 200, None, Some(5));
 
         t1.start(o1);
         t2.start(o2);

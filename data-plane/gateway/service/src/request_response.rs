@@ -147,7 +147,13 @@ impl RequestResponse {
                 })?;
 
         // create new timer
-        let timer = timer::Timer::new(message_id, duration, session_config.max_retries);
+        let timer = timer::Timer::new(
+            message_id,
+            timer::TimerType::Constant,
+            duration,
+            None,
+            Some(session_config.max_retries),
+        );
 
         // send message
         self.internal
