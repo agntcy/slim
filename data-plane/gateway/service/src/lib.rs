@@ -24,7 +24,7 @@ use agp_datapath::pubsub::MessageType;
 use serde::Deserialize;
 use session::{AppChannelReceiver, MessageDirection};
 use session_layer::SessionLayer;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tokio::sync::mpsc;
@@ -296,12 +296,12 @@ impl Service {
         Ok(())
     }
 
-    pub fn stop_server(&self, endpoint: &str) {
+    pub fn stop_server(&self, endpoint: &str) -> Result<(), ServiceError> {
         // stop the server
         if let Some(token) = self.cancellation_tokens.write().remove(endpoint) {
-            token.cancel();
+            Ok(token.cancel())
         } else {
-            error!("server {} not found", endpoint);
+            Err(ServiceError::ServerNotFound(endpoint.to_string()))
         }
     }
 

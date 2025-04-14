@@ -1114,7 +1114,7 @@ mod tests {
             let service_type =
                 SessionHeaderType::try_from(i).expect("failed to convert int to service type");
             let service_type_int = i32::from(service_type);
-            assert_eq!(service_type_int, service_type.into());
+            assert_eq!(service_type_int, i32::from(service_type),);
         }
 
         // Test invalid conversion

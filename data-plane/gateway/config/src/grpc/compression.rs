@@ -13,6 +13,7 @@ use serde::Deserialize;
 /// The supported types are: Gzip, Zlib, Deflate, Snappy, Zstd, Lz4, None, and Empty.
 /// The default type is None.
 #[derive(Debug, Deserialize, PartialEq, Clone, Default)]
+#[cfg_attr(feature = "pyo3", pyclass(eq, eq_int))]
 pub enum CompressionType {
     Gzip,
     Zlib,
@@ -37,18 +38,6 @@ impl std::fmt::Display for CompressionType {
             CompressionType::None => write!(f, "none"),
             CompressionType::Empty => write!(f, ""),
         }
-    }
-}
-
-#[cfg(feature = "pyo3")]
-impl<'py> IntoPyObject<'py> for CompressionType {
-    type Target = pyo3::types::PyString;
-    type Output = Bound<'py, Self::Target>; // in most cases this will be `Bound`
-    type Error = PyErr; // the conversion error type, has to be convertable to `PyErr`
-
-    fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
-        let py_str = pyo3::types::PyString::new(py, &self.to_string());
-        Ok(py_str.into())
     }
 }
 

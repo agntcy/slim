@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #[cfg(feature = "pyo3")]
-use pyo3::IntoPyObject;
+use pyo3::FromPyObject;
 
 use std::path::Path;
 
@@ -19,10 +19,11 @@ use super::common::{Config, ConfigError, RustlsConfigLoader};
 use crate::component::configuration::{Configuration, ConfigurationError};
 
 #[derive(Debug, Deserialize, PartialEq, Clone)]
-#[cfg_attr(feature = "pyo3", derive(IntoPyObject))]
+#[cfg_attr(feature = "pyo3", derive(FromPyObject), pyo3(from_item_all))]
 pub struct TlsServerConfig {
     /// The Config struct
     #[serde(flatten, default)]
+    #[cfg_attr(feature = "pyo3", pyo3(default))]
     pub config: Config,
 
     /// insecure do not setup a TLS server

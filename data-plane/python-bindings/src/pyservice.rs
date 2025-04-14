@@ -13,7 +13,7 @@ use rand::Rng;
 use tokio::sync::RwLock;
 use tokio_util::sync::CancellationToken;
 
-use crate::pyconfig::PyGatewayConfig;
+use crate::pyconfig::{PyGrpcClientConfig, PyGrpcServerConfig};
 use crate::pysession::PySessionInfo;
 use crate::pysession::PyStreamingConfiguration;
 use crate::pysession::{PyFireAndForgetConfiguration, PyRequestResponseConfiguration};
@@ -32,7 +32,6 @@ pub struct PyService {
 struct PyServiceInternal {
     service: Service,
     agent: Agent,
-    config: Option<PyGatewayConfig>,
     rx: RwLock<session::AppChannelReceiver>,
     cancellation_token: tokio_util::sync::CancellationToken,
 }
@@ -40,11 +39,6 @@ struct PyServiceInternal {
 #[gen_stub_pymethods]
 #[pymethods]
 impl PyService {
-    #[pyo3(signature = (config))]
-    pub fn configure(&mut self, config: PyGatewayConfig) {
-        self.sdk.config = Some(config);
-    }
-
     #[getter]
     pub fn id(&self) -> u64 {
         self.sdk.agent.agent_id() as u64
@@ -81,7 +75,6 @@ impl PyService {
         // create the service
         let sdk = Arc::new(PyServiceInternal {
             service: svc,
-            config: None,
             agent: agent,
             rx: RwLock::new(rx),
             cancellation_token: CancellationToken::new(),
@@ -104,40 +97,17 @@ impl PyService {
         ))
     }
 
-    async fn serve_impl(&self) -> Result<(), ServiceError> {
-        let config = match &self.sdk.config {
-            Some(config) => config,
-            None => {
-                return Err(ServiceError::ConfigError(
-                    "No configuration set on service".to_string(),
-                ));
-            }
-        };
-
-        let server_config = config.to_server_config()?;
-        self.sdk.service.serve(Some(server_config))
+    async fn serve_impl(&self, config: PyGrpcServerConfig) -> Result<(), ServiceError> {
+        self.sdk.service.run_server(&config)
     }
 
-    async fn stop_impl(&self) -> Result<(), ServiceError> {
-        Ok(self.sdk.service.stop())
+    async fn stop_impl(&self, endpoint: &str) -> Result<(), ServiceError> {
+        self.sdk.service.stop_server(endpoint)
     }
 
-    async fn connect_impl(&self) -> Result<u64, ServiceError> {
-        // Get the service's configuration
-        let config = match &self.sdk.config {
-            Some(config) => config,
-            None => {
-                return Err(ServiceError::ConfigError(
-                    "No configuration set on service".to_string(),
-                ));
-            }
-        };
-
-        // Convert PyGatewayConfig to ClientConfig
-        let client_config = config.to_client_config()?;
-
+    async fn connect_impl(&self, config: PyGrpcClientConfig) -> Result<u64, ServiceError> {
         // Get service and connect
-        self.sdk.service.connect(Some(client_config)).await
+        self.sdk.service.connect(&config).await
     }
 
     async fn disconnect_impl(&self, conn: u64) -> Result<(), ServiceError> {
@@ -326,11 +296,13 @@ pub fn create_streaming_session(
 #[gen_stub_pyfunction]
 #[pyfunction]
 #[pyo3(signature = (
-    svc,
+    svc, config,
 ))]
-pub fn serve(py: Python, svc: PyService) -> PyResult<Bound<PyAny>> {
+pub fn run_server(py: Python, svc: PyService, config: PyObject) -> PyResult<Bound<PyAny>> {
+    let config = config.extract::<PyGrpcServerConfig>(py)?;
+
     pyo3_async_runtimes::tokio::future_into_py(py, async move {
-        svc.serve_impl()
+        svc.serve_impl(config)
             .await
             .map_err(|e| PyErr::new::<PyException, _>(format!("{}", e.to_string())))
     })
@@ -340,10 +312,11 @@ pub fn serve(py: Python, svc: PyService) -> PyResult<Bound<PyAny>> {
 #[pyfunction]
 #[pyo3(signature = (
     svc,
+    endpoint,
 ))]
-pub fn stop(py: Python, svc: PyService) -> PyResult<Bound<PyAny>> {
+pub fn stop_server(py: Python, svc: PyService, endpoint: String) -> PyResult<Bound<PyAny>> {
     pyo3_async_runtimes::tokio::future_into_py(py, async move {
-        svc.stop_impl()
+        svc.stop_impl(&endpoint)
             .await
             .map_err(|e| PyErr::new::<PyException, _>(format!("{}", e.to_string())))
     })
@@ -353,10 +326,13 @@ pub fn stop(py: Python, svc: PyService) -> PyResult<Bound<PyAny>> {
 #[pyfunction]
 #[pyo3(signature = (
     svc,
+    config
 ))]
-pub fn connect(py: Python, svc: PyService) -> PyResult<Bound<PyAny>> {
+pub fn connect(py: Python, svc: PyService, config: PyObject) -> PyResult<Bound<PyAny>> {
+    let config = config.extract::<PyGrpcClientConfig>(py)?;
+
     pyo3_async_runtimes::tokio::future_into_py(py, async move {
-        svc.connect_impl()
+        svc.connect_impl(config)
             .await
             .map_err(|e| PyErr::new::<PyException, _>(format!("{}", e.to_string())))
     })
@@ -364,7 +340,7 @@ pub fn connect(py: Python, svc: PyService) -> PyResult<Bound<PyAny>> {
 
 #[gen_stub_pyfunction]
 #[pyfunction]
-fn disconnect(py: Python, svc: PyService, conn: u64) -> PyResult<Bound<PyAny>> {
+pub fn disconnect(py: Python, svc: PyService, conn: u64) -> PyResult<Bound<PyAny>> {
     pyo3_async_runtimes::tokio::future_into_py(py, async move {
         svc.disconnect_impl(conn)
             .await

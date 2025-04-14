@@ -8,7 +8,7 @@ from ._agp_bindings import (
     SESSION_UNSPECIFIED,
     PyAgentType,
     PyFireAndForgetConfiguration,
-    PyGatewayConfig as GatewayConfig,
+    # PyGatewayConfig as GatewayConfig,
     PyRequestResponseConfiguration,
     PyService,
     PySessionDirection as PySessionDirection,
@@ -24,9 +24,9 @@ from ._agp_bindings import (
     publish,
     receive,
     remove_route,
-    serve,
+    run_server,
     set_route,
-    stop,
+    stop_server,
     subscribe,
     unsubscribe,
 )
@@ -160,19 +160,6 @@ class Gateway:
         """
 
         return self.svc.id
-
-    def configure(self, config: GatewayConfig):
-        """
-        Configure the gateway.
-
-        Args:
-            config (GatewayConfig): The gateway configuration class.
-
-        Returns:
-            None
-        """
-
-        self.svc.configure(config)
 
     async def create_ff_session(
         self,

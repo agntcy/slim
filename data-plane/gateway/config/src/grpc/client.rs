@@ -31,7 +31,7 @@ use crate::tls::{client::TlsClientConfig as TLSSetting, common::RustlsConfigLoad
 /// the timeout duration for the keepalive, and whether to permit
 /// keepalive without an active stream.
 #[derive(Debug, Deserialize, PartialEq, Clone)]
-#[cfg_attr(feature = "pyo3", derive(IntoPyObject))]
+#[cfg_attr(feature = "pyo3", derive(FromPyObject), pyo3(from_item_all))]
 pub struct KeepaliveConfig {
     /// The duration of the keepalive time for TCP
     #[serde(
@@ -85,7 +85,8 @@ fn default_keep_alive_while_idle() -> bool {
 }
 
 /// Enum holding one configuration for the client.
-#[derive(Debug, Default, Deserialize, Clone, PartialEq)]
+#[derive(Debug, Deserialize, Clone, PartialEq)]
+#[cfg_attr(feature = "pyo3", derive(FromPyObject), pyo3(from_item_all))]
 #[serde(rename_all = "snake_case")]
 pub enum AuthenticationConfig {
     /// Basic authentication configuration.
@@ -93,22 +94,12 @@ pub enum AuthenticationConfig {
     /// Bearer authentication configuration.
     Bearer(BearerAuthenticationConfig),
     /// None
-    #[default]
-    None,
+    None(String),
 }
 
-#[cfg(feature = "pyo3")]
-impl<'py> IntoPyObject<'py> for AuthenticationConfig {
-    type Target = pyo3::types::PyDict; // the Python type
-    type Output = Bound<'py, Self::Target>; // in most cases this will be `Bound`
-    type Error = PyErr; // the conversion error type, has to be convertable to `PyErr`
-
-    fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
-        match self {
-            AuthenticationConfig::Basic(basic) => basic.into_pyobject(py),
-            AuthenticationConfig::Bearer(bearer) => bearer.into_pyobject(py),
-            AuthenticationConfig::None => Ok(pyo3::types::PyDict::new(py).into()),
-        }
+impl Default for AuthenticationConfig {
+    fn default() -> Self {
+        AuthenticationConfig::None("None".to_string())
     }
 }
 
@@ -118,7 +109,7 @@ impl<'py> IntoPyObject<'py> for AuthenticationConfig {
 /// headers, and auth settings.
 /// The client configuration can be converted to a tonic channel.
 #[derive(Debug, Deserialize, Clone, PartialEq)]
-#[cfg_attr(feature = "pyo3", derive(IntoPyObject))]
+#[cfg_attr(feature = "pyo3", derive(FromPyObject), pyo3(from_item_all))]
 pub struct ClientConfig {
     /// The target the client will connect to.
     pub endpoint: String,
@@ -180,7 +171,7 @@ impl Default for ClientConfig {
             request_timeout: default_request_timeout(),
             buffer_size: None,
             headers: HashMap::new(),
-            auth: AuthenticationConfig::None,
+            auth: AuthenticationConfig::None("None".to_string()),
         }
     }
 }
@@ -456,7 +447,7 @@ impl ClientConfig {
                     .service(channel)
                     .boxed())
             }
-            AuthenticationConfig::None => Ok(tower::ServiceBuilder::new()
+            AuthenticationConfig::None(_) => Ok(tower::ServiceBuilder::new()
                 .layer(SetRequestHeaderLayer::new(header_map))
                 .service(channel)
                 .boxed()),
@@ -521,7 +512,7 @@ mod test {
         assert_eq!(client.request_timeout, Duration::from_secs(0));
         assert_eq!(client.buffer_size, None);
         assert_eq!(client.headers, HashMap::new());
-        assert_eq!(client.auth, AuthenticationConfig::None);
+        assert_eq!(client.auth, AuthenticationConfig::default());
     }
 
     #[test]

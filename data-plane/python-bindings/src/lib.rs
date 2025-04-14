@@ -6,6 +6,7 @@ mod pyservice;
 mod pysession;
 mod utils;
 
+use pyconfig::{PyGrpcClientConfig, PyGrpcServerConfig};
 use pyo3::prelude::*;
 use pyo3_stub_gen::define_stub_info_gatherer;
 use pysession::PyStreamingConfiguration;
@@ -13,8 +14,12 @@ use tokio::sync::OnceCell;
 
 use crate::pysession::{PyFireAndForgetConfiguration, PyRequestResponseConfiguration};
 use agp_service::session;
-use pyconfig::PyGatewayConfig;
 use pyservice::PyService;
+use pyservice::{
+    connect, create_ff_session, create_pyservice, create_rr_session, create_streaming_session,
+    disconnect, publish, receive, remove_route, run_server, set_route, stop_server, subscribe,
+    unsubscribe,
+};
 use pysession::{PySessionDirection, PySessionInfo};
 use utils::PyAgentType;
 
@@ -69,7 +74,6 @@ fn init_tracing(py: Python, log_level: String, enable_opentelemetry: bool) {
 
 #[pymodule]
 fn _agp_bindings(_py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
-    m.add_class::<PyGatewayConfig>()?;
     m.add_class::<PyService>()?;
     m.add_class::<PyAgentType>()?;
     m.add_class::<PySessionInfo>()?;
@@ -87,8 +91,8 @@ fn _agp_bindings(_py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(set_route, m)?)?;
     m.add_function(wrap_pyfunction!(remove_route, m)?)?;
     m.add_function(wrap_pyfunction!(publish, m)?)?;
-    m.add_function(wrap_pyfunction!(serve, m)?)?;
-    m.add_function(wrap_pyfunction!(stop, m)?)?;
+    m.add_function(wrap_pyfunction!(run_server, m)?)?;
+    m.add_function(wrap_pyfunction!(stop_server, m)?)?;
     m.add_function(wrap_pyfunction!(connect, m)?)?;
     m.add_function(wrap_pyfunction!(disconnect, m)?)?;
     m.add_function(wrap_pyfunction!(receive, m)?)?;

@@ -22,22 +22,11 @@ class PyFireAndForgetConfiguration:
     def __new__(cls,): ...
     ...
 
-class PyGatewayConfig:
-    r"""
-    gatewayconfig class
-    """
-    endpoint: builtins.str
-    insecure: builtins.bool
-    insecure_skip_verify: builtins.bool
-    tls_ca_path: typing.Optional[builtins.str]
-    tls_ca_pem: typing.Optional[builtins.str]
-    tls_cert_path: typing.Optional[builtins.str]
-    tls_key_path: typing.Optional[builtins.str]
-    tls_cert_pem: typing.Optional[builtins.str]
-    tls_key_pem: typing.Optional[builtins.str]
-    basic_auth_username: typing.Optional[builtins.str]
-    basic_auth_password: typing.Optional[builtins.str]
-    def __new__(cls,endpoint:builtins.str, insecure:builtins.bool=False, insecure_skip_verify:builtins.bool=False, tls_ca_path:typing.Optional[builtins.str]=None, tls_ca_pem:typing.Optional[builtins.str]=None, tls_cert_path:typing.Optional[builtins.str]=None, tls_key_path:typing.Optional[builtins.str]=None, tls_cert_pem:typing.Optional[builtins.str]=None, tls_key_pem:typing.Optional[builtins.str]=None, basic_auth_username:typing.Optional[builtins.str]=None, basic_auth_password:typing.Optional[builtins.str]=None): ...
+class PyGrpcClientConfig:
+    ...
+
+class PyGrpcServerConfig:
+    ...
 
 class PyRequestResponseConfiguration:
     r"""
@@ -55,9 +44,6 @@ class PyRequestResponseConfiguration:
 
 class PyService:
     id: builtins.int
-    def configure(self, config:PyGatewayConfig) -> None:
-        ...
-
 
 class PySessionInfo:
     id: builtins.int
@@ -80,7 +66,7 @@ class PySessionDirection(Enum):
     RECEIVER = auto()
     BIDIRECTIONAL = auto()
 
-def connect(svc:PyService) -> typing.Any:
+def connect(svc:PyService, config:PyGrpcClientConfig) -> typing.Any:
     ...
 
 def create_ff_session(svc:PyService, config:PyFireAndForgetConfiguration=...) -> typing.Any:
@@ -104,13 +90,13 @@ def receive(svc:PyService) -> typing.Any:
 def remove_route(svc:PyService, conn:builtins.int, name:PyAgentType, id:typing.Optional[builtins.int]=None) -> typing.Any:
     ...
 
-def serve(svc:PyService) -> typing.Any:
+def run_server(svc:PyService, config:PyGrpcServerConfig) -> typing.Any:
     ...
 
 def set_route(svc:PyService, conn:builtins.int, name:PyAgentType, id:typing.Optional[builtins.int]=None) -> typing.Any:
     ...
 
-def stop(svc:PyService) -> typing.Any:
+def stop_server(svc:PyService, endpoint:builtins.str) -> typing.Any:
     ...
 
 def subscribe(svc:PyService, conn:builtins.int, name:PyAgentType, id:typing.Optional[builtins.int]=None) -> typing.Any:
