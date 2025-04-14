@@ -1,6 +1,9 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
+#[cfg(feature = "pyo3")]
+use pyo3::prelude::*;
+
 use std::fmt;
 use std::str::FromStr;
 
@@ -20,6 +23,33 @@ pub enum CompressionType {
     #[default]
     None,
     Empty,
+}
+
+impl std::fmt::Display for CompressionType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            CompressionType::Gzip => write!(f, "gzip"),
+            CompressionType::Zlib => write!(f, "zlib"),
+            CompressionType::Deflate => write!(f, "deflate"),
+            CompressionType::Snappy => write!(f, "snappy"),
+            CompressionType::Zstd => write!(f, "zstd"),
+            CompressionType::Lz4 => write!(f, "lz4"),
+            CompressionType::None => write!(f, "none"),
+            CompressionType::Empty => write!(f, ""),
+        }
+    }
+}
+
+#[cfg(feature = "pyo3")]
+impl<'py> IntoPyObject<'py> for CompressionType {
+    type Target = pyo3::types::PyString;
+    type Output = Bound<'py, Self::Target>; // in most cases this will be `Bound`
+    type Error = PyErr; // the conversion error type, has to be convertable to `PyErr`
+
+    fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
+        let py_str = pyo3::types::PyString::new(py, &self.to_string());
+        Ok(py_str.into())
+    }
 }
 
 impl CompressionType {

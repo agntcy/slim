@@ -1,7 +1,7 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
-mod gateway_config;
+mod pyconfig;
 mod pyservice;
 mod pysession;
 mod utils;
@@ -13,7 +13,7 @@ use tokio::sync::OnceCell;
 
 use crate::pysession::{PyFireAndForgetConfiguration, PyRequestResponseConfiguration};
 use agp_service::session;
-use gateway_config::PyGatewayConfig;
+use pyconfig::PyGatewayConfig;
 use pyservice::PyService;
 use pysession::{PySessionDirection, PySessionInfo};
 use utils::PyAgentType;

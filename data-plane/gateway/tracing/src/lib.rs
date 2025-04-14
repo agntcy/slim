@@ -18,7 +18,6 @@ use tracing_subscriber::{
     Layer, filter::LevelFilter, fmt, layer::SubscriberExt, util::SubscriberInitExt,
 };
 
-pub mod opaque;
 pub mod utils;
 
 #[derive(Clone, Debug, Deserialize, Serialize)]

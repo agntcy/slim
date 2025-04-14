@@ -49,7 +49,7 @@ pub const KIND: &str = "gateway";
 pub struct ServiceConfiguration {
     /// The GRPC server settings
     #[serde(default)]
-    server: Option<ServerConfig>,
+    servers: Vec<ServerConfig>,
 
     /// Client config to connect to other services
     #[serde(default)]
@@ -62,15 +62,15 @@ impl ServiceConfiguration {
     }
 
     pub fn with_server(self, server: Option<ServerConfig>) -> Self {
-        ServiceConfiguration { server, ..self }
+        ServiceConfiguration { servers: server, ..self }
     }
 
     pub fn with_client(self, clients: Vec<ClientConfig>) -> Self {
         ServiceConfiguration { clients, ..self }
     }
 
-    pub fn server(&self) -> Option<&ServerConfig> {
-        self.server.as_ref()
+    pub fn servers(&self) -> &[ServerConfig] {
+        self.servers.as_ref()
     }
 
     pub fn clients(&self) -> &[ClientConfig] {
@@ -86,7 +86,7 @@ impl ServiceConfiguration {
 impl Configuration for ServiceConfiguration {
     fn validate(&self) -> Result<(), ConfigurationError> {
         // Validate client and server configurations
-        if let Some(server) = self.server.as_ref() {
+        if let Some(server) = self.servers.as_ref() {
             server.validate()?;
         }
 
@@ -119,7 +119,7 @@ pub struct Service {
     signal: drain::Signal,
 
     /// cancellation token to stop the server main loop
-    cancellation_token: CancellationToken,
+    cancellation_tokens: HashMap<String, CancellationToken>,
 }
 
 impl Service {
@@ -134,7 +134,7 @@ impl Service {
             session_layers: RwLock::new(HashMap::new()),
             watch,
             signal,
-            cancellation_token: CancellationToken::new(),
+            cancellation_tokens: HashMap::new(),
         }
     }
 
@@ -160,15 +160,16 @@ impl Service {
     /// Run the service
     pub async fn run(&self) -> Result<(), ServiceError> {
         // Check that at least one client or server is configured
-        if self.config.server().is_none() && self.config.clients.is_empty() {
+        if self.config.servers().is_none() && self.config.clients.is_empty() {
             return Err(ServiceError::ConfigError(
                 "no server or clients configured".to_string(),
             ));
         }
 
-        if self.config.server().is_some() {
-            info!("starting server");
-            self.serve(None)?;
+        for server in self.config.servers() {
+            info!("starting server {}", server.endpoint);
+            self.run_server(server)
+                .map_err(|e| ServiceError::ConfigError(e.to_string()))?;
         }
 
         for (i, client) in self.config.clients.iter().enumerate() {
@@ -246,25 +247,8 @@ impl Service {
         }
     }
 
-    pub fn serve(&self, new_config: Option<ServerConfig>) -> Result<(), ServiceError> {
-        // if no new config is provided, try to get it from local configuration
-        let config = match &new_config {
-            Some(c) => c,
-            None => {
-                // make sure at least one client is configured
-                if self.config.server().is_none() {
-                    error!("no server configured");
-                    return Err(ServiceError::ConfigError(
-                        "no server configured".to_string(),
-                    ));
-                }
-
-                // get the server config
-                self.config.server().unwrap()
-            }
-        };
-
-        info!("server configured: setting it up");
+    pub fn run_server(&self, config: &ServerConfig) -> Result<(), ServiceError> {
+        info!(%config, "server configured: setting it up");
         let server_future = config
             .to_server_future(&[PubSubServiceServer::from_arc(
                 self.message_processor.clone(),
@@ -274,7 +258,10 @@ impl Service {
         // clone the watcher to be notified when the service is shutting down
         let drain_rx = self.watch.clone();
 
-        let token = self.cancellation_token.clone();
+        // create a new cancellation token
+        let token = CancellationToken::new();
+        self.cancellation_tokens
+            .insert(config.endpoint.clone(), token.clone());
 
         // spawn server acceptor in a new task
         tokio::spawn(async move {
@@ -305,28 +292,16 @@ impl Service {
         Ok(())
     }
 
-    pub fn stop(&self) {
-        self.cancellation_token.cancel();
+    pub fn stop_server(&mut self, endpoint: &str) {
+        // stop the server
+        if let Some(token) = self.cancellation_tokens.remove(endpoint) {
+            token.cancel();
+        } else {
+            error!("server {} not found", endpoint);
+        }
     }
 
-    pub async fn connect(&self, new_config: Option<ClientConfig>) -> Result<u64, ServiceError> {
-        // if no new config is provided, try to get it from local configuration
-        let config = match &new_config {
-            Some(c) => c,
-            None => {
-                // make sure at least one client is configured
-                if self.config.clients.is_empty() {
-                    error!("no client configured");
-                    return Err(ServiceError::ConfigError(
-                        "no client configured".to_string(),
-                    ));
-                }
-
-                // get the first client
-                &self.config.clients[0]
-            }
-        };
-
+    pub async fn connect(&self, config: ClientConfig) -> Result<u64, ServiceError> {
         match config.to_channel() {
             Err(e) => {
                 error!("error reading channel config {:?}", e);
@@ -768,7 +743,7 @@ mod tests {
     #[tokio::test]
     async fn test_service_configuration() {
         let config = ServiceConfiguration::new();
-        assert_eq!(config.server(), None);
+        assert_eq!(config.servers(), None);
         assert_eq!(config.clients(), &[]);
     }
 

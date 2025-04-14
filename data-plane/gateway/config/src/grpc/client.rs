@@ -1,6 +1,9 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
+#[cfg(feature = "pyo3")]
+use pyo3::prelude::*;
+
 use duration_str::deserialize_duration;
 use std::time::Duration;
 use std::{collections::HashMap, str::FromStr};
@@ -28,6 +31,7 @@ use crate::tls::{client::TlsClientConfig as TLSSetting, common::RustlsConfigLoad
 /// the timeout duration for the keepalive, and whether to permit
 /// keepalive without an active stream.
 #[derive(Debug, Deserialize, PartialEq, Clone)]
+#[cfg_attr(feature = "pyo3", derive(IntoPyObject))]
 pub struct KeepaliveConfig {
     /// The duration of the keepalive time for TCP
     #[serde(
@@ -93,12 +97,28 @@ pub enum AuthenticationConfig {
     None,
 }
 
+#[cfg(feature = "pyo3")]
+impl<'py> IntoPyObject<'py> for AuthenticationConfig {
+    type Target = pyo3::types::PyDict; // the Python type
+    type Output = Bound<'py, Self::Target>; // in most cases this will be `Bound`
+    type Error = PyErr; // the conversion error type, has to be convertable to `PyErr`
+
+    fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
+        match self {
+            AuthenticationConfig::Basic(basic) => basic.into_pyobject(py),
+            AuthenticationConfig::Bearer(bearer) => bearer.into_pyobject(py),
+            AuthenticationConfig::None => Ok(pyo3::types::PyDict::new(py).into()),
+        }
+    }
+}
+
 /// Struct for the client configuration.
 /// This struct contains the endpoint, origin, compression type, rate limit,
 /// TLS settings, keepalive settings, timeout settings, buffer size settings,
 /// headers, and auth settings.
 /// The client configuration can be converted to a tonic channel.
 #[derive(Debug, Deserialize, Clone, PartialEq)]
+#[cfg_attr(feature = "pyo3", derive(IntoPyObject))]
 pub struct ClientConfig {
     /// The target the client will connect to.
     pub endpoint: String,

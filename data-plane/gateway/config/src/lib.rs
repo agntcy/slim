@@ -7,3 +7,4 @@ pub mod grpc;
 pub mod provider;
 pub mod testutils;
 pub mod tls;
+pub mod opaque;

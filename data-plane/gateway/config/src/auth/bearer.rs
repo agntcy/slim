@@ -1,14 +1,18 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
+#[cfg(feature = "pyo3")]
+use pyo3::IntoPyObject;
+
 use serde::Deserialize;
 use tower_http::auth::{AddAuthorizationLayer, require_authorization::Bearer};
 use tower_http::validate_request::ValidateRequestHeaderLayer;
 
 use super::{AuthError, ClientAuthenticator, ServerAuthenticator};
-use agp_tracing::opaque::OpaqueString;
+use crate::opaque::OpaqueString;
 
 #[derive(Debug, Deserialize, Clone, PartialEq)]
+#[cfg_attr(feature = "pyo3", derive(IntoPyObject))]
 pub struct Config {
     token: OpaqueString,
 }
