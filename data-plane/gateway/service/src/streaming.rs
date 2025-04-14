@@ -622,6 +622,13 @@ async fn process_message_from_gw(
                 receiver.rtx_map.remove(&rtx_msg_id);
             }
         }
+    }
+    if header_type == SessionHeaderType::Beacon {
+        let beacon_msg_id = msg.get_id();
+        info!("received beacon for message {}", beacon_msg_id);
+        // TODO complete this part
+        let _rtx = receiver.buffer.on_beacon_message(beacon_msg_id);
+        return;
     } else if header_type != SessionHeaderType::Stream && header_type != SessionHeaderType::PubSub {
         error!(
             "received packet with invalid header type {} on session {}",
@@ -635,64 +642,56 @@ async fn process_message_from_gw(
         // a message cannot be recovered
         let msg_id = msg.get_id();
         debug!("received an error RTX reply for message {}", msg_id);
-        match receiver.buffer.on_lost_message(msg_id) {
-            Ok(recv) => {
-                send_message_to_app(recv, session_id, send_app).await;
-            }
-            Err(e) => {
-                error!("error adding message lost to the buffer: {}", e.to_string());
-            }
-        }
+        send_message_to_app(
+            receiver.buffer.on_lost_message(msg_id),
+            session_id,
+            send_app,
+        )
+        .await;
         return;
     }
 
-    match receiver.buffer.on_received_message(msg) {
-        Ok((recv, rtx)) => {
-            // send packets to the app
-            send_message_to_app(recv, session_id, send_app).await;
+    let (recv, rtx) = receiver.buffer.on_received_message(msg);
+    // send packets to the app
+    send_message_to_app(recv, session_id, send_app).await;
 
-            // send RTX
-            for r in rtx {
-                debug!(
-                    "packet loss detected on session {}, send RTX for id {}",
-                    session_id, r
-                );
+    // send RTX
+    for r in rtx {
+        debug!(
+            "packet loss detected on session {}, send RTX for id {}",
+            session_id, r
+        );
 
-                let agp_header = Some(AgpHeader::new(
-                    source,
-                    producer_name.agent_type(),
-                    Some(producer_name.agent_id()),
-                    Some(AgpHeaderFlags::default().with_forward_to(producer_conn)),
-                ));
+        let agp_header = Some(AgpHeader::new(
+            source,
+            producer_name.agent_type(),
+            Some(producer_name.agent_id()),
+            Some(AgpHeaderFlags::default().with_forward_to(producer_conn)),
+        ));
 
-                let session_header = Some(SessionHeader::new(
-                    SessionHeaderType::RtxRequest.into(),
-                    session_id,
-                    r,
-                ));
+        let session_header = Some(SessionHeader::new(
+            SessionHeaderType::RtxRequest.into(),
+            session_id,
+            r,
+        ));
 
-                let rtx = Message::new_publish_with_headers(agp_header, session_header, "", vec![]);
+        let rtx = Message::new_publish_with_headers(agp_header, session_header, "", vec![]);
 
-                // set state for RTX
-                let timer = timer::Timer::new(
-                    r,
-                    timer::TimerType::Constant,
-                    timeout,
-                    None,
-                    Some(max_retries),
-                );
-                timer.start(receiver.timer_observer.clone());
+        // set state for RTX
+        let timer = timer::Timer::new(
+            r,
+            timer::TimerType::Constant,
+            timeout,
+            None,
+            Some(max_retries),
+        );
+        timer.start(receiver.timer_observer.clone());
 
-                receiver.rtx_map.insert(r, rtx.clone());
-                receiver.timers_map.insert(r, timer);
+        receiver.rtx_map.insert(r, rtx.clone());
+        receiver.timers_map.insert(r, timer);
 
-                if send_gw.send(Ok(rtx)).await.is_err() {
-                    error!("error sending RTX for id {} on session {}", r, session_id);
-                }
-            }
-        }
-        Err(e) => {
-            error!("error adding message to the buffer: {}", e.to_string());
+        if send_gw.send(Ok(rtx)).await.is_err() {
+            error!("error sending RTX for id {} on session {}", r, session_id);
         }
     }
 }
@@ -764,14 +763,12 @@ async fn handle_rtx_failure(
     receiver.rtx_map.remove(&msg_id);
     receiver.timers_map.remove(&msg_id);
 
-    match receiver.buffer.on_lost_message(msg_id) {
-        Ok(recv) => {
-            send_message_to_app(recv, session_id, send_app).await;
-        }
-        Err(e) => {
-            error!("error adding message lost to the buffer: {}", e.to_string());
-        }
-    };
+    send_message_to_app(
+        receiver.buffer.on_lost_message(msg_id),
+        session_id,
+        send_app,
+    )
+    .await;
 }
 
 async fn send_beacon_msg(
