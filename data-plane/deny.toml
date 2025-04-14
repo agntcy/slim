@@ -27,7 +27,7 @@ exceptions = []
 
 [bans]
 # TODO: Remove duplicate dependencies.
-# multiple-versions = "allow"
+multiple-versions = "allow"
 wildcards = "allow"
 highlight = "all"
 deny = [
