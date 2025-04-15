@@ -35,16 +35,6 @@ from ._agp_bindings import (
 )
 
 
-# class TimeoutError(RuntimeError):
-#     """
-#     Custom exception class for timeout errors.
-#     """
-
-#     def __init__(self, message_id: int, session_id: int):
-#         self.message = f"Timeout error: message={message_id} session={session_id}"
-#         super().__init__(self.message)
-
-
 class AGPTimeoutError(TimeoutError):
     """
     Exception raised for AGP timeout errors.
