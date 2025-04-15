@@ -173,4 +173,23 @@ mod tests {
         assert_eq!(msg.message, message);
         assert_eq!(msg.info.id, 1);
     }
+
+    #[tokio::test]
+    async fn test_session_delete() {
+        let (tx_gw, _) = tokio::sync::mpsc::channel(1);
+        let (tx_app, _) = tokio::sync::mpsc::channel(1);
+
+        let source = Agent::from_strings("cisco", "default", "local_agent", 0);
+
+        {
+            let _session = FireAndForget::new(
+                0,
+                FireAndForgetConfiguration {},
+                SessionDirection::Bidirectional,
+                source,
+                tx_gw,
+                tx_app,
+            );
+        }
+    }
 }

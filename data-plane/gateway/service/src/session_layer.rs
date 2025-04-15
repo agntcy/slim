@@ -387,6 +387,31 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_delete_session() {
+        let (tx_gw, _) = tokio::sync::mpsc::channel(1);
+        let (tx_app, _) = tokio::sync::mpsc::channel(1);
+        let agent = Agent::from_strings("org", "ns", "type", 0);
+
+        let session_layer = SessionLayer::new(&agent, 0, tx_gw.clone(), tx_app.clone());
+
+        let res = session_layer
+            .create_session(
+                SessionConfig::FireAndForget(FireAndForgetConfiguration {}),
+                Some(1),
+            )
+            .await;
+        assert!(res.is_ok());
+
+        let res = session_layer.remove_session(1).await;
+        assert!(res);
+
+        // try to delete a non-existing session
+        let res = session_layer.remove_session(1).await;
+        assert!(!res);
+    }
+
+
+    #[tokio::test]
     async fn test_handle_message() {
         let (tx_gw, _) = tokio::sync::mpsc::channel(1);
         let (tx_app, mut rx_app) = tokio::sync::mpsc::channel(1);

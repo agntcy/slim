@@ -333,6 +333,8 @@ impl Streaming {
                     }
                 }
             }
+
+            debug!("stopping message processing on streaming session {}", session_id);
         });
     }
 }
@@ -1244,5 +1246,34 @@ mod tests {
                 Some(0)
             )
         );
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_session_delete() {
+        let (tx_gw, _) = tokio::sync::mpsc::channel(1);
+        let (tx_app, _) = tokio::sync::mpsc::channel(1);
+
+        let source = Agent::from_strings("cisco", "default", "local_agent", 0);
+
+        let session_config: StreamingConfiguration =
+            StreamingConfiguration::new(SessionDirection::Sender, None, None, None);
+
+        {
+            let _session = Streaming::new(
+                0,
+                session_config.clone(),
+                SessionDirection::Sender,
+                source.clone(),
+                tx_gw.clone(),
+                tx_app.clone(),
+            );
+        }
+
+        // session should be deleted, make sure the process loop is also closed
+        time::sleep(Duration::from_millis(100)).await;
+
+        // check that the session is deleted, by checking the log
+        assert!(logs_contain("stopping message processing on streaming session 0"));
     }
 }

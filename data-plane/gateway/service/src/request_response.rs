@@ -369,4 +369,28 @@ mod tests {
             _ => panic!("unexpected error"),
         }
     }
+
+    #[tokio::test]
+    async fn test_session_delete() {
+        let (tx_gw, _) = tokio::sync::mpsc::channel(1);
+        let (tx_app, _) = tokio::sync::mpsc::channel(1);
+
+        let session_config = RequestResponseConfiguration {
+            max_retries: 0,
+            timeout: std::time::Duration::from_millis(1000),
+        };
+
+        let source = Agent::from_strings("cisco", "default", "local_agent", 0);
+
+        {
+            let _session = RequestResponse::new(
+                0,
+                session_config,
+                SessionDirection::Bidirectional,
+                source,
+                tx_gw,
+                tx_app,
+            );
+        }
+    }
 }
