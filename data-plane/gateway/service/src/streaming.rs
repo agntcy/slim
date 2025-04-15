@@ -928,7 +928,7 @@ mod tests {
             assert_eq!(rtx_header.message_id, 1);
             assert_eq!(
                 rtx_header.header_type,
-                <SessionHeaderType as Into<i32>>::into(SessionHeaderType::RtxRequest)
+                i32::from(SessionHeaderType::RtxRequest)
             );
         }
 
@@ -993,7 +993,7 @@ mod tests {
             assert_eq!(msg_header.message_id, i);
             assert_eq!(
                 msg_header.header_type,
-                <SessionHeaderType as Into<i32>>::into(SessionHeaderType::Stream)
+                i32::from(SessionHeaderType::Stream)
             );
         }
 

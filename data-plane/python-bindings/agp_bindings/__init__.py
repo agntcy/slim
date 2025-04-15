@@ -11,7 +11,6 @@ from ._agp_bindings import (
     SESSION_UNSPECIFIED,
     PyAgentType,
     PyFireAndForgetConfiguration,
-    # PyGatewayConfig as GatewayConfig,
     PyRequestResponseConfiguration,
     PyService,
     PySessionDirection as PySessionDirection,
