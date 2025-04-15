@@ -33,6 +33,8 @@ pub enum ServiceError {
     SessionNotFound(String),
     #[error("error in session: {0}")]
     SessionError(String),
+    #[error("client already connected: {0}")]
+    ClientAlreadyConnected(String),
     #[error("unknown error")]
     Unknown,
 }

@@ -178,8 +178,13 @@ async fn main() {
         .await
         .expect("failed to create agent");
 
-    // connect to the remote gateway
-    let conn_id = svc.connect(None).await.unwrap();
+    // run the service - this will create all the connections provided via the config file.
+    svc.run().await.unwrap();
+
+    // get the connection id
+    let conn_id = svc
+        .get_connection_id(&svc.config().clients()[0].endpoint)
+        .unwrap();
     info!("remote connection id = {}", conn_id);
 
     // subscribe for local name
