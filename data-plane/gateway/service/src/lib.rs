@@ -170,7 +170,7 @@ impl Service {
     }
 
     /// Run the service
-    pub async fn run(&self) -> Result<(), ServiceError> {
+    pub async fn run(&mut self) -> Result<(), ServiceError> {
         // Check that at least one client or server is configured
         if self.config.servers().is_empty() && self.config.clients.is_empty() {
             return Err(ServiceError::ConfigError(
@@ -698,7 +698,7 @@ impl Component for Service {
         &self.id
     }
 
-    async fn start(&self) -> Result<(), ComponentError> {
+    async fn start(&mut self) -> Result<(), ComponentError> {
         info!("starting service");
         self.run()
             .await
@@ -780,7 +780,7 @@ mod tests {
         let server_config =
             ServerConfig::with_endpoint("0.0.0.0:12345").with_tls_settings(tls_config);
         let config = ServiceConfiguration::new().with_server([server_config].to_vec());
-        let service = config
+        let mut service = config
             .build_server(ID::new_with_name(Kind::new(KIND).unwrap(), "test").unwrap())
             .unwrap();
 

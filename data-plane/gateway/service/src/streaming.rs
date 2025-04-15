@@ -928,7 +928,7 @@ mod tests {
             assert_eq!(rtx_header.message_id, 1);
             assert_eq!(
                 rtx_header.header_type,
-                <SessionHeaderType as Into<i32>>::into(SessionHeaderType::RtxRequest)
+                i32::from(SessionHeaderType::RtxRequest)
             );
         }
 
@@ -991,10 +991,7 @@ mod tests {
             let msg_header = msg.get_session_header();
             assert_eq!(msg_header.session_id, 120);
             assert_eq!(msg_header.message_id, i);
-            assert_eq!(
-                msg_header.header_type,
-                <SessionHeaderType as Into<i32>>::into(SessionHeaderType::Stream)
-            );
+            assert_eq!(msg_header.header_type, i32::from(SessionHeaderType::Stream));
         }
 
         let agp_header = Some(AgpHeader::new(

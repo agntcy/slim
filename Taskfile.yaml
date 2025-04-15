@@ -9,13 +9,18 @@ includes:
     flatten: true
     dir: ./control-plane
   data-plane:
-    taskfile: data-plane/Taskfile.yml
+    taskfile: data-plane/Taskfile.yaml
     flatten: true
     dir: ./data-plane
 
 silent: true
 
 tasks:
+  default:
+    cmds:
+      - task: toolchain:print-vars
+      - task -l
+
   version:
     desc: Get version
     cmds:
