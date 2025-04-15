@@ -11,14 +11,14 @@ async def server(request):
     global svc_server
     svc_server = await agp_bindings.create_pyservice("cisco", "default", "server")
 
-    # configure it
-    svc_server.configure(agp_bindings.GatewayConfig(endpoint=request.param, insecure=True))
-
     # init tracing
     agp_bindings.init_tracing(log_level="info")
 
     # run gateway server in background
-    await agp_bindings.serve(svc_server)
+    await agp_bindings.run_server(
+        svc_server,
+        {"endpoint": request.param, "tls": {"insecure": True}},
+    )
 
     # wait for the server to start
     await asyncio.sleep(1)

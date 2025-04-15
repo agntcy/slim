@@ -22,10 +22,11 @@ async def test_streaming(server):
 
     # create new gateway object
     producer = await agp_bindings.Gateway.new(org, ns, agent)
-    producer.configure(agp_bindings.GatewayConfig(endpoint="http://127.0.0.1:12365", insecure=True))
 
     # Connect to the service and subscribe for the local name
-    _ = await producer.connect()
+    _ = await producer.connect(
+        {"endpoint": "http://127.0.0.1:12365", "tls_settings": {"insecure": True}}
+    )
 
     # set route for the producer, so that messages can be sent to consumer that
     # subscribed to the producer topic
@@ -49,10 +50,11 @@ async def test_streaming(server):
         print(f"Creating consumer {name}...")
 
         consumer = await agp_bindings.Gateway.new(org, ns, name)
-        consumer.configure(agp_bindings.GatewayConfig(endpoint="http://127.0.0.1:12365", insecure=True))
 
         # Connect to gateway server
-        _ = await consumer.connect()
+        _ = await consumer.connect(
+            {"endpoint": "http://127.0.0.1:12365", "tls_settings": {"insecure": True}}
+        )
 
         # Subscribe to the producer topic
         await consumer.subscribe(org, ns, broadcast_topic)
@@ -69,7 +71,9 @@ async def test_streaming(server):
             while True:
                 try:
                     # receive message from session
-                    recv_session, msg_rcv = await consumer.receive(session=recv_session.id)
+                    recv_session, msg_rcv = await consumer.receive(
+                        session=recv_session.id
+                    )
 
                     # increase the count
                     local_count += 1
@@ -78,7 +82,9 @@ async def test_streaming(server):
                     assert msg_rcv.startswith(bytes(pub_msg.encode()))
 
                     # print the message
-                    print(f"{name} -> Received: {msg_rcv.decode()}, local count: {local_count}")
+                    print(
+                        f"{name} -> Received: {msg_rcv.decode()}, local count: {local_count}"
+                    )
 
                     # increment the count
                     counts[index] += 1
@@ -133,4 +139,6 @@ async def test_streaming(server):
 
     # make sure the counts are correct
     for i in range(consumers_count):
-        assert counts[i] == count, f"Consumer {i} received {counts[i]} messages, expected {count}"
+        assert (
+            counts[i] == count
+        ), f"Consumer {i} received {counts[i]} messages, expected {count}"

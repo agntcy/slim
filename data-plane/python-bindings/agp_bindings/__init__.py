@@ -5,10 +5,12 @@ import asyncio
 from typing import Optional
 
 from ._agp_bindings import (
+        __version__,
+    build_profile,
+    build_info,
     SESSION_UNSPECIFIED,
     PyAgentType,
     PyFireAndForgetConfiguration,
-    PyGatewayConfig as GatewayConfig,
     PyRequestResponseConfiguration,
     PyService,
     PySessionDirection as PySessionDirection,
@@ -24,9 +26,9 @@ from ._agp_bindings import (
     publish,
     receive,
     remove_route,
-    serve,
+    run_server,
     set_route,
-    stop,
+    stop_server,
     subscribe,
     unsubscribe,
 )
@@ -73,6 +75,9 @@ class Gateway:
         # Save local names
         self.local_name = PyAgentType(organization, namespace, agent)
         self.local_id = self.svc.id
+
+        # Create connection ID map
+        self.conn_ids: dict[str, int] = {}
 
     async def __aenter__(self):
         """
@@ -158,19 +163,6 @@ class Gateway:
 
         return self.svc.id
 
-    def configure(self, config: GatewayConfig):
-        """
-        Configure the gateway.
-
-        Args:
-            config (GatewayConfig): The gateway configuration class.
-
-        Returns:
-            None
-        """
-
-        self.svc.configure(config)
-
     async def create_ff_session(
         self,
         session_config: PyFireAndForgetConfiguration = PyFireAndForgetConfiguration(),
@@ -237,7 +229,7 @@ class Gateway:
         self.sessions[session.id] = (session, asyncio.Queue(queue_size))
         return session
 
-    async def run_server(self):
+    async def run_server(self, config: dict):
         """
         Start the server part of the Gateway service. The server will be started only
         if its configuration is set. Otherwise, it will raise an error.
@@ -249,9 +241,9 @@ class Gateway:
             None
         """
 
-        await serve(self.svc)
+        await run_server(self.svc, config)
 
-    async def stop_server(self):
+    async def stop_server(self, endpoint: str):
         """
         Stop the server part of the Gateway service.
 
@@ -262,9 +254,9 @@ class Gateway:
             None
         """
 
-        await stop(self.svc)
+        await stop_server(self.svc, endpoint)
 
-    async def connect(self) -> int:
+    async def connect(self, client_config: dict) -> int:
         """
         Connect to a remote gateway service.
         This function will block until the connection is established.
@@ -276,15 +268,24 @@ class Gateway:
             int: The connection ID.
         """
 
-        self.conn_id = await connect(self.svc)
+        conn_id = await connect(
+            self.svc,
+            client_config,
+        )
+
+        # Save the connection ID
+        self.conn_ids[client_config["endpoint"]] = conn_id
+
+        # For the moment we manage one connection only
+        self.conn_id = conn_id
 
         # Subscribe to the local name
-        await subscribe(self.svc, self.conn_id, self.local_name, self.local_id)
+        await subscribe(self.svc, conn_id, self.local_name, self.local_id)
 
         # return the connection ID
-        return self.conn_id
+        return conn_id
 
-    async def disconnect(self):
+    async def disconnect(self, endpoint: str):
         """
         Disconnect from a remote gateway service.
         This function will block until the disconnection is complete.
@@ -296,11 +297,15 @@ class Gateway:
             None
 
         """
-
-        await disconnect(self.svc, self.conn_id)
+        conn = self.conn_ids[endpoint]
+        await disconnect(self.svc, conn)
 
     async def set_route(
-        self, organization: str, namespace: str, agent: str, id: Optional[int] = None
+        self,
+        organization: str,
+        namespace: str,
+        agent: str,
+        id: Optional[int] = None,
     ):
         """
         Set route for outgoing messages via the connected gateway.

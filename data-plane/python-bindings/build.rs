@@ -28,7 +28,13 @@ pub fn main() {
 
     set_env(
         "VERSION",
-        Command::new("git").args(["describe", "--tags", "--always", "--match", "agp-gw-v*"]),
+        Command::new("git").args([
+            "describe",
+            "--tags",
+            "--always",
+            "--match",
+            "agp-bindings-v*",
+        ]),
     );
 
     let profile = std::env::var("PROFILE").expect("PROFILE must be set");

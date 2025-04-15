@@ -4,6 +4,7 @@
 use pyo3::prelude::*;
 use pyo3_stub_gen::derive::gen_stub_pyclass;
 use pyo3_stub_gen::derive::gen_stub_pymethods;
+use tokio::sync::OnceCell;
 
 use agp_datapath::messages::encoder::AgentType;
 
@@ -11,7 +12,7 @@ use agp_datapath::messages::encoder::AgentType;
 #[gen_stub_pyclass]
 #[pyclass]
 #[derive(Clone)]
-pub(crate) struct PyAgentType {
+pub struct PyAgentType {
     #[pyo3(get, set)]
     pub organization: String,
 
@@ -45,4 +46,30 @@ impl PyAgentType {
             agent_type: agent_class,
         }
     }
+}
+
+async fn init_tracing_impl(log_level: String, enable_opentelemetry: bool) {
+    static TRACING_GUARD: OnceCell<agp_tracing::OtelGuard> = OnceCell::const_new();
+
+    let _ = TRACING_GUARD
+        .get_or_init(|| async {
+            let mut config = agp_tracing::TracingConfiguration::default().with_log_level(log_level);
+
+            if enable_opentelemetry {
+                config = config.clone().enable_opentelemetry();
+            }
+
+            let otel_guard = config.setup_tracing_subscriber();
+
+            otel_guard
+        })
+        .await;
+}
+
+#[pyfunction]
+#[pyo3(signature = (log_level="info".to_string(), enable_opentelemetry=false,))]
+pub fn init_tracing(py: Python, log_level: String, enable_opentelemetry: bool) {
+    let _ = pyo3_async_runtimes::tokio::future_into_py(py, async move {
+        Ok(init_tracing_impl(log_level, enable_opentelemetry).await)
+    });
 }

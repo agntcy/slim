@@ -926,7 +926,10 @@ mod tests {
             let rtx_header = rtx_msg.get_session_header();
             assert_eq!(rtx_header.session_id, 0);
             assert_eq!(rtx_header.message_id, 1);
-            assert_eq!(rtx_header.header_type, SessionHeaderType::RtxRequest.into());
+            assert_eq!(
+                rtx_header.header_type,
+                i32::from(SessionHeaderType::RtxRequest)
+            );
         }
 
         time::sleep(Duration::from_millis(1000)).await;
@@ -988,7 +991,7 @@ mod tests {
             let msg_header = msg.get_session_header();
             assert_eq!(msg_header.session_id, 120);
             assert_eq!(msg_header.message_id, i);
-            assert_eq!(msg_header.header_type, SessionHeaderType::Stream.into());
+            assert_eq!(msg_header.header_type, i32::from(SessionHeaderType::Stream));
         }
 
         let agp_header = Some(AgpHeader::new(
@@ -1024,7 +1027,10 @@ mod tests {
         let msg_header = msg.get_session_header();
         assert_eq!(msg_header.session_id, 120);
         assert_eq!(msg_header.message_id, 2);
-        assert_eq!(msg_header.header_type, SessionHeaderType::RtxReply.into());
+        assert_eq!(
+            msg_header.header_type,
+            i32::from(SessionHeaderType::RtxReply)
+        );
         assert_eq!(msg.get_payload().unwrap().blob, vec![0x1, 0x2, 0x3, 0x4]);
     }
 
@@ -1090,7 +1096,7 @@ mod tests {
             let msg_header = msg.get_session_header();
             assert_eq!(msg_header.session_id, 0);
             assert_eq!(msg_header.message_id, i);
-            assert_eq!(msg_header.header_type, SessionHeaderType::Stream.into());
+            assert_eq!(msg_header.header_type, i32::from(SessionHeaderType::Stream));
 
             // the receiver should detect a loss for packet 1
             if i != 1 {
@@ -1109,7 +1115,7 @@ mod tests {
         let msg_header = msg.message.get_session_header();
         assert_eq!(msg_header.session_id, 0);
         assert_eq!(msg_header.message_id, 0);
-        assert_eq!(msg_header.header_type, SessionHeaderType::Stream.into());
+        assert_eq!(msg_header.header_type, i32::from(SessionHeaderType::Stream));
         assert_eq!(
             msg.message.get_source(),
             Agent::from_strings("cisco", "default", "sender", 0)
@@ -1127,7 +1133,10 @@ mod tests {
         let msg_header = msg.get_session_header();
         assert_eq!(msg_header.session_id, 0);
         assert_eq!(msg_header.message_id, 1);
-        assert_eq!(msg_header.header_type, SessionHeaderType::RtxRequest.into());
+        assert_eq!(
+            msg_header.header_type,
+            i32::from(SessionHeaderType::RtxRequest)
+        );
         assert_eq!(
             msg.get_source(),
             Agent::from_strings("cisco", "default", "receiver", 0)
@@ -1144,7 +1153,10 @@ mod tests {
         let msg_header = msg.get_session_header();
         assert_eq!(msg_header.session_id, 0);
         assert_eq!(msg_header.message_id, 1);
-        assert_eq!(msg_header.header_type, SessionHeaderType::RtxRequest.into());
+        assert_eq!(
+            msg_header.header_type,
+            i32::from(SessionHeaderType::RtxRequest)
+        );
         assert_eq!(
             msg.get_source(),
             Agent::from_strings("cisco", "default", "receiver", 0)
@@ -1171,7 +1183,10 @@ mod tests {
         let msg_header = msg.get_session_header();
         assert_eq!(msg_header.session_id, 0);
         assert_eq!(msg_header.message_id, 1);
-        assert_eq!(msg_header.header_type, SessionHeaderType::RtxReply.into());
+        assert_eq!(
+            msg_header.header_type,
+            i32::from(SessionHeaderType::RtxReply)
+        );
         assert_eq!(
             msg.get_source(),
             Agent::from_strings("cisco", "default", "sender", 0)
@@ -1197,7 +1212,10 @@ mod tests {
         let msg_header = msg.message.get_session_header();
         assert_eq!(msg_header.session_id, 0);
         assert_eq!(msg_header.message_id, 1);
-        assert_eq!(msg_header.header_type, SessionHeaderType::RtxReply.into());
+        assert_eq!(
+            msg_header.header_type,
+            i32::from(SessionHeaderType::RtxReply)
+        );
         assert_eq!(
             msg.message.get_source(),
             Agent::from_strings("cisco", "default", "sender", 0)
@@ -1214,7 +1232,7 @@ mod tests {
         let msg_header = msg.message.get_session_header();
         assert_eq!(msg_header.session_id, 0);
         assert_eq!(msg_header.message_id, 2);
-        assert_eq!(msg_header.header_type, SessionHeaderType::Stream.into());
+        assert_eq!(msg_header.header_type, i32::from(SessionHeaderType::Stream));
         assert_eq!(
             msg.message.get_source(),
             Agent::from_strings("cisco", "default", "sender", 0)

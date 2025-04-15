@@ -296,12 +296,13 @@ impl Service {
         Ok(())
     }
 
-    pub fn stop_server(&self, endpoint: &str) {
+    pub fn stop_server(&self, endpoint: &str) -> Result<(), ServiceError> {
         // stop the server
         if let Some(token) = self.cancellation_tokens.write().remove(endpoint) {
             token.cancel();
+            Ok(())
         } else {
-            error!("server {} not found", endpoint);
+            Err(ServiceError::ServerNotFound(endpoint.to_string()))
         }
     }
 

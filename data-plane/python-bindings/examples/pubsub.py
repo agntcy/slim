@@ -12,7 +12,9 @@ import agp_bindings
 
 async def run_client(local_id, remote_id, address, enable_opentelemetry: bool):
     # init tracing
-    agp_bindings.init_tracing(log_level="info", enable_opentelemetry=enable_opentelemetry)
+    agp_bindings.init_tracing(
+        log_level="info", enable_opentelemetry=enable_opentelemetry
+    )
 
     # Split the local IDs into their respective components
     local_organization, local_namespace, local_agent = split_id(local_id)
@@ -24,11 +26,14 @@ async def run_client(local_id, remote_id, address, enable_opentelemetry: bool):
 
     print(f"Creating participant {name}...")
 
-    participant = await agp_bindings.Gateway.new(local_organization, local_namespace, local_agent)
-    participant.configure(agp_bindings.GatewayConfig(endpoint=address, insecure=True))
+    participant = await agp_bindings.Gateway.new(
+        local_organization, local_namespace, local_agent
+    )
 
     # Connect to gateway server
-    _ = await participant.connect()
+    _ = await participant.connect(
+        {"endpoint": address, "tls_settings": {"insecure": True}}
+    )
 
     # set route for the chat, so that messages can be sent to the other participants
     await participant.set_route(remote_organization, remote_namespace, broadcast_topic)
@@ -42,7 +47,9 @@ async def run_client(local_id, remote_id, address, enable_opentelemetry: bool):
     session_info = await participant.create_streaming_session(
         agp_bindings.PyStreamingConfiguration(
             agp_bindings.PySessionDirection.BIDIRECTIONAL,
-            topic=agp_bindings.PyAgentType(remote_organization, remote_namespace, broadcast_topic),
+            topic=agp_bindings.PyAgentType(
+                remote_organization, remote_namespace, broadcast_topic
+            ),
             max_retries=5,
             timeout=datetime.timedelta(seconds=5),
         )
@@ -56,7 +63,9 @@ async def run_client(local_id, remote_id, address, enable_opentelemetry: bool):
             while True:
                 try:
                     # receive message from session
-                    recv_session, msg_rcv = await participant.receive(session=session_info.id)
+                    recv_session, msg_rcv = await participant.receive(
+                        session=session_info.id
+                    )
 
                     # Check if the message is calling this specific participant
                     # if not, ignore it
@@ -75,7 +84,9 @@ async def run_client(local_id, remote_id, address, enable_opentelemetry: bool):
 
                         print(f"{name} -> Sending message to all participants: {msg}")
                     else:
-                        print(f"{name} -> Receiving message: {msg_rcv.decode()} - not for me.")
+                        print(
+                            f"{name} -> Receiving message: {msg_rcv.decode()} - not for me."
+                        )
                 except asyncio.CancelledError:
                     break
                 except Exception as e:
@@ -108,7 +119,9 @@ async def run_client(local_id, remote_id, address, enable_opentelemetry: bool):
 
 
 async def main():
-    parser = argparse.ArgumentParser(description="Command line client for message passing.")
+    parser = argparse.ArgumentParser(
+        description="Command line client for message passing."
+    )
     parser.add_argument(
         "-l",
         "--local",
