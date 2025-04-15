@@ -410,7 +410,6 @@ mod tests {
         assert!(!res);
     }
 
-
     #[tokio::test]
     async fn test_handle_message() {
         let (tx_gw, _) = tokio::sync::mpsc::channel(1);

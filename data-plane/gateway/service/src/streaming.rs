@@ -334,7 +334,10 @@ impl Streaming {
                 }
             }
 
-            debug!("stopping message processing on streaming session {}", session_id);
+            debug!(
+                "stopping message processing on streaming session {}",
+                session_id
+            );
         });
     }
 }
@@ -1274,6 +1277,8 @@ mod tests {
         time::sleep(Duration::from_millis(100)).await;
 
         // check that the session is deleted, by checking the log
-        assert!(logs_contain("stopping message processing on streaming session 0"));
+        assert!(logs_contain(
+            "stopping message processing on streaming session 0"
+        ));
     }
 }
