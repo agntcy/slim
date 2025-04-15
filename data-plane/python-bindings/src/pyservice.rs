@@ -47,7 +47,7 @@ impl PyService {
 }
 
 impl PyService {
-    async fn create_pyservice_impl(
+    async fn create_pyservice(
         organization: String,
         namespace: String,
         agent_type: String,
@@ -83,7 +83,7 @@ impl PyService {
         Ok(PyService { sdk: sdk })
     }
 
-    async fn create_session_impl(
+    async fn create_session(
         &self,
         session_config: session::SessionConfig,
     ) -> Result<PySessionInfo, ServiceError> {
@@ -95,24 +95,24 @@ impl PyService {
         ))
     }
 
-    async fn serve_impl(&self, config: PyGrpcServerConfig) -> Result<(), ServiceError> {
+    async fn run_server(&self, config: PyGrpcServerConfig) -> Result<(), ServiceError> {
         self.sdk.service.run_server(&config)
     }
 
-    async fn stop_impl(&self, endpoint: &str) -> Result<(), ServiceError> {
+    async fn stop_server(&self, endpoint: &str) -> Result<(), ServiceError> {
         self.sdk.service.stop_server(endpoint)
     }
 
-    async fn connect_impl(&self, config: PyGrpcClientConfig) -> Result<u64, ServiceError> {
+    async fn connect(&self, config: PyGrpcClientConfig) -> Result<u64, ServiceError> {
         // Get service and connect
         self.sdk.service.connect(&config).await
     }
 
-    async fn disconnect_impl(&self, conn: u64) -> Result<(), ServiceError> {
+    async fn disconnect(&self, conn: u64) -> Result<(), ServiceError> {
         self.sdk.service.disconnect(conn)
     }
 
-    async fn subscribe_impl(
+    async fn subscribe(
         &self,
         conn: u64,
         name: PyAgentType,
@@ -126,7 +126,7 @@ impl PyService {
             .await
     }
 
-    async fn unsubscribe_impl(
+    async fn unsubscribe(
         &self,
         conn: u64,
         name: PyAgentType,
@@ -139,7 +139,7 @@ impl PyService {
             .await
     }
 
-    async fn set_route_impl(
+    async fn set_route(
         &self,
         conn: u64,
         name: PyAgentType,
@@ -152,7 +152,7 @@ impl PyService {
             .await
     }
 
-    async fn remove_route_impl(
+    async fn remove_route(
         &self,
         conn: u64,
         name: PyAgentType,
@@ -165,7 +165,7 @@ impl PyService {
             .await
     }
 
-    async fn publish_impl(
+    async fn publish(
         &self,
         session_info: session::Info,
         fanout: u32,
@@ -206,7 +206,7 @@ impl PyService {
             .await
     }
 
-    async fn receive_impl(&self) -> Result<(PySessionInfo, Vec<u8>), ServiceError> {
+    async fn receive(&self) -> Result<(PySessionInfo, Vec<u8>), ServiceError> {
         let mut rx = self.sdk.rx.write().await;
 
         // tokio select
@@ -246,7 +246,7 @@ pub fn create_ff_session(
     config: PyFireAndForgetConfiguration,
 ) -> PyResult<Bound<PyAny>> {
     pyo3_async_runtimes::tokio::future_into_py(py, async move {
-        svc.create_session_impl(session::SessionConfig::FireAndForget(
+        svc.create_session(session::SessionConfig::FireAndForget(
             config.fire_and_forget_configuration,
         ))
         .await
@@ -263,7 +263,7 @@ pub fn create_rr_session(
     config: PyRequestResponseConfiguration,
 ) -> PyResult<Bound<PyAny>> {
     pyo3_async_runtimes::tokio::future_into_py(py, async move {
-        svc.create_session_impl(session::SessionConfig::RequestResponse(
+        svc.create_session(session::SessionConfig::RequestResponse(
             config.request_response_configuration,
         ))
         .await
@@ -280,7 +280,7 @@ pub fn create_streaming_session(
     config: PyStreamingConfiguration,
 ) -> PyResult<Bound<PyAny>> {
     pyo3_async_runtimes::tokio::future_into_py(py, async move {
-        svc.create_session_impl(session::SessionConfig::Streaming(
+        svc.create_session(session::SessionConfig::Streaming(
             config.streaming_configuration,
         ))
         .await
@@ -297,7 +297,7 @@ pub fn run_server(py: Python, svc: PyService, config: Py<PyDict>) -> PyResult<Bo
     let config: PyGrpcServerConfig = from_pyobject(config.into_bound(py))?;
 
     pyo3_async_runtimes::tokio::future_into_py(py, async move {
-        svc.serve_impl(config)
+        svc.run_server(config)
             .await
             .map_err(|e| PyErr::new::<PyException, _>(format!("{}", e.to_string())))
     })
@@ -311,7 +311,7 @@ pub fn run_server(py: Python, svc: PyService, config: Py<PyDict>) -> PyResult<Bo
 ))]
 pub fn stop_server(py: Python, svc: PyService, endpoint: String) -> PyResult<Bound<PyAny>> {
     pyo3_async_runtimes::tokio::future_into_py(py, async move {
-        svc.stop_impl(&endpoint)
+        svc.stop_server(&endpoint)
             .await
             .map_err(|e| PyErr::new::<PyException, _>(format!("{}", e.to_string())))
     })
@@ -327,7 +327,7 @@ pub fn connect(py: Python, svc: PyService, config: Py<PyDict>) -> PyResult<Bound
     let config: PyGrpcClientConfig = from_pyobject(config.into_bound(py))?;
 
     pyo3_async_runtimes::tokio::future_into_py(py, async move {
-        svc.connect_impl(config)
+        svc.connect(config)
             .await
             .map_err(|e| PyErr::new::<PyException, _>(format!("{}", e.to_string())))
     })
@@ -337,7 +337,7 @@ pub fn connect(py: Python, svc: PyService, config: Py<PyDict>) -> PyResult<Bound
 #[pyfunction]
 pub fn disconnect(py: Python, svc: PyService, conn: u64) -> PyResult<Bound<PyAny>> {
     pyo3_async_runtimes::tokio::future_into_py(py, async move {
-        svc.disconnect_impl(conn)
+        svc.disconnect(conn)
             .await
             .map_err(|e| PyErr::new::<PyException, _>(format!("{}", e.to_string())))
     })
@@ -354,7 +354,7 @@ pub fn subscribe(
     id: Option<u64>,
 ) -> PyResult<Bound<PyAny>> {
     pyo3_async_runtimes::tokio::future_into_py(py, async move {
-        svc.subscribe_impl(conn, name, id)
+        svc.subscribe(conn, name, id)
             .await
             .map_err(|e| PyErr::new::<PyException, _>(format!("{}", e.to_string())))
     })
@@ -371,7 +371,7 @@ pub fn unsubscribe(
     id: Option<u64>,
 ) -> PyResult<Bound<PyAny>> {
     pyo3_async_runtimes::tokio::future_into_py(py, async move {
-        svc.unsubscribe_impl(conn, name, id)
+        svc.unsubscribe(conn, name, id)
             .await
             .map_err(|e| PyErr::new::<PyException, _>(format!("{}", e.to_string())))
     })
@@ -388,7 +388,7 @@ pub fn set_route(
     id: Option<u64>,
 ) -> PyResult<Bound<PyAny>> {
     pyo3_async_runtimes::tokio::future_into_py(py, async move {
-        svc.set_route_impl(conn, name, id)
+        svc.set_route(conn, name, id)
             .await
             .map_err(|e| PyErr::new::<PyException, _>(format!("{}", e.to_string())))
     })
@@ -405,7 +405,7 @@ pub fn remove_route(
     id: Option<u64>,
 ) -> PyResult<Bound<PyAny>> {
     pyo3_async_runtimes::tokio::future_into_py(py, async move {
-        svc.remove_route_impl(conn, name, id)
+        svc.remove_route(conn, name, id)
             .await
             .map_err(|e| PyErr::new::<PyException, _>(format!("{}", e.to_string())))
     })
@@ -424,7 +424,7 @@ pub fn publish(
     id: Option<u64>,
 ) -> PyResult<Bound<PyAny>> {
     pyo3_async_runtimes::tokio::future_into_py(py, async move {
-        svc.publish_impl(session_info.session_info, fanout, blob, name, id)
+        svc.publish(session_info.session_info, fanout, blob, name, id)
             .await
             .map_err(|e| PyErr::new::<PyException, _>(format!("{}", e.to_string())))
     })
@@ -438,7 +438,7 @@ pub fn receive(py: Python, svc: PyService) -> PyResult<Bound<PyAny>> {
         py,
         pyo3_async_runtimes::tokio::get_current_locals(py)?,
         async move {
-            svc.receive_impl()
+            svc.receive()
                 .await
                 .map_err(|e| PyErr::new::<PyException, _>(format!("{}", e.to_string())))
         },
@@ -455,7 +455,7 @@ pub fn create_pyservice(
     id: Option<u64>,
 ) -> PyResult<Bound<PyAny>> {
     pyo3_async_runtimes::tokio::future_into_py(py, async move {
-        PyService::create_pyservice_impl(organization, namespace, agent_type, id)
+        PyService::create_pyservice(organization, namespace, agent_type, id)
             .await
             .map_err(|e| PyErr::new::<PyException, _>(format!("{}", e.to_string())))
     })
