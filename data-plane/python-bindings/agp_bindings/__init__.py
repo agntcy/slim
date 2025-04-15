@@ -51,25 +51,22 @@ class Gateway:
         agent: str,
     ):
         """
-        Create a new Gateway instance. A gateway instamce is associated to one single
-        local agent. The agent is identified by its organization, namespace and name.
-        The agent ID is optional. If not provided, the agent will be created with a new ID.
+        Initialize a new Gateway instance. A Gateway instance is associated with a single
+        local agent. The agent is identified by its organization, namespace, and name.
+        The agent ID is determined by the provided service (svc).
 
         Args:
+            svc (PyService): The Python service instance for the gateway.
             organization (str): The organization of the agent.
             namespace (str): The namespace of the agent.
             agent (str): The name of the agent.
-            id (int): The ID of the agent. If not provided, a new ID will be created.
-
-        Returns:
-            Gateway: A new Gateway instance
         """
 
         # Initialize service
         self.svc = svc
 
         # Create sessions map
-        self.sessions: dict[int, tuple[PySessionInfo, asyncio.Queue]] = {
+        self.sessions: dict[int, tuple[Optional[PySessionInfo], asyncio.Queue]] = {
             SESSION_UNSPECIFIED: (None, asyncio.Queue()),
         }
 
@@ -124,7 +121,7 @@ class Gateway:
         organization: str,
         namespace: str,
         agent: str,
-        id: Optional[int] = None,
+        agent_id: Optional[int] = None,
     ) -> "Gateway":
         """
         Create a new Gateway instance. A gateway instamce is associated to one single
@@ -135,20 +132,20 @@ class Gateway:
             organization (str): The organization of the agent.
             namespace (str): The namespace of the agent.
             agent (str): The name of the agent.
-            id (int): The ID of the agent. If not provided, a new ID will be created.
+            agent_id (int): The ID of the agent. If not provided, a new ID will be created.
 
         Returns:
             Gateway: A new Gateway instance
         """
 
         return cls(
-            await create_pyservice(organization, namespace, agent, id),
+            await create_pyservice(organization, namespace, agent, agent_id),
             organization,
             namespace,
             agent,
         )
 
-    def id(self) -> int:
+    def get_agent_id(self) -> int:
         """
         Get the ID of the agent.
 
@@ -385,25 +382,25 @@ class Gateway:
         organization: str,
         namespace: str,
         agent: str,
-        id: Optional[int] = None,
+        agent_id: Optional[int] = None,
     ):
         """
         Publish a message to an agent via normal matching in subscription table.
 
         Args:
-            msg (str): The message to publish.
             session (PySessionInfo): The session information.
+            msg (str): The message to publish.
             organization (str): The organization of the agent.
             namespace (str): The namespace of the agent.
             agent (str): The name of the agent.
-            id (int): Optional ID of the agent.
+            agent_id (int): Optional ID of the agent.
 
         Returns:
             None
         """
 
         dest = PyAgentType(organization, namespace, agent)
-        await publish(self.svc, session, 1, msg, dest, id)
+        await publish(self.svc, session, 1, msg, dest, agent_id)
 
     async def request_reply(
         self,
@@ -412,7 +409,7 @@ class Gateway:
         organization: str,
         namespace: str,
         agent: str,
-        id: Optional[int] = None,
+        agent_id: Optional[int] = None,
     ) -> tuple[PySessionInfo, Optional[bytes]]:
         """
         Publish a message and wait for the first response.
@@ -423,6 +420,7 @@ class Gateway:
             organization (str): The organization of the agent.
             namespace (str): The namespace of the agent.
             agent (str): The name of the agent.
+            agent_id (int): Optional ID of the agent.
 
         Returns:
             tuple: The PySessionInfo and the message.
@@ -433,7 +431,7 @@ class Gateway:
             raise Exception("Session ID not found")
 
         dest = PyAgentType(organization, namespace, agent)
-        await publish(self.svc, session, 1, msg, dest, id)
+        await publish(self.svc, session, 1, msg, dest, agent_id)
 
         # Wait for a reply in the corresponding session queue
         session_info, message = await self.receive(session.id)
