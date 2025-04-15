@@ -48,7 +48,8 @@ enum SessionHeaderType {
   PUB_SUB = 5;
   RTX_REQUEST = 6;
   RTX_REPLY = 7;
-  BEACON = 8;
+  BEACON_STREAM = 8;
+  BEACON_PUB_SUB = 9;
 }
 // Session.session_id is the ID of the session
 
@@ -60,7 +61,8 @@ enum SessionHeaderType {
 // PUBSUB = sequential incremental ID
 // RTX_REQUEST = ID of the lost packet
 // RTX_REPLY = ID of the retransmitted packet
-// BEACON = ID of the last message sent by the producer
+// BEACON_STREAM = ID of the last message sent by the producer
+// BEACON_PUB_SUB = ID of the last message sent by the producer
 
 message SessionHeader {
   SessionHeaderType header_type = 1;

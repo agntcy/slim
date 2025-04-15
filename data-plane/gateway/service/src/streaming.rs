@@ -319,21 +319,12 @@ impl Streaming {
                                                 // in this case the message can be a stream message to send to the app, or a rtx request
                                                 trace!("received message from the gataway on bidirectional session {}", session_id);
                                                 match msg.get_session_header().header_type() {
-                                                    SessionHeaderType::PubSub => {
-                                                        // send the packet to the application
-                                                        process_message_from_gw(msg, session_id, &mut state.receiver, &source, max_retries, timeout, &rtx_timer_tx, &send_gw, &send_app).await;
-                                                    }
                                                     SessionHeaderType::RtxRequest => {
                                                         // handle RTX request
                                                         process_incoming_rtx_request(msg, session_id, &state.producer, &source, &send_gw).await;
                                                     }
-                                                    SessionHeaderType::RtxReply => {
-                                                        // received a reply for an RTX
-                                                        process_message_from_gw(msg, session_id, &mut state.receiver, &source, max_retries, timeout, &rtx_timer_tx, &send_gw, &send_app).await;
-                                                    }
                                                     _ => {
-                                                        error!("received invalid packet type on bidirection session {}", session_id);
-                                                        continue;
+                                                        process_message_from_gw(msg, session_id, &mut state.receiver, &source, max_retries, timeout, &rtx_timer_tx, &send_gw, &send_app).await;
                                                     }
                                                 }
                                             }
@@ -398,13 +389,13 @@ impl Streaming {
                                             let last_msg_id = producer.next_id - 1;
                                             debug!("received producer timer, last packet = {}", last_msg_id);
 
-                                            send_beacon_msg(&source, producer.buffer.get_destination_name(), last_msg_id, session_id, &send_gw).await;
+                                            send_beacon_msg(&source, producer.buffer.get_destination_name(), SessionHeaderType::BeaconStream, last_msg_id, session_id, &send_gw).await;
                                         }
                                         Endpoint::Bidirectional(state) => {
-                                            let last_msg_id = state.producer.next_id;
+                                            let last_msg_id = state.producer.next_id - 1;
                                             debug!("received producer timer, last packet = {}", last_msg_id);
 
-                                            send_beacon_msg(&source, state.producer.buffer.get_destination_name(), last_msg_id, session_id, &send_gw).await;
+                                            send_beacon_msg(&source, state.producer.buffer.get_destination_name(), SessionHeaderType::BeaconPubSub, last_msg_id, session_id, &send_gw).await;
                                         }
                                         _ => {
                                             error!("received producer timer on a non producer buffer");
@@ -634,8 +625,12 @@ async fn process_message_from_gw(
                 }
             }
         }
-        SessionHeaderType::Beacon => {
-            debug!("received beacon for message {}", msg_id);
+        SessionHeaderType::BeaconStream => {
+            debug!("received stream beacon for message {}", msg_id);
+            rtx = receiver.buffer.on_beacon_message(msg_id);
+        }
+        SessionHeaderType::BeaconPubSub => {
+            debug!("received pubsub beacon for message {}", msg_id);
             rtx = receiver.buffer.on_beacon_message(msg_id);
         }
         _ => {
@@ -772,6 +767,7 @@ async fn handle_rtx_failure(
 async fn send_beacon_msg(
     source: &Agent,
     topic: &AgentType,
+    beacon_type: SessionHeaderType,
     last_msg_id: u32,
     session_id: u32,
     send_gw: &mpsc::Sender<Result<Message, Status>>,
@@ -784,7 +780,7 @@ async fn send_beacon_msg(
     ));
 
     let session_header = Some(SessionHeader::new(
-        SessionHeaderType::Beacon.into(),
+        beacon_type.into(),
         session_id,
         last_msg_id,
     ));
