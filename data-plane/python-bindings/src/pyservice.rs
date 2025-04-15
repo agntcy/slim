@@ -257,7 +257,7 @@ pub fn create_ff_session(
             config.fire_and_forget_configuration,
         ))
         .await
-        .map_err(|e| PyErr::new::<PyException, _>(format!("{}", e.to_string())))
+        .map_err(|e| PyErr::new::<PyException, _>(e.to_string()))
     })
 }
 
@@ -274,7 +274,7 @@ pub fn create_rr_session(
             config.request_response_configuration,
         ))
         .await
-        .map_err(|e| PyErr::new::<PyException, _>(format!("{}", e.to_string())))
+        .map_err(|e| PyErr::new::<PyException, _>(e.to_string()))
     })
 }
 
@@ -291,7 +291,7 @@ pub fn create_streaming_session(
             config.streaming_configuration,
         ))
         .await
-        .map_err(|e| PyErr::new::<PyException, _>(format!("{}", e.to_string())))
+        .map_err(|e| PyErr::new::<PyException, _>(e.to_string()))
     })
 }
 
@@ -302,7 +302,7 @@ pub fn delete_session(py: Python, svc: PyService, session_id: u32) -> PyResult<B
     pyo3_async_runtimes::tokio::future_into_py(py, async move {
         svc.delete_session(session_id)
             .await
-            .map_err(|e| PyErr::new::<PyException, _>(format!("{}", e.to_string())))
+            .map_err(|e| PyErr::new::<PyException, _>(e.to_string()))
     })
 }
 
@@ -317,7 +317,7 @@ pub fn run_server(py: Python, svc: PyService, config: Py<PyDict>) -> PyResult<Bo
     pyo3_async_runtimes::tokio::future_into_py(py, async move {
         svc.run_server(config)
             .await
-            .map_err(|e| PyErr::new::<PyException, _>(format!("{}", e.to_string())))
+            .map_err(|e| PyErr::new::<PyException, _>(e.to_string()))
     })
 }
 
@@ -331,7 +331,7 @@ pub fn stop_server(py: Python, svc: PyService, endpoint: String) -> PyResult<Bou
     pyo3_async_runtimes::tokio::future_into_py(py, async move {
         svc.stop_server(&endpoint)
             .await
-            .map_err(|e| PyErr::new::<PyException, _>(format!("{}", e.to_string())))
+            .map_err(|e| PyErr::new::<PyException, _>(e.to_string()))
     })
 }
 
@@ -347,7 +347,7 @@ pub fn connect(py: Python, svc: PyService, config: Py<PyDict>) -> PyResult<Bound
     pyo3_async_runtimes::tokio::future_into_py(py, async move {
         svc.connect(config)
             .await
-            .map_err(|e| PyErr::new::<PyException, _>(format!("{}", e.to_string())))
+            .map_err(|e| PyErr::new::<PyException, _>(e.to_string()))
     })
 }
 
@@ -357,7 +357,7 @@ pub fn disconnect(py: Python, svc: PyService, conn: u64) -> PyResult<Bound<PyAny
     pyo3_async_runtimes::tokio::future_into_py(py, async move {
         svc.disconnect(conn)
             .await
-            .map_err(|e| PyErr::new::<PyException, _>(format!("{}", e.to_string())))
+            .map_err(|e| PyErr::new::<PyException, _>(e.to_string()))
     })
 }
 
@@ -374,7 +374,7 @@ pub fn subscribe(
     pyo3_async_runtimes::tokio::future_into_py(py, async move {
         svc.subscribe(conn, name, id)
             .await
-            .map_err(|e| PyErr::new::<PyException, _>(format!("{}", e.to_string())))
+            .map_err(|e| PyErr::new::<PyException, _>(e.to_string()))
     })
 }
 
@@ -391,7 +391,7 @@ pub fn unsubscribe(
     pyo3_async_runtimes::tokio::future_into_py(py, async move {
         svc.unsubscribe(conn, name, id)
             .await
-            .map_err(|e| PyErr::new::<PyException, _>(format!("{}", e.to_string())))
+            .map_err(|e| PyErr::new::<PyException, _>(e.to_string()))
     })
 }
 
@@ -408,7 +408,7 @@ pub fn set_route(
     pyo3_async_runtimes::tokio::future_into_py(py, async move {
         svc.set_route(conn, name, id)
             .await
-            .map_err(|e| PyErr::new::<PyException, _>(format!("{}", e.to_string())))
+            .map_err(|e| PyErr::new::<PyException, _>(e.to_string()))
     })
 }
 
@@ -425,7 +425,7 @@ pub fn remove_route(
     pyo3_async_runtimes::tokio::future_into_py(py, async move {
         svc.remove_route(conn, name, id)
             .await
-            .map_err(|e| PyErr::new::<PyException, _>(format!("{}", e.to_string())))
+            .map_err(|e| PyErr::new::<PyException, _>(e.to_string()))
     })
 }
 
@@ -444,7 +444,7 @@ pub fn publish(
     pyo3_async_runtimes::tokio::future_into_py(py, async move {
         svc.publish(session_info.session_info, fanout, blob, name, id)
             .await
-            .map_err(|e| PyErr::new::<PyException, _>(format!("{}", e.to_string())))
+            .map_err(|e| PyErr::new::<PyException, _>(e.to_string()))
     })
 }
 
@@ -458,7 +458,7 @@ pub fn receive(py: Python, svc: PyService) -> PyResult<Bound<PyAny>> {
         async move {
             svc.receive()
                 .await
-                .map_err(|e| PyErr::new::<PyException, _>(format!("{}", e.to_string())))
+                .map_err(|e| PyErr::new::<PyException, _>(e.to_string()))
         },
     )
 }
@@ -475,6 +475,6 @@ pub fn create_pyservice(
     pyo3_async_runtimes::tokio::future_into_py(py, async move {
         PyService::create_pyservice(organization, namespace, agent_type, id)
             .await
-            .map_err(|e| PyErr::new::<PyException, _>(format!("{}", e.to_string())))
+            .map_err(|e| PyErr::new::<PyException, _>(e.to_string()))
     })
 }

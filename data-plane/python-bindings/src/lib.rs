@@ -17,7 +17,7 @@ mod _agp_bindings {
     use pyservice::{
         PyService, connect, create_ff_session, create_pyservice, create_rr_session,
         create_streaming_session, disconnect, publish, receive, remove_route, run_server,
-        set_route, stop_server, subscribe, unsubscribe,
+        set_route, stop_server, subscribe, unsubscribe, delete_session,
     };
 
     #[pymodule_export]
