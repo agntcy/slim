@@ -24,11 +24,6 @@ vars:
   CARGO_COMPONENTS: "cargo-sort cargo-audit cargo-llvm-cov cargo-machete@0.7.0 cargo-deny@0.17.0 typos-cli"
 
 tasks:
-  default:
-    cmds:
-      - task: toolchain:print-vars
-      - task -l
-
   data-plane:fmt:
     desc: "Format the code"
     cmds:
