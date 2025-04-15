@@ -95,6 +95,13 @@ impl PyService {
         ))
     }
 
+    async fn delete_session(&self, session_id: session::Id) -> Result<(), ServiceError> {
+        self.sdk
+            .service
+            .delete_session(&self.sdk.agent, session_id)
+            .await
+    }
+
     async fn run_server(&self, config: PyGrpcServerConfig) -> Result<(), ServiceError> {
         self.sdk.service.run_server(&config)
     }
@@ -285,6 +292,17 @@ pub fn create_streaming_session(
         ))
         .await
         .map_err(|e| PyErr::new::<PyException, _>(format!("{}", e.to_string())))
+    })
+}
+
+#[gen_stub_pyfunction]
+#[pyfunction]
+#[pyo3(signature = (svc, session_id))]
+pub fn delete_session(py: Python, svc: PyService, session_id: u32) -> PyResult<Bound<PyAny>> {
+    pyo3_async_runtimes::tokio::future_into_py(py, async move {
+        svc.delete_session(session_id)
+            .await
+            .map_err(|e| PyErr::new::<PyException, _>(format!("{}", e.to_string())))
     })
 }
 
