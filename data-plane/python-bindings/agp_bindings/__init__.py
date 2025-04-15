@@ -197,16 +197,21 @@ class Gateway:
         queue_size: int = 0,
     ) -> PySessionInfo:
         """
-        Create a new session.
+        Create a new Request-Response session.
+        This asynchronous function initializes a new session using the provided
+        configuration and creates an associated message queue with the specified size.
+        A session is created and stored along with its unbounded or bounded queue.
 
         Args:
-            session_config (PyRequestResponseConfiguration): The session configuration.
-            queue_size (int): The size of the queue for the session.
-                                If 0, the queue will be unbounded.
-                                If a positive integer, the queue will be bounded to that size.
+            session_config (PyRequestResponseConfiguration, optional): The configuration parameters for the session.
+                Defaults to an instance of PyRequestResponseConfiguration.
+            queue_size (int, optional): The maximum size of the session's queue.
+                If 0, the queue is unbounded.
+                If a positive integer, the queue is bounded to that size.
+                Defaults to 0.
 
         Returns:
-            ID of the session
+            PySessionInfo: An object containing details about the created session.
         """
 
         session = await create_rr_session(self.svc, session_config)
