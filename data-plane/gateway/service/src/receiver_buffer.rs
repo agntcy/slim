@@ -47,7 +47,7 @@ impl ReceiverBuffer {
         self.internal_on_received_message(msg.get_id() as usize, Some(msg))
     }
 
-    // returns a list of messages that we can return to the applicaion
+    // returns a list of messages that we can return to the application
     pub fn on_lost_message(&mut self, msg_id: u32) -> Vec<Option<Message>> {
         debug!("message {} is definitely lost", msg_id);
         self.lost_msgs.insert(msg_id as usize);
@@ -95,7 +95,7 @@ impl ReceiverBuffer {
             // this message is not useful anymore because we have already sent
             // content for this ID to the application. It can be a duplicated
             // msg or a message that arrived too late. Log and drop
-            info!("Received possibly DUP message, drop it");
+            debug!("Received possibly DUP message or beacon for a received message, drop it");
             return (vec![], vec![]);
         }
 

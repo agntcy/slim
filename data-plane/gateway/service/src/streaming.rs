@@ -24,7 +24,7 @@ use agp_datapath::{
 };
 
 use tonic::{Status, async_trait};
-use tracing::{debug, error, info, trace, warn};
+use tracing::{debug, error, trace, warn};
 
 // this must be a number > 1
 const STREAM_BROADCAST: u32 = 50;
@@ -350,7 +350,7 @@ impl Streaming {
                     next_rtx_timer = rtx_timer_rx.recv(), if !rtx_timer_rx_closed => {
                         match next_rtx_timer {
                             None => {
-                                info!("no more rtx timers to process");
+                                debug!("no more rtx timers to process");
                                 // close the timer channel
                                 rtx_timer_rx_closed = true;
                             },
@@ -387,7 +387,7 @@ impl Streaming {
                     next_prod_timer = prod_timer_rx.recv(), if !prod_timer_rx_closed => {
                         match next_prod_timer {
                             None => {
-                                info!("no more prod timers to process");
+                                debug!("no more prod timers to process");
                                 // close the timer channel
                                 prod_timer_rx_closed = true;
                             },
@@ -396,13 +396,13 @@ impl Streaming {
                                     match &mut endpoint {
                                         Endpoint::Producer(producer) => {
                                             let last_msg_id = producer.next_id - 1;
-                                            info!("received producer timer, last packet = {}", last_msg_id);
+                                            debug!("received producer timer, last packet = {}", last_msg_id);
 
                                             send_beacon_msg(&source, producer.buffer.get_destination_name(), last_msg_id, session_id, &send_gw).await;
                                         }
                                         Endpoint::Bidirectional(state) => {
                                             let last_msg_id = state.producer.next_id;
-                                            info!("received producer timer, last packet = {}", last_msg_id);
+                                            debug!("received producer timer, last packet = {}", last_msg_id);
 
                                             send_beacon_msg(&source, state.producer.buffer.get_destination_name(), last_msg_id, session_id, &send_gw).await;
                                         }
@@ -601,59 +601,57 @@ async fn process_message_from_gw(
         }
     };
 
+    let mut recv = Vec::new();
+    let mut rtx = Vec::new();
     let header_type = msg.get_header_type();
-    let mut error_rtx = false;
-    if header_type == SessionHeaderType::RtxReply {
-        let rtx_msg_id = msg.get_id();
-        if msg.get_error().is_some() && msg.get_error().unwrap() {
-            error_rtx = true;
+    let msg_id = msg.get_id();
+
+    match header_type {
+        SessionHeaderType::Stream => {
+            (recv, rtx) = receiver.buffer.on_received_message(msg);
         }
-
-        // try to clean local state
-        match receiver.timers_map.get(&rtx_msg_id) {
-            Some(timer) => {
-                timer.stop();
-                receiver.timers_map.remove(&rtx_msg_id);
-                receiver.rtx_map.remove(&rtx_msg_id);
+        SessionHeaderType::PubSub => {
+            (recv, rtx) = receiver.buffer.on_received_message(msg);
+        }
+        SessionHeaderType::RtxReply => {
+            if msg.get_error().is_some() && msg.get_error().unwrap() {
+                recv = receiver.buffer.on_lost_message(msg_id);
+            } else {
+                (recv, rtx) = receiver.buffer.on_received_message(msg);
             }
-            None => {
-                warn!("unable to find the timer associated to the received RTX reply");
-                // try to remove the packet anyway
-                receiver.rtx_map.remove(&rtx_msg_id);
+
+            // try to clean local state
+            match receiver.timers_map.get(&msg_id) {
+                Some(timer) => {
+                    timer.stop();
+                    receiver.timers_map.remove(&msg_id);
+                    receiver.rtx_map.remove(&msg_id);
+                }
+                None => {
+                    warn!("unable to find the timer associated to the received RTX reply");
+                    // try to remove the packet anyway
+                    receiver.rtx_map.remove(&msg_id);
+                }
             }
         }
-    }
-    if header_type == SessionHeaderType::Beacon {
-        let beacon_msg_id = msg.get_id();
-        info!("received beacon for message {}", beacon_msg_id);
-        // TODO complete this part
-        let _rtx = receiver.buffer.on_beacon_message(beacon_msg_id);
-        return;
-    } else if header_type != SessionHeaderType::Stream && header_type != SessionHeaderType::PubSub {
-        error!(
-            "received packet with invalid header type {} on session {}",
-            i32::from(header_type),
-            session_id
-        );
-        return;
+        SessionHeaderType::Beacon => {
+            debug!("received beacon for message {}", msg_id);
+            rtx = receiver.buffer.on_beacon_message(msg_id);
+        }
+        _ => {
+            error!(
+                "received packet with invalid header type {} on session {}",
+                i32::from(header_type),
+                session_id
+            );
+            return;
+        }
     }
 
-    if error_rtx {
-        // a message cannot be recovered
-        let msg_id = msg.get_id();
-        debug!("received an error RTX reply for message {}", msg_id);
-        send_message_to_app(
-            receiver.buffer.on_lost_message(msg_id),
-            session_id,
-            send_app,
-        )
-        .await;
-        return;
-    }
-
-    let (recv, rtx) = receiver.buffer.on_received_message(msg);
     // send packets to the app
-    send_message_to_app(recv, session_id, send_app).await;
+    if !recv.is_empty() {
+        send_message_to_app(recv, session_id, send_app).await;
+    }
 
     // send RTX
     for r in rtx {
@@ -793,7 +791,7 @@ async fn send_beacon_msg(
 
     let msg = Message::new_publish_with_headers(agp_header, session_header, "", vec![]);
 
-    info!("beacon to send {:?}", msg);
+    trace!("beacon to send {:?}", msg);
 
     if send_gw.send(Ok(msg)).await.is_err() {
         error!(
@@ -1163,7 +1161,8 @@ mod tests {
             SessionDirection::Receiver,
             None,
             Some(5),
-            Some(Duration::from_millis(500)),
+            Some(Duration::from_millis(100)), // keep the timer shorter with respect to the beacon one
+                                              // otherwise we don't know which message will be received first
         );
 
         let sender = Streaming::new(
@@ -1242,7 +1241,7 @@ mod tests {
             )
         );
 
-        // get the RTX and drop the first one before send it to sender
+        // get the RTX from packet 1 and drop the first one before send it to sender
         let msg = rx_gw_receiver.recv().await.unwrap().unwrap();
         let msg_header = msg.get_session_header();
         assert_eq!(msg_header.session_id, 0);
