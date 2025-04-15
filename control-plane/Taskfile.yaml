@@ -115,8 +115,41 @@ tasks:
         vars:
           CMD: "echo ${PWD} && go env && go mod download"
 
+  control-plane:proto:generate:
+    desc: Generate Go protobuf and gRPC code
+    cmds:
+      - >
+        protoc --proto_path=../proto \
+          --go_out=paths=source_relative:./internal/proto \
+          --go-grpc_out=paths=source_relative:./internal/proto \
+          controller/v1/controller.proto
+
+  control-plane:agpctl:build:
+    desc: Build agpctl
+    deps:
+      - control-plane:proto:generate
+    dir: cmd/agpctl
+    cmds:
+      - |
+        go build -o \
+          {{.OUTPUT_DIR}}/bin/agpctl \
+          -ldflags \
+          " \
+            -X '{{.MAIN_MODULE}}/control-plane/internal/cmd/version.semVersion={{.VERSION}}'
+            -X '{{.MAIN_MODULE}}/control-plane/internal/cmd/version.gitCommit={{.GIT_COMMIT}}'
+            -X '{{.MAIN_MODULE}}/control-plane/internal/cmd/version.buildDate={{.BUILD_DATE}}'
+            {{.FLAGS}} \
+          "
+    vars:
+      GIT_COMMIT:
+        sh: git log -n 1 --format=%h
+      BUILD_DATE:
+        sh: date -u +'%Y-%m-%dT%H:%M:%SZ'
+      VERSION:
+         sh: pushd {{.REPO_ROOT}} > /dev/null && task version && popd > /dev/null
+
   control-plane:token-service:build:
-    internal: false
+    desc: Build token service
     dir: token-service/cmd
     cmds:
       - |
@@ -141,3 +174,4 @@ tasks:
     desc: Build go binaries
     cmds:
       - task: control-plane:token-service:build
+      - task: control-plane:agpctl:build

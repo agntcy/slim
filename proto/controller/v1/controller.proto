@@ -4,6 +4,8 @@
 syntax = "proto3";
 package controller.proto.v1;
 
+option go_package = "github.com/agntcy/agp/control-plane/internal/proto/controller/v1;controllerv1";
+
 service ControllerService {
   rpc OpenChannel(stream Command) returns (stream Command) {}
 }
