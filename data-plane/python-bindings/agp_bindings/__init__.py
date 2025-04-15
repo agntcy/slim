@@ -69,7 +69,7 @@ class Gateway:
         self.svc = svc
 
         # Create sessions map
-        self.sessions: dict[int, tuple[PySessionInfo, asyncio.Queue]] = {
+        self.sessions: dict[int, tuple[Optional[PySessionInfo], asyncio.Queue]] = {
             SESSION_UNSPECIFIED: (None, asyncio.Queue()),
         }
 
