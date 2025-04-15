@@ -298,11 +298,14 @@ class Gateway:
 
         Returns:
             None
+
+        Raises:
+            ValueError: If the session ID is not found.
         """
 
         # Check if the session ID is in the sessions map
         if session_id not in self.sessions:
-            raise Exception("session not found", session_id)
+            raise ValueError(f"session not found: {session_id}")
 
         # Remove the session from the map
         del self.sessions[session_id]
