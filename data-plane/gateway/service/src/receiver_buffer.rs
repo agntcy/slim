@@ -54,7 +54,7 @@ impl ReceiverBuffer {
         self.release_msgs()
     }
 
-    // returns a list of lost messages for witch RTX needs to be sent
+    // returns a list of lost messages for which RTX needs to be sent
     pub fn on_beacon_message(&mut self, msg_id: u32) -> Vec<u32> {
         debug!("received beacon for msg {}", msg_id);
         let (_recv, rtx) = self.internal_on_received_message(msg_id as usize, None);
@@ -66,8 +66,6 @@ impl ReceiverBuffer {
         msg_id: usize,
         msg: Option<Message>,
     ) -> (Vec<Option<Message>>, Vec<u32>) {
-        //let msg_id = msg.get_id() as usize;
-
         debug!("Received message id {}", msg_id);
 
         if self.last_sent == usize::MAX
