@@ -154,6 +154,12 @@ impl Timer {
     pub fn stop(&self) {
         self.cancellation_token.cancel();
     }
+
+    pub fn reset<T: TimerObserver + Send + Sync + 'static>(&mut self, observer: Arc<T>) {
+        self.stop();
+        self.cancellation_token = CancellationToken::new();
+        self.start(observer);
+    }
 }
 
 // tests
@@ -383,6 +389,69 @@ mod tests {
         let expected_msg = "timer id 2 cancelled";
         assert!(logs_contain(expected_msg));
         let expected_msg = "timer id 3 cancelled";
+        assert!(logs_contain(expected_msg));
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_timer_reset() {
+        let o = Arc::new(Observer { id: 10 });
+
+        let mut t = Timer::new(
+            o.id,
+            TimerType::Constant,
+            Duration::from_millis(100),
+            None,
+            Some(5),
+        );
+
+        t.start(o.clone());
+
+        time::sleep(Duration::from_millis(350)).await;
+
+        let expected_msg = "timeout number 3 for timer id 10, retry";
+        assert!(logs_contain(expected_msg));
+
+        t.reset(o.clone());
+
+        time::sleep(Duration::from_millis(250)).await;
+
+        let expected_msg = "timeout number 2 for timer id 10, retry";
+        assert!(logs_contain(expected_msg));
+
+        t.reset(o.clone());
+
+        time::sleep(Duration::from_millis(700)).await;
+
+        let expected_msg = "timeout number 6 for timer id 10, stop retry";
+        assert!(logs_contain(expected_msg));
+
+        t.reset(o);
+
+        time::sleep(Duration::from_millis(700)).await;
+
+        let expected_msg = "timeout number 6 for timer id 10, stop retry";
+        assert!(logs_contain(expected_msg));
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_timer_reset_without_start() {
+        let o = Arc::new(Observer { id: 10 });
+
+        let mut t = Timer::new(
+            o.id,
+            TimerType::Constant,
+            Duration::from_millis(100),
+            None,
+            Some(5),
+        );
+
+        t.reset(o);
+
+        time::sleep(Duration::from_millis(350)).await;
+
+        let expected_msg = "timeout number 3 for timer id 10, retry";
         assert!(logs_contain(expected_msg));
     }
 }
