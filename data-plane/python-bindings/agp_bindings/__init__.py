@@ -5,7 +5,7 @@ import asyncio
 from typing import Optional
 
 from ._agp_bindings import (
-        __version__,
+    __version__,
     build_profile,
     build_info,
     SESSION_UNSPECIFIED,
@@ -21,6 +21,7 @@ from ._agp_bindings import (
     create_pyservice,
     create_rr_session,
     create_streaming_session,
+    delete_session,
     disconnect,
     init_tracing as init_tracing,
     publish,
@@ -229,6 +230,27 @@ class Gateway:
         self.sessions[session.id] = (session, asyncio.Queue(queue_size))
         return session
 
+    async def delete_session(self, session_id: int):
+        """
+        Delete a session.
+
+        Args:
+            session_id (int): The ID of the session to delete.
+
+        Returns:
+            None
+        """
+
+        # Check if the session ID is in the sessions map
+        if session_id not in self.sessions:
+            raise Exception("session not found", session_id)
+
+        # Remove the session from the map
+        del self.sessions[session_id]
+
+        # Remove the session from the gateway
+        await delete_session(self.svc, session_id)
+
     async def run_server(self, config: dict):
         """
         Start the server part of the Gateway service. The server will be started only
@@ -403,6 +425,10 @@ class Gateway:
         Returns:
             None
         """
+
+        # Make sure the sessions exists
+        if session.id not in self.sessions:
+            raise Exception("session not found", session.id)
 
         dest = PyAgentType(organization, namespace, agent)
         await publish(self.svc, session, 1, msg, dest, agent_id)

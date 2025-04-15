@@ -687,7 +687,7 @@ impl Service {
             true => Ok(()),
             false => {
                 error!("error deleting session");
-                Err(ServiceError::SessionError("unknown".to_string()))
+                Err(ServiceError::SessionError("session not found".to_string()))
             }
         }
     }
