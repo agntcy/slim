@@ -44,3 +44,11 @@ jobs:
       release_tag: ${{ needs.prepare-build.outputs.release_tag }}
     secrets:
       github-token: ${{ secrets.GITHUB_TOKEN }}
+
+  test-integration:
+    name: Run integration tests
+    needs: [ release ]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger CSIT integration CI
+        uses: ./.github/actions/trigger-integrations
