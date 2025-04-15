@@ -51,18 +51,15 @@ class Gateway:
         agent: str,
     ):
         """
-        Create a new Gateway instance. A gateway instamce is associated to one single
-        local agent. The agent is identified by its organization, namespace and name.
-        The agent ID is optional. If not provided, the agent will be created with a new ID.
+        Initialize a new Gateway instance. A Gateway instance is associated with a single
+        local agent. The agent is identified by its organization, namespace, and name.
+        The agent ID is determined by the provided service (svc).
 
         Args:
+            svc (PyService): The Python service instance for the gateway.
             organization (str): The organization of the agent.
             namespace (str): The namespace of the agent.
             agent (str): The name of the agent.
-            id (int): The ID of the agent. If not provided, a new ID will be created.
-
-        Returns:
-            Gateway: A new Gateway instance
         """
 
         # Initialize service
