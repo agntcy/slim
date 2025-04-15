@@ -5,7 +5,7 @@ import asyncio
 from typing import Optional
 
 from ._agp_bindings import (
-        __version__,
+    __version__,
     build_profile,
     build_info,
     SESSION_UNSPECIFIED,
