@@ -780,7 +780,7 @@ mod tests {
         let server_config =
             ServerConfig::with_endpoint("0.0.0.0:12345").with_tls_settings(tls_config);
         let config = ServiceConfiguration::new().with_server([server_config].to_vec());
-        let service = config
+        let mut service = config
             .build_server(ID::new_with_name(Kind::new(KIND).unwrap(), "test").unwrap())
             .unwrap();
 
