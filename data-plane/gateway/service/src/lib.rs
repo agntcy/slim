@@ -251,7 +251,7 @@ impl Service {
                 .to_channel()
                 .map_err(|e| ServiceError::ConfigError(e.to_string()))?;
 
-             controller
+             self.controller
                     .connect(channel)
                     .await
                     .expect("error connecting controller client");
