@@ -2,21 +2,33 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use agp_datapath::messages::Agent;
+use agp_service::streaming::StreamingConfiguration;
 use std::fs::File;
 use std::io::prelude::*;
+use std::time::Duration;
 use testing::parse_line;
 
 use agp_gw::config;
 use clap::Parser;
 use indicatif::ProgressBar;
-use tracing::{debug, info};
+use tracing::{debug, error, info};
 
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
 pub struct Args {
-    /// Workload input file
-    #[arg(short, long, value_name = "WORKLOAD", required = true)]
-    workload: String,
+    /// Workload input file, required if used in workload mode. If this is set the streaming mode is set to false.
+    #[arg(short, long, value_name = "WORKLOAD", required = false)]
+    workload: Option<String>,
+
+    /// Runs in streaming mode.
+    #[arg(
+        short,
+        long,
+        value_name = "STREAMING",
+        required = false,
+        default_value_t = false
+    )]
+    streaming: bool,
 
     /// Agp configuration file
     #[arg(short, long, value_name = "CONFIGURATION", required = true)]
@@ -32,8 +44,12 @@ impl Args {
         &self.id
     }
 
-    pub fn workload(&self) -> &String {
+    pub fn workload(&self) -> &Option<String> {
         &self.workload
+    }
+
+    pub fn streaming(&self) -> &bool {
+        &self.streaming
     }
 
     pub fn config(&self) -> &String {
@@ -49,19 +65,90 @@ async fn main() {
     let config_file = args.config();
     let id = *args.id();
     let id_bytes = id.to_be_bytes().to_vec();
+    let mut streaming = *args.streaming();
+    if input.is_some() {
+        streaming = false;
+    }
 
     // setup agent config
     let mut config = config::load_config(config_file).expect("failed to load configuration");
     let _guard = config.tracing.setup_tracing_subscriber();
 
     info!(
-        "configuration -- workload file: {}, agent config {}, subscriber id: {}",
-        input, config_file, id
+        "configuration -- workload file: {}, agent config {}, subscriber id: {}, streaming mode: {}",
+        input.as_ref().unwrap_or(&"None".to_string()),
+        config_file,
+        id,
+        streaming,
     );
 
+    // start local agent
+    // get service
+    let svc_id = agp_config::component::id::ID::new_with_str("gateway/0").unwrap();
+    let svc = config.services.get_mut(&svc_id).unwrap();
+
+    // create local agent
+    let agent_name = Agent::from_strings("cisco", "default", "subscriber", id);
+    let mut rx = svc
+        .create_agent(&agent_name)
+        .await
+        .expect("failed to create agent");
+
+    // run the service - this will create all the connections provided via the config file.
+    svc.run().await.unwrap();
+
+    // get the connection id
+    let conn_id = svc
+        .get_connection_id(&svc.config().clients()[0].endpoint)
+        .unwrap();
+
+    if streaming {
+        // run subscriber in streaming mode
+        // subscribe for local name
+        match svc
+            .subscribe(
+                &agent_name,
+                agent_name.agent_type(),
+                agent_name.agent_id_option(),
+                Some(conn_id),
+            )
+            .await
+        {
+            Ok(_) => {}
+            Err(e) => {
+                panic!("an error accoured while adding a subscription {}", e);
+            }
+        }
+
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+
+        info!("waiting for incoming messages");
+        loop {
+            match rx.recv().await {
+                Some(res) => match res {
+                    Ok(recv_msg) => {
+                        info!(
+                            "received message {} from session {}",
+                            recv_msg.info.message_id.unwrap(),
+                            recv_msg.info.id
+                        );
+                    }
+                    Err(e) => {
+                        error!("received error {}", e)
+                    }
+                },
+                None => {
+                    error!("stream close");
+                    return;
+                }
+            };
+        }
+    }
+
+    // run subscriber in workload mode
     let mut subscriptions_list = Vec::new();
 
-    let res = File::open(input);
+    let res = File::open(input.as_ref().unwrap());
     if res.is_err() {
         panic!("error opening the input file");
     }
@@ -91,20 +178,20 @@ async fn main() {
         }
     }
 
-    // start local agent
-    // get service
-    let svc_id = agp_config::component::id::ID::new_with_str("gateway/0").unwrap();
-    let svc = config.services.get_mut(&svc_id).unwrap();
-
-    // create local agent
-    let agent_name = Agent::from_strings("cisco", "default", "subscriber", id);
-    let mut rx = svc
-        .create_agent(&agent_name)
-        .expect("failed to create agent");
-
-    // connect to the remote gateway
-    let conn_id = svc.connect(None).await.unwrap();
-    info!("remote connection id = {}", conn_id);
+    let res = svc
+        .create_session(
+            &agent_name,
+            agp_service::session::SessionConfig::Streaming(StreamingConfiguration::new(
+                agp_service::session::SessionDirection::Receiver,
+                None,
+                Some(10),
+                Some(Duration::from_millis(1000)),
+            )),
+        )
+        .await;
+    if res.is_err() {
+        panic!("error creating fire and forget session");
+    }
 
     // wait for the connection to be established
     tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;

@@ -13,9 +13,9 @@ use serde::Deserialize;
 use tonic::transport::server::TcpIncoming;
 
 use super::errors::ConfigError;
+use crate::auth::ServerAuthenticator;
 use crate::auth::basic::Config as BasicAuthenticationConfig;
 use crate::auth::bearer::Config as BearerAuthenticationConfig;
-use crate::auth::ServerAuthenticator;
 use crate::component::configuration::{Configuration, ConfigurationError};
 use crate::tls::{common::RustlsConfigLoader, server::TlsServerConfig as TLSSetting};
 
@@ -264,8 +264,8 @@ impl ServerConfig {
     pub fn to_server_future<S>(&self, svc: &[S]) -> Result<ServerFuture, ConfigError>
     where
         S: tower_service::Service<
-                http::Request<tonic::body::BoxBody>,
-                Response = http::Response<tonic::body::BoxBody>,
+                http::Request<tonic::body::Body>,
+                Response = http::Response<tonic::body::Body>,
                 Error = Infallible,
             >
             + tonic::server::NamedService
@@ -290,8 +290,8 @@ impl ServerConfig {
             .map_err(|e| ConfigError::EndpointParseError(e.to_string()))?;
 
         // create a new TcpIncoming
-        let incoming = TcpIncoming::new(addr, false, None)
-            .map_err(|e| ConfigError::TcpIncomingError(e.to_string()))?;
+        let incoming =
+            TcpIncoming::bind(addr).map_err(|e| ConfigError::TcpIncomingError(e.to_string()))?;
 
         // Create initial server config
         let builder: tonic::transport::Server =
@@ -396,7 +396,7 @@ impl ServerConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::testutils::{helloworld::greeter_server::GreeterServer, Empty};
+    use crate::testutils::{Empty, helloworld::greeter_server::GreeterServer};
 
     static TEST_DATA_PATH: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/testdata/grpc");
 

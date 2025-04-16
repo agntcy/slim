@@ -7,7 +7,7 @@ use std::sync::Arc;
 use super::tables::connection_table::ConnectionTable;
 use super::tables::remote_subscription_table::RemoteSubscriptions;
 use super::tables::subscription_table::SubscriptionTableImpl;
-use super::tables::{errors::SubscriptionTableError, SubscriptionTable};
+use super::tables::{SubscriptionTable, errors::SubscriptionTableError};
 use crate::messages::encoder::DEFAULT_AGENT_ID;
 use crate::messages::{Agent, AgentType};
 use crate::tables::remote_subscription_table::SubscriptionInfo;

@@ -1,5 +1,51 @@
 # Changelog
 
+## [0.2.4](https://github.com/agntcy/agp/compare/agp-bindings-v0.2.3...agp-bindings-v0.2.4) (2025-04-11)
+
+
+### Features
+
+* **session layer:** send rtx error if the packet is not in the producer buffer ([#166](https://github.com/agntcy/agp/issues/166)) ([2cadb50](https://github.com/agntcy/agp/commit/2cadb501458c1a729ca8e2329da642f7a96575c0))
+
+## [0.2.3](https://github.com/agntcy/agp/compare/agp-bindings-v0.2.2...agp-bindings-v0.2.3) (2025-04-09)
+
+
+### Bug Fixes
+
+* **agp-bindings:** build pypi package on ubuntu 22.04 ([#160](https://github.com/agntcy/agp/issues/160)) ([a9768c1](https://github.com/agntcy/agp/commit/a9768c189d0afd5cf24efd5f2b3f610d780cf762))
+
+## [0.2.2](https://github.com/agntcy/agp/compare/agp-bindings-v0.2.1...agp-bindings-v0.2.2) (2025-04-09)
+
+
+### Bug Fixes
+
+* **python-bindings:** update example name in readme ([#158](https://github.com/agntcy/agp/issues/158)) ([8ecad2b](https://github.com/agntcy/agp/commit/8ecad2b69f0ed8caa0103b74b3ce3523d6695576))
+
+## [0.2.1](https://github.com/agntcy/agp/compare/agp-bindings-v0.2.0...agp-bindings-v0.2.1) (2025-04-09)
+
+
+### Bug Fixes
+
+* service name in python bindings ([#155](https://github.com/agntcy/agp/issues/155)) ([66a5247](https://github.com/agntcy/agp/commit/66a524757bae335a5cb2b888ba77af95e94dc132))
+
+## [0.2.0](https://github.com/agntcy/agp/compare/agp-bindings-v0.1.14...agp-bindings-v0.2.0) (2025-04-08)
+
+
+### ⚠ BREAKING CHANGES
+
+* **data-plane/service:** This change breaks the python binding interface.
+
+### Features
+
+* **data-plane/service:** first draft of session layer ([#106](https://github.com/agntcy/agp/issues/106)) ([6ae63eb](https://github.com/agntcy/agp/commit/6ae63eb76a13be3c231d1c81527bb0b1fd901bac))
+* **python-bindings:** add examples ([#153](https://github.com/agntcy/agp/issues/153)) ([a97ac2f](https://github.com/agntcy/agp/commit/a97ac2fc11bfbcd2c38d8f26902b1447a05ad4ac))
+* request/reply session type ([#124](https://github.com/agntcy/agp/issues/124)) ([0b4c4a5](https://github.com/agntcy/agp/commit/0b4c4a5239f79efc85b86d47cd3c752bd380391f))
+
+
+### Bug Fixes
+
+* **python-bindings:** fix python examples ([#120](https://github.com/agntcy/agp/issues/120)) ([efbe776](https://github.com/agntcy/agp/commit/efbe7768d37b2a8fa86eea8afb8228a5345cbf95))
+
 ## [0.1.14](https://github.com/agntcy/agp/compare/agp-bindings-v0.1.13...agp-bindings-v0.1.14) (2025-03-19)
 
 

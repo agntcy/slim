@@ -2,6 +2,7 @@
 # ruff: noqa: E501, F401
 
 import builtins
+import datetime
 import typing
 from enum import Enum, auto
 
@@ -9,62 +10,75 @@ class PyAgentType:
     r"""
     agent class
     """
+    organization: builtins.str
+    namespace: builtins.str
+    agent_type: builtins.str
     def __new__(cls,agent_org:builtins.str, agent_ns:builtins.str, agent_class:builtins.str): ...
+
+class PyFireAndForgetConfiguration:
+    r"""
+    fire and forget session config
+    """
+    def __new__(cls,): ...
     ...
 
-class PyAgentSource:
+class PyRequestResponseConfiguration:
     r"""
-    packet source with encoded agent information
-    plus incoming connection
+    request response session config
     """
-    def __new__(cls,org:builtins.int, ns:builtins.int, t:builtins.int, id:builtins.int, connection:builtins.int): ...
-    ...
+    max_retries: builtins.int
+    timeout: builtins.int
+    def __new__(cls,max_retries:builtins.int=0, timeout:builtins.int=1000): ...
+    def set_max_retries(self, max_retries:builtins.int) -> None:
+        ...
 
-class PyGatewayConfig:
-    r"""
-    gatewayconfig class
-    """
-    endpoint: builtins.str
-    insecure: builtins.bool
-    insecure_skip_verify: builtins.bool
-    tls_ca_path: typing.Optional[builtins.str]
-    tls_ca_pem: typing.Optional[builtins.str]
-    tls_cert_path: typing.Optional[builtins.str]
-    tls_key_path: typing.Optional[builtins.str]
-    tls_cert_pem: typing.Optional[builtins.str]
-    tls_key_pem: typing.Optional[builtins.str]
-    basic_auth_username: typing.Optional[builtins.str]
-    basic_auth_password: typing.Optional[builtins.str]
-    def __new__(cls,endpoint:builtins.str, insecure:builtins.bool=False, insecure_skip_verify:builtins.bool=False, tls_ca_path:typing.Optional[builtins.str]=None, tls_ca_pem:typing.Optional[builtins.str]=None, tls_cert_path:typing.Optional[builtins.str]=None, tls_key_path:typing.Optional[builtins.str]=None, tls_cert_pem:typing.Optional[builtins.str]=None, tls_key_pem:typing.Optional[builtins.str]=None, basic_auth_username:typing.Optional[builtins.str]=None, basic_auth_password:typing.Optional[builtins.str]=None): ...
-
-class PyService:
-    def __new__(cls,id:builtins.str): ...
-    def configure(self, config:PyGatewayConfig) -> None:
+    def set_timeout(self, timeout:builtins.int) -> None:
         ...
 
 
-class PySessionType(Enum):
+class PyService:
+    id: builtins.int
+
+class PySessionInfo:
+    id: builtins.int
+    def __new__(cls,session_id:builtins.int): ...
+
+class PyStreamingConfiguration:
     r"""
-    session type
+    streaming session config
     """
-    FireAndForget = auto()
-    RequestResponse = auto()
-    PublishSubscribe = auto()
-    Streaming = auto()
+    direction: PySessionDirection
+    topic: typing.Optional[PyAgentType]
+    max_retries: builtins.int
+    def __new__(cls,direction:PySessionDirection, topic:typing.Optional[PyAgentType], max_retries:typing.Optional[builtins.int]=None, timeout:typing.Optional[datetime.timedelta]=None): ...
 
-def connect(svc:PyService) -> typing.Any:
+class PySessionDirection(Enum):
+    r"""
+    session direction
+    """
+    SENDER = auto()
+    RECEIVER = auto()
+    BIDIRECTIONAL = auto()
+
+def connect(svc:PyService, config:dict) -> typing.Any:
     ...
 
-def create_agent(svc:PyService, agent_org:builtins.str, agent_ns:builtins.str, agent_class:builtins.str, agent_id:typing.Optional[builtins.int]=None) -> typing.Any:
+def create_ff_session(svc:PyService, config:PyFireAndForgetConfiguration=...) -> typing.Any:
     ...
 
-def create_session(svc:PyService, session_type:PySessionType) -> typing.Any:
+def create_rr_session(svc:PyService, config:PyRequestResponseConfiguration=...) -> typing.Any:
+    ...
+
+def create_streaming_session(svc:PyService, config:PyStreamingConfiguration) -> typing.Any:
+    ...
+
+def delete_session(svc:PyService, session_id:builtins.int) -> typing.Any:
     ...
 
 def disconnect(svc:PyService, conn:builtins.int) -> typing.Any:
     ...
 
-def publish(svc:PyService, session_id:builtins.int, fanout:builtins.int, blob:typing.Sequence[builtins.int], name:typing.Optional[PyAgentType]=None, id:typing.Optional[builtins.int]=None, agent:typing.Optional[PyAgentSource]=None) -> typing.Any:
+def publish(svc:PyService, session_info:PySessionInfo, fanout:builtins.int, blob:typing.Sequence[builtins.int], name:typing.Optional[PyAgentType]=None, id:typing.Optional[builtins.int]=None) -> typing.Any:
     ...
 
 def receive(svc:PyService) -> typing.Any:
@@ -73,10 +87,13 @@ def receive(svc:PyService) -> typing.Any:
 def remove_route(svc:PyService, conn:builtins.int, name:PyAgentType, id:typing.Optional[builtins.int]=None) -> typing.Any:
     ...
 
-def serve(svc:PyService) -> typing.Any:
+def run_server(svc:PyService, config:dict) -> typing.Any:
     ...
 
 def set_route(svc:PyService, conn:builtins.int, name:PyAgentType, id:typing.Optional[builtins.int]=None) -> typing.Any:
+    ...
+
+def stop_server(svc:PyService, endpoint:builtins.str) -> typing.Any:
     ...
 
 def subscribe(svc:PyService, conn:builtins.int, name:PyAgentType, id:typing.Optional[builtins.int]=None) -> typing.Any:

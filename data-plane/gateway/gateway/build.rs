@@ -14,7 +14,7 @@ fn set_env(name: &str, cmd: &mut Command) {
     println!("cargo:rustc-env={}={}", name, value);
 }
 
-fn main() {
+pub fn main() {
     set_env(
         "GIT_SHA",
         Command::new("git").args(["rev-parse", "--short", "HEAD"]),

@@ -3,38 +3,50 @@
 
 use std::collections::HashMap;
 
-use agp_datapath::pubsub::proto::pubsub::v1::Message;
-use parking_lot::RwLock;
+use agp_datapath::{messages::AgentType, pubsub::proto::pubsub::v1::Message};
 
-struct ProducerBufferImpl {
+pub struct ProducerBuffer {
     capacity: usize,
     next: usize,
     buffer: Vec<Option<Message>>,
     map: HashMap<usize, usize>,
+    destination_name: AgentType,
+    destination_id: Option<u64>,
 }
 
-pub struct ProducerBuffer {
-    buffer: RwLock<ProducerBufferImpl>,
-}
-
-impl ProducerBufferImpl {
+impl ProducerBuffer {
     /// Create a buffer with a given capacity
-    fn with_capacity(capacity: usize) -> Self {
-        ProducerBufferImpl {
+    pub fn with_capacity(capacity: usize) -> Self {
+        ProducerBuffer {
             capacity,
             next: 0,
             buffer: vec![None; capacity],
             map: HashMap::new(),
+            destination_name: AgentType::default(),
+            destination_id: None,
         }
     }
 
-    fn get_capacity(&self) -> usize {
+    pub fn get_capacity(&self) -> usize {
         self.capacity
+    }
+
+    pub fn get_destination_name(&self) -> &AgentType {
+        &self.destination_name
+    }
+
+    pub fn get_destination_id(&self) -> Option<u64> {
+        self.destination_id
     }
 
     /// Add message to the buffer.
     /// return true if the insertion completes
-    fn push(&mut self, msg: Message) -> bool {
+    pub fn push(&mut self, msg: Message) -> bool {
+        // if map is empty init the destination name
+        if self.map.is_empty() {
+            (self.destination_name, self.destination_id) = msg.get_name();
+        }
+
         // get message id
         let id = msg.get_id() as usize;
 
@@ -61,45 +73,17 @@ impl ProducerBufferImpl {
     }
 
     /// Remove all the elements in the buffer
-    fn clear(&mut self) {
+    pub fn clear(&mut self) {
         self.buffer = vec![None; self.capacity];
         self.next = 0;
         self.map.clear();
     }
 
-    fn get(&self, id: usize) -> Option<Message> {
+    pub fn get(&self, id: usize) -> Option<Message> {
         match self.map.get(&id) {
             None => None,
             Some(index) => self.buffer[*index].clone(),
         }
-    }
-}
-
-impl ProducerBuffer {
-    pub fn with_capacity(capacity: usize) -> Self {
-        ProducerBuffer {
-            buffer: ProducerBufferImpl::with_capacity(capacity).into(),
-        }
-    }
-
-    pub fn get_capacity(&self) -> usize {
-        let lock = self.buffer.read();
-        lock.get_capacity()
-    }
-
-    pub fn push(&self, msg: Message) -> bool {
-        let mut lock = self.buffer.write();
-        lock.push(msg)
-    }
-
-    pub fn clear(&self) {
-        let mut lock = self.buffer.write();
-        lock.clear()
-    }
-
-    pub fn get(&self, id: usize) -> Option<Message> {
-        let lock = self.buffer.read();
-        lock.get(id)
     }
 }
 
@@ -113,7 +97,7 @@ mod tests {
 
     #[test]
     fn test_producer_buffer() {
-        let buffer = ProducerBuffer::with_capacity(3);
+        let mut buffer = ProducerBuffer::with_capacity(3);
 
         assert_eq!(buffer.get_capacity(), 3);
 

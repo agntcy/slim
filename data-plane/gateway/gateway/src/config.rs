@@ -5,7 +5,7 @@ use lazy_static::lazy_static;
 use std::collections::{HashMap, HashSet};
 
 use serde::Deserialize;
-use serde_yaml::{from_str, Value};
+use serde_yaml::{Value, from_str};
 use thiserror::Error;
 use tracing::debug;
 

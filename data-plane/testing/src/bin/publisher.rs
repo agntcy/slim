@@ -3,12 +3,16 @@
 
 use std::fs::File;
 use std::io::prelude::*;
+use std::time::Duration;
 use std::{collections::HashMap, sync::Arc};
 
-use agp_datapath::messages::Agent;
+use agp_datapath::messages::{Agent, AgentType};
+use agp_service::AgpHeaderFlags;
 use parking_lot::RwLock;
 use testing::parse_line;
 use tokio_util::sync::CancellationToken;
+
+use agp_service::streaming::StreamingConfiguration;
 
 use agp_gw::config;
 use clap::Parser;
@@ -18,9 +22,29 @@ use tracing::{debug, error, info};
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
 pub struct Args {
-    /// Workload input file
-    #[arg(short, long, value_name = "WORKLOAD", required = true)]
-    workload: String,
+    /// Workload input file, required if used in workload mode. If this is set the streaming mode is set to false.
+    #[arg(short, long, value_name = "WORKLOAD", required = false)]
+    workload: Option<String>,
+
+    /// Runs in streaming mode.
+    #[arg(
+        short,
+        long,
+        value_name = "STREAMING",
+        required = false,
+        default_value_t = false
+    )]
+    streaming: bool,
+
+    /// Runs in pub/sub mode.
+    #[arg(
+        short,
+        long,
+        value_name = "PUBSUB",
+        required = false,
+        default_value_t = false
+    )]
+    pubsub: bool,
 
     /// Agp config file
     #[arg(short, long, value_name = "CONFIGURATION", required = true)]
@@ -54,11 +78,15 @@ pub struct Args {
     #[arg(
         short,
         long,
-        value_name = "SLEEP",
+        value_name = "FREQUENCY",
         required = false,
         default_value_t = 0
     )]
-    sleep: u32,
+    frequency: u32,
+
+    /// used only in streaming mode, defines the maximum number of packets to send
+    #[arg(short, long, value_name = "PACKETS", required = false)]
+    max_packets: Option<u64>,
 }
 
 impl Args {
@@ -66,8 +94,16 @@ impl Args {
         &self.msg_size
     }
 
-    pub fn workload(&self) -> &String {
+    pub fn workload(&self) -> &Option<String> {
         &self.workload
+    }
+
+    pub fn streaming(&self) -> &bool {
+        &self.streaming
+    }
+
+    pub fn pubsub(&self) -> &bool {
+        &self.pubsub
     }
 
     pub fn id(&self) -> &u64 {
@@ -82,8 +118,12 @@ impl Args {
         &self.quite
     }
 
-    pub fn sleep(&self) -> &u32 {
-        &self.sleep
+    pub fn frequency(&self) -> &u32 {
+        &self.frequency
+    }
+
+    pub fn max_packets(&self) -> &Option<u64> {
+        &self.max_packets
     }
 }
 
@@ -95,22 +135,203 @@ async fn main() {
     let config_file = args.config();
     let msg_size = *args.msg_size();
     let id = *args.id();
-    let sleep = *args.sleep();
+    let frequency = *args.frequency();
+    let mut streaming = *args.streaming();
+    let mut pubsub = *args.pubsub();
+    let max_packets = args.max_packets;
 
-    // setup agent config
-    let mut config = config::load_config(config_file).expect("failed to load configuration");
-    let _guard = config.tracing.setup_tracing_subscriber();
+    // if a workload file is given put streaming and pubsub to false
+    if input.is_some() {
+        streaming = false;
+        pubsub = false;
+    }
+
+    // be sure that is streaming is set pubsub is not and viceversa
+    if pubsub {
+        streaming = false;
+    } else if streaming {
+        pubsub = false;
+    }
 
     info!(
-        "configuration -- input file: {}, agent config: {}, msg size: {}",
-        input, config_file, msg_size
+        "configuration -- workload file: {}, agent config {}, publisher id: {}, streaming mode: {}, pubsub mode: {}, msg size: {}",
+        input.as_ref().unwrap_or(&"None".to_string()),
+        config_file,
+        id,
+        streaming,
+        pubsub,
+        msg_size,
     );
 
+    // start local agent
+    // get service
+    let mut config = config::load_config(config_file).expect("failed to load configuration");
+    let _guard = config.tracing.setup_tracing_subscriber();
+    let svc_id = agp_config::component::id::ID::new_with_str("gateway/0").unwrap();
+    let svc = config.services.get_mut(&svc_id).unwrap();
+
+    // create local agent
+    let agent_name = Agent::from_strings("cisco", "default", "publisher", id);
+
+    let mut rx = svc
+        .create_agent(&agent_name)
+        .await
+        .expect("failed to create agent");
+
+    // run the service - this will create all the connections provided via the config file.
+    svc.run().await.unwrap();
+
+    // get the connection id
+    let conn_id = svc
+        .get_connection_id(&svc.config().clients()[0].endpoint)
+        .unwrap();
+    info!("remote connection id = {}", conn_id);
+
+    // subscribe for local name
+    match svc
+        .subscribe(
+            &agent_name,
+            agent_name.agent_type(),
+            agent_name.agent_id_option(),
+            Some(conn_id),
+        )
+        .await
+    {
+        Ok(_) => {}
+        Err(e) => {
+            panic!("an error accoured while adding a subscription {}", e);
+        }
+    }
+
+    // wait for the connection to be established
+    tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+
+    // STREAMING/PUBSUB MODE
+    if streaming || pubsub {
+        // set route for the topic
+        let topic = match streaming {
+            true => AgentType::from_strings("cisco", "default", "subscriber"),
+            false => AgentType::from_strings("topic", "topic", "topic"),
+        };
+
+        // subscribe for the topic
+        match svc
+            .subscribe(&agent_name, &topic, None, Some(conn_id))
+            .await
+        {
+            Ok(_) => {}
+            Err(e) => {
+                panic!("an error accoured while adding a subscription {}", e);
+            }
+        }
+
+        svc.set_route(&agent_name, &topic, None, conn_id)
+            .await
+            .unwrap();
+
+        // create session
+        let res = match streaming {
+            true => {
+                // create a producer streaming session
+                svc.create_session(
+                    &agent_name,
+                    agp_service::session::SessionConfig::Streaming(StreamingConfiguration::new(
+                        agp_service::session::SessionDirection::Sender,
+                        None,
+                        None,
+                        None,
+                    )),
+                )
+                .await
+            }
+            false => {
+                // create a pubsub session
+                svc.create_session(
+                    &agent_name,
+                    agp_service::session::SessionConfig::Streaming(StreamingConfiguration::new(
+                        agp_service::session::SessionDirection::Bidirectional,
+                        Some(topic.clone()),
+                        Some(10),
+                        Some(Duration::from_millis(1000)),
+                    )),
+                )
+                .await
+            }
+        };
+
+        if res.is_err() {
+            panic!("error creating fire and forget session");
+        }
+
+        // receive packets from gateway
+        tokio::spawn(async move {
+            loop {
+                match rx.recv().await {
+                    None => {
+                        info!(%conn_id, "end of stream");
+                        break;
+                    }
+                    Some(msg_info) => match msg_info {
+                        Ok(msg) => {
+                            if streaming {
+                                panic!(
+                                    "received message from the gateway, this should never happe"
+                                );
+                            }
+                            if pubsub {
+                                let publisher_id =
+                                    msg.message.get_agp_header().get_source().agent_id();
+                                info!(
+                                    "received message {} from publisher {}",
+                                    msg.info.message_id.unwrap(),
+                                    publisher_id
+                                ); // TODO put message id + pub id
+                            }
+                        }
+                        Err(e) => {
+                            error!("received an error message {:?}", e);
+                        }
+                    },
+                }
+            }
+        });
+
+        // get the session
+        let session_info = res.unwrap();
+
+        for i in 0..max_packets.unwrap_or(u64::MAX) {
+            let payload: Vec<u8> = vec![120; msg_size as usize]; // ASCII for 'x' = 120
+            info!("publishing message {}", i);
+            // set fanout > 1 to send the message in broadcast
+            let flags = AgpHeaderFlags::new(10, None, None, None, None);
+            if svc
+                .publish_with_flags(
+                    &agent_name,
+                    session_info.clone(),
+                    &topic,
+                    None,
+                    flags,
+                    payload,
+                )
+                .await
+                .is_err()
+            {
+                error!("an error occurred sending publication, the test will fail",);
+            }
+            if frequency != 0 {
+                tokio::time::sleep(tokio::time::Duration::from_millis(frequency as u64)).await;
+            }
+        }
+        return;
+    }
+
+    // WORKLOAD MODE
+    // setup agent config
     let mut publication_list = HashMap::new();
     let mut oracle = HashMap::new();
     let mut routes = Vec::new();
 
-    let res = File::open(input);
+    let res = File::open(input.as_ref().unwrap());
     if res.is_err() {
         panic!("error opening the input file");
     }
@@ -139,37 +360,6 @@ async fn main() {
             Err(e) => {
                 panic!("error while parsing the workload file: {}", e);
             }
-        }
-    }
-
-    // start local agent
-    // get service
-    let svc_id = agp_config::component::id::ID::new_with_str("gateway/0").unwrap();
-    let svc = config.services.get_mut(&svc_id).unwrap();
-
-    // create local agent
-    let agent_name = Agent::from_strings("cisco", "default", "publisher", id);
-    let mut rx = svc
-        .create_agent(&agent_name)
-        .expect("failed to create agent");
-
-    // connect to the remote gateway
-    let conn_id = svc.connect(None).await.unwrap();
-    info!("remote connection id = {}", conn_id);
-
-    // subscribe for local name
-    match svc
-        .subscribe(
-            &agent_name,
-            agent_name.agent_type(),
-            agent_name.agent_id_option(),
-            Some(conn_id),
-        )
-        .await
-    {
-        Ok(_) => {}
-        Err(e) => {
-            panic!("an error accoured while adding a subscription {}", e);
         }
     }
 
@@ -317,8 +507,8 @@ async fn main() {
             bar.inc(1);
         }
 
-        if sleep != 0 {
-            tokio::time::sleep(tokio::time::Duration::from_millis(sleep as u64)).await;
+        if frequency != 0 {
+            tokio::time::sleep(tokio::time::Duration::from_millis(frequency as u64)).await;
         }
     }
     let duration = start.elapsed();
@@ -350,7 +540,11 @@ async fn main() {
         let lock = results_list.read();
         if oracle.len() != lock.len() {
             succeeded = false;
-            error!("test failed, the number of publications received is different from the number of publications sent. sent {} received {}", oracle.len(), lock.len());
+            error!(
+                "test failed, the number of publications received is different from the number of publications sent. sent {} received {}",
+                oracle.len(),
+                lock.len()
+            );
         }
     }
     for p in oracle.iter() {

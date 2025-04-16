@@ -8,9 +8,6 @@ from signal import SIGINT
 import agp_bindings
 from agp_bindings import GatewayConfig
 
-# Create a service
-gateway = agp_bindings.Gateway()
-
 
 async def run_server(address: str, enable_opentelemetry: bool):
     # init tracing
@@ -18,12 +15,12 @@ async def run_server(address: str, enable_opentelemetry: bool):
         log_level="debug", enable_opentelemetry=enable_opentelemetry
     )
 
-    # Configure gateway
-    config = GatewayConfig(endpoint=address, insecure=True)
-    gateway.configure(config)
+    global gateway
+    # create new gateway object
+    gateway = await agp_bindings.Gateway.new("cisco", "default", "gateway")
 
     # Run as server
-    await gateway.serve()
+    await gateway.run_server({"endpoint": address, "tls_settings": {"insecure": True}})
 
 
 async def main():

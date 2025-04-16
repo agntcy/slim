@@ -8,8 +8,8 @@ use tracing::info;
 
 use agp_gw::config;
 use agp_service::{
-    session::{self, SessionConfig},
     FireAndForgetConfiguration,
+    session::{self, SessionConfig},
 };
 
 mod args;
@@ -46,11 +46,16 @@ async fn main() {
     let agent_name = Agent::from_strings("cisco", "default", local_agent, agent_id);
     let mut rx = svc
         .create_agent(&agent_name)
+        .await
         .expect("failed to create agent");
 
-    // connect to the remote gateway
-    let conn_id = svc.connect(None).await.unwrap();
-    info!("remote connection id = {}", conn_id);
+    // run the service - this will create all the connections provided via the config file.
+    svc.run().await.unwrap();
+
+    // get the connection id
+    let conn_id = svc
+        .get_connection_id(&svc.config().clients()[0].endpoint)
+        .unwrap();
 
     let local_agent_type = AgentType::from_strings("cisco", "default", local_agent);
     svc.subscribe(

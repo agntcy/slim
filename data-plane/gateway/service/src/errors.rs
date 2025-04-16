@@ -9,14 +9,14 @@ use crate::session::SessionMessage;
 pub enum ServiceError {
     #[error("configuration error {0}")]
     ConfigError(String),
-    #[error("agent already registered: {0}")]
-    AgentAlreadyRegistered(String),
+    #[error("agent already registered")]
+    AgentAlreadyRegistered,
     #[error("agent not found: {0}")]
     AgentNotFound(String),
     #[error("connection error: {0}")]
     ConnectionError(String),
-    #[error("disconnect error")]
-    DisconnectError,
+    #[error("disconnect error: {0}")]
+    DisconnectError(String),
     #[error("error sending subscription: {0}")]
     SubscriptionError(String),
     #[error("error sending unsubscription: {0}")]
@@ -31,8 +31,12 @@ pub enum ServiceError {
     ReceiveError(String),
     #[error("session not found: {0}")]
     SessionNotFound(String),
-    #[error("error in session session: {0}")]
+    #[error("error in session: {0}")]
     SessionError(String),
+    #[error("client already connected: {0}")]
+    ClientAlreadyConnected(String),
+    #[error("server not found: {0}")]
+    ServerNotFound(String),
     #[error("unknown error")]
     Unknown,
 }
@@ -53,6 +57,8 @@ pub enum SessionError {
     Processing(String),
     #[error("session id already used: {0}")]
     SessionIdAlreadyUsed(String),
+    #[error("invalid session id: {0}")]
+    InvalidSessionId(String),
     #[error("missing AGP header: {0}")]
     MissingAgpHeader(String),
     #[error("missing session header")]
@@ -65,9 +71,10 @@ pub enum SessionError {
     MissingSessionId(String),
     #[error("error during message validation: {0}")]
     ValidationError(String),
-    #[error("timeout for message: {error}")]
+    #[error("message={message_id} session={session_id}: timeout")]
     Timeout {
-        error: String,
+        session_id: u32,
+        message_id: u32,
         message: Box<SessionMessage>,
     },
     #[error("configuration error: {0}")]

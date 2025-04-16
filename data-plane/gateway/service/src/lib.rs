@@ -18,6 +18,7 @@ pub use agp_datapath::messages::utils::AgpHeaderFlags;
 pub use fire_and_forget::FireAndForgetConfiguration;
 pub use request_response::RequestResponseConfiguration;
 pub use session::SessionMessage;
+pub use streaming::StreamingConfiguration;
 
 use agp_datapath::messages::{Agent, AgentType};
 use agp_datapath::pubsub::MessageType;
@@ -26,21 +27,22 @@ use session::{AppChannelReceiver, MessageDirection};
 use session_layer::SessionLayer;
 use std::collections::HashMap;
 use std::sync::Arc;
+use tokio::sync::RwLock;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 use tonic::Status;
 use tracing::{debug, error, info};
 
 use agp_config::component::configuration::{Configuration, ConfigurationError};
-use agp_config::component::id::{Kind, ID};
+use agp_config::component::id::{ID, Kind};
 use agp_config::component::{Component, ComponentBuilder, ComponentError};
 use agp_config::grpc::client::ClientConfig;
 use agp_config::grpc::server::ServerConfig;
 use agp_datapath::controller_service::ControllerService;
 use agp_datapath::controller::proto::controller::v1::controller_service_server::ControllerServiceServer;
 use agp_datapath::message_processing::MessageProcessor;
-use agp_datapath::pubsub::proto::pubsub::v1::pub_sub_service_server::PubSubServiceServer;
 use agp_datapath::pubsub::proto::pubsub::v1::Message;
+use agp_datapath::pubsub::proto::pubsub::v1::pub_sub_service_server::PubSubServiceServer;
 pub use errors::ServiceError;
 
 // Define the kind of the component as static string
@@ -50,7 +52,7 @@ pub const KIND: &str = "gateway";
 pub struct PubsubConfig {
     /// Pubsub GRPC server settings
     #[serde(default)]
-    server: Option<ServerConfig>,
+    servers: Vec<ServerConfig>,
 
     /// Pubsub client config to connect to other services
     #[serde(default)]
@@ -84,8 +86,8 @@ impl ServiceConfiguration {
         ServiceConfiguration::default()
     }
 
-    pub fn with_server(mut self, server: Option<ServerConfig>) -> Self {
-        self.pubsub.server = server;
+    pub fn with_server(mut self, server: Vec<ServerConfig>) -> Self {
+        self.pubsub.servers = server;
         self
     }
 
@@ -94,8 +96,8 @@ impl ServiceConfiguration {
         self
     }
 
-    pub fn server(&self) -> Option<&ServerConfig> {
-        self.pubsub.server.as_ref()
+    pub fn servers(&self) -> &[ServerConfig] {
+        self.pubsub.servers.as_ref()
     }
 
     pub fn clients(&self) -> &[ClientConfig] {
@@ -118,8 +120,8 @@ impl ServiceConfiguration {
 
 impl Configuration for ServiceConfiguration {
     fn validate(&self) -> Result<(), ConfigurationError> {
-        // Validate the pubsub server and clients
-        if let Some(server) = self.pubsub.server.as_ref() {
+        // Validate client and server configurations
+        for server in self.pubsub.servers.iter() {
             server.validate()?;
         }
         for client in &self.pubsub.clients {
@@ -149,11 +151,14 @@ pub struct Service {
     /// controller service
     controller: Arc<ControllerService>,
 
+    /// cancellation tokens to stop the servers main loop
+    controller_cancellation_token: CancellationToken,
+
     /// the configuration of the service
     config: ServiceConfiguration,
 
     /// pool of sessions for the service
-    session_layers: HashMap<Agent, Arc<SessionLayer>>,
+    session_layers: RwLock<HashMap<Agent, Arc<SessionLayer>>>,
 
     /// drain watch to shutdown the service
     watch: drain::Watch,
@@ -161,8 +166,11 @@ pub struct Service {
     /// signal to shutdown the service
     signal: drain::Signal,
 
-    /// cancellation token to stop the server main loop
-    cancellation_token: CancellationToken,
+    /// cancellation tokens to stop the servers main loop
+    cancellation_tokens: parking_lot::RwLock<HashMap<String, CancellationToken>>,
+
+    /// clients created by the service
+    clients: parking_lot::RwLock<HashMap<String, u64>>,
 }
 
 impl Service {
@@ -184,11 +192,13 @@ impl Service {
             id,
             message_processor: message_processor,
             controller: controller,
+            controller_cancellation_token: CancellationToken::new(),
             config: ServiceConfiguration::new(),
-            session_layers: HashMap::new(),
+            session_layers: RwLock::new(HashMap::new()),
             watch,
             signal,
-            cancellation_token: CancellationToken::new(),
+            cancellation_tokens: parking_lot::RwLock::new(HashMap::new()),
+            clients: parking_lot::RwLock::new(HashMap::new()),
         }
     }
 
@@ -205,6 +215,11 @@ impl Service {
         }
     }
 
+    /// get the service configuration
+    pub fn config(&self) -> &ServiceConfiguration {
+        &self.config
+    }
+
     /// get signal used to shutdown the service
     /// NOTE: this method consumes the service!
     pub fn signal(self) -> drain::Signal {
@@ -212,30 +227,22 @@ impl Service {
     }
 
     /// Run the service
-    pub async fn run(&self) -> Result<(), ServiceError> {
-        // Check that at least one pubsub client or server is configured
-        if self.config.server().is_none() && self.config.pubsub.clients.is_empty() {
+    pub async fn run(&mut self) -> Result<(), ServiceError> {
+        // Check that at least one client or server is configured
+        if self.config.servers().is_empty() && self.config.pubsub.clients.is_empty() {
             return Err(ServiceError::ConfigError(
                 "no pubsub server or clients configured".to_string(),
             ));
         }
 
-        if self.config.server().is_some() {
-            info!("starting pubsub server");
-            self.serve(None)?;
+        for server in self.config.pubsub.servers.iter() {
+            info!("starting server {}", server.endpoint);
+            self.run_server(server)?;
         }
 
-        for (i, client) in self.config.pubsub.clients.iter().enumerate() {
-            info!("connecting pubsub client {} to {}", i, client.endpoint);
-
-            let channel = client
-                .to_channel()
-                .map_err(|e| ServiceError::ConfigError(e.to_string()))?;
-
-            self.message_processor
-                .connect(channel, None, None, None)
-                .await
-                .expect("error connecting pubsub client");
+        for client in self.config.pubsub.clients.iter() {
+            info!("connecting client to {}", client.endpoint);
+            _ = self.connect(client).await?;
         }
 
         // Controller service
@@ -262,14 +269,20 @@ impl Service {
     }
 
     // APP APIs
-    pub fn create_agent(&mut self, agent_name: &Agent) -> Result<AppChannelReceiver, ServiceError> {
+    pub async fn create_agent(
+        &self,
+        agent_name: &Agent,
+    ) -> Result<AppChannelReceiver, ServiceError> {
+        // get a write lock on the session layers
+        let mut session_layers = self.session_layers.write().await;
+
         // make sure the agent is not already registered
-        if self.session_layers.contains_key(agent_name) {
-            error!("agent {:?} already exists", agent_name);
-            return Err(ServiceError::AgentAlreadyRegistered(agent_name.to_string()));
+        if session_layers.contains_key(agent_name) {
+            error!(%agent_name, "agent already exists");
+            return Err(ServiceError::AgentAlreadyRegistered);
         }
 
-        info!("creating agent {:?}", agent_name);
+        debug!(%agent_name, "creating agent");
 
         // Channels to communicate with the gateway
         let (conn_id, tx_gw, rx_gw) = self.message_processor.register_local_connection();
@@ -282,8 +295,7 @@ impl Service {
         let session_layer = Arc::new(SessionLayer::new(agent_name, conn_id, tx_gw, tx_app));
 
         // register agent within session layers
-        self.session_layers
-            .insert(agent_name.clone(), session_layer.clone());
+        session_layers.insert(agent_name.clone(), session_layer.clone());
 
         // start message processing using the rx channel
         self.process_messages(agent_name.clone(), session_layer, rx_gw);
@@ -292,8 +304,11 @@ impl Service {
         Ok(rx_app)
     }
 
-    pub fn delete_agent(&mut self, agent_name: &Agent) -> Result<(), ServiceError> {
-        match self.session_layers.remove(agent_name) {
+    pub async fn delete_agent(&self, agent_name: &Agent) -> Result<(), ServiceError> {
+        // get a write lock on the session layers
+        let mut session_layers = self.session_layers.write().await;
+
+        match session_layers.remove(agent_name) {
             None => {
                 error!("agent {:?} not found", agent_name);
                 Err(ServiceError::AgentNotFound(agent_name.to_string()))
@@ -306,31 +321,14 @@ impl Service {
                     .disconnect(layer.conn_id())
                     .map_err(|e| {
                         error!("error disconnecting agent: {}", e);
-                        ServiceError::DisconnectError
+                        ServiceError::DisconnectError(e.to_string())
                     })
             }
         }
     }
 
-    pub fn serve(&self, new_config: Option<ServerConfig>) -> Result<(), ServiceError> {
-        // if no new config is provided, try to get it from local configuration
-        let config = match &new_config {
-            Some(c) => c,
-            None => {
-                // make sure at least one client is configured
-                if self.config.server().is_none() {
-                    error!("no server configured");
-                    return Err(ServiceError::ConfigError(
-                        "no server configured".to_string(),
-                    ));
-                }
-
-                // get the server config
-                self.config.server().unwrap()
-            }
-        };
-
-        info!("server configured: setting it up");
+    pub fn run_server(&self, config: &ServerConfig) -> Result<(), ServiceError> {
+        info!(%config, "server configured: setting it up");
         let server_future = config
             .to_server_future(&[PubSubServiceServer::from_arc(
                 self.message_processor.clone(),
@@ -340,7 +338,11 @@ impl Service {
         // clone the watcher to be notified when the service is shutting down
         let drain_rx = self.watch.clone();
 
-        let token = self.cancellation_token.clone();
+        // create a new cancellation token
+        let token = CancellationToken::new();
+        self.cancellation_tokens
+            .write()
+            .insert(config.endpoint.clone(), token.clone());
 
         // spawn server acceptor in a new task
         tokio::spawn(async move {
@@ -371,27 +373,25 @@ impl Service {
         Ok(())
     }
 
-    pub fn stop(&self) {
-        self.cancellation_token.cancel();
+    pub fn stop_server(&self, endpoint: &str) -> Result<(), ServiceError> {
+        // stop the server
+        if let Some(token) = self.cancellation_tokens.write().remove(endpoint) {
+            token.cancel();
+            Ok(())
+        } else {
+            Err(ServiceError::ServerNotFound(endpoint.to_string()))
+        }
     }
 
-    pub async fn connect(&mut self, new_config: Option<ClientConfig>) -> Result<u64, ServiceError> {
-        // if no new config is provided, try to get it from local configuration
-        let config = match &new_config {
-            Some(c) => c,
-            None => {
-                // make sure at least one client is configured
-                if self.config.pubsub.clients.is_empty() {
-                    error!("no client configured");
-                    return Err(ServiceError::ConfigError(
-                        "no client configured".to_string(),
-                    ));
-                }
-
-                // get the first client
-                &self.config.pubsub.clients[0]
-            }
-        };
+    pub async fn connect(&self, config: &ClientConfig) -> Result<u64, ServiceError> {
+        // make sure there is no other client connected to the same endpoint
+        // TODO(msardara): we might want to allow multiple clients to connect to the same endpoint,
+        // but we need to introduce an identifier in the configuration for it
+        if self.clients.read().contains_key(&config.endpoint) {
+            return Err(ServiceError::ClientAlreadyConnected(
+                config.endpoint.clone(),
+            ));
+        }
 
         match config.to_channel() {
             Err(e) => {
@@ -406,23 +406,35 @@ impl Service {
                     .await
                     .map_err(|e| ServiceError::ConnectionError(e.to_string()));
 
-                match ret {
+                let conn_id = match ret {
                     Err(e) => {
                         error!("connection error: {:?}", e);
-                        Err(ServiceError::ConnectionError(e.to_string()))
+                        return Err(ServiceError::ConnectionError(e.to_string()));
                     }
-                    Ok(conn_id) => Ok(conn_id.1),
-                }
+                    Ok(conn_id) => conn_id.1,
+                };
+
+                // register the client
+                self.clients
+                    .write()
+                    .insert(config.endpoint.clone(), conn_id);
+
+                // return the connection id
+                Ok(conn_id)
             }
         }
     }
 
-    pub fn disconnect(&mut self, conn: u64) -> Result<(), ServiceError> {
+    pub fn disconnect(&self, conn: u64) -> Result<(), ServiceError> {
         info!("disconnect from conn {}", conn);
-        if self.message_processor.disconnect(conn).is_err() {
-            return Err(ServiceError::DisconnectError);
-        }
-        Ok(())
+
+        self.message_processor
+            .disconnect(conn)
+            .map_err(|e| ServiceError::DisconnectError(e.to_string()))
+    }
+
+    pub fn get_connection_id(&self, endpoint: &str) -> Option<u64> {
+        self.clients.read().get(endpoint).cloned()
     }
 
     async fn send_message(
@@ -431,7 +443,10 @@ impl Service {
         msg: Message,
         info: Option<session::Info>,
     ) -> Result<(), ServiceError> {
-        let session = match self.session_layers.get(agent) {
+        // get a read lock on the session layers
+        let session_layers = self.session_layers.read().await;
+
+        let session = match session_layers.get(agent) {
             None => {
                 error!("agent {} not found", agent);
                 return Err(ServiceError::AgentNotFound(agent.to_string()));
@@ -580,7 +595,10 @@ impl Service {
         flags: AgpHeaderFlags,
         blob: Vec<u8>,
     ) -> Result<(), ServiceError> {
-        debug!("sending publication to {}/{:?}", agent_type, agent_id);
+        debug!(
+            "sending publication to {}/{:?}. Flags: {}",
+            agent_type, agent_id, flags
+        );
 
         let msg = Message::new_publish(source, agent_type, agent_id, Some(flags), "msg", blob);
 
@@ -613,7 +631,7 @@ impl Service {
                     next = rx.recv() => {
                         match next {
                             None => {
-                                info!("no more messages to process");
+                                debug!("no more messages to process");
                                 break;
                             }
                             Some(msg) => {
@@ -642,7 +660,7 @@ impl Service {
                                         }
                                     }
                                     Err(e) => {
-                                        error!("error receiving message: {}", e);
+                                        error!("error: {}", e);
 
                                         // if internal error, forward it to application
                                         let tx_app = session_layer.tx_app();
@@ -655,7 +673,7 @@ impl Service {
                         }
                     }
                     _ = watch.clone().signaled() => {
-                        info!("shutting down processing on drain for agent: {}", agent);
+                        debug!("shutting down processing on drain for agent: {}", agent);
                         break;
                     }
                 }
@@ -669,8 +687,11 @@ impl Service {
         agent: &Agent,
         session_config: session::SessionConfig,
     ) -> Result<session::Info, ServiceError> {
+        // get a read lock on the session layers
+        let session_layers = self.session_layers.read().await;
+
         // check if agent was registered
-        let layer = self.session_layers.get(agent);
+        let layer = session_layers.get(agent);
 
         if layer.is_none() {
             error!("agent {} not found", agent);
@@ -696,8 +717,11 @@ impl Service {
         session_id: session::Id,
         session_config: &session::SessionConfig,
     ) -> Result<(), ServiceError> {
+        // get a read lock on the session layers
+        let session_layers = self.session_layers.read().await;
+
         // check if agent was registered
-        let layer = self.session_layers.get(agent);
+        let layer = session_layers.get(agent);
 
         if layer.is_none() {
             error!("agent {} not found", agent);
@@ -722,8 +746,11 @@ impl Service {
         agent: &Agent,
         session_id: session::Id,
     ) -> Result<(), ServiceError> {
+        // get a read lock on the session layers
+        let session_layers = self.session_layers.read().await;
+
         // check if agent was registered
-        let layer = self.session_layers.get(agent);
+        let layer = session_layers.get(agent);
 
         if layer.is_none() {
             error!("agent {} not found", agent);
@@ -737,7 +764,7 @@ impl Service {
             true => Ok(()),
             false => {
                 error!("error deleting session");
-                Err(ServiceError::SessionError("unknown".to_string()))
+                Err(ServiceError::SessionError("session not found".to_string()))
             }
         }
     }
@@ -759,7 +786,7 @@ impl Service {
             ])
         .map_err(|e| ServiceError::ConfigError(e.to_string()))?;
 
-        let token = self.cancellation_token.clone();
+        let token = self.controller_cancellation_token.clone();
 
         tokio::spawn(async move {
             info!("Controller server running");
@@ -785,7 +812,7 @@ impl Component for Service {
         &self.id
     }
 
-    async fn start(&self) -> Result<(), ComponentError> {
+    async fn start(&mut self) -> Result<(), ComponentError> {
         info!("starting service");
         self.run()
             .await
@@ -856,7 +883,7 @@ mod tests {
     #[tokio::test]
     async fn test_service_configuration() {
         let config = ServiceConfiguration::new();
-        assert_eq!(config.server(), None);
+        assert_eq!(config.servers(), &[]);
         assert_eq!(config.clients(), &[]);
     }
 
@@ -866,8 +893,8 @@ mod tests {
         let tls_config = TlsServerConfig::new().with_insecure(true);
         let server_config =
             ServerConfig::with_endpoint("0.0.0.0:12345").with_tls_settings(tls_config);
-        let config = ServiceConfiguration::new().with_server(Some(server_config));
-        let service = config
+        let config = ServiceConfiguration::new().with_server([server_config].to_vec());
+        let mut service = config
             .build_server(ID::new_with_name(Kind::new(KIND).unwrap(), "test").unwrap())
             .unwrap();
 
@@ -903,8 +930,8 @@ mod tests {
         let tls_config = TlsServerConfig::new().with_insecure(true);
         let server_config =
             ServerConfig::with_endpoint("0.0.0.0:12345").with_tls_settings(tls_config);
-        let config = ServiceConfiguration::new().with_server(Some(server_config));
-        let mut service = config
+        let config = ServiceConfiguration::new().with_server([server_config].to_vec());
+        let service = config
             .build_server(ID::new_with_name(Kind::new(KIND).unwrap(), "test").unwrap())
             .unwrap();
 
@@ -912,11 +939,15 @@ mod tests {
         let subscriber_agent = Agent::from_strings("cisco", "default", "subscriber_agent", 0);
         let mut sub_rx = service
             .create_agent(&subscriber_agent)
+            .await
             .expect("failed to create agent");
 
         // create a publisher
         let publisher_agent = Agent::from_strings("cisco", "default", "publisher_agent", 0);
-        let _pub_rx = service.create_agent(&publisher_agent);
+        let _pub_rx = service
+            .create_agent(&publisher_agent)
+            .await
+            .expect("failed to create agent");
 
         // sleep to allow the subscription to be processed
         time::sleep(Duration::from_millis(100)).await;
@@ -978,8 +1009,8 @@ mod tests {
             .unwrap();
 
         // And remove the agents
-        service.delete_agent(&publisher_agent).unwrap();
-        service.delete_agent(&subscriber_agent).unwrap();
+        service.delete_agent(&publisher_agent).await.unwrap();
+        service.delete_agent(&subscriber_agent).await.unwrap();
 
         // sleep to allow the deletion to be processed
         time::sleep(Duration::from_millis(100)).await;

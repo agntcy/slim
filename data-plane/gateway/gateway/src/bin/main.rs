@@ -24,7 +24,7 @@ fn main() {
     let config_file = args.config().expect("config file is required");
 
     // create configured components
-    let config = config::load_config(config_file).expect("failed to load configuration");
+    let mut config = config::load_config(config_file).expect("failed to load configuration");
 
     // print build info
     info!("{}", build_info::BUILD_INFO);
@@ -49,7 +49,7 @@ fn main() {
         );
 
         // start services
-        for service in config.services.iter() {
+        for service in config.services.iter_mut() {
             info!("Starting service: {}", service.0);
             service.1.start().await.expect("failed to start service")
         }

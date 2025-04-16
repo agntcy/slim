@@ -1,95 +1,312 @@
 # Copyright AGNTCY Contributors (https://github.com/agntcy)
 # SPDX-License-Identifier: Apache-2.0
 
-# import the contents of the Rust library into the Python extension
-from typing import Optional, Tuple
+import asyncio
+from typing import Optional
+
 from ._agp_bindings import (
-    PyGatewayConfig as GatewayConfig,
-    PyService,
+    __version__,
+    build_profile,
+    build_info,
+    SESSION_UNSPECIFIED,
     PyAgentType,
-    PySessionInfo,
     PyFireAndForgetConfiguration,
-    create_ff_session,
-    create_agent,
+    PyRequestResponseConfiguration,
+    PyService,
+    PySessionDirection as PySessionDirection,
+    PySessionInfo,
+    PyStreamingConfiguration,
     connect,
+    create_ff_session,
+    create_pyservice,
+    create_rr_session,
+    create_streaming_session,
+    delete_session,
     disconnect,
+    init_tracing as init_tracing,
     publish,
     receive,
-    init_tracing,
+    remove_route,
+    run_server,
+    set_route,
+    stop_server,
     subscribe,
     unsubscribe,
-    serve,
-    stop,
-    set_route,
-    remove_route,
 )
-from ._agp_bindings import __all__
 
-# optional: include the documentation from the Rust module
-from ._agp_bindings import __doc__  # noqa: F401
+
+class AGPTimeoutError(TimeoutError):
+    """
+    Exception raised for AGP timeout errors.
+
+    This exception is raised when an operation in an AGP session times out.
+    It encapsulates detailed information about the timeout event, including the
+    ID of the message that caused the timeout and the session identifier. An
+    optional underlying exception can also be provided to offer additional context.
+
+    Attributes:
+        message_id (int): The identifier associated with the message triggering the timeout.
+        session_id (int): The identifier of the session where the timeout occurred.
+        message (str): A brief description of the timeout error.
+        original_exception (Exception, optional): The underlying exception that caused the timeout, if any.
+
+    The string representation of the exception (via __str__) returns a full message that
+    includes the custom message, session ID, and message ID, as well as details of the
+    original exception (if present). This provides a richer context when the exception is logged
+    or printed.
+    """
+
+    def __init__(
+        self,
+        message_id: int,
+        session_id: int,
+        message: str = "AGP timeout error",
+        original_exception: Optional[Exception] = None,
+    ):
+
+        self.message_id = message_id
+        self.session_id = session_id
+        self.message = message
+        self.original_exception = original_exception
+        full_message = f"{message} for session {session_id} and message {message_id}"
+        if original_exception:
+            full_message = f"{full_message}. Caused by: {original_exception!r}"
+        super().__init__(full_message)
+
+    def __str__(self):
+        return self.args[0]
+
+    def __repr__(self):
+        return (
+            f"{self.__class__.__name__}(session_id={self.session_id!r}, "
+            f"message_id={self.message_id!r}, "
+            f"message={self.message!r}, original_exception={self.original_exception!r})"
+        )
 
 
 class Gateway:
-    def __init__(self, name="gateway/agent"):
+    def __init__(
+        self,
+        svc: PyService,
+        organization: str,
+        namespace: str,
+        agent: str,
+    ):
         """
-        Create a new Gateway instance.
+        Initialize a new Gateway instance. A Gateway instance is associated with a single
+        local agent. The agent is identified by its organization, namespace, and name.
+        The agent ID is determined by the provided service (svc).
 
         Args:
-            name (str): The name of the Gateway service. Default is "gateway/agent".
+            svc (PyService): The Python service instance for the gateway.
+            organization (str): The organization of the agent.
+            namespace (str): The namespace of the agent.
+            agent (str): The name of the agent.
+        """
 
+        # Initialize service
+        self.svc = svc
+
+        # Create sessions map
+        self.sessions: dict[int, tuple[Optional[PySessionInfo], asyncio.Queue]] = {
+            SESSION_UNSPECIFIED: (None, asyncio.Queue()),
+        }
+
+        # Save local names
+        self.local_name = PyAgentType(organization, namespace, agent)
+        self.local_id = self.svc.id
+
+        # Create connection ID map
+        self.conn_ids: dict[str, int] = {}
+
+    async def __aenter__(self):
+        """
+        Start the receiver loop in the background.
+        This function is called when the Gateway instance is used in a
+        context manager (with statement).
+        It will start the receiver loop in the background and return the
+        Gateway instance.
+        Args:
+            None
         Returns:
-            Gateway: A new Gateway instance
-        """
-        self.svc = PyService(name)
+            Gateway: The Gateway instance.
 
-    def configure(self, config):
         """
-        Configure the gateway.
 
+        # Run receiver loop in the background
+        self.task = asyncio.create_task(self._receive_loop())
+        return self
+
+    async def __aexit__(self, exc_type, exc_value, traceback):
+        """
+        Stop the receiver loop.
+        This function is called when the Gateway instance is used in a
+        context manager (with statement).
+        It will stop the receiver loop and wait for it to finish.
         Args:
-            config (GatewayConfig): The gateway configuration class.
-
+            exc_type: The exception type.
+            exc_value: The exception value.
+            traceback: The traceback object.
         Returns:
             None
         """
 
-        self.svc.configure(config)
+        # Cancel the receiver loop task
+        self.task.cancel()
 
-    async def create_agent(
-        self, organization, namespace, agent, id: Optional[int] = None
-    ) -> int:
+        # Wait for the task to finish
+        try:
+            await self.task
+        except asyncio.CancelledError:
+            pass
+
+    @classmethod
+    async def new(
+        cls,
+        organization: str,
+        namespace: str,
+        agent: str,
+        agent_id: Optional[int] = None,
+    ) -> "Gateway":
         """
-        Create a new agent.
+        Create a new Gateway instance. A gateway instamce is associated to one single
+        local agent. The agent is identified by its organization, namespace and name.
+        The agent ID is optional. If not provided, the agent will be created with a new ID.
 
         Args:
             organization (str): The organization of the agent.
             namespace (str): The namespace of the agent.
             agent (str): The name of the agent.
+            agent_id (int): The ID of the agent. If not provided, a new ID will be created.
 
         Returns:
-            ID of the agent
+            Gateway: A new Gateway instance
         """
 
-        return await create_agent(self.svc, organization, namespace, agent, id)
+        return cls(
+            await create_pyservice(organization, namespace, agent, agent_id),
+            organization,
+            namespace,
+            agent,
+        )
 
-    async def create_ff_session(
-        self, session_config: PyFireAndForgetConfiguration
-    ) -> int:
+    def get_agent_id(self) -> int:
         """
-        Create a new session.
+        Get the ID of the agent.
 
         Args:
-            session_type (PySessionType): The type of the session.
+            None
+
+        Returns:
+            int: The ID of the agent.
+        """
+
+        return self.svc.id
+
+    async def create_ff_session(
+        self,
+        session_config: PyFireAndForgetConfiguration = PyFireAndForgetConfiguration(),
+        queue_size: int = 0,
+    ) -> PySessionInfo:
+        """
+        Create a new Fire-and-Forget session.
+        This asynchronous function initializes a new session using the provided
+        configuration and creates an associated message queue with the specified size.
+        A session is created and stored along with its unbounded or bounded queue.
+
+        Args:
+            session_config (PyFireAndForgetConfiguration, optional): The configuration parameters for the session.
+                Defaults to an instance of PyFireAndForgetConfiguration.
+            queue_size (int, optional): The maximum size of the session's queue.
+                If 0, the queue is unbounded.
+                If a positive integer, the queue is bounded to that size.
+                Defaults to 0.
+
+        Returns:
+            PySessionInfo: An object containing details about the created session.
+        """
+
+        session = await create_ff_session(self.svc, session_config)
+        self.sessions[session.id] = (session, asyncio.Queue(queue_size))
+        return session
+
+    async def create_rr_session(
+        self,
+        session_config: PyRequestResponseConfiguration = PyRequestResponseConfiguration(),
+        queue_size: int = 0,
+    ) -> PySessionInfo:
+        """
+        Create a new Request-Response session.
+        This asynchronous function initializes a new session using the provided
+        configuration and creates an associated message queue with the specified size.
+        A session is created and stored along with its unbounded or bounded queue.
+
+        Args:
+            session_config (PyRequestResponseConfiguration, optional): The configuration parameters for the session.
+                Defaults to an instance of PyRequestResponseConfiguration.
+            queue_size (int, optional): The maximum size of the session's queue.
+                If 0, the queue is unbounded.
+                If a positive integer, the queue is bounded to that size.
+                Defaults to 0.
+
+        Returns:
+            PySessionInfo: An object containing details about the created session.
+        """
+
+        session = await create_rr_session(self.svc, session_config)
+        self.sessions[session.id] = (session, asyncio.Queue(queue_size))
+        return session
+
+    async def create_streaming_session(
+        self,
+        session_config: PyStreamingConfiguration,
+        queue_size: int = 0,
+    ) -> PySessionInfo:
+        """
+        Create a new streaming session.
+
+        Args:
+            session_config (PyStreamingConfiguration): The session configuration.
+            queue_size (int): The size of the queue for the session.
+                                If 0, the queue will be unbounded.
+                                If a positive integer, the queue will be bounded to that size.
 
         Returns:
             ID of the session
         """
 
-        return await create_ff_session(self.svc, session_config)
+        session = await create_streaming_session(self.svc, session_config)
+        self.sessions[session.id] = (session, asyncio.Queue(queue_size))
+        return session
 
-    async def serve(self):
+    async def delete_session(self, session_id: int):
         """
-        Serve the Gateway service.
+        Delete a session.
+
+        Args:
+            session_id (int): The ID of the session to delete.
+
+        Returns:
+            None
+
+        Raises:
+            ValueError: If the session ID is not found.
+        """
+
+        # Check if the session ID is in the sessions map
+        if session_id not in self.sessions:
+            raise ValueError(f"session not found: {session_id}")
+
+        # Remove the session from the map
+        del self.sessions[session_id]
+
+        # Remove the session from the gateway
+        await delete_session(self.svc, session_id)
+
+    async def run_server(self, config: dict):
+        """
+        Start the server part of the Gateway service. The server will be started only
+        if its configuration is set. Otherwise, it will raise an error.
 
         Args:
             None
@@ -98,11 +315,11 @@ class Gateway:
             None
         """
 
-        await serve(self.svc)
+        await run_server(self.svc, config)
 
-    async def stop(self):
+    async def stop_server(self, endpoint: str):
         """
-        Stop the Gateway service.
+        Stop the server part of the Gateway service.
 
         Args:
             None
@@ -111,11 +328,12 @@ class Gateway:
             None
         """
 
-        await stop(self.svc)
+        await stop_server(self.svc, endpoint)
 
-    async def connect(self) -> int:
+    async def connect(self, client_config: dict) -> int:
         """
         Connect to a remote gateway service.
+        This function will block until the connection is established.
 
         Args:
             None
@@ -124,13 +342,27 @@ class Gateway:
             int: The connection ID.
         """
 
-        self.conn_id = await connect(self.svc)
+        conn_id = await connect(
+            self.svc,
+            client_config,
+        )
 
-        return self.conn_id
+        # Save the connection ID
+        self.conn_ids[client_config["endpoint"]] = conn_id
 
-    async def disconnect(self):
+        # For the moment we manage one connection only
+        self.conn_id = conn_id
+
+        # Subscribe to the local name
+        await subscribe(self.svc, conn_id, self.local_name, self.local_id)
+
+        # return the connection ID
+        return conn_id
+
+    async def disconnect(self, endpoint: str):
         """
-        disconnect from a remote gateway service.
+        Disconnect from a remote gateway service.
+        This function will block until the disconnection is complete.
 
         Args:
             None
@@ -139,10 +371,16 @@ class Gateway:
             None
 
         """
+        conn = self.conn_ids[endpoint]
+        await disconnect(self.svc, conn)
 
-        await disconnect(self.svc, self.conn_id)
-
-    async def set_route(self, organization, namespace, agent, id: Optional[int] = None):
+    async def set_route(
+        self,
+        organization: str,
+        namespace: str,
+        agent: str,
+        id: Optional[int] = None,
+    ):
         """
         Set route for outgoing messages via the connected gateway.
 
@@ -150,6 +388,7 @@ class Gateway:
             organization (str): The organization of the agent.
             namespace (str): The namespace of the agent.
             agent (str): The name of the agent.
+            id (int): Optional ID of the agent.
 
         Returns:
             None
@@ -159,7 +398,7 @@ class Gateway:
         await set_route(self.svc, self.conn_id, name, id)
 
     async def remove_route(
-        self, organization, namespace, agent, id: Optional[int] = None
+        self, organization: str, namespace: str, agent: str, id: Optional[int] = None
     ):
         """
         Remove route for outgoing messages via the connected gateway.
@@ -168,6 +407,7 @@ class Gateway:
             organization (str): The organization of the agent.
             namespace (str): The namespace of the agent.
             agent (str): The name of the agent.
+            id (int): Optional ID of the agent.
 
         Returns:
             None
@@ -176,7 +416,9 @@ class Gateway:
         name = PyAgentType(organization, namespace, agent)
         await remove_route(self.svc, self.conn_id, name, id)
 
-    async def subscribe(self, organization, namespace, agent, id=None):
+    async def subscribe(
+        self, organization: str, namespace: str, agent: str, id: Optional[int] = None
+    ):
         """
         Subscribe to receive messages for the given agent.
 
@@ -184,7 +426,7 @@ class Gateway:
             organization (str): The organization of the agent.
             namespace (str): The namespace of the agent.
             agent (str): The name of the agent.
-            id (int): The ID of the agent.
+            id (int): Optional ID of the agent.
 
         Returns:
             None
@@ -193,7 +435,9 @@ class Gateway:
         sub = PyAgentType(organization, namespace, agent)
         await subscribe(self.svc, self.conn_id, sub, id)
 
-    async def unsubscribe(self, organization, namespace, agent, id=None):
+    async def unsubscribe(
+        self, organization: str, namespace: str, agent: str, id: Optional[int] = None
+    ):
         """
         Unsubscribe from receiving messages for the given agent.
 
@@ -201,38 +445,90 @@ class Gateway:
             organization (str): The organization of the agent.
             namespace (str): The namespace of the agent.
             agent (str): The name of the agent.
-            id (int): The ID of the agent.
+            id (int): Optional ID of the agent.
 
         Returns:
             None
         """
+
         unsub = PyAgentType(organization, namespace, agent)
         await unsubscribe(self.svc, self.conn_id, unsub, id)
 
-    async def publish(self, session, msg, organization, namespace, agent):
+    async def publish(
+        self,
+        session: PySessionInfo,
+        msg: bytes,
+        organization: str,
+        namespace: str,
+        agent: str,
+        agent_id: Optional[int] = None,
+    ):
         """
         Publish a message to an agent via normal matching in subscription table.
 
         Args:
+            session (PySessionInfo): The session information.
             msg (str): The message to publish.
             organization (str): The organization of the agent.
             namespace (str): The namespace of the agent.
             agent (str): The name of the agent.
+            agent_id (int): Optional ID of the agent.
 
         Returns:
             None
         """
 
-        dest = PyAgentType(organization, namespace, agent)
-        await publish(self.svc, session, 1, msg, dest, None)
+        # Make sure the sessions exists
+        if session.id not in self.sessions:
+            raise Exception("session not found", session.id)
 
-    async def publish_to(self, session, msg):
+        dest = PyAgentType(organization, namespace, agent)
+        await publish(self.svc, session, 1, msg, dest, agent_id)
+
+    async def request_reply(
+        self,
+        session: PySessionInfo,
+        msg: bytes,
+        organization: str,
+        namespace: str,
+        agent: str,
+        agent_id: Optional[int] = None,
+    ) -> tuple[PySessionInfo, Optional[bytes]]:
         """
-        Publish a message to an agent via the connected gateway.
+        Publish a message and wait for the first response.
 
         Args:
             msg (str): The message to publish.
-            agent (Agent): The agent to publish to.
+            session (PySessionInfo): The session information.
+            organization (str): The organization of the agent.
+            namespace (str): The namespace of the agent.
+            agent (str): The name of the agent.
+            agent_id (int): Optional ID of the agent.
+
+        Returns:
+            tuple: The PySessionInfo and the message.
+        """
+
+        # Make sure the sessions exists
+        if session.id not in self.sessions:
+            raise Exception("Session ID not found")
+
+        dest = PyAgentType(organization, namespace, agent)
+        await publish(self.svc, session, 1, msg, dest, agent_id)
+
+        # Wait for a reply in the corresponding session queue
+        session_info, message = await self.receive(session.id)
+
+        return session_info, message
+
+    async def publish_to(self, session, msg):
+        """
+        Publish a message back to the agent that sent it.
+        The information regarding the source agent is stored in the session.
+
+        Args:
+            session (PySessionInfo): The session information.
+            msg (str): The message to publish.
 
         Returns:
             None
@@ -240,13 +536,111 @@ class Gateway:
 
         await publish(self.svc, session, 1, msg)
 
-    async def receive(self) -> Tuple[PySessionInfo, bytes]:
+    async def receive(
+        self, session: Optional[int] = None
+    ) -> tuple[PySessionInfo, Optional[bytes]]:
         """
-        Receive a message from the connected gateway.
+        Receive a message , optionally waiting for a specific session ID.
+        If session ID is None, it will wait for new sessions to be created.
+        This function will block until a message is received (if the session id is specified)
+        or until a new session is created (if the session id is None).
+
+        Args:
+            session (int): The session ID. If None, the function will wait for any message.
 
         Returns:
-            tuple: The source agent and the message.
+            tuple: The PySessionInfo and the message.
 
+        Raise:
+            Exception: If the session ID is not found.
         """
 
-        return await receive(self.svc)
+        # If session is None, wait for any message
+        if session is None:
+            return await self.sessions[SESSION_UNSPECIFIED][1].get()
+        else:
+            # Check if the session ID is in the sessions map
+            if session not in self.sessions:
+                raise Exception("Session ID not found")
+
+            # Get the queue for the session
+            queue = self.sessions[session][1]
+
+            # Wait for a message from the queue
+            ret = await queue.get()
+
+            # If message is am exception, raise it
+            if isinstance(ret, Exception):
+                raise ret
+
+            # Otherwise, return the message
+            return ret
+
+    async def _receive_loop(self) -> None:
+        """
+        Receive messages in a loop running in the background.
+
+        Returns:
+            None
+        """
+
+        while True:
+            try:
+                session_info_msg = await receive(self.svc)
+
+                id: int = session_info_msg[0].id
+
+                # Check if the session ID is in the sessions map
+                if id not in self.sessions:
+                    # Create the entry in the sessions map
+                    self.sessions[id] = (
+                        session_info_msg,
+                        asyncio.Queue(),
+                    )
+
+                    # Also add a queue for the session
+                    await self.sessions[SESSION_UNSPECIFIED][1].put(session_info_msg)
+
+                await self.sessions[id][1].put(session_info_msg)
+            except asyncio.CancelledError:
+                raise
+            except Exception as e:
+                print("Error receiving message:", e)
+                # Try to parse the error message
+                try:
+                    message_id, session_id, reason = parse_error_message(str(e))
+
+                    # figure out what exception to raise based on the reason
+                    if reason == "timeout":
+                        err = AGPTimeoutError(message_id, session_id)
+                    else:
+                        # we don't know the reason, just raise the original exception
+                        raise e
+
+                    if session_id in self.sessions:
+                        await self.sessions[session_id][1].put(
+                            err,
+                        )
+                    else:
+                        print(self.sessions.keys())
+                except Exception:
+                    raise e
+
+
+def parse_error_message(error_message):
+    import re
+
+    # Define the regular expression pattern
+    pattern = r"message=(\d+) session=(\d+): (.+)"
+
+    # Use re.search to find the pattern in the string
+    match = re.search(pattern, error_message)
+
+    if match:
+        # Extract message_id, session_id, and reason from the match groups
+        message_id = match.group(1)
+        session_id = match.group(2)
+        reason = match.group(3)
+        return int(message_id), int(session_id), reason
+    else:
+        raise ValueError("error message does not match the expected format.")

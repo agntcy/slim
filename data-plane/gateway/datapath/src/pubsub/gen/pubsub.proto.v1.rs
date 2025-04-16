@@ -96,8 +96,11 @@ pub enum SessionHeaderType {
     Request = 2,
     Reply = 3,
     Stream = 4,
-    RtxRequest = 5,
-    RtxReply = 6,
+    PubSub = 5,
+    RtxRequest = 6,
+    RtxReply = 7,
+    BeaconStream = 8,
+    BeaconPubSub = 9,
 }
 impl SessionHeaderType {
     /// String value of the enum field names used in the ProtoBuf definition.
@@ -111,8 +114,11 @@ impl SessionHeaderType {
             Self::Request => "REQUEST",
             Self::Reply => "REPLY",
             Self::Stream => "STREAM",
+            Self::PubSub => "PUB_SUB",
             Self::RtxRequest => "RTX_REQUEST",
             Self::RtxReply => "RTX_REPLY",
+            Self::BeaconStream => "BEACON_STREAM",
+            Self::BeaconPubSub => "BEACON_PUB_SUB",
         }
     }
     /// Creates an enum from field names used in the ProtoBuf definition.
@@ -123,8 +129,11 @@ impl SessionHeaderType {
             "REQUEST" => Some(Self::Request),
             "REPLY" => Some(Self::Reply),
             "STREAM" => Some(Self::Stream),
+            "PUB_SUB" => Some(Self::PubSub),
             "RTX_REQUEST" => Some(Self::RtxRequest),
             "RTX_REPLY" => Some(Self::RtxReply),
+            "BEACON_STREAM" => Some(Self::BeaconStream),
+            "BEACON_PUB_SUB" => Some(Self::BeaconPubSub),
             _ => None,
         }
     }
@@ -157,7 +166,7 @@ pub mod pub_sub_service_client {
     }
     impl<T> PubSubServiceClient<T>
     where
-        T: tonic::client::GrpcService<tonic::body::BoxBody>,
+        T: tonic::client::GrpcService<tonic::body::Body>,
         T::Error: Into<StdError>,
         T::ResponseBody: Body<Data = Bytes> + std::marker::Send + 'static,
         <T::ResponseBody as Body>::Error: Into<StdError> + std::marker::Send,
@@ -178,13 +187,13 @@ pub mod pub_sub_service_client {
             F: tonic::service::Interceptor,
             T::ResponseBody: Default,
             T: tonic::codegen::Service<
-                http::Request<tonic::body::BoxBody>,
+                http::Request<tonic::body::Body>,
                 Response = http::Response<
-                    <T as tonic::client::GrpcService<tonic::body::BoxBody>>::ResponseBody,
+                    <T as tonic::client::GrpcService<tonic::body::Body>>::ResponseBody,
                 >,
             >,
             <T as tonic::codegen::Service<
-                http::Request<tonic::body::BoxBody>,
+                http::Request<tonic::body::Body>,
             >>::Error: Into<StdError> + std::marker::Send + std::marker::Sync,
         {
             PubSubServiceClient::new(InterceptedService::new(inner, interceptor))
@@ -338,7 +347,7 @@ pub mod pub_sub_service_server {
         B: Body + std::marker::Send + 'static,
         B::Error: Into<StdError> + std::marker::Send + 'static,
     {
-        type Response = http::Response<tonic::body::BoxBody>;
+        type Response = http::Response<tonic::body::Body>;
         type Error = std::convert::Infallible;
         type Future = BoxFuture<Self::Response, Self::Error>;
         fn poll_ready(
@@ -397,7 +406,9 @@ pub mod pub_sub_service_server {
                 }
                 _ => {
                     Box::pin(async move {
-                        let mut response = http::Response::new(empty_body());
+                        let mut response = http::Response::new(
+                            tonic::body::Body::default(),
+                        );
                         let headers = response.headers_mut();
                         headers
                             .insert(

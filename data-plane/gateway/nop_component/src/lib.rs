@@ -4,7 +4,7 @@
 use serde::Deserialize;
 
 use agp_config::component::configuration::{Configuration, ConfigurationError};
-use agp_config::component::id::{Kind, ID};
+use agp_config::component::id::{ID, Kind};
 use agp_config::component::{Component, ComponentBuilder, ComponentError};
 use agp_config::grpc::client::ClientConfig;
 
@@ -65,7 +65,7 @@ impl Component for NopComponent {
     }
 
     // Start the component
-    async fn start(&self) -> Result<(), ComponentError> {
+    async fn start(&mut self) -> Result<(), ComponentError> {
         // Start the component
         Ok(())
     }

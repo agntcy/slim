@@ -8,9 +8,9 @@ use tracing::debug;
 
 use super::encoder::{Agent, AgentType, DEFAULT_AGENT_ID};
 use crate::pubsub::{
-    proto::pubsub::v1::SessionHeaderType, AgpHeader, Content, MessageType, ProtoAgent,
-    ProtoMessage, ProtoPublish, ProtoPublishType, ProtoSubscribe, ProtoSubscribeType,
-    ProtoUnsubscribe, ProtoUnsubscribeType, SessionHeader,
+    AgpHeader, Content, MessageType, ProtoAgent, ProtoMessage, ProtoPublish, ProtoPublishType,
+    ProtoSubscribe, ProtoSubscribeType, ProtoUnsubscribe, ProtoUnsubscribeType, SessionHeader,
+    proto::pubsub::v1::SessionHeaderType,
 };
 
 use thiserror::Error;
@@ -91,6 +91,16 @@ impl Default for AgpHeaderFlags {
             incoming_conn: None,
             error: None,
         }
+    }
+}
+
+impl Display for AgpHeaderFlags {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "fanout: {}, recv_from: {:?}, forward_to: {:?}, incoming_conn: {:?}, error: {:?}",
+            self.fanout, self.recv_from, self.forward_to, self.incoming_conn, self.error
+        )
     }
 }
 
@@ -190,14 +200,14 @@ impl AgpHeader {
 
     pub fn get_source(&self) -> Agent {
         match &self.source {
-            Some(ref source) => Agent::from(source),
+            Some(source) => Agent::from(source),
             None => panic!("source not found"),
         }
     }
 
     pub fn get_dst(&self) -> (AgentType, Option<u64>) {
         match &self.destination {
-            Some(ref destination) => (AgentType::from(destination), destination.agent_id),
+            Some(destination) => (AgentType::from(destination), destination.agent_id),
             None => panic!("destination not found"),
         }
     }
@@ -615,6 +625,10 @@ impl ProtoMessage {
         self.get_agp_header().get_forward_to()
     }
 
+    pub fn get_error(&self) -> Option<bool> {
+        self.get_agp_header().get_error()
+    }
+
     pub fn get_incoming_conn(&self) -> u64 {
         self.get_agp_header().get_incoming_conn().unwrap()
     }
@@ -668,6 +682,10 @@ impl ProtoMessage {
 
     pub fn set_error(&mut self, error: Option<bool>) {
         self.get_agp_header_mut().set_error(error);
+    }
+
+    pub fn set_fanout(&mut self, fanout: u32) {
+        self.get_agp_header_mut().set_fanout(fanout);
     }
 
     pub fn set_incoming_conn(&mut self, incoming_conn: Option<u64>) {
@@ -1089,14 +1107,14 @@ mod tests {
     #[test]
     fn test_service_type_to_int() {
         // Get total number of service types
-        let total_service_types = SessionHeaderType::RtxReply as i32;
+        let total_service_types = SessionHeaderType::BeaconPubSub as i32;
 
         for i in 0..total_service_types {
             // int -> ServiceType
             let service_type =
                 SessionHeaderType::try_from(i).expect("failed to convert int to service type");
             let service_type_int = i32::from(service_type);
-            assert_eq!(service_type_int, service_type.into());
+            assert_eq!(service_type_int, i32::from(service_type),);
         }
 
         // Test invalid conversion

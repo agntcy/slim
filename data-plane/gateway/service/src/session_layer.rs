@@ -6,16 +6,17 @@ use std::time::Duration;
 
 use rand::Rng;
 use tokio::sync::RwLock;
+use tracing::warn;
 
 use crate::errors::SessionError;
-use crate::fire_and_forget;
 use crate::fire_and_forget::FireAndForgetConfiguration;
 use crate::request_response;
 use crate::session::{
-    AppChannelSender, GwChannelSender, Id, Info, MessageDirection, Session, SessionConfig,
-    SessionDirection, SessionMessage,
+    AppChannelSender, GwChannelSender, Id, Info, MessageDirection, SESSION_RANGE, Session,
+    SessionConfig, SessionDirection, SessionMessage,
 };
-use crate::streaming;
+use crate::streaming::{self, StreamingConfiguration};
+use crate::{fire_and_forget, session};
 use agp_datapath::messages::encoder::Agent;
 use agp_datapath::pubsub::proto::pubsub::v1::SessionHeaderType;
 
@@ -75,25 +76,6 @@ impl SessionLayer {
         &self.agent_name
     }
 
-    /// Insert a new session into the pool
-    pub(crate) async fn insert_session(
-        &self,
-        id: Id,
-        session: Box<dyn Session + Send + Sync>,
-    ) -> Result<(), SessionError> {
-        // get the write lock
-        let mut pool = self.pool.write().await;
-
-        // check if the session already exists
-        if pool.contains_key(&id) {
-            return Err(SessionError::SessionIdAlreadyUsed(id.to_string()));
-        }
-
-        pool.insert(id, session);
-
-        Ok(())
-    }
-
     pub(crate) async fn create_session(
         &self,
         session_config: SessionConfig,
@@ -102,10 +84,33 @@ impl SessionLayer {
         // TODO(msardara): the session identifier should be a combination of the
         // session ID and the agent ID, to prevent collisions.
 
-        // generate a new session ID
-        let id = match id {
-            Some(id) => id,
-            None => rand::rng().random(),
+        // get a lock on the session pool
+        let mut pool = self.pool.write().await;
+
+        // generate a new session ID in the SESSION_RANGE if not provided
+        let mut id = match id {
+            Some(id) => {
+                // make sure provided id is in range
+                if !SESSION_RANGE.contains(&id) {
+                    return Err(SessionError::InvalidSessionId(id.to_string()));
+                }
+
+                // check if the session ID is already used
+                if pool.contains_key(&id) {
+                    return Err(SessionError::SessionIdAlreadyUsed(id.to_string()));
+                }
+
+                id
+            }
+            None => {
+                // generate a new session ID
+                loop {
+                    let id = rand::rng().random_range(SESSION_RANGE);
+                    if !pool.contains_key(&id) {
+                        break id;
+                    }
+                }
+            }
         };
 
         // create a new session
@@ -114,6 +119,7 @@ impl SessionLayer {
                 id,
                 conf,
                 SessionDirection::Bidirectional,
+                self.agent_name().clone(),
                 self.tx_gw.clone(),
                 self.tx_app.clone(),
             )),
@@ -122,19 +128,26 @@ impl SessionLayer {
                     id,
                     conf,
                     SessionDirection::Bidirectional,
+                    self.agent_name().clone(),
                     self.tx_gw.clone(),
                     self.tx_app.clone(),
                 ))
             }
             SessionConfig::Streaming(conf) => {
-                let mut direction = SessionDirection::Receiver;
-                if conf.timeout.is_none() {
-                    direction = SessionDirection::Sender;
+                let direction = conf.direction.clone();
+                if direction == SessionDirection::Bidirectional {
+                    // TODO(micpapal/msardara): this is a temporary solution to get a session
+                    // id that is common to all the agents that subscribe
+                    // for the same topic.
+                    id = (agp_datapath::messages::encoder::calculate_hash(&conf.topic)
+                        % (u32::MAX as u64)) as u32;
                 }
+
                 Box::new(streaming::Streaming::new(
                     id,
                     conf,
                     direction,
+                    self.agent_name().clone(),
                     self.tx_gw.clone(),
                     self.tx_app.clone(),
                 ))
@@ -142,7 +155,12 @@ impl SessionLayer {
         };
 
         // insert the session into the pool
-        self.insert_session(id, session).await?;
+        let ret = pool.insert(id, session);
+
+        // This should never happen, but just in case
+        if ret.is_some() {
+            panic!("session already exists: {}", ret.is_some());
+        }
 
         Ok(Info::new(id))
     }
@@ -254,20 +272,41 @@ impl SessionLayer {
                 .await?
             }
             SessionHeaderType::Stream => {
-                self.create_session(
-                    SessionConfig::Streaming(streaming::StreamingConfiguration {
-                        source: self.agent_name().clone(),
-                        max_retries: Some(10),
-                        timeout: Some(Duration::from_millis(1000)),
-                    }),
-                    Some(id),
-                )
-                .await?
+                let session_conf = StreamingConfiguration::new(
+                    SessionDirection::Receiver,
+                    None,
+                    Some(10),
+                    Some(Duration::from_millis(1000)),
+                );
+                self.create_session(session::SessionConfig::Streaming(session_conf), Some(id))
+                    .await?
+            }
+            SessionHeaderType::PubSub => {
+                warn!("received pub/sub message with unknown session id");
+                return Err(SessionError::SessionUnknown(
+                    session_type.as_str_name().to_string(),
+                ));
+            }
+            SessionHeaderType::BeaconStream => {
+                let session_conf = StreamingConfiguration::new(
+                    SessionDirection::Receiver,
+                    None,
+                    Some(10),
+                    Some(Duration::from_millis(1000)),
+                );
+                self.create_session(session::SessionConfig::Streaming(session_conf), Some(id))
+                    .await?
+            }
+            SessionHeaderType::BeaconPubSub => {
+                warn!("received beacon pub/sub message with unknown session id");
+                return Err(SessionError::SessionUnknown(
+                    session_type.as_str_name().to_string(),
+                ));
             }
             _ => {
                 return Err(SessionError::SessionUnknown(
                     session_type.as_str_name().to_string(),
-                ))
+                ));
             }
         };
 
@@ -305,7 +344,7 @@ impl SessionLayer {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::fire_and_forget::{FireAndForget, FireAndForgetConfiguration};
+    use crate::fire_and_forget::FireAndForgetConfiguration;
 
     use agp_datapath::{
         messages::{Agent, AgentType},
@@ -328,27 +367,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_insert_session() {
-        let (tx_gw, _) = tokio::sync::mpsc::channel(1);
-        let (tx_app, _) = tokio::sync::mpsc::channel(1);
-        let agent = Agent::from_strings("org", "ns", "type", 0);
-
-        let session_layer = SessionLayer::new(&agent, 0, tx_gw.clone(), tx_app.clone());
-        let session_config = FireAndForgetConfiguration {};
-
-        let session = Box::new(FireAndForget::new(
-            1,
-            session_config,
-            SessionDirection::Bidirectional,
-            tx_gw.clone(),
-            tx_app.clone(),
-        ));
-
-        let res = session_layer.insert_session(1, session).await;
-        assert!(res.is_ok());
-    }
-
-    #[tokio::test]
     async fn test_remove_session() {
         let (tx_gw, _) = tokio::sync::mpsc::channel(1);
         let (tx_app, _) = tokio::sync::mpsc::channel(1);
@@ -357,17 +375,13 @@ mod tests {
         let session_layer = SessionLayer::new(&agent, 0, tx_gw.clone(), tx_app.clone());
         let session_config = FireAndForgetConfiguration {};
 
-        let session = Box::new(FireAndForget::new(
-            1,
-            session_config,
-            SessionDirection::Bidirectional,
-            tx_gw.clone(),
-            tx_app.clone(),
-        ));
+        let ret = session_layer
+            .create_session(SessionConfig::FireAndForget(session_config), Some(1))
+            .await;
 
-        session_layer.insert_session(1, session).await.unwrap();
+        assert!(ret.is_ok());
+
         let res = session_layer.remove_session(1).await;
-
         assert!(res);
     }
 
@@ -389,6 +403,30 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_delete_session() {
+        let (tx_gw, _) = tokio::sync::mpsc::channel(1);
+        let (tx_app, _) = tokio::sync::mpsc::channel(1);
+        let agent = Agent::from_strings("org", "ns", "type", 0);
+
+        let session_layer = SessionLayer::new(&agent, 0, tx_gw.clone(), tx_app.clone());
+
+        let res = session_layer
+            .create_session(
+                SessionConfig::FireAndForget(FireAndForgetConfiguration {}),
+                Some(1),
+            )
+            .await;
+        assert!(res.is_ok());
+
+        let res = session_layer.remove_session(1).await;
+        assert!(res);
+
+        // try to delete a non-existing session
+        let res = session_layer.remove_session(1).await;
+        assert!(!res);
+    }
+
+    #[tokio::test]
     async fn test_handle_message() {
         let (tx_gw, _) = tokio::sync::mpsc::channel(1);
         let (tx_app, mut rx_app) = tokio::sync::mpsc::channel(1);
@@ -398,15 +436,11 @@ mod tests {
 
         let session_config = FireAndForgetConfiguration {};
 
-        let session = Box::new(FireAndForget::new(
-            1,
-            session_config,
-            SessionDirection::Bidirectional,
-            tx_gw.clone(),
-            tx_app.clone(),
-        ));
-
-        session_layer.insert_session(1, session).await.unwrap();
+        // create a new session
+        let res = session_layer
+            .create_session(SessionConfig::FireAndForget(session_config), Some(1))
+            .await;
+        assert!(res.is_ok());
 
         let mut message = ProtoMessage::new_publish(
             &Agent::from_strings("cisco", "default", "local_agent", 0),
