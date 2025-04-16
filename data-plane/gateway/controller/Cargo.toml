@@ -1,0 +1,19 @@
+[package]
+name = "agp-controller"
+edition = { workspace = true }
+license = { workspace = true }
+version = "0.1.0"
+description = "Controller service and control API to configure the AGP data plane through the control plane."
+
+[dependencies]
+bytes = { version = "1.9.0" }
+prost = "0.13"
+thiserror = "2.0.9"
+tokio = { version = "1.0", features = ["macros", "rt-multi-thread"] }
+tokio-stream = "0.1"
+tonic = "0.13"
+tracing = "0.1.41"
+
+[build-dependencies]
+protoc-bin-vendored = "3.1.0"
+tonic-build = { version = "0.13", features = ["prost"] }

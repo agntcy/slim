@@ -17,7 +17,6 @@ use tonic::{Request, Response, Status};
 use tracing::{debug, error, info};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 
-use crate::commands::ControlCommand;
 use crate::connection::{Channel, Connection, Type as ConnectionType};
 use crate::errors::DataPathError;
 use crate::forwarder::Forwarder;
@@ -742,21 +741,6 @@ impl MessageProcessor {
         handle
     }
 
-    pub fn start_control_loop(&self, mut cmd_rx: mpsc::Receiver<ControlCommand>) -> tokio::task::JoinHandle<()> {
-        tokio::spawn(async move {
-            while let Some(cmd) = cmd_rx.recv().await {
-                match cmd {
-                    ControlCommand::Subscribe { reply } => {
-                        let _ = reply.send(Ok(()));
-                    }
-                    ControlCommand::Unsubscribe { reply } => {
-                        let _ = reply.send(Ok(()));
-                    }
-                }
-            }
-        })
-    }
-
     fn match_for_io_error(err_status: &Status) -> Option<&std::io::Error> {
         let mut err: &(dyn std::error::Error + 'static) = err_status;
 
@@ -816,43 +800,5 @@ impl PubSubService for MessageProcessor {
         Ok(Response::new(
             Box::pin(out_stream) as Self::OpenChannelStream
         ))
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use tokio::sync::oneshot;
-
-    #[tokio::test]
-    async fn test_control_command_subscribe() {
-        let (processor, _) = MessageProcessor::new();
-        let (ctrl_tx, ctrl_rx) = mpsc::channel::<ControlCommand>(10);
-        let _handle = processor.start_control_loop(ctrl_rx);
-
-        let (reply_tx, reply_rx) = oneshot::channel();
-        ctrl_tx
-            .send(ControlCommand::Subscribe { reply: reply_tx })
-            .await
-            .expect("Failed to send subscribe command");
-
-        let result = reply_rx.await.expect("Did not receive reply");
-        assert!(result.is_ok(), "Subscribe command should return Ok");
-    }
-
-    #[tokio::test]
-    async fn test_control_command_unsubscribe() {
-        let (processor, _) = MessageProcessor::new();
-        let (ctrl_tx, ctrl_rx) = mpsc::channel::<ControlCommand>(10);
-        let _handle = processor.start_control_loop(ctrl_rx);
-
-        let (reply_tx, reply_rx) = oneshot::channel();
-        ctrl_tx
-            .send(ControlCommand::Unsubscribe { reply: reply_tx })
-            .await
-            .expect("Failed to send unsubscribe command");
-
-        let result = reply_rx.await.expect("Did not receive reply");
-        assert!(result.is_ok(), "Unsubscribe command should return Ok");
     }
 }

@@ -67,6 +67,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "agp-controller"
+version = "0.1.0"
+dependencies = [
+ "bytes",
+ "prost",
+ "protoc-bin-vendored",
+ "thiserror",
+ "tokio",
+ "tokio-stream",
+ "tonic 0.13.0",
+ "tonic-build",
+ "tracing",
+]
+
+[[package]]
 name = "agp-datapath"
 version = "0.5.0"
 dependencies = [
@@ -142,6 +157,7 @@ name = "agp-service"
 version = "0.3.0"
 dependencies = [
  "agp-config",
+ "agp-controller",
  "agp-datapath",
  "async-trait",
  "drain",

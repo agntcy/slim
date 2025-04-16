@@ -3,6 +3,7 @@
 members = [
     "examples",
     "gateway/config",
+    "gateway/controller",
     "gateway/datapath",
     "gateway/gateway",
     "gateway/nop_component",

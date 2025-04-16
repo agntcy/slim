@@ -4,19 +4,44 @@
 syntax = "proto3";
 package controller.proto.v1;
 
+import "google/protobuf/wrappers.proto";
+
 option go_package = "github.com/agntcy/agp/control-plane/internal/proto/controller/v1;controllerv1";
 
 service ControllerService {
-  rpc OpenChannel(stream Command) returns (stream Command) {}
+  rpc OpenControlChannel(stream ControlMessage) returns (stream ControlMessage) {}
 }
 
-message Subscribe { }
-message Unsubscribe { }
+message ControlMessage {
+  string message_id = 1;
 
-message Command {
-  oneof commandType {
-    Subscribe subscribe = 1;
-    Unsubscribe unsubscribe = 2;
+  oneof payload {
+    ConfigurationCommand config_command = 2;
+    Ack ack = 3;
   }
-  map<string, string> metadata = 4;
+}
+
+message Connection {
+  string connection_id = 1;
+  string remote_address = 2;
+  int32 remote_port = 3;
+}
+
+message Route {
+  string company = 1;
+  string namespace = 2;
+  string agent_name = 3;
+  google.protobuf.UInt64Value agent_id = 4;
+  string connection_id = 5;
+}
+
+message ConfigurationCommand {
+  repeated Connection connections_to_create = 1;
+  repeated Route routes_to_set = 2;
+  repeated Route routes_to_delete = 3;
+}
+
+message Ack {
+  string original_message_id = 1;
+  bool success = 2;
 }

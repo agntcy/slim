@@ -13,7 +13,6 @@ mod fire_and_forget;
 mod request_response;
 mod session_layer;
 
-use agp_datapath::commands::ControlCommand;
 pub use agp_datapath::messages::utils::AgpHeaderFlags;
 pub use fire_and_forget::FireAndForgetConfiguration;
 pub use request_response::RequestResponseConfiguration;
@@ -38,8 +37,8 @@ use agp_config::component::id::{ID, Kind};
 use agp_config::component::{Component, ComponentBuilder, ComponentError};
 use agp_config::grpc::client::ClientConfig;
 use agp_config::grpc::server::ServerConfig;
-use agp_datapath::controller_service::ControllerService;
-use agp_datapath::controller::proto::controller::v1::controller_service_server::ControllerServiceServer;
+use agp_controller::service::ControllerService;
+use agp_controller::api::proto::api::v1::controller_service_server::ControllerServiceServer;
 use agp_datapath::message_processing::MessageProcessor;
 use agp_datapath::pubsub::proto::pubsub::v1::Message;
 use agp_datapath::pubsub::proto::pubsub::v1::pub_sub_service_server::PubSubServiceServer;
@@ -179,14 +178,9 @@ impl Service {
         let (signal, watch) = drain::channel();
 
         let message_processor = Arc::new(MessageProcessor::with_drain_channel(watch.clone()));
-        
-        // create a control command channel
-        let (ctrl_tx, ctrl_rx) = mpsc::channel::<ControlCommand>(128);
-        // start the control loop on the message processor
-        message_processor.start_control_loop(ctrl_rx);
 
         // create the controller service
-        let controller = Arc::new(ControllerService::new(ctrl_tx));
+        let controller = Arc::new(ControllerService::new());
 
         Service {
             id,
@@ -251,19 +245,17 @@ impl Service {
             self.serve_controller()?;
         }
 
-        // TODO(zkacsand): finish client connection
-        /*if let Some(controller_client) = self.config.controller_client() {
+        if let Some(controller_client) = self.config.controller_client() {
             info!("connecting controller client {}", controller_client.endpoint);
             let channel = controller_client
                 .to_channel()
                 .map_err(|e| ServiceError::ConfigError(e.to_string()))?;
 
-            controller
+             controller
                     .connect(channel)
                     .await
                     .expect("error connecting controller client");
-            }
-        }*/
+        }
 
         Ok(())
     }
