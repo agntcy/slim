@@ -64,7 +64,7 @@ func (s *fakeServer) OpenControlChannel(
 	})
 }
 
-func TestSendConfigMessageRefactored(t *testing.T) {
+func TestSendConfigMessage(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 

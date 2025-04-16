@@ -28,6 +28,7 @@ func NewConfigureCmd(opts *options.CommonOptions) *cobra.Command {
 		Use:   "configure",
 		Short: "Send a configuration command to a gateway",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			//TODO(zkacsand): validate that connection IDs exist for the set/del route commands
 			var connections []*grpcapi.Connection
 			for _, c := range conns {
 				parts := strings.Split(c, ",")
