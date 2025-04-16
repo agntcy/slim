@@ -287,6 +287,22 @@ impl SessionLayer {
                     session_type.as_str_name().to_string(),
                 ));
             }
+            SessionHeaderType::BeaconStream => {
+                let session_conf = StreamingConfiguration::new(
+                    SessionDirection::Receiver,
+                    None,
+                    Some(10),
+                    Some(Duration::from_millis(1000)),
+                );
+                self.create_session(session::SessionConfig::Streaming(session_conf), Some(id))
+                    .await?
+            }
+            SessionHeaderType::BeaconPubSub => {
+                warn!("received beacon pub/sub message with unknown session id");
+                return Err(SessionError::SessionUnknown(
+                    session_type.as_str_name().to_string(),
+                ));
+            }
             _ => {
                 return Err(SessionError::SessionUnknown(
                     session_type.as_str_name().to_string(),
@@ -409,7 +425,6 @@ mod tests {
         let res = session_layer.remove_session(1).await;
         assert!(!res);
     }
-
 
     #[tokio::test]
     async fn test_handle_message() {

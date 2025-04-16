@@ -72,6 +72,9 @@ def create_rr_session(svc:PyService, config:PyRequestResponseConfiguration=...) 
 def create_streaming_session(svc:PyService, config:PyStreamingConfiguration) -> typing.Any:
     ...
 
+def delete_session(svc:PyService, session_id:builtins.int) -> typing.Any:
+    ...
+
 def disconnect(svc:PyService, conn:builtins.int) -> typing.Any:
     ...
 

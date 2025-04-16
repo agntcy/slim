@@ -1,0 +1,41 @@
+# Copyright AGNTCY Contributors (https://github.com/agntcy)
+# SPDX-License-Identifier: Apache-2.0
+
+---
+name: Trigger integrations
+description: Run the integration tests in CSIT repository
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Get latest tags and versions
+      id: tags
+      shell: bash
+      run: |
+
+        CHART_TAG=$(git tag --sort=-creatordate --list 'agp-helm-*' | head -1 | sed 's/agp-helm-//')
+        IMAGE_TAG=$(git tag --sort=-creatordate --list 'agp-gw-v*' | head -1 | sed 's/agp-gw-v//')
+
+        echo "CHART_TAG=$CHART_TAG" >> $GITHUB_OUTPUT
+        echo "IMAGE_TAG=$IMAGE_TAG" >> $GITHUB_OUTPUT
+
+    - name: Trigger integration tests
+      uses: actions/github-script@v7
+      with:
+        script: |
+          await github.rest.actions.createWorkflowDispatch({
+              owner: 'agntcy',
+              repo: 'csit',
+              workflow_id: 'test-integrations.yaml',
+              ref: 'main',
+              inputs: {
+                  skip_directory_test: true,
+                  override_gateway_image_tag: '${{ steps.tags.outputs.IMAGE_TAG }}',
+                  override_gateway_chart_tag: '${{ steps.tags.outputs.CHART_TAG }}',
+              },
+          });

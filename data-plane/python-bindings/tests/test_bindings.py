@@ -63,11 +63,27 @@ async def test_end_to_end(server):
     # check if the message is correct
     assert msg_rcv == bytes(msg)
 
+    # delete sessions
+    await agp_bindings.delete_session(svc_alice, session_info.id)
+    await agp_bindings.delete_session(svc_bob, session_info.id)
+
+    # try to send a message after deleting the session - this should raise an exception
+    try:
+        await agp_bindings.publish(svc_alice, session_info, 1, msg, bob_class, None)
+    except Exception as e:
+        assert "session not found" in str(e), f"Unexpected error message: {str(e)}"
+
     # disconnect alice
     await agp_bindings.disconnect(svc_alice, conn_id_alice)
 
     # disconnect bob
     await agp_bindings.disconnect(svc_bob, conn_id_bob)
+
+    # try to delete a random session, we should get an exception
+    try:
+        await agp_bindings.delete_session(svc_alice, 123456789)
+    except Exception as e:
+        assert "session not found" in str(e)
 
 
 @pytest.mark.asyncio
@@ -131,6 +147,21 @@ async def test_gateway_wrapper(server):
         # check if the message is correct
         assert msg_rcv == bytes(msg)
 
+    # delete sessions
+    await gateway1.delete_session(session_info.id)
+    await gateway2.delete_session(session_info.id)
+
+    # try to send a message after deleting the session - this should raise an exception
+    try:
+        await gateway1.publish(session_info, msg, org, ns, agent1)
+    except Exception as e:
+        assert "session not found" in str(e), f"Unexpected error message: {str(e)}"
+
+    # try to delete a random session, we should get an exception
+    try:
+        await gateway1.delete_session(123456789)
+    except Exception as e:
+        assert "session not found" in str(e), f"Unexpected error message: {str(e)}"
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("server", ["127.0.0.1:12346"], indirect=True)
