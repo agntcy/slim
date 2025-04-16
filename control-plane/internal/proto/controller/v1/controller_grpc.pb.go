@@ -22,14 +22,14 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	ControllerService_OpenChannel_FullMethodName = "/controller.proto.v1.ControllerService/OpenChannel"
+	ControllerService_OpenControlChannel_FullMethodName = "/controller.proto.v1.ControllerService/OpenControlChannel"
 )
 
 // ControllerServiceClient is the client API for ControllerService service.
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type ControllerServiceClient interface {
-	OpenChannel(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[Command, Command], error)
+	OpenControlChannel(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[ControlMessage, ControlMessage], error)
 }
 
 type controllerServiceClient struct {
@@ -40,24 +40,24 @@ func NewControllerServiceClient(cc grpc.ClientConnInterface) ControllerServiceCl
 	return &controllerServiceClient{cc}
 }
 
-func (c *controllerServiceClient) OpenChannel(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[Command, Command], error) {
+func (c *controllerServiceClient) OpenControlChannel(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[ControlMessage, ControlMessage], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	stream, err := c.cc.NewStream(ctx, &ControllerService_ServiceDesc.Streams[0], ControllerService_OpenChannel_FullMethodName, cOpts...)
+	stream, err := c.cc.NewStream(ctx, &ControllerService_ServiceDesc.Streams[0], ControllerService_OpenControlChannel_FullMethodName, cOpts...)
 	if err != nil {
 		return nil, err
 	}
-	x := &grpc.GenericClientStream[Command, Command]{ClientStream: stream}
+	x := &grpc.GenericClientStream[ControlMessage, ControlMessage]{ClientStream: stream}
 	return x, nil
 }
 
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
-type ControllerService_OpenChannelClient = grpc.BidiStreamingClient[Command, Command]
+type ControllerService_OpenControlChannelClient = grpc.BidiStreamingClient[ControlMessage, ControlMessage]
 
 // ControllerServiceServer is the server API for ControllerService service.
 // All implementations must embed UnimplementedControllerServiceServer
 // for forward compatibility.
 type ControllerServiceServer interface {
-	OpenChannel(grpc.BidiStreamingServer[Command, Command]) error
+	OpenControlChannel(grpc.BidiStreamingServer[ControlMessage, ControlMessage]) error
 	mustEmbedUnimplementedControllerServiceServer()
 }
 
@@ -68,8 +68,8 @@ type ControllerServiceServer interface {
 // pointer dereference when methods are called.
 type UnimplementedControllerServiceServer struct{}
 
-func (UnimplementedControllerServiceServer) OpenChannel(grpc.BidiStreamingServer[Command, Command]) error {
-	return status.Errorf(codes.Unimplemented, "method OpenChannel not implemented")
+func (UnimplementedControllerServiceServer) OpenControlChannel(grpc.BidiStreamingServer[ControlMessage, ControlMessage]) error {
+	return status.Errorf(codes.Unimplemented, "method OpenControlChannel not implemented")
 }
 func (UnimplementedControllerServiceServer) mustEmbedUnimplementedControllerServiceServer() {}
 func (UnimplementedControllerServiceServer) testEmbeddedByValue()                           {}
@@ -92,12 +92,12 @@ func RegisterControllerServiceServer(s grpc.ServiceRegistrar, srv ControllerServ
 	s.RegisterService(&ControllerService_ServiceDesc, srv)
 }
 
-func _ControllerService_OpenChannel_Handler(srv interface{}, stream grpc.ServerStream) error {
-	return srv.(ControllerServiceServer).OpenChannel(&grpc.GenericServerStream[Command, Command]{ServerStream: stream})
+func _ControllerService_OpenControlChannel_Handler(srv interface{}, stream grpc.ServerStream) error {
+	return srv.(ControllerServiceServer).OpenControlChannel(&grpc.GenericServerStream[ControlMessage, ControlMessage]{ServerStream: stream})
 }
 
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
-type ControllerService_OpenChannelServer = grpc.BidiStreamingServer[Command, Command]
+type ControllerService_OpenControlChannelServer = grpc.BidiStreamingServer[ControlMessage, ControlMessage]
 
 // ControllerService_ServiceDesc is the grpc.ServiceDesc for ControllerService service.
 // It's only intended for direct use with grpc.RegisterService,
@@ -108,8 +108,8 @@ var ControllerService_ServiceDesc = grpc.ServiceDesc{
 	Methods:     []grpc.MethodDesc{},
 	Streams: []grpc.StreamDesc{
 		{
-			StreamName:    "OpenChannel",
-			Handler:       _ControllerService_OpenChannel_Handler,
+			StreamName:    "OpenControlChannel",
+			Handler:       _ControllerService_OpenControlChannel_Handler,
 			ServerStreams: true,
 			ClientStreams: true,
 		},

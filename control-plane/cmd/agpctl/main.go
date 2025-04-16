@@ -9,7 +9,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/agntcy/agp/control-plane/internal/cmd/subscription"
+	"github.com/agntcy/agp/control-plane/internal/cmd/configure"
 	"github.com/agntcy/agp/control-plane/internal/cmd/version"
 	"github.com/agntcy/agp/control-plane/internal/options"
 )
@@ -22,10 +22,8 @@ func main() {
 		Short: "AGP control CLI",
 	}
 
-	// Register subcommands.
 	rootCmd.AddCommand(version.NewVersionCmd(opts))
-	rootCmd.AddCommand(subscription.NewSubscribeCmd(opts))
-	rootCmd.AddCommand(subscription.NewUnsubscribeCmd(opts))
+	rootCmd.AddCommand(configure.NewConfigureCmd(opts))
 
 	if err := rootCmd.Execute(); err != nil {
 		log.Fatalf("CLI error: %v", err)
