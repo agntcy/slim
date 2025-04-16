@@ -171,6 +171,26 @@ pub(crate) enum MessageDirection {
     South,
 }
 
+/// The session type
+#[derive(Clone, PartialEq, Debug)]
+pub enum SessionType {
+    FireAndForget,
+    RequestResponse,
+    Streaming,
+    PubSub,
+}
+
+impl std::fmt::Display for SessionType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            SessionType::FireAndForget => write!(f, "FireAndForget"),
+            SessionType::RequestResponse => write!(f, "RequestResponse"),
+            SessionType::Streaming => write!(f, "Streaming"),
+            SessionType::PubSub => write!(f, "PubSub"),
+        }
+    }
+}
+
 #[derive(Clone, PartialEq, Debug)]
 pub enum SessionConfig {
     FireAndForget(FireAndForgetConfiguration),

@@ -128,10 +128,11 @@ async def test_streaming(server):
                     break
 
     # start participants in background
-    for i in range(participants_count):
+    for i in reversed(range(participants_count)):
         task = asyncio.create_task(background_task(i))
         task.set_name(f"participant-{i}")
         participants.append(task)
+        time.sleep(0.1)
 
     # Wait for the task to complete
     for task in participants:

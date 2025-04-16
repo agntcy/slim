@@ -38,6 +38,17 @@ pub struct StreamingConfiguration {
     pub timeout: std::time::Duration,
 }
 
+impl Default for StreamingConfiguration {
+    fn default() -> Self {
+        StreamingConfiguration {
+            direction: SessionDirection::Receiver,
+            topic: AgentType::default(),
+            max_retries: 10,
+            timeout: std::time::Duration::from_millis(1000),
+        }
+    }
+}
+
 impl std::fmt::Display for StreamingConfiguration {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
@@ -1392,12 +1403,8 @@ mod tests {
         time::sleep(Duration::from_millis(100)).await;
 
         // check that the session is deleted, by checking the log
-<<<<<<< HEAD
-        assert!(logs_contain("stopping message processing on streaming session 0"));
-=======
         assert!(logs_contain(
             "stopping message processing on streaming session 0"
         ));
->>>>>>> main
     }
 }
