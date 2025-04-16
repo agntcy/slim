@@ -86,10 +86,10 @@ func NewConfigureCmd(opts *options.CommonOptions) *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVarP(&serverAddr, "server", "s", "localhost:46357", "control-plane gRPC server (host:port)")
+	cmd.Flags().StringVarP(&serverAddr, "server", "s", "localhost:46357", "gateway gRPC control API endpoint (host:port)")
 	cmd.Flags().StringArrayVar(&conns, "connection", nil, "id,address,port (repeatable)")
 	cmd.Flags().StringArrayVar(&setRoutes, "route-set", nil, "company,namespace,agent,agent_id(optional),conn_id (repeatable)")
-	cmd.Flags().StringArrayVar(&delRoutes, "route-delete", nil, "same format as route-set (repeatable)")
+	cmd.Flags().StringArrayVar(&delRoutes, "route-delete", nil, "company,namespace,agent,agent_id(optional),conn_id (repeatable)")
 
 	return cmd
 }
