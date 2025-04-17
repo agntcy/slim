@@ -1,5 +1,26 @@
 # Changelog
 
+## [0.2.5](https://github.com/agntcy/agp/compare/agp-bindings-v0.2.4...agp-bindings-v0.2.5) (2025-04-17)
+
+
+### Features
+
+* **data-plane:** support for multiple servers ([#173](https://github.com/agntcy/agp/issues/173)) ([1347d49](https://github.com/agntcy/agp/commit/1347d49c51b2705e55eea8792d9097be419e5b01))
+* **python-bindings:** add session deletion API ([#176](https://github.com/agntcy/agp/issues/176)) ([ce28084](https://github.com/agntcy/agp/commit/ce28084f150a89294f703c70a0cd3f4e6b3ab351))
+* **python-bindings:** improve configuration handling and further refactoring ([#167](https://github.com/agntcy/agp/issues/167)) ([d1a0303](https://github.com/agntcy/agp/commit/d1a030322b3270a0bfe762534c5f326958cd7a8b))
+* **session:** add default config for sessions created upon message reception ([#181](https://github.com/agntcy/agp/issues/181)) ([1827936](https://github.com/agntcy/agp/commit/18279363432a8869aabc2895784a6bdae74cf19f))
+
+
+### Bug Fixes
+
+* **agp-bindings:** bug fixes ([#174](https://github.com/agntcy/agp/issues/174)) ([7e8bad3](https://github.com/agntcy/agp/commit/7e8bad3a71d11a3bb194fd97f6e6057d9ee79f12))
+* **python-bindings:** rename and improve TimeoutError and improve docstring ([#180](https://github.com/agntcy/agp/issues/180)) ([df71d2e](https://github.com/agntcy/agp/commit/df71d2eb53798041cb42c277af41d36eff7a838b))
+
+
+### Dependencies
+
+* **data-plane:** tonic 0.12.3 -&gt; 0.13 ([#170](https://github.com/agntcy/agp/issues/170)) ([95f28cc](https://github.com/agntcy/agp/commit/95f28ccc4ff8d7cef81cedfca59a1fc4d04f79d5))
+
 ## [0.2.4](https://github.com/agntcy/agp/compare/agp-bindings-v0.2.3...agp-bindings-v0.2.4) (2025-04-11)
 
 
