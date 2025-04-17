@@ -31,9 +31,7 @@ async def run_client(local_id, remote_id, address, enable_opentelemetry: bool):
     )
 
     # Connect to gateway server
-    _ = await participant.connect(
-        {"endpoint": address, "tls": {"insecure": True}}
-    )
+    _ = await participant.connect({"endpoint": address, "tls": {"insecure": True}})
 
     # set route for the chat, so that messages can be sent to the other participants
     await participant.set_route(remote_organization, remote_namespace, broadcast_topic)
