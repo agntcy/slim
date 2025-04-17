@@ -4,6 +4,7 @@
 import asyncio
 
 import pytest
+import datetime
 
 import agp_bindings
 
@@ -35,8 +36,8 @@ async def test_end_to_end(server):
     await agp_bindings.set_route(svc_alice, conn_id_alice, bob_class, None)
 
     # create fire and forget session
-    session_info = await agp_bindings.create_ff_session(
-        svc_alice, agp_bindings.PyFireAndForgetConfiguration()
+    session_info = await agp_bindings.create_session(
+        svc_alice, agp_bindings.PySessionConfiguration.FireAndForget()
     )
 
     # send msg from Alice to Bob
@@ -87,6 +88,125 @@ async def test_end_to_end(server):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("server", ["127.0.0.1:12344"], indirect=True)
+async def test_session_config(server):
+    # create svc
+    svc = await agp_bindings.create_pyservice("cisco", "default", "alice", 1234)
+
+    # create fire and forget session
+    session_config = agp_bindings.PySessionConfiguration.FireAndForget()
+    session_info = await agp_bindings.create_session(svc, session_config)
+
+    # get session configuration
+    session_config_ret = await agp_bindings.get_session_config(svc, session_info.id)
+
+    # check if the session config is correct
+    assert isinstance(session_config, agp_bindings.PySessionConfiguration.FireAndForget)
+    assert (
+        session_config == session_config_ret
+    ), f"session config are not equal: {session_config} vs {session_config_ret}"
+
+    # check default values
+    await agp_bindings.set_default_session_config(
+        svc,
+        session_config,
+    )
+
+    # get default
+    session_config_ret = await agp_bindings.get_default_session_config(
+        svc, agp_bindings.PySessionType.FIRE_AND_FORGET
+    )
+
+    # check if the session config is correct
+    assert isinstance(
+        session_config_ret, agp_bindings.PySessionConfiguration.FireAndForget
+    )
+    assert (
+        session_config == session_config_ret
+    ), f"session config are not equal: {session_config} vs {session_config_ret}"
+
+    # Request/Response session
+    session_config = agp_bindings.PySessionConfiguration.RequestResponse(
+        datetime.timedelta(seconds=5)
+    )
+    session_info = await agp_bindings.create_session(svc, session_config)
+    session_config_ret = await agp_bindings.get_session_config(svc, session_info.id)
+
+    # check if the session config is correct
+    assert isinstance(
+        session_config_ret, agp_bindings.PySessionConfiguration.RequestResponse
+    )
+    print(session_config, session_config_ret)
+    assert session_config == session_config_ret
+
+    # check default values
+    session_config = agp_bindings.PySessionConfiguration.RequestResponse(
+        datetime.timedelta(seconds=345)
+    )
+    await agp_bindings.set_default_session_config(
+        svc,
+        session_config,
+    )
+
+    # get default
+    session_config_ret = await agp_bindings.get_default_session_config(
+        svc, agp_bindings.PySessionType.REQUEST_RESPONSE
+    )
+    # check if the session config is correct
+    assert isinstance(
+        session_config_ret, agp_bindings.PySessionConfiguration.RequestResponse
+    )
+    assert session_config == session_config_ret
+
+    # Streaming session
+    session_config = agp_bindings.PySessionConfiguration.Streaming(
+        agp_bindings.PySessionDirection.SENDER, None, 12345
+    )
+
+    session_info = await agp_bindings.create_session(svc, session_config)
+    session_config_ret = await agp_bindings.get_session_config(svc, session_info.id)
+    # check if the session config is correct
+    assert isinstance(session_config_ret, agp_bindings.PySessionConfiguration.Streaming)
+    assert session_config == session_config_ret
+
+    # check default values
+
+    # This session direction
+    session_config = agp_bindings.PySessionConfiguration.Streaming(
+        agp_bindings.PySessionDirection.SENDER, None, 12345
+    )
+
+    # Try to set a sender direction as default session. We should get an error, as we are trying to
+    # set a sender as default session
+    try:
+        await agp_bindings.set_default_session_config(
+            svc,
+            session_config,
+        )
+    except Exception as e:
+        assert "cannot change session direction" in str(
+            e
+        ), f"Unexpected error message: {str(e)}"
+
+    # Use a receiver direction
+    session_config = agp_bindings.PySessionConfiguration.Streaming(
+        agp_bindings.PySessionDirection.RECEIVER, None, 12345
+    )
+    await agp_bindings.set_default_session_config(
+        svc,
+        session_config,
+    )
+
+    # get default
+    session_config_ret = await agp_bindings.get_default_session_config(
+        svc, agp_bindings.PySessionType.STREAMING
+    )
+    # check if the session config is correct
+    assert isinstance(session_config_ret, agp_bindings.PySessionConfiguration.Streaming)
+    assert session_config == session_config_ret
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("server", ["127.0.0.1:12345"], indirect=True)
 async def test_gateway_wrapper(server):
     org = "cisco"
@@ -117,8 +237,8 @@ async def test_gateway_wrapper(server):
     await gateway2.set_route("cisco", "default", agent1)
 
     # create session
-    session_info = await gateway2.create_ff_session(
-        agp_bindings.PyFireAndForgetConfiguration()
+    session_info = await gateway2.create_session(
+        agp_bindings.PySessionConfiguration.FireAndForget()
     )
 
     async with gateway1, gateway2:
@@ -163,6 +283,7 @@ async def test_gateway_wrapper(server):
     except Exception as e:
         assert "session not found" in str(e), f"Unexpected error message: {str(e)}"
 
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize("server", ["127.0.0.1:12346"], indirect=True)
 async def test_auto_reconnect_after_server_restart(server):
@@ -189,8 +310,8 @@ async def test_auto_reconnect_after_server_restart(server):
     await agp_bindings.set_route(svc_alice, conn_id_alice, bob_class, None)
 
     # create fire and forget session
-    session_info = await agp_bindings.create_ff_session(
-        svc_alice, agp_bindings.PyFireAndForgetConfiguration()
+    session_info = await agp_bindings.create_session(
+        svc_alice, agp_bindings.PySessionConfiguration.FireAndForget()
     )
 
     # verify baseline message exchange before the simulated server restart
@@ -235,8 +356,8 @@ async def test_error_on_nonexistent_subscription(server):
     await agp_bindings.subscribe(svc_alice, conn_id_alice, alice_class, 1234)
 
     # create fire and forget session
-    session_info = await agp_bindings.create_ff_session(
-        svc_alice, agp_bindings.PyFireAndForgetConfiguration()
+    session_info = await agp_bindings.create_session(
+        svc_alice, agp_bindings.PySessionConfiguration.FireAndForget()
     )
 
     # create Bob's agent class, but do not instantiate or subscribe Bob

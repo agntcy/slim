@@ -1,12 +1,18 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
+use std::num::NonZero;
+
+use agp_datapath::messages::AgentType;
 use pyo3::prelude::*;
 use pyo3_stub_gen::derive::gen_stub_pyclass;
 use pyo3_stub_gen::derive::gen_stub_pyclass_enum;
 use pyo3_stub_gen::derive::gen_stub_pymethods;
 
 use crate::utils::PyAgentType;
+use agp_service::FireAndForgetConfiguration;
+use agp_service::RequestResponseConfiguration;
+use agp_service::StreamingConfiguration;
 use agp_service::session;
 pub use agp_service::session::SESSION_UNSPECIFIED;
 
@@ -72,112 +78,110 @@ impl From<session::SessionDirection> for PySessionDirection {
     }
 }
 
-/// fire and forget session config
-#[gen_stub_pyclass]
-#[pyclass]
-#[derive(Clone, Default)]
-pub(crate) struct PyFireAndForgetConfiguration {
-    pub fire_and_forget_configuration: agp_service::FireAndForgetConfiguration,
+/// session type
+#[gen_stub_pyclass_enum]
+#[pyclass(eq, eq_int)]
+#[derive(PartialEq, Clone)]
+pub(crate) enum PySessionType {
+    #[pyo3(name = "FIRE_AND_FORGET")]
+    FireAndForget = session::SessionType::FireAndForget as isize,
+    #[pyo3(name = "REQUEST_RESPONSE")]
+    RequestResponse = session::SessionType::RequestResponse as isize,
+    #[pyo3(name = "STREAMING")]
+    Streaming = session::SessionType::Streaming as isize,
 }
 
-#[gen_stub_pymethods]
-#[pymethods]
-impl PyFireAndForgetConfiguration {
-    #[new]
-    pub fn new() -> Self {
-        PyFireAndForgetConfiguration {
-            fire_and_forget_configuration: agp_service::FireAndForgetConfiguration {},
+impl Into<session::SessionType> for PySessionType {
+    fn into(self) -> session::SessionType {
+        match self {
+            PySessionType::FireAndForget => session::SessionType::FireAndForget,
+            PySessionType::RequestResponse => session::SessionType::RequestResponse,
+            PySessionType::Streaming => session::SessionType::Streaming,
         }
     }
 }
 
 /// request response session config
 #[gen_stub_pyclass]
-#[pyclass]
-#[derive(Clone, Default)]
+#[pyclass(eq)]
+#[derive(Clone, Default, PartialEq)]
 pub(crate) struct PyRequestResponseConfiguration {
     pub request_response_configuration: agp_service::RequestResponseConfiguration,
 }
 
-#[gen_stub_pymethods]
-#[pymethods]
-impl PyRequestResponseConfiguration {
-    #[new]
-    #[pyo3(signature = (max_retries=0, timeout=1000))]
-    pub fn new(max_retries: u32, timeout: u32) -> Self {
+impl Into<agp_service::RequestResponseConfiguration> for PyRequestResponseConfiguration {
+    fn into(self) -> agp_service::RequestResponseConfiguration {
+        self.request_response_configuration
+    }
+}
+
+impl From<agp_service::RequestResponseConfiguration> for PyRequestResponseConfiguration {
+    fn from(request_response_configuration: agp_service::RequestResponseConfiguration) -> Self {
         PyRequestResponseConfiguration {
-            request_response_configuration: agp_service::RequestResponseConfiguration {
-                max_retries,
-                timeout: std::time::Duration::from_millis(timeout as u64),
+            request_response_configuration,
+        }
+    }
+}
+
+#[gen_stub_pyclass_enum]
+#[derive(Clone, PartialEq)]
+#[pyclass(eq)]
+pub(crate) enum PySessionConfiguration {
+    FireAndForget {},
+    #[pyo3(constructor = (timeout=std::time::Duration::from_millis(1000)))]
+    RequestResponse {
+        timeout: std::time::Duration,
+    },
+    #[pyo3(constructor = (session_direction, topic=None, max_retries=0, timeout=std::time::Duration::from_millis(1000)))]
+    Streaming {
+        session_direction: PySessionDirection,
+        topic: Option<PyAgentType>,
+        max_retries: u32,
+        timeout: std::time::Duration,
+    },
+}
+
+impl From<session::SessionConfig> for PySessionConfiguration {
+    fn from(session_config: session::SessionConfig) -> Self {
+        match session_config {
+            session::SessionConfig::FireAndForget(_) => PySessionConfiguration::FireAndForget {},
+            session::SessionConfig::RequestResponse(config) => {
+                PySessionConfiguration::RequestResponse {
+                    timeout: config.timeout,
+                }
+            }
+            session::SessionConfig::Streaming(config) => PySessionConfiguration::Streaming {
+                session_direction: config.direction.into(),
+                topic: None,
+                max_retries: config.max_retries,
+                timeout: config.timeout,
             },
         }
     }
-
-    #[getter]
-    pub fn max_retries(&self) -> u32 {
-        self.request_response_configuration.max_retries
-    }
-
-    #[getter]
-    pub fn timeout(&self) -> u32 {
-        self.request_response_configuration.timeout.as_millis() as u32
-    }
-
-    #[setter]
-    pub fn set_max_retries(&mut self, max_retries: u32) {
-        self.request_response_configuration.max_retries = max_retries;
-    }
-
-    #[setter]
-    pub fn set_timeout(&mut self, timeout: u32) {
-        self.request_response_configuration.timeout =
-            std::time::Duration::from_millis(timeout as u64);
-    }
 }
 
-/// streaming session config
-#[gen_stub_pyclass]
-#[pyclass]
-#[derive(Clone)]
-pub(crate) struct PyStreamingConfiguration {
-    pub streaming_configuration: agp_service::StreamingConfiguration,
-    topic: Option<PyAgentType>,
-}
-
-#[gen_stub_pymethods]
-#[pymethods]
-impl PyStreamingConfiguration {
-    #[new]
-    #[pyo3(signature = (direction, topic, max_retries=None, timeout=None))]
-    pub fn new(
-        direction: PySessionDirection,
-        topic: Option<PyAgentType>,
-        max_retries: Option<u32>,
-        timeout: Option<std::time::Duration>,
-    ) -> Self {
-        Self {
-            streaming_configuration: agp_service::StreamingConfiguration::new(
-                direction.into(),
-                topic.clone().map(|t| t.into()),
+impl Into<session::SessionConfig> for PySessionConfiguration {
+    fn into(self) -> session::SessionConfig {
+        match self {
+            PySessionConfiguration::FireAndForget {} => {
+                session::SessionConfig::FireAndForget(FireAndForgetConfiguration {})
+            }
+            PySessionConfiguration::RequestResponse {
+                timeout,
+            } => session::SessionConfig::RequestResponse(RequestResponseConfiguration {
+                timeout,
+            }),
+            PySessionConfiguration::Streaming {
+                session_direction,
+                topic,
                 max_retries,
                 timeout,
-            ),
-            topic,
+            } => session::SessionConfig::Streaming(StreamingConfiguration::new(
+                session_direction.into(),
+                topic.map(|topic| topic.into()),
+                Some(max_retries),
+                Some(timeout),
+            )),
         }
-    }
-
-    #[getter]
-    pub fn direction(&self) -> PySessionDirection {
-        self.streaming_configuration.direction.clone().into()
-    }
-
-    #[getter]
-    pub fn topic(&self) -> Option<PyAgentType> {
-        self.topic.clone()
-    }
-
-    #[getter]
-    pub fn max_retries(&self) -> u32 {
-        self.streaming_configuration.max_retries
     }
 }

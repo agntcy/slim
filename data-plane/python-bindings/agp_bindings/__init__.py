@@ -5,34 +5,69 @@ import asyncio
 from typing import Optional
 
 from ._agp_bindings import (
-    __version__,
-    build_profile,
-    build_info,
     SESSION_UNSPECIFIED,
     PyAgentType,
-    PyFireAndForgetConfiguration,
-    PyRequestResponseConfiguration,
+    PySessionConfiguration,
     PyService,
-    PySessionDirection as PySessionDirection,
     PySessionInfo,
-    PyStreamingConfiguration,
+    PySessionType,
+    __version__,
+    build_info,
+    build_profile,
     connect,
-    create_ff_session,
     create_pyservice,
-    create_rr_session,
-    create_streaming_session,
+    create_session,
     delete_session,
     disconnect,
-    init_tracing as init_tracing,
+    get_default_session_config,
+    get_session_config,
     publish,
     receive,
     remove_route,
     run_server,
+    set_default_session_config,
     set_route,
+    set_session_config,
     stop_server,
     subscribe,
     unsubscribe,
 )
+from ._agp_bindings import (
+    PySessionDirection as PySessionDirection,
+)
+from ._agp_bindings import (
+    init_tracing as init_tracing,
+)
+
+
+def get_version():
+    """
+    Get the version of the AGP bindings.
+
+    Returns:
+        str: The version of the AGP bindings.
+    """
+    return __version__
+
+
+def get_build_profile():
+    """
+    Get the build profile of the AGP bindings.
+
+    Returns:
+        str: The build profile of the AGP bindings.
+    """
+    return build_profile
+
+
+def get_build_info():
+    """
+    Get the build information of the AGP bindings.
+
+    Returns:
+        str: The build information of the AGP bindings.
+    """
+    return build_info
 
 
 class AGPTimeoutError(TimeoutError):
@@ -63,7 +98,6 @@ class AGPTimeoutError(TimeoutError):
         message: str = "AGP timeout error",
         original_exception: Optional[Exception] = None,
     ):
-
         self.message_id = message_id
         self.session_id = session_id
         self.message = message
@@ -203,70 +237,16 @@ class Gateway:
 
         return self.svc.id
 
-    async def create_ff_session(
+    async def create_session(
         self,
-        session_config: PyFireAndForgetConfiguration = PyFireAndForgetConfiguration(),
-        queue_size: int = 0,
-    ) -> PySessionInfo:
-        """
-        Create a new Fire-and-Forget session.
-        This asynchronous function initializes a new session using the provided
-        configuration and creates an associated message queue with the specified size.
-        A session is created and stored along with its unbounded or bounded queue.
-
-        Args:
-            session_config (PyFireAndForgetConfiguration, optional): The configuration parameters for the session.
-                Defaults to an instance of PyFireAndForgetConfiguration.
-            queue_size (int, optional): The maximum size of the session's queue.
-                If 0, the queue is unbounded.
-                If a positive integer, the queue is bounded to that size.
-                Defaults to 0.
-
-        Returns:
-            PySessionInfo: An object containing details about the created session.
-        """
-
-        session = await create_ff_session(self.svc, session_config)
-        self.sessions[session.id] = (session, asyncio.Queue(queue_size))
-        return session
-
-    async def create_rr_session(
-        self,
-        session_config: PyRequestResponseConfiguration = PyRequestResponseConfiguration(),
-        queue_size: int = 0,
-    ) -> PySessionInfo:
-        """
-        Create a new Request-Response session.
-        This asynchronous function initializes a new session using the provided
-        configuration and creates an associated message queue with the specified size.
-        A session is created and stored along with its unbounded or bounded queue.
-
-        Args:
-            session_config (PyRequestResponseConfiguration, optional): The configuration parameters for the session.
-                Defaults to an instance of PyRequestResponseConfiguration.
-            queue_size (int, optional): The maximum size of the session's queue.
-                If 0, the queue is unbounded.
-                If a positive integer, the queue is bounded to that size.
-                Defaults to 0.
-
-        Returns:
-            PySessionInfo: An object containing details about the created session.
-        """
-
-        session = await create_rr_session(self.svc, session_config)
-        self.sessions[session.id] = (session, asyncio.Queue(queue_size))
-        return session
-
-    async def create_streaming_session(
-        self,
-        session_config: PyStreamingConfiguration,
+        session_config: PySessionConfiguration,
         queue_size: int = 0,
     ) -> PySessionInfo:
         """
         Create a new streaming session.
 
         Args:
-            session_config (PyStreamingConfiguration): The session configuration.
+            session_config (PySessionConfiguration): The session configuration.
             queue_size (int): The size of the queue for the session.
                                 If 0, the queue will be unbounded.
                                 If a positive integer, the queue will be bounded to that size.
@@ -275,7 +255,7 @@ class Gateway:
             ID of the session
         """
 
-        session = await create_streaming_session(self.svc, session_config)
+        session = await create_session(self.svc, session_config)
         self.sessions[session.id] = (session, asyncio.Queue(queue_size))
         return session
 
@@ -302,6 +282,88 @@ class Gateway:
 
         # Remove the session from the gateway
         await delete_session(self.svc, session_id)
+
+    async def set_session_config(
+        self,
+        session_id: int,
+        session_config: PySessionConfiguration,
+    ):
+        """
+        Set the session configuration for a specific session.
+
+        Args:
+            session_id (int): The ID of the session.
+            session_config (PySessionConfiguration): The new configuration for the session.
+
+        Returns:
+            None
+
+        Raises:
+            ValueError: If the session ID is not found.
+        """
+
+        # Check if the session ID is in the sessions map
+        if session_id not in self.sessions:
+            raise ValueError(f"session not found: {session_id}")
+
+        # Set the session configuration
+        await set_session_config(self.svc, session_id, session_config)
+
+    async def get_session_config(
+        self,
+        session_id: int,
+    ) -> PySessionConfiguration:
+        """
+        Get the session configuration for a specific session.
+
+        Args:
+            session_id (int): The ID of the session.
+
+        Returns:
+            PySessionConfiguration: The configuration of the session.
+
+        Raises:
+            ValueError: If the session ID is not found.
+        """
+
+        # Check if the session ID is in the sessions map
+        if session_id not in self.sessions:
+            raise ValueError(f"session not found: {session_id}")
+
+        # Get the session configuration
+        return await get_session_config(self.svc, session_id)
+
+    async def set_default_session_config(
+        self,
+        session_config: PySessionConfiguration,
+    ):
+        """
+        Set the default session configuration.
+
+        Args:
+            session_config (PySessionConfiguration): The new default session configuration.
+
+        Returns:
+            None
+        """
+
+        await set_default_session_config(self.svc, session_config)
+
+    async def get_default_session_config(
+        self,
+        session_type: PySessionType,
+    ) -> PySessionConfiguration:
+        """
+        Get the default session configuration.
+
+        Args:
+            session_id (int): The ID of the session.
+
+        Returns:
+            PySessionConfiguration: The default configuration of the session.
+        """
+
+        return await get_default_session_config(self.svc, session_type)
 
     async def run_server(self, config: dict):
         """

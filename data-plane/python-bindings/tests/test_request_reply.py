@@ -39,7 +39,9 @@ async def test_request_reply_base(server):
     await gateway2.set_route("cisco", "default", agent1)
 
     # create request/reply session with default config
-    session_info = await gateway2.create_rr_session()
+    session_info = await gateway2.create_session(
+        agp_bindings.PySessionConfiguration.RequestResponse(),
+    )
 
     # messages
     pub_msg = str.encode("thisistherequest")
@@ -131,7 +133,9 @@ async def test_request_reply(server):
     await gateway2.set_route("cisco", "default", agent1)
 
     # create request/reply session with default config
-    session_info = await gateway2.create_rr_session()
+    session_info = await gateway2.create_session(
+        agp_bindings.PySessionConfiguration.RequestResponse(),
+    )
 
     # messages
     pub_msg = str.encode("thisistherequest")

@@ -46,8 +46,8 @@ async def run_client(
             await gateway.set_route(remote_organization, remote_namespace, remote_agent)
 
             # create a session
-            session = await gateway.create_ff_session(
-                agp_bindings.PyFireAndForgetConfiguration()
+            session = await gateway.create_session(
+                agp_bindings.PySessionConfiguration.FireAndForget()
             )
 
             for i in range(0, iterations):

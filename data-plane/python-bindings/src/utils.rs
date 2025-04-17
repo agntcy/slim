@@ -10,8 +10,8 @@ use agp_datapath::messages::encoder::AgentType;
 
 /// agent class
 #[gen_stub_pyclass]
-#[pyclass]
-#[derive(Clone)]
+#[pyclass(eq)]
+#[derive(Clone, PartialEq)]
 pub struct PyAgentType {
     #[pyo3(get, set)]
     pub organization: String,

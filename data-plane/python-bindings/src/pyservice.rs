@@ -14,9 +14,8 @@ use rand::Rng;
 use serde_pyobject::from_pyobject;
 use tokio::sync::RwLock;
 
-use crate::pysession::PySessionInfo;
-use crate::pysession::PyStreamingConfiguration;
-use crate::pysession::{PyFireAndForgetConfiguration, PyRequestResponseConfiguration};
+use crate::pysession::PySessionType;
+use crate::pysession::{PySessionConfiguration, PySessionInfo};
 use crate::utils::PyAgentType;
 use agp_config::grpc::client::ClientConfig as PyGrpcClientConfig;
 use agp_config::grpc::server::ServerConfig as PyGrpcServerConfig;
@@ -242,56 +241,63 @@ impl PyService {
             }
         }
     }
-}
 
-#[gen_stub_pyfunction]
-#[pyfunction]
-#[pyo3(signature = (svc, config=PyFireAndForgetConfiguration::default()))]
-pub fn create_ff_session(
-    py: Python,
-    svc: PyService,
-    config: PyFireAndForgetConfiguration,
-) -> PyResult<Bound<PyAny>> {
-    pyo3_async_runtimes::tokio::future_into_py(py, async move {
-        svc.create_session(session::SessionConfig::FireAndForget(
-            config.fire_and_forget_configuration,
-        ))
-        .await
-        .map_err(|e| PyErr::new::<PyException, _>(e.to_string()))
-    })
-}
+    async fn set_session_config(
+        &self,
+        session_id: u32,
+        config: session::SessionConfig,
+    ) -> Result<(), ServiceError> {
+        self.sdk
+            .service
+            .set_session_config(&self.sdk.agent, &config, Some(session_id))
+            .await
+    }
 
-#[gen_stub_pyfunction]
-#[pyfunction]
-#[pyo3(signature = (svc, config=PyRequestResponseConfiguration::default()))]
-pub fn create_rr_session(
-    py: Python,
-    svc: PyService,
-    config: PyRequestResponseConfiguration,
-) -> PyResult<Bound<PyAny>> {
-    pyo3_async_runtimes::tokio::future_into_py(py, async move {
-        svc.create_session(session::SessionConfig::RequestResponse(
-            config.request_response_configuration,
-        ))
-        .await
-        .map_err(|e| PyErr::new::<PyException, _>(e.to_string()))
-    })
+    async fn get_session_config(
+        &self,
+        session_id: u32,
+    ) -> Result<PySessionConfiguration, ServiceError> {
+        self.sdk
+            .service
+            .get_session_config(&self.sdk.agent, session_id)
+            .await
+            .map(|val| val.into())
+    }
+
+    async fn set_default_session_config(
+        &self,
+        config: session::SessionConfig,
+    ) -> Result<(), ServiceError> {
+        self.sdk
+            .service
+            .set_session_config(&self.sdk.agent, &config, None)
+            .await
+    }
+
+    async fn get_default_session_config(
+        &self,
+        session_type: session::SessionType,
+    ) -> Result<PySessionConfiguration, ServiceError> {
+        self.sdk
+            .service
+            .get_default_session_config(&self.sdk.agent, session_type)
+            .await
+            .map(|val| val.into())
+    }
 }
 
 #[gen_stub_pyfunction]
 #[pyfunction]
 #[pyo3(signature = (svc, config))]
-pub fn create_streaming_session(
+pub fn create_session(
     py: Python,
     svc: PyService,
-    config: PyStreamingConfiguration,
+    config: PySessionConfiguration,
 ) -> PyResult<Bound<PyAny>> {
     pyo3_async_runtimes::tokio::future_into_py(py, async move {
-        svc.create_session(session::SessionConfig::Streaming(
-            config.streaming_configuration,
-        ))
-        .await
-        .map_err(|e| PyErr::new::<PyException, _>(e.to_string()))
+        svc.create_session(config.into())
+            .await
+            .map_err(|e| PyErr::new::<PyException, _>(e.to_string()))
     })
 }
 
@@ -301,6 +307,63 @@ pub fn create_streaming_session(
 pub fn delete_session(py: Python, svc: PyService, session_id: u32) -> PyResult<Bound<PyAny>> {
     pyo3_async_runtimes::tokio::future_into_py(py, async move {
         svc.delete_session(session_id)
+            .await
+            .map_err(|e| PyErr::new::<PyException, _>(e.to_string()))
+    })
+}
+
+#[gen_stub_pyfunction]
+#[pyfunction]
+#[pyo3(signature = (svc, session_id, config))]
+pub fn set_session_config(
+    py: Python,
+    svc: PyService,
+    session_id: u32,
+    config: PySessionConfiguration,
+) -> PyResult<Bound<PyAny>> {
+    pyo3_async_runtimes::tokio::future_into_py(py, async move {
+        svc.set_session_config(session_id, config.into())
+            .await
+            .map_err(|e| PyErr::new::<PyException, _>(e.to_string()))
+    })
+}
+
+#[gen_stub_pyfunction]
+#[pyfunction]
+#[pyo3(signature = (svc, session_id))]
+pub fn get_session_config(py: Python, svc: PyService, session_id: u32) -> PyResult<Bound<PyAny>> {
+    pyo3_async_runtimes::tokio::future_into_py(py, async move {
+        svc.get_session_config(session_id)
+            .await
+            .map_err(|e| PyErr::new::<PyException, _>(e.to_string()))
+    })
+}
+
+#[gen_stub_pyfunction]
+#[pyfunction]
+#[pyo3(signature = (svc, config))]
+pub fn set_default_session_config(
+    py: Python,
+    svc: PyService,
+    config: PySessionConfiguration,
+) -> PyResult<Bound<PyAny>> {
+    pyo3_async_runtimes::tokio::future_into_py(py, async move {
+        svc.set_default_session_config(config.into())
+            .await
+            .map_err(|e| PyErr::new::<PyException, _>(e.to_string()))
+    })
+}
+
+#[gen_stub_pyfunction]
+#[pyfunction]
+#[pyo3(signature = (svc, session_type))]
+pub fn get_default_session_config(
+    py: Python,
+    svc: PyService,
+    session_type: PySessionType,
+) -> PyResult<Bound<PyAny>> {
+    pyo3_async_runtimes::tokio::future_into_py(py, async move {
+        svc.get_default_session_config(session_type.into())
             .await
             .map_err(|e| PyErr::new::<PyException, _>(e.to_string()))
     })
@@ -463,6 +526,7 @@ pub fn receive(py: Python, svc: PyService) -> PyResult<Bound<PyAny>> {
     )
 }
 
+#[gen_stub_pyfunction]
 #[pyfunction]
 #[pyo3(signature = (organization, namespace, agent_type, id=None))]
 pub fn create_pyservice(

@@ -5,6 +5,7 @@ use std::collections::HashMap;
 
 use parking_lot::RwLock as SyncRwLock;
 use rand::Rng;
+use tokio::sync::mpsc::error;
 use tokio::sync::RwLock as AsyncRwLock;
 use tracing::warn;
 
@@ -13,7 +14,7 @@ use crate::fire_and_forget::FireAndForgetConfiguration;
 use crate::request_response::{RequestResponse, RequestResponseConfiguration};
 use crate::session::{
     AppChannelSender, GwChannelSender, Id, Info, MessageDirection, SESSION_RANGE, Session,
-    SessionConfig, SessionDirection, SessionMessage, SessionType,
+    SessionConfig, SessionConfigTrait, SessionDirection, SessionMessage, SessionType,
 };
 use crate::streaming::{self, StreamingConfiguration};
 use crate::{fire_and_forget, session};
@@ -322,19 +323,17 @@ impl SessionLayer {
             Some(id) => id,
             None => {
                 // modify the default session
-                match session_config {
-                    SessionConfig::FireAndForget(ff) => {
-                        self.default_ff_conf.write().clone_from(ff);
+                match &session_config {
+                    SessionConfig::FireAndForget(_) => {
+                        return self.default_ff_conf.write().replace(session_config);
                     }
-                    SessionConfig::RequestResponse(rr) => {
-                        self.default_rr_conf.write().clone_from(rr);
+                    SessionConfig::RequestResponse(_) => {
+                        return self.default_rr_conf.write().replace(session_config);
                     }
-                    SessionConfig::Streaming(stream) => {
-                        self.default_stream_conf.write().clone_from(stream);
+                    SessionConfig::Streaming(_) => {
+                        return self.default_stream_conf.write().replace(session_config);
                     }
-                };
-
-                return Ok(());
+                }
             }
         };
 
@@ -344,6 +343,7 @@ impl SessionLayer {
         // check if the session exists
         if let Some(session) = pool.get_mut(&session_id) {
             // set the session config
+            warn!("session config is being modified: {}", session_id);
             return session.set_session_config(session_config);
         }
 
@@ -381,7 +381,6 @@ impl SessionLayer {
             SessionType::Streaming => Ok(SessionConfig::Streaming(
                 self.default_stream_conf.read().clone(),
             )),
-            _ => Err(SessionError::SessionUnknown(session_type.to_string())),
         }
     }
 }

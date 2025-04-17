@@ -2,7 +2,6 @@
 # ruff: noqa: E501, F401
 
 import builtins
-import datetime
 import typing
 from enum import Enum, auto
 
@@ -15,26 +14,11 @@ class PyAgentType:
     agent_type: builtins.str
     def __new__(cls,agent_org:builtins.str, agent_ns:builtins.str, agent_class:builtins.str): ...
 
-class PyFireAndForgetConfiguration:
-    r"""
-    fire and forget session config
-    """
-    def __new__(cls,): ...
-    ...
-
 class PyRequestResponseConfiguration:
     r"""
     request response session config
     """
-    max_retries: builtins.int
-    timeout: builtins.int
-    def __new__(cls,max_retries:builtins.int=0, timeout:builtins.int=1000): ...
-    def set_max_retries(self, max_retries:builtins.int) -> None:
-        ...
-
-    def set_timeout(self, timeout:builtins.int) -> None:
-        ...
-
+    ...
 
 class PyService:
     id: builtins.int
@@ -43,14 +27,10 @@ class PySessionInfo:
     id: builtins.int
     def __new__(cls,session_id:builtins.int): ...
 
-class PyStreamingConfiguration:
-    r"""
-    streaming session config
-    """
-    direction: PySessionDirection
-    topic: typing.Optional[PyAgentType]
-    max_retries: builtins.int
-    def __new__(cls,direction:PySessionDirection, topic:typing.Optional[PyAgentType], max_retries:typing.Optional[builtins.int]=None, timeout:typing.Optional[datetime.timedelta]=None): ...
+class PySessionConfiguration(Enum):
+    FireAndForget = auto()
+    RequestResponse = auto()
+    Streaming = auto()
 
 class PySessionDirection(Enum):
     r"""
@@ -60,22 +40,33 @@ class PySessionDirection(Enum):
     RECEIVER = auto()
     BIDIRECTIONAL = auto()
 
+class PySessionType(Enum):
+    r"""
+    session type
+    """
+    FIRE_AND_FORGET = auto()
+    REQUEST_RESPONSE = auto()
+    STREAMING = auto()
+
 def connect(svc:PyService, config:dict) -> typing.Any:
     ...
 
-def create_ff_session(svc:PyService, config:PyFireAndForgetConfiguration=...) -> typing.Any:
+def create_pyservice(organization:builtins.str, namespace:builtins.str, agent_type:builtins.str, id:typing.Optional[builtins.int]=None) -> typing.Any:
     ...
 
-def create_rr_session(svc:PyService, config:PyRequestResponseConfiguration=...) -> typing.Any:
-    ...
-
-def create_streaming_session(svc:PyService, config:PyStreamingConfiguration) -> typing.Any:
+def create_session(svc:PyService, config:PySessionConfiguration) -> typing.Any:
     ...
 
 def delete_session(svc:PyService, session_id:builtins.int) -> typing.Any:
     ...
 
 def disconnect(svc:PyService, conn:builtins.int) -> typing.Any:
+    ...
+
+def get_default_session_config(svc:PyService, session_type:PySessionType) -> typing.Any:
+    ...
+
+def get_session_config(svc:PyService, session_id:builtins.int) -> typing.Any:
     ...
 
 def publish(svc:PyService, session_info:PySessionInfo, fanout:builtins.int, blob:typing.Sequence[builtins.int], name:typing.Optional[PyAgentType]=None, id:typing.Optional[builtins.int]=None) -> typing.Any:
@@ -90,7 +81,13 @@ def remove_route(svc:PyService, conn:builtins.int, name:PyAgentType, id:typing.O
 def run_server(svc:PyService, config:dict) -> typing.Any:
     ...
 
+def set_default_session_config(svc:PyService, config:PySessionConfiguration) -> typing.Any:
+    ...
+
 def set_route(svc:PyService, conn:builtins.int, name:PyAgentType, id:typing.Optional[builtins.int]=None) -> typing.Any:
+    ...
+
+def set_session_config(svc:PyService, session_id:builtins.int, config:PySessionConfiguration) -> typing.Any:
     ...
 
 def stop_server(svc:PyService, endpoint:builtins.str) -> typing.Any:

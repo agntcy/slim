@@ -9,7 +9,6 @@ import os
 from common import format_message, split_id
 
 import agp_bindings
-from agp_bindings import GatewayConfig
 
 
 async def run_client(
@@ -46,8 +45,8 @@ async def run_client(
             )
 
             # create streaming session with default config
-            session_info = await gateway.create_streaming_session(
-                agp_bindings.PyStreamingConfiguration(
+            session_info = await gateway.create_session(
+                agp_bindings.PySessionConfiguration.Streaming(
                     agp_bindings.PySessionDirection.SENDER,
                     topic=None,
                     max_retries=5,

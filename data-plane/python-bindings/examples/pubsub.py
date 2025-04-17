@@ -44,8 +44,8 @@ async def run_client(local_id, remote_id, address, enable_opentelemetry: bool):
     print(f"{name} -> Creating new pubsub sessions...")
     # create pubsubb session. A pubsub session is a just a bidirectional
     # streaming session, where participants are both sender and receivers
-    session_info = await participant.create_streaming_session(
-        agp_bindings.PyStreamingConfiguration(
+    session_info = await participant.create_session(
+        agp_bindings.PySessionConfiguration.Streaming(
             agp_bindings.PySessionDirection.BIDIRECTIONAL,
             topic=agp_bindings.PyAgentType(
                 remote_organization, remote_namespace, broadcast_topic

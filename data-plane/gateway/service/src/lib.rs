@@ -994,7 +994,6 @@ mod tests {
 
         /////////////request response session //////////////////////////////////////////////////////////////////////////
         let session_config = SessionConfig::RequestResponse(RequestResponseConfiguration {
-            max_retries: 1234,
             timeout: Duration::from_secs(20000),
         });
         let session_info = service
@@ -1014,7 +1013,6 @@ mod tests {
         );
 
         let session_config = SessionConfig::RequestResponse(RequestResponseConfiguration {
-            max_retries: 12345,
             timeout: Duration::from_secs(21345),
         });
 
@@ -1036,7 +1034,6 @@ mod tests {
 
         // set default session config
         let session_config = SessionConfig::RequestResponse(RequestResponseConfiguration {
-            max_retries: 123456,
             timeout: Duration::from_secs(213456),
         });
         service
