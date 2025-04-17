@@ -5,7 +5,6 @@ use std::collections::HashMap;
 
 use parking_lot::RwLock as SyncRwLock;
 use rand::Rng;
-use tokio::sync::mpsc::error;
 use tokio::sync::RwLock as AsyncRwLock;
 use tracing::warn;
 

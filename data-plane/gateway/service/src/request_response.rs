@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use parking_lot::RwLock;
-use tracing::{debug, warn};
+use tracing::debug;
 
 use crate::errors::SessionError;
 use crate::session::{AppChannelSender, GwChannelSender, SessionConfig};

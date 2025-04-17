@@ -166,11 +166,9 @@ impl Into<session::SessionConfig> for PySessionConfiguration {
             PySessionConfiguration::FireAndForget {} => {
                 session::SessionConfig::FireAndForget(FireAndForgetConfiguration {})
             }
-            PySessionConfiguration::RequestResponse {
-                timeout,
-            } => session::SessionConfig::RequestResponse(RequestResponseConfiguration {
-                timeout,
-            }),
+            PySessionConfiguration::RequestResponse { timeout } => {
+                session::SessionConfig::RequestResponse(RequestResponseConfiguration { timeout })
+            }
             PySessionConfiguration::Streaming {
                 session_direction,
                 topic,
