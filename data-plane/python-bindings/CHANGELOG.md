@@ -1,6 +1,6 @@
 # Changelog
 
-## [0.2.5](https://github.com/agntcy/agp/compare/agp-bindings-v0.2.4...agp-bindings-v0.2.5) (2025-04-17)
+## [0.2.5](https://github.com/agntcy/agp/compare/agp-bindings-v0.2.4...agp-bindings-v0.3.0) (2025-04-17)
 
 
 ### Features
