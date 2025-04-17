@@ -10,7 +10,7 @@ use crate::{
     producer_buffer, receiver_buffer,
     session::{
         AppChannelSender, Common, CommonSession, GwChannelSender, Id, Info, Session, SessionConfig,
-        SessionDirection, State,
+        SessionConfigTrait, SessionDirection, State,
     },
     timer,
 };
@@ -36,6 +36,39 @@ pub struct StreamingConfiguration {
     pub topic: AgentType,
     pub max_retries: u32,
     pub timeout: std::time::Duration,
+}
+
+impl SessionConfigTrait for StreamingConfiguration {
+    fn replace(&mut self, session_config: &SessionConfig) -> Result<(), SessionError> {
+        match session_config {
+            SessionConfig::Streaming(config) => {
+                if self.direction != config.direction {
+                    return Err(SessionError::ConfigurationError(format!(
+                        "cannot change session direction from {:?} to {:?}",
+                        self.direction, config.direction
+                    )));
+                }
+
+                *self = config.clone();
+                Ok(())
+            }
+            _ => Err(SessionError::ConfigurationError(format!(
+                "invalid session config type: expected Streaming, got {:?}",
+                session_config
+            ))),
+        }
+    }
+}
+
+impl Default for StreamingConfiguration {
+    fn default() -> Self {
+        StreamingConfiguration {
+            direction: SessionDirection::Receiver,
+            topic: AgentType::default(),
+            max_retries: 10,
+            timeout: std::time::Duration::from_millis(1000),
+        }
+    }
 }
 
 impl std::fmt::Display for StreamingConfiguration {
@@ -553,7 +586,7 @@ async fn process_message_from_app(
                 "error sending message to the local gateway".to_string(),
             )))
             .await
-            .expect("error notifyng app");
+            .expect("error notifying app");
     }
 
     // set timer for this message

@@ -3,6 +3,7 @@
 
 use pyo3::prelude::*;
 use pyo3_stub_gen::derive::gen_stub_pyclass;
+use pyo3_stub_gen::derive::gen_stub_pyfunction;
 use pyo3_stub_gen::derive::gen_stub_pymethods;
 use tokio::sync::OnceCell;
 
@@ -10,8 +11,8 @@ use agp_datapath::messages::encoder::AgentType;
 
 /// agent class
 #[gen_stub_pyclass]
-#[pyclass]
-#[derive(Clone)]
+#[pyclass(eq)]
+#[derive(Clone, PartialEq)]
 pub struct PyAgentType {
     #[pyo3(get, set)]
     pub organization: String,
@@ -66,6 +67,7 @@ async fn init_tracing_impl(log_level: String, enable_opentelemetry: bool) {
         .await;
 }
 
+#[gen_stub_pyfunction]
 #[pyfunction]
 #[pyo3(signature = (log_level="info".to_string(), enable_opentelemetry=false,))]
 pub fn init_tracing(py: Python, log_level: String, enable_opentelemetry: bool) {

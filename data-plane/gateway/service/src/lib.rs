@@ -366,34 +366,26 @@ impl Service {
         msg: Message,
         info: Option<session::Info>,
     ) -> Result<(), ServiceError> {
-        // get a read lock on the session layers
-        let session_layers = self.session_layers.read().await;
-
-        let session = match session_layers.get(agent) {
-            None => {
-                error!("agent {} not found", agent);
-                return Err(ServiceError::AgentNotFound(agent.to_string()));
+        self.with_session_layer(agent, async move |session: &Arc<SessionLayer>| {
+            // save session id for later use
+            match info {
+                Some(info) => {
+                    let id = info.id;
+                    session
+                        .handle_message(SessionMessage::from((msg, info)), MessageDirection::South)
+                        .await
+                        .map_err(|e| {
+                            error!("error sending the message to session {}: {}", id, e);
+                            ServiceError::SessionError(e.to_string())
+                        })
+                }
+                None => session.tx_gw().send(Ok(msg)).await.map_err(|e| {
+                    error!("error sending message {}", e);
+                    ServiceError::MessageSendingError(e.to_string())
+                }),
             }
-            Some(layer) => layer,
-        };
-
-        // save session id for later use
-        match info {
-            Some(info) => {
-                let id = info.id;
-                session
-                    .handle_message(SessionMessage::from((msg, info)), MessageDirection::South)
-                    .await
-                    .map_err(|e| {
-                        error!("error sending the message to session {}: {}", id, e);
-                        ServiceError::SessionError(e.to_string())
-                    })
-            }
-            None => session.tx_gw().send(Ok(msg)).await.map_err(|e| {
-                error!("error sending the subscription {}", e);
-                ServiceError::SubscriptionError(e.to_string())
-            }),
-        }
+        })
+        .await
     }
 
     pub async fn subscribe(
@@ -604,63 +596,97 @@ impl Service {
         });
     }
 
+    async fn with_session_layer<F, T>(&self, agent: &Agent, f: F) -> Result<T, ServiceError>
+    where
+        F: AsyncFnOnce(&Arc<SessionLayer>) -> Result<T, ServiceError>,
+    {
+        // get a read lock on the session layers
+        let session_layers = self.session_layers.read().await;
+
+        // check if agent was registered
+        let layer = session_layers.get(agent);
+
+        if layer.is_none() {
+            error!("agent {} not found", agent);
+            return Err(ServiceError::AgentNotFound(agent.to_string()));
+        }
+
+        let layer = layer.unwrap();
+
+        f(layer).await
+    }
+
     /// Create a new session
     pub async fn create_session(
         &self,
         agent: &Agent,
         session_config: session::SessionConfig,
     ) -> Result<session::Info, ServiceError> {
-        // get a read lock on the session layers
-        let session_layers = self.session_layers.read().await;
-
-        // check if agent was registered
-        let layer = session_layers.get(agent);
-
-        if layer.is_none() {
-            error!("agent {} not found", agent);
-            return Err(ServiceError::AgentNotFound(agent.to_string()));
-        }
-
-        let layer = layer.unwrap();
-
-        // create a new fire and forget session
-        layer
-            .create_session(session_config, None)
-            .await
-            .map_err(|e| {
-                error!("error creating session: {}", e);
-                ServiceError::SessionError(e.to_string())
-            })
+        self.with_session_layer(agent, async move |layer: &Arc<SessionLayer>| {
+            layer
+                .create_session(session_config, None)
+                .await
+                .map_err(|e| {
+                    error!("error creating session: {}", e);
+                    ServiceError::SessionError(e.to_string())
+                })
+        })
+        .await
     }
 
     /// Set config for a session
     pub async fn set_session_config(
         &self,
         agent: &Agent,
-        session_id: session::Id,
         session_config: &session::SessionConfig,
+        session_id: Option<session::Id>,
     ) -> Result<(), ServiceError> {
-        // get a read lock on the session layers
-        let session_layers = self.session_layers.read().await;
+        self.with_session_layer(agent, async move |layer: &Arc<SessionLayer>| {
+            // set the session config
+            layer
+                .set_session_config(session_config, session_id)
+                .await
+                .map_err(|e| {
+                    error!("error setting session config: {}", e);
+                    ServiceError::SessionError(e.to_string())
+                })
+        })
+        .await
+    }
 
-        // check if agent was registered
-        let layer = session_layers.get(agent);
-
-        if layer.is_none() {
-            error!("agent {} not found", agent);
-            return Err(ServiceError::AgentNotFound(agent.to_string()));
-        }
-
-        let layer = layer.unwrap();
-
-        // set the session config
-        layer
-            .set_session_config(session_id, session_config)
-            .await
-            .map_err(|e| {
-                error!("error setting session config: {}", e);
+    /// Get config for a session
+    pub async fn get_session_config(
+        &self,
+        agent: &Agent,
+        session_id: session::Id,
+    ) -> Result<session::SessionConfig, ServiceError> {
+        self.with_session_layer(agent, async move |layer: &Arc<SessionLayer>| {
+            // get the session config
+            layer.get_session_config(session_id).await.map_err(|e| {
+                error!("error getting session config: {}", e);
                 ServiceError::SessionError(e.to_string())
             })
+        })
+        .await
+    }
+
+    /// Get default session config
+    pub async fn get_default_session_config(
+        &self,
+        agent: &Agent,
+        session_type: session::SessionType,
+    ) -> Result<session::SessionConfig, ServiceError> {
+        self.with_session_layer(agent, async move |layer: &Arc<SessionLayer>| {
+            // get the default session config
+            layer
+                .get_default_session_config(session_type)
+                .await
+                .map_err(|e| {
+                    error!("error getting default session config: {}", e);
+                    ServiceError::SessionError(e.to_string())
+                })
+        })
+        .await
     }
 
     /// delete a session
@@ -669,27 +695,17 @@ impl Service {
         agent: &Agent,
         session_id: session::Id,
     ) -> Result<(), ServiceError> {
-        // get a read lock on the session layers
-        let session_layers = self.session_layers.read().await;
-
-        // check if agent was registered
-        let layer = session_layers.get(agent);
-
-        if layer.is_none() {
-            error!("agent {} not found", agent);
-            return Err(ServiceError::AgentNotFound(agent.to_string()));
-        }
-
-        let layer = layer.unwrap();
-
-        // delete the session
-        match layer.remove_session(session_id).await {
-            true => Ok(()),
-            false => {
-                error!("error deleting session");
-                Err(ServiceError::SessionError("session not found".to_string()))
+        self.with_session_layer(agent, async move |layer: &Arc<SessionLayer>| {
+            // delete the session
+            match layer.remove_session(session_id).await {
+                true => Ok(()),
+                false => {
+                    error!("error deleting session");
+                    Err(ServiceError::SessionError("session not found".to_string()))
+                }
             }
-        }
+        })
+        .await
     }
 }
 
@@ -904,5 +920,225 @@ mod tests {
         // This should also trigger a stop of the message processing loop.
         // Make sure the loop stopped by checking the logs
         assert!(logs_contain("no more messages to process"));
+    }
+
+    #[tokio::test]
+    async fn test_session_configuration() {
+        // create the service
+        let tls_config = TlsServerConfig::new().with_insecure(true);
+        let server_config =
+            ServerConfig::with_endpoint("0.0.0.0:12345").with_tls_settings(tls_config);
+        let config = ServiceConfiguration::new().with_server([server_config].to_vec());
+        let service = config
+            .build_server(ID::new_with_name(Kind::new(KIND).unwrap(), "test").unwrap())
+            .unwrap();
+
+        // register local agent
+        let agent = Agent::from_strings("cisco", "default", "session_agent", 0);
+        let _ = service
+            .create_agent(&agent)
+            .await
+            .expect("failed to create agent");
+
+        //////////////////////////// ff session ////////////////////////////////////////////////////////////////////////
+        let session_config = SessionConfig::FireAndForget(FireAndForgetConfiguration::default());
+        let session_info = service
+            .create_session(&agent, session_config.clone())
+            .await
+            .expect("failed to create session");
+
+        // check the configuration we get is the one we used to create the session
+        let session_config_ret = service
+            .get_session_config(&agent, session_info.id)
+            .await
+            .expect("failed to get session config");
+
+        assert_eq!(
+            session_config, session_config_ret,
+            "session config mismatch"
+        );
+
+        // set config for the session
+        let session_config = SessionConfig::FireAndForget(FireAndForgetConfiguration::default());
+
+        service
+            .set_session_config(&agent, &session_config, Some(session_info.id))
+            .await
+            .expect("failed to set session config");
+
+        // get session config
+        let session_config_ret = service
+            .get_session_config(&agent, session_info.id)
+            .await
+            .expect("failed to get session config");
+        assert_eq!(
+            session_config, session_config_ret,
+            "session config mismatch"
+        );
+
+        // set default session config
+        let session_config = SessionConfig::FireAndForget(FireAndForgetConfiguration::default());
+        service
+            .set_session_config(&agent, &session_config, None)
+            .await
+            .expect("failed to set default session config");
+
+        // get default session config
+        let session_config_ret = service
+            .get_default_session_config(&agent, session::SessionType::FireAndForget)
+            .await
+            .expect("failed to get default session config");
+
+        assert_eq!(session_config, session_config_ret);
+        ////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+        /////////////request response session //////////////////////////////////////////////////////////////////////////
+        let session_config = SessionConfig::RequestResponse(RequestResponseConfiguration {
+            timeout: Duration::from_secs(20000),
+        });
+        let session_info = service
+            .create_session(&agent, session_config.clone())
+            .await
+            .expect("failed to create session");
+
+        // get session config
+        let session_config_ret = service
+            .get_session_config(&agent, session_info.id)
+            .await
+            .expect("failed to get session config");
+
+        assert_eq!(
+            session_config, session_config_ret,
+            "session config mismatch"
+        );
+
+        let session_config = SessionConfig::RequestResponse(RequestResponseConfiguration {
+            timeout: Duration::from_secs(21345),
+        });
+
+        service
+            .set_session_config(&agent, &session_config, Some(session_info.id))
+            .await
+            .expect("failed to set session config");
+
+        // get session config
+        let session_config_ret = service
+            .get_session_config(&agent, session_info.id)
+            .await
+            .expect("failed to get session config");
+
+        assert_eq!(
+            session_config, session_config_ret,
+            "session config mismatch"
+        );
+
+        // set default session config
+        let session_config = SessionConfig::RequestResponse(RequestResponseConfiguration {
+            timeout: Duration::from_secs(213456),
+        });
+        service
+            .set_session_config(&agent, &session_config, None)
+            .await
+            .expect("failed to set default session config");
+
+        // get default session config
+        let session_config_ret = service
+            .get_default_session_config(&agent, session::SessionType::RequestResponse)
+            .await
+            .expect("failed to get default session config");
+
+        assert_eq!(session_config, session_config_ret);
+        ////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+        ////////////// stream session //////////////////////////////////////////////////////////////////////////////////
+        let session_config = SessionConfig::Streaming(StreamingConfiguration::new(
+            session::SessionDirection::Receiver,
+            None,
+            Some(1000),
+            Some(time::Duration::from_secs(123)),
+        ));
+        let session_info = service
+            .create_session(&agent, session_config.clone())
+            .await
+            .expect("failed to create session");
+        // get session config
+        let session_config_ret = service
+            .get_session_config(&agent, session_info.id)
+            .await
+            .expect("failed to get session config");
+
+        assert_eq!(
+            session_config, session_config_ret,
+            "session config mismatch"
+        );
+
+        let session_config = SessionConfig::Streaming(StreamingConfiguration::new(
+            session::SessionDirection::Sender,
+            None,
+            Some(2000),
+            Some(time::Duration::from_secs(1234)),
+        ));
+
+        service
+            .set_session_config(&agent, &session_config, Some(session_info.id))
+            .await
+            .expect_err("we should not be allowed to set a different direction");
+
+        let session_config = SessionConfig::Streaming(StreamingConfiguration::new(
+            session::SessionDirection::Receiver,
+            None,
+            Some(2000),
+            Some(time::Duration::from_secs(1234)),
+        ));
+
+        service
+            .set_session_config(&agent, &session_config, Some(session_info.id))
+            .await
+            .expect("failed to set session config");
+
+        // get session config
+        let session_config_ret = service
+            .get_session_config(&agent, session_info.id)
+            .await
+            .expect("failed to get session config");
+
+        assert_eq!(
+            session_config, session_config_ret,
+            "session config mismatch"
+        );
+
+        // set default session config
+        let session_config = SessionConfig::Streaming(StreamingConfiguration::new(
+            session::SessionDirection::Sender,
+            None,
+            Some(20000),
+            Some(time::Duration::from_secs(12345)),
+        ));
+
+        service
+            .set_session_config(&agent, &session_config, None)
+            .await
+            .expect_err("we should not be allowed to set a sender direction as default");
+
+        let session_config = SessionConfig::Streaming(StreamingConfiguration::new(
+            session::SessionDirection::Receiver,
+            None,
+            Some(20000),
+            Some(time::Duration::from_secs(123456)),
+        ));
+
+        service
+            .set_session_config(&agent, &session_config, None)
+            .await
+            .expect("failed to set default session config");
+
+        // get default session config
+        let session_config_ret = service
+            .get_default_session_config(&agent, session::SessionType::Streaming)
+            .await
+            .expect("failed to get default session config");
+
+        assert_eq!(session_config, session_config_ret);
+        ////////////////////////////////////////////////////////////////////////////////////////////////////////////////
     }
 }

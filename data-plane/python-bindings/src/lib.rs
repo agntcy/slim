@@ -15,16 +15,14 @@ mod _agp_bindings {
 
     #[pymodule_export]
     use pyservice::{
-        PyService, connect, create_ff_session, create_pyservice, create_rr_session,
-        create_streaming_session, delete_session, disconnect, publish, receive, remove_route,
-        run_server, set_route, stop_server, subscribe, unsubscribe,
+        PyService, connect, create_pyservice, create_session, delete_session, disconnect,
+        get_default_session_config, get_session_config, publish, receive, remove_route, run_server,
+        set_default_session_config, set_route, set_session_config, stop_server, subscribe,
+        unsubscribe,
     };
 
     #[pymodule_export]
-    use pysession::{
-        PyFireAndForgetConfiguration, PyRequestResponseConfiguration, PySessionDirection,
-        PySessionInfo, PyStreamingConfiguration,
-    };
+    use pysession::{PySessionConfiguration, PySessionDirection, PySessionInfo, PySessionType};
 
     #[pymodule_export]
     use utils::{PyAgentType, init_tracing};

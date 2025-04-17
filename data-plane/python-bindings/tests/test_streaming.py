@@ -25,7 +25,7 @@ async def test_streaming(server):
 
     # Connect to the service and subscribe for the local name
     _ = await producer.connect(
-        {"endpoint": "http://127.0.0.1:12365", "tls_settings": {"insecure": True}}
+        {"endpoint": "http://127.0.0.1:12365", "tls": {"insecure": True}}
     )
 
     # set route for the producer, so that messages can be sent to consumer that
@@ -53,7 +53,7 @@ async def test_streaming(server):
 
         # Connect to gateway server
         _ = await consumer.connect(
-            {"endpoint": "http://127.0.0.1:12365", "tls_settings": {"insecure": True}}
+            {"endpoint": "http://127.0.0.1:12365", "tls": {"insecure": True}}
         )
 
         # Subscribe to the producer topic
@@ -109,8 +109,8 @@ async def test_streaming(server):
         consumers.append(task)
 
     # create streaming session with default config
-    session_info = await producer.create_streaming_session(
-        agp_bindings.PyStreamingConfiguration(
+    session_info = await producer.create_session(
+        agp_bindings.PySessionConfiguration.Streaming(
             agp_bindings.PySessionDirection.SENDER,
             topic=None,
             max_retries=5,
@@ -139,6 +139,6 @@ async def test_streaming(server):
 
     # make sure the counts are correct
     for i in range(consumers_count):
-        assert (
-            counts[i] == count
-        ), f"Consumer {i} received {counts[i]} messages, expected {count}"
+        assert counts[i] == count, (
+            f"Consumer {i} received {counts[i]} messages, expected {count}"
+        )

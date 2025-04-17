@@ -32,7 +32,7 @@ async def run_client(
 
     # Connect to remote gateway server
     print(format_message(f"connecting to: {address}"))
-    _ = await gateway.connect({"endpoint": address, "tls_settings": {"insecure": True}})
+    _ = await gateway.connect({"endpoint": address, "tls": {"insecure": True}})
 
     # Get the local agent instance from env
     instance = os.getenv("AGP_INSTANCE_ID", local_agent)
@@ -46,8 +46,8 @@ async def run_client(
             await gateway.set_route(remote_organization, remote_namespace, remote_agent)
 
             # create a session
-            session = await gateway.create_ff_session(
-                agp_bindings.PyFireAndForgetConfiguration()
+            session = await gateway.create_session(
+                agp_bindings.PySessionConfiguration.FireAndForget()
             )
 
             for i in range(0, iterations):

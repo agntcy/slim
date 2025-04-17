@@ -103,6 +103,13 @@ tasks:
         vars:
           ARGS: "--workspace"
 
+  data-plane:python-bindings:lint:
+    desc: "Python linter"
+    internal: true
+    dir: ./python-bindings
+    cmds:
+      - task python-bindings:lint
+
   data-plane:doc:
     desc: "Generate the documentation"
     cmds:
@@ -119,6 +126,7 @@ tasks:
       - task: data-plane:unused:check
       - task: data-plane:licenses
       - task: data-plane:typos
+      - task: data-plane:python-bindings:lint
 
   data-plane:test:build:
     desc: "Build the tests"

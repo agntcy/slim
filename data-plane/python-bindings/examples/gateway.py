@@ -6,7 +6,6 @@ import asyncio
 from signal import SIGINT
 
 import agp_bindings
-from agp_bindings import GatewayConfig
 
 
 async def run_server(address: str, enable_opentelemetry: bool):
@@ -20,7 +19,7 @@ async def run_server(address: str, enable_opentelemetry: bool):
     gateway = await agp_bindings.Gateway.new("cisco", "default", "gateway")
 
     # Run as server
-    await gateway.run_server({"endpoint": address, "tls_settings": {"insecure": True}})
+    await gateway.run_server({"endpoint": address, "tls": {"insecure": True}})
 
 
 async def main():

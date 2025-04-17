@@ -65,8 +65,6 @@ quote-style = 'double'
 testpaths = 'tests'
 
 [tool.ruff]
-line-length = 120
-target-version = 'py39'
 extend-exclude = ["agp_bindings/_agp_bindings.pyi"]
 
 [tool.ruff.lint]
