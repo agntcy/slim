@@ -380,8 +380,8 @@ impl Service {
                         })
                 }
                 None => session.tx_gw().send(Ok(msg)).await.map_err(|e| {
-                    error!("error sending the subscription {}", e);
-                    ServiceError::SubscriptionError(e.to_string())
+                    error!("error sending message {}", e);
+                    ServiceError::MessageSendingError(e.to_string())
                 }),
             }
         })
