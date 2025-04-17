@@ -20,7 +20,7 @@ async def test_request_reply_base(server):
 
     # Connect to the service and subscribe for the local name
     _ = await gateway1.connect(
-        {"endpoint": "http://127.0.0.1:12355", "tls_settings": {"insecure": True}}
+        {"endpoint": "http://127.0.0.1:12355", "tls": {"insecure": True}}
     )
 
     # # subscribe to the service
@@ -32,7 +32,7 @@ async def test_request_reply_base(server):
 
     # Connect to gateway server
     _ = await gateway2.connect(
-        {"endpoint": "http://127.0.0.1:12355", "tls_settings": {"insecure": True}}
+        {"endpoint": "http://127.0.0.1:12355", "tls": {"insecure": True}}
     )
 
     # set route
@@ -117,7 +117,7 @@ async def test_request_reply(server):
 
     # Connect to the service and subscribe for the local name
     _ = await gateway1.connect(
-        {"endpoint": "http://127.0.0.1:12356", "tls_settings": {"insecure": True}}
+        {"endpoint": "http://127.0.0.1:12356", "tls": {"insecure": True}}
     )
 
     # create second local agent
@@ -126,7 +126,7 @@ async def test_request_reply(server):
 
     # Connect to gateway server
     _ = await gateway2.connect(
-        {"endpoint": "http://127.0.0.1:12356", "tls_settings": {"insecure": True}}
+        {"endpoint": "http://127.0.0.1:12356", "tls": {"insecure": True}}
     )
 
     # set route

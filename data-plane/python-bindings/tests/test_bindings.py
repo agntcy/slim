@@ -19,11 +19,11 @@ async def test_end_to_end(server):
     # connect to the service
     conn_id_alice = await agp_bindings.connect(
         svc_alice,
-        {"endpoint": "http://127.0.0.1:12344", "tls_settings": {"insecure": True}},
+        {"endpoint": "http://127.0.0.1:12344", "tls": {"insecure": True}},
     )
     conn_id_bob = await agp_bindings.connect(
         svc_bob,
-        {"endpoint": "http://127.0.0.1:12344", "tls_settings": {"insecure": True}},
+        {"endpoint": "http://127.0.0.1:12344", "tls": {"insecure": True}},
     )
 
     # subscribe alice and bob
@@ -218,7 +218,7 @@ async def test_gateway_wrapper(server):
 
     # Connect to the service and subscribe for the local name
     _ = await gateway1.connect(
-        {"endpoint": "http://127.0.0.1:12345", "tls_settings": {"insecure": True}}
+        {"endpoint": "http://127.0.0.1:12345", "tls": {"insecure": True}}
     )
 
     # # subscribe to the service
@@ -230,7 +230,7 @@ async def test_gateway_wrapper(server):
 
     # Connect to gateway server
     _ = await gateway2.connect(
-        {"endpoint": "http://127.0.0.1:12345", "tls_settings": {"insecure": True}}
+        {"endpoint": "http://127.0.0.1:12345", "tls": {"insecure": True}}
     )
 
     # set route
@@ -294,11 +294,11 @@ async def test_auto_reconnect_after_server_restart(server):
     # connect clients and subscribe for messages
     conn_id_alice = await agp_bindings.connect(
         svc_alice,
-        {"endpoint": "http://127.0.0.1:12346", "tls_settings": {"insecure": True}},
+        {"endpoint": "http://127.0.0.1:12346", "tls": {"insecure": True}},
     )
     conn_id_bob = await agp_bindings.connect(
         svc_bob,
-        {"endpoint": "http://127.0.0.1:12346", "tls_settings": {"insecure": True}},
+        {"endpoint": "http://127.0.0.1:12346", "tls": {"insecure": True}},
     )
 
     alice_class = agp_bindings.PyAgentType("cisco", "default", "alice")
@@ -350,7 +350,7 @@ async def test_error_on_nonexistent_subscription(server):
     # connect client and subscribe for messages
     conn_id_alice = await agp_bindings.connect(
         svc_alice,
-        {"endpoint": "http://127.0.0.1:12347", "tls_settings": {"insecure": True}},
+        {"endpoint": "http://127.0.0.1:12347", "tls": {"insecure": True}},
     )
     alice_class = agp_bindings.PyAgentType("cisco", "default", "alice")
     await agp_bindings.subscribe(svc_alice, conn_id_alice, alice_class, 1234)

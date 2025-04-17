@@ -25,7 +25,7 @@ async def test_streaming(server):
 
     # Connect to the service and subscribe for the local name
     _ = await producer.connect(
-        {"endpoint": "http://127.0.0.1:12365", "tls_settings": {"insecure": True}}
+        {"endpoint": "http://127.0.0.1:12365", "tls": {"insecure": True}}
     )
 
     # set route for the producer, so that messages can be sent to consumer that
@@ -53,7 +53,7 @@ async def test_streaming(server):
 
         # Connect to gateway server
         _ = await consumer.connect(
-            {"endpoint": "http://127.0.0.1:12365", "tls_settings": {"insecure": True}}
+            {"endpoint": "http://127.0.0.1:12365", "tls": {"insecure": True}}
         )
 
         # Subscribe to the producer topic

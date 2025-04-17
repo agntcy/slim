@@ -26,7 +26,7 @@ async def run_client(local_id, remote_id, message, address, enable_opentelemetry
 
     # Connect to the service and subscribe for the local name
     print(format_message("connecting to:", address))
-    _ = await gateway.connect({"endpoint": address, "tls_settings": {"insecure": True}})
+    _ = await gateway.connect({"endpoint": address, "tls": {"insecure": True}})
 
     # Get the local agent instance from env
     instance = os.getenv("AGP_INSTANCE_ID", local_agent)

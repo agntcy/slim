@@ -32,7 +32,7 @@ async def run_client(
 
     # Connect to remote gateway server
     print(format_message(f"connecting to: {address}"))
-    _ = await gateway.connect({"endpoint": address, "tls_settings": {"insecure": True}})
+    _ = await gateway.connect({"endpoint": address, "tls": {"insecure": True}})
 
     # Get the local agent instance from env
     instance = os.getenv("AGP_INSTANCE_ID", local_agent)

@@ -34,7 +34,7 @@ async def test_streaming(server):
 
         # Connect to gateway server
         _ = await participant.connect(
-            {"endpoint": "http://127.0.0.1:12375", "tls_settings": {"insecure": True}}
+            {"endpoint": "http://127.0.0.1:12375", "tls": {"insecure": True}}
         )
 
         # set route for the chat, so that messages can be sent to the other participants

@@ -179,7 +179,7 @@ async def run_client(local_id, remote_id, address, enable_opentelemetry: bool):
 
     # Connect to gateway server
     _ = await participant.connect(
-        {"endpoint": address, "tls_settings": {"insecure": True}}
+        {"endpoint": address, "tls": {"insecure": True}}
     )
 
     # set route for the chat, so that messages can be sent to the other participants
@@ -373,7 +373,7 @@ async def run_client(
 
     # Connect to the service and subscribe for the local name
     print(format_message("connecting to:", address))
-    _ = await gateway.connect({"endpoint": address, "tls_settings": {"insecure": True}})
+    _ = await gateway.connect({"endpoint": address, "tls": {"insecure": True}})
 
     # Split the IDs into their respective components
     remote_organization, remote_namespace, broadcast_topic = split_id(remote_id)
@@ -576,7 +576,7 @@ async def run_client(
 
     # Connect to remote gateway server
     print(format_message(f"connecting to: {address}"))
-    _ = await gateway.connect({"endpoint": address, "tls_settings": {"insecure": True}})
+    _ = await gateway.connect({"endpoint": address, "tls": {"insecure": True}})
 
     # Get the local agent instance from env
     instance = os.getenv("AGP_INSTANCE_ID", local_agent)
@@ -763,7 +763,7 @@ async def run_client(local_id, remote_id, message, address, enable_opentelemetry
 
     # Connect to the service and subscribe for the local name
     print(format_message("connecting to:", address))
-    _ = await gateway.connect({"endpoint": address, "tls_settings": {"insecure": True}})
+    _ = await gateway.connect({"endpoint": address, "tls": {"insecure": True}})
 
     # Get the local agent instance from env
     instance = os.getenv("AGP_INSTANCE_ID", local_agent)
