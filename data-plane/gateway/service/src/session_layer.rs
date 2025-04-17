@@ -342,7 +342,6 @@ impl SessionLayer {
         // check if the session exists
         if let Some(session) = pool.get_mut(&session_id) {
             // set the session config
-            warn!("session config is being modified: {}", session_id);
             return session.set_session_config(session_config);
         }
 
