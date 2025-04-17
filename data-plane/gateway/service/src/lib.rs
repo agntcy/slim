@@ -1082,6 +1082,18 @@ mod tests {
         service
             .set_session_config(&agent, &session_config, Some(session_info.id))
             .await
+            .expect_err("we should not be allowed to set a different direction");
+
+        let session_config = SessionConfig::Streaming(StreamingConfiguration::new(
+            session::SessionDirection::Receiver,
+            None,
+            Some(2000),
+            Some(time::Duration::from_secs(1234)),
+        ));
+
+        service
+            .set_session_config(&agent, &session_config, Some(session_info.id))
+            .await
             .expect("failed to set session config");
 
         // get session config
@@ -1101,6 +1113,18 @@ mod tests {
             None,
             Some(20000),
             Some(time::Duration::from_secs(12345)),
+        ));
+
+        service
+            .set_session_config(&agent, &session_config, None)
+            .await
+            .expect_err("we should not be allowed to set a sender direction as default");
+
+        let session_config = SessionConfig::Streaming(StreamingConfiguration::new(
+            session::SessionDirection::Receiver,
+            None,
+            Some(20000),
+            Some(time::Duration::from_secs(123456)),
         ));
 
         service
