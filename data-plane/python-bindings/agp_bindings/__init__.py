@@ -4,11 +4,11 @@
 import asyncio
 from typing import Optional
 
-from ._agp_bindings import (
+from ._agp_bindings import (  # type: ignore[attr-defined]
     SESSION_UNSPECIFIED,
     PyAgentType,
-    PySessionConfiguration,
     PyService,
+    PySessionConfiguration,
     PySessionInfo,
     PySessionType,
     __version__,

@@ -69,6 +69,9 @@ def get_default_session_config(svc:PyService, session_type:PySessionType) -> typ
 def get_session_config(svc:PyService, session_id:builtins.int) -> typing.Any:
     ...
 
+def init_tracing(log_level:builtins.str='info', enable_opentelemetry:builtins.bool=False) -> None:
+    ...
+
 def publish(svc:PyService, session_info:PySessionInfo, fanout:builtins.int, blob:typing.Sequence[builtins.int], name:typing.Optional[PyAgentType]=None, id:typing.Optional[builtins.int]=None) -> typing.Any:
     ...
 

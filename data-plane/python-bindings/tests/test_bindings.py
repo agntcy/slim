@@ -2,9 +2,9 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import asyncio
+import datetime
 
 import pytest
-import datetime
 
 import agp_bindings
 
@@ -102,9 +102,9 @@ async def test_session_config(server):
 
     # check if the session config is correct
     assert isinstance(session_config, agp_bindings.PySessionConfiguration.FireAndForget)
-    assert (
-        session_config == session_config_ret
-    ), f"session config are not equal: {session_config} vs {session_config_ret}"
+    assert session_config == session_config_ret, (
+        f"session config are not equal: {session_config} vs {session_config_ret}"
+    )
 
     # check default values
     await agp_bindings.set_default_session_config(
@@ -121,9 +121,9 @@ async def test_session_config(server):
     assert isinstance(
         session_config_ret, agp_bindings.PySessionConfiguration.FireAndForget
     )
-    assert (
-        session_config == session_config_ret
-    ), f"session config are not equal: {session_config} vs {session_config_ret}"
+    assert session_config == session_config_ret, (
+        f"session config are not equal: {session_config} vs {session_config_ret}"
+    )
 
     # Request/Response session
     session_config = agp_bindings.PySessionConfiguration.RequestResponse(
@@ -184,9 +184,9 @@ async def test_session_config(server):
             session_config,
         )
     except Exception as e:
-        assert "cannot change session direction" in str(
-            e
-        ), f"Unexpected error message: {str(e)}"
+        assert "cannot change session direction" in str(e), (
+            f"Unexpected error message: {str(e)}"
+        )
 
     # Use a receiver direction
     session_config = agp_bindings.PySessionConfiguration.Streaming(
