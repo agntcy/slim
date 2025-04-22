@@ -90,6 +90,7 @@ async def test_mcp_client_server(server):
                     print(tools)
                 except Exception as e:
                     print(f"Error initializing session: {e}")
+                    raise e
 
                 # We are good to exit
                 session_task.cancel()
