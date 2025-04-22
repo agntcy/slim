@@ -3,9 +3,8 @@
 
 import asyncio
 
-import pytest_asyncio
-
 import agp_bindings
+import pytest_asyncio
 
 
 @pytest_asyncio.fixture(scope="function")

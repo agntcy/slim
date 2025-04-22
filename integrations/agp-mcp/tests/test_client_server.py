@@ -4,13 +4,13 @@
 import asyncio
 import datetime
 
-import pytest
-
-from agp_mcp.server import AGPServer
 import mcp.types as types
-from agp_mcp.client import AGPClient
-from mcp.server.lowlevel import Server
+import pytest
 from mcp import ClientSession
+from mcp.server.lowlevel import Server
+
+from agp_mcp.client import AGPClient
+from agp_mcp.server import AGPServer
 
 # fake tools
 

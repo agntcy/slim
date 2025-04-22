@@ -2,15 +2,14 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import logging
+from abc import ABC, abstractmethod
 from contextlib import asynccontextmanager
 from typing import Any
-from abc import ABC, abstractmethod
 
-import anyio
-from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 import agp_bindings
-
+import anyio
 import mcp.types as types
+from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 
 logger = logging.getLogger(__name__)
 
@@ -138,9 +137,7 @@ class AGPBase(ABC):
 
             while True:
                 try:
-                    print(f"Waiting for message on session {session.id}...")
                     session, msg = await self.gateway.receive(session=session.id)
-                    print(f"Received message: {msg}")
                     logger.debug(f"Received message: {msg}")
 
                     message = types.JSONRPCMessage.model_validate_json(msg.decode())
@@ -155,7 +152,6 @@ class AGPBase(ABC):
         async def agp_writer():
             async for message in write_stream_reader:
                 json = message.model_dump_json(by_alias=True, exclude_none=True)
-                print(f"Send message: {json}")
                 await self._send_message(
                     accepted_session,
                     json.encode(),

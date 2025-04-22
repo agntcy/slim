@@ -4,6 +4,7 @@
 import logging
 
 import agp_bindings
+
 from agp_mcp.common import AGPBase
 
 logger = logging.getLogger(__name__)
@@ -53,15 +54,12 @@ class AGPServer(AGPBase):
             MemoryObjectReceiveStream: Stream to receive the response.
         """
 
-        print(f"Sending message: {message}")
-
         if not self.gateway:
             raise RuntimeError(
                 "Gateway is not connected. Please use the with statement."
             )
 
         # Send message to the gateway
-        logger.debug(f"Sending message: {message}")
         await self.gateway.publish_to(
             session,
             message,
