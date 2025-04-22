@@ -11,8 +11,6 @@ from mcp.server.lowlevel import Server
 
 from agp_mcp import AGPClient, AGPServer
 
-# fake tools
-
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("server", ["127.0.0.1:12345"], indirect=True)
