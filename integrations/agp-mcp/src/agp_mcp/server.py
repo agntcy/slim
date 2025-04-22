@@ -17,10 +17,6 @@ logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 
 
-def remove_request_params(url: str) -> str:
-    return urljoin(url, urlparse(url).path)
-
-
 class AGPServer:
     def __init__(
         self,

@@ -16,10 +16,6 @@ import mcp.types as types
 logger = logging.getLogger(__name__)
 
 
-def remove_request_params(url: str) -> str:
-    return urljoin(url, urlparse(url).path)
-
-
 class AGPClient:
     def __init__(
         self,
