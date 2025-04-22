@@ -168,9 +168,6 @@ class Gateway:
         """
 
         # Run receiver loop in the background
-
-        print("Starting receiver loop")
-
         self.task = asyncio.create_task(self._receive_loop())
         return self
 
