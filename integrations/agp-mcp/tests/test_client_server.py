@@ -9,8 +9,7 @@ import pytest
 from mcp import ClientSession
 from mcp.server.lowlevel import Server
 
-from agp_mcp.client import AGPClient
-from agp_mcp.server import AGPServer
+from agp_mcp import AGPClient, AGPServer
 
 # fake tools
 
