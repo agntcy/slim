@@ -32,6 +32,64 @@ def get_test_config(port: int) -> dict:
     }
 
 
+async def handle_sessions(mcp_app: Server, agp_server: AGPServer):
+    """Handle a session with the MCP server.
+
+    Args:
+        mcp_app: The MCP server application
+        agp_server: The AGP server instance
+
+    Raises:
+        Exception: If there is an error handling sessions
+    """
+    tasks = set()
+
+    try:
+        async for new_session in agp_server:
+            # Create a new task for this session
+            async def handle_session(session):
+                try:
+                    async with agp_server.new_streams(session) as streams:
+                        await mcp_app.run(
+                            streams[0],
+                            streams[1],
+                            mcp_app.create_initialization_options(),
+                        )
+                except Exception:
+                    logger.error(
+                        f"Error handling session {session.id}",
+                        extra={"session_id": session.id},
+                        exc_info=True,
+                    )
+                    raise
+
+            task = asyncio.create_task(handle_session(new_session))
+            task.add_done_callback(tasks.discard(task))  # Remove task from set when done
+            tasks.add(task)
+
+            # Log new session
+            logger.info(
+                "New session started",
+                extra={"session_id": new_session.id, "active_sessions": len(tasks)},
+            )
+    except Exception:
+        logger.error("Error in session handler", exc_info=True)
+        raise
+    finally:
+        # Cancel all remaining tasks
+        for task in tasks:
+            if not task.done():
+                task.cancel()
+
+        # Wait for all tasks to complete
+        if tasks:
+            try:
+                await asyncio.gather(*tasks, return_exceptions=True)
+            except Exception:
+                logger.error("Error during task cleanup", exc_info=True)
+                raise
+
+
 @pytest.fixture
 def example_tool() -> types.Tool:
     """Create an example tool for testing."""
@@ -86,7 +144,7 @@ async def test_mcp_client_server_connection(server, mcp_app):
         assert agp_server.gateway is not None, "Server gateway not initialized"
 
         # Start session handler
-        handler_task = asyncio.create_task(agp_server.handle_sessions(mcp_app))
+        handler_task = asyncio.create_task(handle_sessions(mcp_app, agp_server))
 
         try:
             async with agp_client.to_mcp_session() as mcp_session:
@@ -123,7 +181,7 @@ async def test_mcp_client_server_reconnection(server, mcp_app):
     logger.info("Testing client reconnection...")
 
     async with AGPServer(config, TEST_ORG, TEST_NS, TEST_MCP_SERVER) as agp_server:
-        handler_task = asyncio.create_task(agp_server.handle_sessions(mcp_app))
+        handler_task = asyncio.create_task(handle_sessions(mcp_app, agp_server))
 
         try:
             # First connection

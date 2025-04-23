@@ -73,7 +73,6 @@ class AGPBase(ABC):
         self.remote_mcp_agent = remote_mcp_agent
 
         self.gateway = None
-        self.session = None
 
     def is_connected(self) -> bool:
         """Check if the client is connected to the gateway.
@@ -107,6 +106,8 @@ class AGPBase(ABC):
 
         Raises:
             RuntimeError: If gateway initialization fails
+            ValueError: If configuration is invalid
+            ConnectionError: If connection to the gateway fails
         """
         try:
             # Initialize the AGP gateway
@@ -124,33 +125,60 @@ class AGPBase(ABC):
                     "local_agent": self.local_agent,
                 },
             )
-            await self.gateway.connect(self.config)
+            try:
+                await self.gateway.connect(self.config)
+            except Exception as e:
+                logger.error(
+                    "Failed to connect to AGP server",
+                    extra={
+                        "error": str(e),
+                        "endpoint": self.config[CONFIG_ENDPOINT_KEY],
+                    },
+                    exc_info=True,
+                )
+                raise ConnectionError(
+                    f"Failed to connect to AGP server: {str(e)}"
+                ) from e
 
             # Set route if remote details are provided
             if all(
                 [self.remote_organization, self.remote_namespace, self.remote_mcp_agent]
             ):
-                await self.gateway.set_route(
-                    self.remote_organization,
-                    self.remote_namespace,
-                    self.remote_mcp_agent,
-                )
-                logger.info(
-                    "Route set successfully",
-                    extra={
-                        "remote_org": self.remote_organization,
-                        "remote_namespace": self.remote_namespace,
-                        "remote_agent": self.remote_mcp_agent,
-                    },
-                )
+                try:
+                    await self.gateway.set_route(
+                        self.remote_organization,
+                        self.remote_namespace,
+                        self.remote_mcp_agent,
+                    )
+                    logger.info(
+                        "Route set successfully",
+                        extra={
+                            "remote_org": self.remote_organization,
+                            "remote_namespace": self.remote_namespace,
+                            "remote_agent": self.remote_mcp_agent,
+                        },
+                    )
+                except Exception as e:
+                    logger.error(
+                        "Failed to set route",
+                        extra={
+                            "error": str(e),
+                            "remote_org": self.remote_organization,
+                            "remote_namespace": self.remote_namespace,
+                            "remote_agent": self.remote_mcp_agent,
+                        },
+                        exc_info=True,
+                    )
+                    raise RuntimeError(f"Failed to set route: {str(e)}") from e
 
             # start receiving messages
-            await self.gateway.__aenter__()
-
-            # create session
-            self.session = await self.gateway.create_session(
-                agp_bindings.PySessionConfiguration.FireAndForget()
-            )
+            try:
+                await self.gateway.__aenter__()
+            except Exception as e:
+                logger.error("Failed to start receiving messages", exc_info=True)
+                raise RuntimeError(
+                    f"Failed to start receiving messages: {str(e)}"
+                ) from e
 
             return self
 
@@ -228,4 +256,7 @@ class AGPBase(ABC):
             try:
                 yield read_stream, write_stream
             finally:
+                # cancel the task group
                 tg.cancel_scope.cancel()
+                # delete the session
+                await self.gateway.delete_session(accepted_session.id)

@@ -123,6 +123,3 @@ class AGPClient(AGPBase):
         async with self.new_streams(session) as (read_stream, write_stream):
             async with ClientSession(read_stream, write_stream) as mcp_session:
                 yield mcp_session
-
-        # close session
-        await self.gateway.delete_session(session.id)
