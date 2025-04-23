@@ -530,7 +530,7 @@ impl Service {
         debug!("unset route to {}/{:?}", agent_type, agent_id);
 
         //  send a message with unsubscription from
-        let msg = Message::new_subscribe(
+        let msg = Message::new_unsubscribe(
             local_agent,
             agent_type,
             agent_id,
