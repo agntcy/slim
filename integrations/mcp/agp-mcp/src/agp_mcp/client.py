@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 
 class AGPClient(AGPBase):
     """
-    AGP transport client for MCP (Message Control Protocol) communication.
+    AGP transport client for MCP (Model Context Protocol) communication.
 
     Attributes:
         config (Dict[str, Any]): Configuration dictionary containing connection settings

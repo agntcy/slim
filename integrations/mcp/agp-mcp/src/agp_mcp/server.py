@@ -22,7 +22,7 @@ class AGPServer(AGPBase):
         local_agent: str,
     ):
         """
-        AGP transport Server for MCP (Message Control Protocol) communication.
+        AGP transport Server for MCP (Model Context Protocol) communication.
 
         Args:
             config (dict): Configuration dictionary containing AGP settings. Must follow
