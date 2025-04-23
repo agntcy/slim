@@ -55,9 +55,9 @@ pub(crate) enum PySessionDirection {
     Bidirectional = session::SessionDirection::Bidirectional as isize,
 }
 
-impl Into<session::SessionDirection> for PySessionDirection {
-    fn into(self) -> session::SessionDirection {
-        match self {
+impl From<PySessionDirection> for session::SessionDirection {
+    fn from(value: PySessionDirection) -> Self {
+        match value {
             PySessionDirection::Sender => session::SessionDirection::Sender,
             PySessionDirection::Receiver => session::SessionDirection::Receiver,
             PySessionDirection::Bidirectional => session::SessionDirection::Bidirectional,
@@ -88,9 +88,9 @@ pub(crate) enum PySessionType {
     Streaming = session::SessionType::Streaming as isize,
 }
 
-impl Into<session::SessionType> for PySessionType {
-    fn into(self) -> session::SessionType {
-        match self {
+impl From<PySessionType> for session::SessionType {
+    fn from(value: PySessionType) -> Self {
+        match value {
             PySessionType::FireAndForget => session::SessionType::FireAndForget,
             PySessionType::RequestResponse => session::SessionType::RequestResponse,
             PySessionType::Streaming => session::SessionType::Streaming,
@@ -106,9 +106,9 @@ pub(crate) struct PyRequestResponseConfiguration {
     pub request_response_configuration: agp_service::RequestResponseConfiguration,
 }
 
-impl Into<agp_service::RequestResponseConfiguration> for PyRequestResponseConfiguration {
-    fn into(self) -> agp_service::RequestResponseConfiguration {
-        self.request_response_configuration
+impl From<PyRequestResponseConfiguration> for agp_service::RequestResponseConfiguration {
+    fn from(value: PyRequestResponseConfiguration) -> agp_service::RequestResponseConfiguration {
+        value.request_response_configuration
     }
 }
 
@@ -157,9 +157,9 @@ impl From<session::SessionConfig> for PySessionConfiguration {
     }
 }
 
-impl Into<session::SessionConfig> for PySessionConfiguration {
-    fn into(self) -> session::SessionConfig {
-        match self {
+impl From<PySessionConfiguration> for session::SessionConfig {
+    fn from(value: PySessionConfiguration) -> Self {
+        match value {
             PySessionConfiguration::FireAndForget {} => {
                 session::SessionConfig::FireAndForget(FireAndForgetConfiguration {})
             }
