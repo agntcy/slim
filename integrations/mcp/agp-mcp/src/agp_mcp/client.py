@@ -3,7 +3,9 @@
 
 import logging
 from typing import Any
+from contextlib import asynccontextmanager
 
+from mcp import ClientSession
 import agp_bindings
 
 from agp_mcp.common import AGPBase
@@ -35,7 +37,8 @@ class AGPClient(AGPBase):
         remote_namespace: str,
         remote_mcp_agent: str,
     ) -> None:
-        """Initialize the AGP client.
+        """
+        Initialize the AGP client.
 
         Args:
             config: Configuration dictionary containing AGP connection settings. Must follow
@@ -112,3 +115,21 @@ class AGPClient(AGPBase):
         except Exception as e:
             logger.error("Failed to send message", exc_info=True)
             raise RuntimeError(f"Failed to send message: {str(e)}") from e
+
+    @asynccontextmanager
+    async def to_mcp_session(self):
+        """Create a new MCP session.
+
+        Returns:
+            agp_bindings.PySessionInfo: The new MCP session
+        """
+        # create session
+        session = await self.gateway.create_session(agp_bindings.PySessionConfiguration.FireAndForget())
+
+        # create streams
+        async with self.new_streams(session) as (read_stream, write_stream):
+            async with ClientSession(read_stream, write_stream) as mcp_session:
+                yield mcp_session
+
+        # close session
+        await self.gateway.delete_session(session.id)

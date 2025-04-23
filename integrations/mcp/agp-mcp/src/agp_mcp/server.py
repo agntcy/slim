@@ -35,8 +35,7 @@ class AGPServer(AGPBase):
 
         Note:
             This server should be used with a context manager (with statement) to ensure
-            proper connection and disconnection of the gateway. The server can be iterated
-            over asynchronously to receive incoming sessions.
+            proper connection and disconnection of the gateway.
         """
 
         super().__init__(
@@ -79,7 +78,7 @@ class AGPServer(AGPBase):
 
                 async def run_session():
                     try:
-                        async with self.new_session(session) as streams:
+                        async with self.new_streams(session) as streams:
                             await app.run(
                                 streams[0], streams[1], app.create_initialization_options()
                             )

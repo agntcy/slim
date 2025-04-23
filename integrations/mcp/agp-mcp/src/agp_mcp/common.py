@@ -165,9 +165,9 @@ class AGPBase(ABC):
             self.gateway = None
 
     @asynccontextmanager
-    async def new_session(
+    async def new_streams(
         self,
-        accepted_session: agp_bindings.PySessionInfo | None = None,
+        accepted_session: agp_bindings.PySessionInfo,
     ):
         """Create a new session for message exchange.
 
@@ -189,12 +189,6 @@ class AGPBase(ABC):
 
         read_stream_writer, read_stream = anyio.create_memory_object_stream(0)
         write_stream, write_stream_reader = anyio.create_memory_object_stream(0)
-
-        if not accepted_session:
-            accepted_session = self.session
-
-        if accepted_session is None:
-            raise ValueError("No valid session available")
 
         async def agp_reader():
             session = accepted_session

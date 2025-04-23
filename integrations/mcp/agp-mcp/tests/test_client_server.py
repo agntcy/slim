@@ -93,21 +93,20 @@ async def test_mcp_client_server_connection(server, mcp_app):
         )
 
         try:
-            async with agp_client.new_session() as streams:
-                async with ClientSession(streams[0], streams[1]) as mcp_session:
-                    # Test session initialization
-                    await mcp_session.initialize()
-                    logger.info(
-                        f"Client session initialized at {datetime.datetime.now().isoformat()}"
-                    )
+            async with agp_client.to_mcp_session() as mcp_session:
+                # Test session initialization
+                await mcp_session.initialize()
+                logger.info(
+                    f"Client session initialized at {datetime.datetime.now().isoformat()}"
+                )
 
-                    # Test tool listing
-                    tools = await mcp_session.list_tools()
-                    assert tools is not None, "Failed to list tools"
-                    # assert len(tools) == 1, "Expected exactly one tool"
-                    # assert tools[0].name == "example", "Tool name mismatch"
+                # Test tool listing
+                tools = await mcp_session.list_tools()
+                assert tools is not None, "Failed to list tools"
+                # assert len(tools) == 1, "Expected exactly one tool"
+                # assert tools[0].name == "example", "Tool name mismatch"
 
-                    logger.info(f"Successfully retrieved tools: {tools}")
+                logger.info(f"Successfully retrieved tools: {tools}")
         except Exception as e:
             logger.error(f"Error during client-server interaction: {e}")
             raise
@@ -120,60 +119,64 @@ async def test_mcp_client_server_connection(server, mcp_app):
                 pass
 
 
-# @pytest.mark.asyncio
-# @pytest.mark.parametrize("server", ["127.0.0.1:12346"], indirect=True)
-# async def test_mcp_client_server_reconnection(server, mcp_app):
-#     """Test client reconnection to server."""
-#     config = get_test_config(12346)
-#     logger.info("Testing client reconnection...")
+@pytest.mark.asyncio
+@pytest.mark.parametrize("server", ["127.0.0.1:12346"], indirect=True)
+async def test_mcp_client_server_reconnection(server, mcp_app):
+    """Test client reconnection to server."""
+    config = get_test_config(12346)
+    logger.info("Testing client reconnection...")
 
-#     async with AGPServer(config, TEST_ORG, TEST_NS, TEST_MCP_SERVER) as agp_server:
-#         handler_task = asyncio.create_task(
-#             agp_server.handle_sessions(mcp_app)
-#         )
+    async with AGPServer(config, TEST_ORG, TEST_NS, TEST_MCP_SERVER) as agp_server:
+        handler_task = asyncio.create_task(
+            agp_server.handle_sessions(mcp_app)
+        )
 
-#         try:
-#             # First connection
-#             async with AGPClient(
-#                 config,
-#                 TEST_ORG,
-#                 TEST_NS,
-#                 TEST_CLIENT_ID,
-#                 TEST_ORG,
-#                 TEST_NS,
-#                 TEST_MCP_SERVER,
-#             ) as client1:
-#                 async with client1.new_session() as streams:
-#                     async with ClientSession(streams[0], streams[1]) as session1:
-#                         await session1.initialize()
-#                         tools1 = await session1.list_tools()
-#                         assert tools1 is not None
-#                         logger.info("First session completed successfully")
+        try:
+            # First connection
+            async with AGPClient(
+                config,
+                TEST_ORG,
+                TEST_NS,
+                TEST_CLIENT_ID,
+                TEST_ORG,
+                TEST_NS,
+                TEST_MCP_SERVER,
+            ) as client1:
+                async with client1.to_mcp_session() as mcp_session:
+                    logger.info("First session initialized")
+                    await mcp_session.initialize()
+                    logger.info("First session completed successfully")
 
-#             logger.info("Second connection")
+                    # Test tool listing
+                    tools = await mcp_session.list_tools()
+                    assert tools is not None, "Failed to list tools"
+                    logger.info(f"Successfully retrieved tools: {tools}")
 
-#             # Second connection with same client ID
-#             async with AGPClient(
-#                 config,
-#                 TEST_ORG,
-#                 TEST_NS,
-#                 TEST_CLIENT_ID,
-#                 TEST_ORG,
-#                 TEST_NS,
-#                 TEST_MCP_SERVER,
-#             ) as client2:
-#                 async with client2.new_session() as streams:
-#                     async with ClientSession(streams[0], streams[1]) as session2:
-#                         logger.info("Second session initializing")
-#                         await session2.initialize()
-#                         logger.info("Second session initialized")
-#                         tools2 = await session2.list_tools()
-#                         assert tools2 is not None
-#                         logger.info("Second session completed successfully")
-#         finally:
-#             # Cleanup
-#             handler_task.cancel()
-#             try:
-#                 await handler_task
-#             except asyncio.CancelledError:
-#                 pass
+            logger.info("Second connection")
+
+            # Second connection with same client ID
+            async with AGPClient(
+                config,
+                TEST_ORG,
+                TEST_NS,
+                TEST_CLIENT_ID,
+                TEST_ORG,
+                TEST_NS,
+                TEST_MCP_SERVER,
+            ) as client2:
+                async with client2.to_mcp_session() as mcp_session:
+                    logger.info("First session initialized")
+                    await mcp_session.initialize()
+                    logger.info("First session completed successfully")
+
+                    # Test tool listing
+                    tools = await mcp_session.list_tools()
+                    assert tools is not None, "Failed to list tools"
+                    logger.info(f"Successfully retrieved tools: {tools}")
+        finally:
+            # Cleanup
+            handler_task.cancel()
+            try:
+                await handler_task
+            except asyncio.CancelledError:
+                pass
