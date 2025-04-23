@@ -6,6 +6,7 @@ version = "0.1.0"
 description = "Controller service and control API to configure the AGP data plane through the control plane."
 
 [dependencies]
+agp-datapath = { path = "../datapath", version = "0.5.0" }
 bytes = { version = "1.9.0" }
 prost = "0.13"
 thiserror = "2.0.9"

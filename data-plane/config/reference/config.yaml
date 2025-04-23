@@ -291,7 +291,7 @@ services:
             # reload_interval: 10s
 
     # controller API configuration
-    pubsub:
+    controller:
       # GRPC Server configuration
       server:
         # The endpoint to listen on.

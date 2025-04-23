@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::pin::Pin;
+use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use tokio::sync::mpsc;
@@ -18,47 +19,65 @@ use crate::api::proto::api::v1::{
 };
 use crate::errors::ControllerError;
 
+use agp_datapath::message_processing::MessageProcessor;
+use agp_datapath::pubsub::proto::pubsub::v1::Message as PubsubMessage;
+
 #[derive(Debug, Clone)]
 pub struct ControllerService {
+    /// underlying message processor
+    message_processor: Arc<MessageProcessor>,
+
+    /// channel to send messages into the datapath
+    tx_gw: mpsc::Sender<Result<PubsubMessage, Status>>
 }
 
 impl ControllerService {
-    pub fn new() -> Self {
-        ControllerService { }
+    pub fn new(message_processor: Arc<MessageProcessor>) -> Self {
+        let (_, tx_gw, _) = message_processor.register_local_connection();
+
+        ControllerService {
+            message_processor: message_processor,
+            tx_gw,
+        }
     }
 
     async fn handle_new_message(
         &self,
         msg: ControlMessage,
+        tx: mpsc::Sender<Result<ControlMessage, Status>>,
     ) -> Result<(), ControllerError> {
         match msg.payload {
             Some(ref payload) => {
                 match payload {
                     crate::api::proto::api::v1::control_message::Payload::ConfigCommand(config) => {
-                        println!("Processing configuration command: {:?}", config);
+                        println!("processing configuration command: {:?}", config);
+
+                        for conn in &config.connections_to_create {
+                            //print!(conn.)
+                        }
+
                         let ack = Ack {
                             original_message_id: msg.message_id.clone(),
                             success: true,
+                            //TODO: add (error) message
                         };
 
-                        /*let reply = ControlMessage { message_id: (), payload: () } {
+                        let reply = ControlMessage {
                             message_id: generate_message_id(),
-                            payload: Some(
-                                crate::api::proto::api::v1::command::Payload::Ack(ack)
-                            ),
+                            payload: Some(crate::api::proto::api::v1::control_message::Payload::Ack(ack))
                         };
 
                         if let Err(e) = tx.send(Ok(reply)).await {
-                            eprintln!("Failed to send ACK: {}", e);
-                        }*/
+                            eprintln!("failed to send ACK: {}", e);
+                        }
                     },
-                    crate::api::proto::api::v1::control_message::Payload::Ack(ack) => {
+                    crate::api::proto::api::v1::control_message::Payload::Ack(_ack) => {
                         // received an ack, do nothing
                     },
                 }
             },
             None => {
-                println!("Server received command {} with no payload", msg.message_id);
+                println!("received control message {} with no payload", msg.message_id);
             }
         }
                 
@@ -68,6 +87,7 @@ impl ControllerService {
     async fn process_stream(
         &self,
         mut stream: impl Stream<Item = Result<ControlMessage, Status>> + Unpin + Send + 'static,
+        tx: mpsc::Sender<Result<ControlMessage, Status>>,
     ) -> tokio::task::JoinHandle<()> {
         let svc = self.clone();
 
@@ -79,11 +99,11 @@ impl ControllerService {
                             Some(result) => {
                                 match result {
                                     Ok(msg) => {
-                                        if let Err(e) = svc.handle_new_message(msg).await {
+                                        if let Err(_e) = svc.handle_new_message(msg, tx.clone()).await {
                                             //TODO: handle error
                                         }
                                     }
-                                    Err(e) => {
+                                    Err(_e) => {
                                         //TODO: handle error
                                     }
                                 }
@@ -113,14 +133,16 @@ impl ControllerService {
     {
         let mut client: ControllerServiceClient<C> = ControllerServiceClient::new(channel);
 
-        let (tx, rx) = mpsc::channel(128);
+        let (tx, rx) = mpsc::channel::<Result<ControlMessage, Status>>(128);
+        let out_stream = ReceiverStream::new(rx)
+            .map(|res| res.expect("mapping error"));
+
         match client
-                .open_control_channel(Request::new(ReceiverStream::new(rx)))
+                .open_control_channel(Request::new(out_stream))
                 .await
             {
                 Ok(stream) => {
-                    let ret = self.process_stream(stream.into_inner()).await;
-
+                    let ret = self.process_stream(stream.into_inner(), tx).await;
                     return Ok(ret);
                 }
                 Err(_) => {
@@ -141,9 +163,9 @@ impl GrpcControllerService for ControllerService {
         request: Request<tonic::Streaming<ControlMessage>>,
     ) -> Result<Response<Self::OpenControlChannelStream>, Status> {
         let stream = request.into_inner();
-        let (_, rx) = mpsc::channel(128);
+        let (tx, rx) = mpsc::channel::<Result<ControlMessage, Status>>(128);
 
-        self.process_stream(stream).await;
+        self.process_stream(stream, tx.clone()).await;
 
         let out_stream = ReceiverStream::new(rx);
         Ok(Response::new(

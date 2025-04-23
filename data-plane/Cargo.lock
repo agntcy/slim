@@ -70,6 +70,7 @@ dependencies = [
 name = "agp-controller"
 version = "0.1.0"
 dependencies = [
+ "agp-datapath",
  "bytes",
  "prost",
  "protoc-bin-vendored",

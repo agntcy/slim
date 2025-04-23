@@ -180,7 +180,7 @@ impl Service {
         let message_processor = Arc::new(MessageProcessor::with_drain_channel(watch.clone()));
 
         // create the controller service
-        let controller = Arc::new(ControllerService::new());
+        let controller = Arc::new(ControllerService::new(message_processor.clone()));
 
         Service {
             id,
@@ -781,12 +781,12 @@ impl Service {
         let token = self.controller_cancellation_token.clone();
 
         tokio::spawn(async move {
-            info!("Controller server running");
+            info!("controller server running");
             tokio::select! {
                 res = server_future => {
                     match res {
-                        Ok(_) => info!("Controller server shutdown"),
-                        Err(e) => error!("Controller server error: {:?}", e),
+                        Ok(_) => info!("controller server shutdown"),
+                        Err(e) => error!("controller server error: {:?}", e),
                     }
                 }
                 _ = token.cancelled() => {
