@@ -4,11 +4,9 @@
 import asyncio
 import datetime
 import logging
-from collections.abc import AsyncGenerator
 
 import mcp.types as types
 import pytest
-from mcp import ClientSession
 from mcp.server.lowlevel import Server
 
 from agp_mcp import AGPClient, AGPServer

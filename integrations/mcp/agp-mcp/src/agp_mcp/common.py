@@ -196,7 +196,9 @@ class AGPBase(ABC):
                 while True:
                     try:
                         session, msg = await self.gateway.receive(session=session.id)
-                        logger.debug("Received message", extra={"message": msg.decode()})
+                        logger.debug(
+                            "Received message", extra={"message": msg.decode()}
+                        )
 
                         message = types.JSONRPCMessage.model_validate_json(msg.decode())
                         await read_stream_writer.send(message)

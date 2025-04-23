@@ -1,9 +1,9 @@
 # Copyright AGNTCY Contributors (https://github.com/agntcy)
 # SPDX-License-Identifier: Apache-2.0
 
-import logging
 import asyncio
-from collections.abc import Set, AsyncGenerator
+import logging
+from collections.abc import Set
 
 import agp_bindings
 from mcp.server.lowlevel import Server
@@ -80,7 +80,9 @@ class AGPServer(AGPBase):
                     try:
                         async with self.new_streams(session) as streams:
                             await app.run(
-                                streams[0], streams[1], app.create_initialization_options()
+                                streams[0],
+                                streams[1],
+                                app.create_initialization_options(),
                             )
                     except Exception as e:
                         logger.error(f"Error in session {session}: {e}")

@@ -2,11 +2,11 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import logging
-from typing import Any
 from contextlib import asynccontextmanager
+from typing import Any
 
-from mcp import ClientSession
 import agp_bindings
+from mcp import ClientSession
 
 from agp_mcp.common import AGPBase
 
@@ -115,7 +115,9 @@ class AGPClient(AGPBase):
             agp_bindings.PySessionInfo: The new MCP session
         """
         # create session
-        session = await self.gateway.create_session(agp_bindings.PySessionConfiguration.FireAndForget())
+        session = await self.gateway.create_session(
+            agp_bindings.PySessionConfiguration.FireAndForget()
+        )
 
         # create streams
         async with self.new_streams(session) as (read_stream, write_stream):
