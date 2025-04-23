@@ -54,15 +54,6 @@ class AGPClient(AGPBase):
         Raises:
             ValueError: If any of the required parameters are empty or invalid
         """
-        # Validate required parameters
-        if not all([local_organization, local_namespace, local_agent]):
-            raise ValueError(
-                "Local organization, namespace, and agent must be provided"
-            )
-        if not all([remote_organization, remote_namespace, remote_mcp_agent]):
-            raise ValueError(
-                "Remote organization, namespace, and agent must be provided"
-            )
 
         super().__init__(
             config,
