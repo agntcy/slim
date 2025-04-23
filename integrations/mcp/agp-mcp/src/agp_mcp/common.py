@@ -192,26 +192,33 @@ class AGPBase(ABC):
 
         async def agp_reader():
             session = accepted_session
-            while True:
-                try:
-                    session, msg = await self.gateway.receive(session=session.id)
-                    logger.debug("Received message", extra={"message": msg.decode()})
+            try:
+                while True:
+                    try:
+                        session, msg = await self.gateway.receive(session=session.id)
+                        logger.debug("Received message", extra={"message": msg.decode()})
 
-                    message = types.JSONRPCMessage.model_validate_json(msg.decode())
-                    await read_stream_writer.send(message)
-                except Exception as exc:
-                    logger.error("Error receiving message", exc_info=True)
-                    await read_stream_writer.send(exc)
+                        message = types.JSONRPCMessage.model_validate_json(msg.decode())
+                        await read_stream_writer.send(message)
+                    except Exception as exc:
+                        logger.error("Error receiving message", exc_info=True)
+                        await read_stream_writer.send(exc)
+                        break
+            finally:
+                await read_stream_writer.aclose()
 
         async def agp_writer():
-            async for message in write_stream_reader:
-                try:
-                    json = message.model_dump_json(by_alias=True, exclude_none=True)
-                    logger.debug("Sending message", extra={"message": json})
-                    await self._send_message(accepted_session, json.encode())
-                except Exception:
-                    logger.error("Error sending message", exc_info=True)
-                    raise
+            try:
+                async for message in write_stream_reader:
+                    try:
+                        json = message.model_dump_json(by_alias=True, exclude_none=True)
+                        logger.debug("Sending message", extra={"message": json})
+                        await self._send_message(accepted_session, json.encode())
+                    except Exception:
+                        logger.error("Error sending message", exc_info=True)
+                        raise
+            finally:
+                await write_stream_reader.aclose()
 
         async with anyio.create_task_group() as tg:
             tg.start_soon(agp_reader)

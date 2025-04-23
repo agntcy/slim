@@ -88,9 +88,7 @@ async def test_mcp_client_server_connection(server, mcp_app):
         assert agp_server.gateway is not None, "Server gateway not initialized"
 
         # Start session handler
-        handler_task = asyncio.create_task(
-            agp_server.handle_sessions(mcp_app)
-        )
+        handler_task = asyncio.create_task(agp_server.handle_sessions(mcp_app))
 
         try:
             async with agp_client.to_mcp_session() as mcp_session:
@@ -127,9 +125,7 @@ async def test_mcp_client_server_reconnection(server, mcp_app):
     logger.info("Testing client reconnection...")
 
     async with AGPServer(config, TEST_ORG, TEST_NS, TEST_MCP_SERVER) as agp_server:
-        handler_task = asyncio.create_task(
-            agp_server.handle_sessions(mcp_app)
-        )
+        handler_task = asyncio.create_task(agp_server.handle_sessions(mcp_app))
 
         try:
             # First connection
@@ -173,6 +169,61 @@ async def test_mcp_client_server_reconnection(server, mcp_app):
                     tools = await mcp_session.list_tools()
                     assert tools is not None, "Failed to list tools"
                     logger.info(f"Successfully retrieved tools: {tools}")
+
+            # Concurrent connection
+            async with (
+                AGPClient(
+                    config,
+                    TEST_ORG,
+                    TEST_NS,
+                    TEST_CLIENT_ID,
+                    TEST_ORG,
+                    TEST_NS,
+                    TEST_MCP_SERVER,
+                ) as client3,
+                AGPClient(
+                    config,
+                    TEST_ORG,
+                    TEST_NS,
+                    TEST_CLIENT_ID,
+                    TEST_ORG,
+                    TEST_NS,
+                    TEST_MCP_SERVER,
+                ) as client4,
+                AGPClient(
+                    config,
+                    TEST_ORG,
+                    TEST_NS,
+                    TEST_CLIENT_ID,
+                    TEST_ORG,
+                    TEST_NS,
+                    TEST_MCP_SERVER,
+                ) as client5,
+            ):
+                async with (
+                    client3.to_mcp_session() as mcp_session1,
+                    client4.to_mcp_session() as mcp_session2,
+                    client5.to_mcp_session() as mcp_session3,
+                ):
+                    logger.info("Concurrent sessions initialized")
+                    await mcp_session1.initialize()
+                    await mcp_session2.initialize()
+                    await mcp_session3.initialize()
+                    logger.info("Concurrent sessions completed successfully")
+
+                    # Test tool listing
+                    tools1 = await mcp_session1.list_tools()
+                    assert tools1 is not None, "Failed to list tools"
+                    logger.info(f"Successfully retrieved tools: {tools1}")
+
+                    tools2 = await mcp_session2.list_tools()
+                    assert tools2 is not None, "Failed to list tools"
+                    logger.info(f"Successfully retrieved tools: {tools2}")
+
+                    tools3 = await mcp_session3.list_tools()
+                    assert tools3 is not None, "Failed to list tools"
+                    logger.info(f"Successfully retrieved tools: {tools3}")
+
         finally:
             # Cleanup
             handler_task.cancel()
