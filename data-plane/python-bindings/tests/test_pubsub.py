@@ -55,6 +55,9 @@ async def test_streaming(server):
             )
         )
 
+        # wait a bit for all chat participants to be ready
+        await asyncio.sleep(5)
+
         async with participant:
             # if this is the first participant, we need to publish the message
             # to start the chain
