@@ -457,7 +457,7 @@ mod tests {
         assert!(ret.is_ok());
 
         // drop it, as we have a server listening on the port now
-        let _ = ret.unwrap();
+        drop(ret.unwrap());
 
         // Set insecure to false and set the path to the cert and key files
         server_config.tls_setting.insecure = false;
