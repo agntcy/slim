@@ -139,6 +139,7 @@ class AGPBase(ABC):
                 try:
                     session, msg = await self.gateway.receive(session=session.id)
                     logger.debug(f"Received message: {msg}")
+                    print(f"Received message: {msg}")
 
                     message = types.JSONRPCMessage.model_validate_json(msg.decode())
                 except Exception as exc:
@@ -152,6 +153,7 @@ class AGPBase(ABC):
         async def agp_writer():
             async for message in write_stream_reader:
                 json = message.model_dump_json(by_alias=True, exclude_none=True)
+                print(f"Send message: {json}")
                 await self._send_message(
                     accepted_session,
                     json.encode(),

@@ -5,7 +5,7 @@ requires-python = ">=3.10, <4.0"
 [[package]]
 name = "agp-bindings"
 version = "0.3.0"
-source = { directory = "../../data-plane/python-bindings" }
+source = { directory = "../../../data-plane/python-bindings" }
 
 [package.metadata]
 
@@ -46,7 +46,7 @@ testing = [
 
 [package.metadata]
 requires-dist = [
-    { name = "agp-bindings", directory = "../../data-plane/python-bindings" },
+    { name = "agp-bindings", directory = "../../../data-plane/python-bindings" },
     { name = "anyio", specifier = ">=4.5" },
     { name = "mcp", specifier = ">=1.6.0" },
 ]
