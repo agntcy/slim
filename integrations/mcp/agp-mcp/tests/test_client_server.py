@@ -157,8 +157,6 @@ async def test_mcp_client_server_connection(server, mcp_app):
                 # Test tool listing
                 tools = await mcp_session.list_tools()
                 assert tools is not None, "Failed to list tools"
-                # assert len(tools) == 1, "Expected exactly one tool"
-                # assert tools[0].name == "example", "Tool name mismatch"
 
                 logger.info(f"Successfully retrieved tools: {tools}")
         except Exception as e:
