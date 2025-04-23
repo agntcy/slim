@@ -70,8 +70,10 @@ dependencies = [
 name = "agp-controller"
 version = "0.1.0"
 dependencies = [
+ "agp-config",
  "agp-datapath",
  "bytes",
+ "parking_lot",
  "prost",
  "protoc-bin-vendored",
  "thiserror",
@@ -80,6 +82,7 @@ dependencies = [
  "tonic 0.13.0",
  "tonic-build",
  "tracing",
+ "uuid",
 ]
 
 [[package]]

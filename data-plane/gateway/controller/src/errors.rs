@@ -9,4 +9,6 @@ pub enum ControllerError {
     ConfigError(String),
     #[error("connection error: {0}")]
     ConnectionError(String),
+    #[error("datapath error: {0}")]
+    DatapathError(String),
 }

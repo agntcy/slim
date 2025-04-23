@@ -3,13 +3,14 @@
 
 use std::pin::Pin;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::collections::HashMap;
 
 use tokio::sync::mpsc;
 use tokio_stream::{wrappers::ReceiverStream, Stream, StreamExt};
 use tonic::{Request, Response, Status};
 use tonic::codegen::{Body, StdError};
 use tracing::debug;
+use tracing::error;
 
 use crate::api::proto::api::v1::{
     Ack,
@@ -19,8 +20,11 @@ use crate::api::proto::api::v1::{
 };
 use crate::errors::ControllerError;
 
+pub use agp_datapath::messages::utils::AgpHeaderFlags;
+use agp_datapath::messages::{Agent, AgentType};
 use agp_datapath::message_processing::MessageProcessor;
 use agp_datapath::pubsub::proto::pubsub::v1::Message as PubsubMessage;
+use agp_config::grpc::client::ClientConfig;
 
 #[derive(Debug, Clone)]
 pub struct ControllerService {
@@ -28,7 +32,10 @@ pub struct ControllerService {
     message_processor: Arc<MessageProcessor>,
 
     /// channel to send messages into the datapath
-    tx_gw: mpsc::Sender<Result<PubsubMessage, Status>>
+    tx_gw: mpsc::Sender<Result<PubsubMessage, Status>>,
+
+    /// map of connection IDs to their configuration
+    connections: Arc<parking_lot::RwLock<HashMap<String, u64>>>,
 }
 
 impl ControllerService {
@@ -38,6 +45,7 @@ impl ControllerService {
         ControllerService {
             message_processor: message_processor,
             tx_gw,
+            connections: Arc::new(parking_lot::RwLock::new(HashMap::new())),
         }
     }
 
@@ -50,10 +58,56 @@ impl ControllerService {
             Some(ref payload) => {
                 match payload {
                     crate::api::proto::api::v1::control_message::Payload::ConfigCommand(config) => {
-                        println!("processing configuration command: {:?}", config);
-
                         for conn in &config.connections_to_create {
-                            //print!(conn.)
+                            // connect to an endpoint if it's not already connected
+                            let client_endpoint = format!("{}:{}", conn.remote_address, conn.remote_port);
+
+                            if !self.connections.read().contains_key(&client_endpoint) {
+                                let client_config = ClientConfig {
+                                    endpoint: client_endpoint,
+                                    ..ClientConfig::default()
+                                };
+
+                                match client_config.to_channel() {
+                                    Err(e) => {
+                                        error!("error reading channel config {:?}", e);
+                                        //Err(ControllerError::ConfigError(e.to_string()))
+                                    }
+                                    Ok(channel) => {
+                                        let ret = self
+                                            .message_processor
+                                            .connect(channel, Some(client_config.clone()), None, None)
+                                            .await
+                                            .map_err(|e| ControllerError::ConnectionError(e.to_string()));
+
+                                        let conn_id = match ret {
+                                            Err(e) => {
+                                                error!("connection error: {:?}", e);
+                                                return Err(ControllerError::ConnectionError(e.to_string()));
+                                            }
+                                            Ok(conn_id) => conn_id.1,
+                                        };
+
+                                        self.connections
+                                            .write()
+                                            .insert(client_config.endpoint.clone(), conn_id);
+                                    }
+                                }
+                            }
+                        }
+
+                        for route in &config.routes_to_set {
+                            let source = Agent::from_strings(route.company.as_str(), route.namespace.as_str(), "gateway", 0);
+                            let agent_type = AgentType::from_strings(route.company.as_str(), route.namespace.as_str(), "gateway");
+
+                            let msg = PubsubMessage::new_subscribe(
+                                &source,
+                                &agent_type,
+                                route.agent_id,
+                                Some(AgpHeaderFlags::default().with_recv_from(conn)),
+                            );
+
+                            self.send_message(msg).await;
                         }
 
                         let ack = Ack {
@@ -63,7 +117,7 @@ impl ControllerService {
                         };
 
                         let reply = ControlMessage {
-                            message_id: generate_message_id(),
+                            message_id: uuid::Uuid::new_v4().to_string(),
                             payload: Some(crate::api::proto::api::v1::control_message::Payload::Ack(ack))
                         };
 
@@ -82,6 +136,16 @@ impl ControllerService {
         }
                 
         Ok(())
+    }
+
+    async fn send_message(
+        &self,
+        msg: PubsubMessage,
+    ) -> Result<(), ControllerError> {
+        self.tx_gw.send(Ok(msg)).await.map_err(|e| {
+            error!("error sending the subscription {}", e);
+            ControllerError::DatapathError(e.to_string())
+        })
     }
 
     async fn process_stream(
@@ -172,9 +236,4 @@ impl GrpcControllerService for ControllerService {
             Box::pin(out_stream) as Self::OpenControlChannelStream
         ))
     }
-}
-
-fn generate_message_id() -> String {
-    static COUNTER: AtomicUsize = AtomicUsize::new(1);
-    format!("msg-{}", COUNTER.fetch_add(1, Ordering::Relaxed))
 }
