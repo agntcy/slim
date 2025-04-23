@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import logging
+from typing import Any
 
 import agp_bindings
 
@@ -11,31 +12,56 @@ logger = logging.getLogger(__name__)
 
 
 class AGPClient(AGPBase):
+    """AGP transport client for MCP (Message Control Protocol) communication.
+
+    This client handles outgoing communication requests to AGP agents using the MCP protocol.
+    It manages the connection to a gateway and provides methods for sending messages to remote agents.
+
+    Attributes:
+        config (Dict[str, Any]): Configuration dictionary containing connection settings
+        local_organization (str): Local organization identifier
+        local_namespace (str): Local namespace identifier
+        local_agent (str): Local agent identifier
+        remote_organization (str): Remote organization identifier
+        remote_namespace (str): Remote namespace identifier
+        remote_mcp_agent (str): Remote MCP agent identifier
+    """
+
     def __init__(
         self,
-        config: dict,
+        config: dict[str, Any],
         local_organization: str,
         local_namespace: str,
         local_agent: str,
         remote_organization: str,
         remote_namespace: str,
         remote_mcp_agent: str,
-    ):
-        """
-        Server transport for AGP.
+    ) -> None:
+        """Initialize the AGP client.
 
         Args:
-            config (dict): Configuration dictionary. This config should reflect the
-                configuration struct defined in AGP. A reference can be found in
+            config: Configuration dictionary containing AGP connection settings. Must follow
+                the structure defined in the AGP configuration reference:
                 https://github.com/agntcy/agp/blob/main/data-plane/config/reference/config.yaml#L58-L172
+            local_organization: Local organization identifier
+            local_namespace: Local namespace identifier
+            local_agent: Local agent identifier
+            remote_organization: Remote organization identifier
+            remote_namespace: Remote namespace identifier
+            remote_mcp_agent: Remote MCP agent identifier
 
-            local_organization (str): Local organization name.
-            local_namespace (str): Local namespace name.
-            local_agent (str): Local agent name.
-            remote_organization (str | None): Remote organization name.
-            remote_namespace (str | None): Remote namespace name.
-            remote_mcp_agent (str | None): Remote MCP agent name.
+        Raises:
+            ValueError: If any of the required parameters are empty or invalid
         """
+        # Validate required parameters
+        if not all([local_organization, local_namespace, local_agent]):
+            raise ValueError(
+                "Local organization, namespace, and agent must be provided"
+            )
+        if not all([remote_organization, remote_namespace, remote_mcp_agent]):
+            raise ValueError(
+                "Remote organization, namespace, and agent must be provided"
+            )
 
         super().__init__(
             config,
@@ -51,25 +77,40 @@ class AGPClient(AGPBase):
         self,
         session: agp_bindings.PySessionInfo,
         message: bytes,
-    ):
-        """
-        Send a message to the next gateway
+    ) -> None:
+        """Send a message to the remote gateway.
 
         Args:
-            session (agp_bindings.PySessionInfo): Session information.
-            message (bytes): Message to send.
-        """
+            session: Session information for the message
+            message: Message to send in bytes format
 
-        if not self.gateway:
+        Raises:
+            RuntimeError: If the gateway is not connected
+            Exception: If there's an error sending the message
+        """
+        if not self.is_connected():
             raise RuntimeError(
                 "Gateway is not connected. Please use the with statement."
             )
 
-        # Send message to the gateway
-        await self.gateway.publish(
-            session,
-            message,
-            self.remote_organization,
-            self.remote_namespace,
-            self.remote_mcp_agent,
-        )
+        try:
+            logger.debug(
+                "Sending message to remote gateway",
+                extra={
+                    "remote_org": self.remote_organization,
+                    "remote_namespace": self.remote_namespace,
+                    "remote_agent": self.remote_mcp_agent,
+                },
+            )
+            # Send message to the gateway
+            await self.gateway.publish(
+                session,
+                message,
+                self.remote_organization,
+                self.remote_namespace,
+                self.remote_mcp_agent,
+            )
+            logger.debug("Message sent successfully")
+        except Exception as e:
+            logger.error("Failed to send message", exc_info=True)
+            raise RuntimeError(f"Failed to send message: {str(e)}") from e

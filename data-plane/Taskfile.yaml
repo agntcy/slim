@@ -13,8 +13,6 @@ includes:
   toolchain: ./rust-tooling/toolchain.yml
   tools: ../tasks/tools.yaml
 
-verbose: false
-
 env:
   PROFILE: 'debug'
   TARGET:
@@ -71,7 +69,7 @@ tasks:
     desc: "Run clippy"
     cmds:
       - task: toolchain:clippy
-        vats:
+        vars:
           ARGS: "--workspace --all-targets --locked --all-features"
 
   data-plane:sort:check:

@@ -19,16 +19,25 @@ class AGPServer(AGPBase):
         local_agent: str,
     ):
         """
-        Server transport for AGP.
+        AGP Server for MCP (Message Control Protocol) communication.
+
+        This server handles incoming communication requests from AGP agents using the MCP protocol.
+        It manages the connection to a gateway and provides methods for receiving and responding
+        to messages from remote agents.
 
         Args:
-            config (dict): Configuration dictionary. This config should reflect the
-                configuration struct defined in AGP. A reference can be found in
-                https://github.com/agntcy/agp/blob/main/data-plane/config/reference/config.yaml#L58-L172
+            config (dict): Configuration dictionary containing AGP settings. Must follow
+                the structure defined in the AGP configuration reference:
+                https://github.com/agntcy/agp/blob/main/data-plane/config/reference/config.yaml#L178-L289
 
-            local_organization (str): Local organization name.
-            local_namespace (str): Local namespace name.
-            local_agent (str): Local agent name.
+            local_organization (str): Identifier for the organization running this server.
+            local_namespace (str): Logical grouping identifier for resources in the local organization.
+            local_agent (str): Identifier for this server instance.
+
+        Note:
+            This server should be used with a context manager (with statement) to ensure
+            proper connection and disconnection of the gateway. The server can be iterated
+            over asynchronously to receive incoming sessions.
         """
 
         super().__init__(
