@@ -19,11 +19,7 @@ class AGPServer(AGPBase):
         local_agent: str,
     ):
         """
-        AGP Server for MCP (Message Control Protocol) communication.
-
-        This server handles incoming communication requests from AGP agents using the MCP protocol.
-        It manages the connection to a gateway and provides methods for receiving and responding
-        to messages from remote agents.
+        AGP transport Server for MCP (Message Control Protocol) communication.
 
         Args:
             config (dict): Configuration dictionary containing AGP settings. Must follow
