@@ -97,6 +97,13 @@ impl ControllerService {
                         }
 
                         for route in &config.routes_to_set {
+                            if !self.connections.read().contains_key(&route.connection_id) {
+                                error!("connection {} not found", route.connection_id);
+                                continue;
+                            }
+
+                            // TODO: handle error if it fails
+                            let conn = self.connections.read().get(&route.connection_id).cloned().unwrap();
                             let source = Agent::from_strings(route.company.as_str(), route.namespace.as_str(), "gateway", 0);
                             let agent_type = AgentType::from_strings(route.company.as_str(), route.namespace.as_str(), "gateway");
 
@@ -107,7 +114,32 @@ impl ControllerService {
                                 Some(AgpHeaderFlags::default().with_recv_from(conn)),
                             );
 
-                            self.send_message(msg).await;
+                            if let Err(e) = self.send_message(msg).await {
+                                error!("failed to subscribe: {}", e);
+                            }
+                        }
+
+                        for route in &config.routes_to_delete {
+                            if !self.connections.read().contains_key(&route.connection_id) {
+                                error!("connection {} not found", route.connection_id);
+                                continue;
+                            }
+
+                            // TODO: handle error if it fails
+                            let conn = self.connections.read().get(&route.connection_id).cloned().unwrap();
+                            let source = Agent::from_strings(route.company.as_str(), route.namespace.as_str(), "gateway", 0);
+                            let agent_type = AgentType::from_strings(route.company.as_str(), route.namespace.as_str(), "gateway");
+
+                            let msg = PubsubMessage::new_unsubscribe(
+                                &source,
+                                &agent_type,
+                                route.agent_id,
+                                Some(AgpHeaderFlags::default().with_recv_from(conn)),
+                            );
+
+                            if let Err(e) = self.send_message(msg).await {
+                                error!("failed to unsubscribe: {}", e);
+                            }
                         }
 
                         let ack = Ack {
@@ -126,7 +158,7 @@ impl ControllerService {
                         }
                     },
                     crate::api::proto::api::v1::control_message::Payload::Ack(_ack) => {
-                        // received an ack, do nothing
+                        // received an ack, do nothing - this should not happen
                     },
                 }
             },
@@ -143,7 +175,7 @@ impl ControllerService {
         msg: PubsubMessage,
     ) -> Result<(), ControllerError> {
         self.tx_gw.send(Ok(msg)).await.map_err(|e| {
-            error!("error sending the subscription {}", e);
+            error!("error sending message into datapath: {}", e);
             ControllerError::DatapathError(e.to_string())
         })
     }
