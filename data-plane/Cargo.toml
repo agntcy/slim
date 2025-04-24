@@ -33,12 +33,12 @@ edition = "2024"
 
 [workspace.dependencies]
 # Local dependencies
-agp-config = { path = "gateway/config", version = "0.1.6" }
-agp-datapath = { path = "gateway/datapath", version = "0.5.0" }
-agp-gw = { path = "gateway/gateway", version = "0.3.11" }
-agp-service = { path = "gateway/service", version = "0.3.0" }
-agp-signal = { path = "gateway/signal", version = "0.1.1" }
-agp-tracing = { path = "gateway/tracing", version = "0.1.4" }
+agp-config = { path = "gateway/config", version = "0.1.7" }
+agp-datapath = { path = "gateway/datapath", version = "0.6.0" }
+agp-gw = { path = "gateway/gateway", version = "0.3.12" }
+agp-service = { path = "gateway/service", version = "0.4.0" }
+agp-signal = { path = "gateway/signal", version = "0.1.2" }
+agp-tracing = { path = "gateway/tracing", version = "0.2.0" }
 
 # Core dependencies
 async-trait = "0.1.88"
