@@ -10,97 +10,13 @@ set: [pipefail]
 shopt: [globstar]
 
 includes:
-  toolchain: ./rust-tooling/toolchain.yml
-  tools: ../tasks/tools.yaml
-
-env:
-  PROFILE: 'debug'
-  TARGET:
-    sh: 'rustc -vV | sed -n "s|host: ||p"'
+  data-plane:
+    taskfile: ../tasks/rust.yaml
 
 vars:
   CARGO_COMPONENTS: "cargo-sort cargo-audit cargo-llvm-cov cargo-machete@0.7.0 cargo-deny@0.17.0 typos-cli"
 
 tasks:
-  data-plane:fmt:
-    desc: "Format the code"
-    cmds:
-      - task: toolchain:fmt
-
-  data-plane:fmt:check:
-    desc: "Check the code formatting"
-    cmds:
-      - task: toolchain:fmt
-        vars:
-          ARGS: "-- --check"
-
-  data-plane:fetch:
-    desc: "Fetch the dependencies"
-    cmds:
-      - task: toolchain:fetch
-        vars:
-          ARGS: "--locked"
-
-  data-plane:tools:fetch:
-    desc: "Fetch the dependencies"
-    cmds:
-      - task: toolchain:build:install-cargo-components
-        vars:
-          COMPONENTS: "{{.CARGO_COMPONENTS}}"
-
-  data-plane:tools:hash:
-    desc: "Compute the SHA-256 hash of the CARGO_COMPONENTS string"
-    cmds:
-      - cmd: sh -c "echo -n '{{.CARGO_COMPONENTS}}' | sha256sum | cut -d ' ' -f1"
-
-  data-plane:check:
-    desc: "Check the project"
-    cmds:
-      - task: toolchain:check
-        vars:
-          ARGS: "--workspace --all-targets --locked"
-
-  data-plane:clean:
-    desc: "Clean the project"
-    cmds:
-      - task: toolchain:clean
-
-  data-plane:clippy:
-    desc: "Run clippy"
-    cmds:
-      - task: toolchain:clippy
-        vars:
-          ARGS: "--workspace --all-targets --locked --all-features"
-
-  data-plane:sort:check:
-    desc: "Check the dependencies are sorted"
-    cmds:
-      - task: toolchain:sort
-        vars:
-          ARGS: "--check --workspace"
-
-  data-plane:unused:check:
-    desc: "Check for unused dependencies"
-    cmds:
-      - task: toolchain:unused
-
-  data-plane:licenses:
-    desc: "Check for licenses"
-    cmds:
-      - task: toolchain:licenses
-
-  data-plane:typos:
-    desc: "Check for typos"
-    cmds:
-      - task: toolchain:typos
-
-  data-plane:sort:
-    desc: "Check the dependencies are sorted"
-    cmds:
-      - task: toolchain:sort
-        vars:
-          ARGS: "--workspace"
-
   data-plane:python-bindings:lint:
     desc: "Python linter"
     internal: true
@@ -108,75 +24,25 @@ tasks:
     cmds:
       - task python-bindings:lint
 
-  data-plane:doc:
-    desc: "Generate the documentation"
-    cmds:
-      - task: toolchain:doc
-        vars:
-          ARGS: "--no-deps --workspace --locked --all-features"
-
   data-plane:lint:
     desc: "Run the linter"
     cmds:
-      - task: data-plane:fmt:check
-      - task: data-plane:clippy
-      - task: data-plane:sort:check
-      - task: data-plane:unused:check
-      - task: data-plane:licenses
-      - task: data-plane:typos
+      - task: data-plane:lintall
       - task: data-plane:python-bindings:lint
-
-  data-plane:test:build:
-    desc: "Build the tests"
-    cmds:
-      - task: toolchain:test:build
-        vars:
-          ARGS: "--workspace --all-targets --locked --all-features"
-
-  data-plane:test:
-    desc: "Run the tests"
-    cmds:
-      - task: toolchain:test
-        vars:
-          ARGS: "--workspace --all-targets --locked --all-features -- --nocapture"
-      - task: data-plane:bindings:test
-
-  data-plane:test:coverage:
-    desc: "Run tests coverage"
-    cmds:
-      - task: toolchain:test:coverage
-        vars:
-          ARGS: "--workspace --all-targets --locked --all-features"
-
-  data-plane:build:
-    desc: "Build the project"
-    cmds:
-      - rm -f {{.TARGET_BIN}} {{.TARGET_BIN}}.dbg
-      - task: toolchain:build
-        vars:
-          ARGS: "--locked --all-targets --all-features"
-    vars:
-      TARGET_DIR: "target/{{.TARGET}}/{{.PROFILE}}"
-      TARGET_BIN: "{{.TARGET_DIR}}/gateway"
 
   data-plane:build:strip:
     desc: "Build the project and strip the debug symbols"
     cmds:
       - task: data-plane:build
-      - task: toolchain:strip
+      - task: data-plane:toolchain:strip
         vars:
           TARGET_BIN: "target/{{.TARGET}}/{{.PROFILE}}/gateway"
-
-  data-plane:vuln:
-    desc: "Check for vulnerabilities"
-    cmds:
-      - task: toolchain:vuln
 
   data-plane:run:server:
     desc: "Run the server"
     cmds:
       - task: data-plane:build
-      - task: toolchain:run
+      - task: data-plane:toolchain:run
         vars:
           ARGS: ""
           BIN: "gateway"
@@ -186,7 +52,7 @@ tasks:
     desc: "Run the server with OpenTelemetry enabled"
     cmds:
       - task: data-plane:build
-      - task: toolchain:run
+      - task: data-plane:toolchain:run
         vars:
           ARGS: ""
           BIN: "gateway"
@@ -200,12 +66,18 @@ tasks:
   data-plane:bindings:python:
     desc: "Generate the Python bindings"
     cmds:
-      - task: toolchain:bindings:python
+      - task: data-plane:toolchain:run-command
+        vars:
+          COMMAND: "task python-bindings:packaging PROFILE={{.PROFILE}} TARGET={{.TARGET}}"
+          DIR: "python-bindings"
 
   data-plane:bindings:test:
     desc: "Test the Python bindings"
     cmds:
-      - task: toolchain:bindings:python:test
+      - task: data-plane:toolchain:run-command
+        vars:
+          COMMAND: "task python-bindings:test"
+          DIR: "python-bindings"
 
   data-plane:gw:version:
     desc: "Get version from corresponding git tag"
