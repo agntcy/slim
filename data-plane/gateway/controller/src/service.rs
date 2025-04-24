@@ -6,7 +6,7 @@ use std::pin::Pin;
 use std::sync::Arc;
 
 use tokio::sync::mpsc;
-use tokio_stream::{wrappers::ReceiverStream, Stream, StreamExt};
+use tokio_stream::{Stream, StreamExt, wrappers::ReceiverStream};
 use tonic::codegen::{Body, StdError};
 use tonic::{Request, Response, Status};
 use tracing::{debug, error};
