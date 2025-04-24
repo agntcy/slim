@@ -9,7 +9,7 @@ description = "Observability for AGP data plane: logs, traces and metrics infras
 agp-config = { path = "../config", version = "0.1.6" }
 once_cell = "1.21.0"
 opentelemetry = { version = "0.29.0", features = ["trace", "metrics"] }
-opentelemetry-otlp = { version = "0.29.0", features = ["metrics", "grpc-tonic", "tls"] }
+opentelemetry-otlp = { version = "0.29.0", features = ["metrics", "grpc-tonic"] }
 opentelemetry-semantic-conventions = { version = "0.29.0", features = ["semconv_experimental"] }
 opentelemetry-stdout = "0.29.0"
 opentelemetry_sdk = { version = "0.29.0", default-features = false, features = ["trace", "rt-tokio"] }
