@@ -1,10 +1,14 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
+use agp_tracing::TracingConfiguration;
+use pyo3::exceptions::PyException;
 use pyo3::prelude::*;
+use pyo3::types::PyDict;
 use pyo3_stub_gen::derive::gen_stub_pyclass;
 use pyo3_stub_gen::derive::gen_stub_pyfunction;
 use pyo3_stub_gen::derive::gen_stub_pymethods;
+use serde_pyobject::from_pyobject;
 use tokio::sync::OnceCell;
 
 use agp_datapath::messages::encoder::AgentType;
@@ -49,28 +53,24 @@ impl PyAgentType {
     }
 }
 
-async fn init_tracing_impl(log_level: String, enable_opentelemetry: bool) {
+async fn init_tracing_impl(config: TracingConfiguration) -> Result<(), agp_tracing::ConfigError> {
     static TRACING_GUARD: OnceCell<agp_tracing::OtelGuard> = OnceCell::const_new();
+    let otel_guard = config.setup_tracing_subscriber()?;
 
-    let _ = TRACING_GUARD
-        .get_or_init(|| async {
-            let mut config = agp_tracing::TracingConfiguration::default().with_log_level(log_level);
+    let _ = TRACING_GUARD.get_or_init(|| async { otel_guard }).await;
 
-            if enable_opentelemetry {
-                config = config.clone().enable_opentelemetry();
-            }
-
-            config.setup_tracing_subscriber()
-        })
-        .await;
+    Ok(())
 }
 
 #[gen_stub_pyfunction]
 #[pyfunction]
-#[pyo3(signature = (log_level="info".to_string(), enable_opentelemetry=false,))]
-pub fn init_tracing(py: Python, log_level: String, enable_opentelemetry: bool) {
-    let _ = pyo3_async_runtimes::tokio::future_into_py(py, async move {
-        init_tracing_impl(log_level, enable_opentelemetry).await;
-        Ok(())
-    });
+#[pyo3(signature = (config))]
+pub fn init_tracing(py: Python, config: Py<PyDict>) -> PyResult<Bound<PyAny>> {
+    let config: TracingConfiguration = from_pyobject(config.into_bound(py))?;
+
+    pyo3_async_runtimes::tokio::future_into_py(py, async move {
+        init_tracing_impl(config)
+            .await
+            .map_err(|e| PyErr::new::<PyException, _>(e.to_string()))
+    })
 }

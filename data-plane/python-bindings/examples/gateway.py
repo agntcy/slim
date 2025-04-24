@@ -10,8 +10,16 @@ import agp_bindings
 
 async def run_server(address: str, enable_opentelemetry: bool):
     # init tracing
-    agp_bindings.init_tracing(
-        log_level="debug", enable_opentelemetry=enable_opentelemetry
+    await agp_bindings.init_tracing(
+        {
+            "log_level": "debug",
+            "opentelemetry": {
+                "enabled": enable_opentelemetry,
+                "grpc": {
+                    "endpoint": "http://localhost:4317",
+                },
+            },
+        }
     )
 
     global gateway
