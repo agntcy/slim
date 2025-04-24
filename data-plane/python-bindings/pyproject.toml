@@ -10,18 +10,18 @@ requires-python = ">=3.9, <4.0"
 readme = "README.md"
 license = "Apache-2.0"
 classifiers = [
-  "Development Status :: 3 - Alpha",
+    "Development Status :: 3 - Alpha",
 
-  # Indicate who your project is intended for
-  "Intended Audience :: Developers",
-  "Topic :: Software Development :: Libraries",
+    # Indicate who your project is intended for
+    "Intended Audience :: Developers",
+    "Topic :: Software Development :: Libraries",
 
-  # Specify the Python versions you support here.
-  "Programming Language :: Python :: 3.9",
-  "Programming Language :: Python :: 3.10",
-  "Programming Language :: Python :: 3.11",
-  "Programming Language :: Python :: 3.12",
-  "Programming Language :: Python :: 3.13",
+    # Specify the Python versions you support here.
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
 ]
 
 [project.urls]
@@ -30,48 +30,34 @@ Issues = "https://github.com/agntcy/agp/issues"
 Changelog = "https://github.com/agntcy/agp/blob/main/data-plane/python-bindings/CHANGELOG.md"
 
 [dependency-groups]
-building = [
-    "maturin",
-]
+building = ["maturin"]
 
-testing = [
-    "pytest",
-    "pytest-asyncio",
-]
+testing = ["pytest", "pytest-asyncio"]
 
-linting = [
-    'griffe',
-    'pyright',
-    'ruff',
-    'mypy',
-]
+linting = ["griffe", "pyright", "ruff", "mypy"]
 
 [tool.uv]
-default-groups = [
-    "building",
-    "testing",
-    "linting",
-]
+default-groups = ["building", "testing", "linting"]
 
 [tool.maturin]
-bindings = 'pyo3'
+bindings = "pyo3"
 features = ["pyo3/extension-module"]
 module-name = "agp_bindings._agp_bindings"
 
 [tool.ruff.format]
-quote-style = 'double'
+quote-style = "double"
 
 [tool.pytest.ini_options]
-testpaths = 'tests'
+testpaths = "tests"
 
 [tool.ruff]
 extend-exclude = ["agp_bindings/_agp_bindings.pyi"]
 
 [tool.ruff.lint]
-extend-select = ['Q', 'RUF100', 'C90', 'I', 'UP']
+extend-select = ["Q", "RUF100", "C90", "I", "UP"]
 extend-ignore = [
-    'E721',  # using type() instead of isinstance() - we use this in tests
+    "E721", # using type() instead of isinstance() - we use this in tests
 ]
-flake8-quotes = {inline-quotes = 'double', multiline-quotes = 'double'}
+flake8-quotes = { inline-quotes = "double", multiline-quotes = "double" }
 mccabe = { max-complexity = 13 }
-isort = { known-first-party = ['agp_bindings', 'tests'] }
+isort = { known-first-party = ["agp_bindings", "tests"] }
