@@ -40,7 +40,7 @@ impl ControllerService {
         let (_, tx_gw, _) = message_processor.register_local_connection();
 
         ControllerService {
-            message_processor: message_processor,
+            message_processor,
             tx_gw,
             connections: Arc::new(parking_lot::RwLock::new(HashMap::new())),
         }
@@ -224,7 +224,7 @@ impl ControllerService {
     ) -> tokio::task::JoinHandle<()> {
         let svc = self.clone();
 
-        let handle = tokio::spawn(async move {
+        tokio::spawn(async move {
             loop {
                 tokio::select! {
                     next = stream.next() => {
@@ -249,9 +249,7 @@ impl ControllerService {
                     }
                 }
             }
-        });
-
-        handle
+        })
     }
 
     pub async fn connect<C>(
@@ -272,7 +270,7 @@ impl ControllerService {
         match client.open_control_channel(Request::new(out_stream)).await {
             Ok(stream) => {
                 let ret = self.process_stream(stream.into_inner(), tx).await;
-                return Ok(ret);
+                Ok(ret)
             }
             Err(_) => Err(ControllerError::ConnectionError(
                 "reached max connection retries".to_string(),
