@@ -53,6 +53,8 @@ pub struct Ack {
     pub original_message_id: ::prost::alloc::string::String,
     #[prost(bool, tag = "2")]
     pub success: bool,
+    #[prost(string, repeated, tag = "3")]
+    pub messages: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
 }
 /// Generated client implementations.
 pub mod controller_service_client {

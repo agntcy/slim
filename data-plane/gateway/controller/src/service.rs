@@ -180,7 +180,7 @@ impl ControllerService {
                         let ack = Ack {
                             original_message_id: msg.message_id.clone(),
                             success: true,
-                            //TODO: add (error) message
+                            messages: vec![],
                         };
 
                         let reply = ControlMessage {

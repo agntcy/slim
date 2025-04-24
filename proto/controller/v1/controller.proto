@@ -44,4 +44,5 @@ message ConfigurationCommand {
 message Ack {
   string original_message_id = 1;
   bool success = 2;
+  repeated string messages = 3;
 }
