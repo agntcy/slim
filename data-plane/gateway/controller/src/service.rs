@@ -95,9 +95,7 @@ impl ControllerService {
                                             Ok(conn_id) => conn_id.1,
                                         };
 
-                                        self.connections
-                                            .write()
-                                            .insert(client_endpoint, conn_id);
+                                        self.connections.write().insert(client_endpoint, conn_id);
                                     }
                                 }
                             }
@@ -282,8 +280,10 @@ impl ControllerService {
 
             match client.open_control_channel(Request::new(out_stream)).await {
                 Ok(stream) => {
-                    let ret = self.process_stream(CancellationToken::new(), stream.into_inner(), tx).await;
-                    return Ok(ret)
+                    let ret = self
+                        .process_stream(CancellationToken::new(), stream.into_inner(), tx)
+                        .await;
+                    return Ok(ret);
                 }
                 Err(e) => {
                     error!("connection error: {:?}.", e.to_string());
@@ -315,7 +315,8 @@ impl GrpcControllerService for ControllerService {
         let stream = request.into_inner();
         let (tx, rx) = mpsc::channel::<Result<ControlMessage, Status>>(128);
 
-        self.process_stream(CancellationToken::new(), stream, tx.clone()).await;
+        self.process_stream(CancellationToken::new(), stream, tx.clone())
+            .await;
 
         let out_stream = ReceiverStream::new(rx);
         Ok(Response::new(
