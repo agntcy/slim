@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.2](https://github.com/agntcy/agp/compare/agp-signal-v0.1.1...agp-signal-v0.1.2) - 2025-04-24
+
+### Other
+
+- declare all dependencies in workspace Cargo.toml ([#187](https://github.com/agntcy/agp/pull/187))
+- upgrade to rust edition 2024 and toolchain 1.86.0 ([#164](https://github.com/agntcy/agp/pull/164))
+
 ## [0.1.1](https://github.com/agntcy/agp/compare/agp-signal-v0.1.0...agp-signal-v0.1.1) - 2025-04-08
 
 ### Other
