@@ -37,8 +37,8 @@ use agp_config::component::id::{ID, Kind};
 use agp_config::component::{Component, ComponentBuilder, ComponentError};
 use agp_config::grpc::client::ClientConfig;
 use agp_config::grpc::server::ServerConfig;
-use agp_controller::service::ControllerService;
 use agp_controller::api::proto::api::v1::controller_service_server::ControllerServiceServer;
+use agp_controller::service::ControllerService;
 use agp_datapath::message_processing::MessageProcessor;
 use agp_datapath::pubsub::proto::pubsub::v1::Message;
 use agp_datapath::pubsub::proto::pubsub::v1::pub_sub_service_server::PubSubServiceServer;
@@ -246,15 +246,18 @@ impl Service {
         }
 
         if let Some(controller_client) = self.config.controller_client() {
-            info!("connecting controller client {}", controller_client.endpoint);
+            info!(
+                "connecting controller client {}",
+                controller_client.endpoint
+            );
             let channel = controller_client
                 .to_channel()
                 .map_err(|e| ServiceError::ConfigError(e.to_string()))?;
 
-             self.controller
-                    .connect(channel)
-                    .await
-                    .expect("error connecting controller client");
+            self.controller
+                .connect(channel)
+                .await
+                .expect("error connecting controller client");
         }
 
         Ok(())
@@ -766,17 +769,17 @@ impl Service {
             Some(s) => s.clone(),
             None => {
                 error!("no controller server configured");
-                return Err(ServiceError::ConfigError("no controller server configured".into()));
+                return Err(ServiceError::ConfigError(
+                    "no controller server configured".into()
+                ));
             }
         };
 
         info!("controller server configured: setting it up");
         
         let server_future = controller_server_config
-            .to_server_future(&[ControllerServiceServer::from_arc(
-                self.controller.clone())
-            ])
-        .map_err(|e| ServiceError::ConfigError(e.to_string()))?;
+            .to_server_future(&[ControllerServiceServer::from_arc(self.controller.clone())])
+            .map_err(|e| ServiceError::ConfigError(e.to_string()))?;
 
         let token = self.controller_cancellation_token.clone();
 
@@ -794,7 +797,7 @@ impl Service {
                 }
             }
         });
-    
+
         Ok(())
     }
 }

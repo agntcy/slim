@@ -1,30 +1,27 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
+use std::collections::HashMap;
 use std::pin::Pin;
 use std::sync::Arc;
-use std::collections::HashMap;
 
 use tokio::sync::mpsc;
 use tokio_stream::{wrappers::ReceiverStream, Stream, StreamExt};
-use tonic::{Request, Response, Status};
 use tonic::codegen::{Body, StdError};
-use tracing::debug;
-use tracing::error;
+use tonic::{Request, Response, Status};
+use tracing::{debug, error};
 
 use crate::api::proto::api::v1::{
-    Ack,
-    ControlMessage,
-    controller_service_client::ControllerServiceClient,
+    Ack, ControlMessage, controller_service_client::ControllerServiceClient,
     controller_service_server::ControllerService as GrpcControllerService,
 };
 use crate::errors::ControllerError;
 
-pub use agp_datapath::messages::utils::AgpHeaderFlags;
-use agp_datapath::messages::{Agent, AgentType};
-use agp_datapath::message_processing::MessageProcessor;
-use agp_datapath::pubsub::proto::pubsub::v1::Message as PubsubMessage;
 use agp_config::grpc::client::ClientConfig;
+use agp_datapath::message_processing::MessageProcessor;
+use agp_datapath::messages::utils::AgpHeaderFlags;
+use agp_datapath::messages::{Agent, AgentType};
+use agp_datapath::pubsub::proto::pubsub::v1::Message as PubsubMessage;
 
 #[derive(Debug, Clone)]
 pub struct ControllerService {
@@ -60,7 +57,8 @@ impl ControllerService {
                     crate::api::proto::api::v1::control_message::Payload::ConfigCommand(config) => {
                         for conn in &config.connections_to_create {
                             // connect to an endpoint if it's not already connected
-                            let client_endpoint = format!("{}:{}", conn.remote_address, conn.remote_port);
+                            let client_endpoint =
+                                format!("{}:{}", conn.remote_address, conn.remote_port);
 
                             if !self.connections.read().contains_key(&client_endpoint) {
                                 let client_config = ClientConfig {
@@ -76,14 +74,21 @@ impl ControllerService {
                                     Ok(channel) => {
                                         let ret = self
                                             .message_processor
-                                            .connect(channel, Some(client_config.clone()), None, None)
+                                            .connect(
+                                                channel,
+                                                Some(client_config.clone()),
+                                                None,
+                                                None,
+                                            )
                                             .await
                                             .map_err(|e| ControllerError::ConnectionError(e.to_string()));
 
                                         let conn_id = match ret {
                                             Err(e) => {
                                                 error!("connection error: {:?}", e);
-                                                return Err(ControllerError::ConnectionError(e.to_string()));
+                                                return Err(ControllerError::ConnectionError(
+                                                    e.to_string(),
+                                                ));
                                             }
                                             Ok(conn_id) => conn_id.1,
                                         };
@@ -103,9 +108,23 @@ impl ControllerService {
                             }
 
                             // TODO: handle error if it fails
-                            let conn = self.connections.read().get(&route.connection_id).cloned().unwrap();
-                            let source = Agent::from_strings(route.company.as_str(), route.namespace.as_str(), "gateway", 0);
-                            let agent_type = AgentType::from_strings(route.company.as_str(), route.namespace.as_str(), "gateway");
+                            let conn = self
+                                .connections
+                                .read()
+                                .get(&route.connection_id)
+                                .cloned()
+                                .unwrap();
+                            let source = Agent::from_strings(
+                                route.company.as_str(),
+                                route.namespace.as_str(),
+                                "gateway",
+                                0,
+                            );
+                            let agent_type = AgentType::from_strings(
+                                route.company.as_str(),
+                                route.namespace.as_str(),
+                                "gateway"
+                            );
 
                             let msg = PubsubMessage::new_subscribe(
                                 &source,
@@ -126,9 +145,23 @@ impl ControllerService {
                             }
 
                             // TODO: handle error if it fails
-                            let conn = self.connections.read().get(&route.connection_id).cloned().unwrap();
-                            let source = Agent::from_strings(route.company.as_str(), route.namespace.as_str(), "gateway", 0);
-                            let agent_type = AgentType::from_strings(route.company.as_str(), route.namespace.as_str(), "gateway");
+                            let conn = self
+                                .connections
+                                .read()
+                                .get(&route.connection_id)
+                                .cloned()
+                                .unwrap();
+                            let source = Agent::from_strings(
+                                route.company.as_str(),
+                                route.namespace.as_str(),
+                                "gateway",
+                                0
+                            );
+                            let agent_type = AgentType::from_strings(
+                                route.company.as_str(),
+                                route.namespace.as_str(),
+                                "gateway"
+                            );
 
                             let msg = PubsubMessage::new_unsubscribe(
                                 &source,
@@ -150,30 +183,29 @@ impl ControllerService {
 
                         let reply = ControlMessage {
                             message_id: uuid::Uuid::new_v4().to_string(),
-                            payload: Some(crate::api::proto::api::v1::control_message::Payload::Ack(ack))
+                            payload: Some(
+                                crate::api::proto::api::v1::control_message::Payload::Ack(ack),
+                            )
                         };
 
                         if let Err(e) = tx.send(Ok(reply)).await {
                             eprintln!("failed to send ACK: {}", e);
                         }
-                    },
+                    }
                     crate::api::proto::api::v1::control_message::Payload::Ack(_ack) => {
                         // received an ack, do nothing - this should not happen
-                    },
+                    }
                 }
-            },
+            }
             None => {
                 println!("received control message {} with no payload", msg.message_id);
             }
         }
-                
+
         Ok(())
     }
 
-    async fn send_message(
-        &self,
-        msg: PubsubMessage,
-    ) -> Result<(), ControllerError> {
+    async fn send_message(&self, msg: PubsubMessage) -> Result<(), ControllerError> {
         self.tx_gw.send(Ok(msg)).await.map_err(|e| {
             error!("error sending message into datapath: {}", e);
             ControllerError::DatapathError(e.to_string())
@@ -230,29 +262,26 @@ impl ControllerService {
         let mut client: ControllerServiceClient<C> = ControllerServiceClient::new(channel);
 
         let (tx, rx) = mpsc::channel::<Result<ControlMessage, Status>>(128);
-        let out_stream = ReceiverStream::new(rx)
-            .map(|res| res.expect("mapping error"));
+        let out_stream = ReceiverStream::new(rx).map(|res| res.expect("mapping error"));
 
-        match client
-                .open_control_channel(Request::new(out_stream))
-                .await
-            {
-                Ok(stream) => {
-                    let ret = self.process_stream(stream.into_inner(), tx).await;
-                    return Ok(ret);
-                }
-                Err(_) => {
-                    Err(ControllerError::ConnectionError(
-                        "reached max connection retries".to_string(),
-                    ))
-                }
+        match client.open_control_channel(Request::new(out_stream)).await {
+            Ok(stream) => {
+                let ret = self.process_stream(stream.into_inner(), tx).await;
+                return Ok(ret);
             }
+            Err(_) => {
+                Err(ControllerError::ConnectionError(
+                    "reached max connection retries".to_string(),
+                ))
+            }
+        }
     }
 }
 
 #[tonic::async_trait]
 impl GrpcControllerService for ControllerService {
-    type OpenControlChannelStream = Pin<Box<dyn Stream<Item = Result<ControlMessage, Status>> + Send + 'static>>;
+    type OpenControlChannelStream =
+        Pin<Box<dyn Stream<Item = Result<ControlMessage, Status>> + Send + 'static>>;
 
     async fn open_control_channel(
         &self,
