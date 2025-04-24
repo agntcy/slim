@@ -20,7 +20,15 @@ async def run_client(
 ):
     # init tracing
     agp_bindings.init_tracing(
-        log_level="info", enable_opentelemetry=enable_opentelemetry
+        {
+            "log_level": "info",
+            "opentelemetry": {
+                "enabled": enable_opentelemetry,
+                "grpc": {
+                    "endpoint": "http://localhost:4317",
+                },
+            },
+        }
     )
 
     local_organization, local_namespace, local_agent = split_id(local_id)

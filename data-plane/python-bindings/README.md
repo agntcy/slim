@@ -54,7 +54,12 @@ import agp_bindings
 async def run_server(address: str, enable_opentelemetry: bool):
     # init tracing
     agp_bindings.init_tracing(
-        log_level="debug", enable_opentelemetry=enable_opentelemetry
+        {
+            "log_level": "debug"
+            "opentelemetry": {
+                "enabled": enable_opentelemetry
+            }
+        }
     )
 
     global gateway
@@ -160,7 +165,12 @@ def split_id(id):
 async def run_client(local_id, remote_id, address, enable_opentelemetry: bool):
     # init tracing
     agp_bindings.init_tracing(
-        log_level="info", enable_opentelemetry=enable_opentelemetry
+        {
+            "log_level": "info"
+            "opentelemetry": {
+                "enabled": enable_opentelemetry
+            }
+        }
     )
 
     # Split the local IDs into their respective components
@@ -360,7 +370,12 @@ async def run_client(
 ):
     # init tracing
     agp_bindings.init_tracing(
-        log_level="info", enable_opentelemetry=enable_opentelemetry
+        {
+            "log_level": "info"
+            "opentelemetry": {
+                "enabled": enable_opentelemetry
+            }
+        }
     )
 
     # Split the IDs into their respective components
@@ -564,7 +579,12 @@ async def run_client(
 ):
     # init tracing
     agp_bindings.init_tracing(
-        log_level="info", enable_opentelemetry=enable_opentelemetry
+        {
+            "log_level": "info"
+            "opentelemetry": {
+                "enabled": enable_opentelemetry
+            }
+        }
     )
 
     local_organization, local_namespace, local_agent = split_id(local_id)
@@ -750,7 +770,12 @@ def split_id(id):
 async def run_client(local_id, remote_id, message, address, enable_opentelemetry: bool):
     # init tracing
     agp_bindings.init_tracing(
-        log_level="info", enable_opentelemetry=enable_opentelemetry
+        {
+            "log_level": "info"
+            "opentelemetry": {
+                "enabled": enable_opentelemetry
+            }
+        }
     )
 
     # Split the IDs into their respective components
