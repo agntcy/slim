@@ -9,7 +9,6 @@ import os
 from common import format_message, split_id
 
 import agp_bindings
-from agp_bindings import GatewayConfig
 
 
 async def run_client(
@@ -30,7 +29,7 @@ async def run_client(
 
     # Connect to the service and subscribe for the local name
     print(format_message("connecting to:", address))
-    _ = await gateway.connect({"endpoint": address, "tls_settings": {"insecure": True}})
+    _ = await gateway.connect({"endpoint": address, "tls": {"insecure": True}})
 
     # Split the IDs into their respective components
     remote_organization, remote_namespace, broadcast_topic = split_id(remote_id)
@@ -46,8 +45,8 @@ async def run_client(
             )
 
             # create streaming session with default config
-            session_info = await gateway.create_streaming_session(
-                agp_bindings.PyStreamingConfiguration(
+            session_info = await gateway.create_session(
+                agp_bindings.PySessionConfiguration.Streaming(
                     agp_bindings.PySessionDirection.SENDER,
                     topic=None,
                     max_retries=5,

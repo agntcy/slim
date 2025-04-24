@@ -2,18 +2,18 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::collections::HashMap;
-use std::time::Duration;
 
+use parking_lot::RwLock as SyncRwLock;
 use rand::Rng;
-use tokio::sync::RwLock;
+use tokio::sync::RwLock as AsyncRwLock;
 use tracing::warn;
 
 use crate::errors::SessionError;
 use crate::fire_and_forget::FireAndForgetConfiguration;
-use crate::request_response;
+use crate::request_response::{RequestResponse, RequestResponseConfiguration};
 use crate::session::{
     AppChannelSender, GwChannelSender, Id, Info, MessageDirection, SESSION_RANGE, Session,
-    SessionConfig, SessionDirection, SessionMessage,
+    SessionConfig, SessionConfigTrait, SessionDirection, SessionMessage, SessionType,
 };
 use crate::streaming::{self, StreamingConfiguration};
 use crate::{fire_and_forget, session};
@@ -23,7 +23,7 @@ use agp_datapath::pubsub::proto::pubsub::v1::SessionHeaderType;
 /// SessionLayer
 pub(crate) struct SessionLayer {
     /// Session pool
-    pool: RwLock<HashMap<Id, Box<dyn Session + Send + Sync>>>,
+    pool: AsyncRwLock<HashMap<Id, Box<dyn Session + Send + Sync>>>,
 
     /// Name of the local agent
     agent_name: Agent,
@@ -34,6 +34,11 @@ pub(crate) struct SessionLayer {
     /// Tx channels
     tx_gw: GwChannelSender,
     tx_app: AppChannelSender,
+
+    /// Default configuration for the session
+    default_ff_conf: SyncRwLock<FireAndForgetConfiguration>,
+    default_rr_conf: SyncRwLock<RequestResponseConfiguration>,
+    default_stream_conf: SyncRwLock<StreamingConfiguration>,
 }
 
 impl std::fmt::Debug for SessionLayer {
@@ -51,11 +56,14 @@ impl SessionLayer {
         tx_app: AppChannelSender,
     ) -> SessionLayer {
         SessionLayer {
-            pool: RwLock::new(HashMap::new()),
+            pool: AsyncRwLock::new(HashMap::new()),
             agent_name: agent_name.clone(),
             conn_id,
             tx_gw,
             tx_app,
+            default_ff_conf: SyncRwLock::new(FireAndForgetConfiguration::default()),
+            default_rr_conf: SyncRwLock::new(RequestResponseConfiguration::default()),
+            default_stream_conf: SyncRwLock::new(StreamingConfiguration::default()),
         }
     }
 
@@ -63,7 +71,6 @@ impl SessionLayer {
         self.tx_gw.clone()
     }
 
-    #[allow(dead_code)]
     pub(crate) fn tx_app(&self) -> AppChannelSender {
         self.tx_app.clone()
     }
@@ -123,16 +130,14 @@ impl SessionLayer {
                 self.tx_gw.clone(),
                 self.tx_app.clone(),
             )),
-            SessionConfig::RequestResponse(conf) => {
-                Box::new(request_response::RequestResponse::new(
-                    id,
-                    conf,
-                    SessionDirection::Bidirectional,
-                    self.agent_name().clone(),
-                    self.tx_gw.clone(),
-                    self.tx_app.clone(),
-                ))
-            }
+            SessionConfig::RequestResponse(conf) => Box::new(RequestResponse::new(
+                id,
+                conf,
+                SessionDirection::Bidirectional,
+                self.agent_name().clone(),
+                self.tx_gw.clone(),
+                self.tx_app.clone(),
+            )),
             SessionConfig::Streaming(conf) => {
                 let direction = conf.direction.clone();
                 if direction == SessionDirection::Bidirectional {
@@ -256,29 +261,18 @@ impl SessionLayer {
 
         let new_session_id = match session_type {
             SessionHeaderType::Fnf => {
-                self.create_session(
-                    SessionConfig::FireAndForget(FireAndForgetConfiguration::default()),
-                    Some(id),
-                )
-                .await?
+                let conf = self.default_ff_conf.read().clone();
+                self.create_session(SessionConfig::FireAndForget(conf), Some(id))
+                    .await?
             }
             SessionHeaderType::Request => {
-                self.create_session(
-                    SessionConfig::RequestResponse(
-                        request_response::RequestResponseConfiguration::default(),
-                    ),
-                    Some(id),
-                )
-                .await?
+                let conf = self.default_rr_conf.read().clone();
+                self.create_session(SessionConfig::RequestResponse(conf), Some(id))
+                    .await?
             }
             SessionHeaderType::Stream => {
-                let session_conf = StreamingConfiguration::new(
-                    SessionDirection::Receiver,
-                    None,
-                    Some(10),
-                    Some(Duration::from_millis(1000)),
-                );
-                self.create_session(session::SessionConfig::Streaming(session_conf), Some(id))
+                let conf = self.default_stream_conf.read().clone();
+                self.create_session(session::SessionConfig::Streaming(conf), Some(id))
                     .await?
             }
             SessionHeaderType::PubSub => {
@@ -288,13 +282,8 @@ impl SessionLayer {
                 ));
             }
             SessionHeaderType::BeaconStream => {
-                let session_conf = StreamingConfiguration::new(
-                    SessionDirection::Receiver,
-                    None,
-                    Some(10),
-                    Some(Duration::from_millis(1000)),
-                );
-                self.create_session(session::SessionConfig::Streaming(session_conf), Some(id))
+                let conf = self.default_stream_conf.read().clone();
+                self.create_session(session::SessionConfig::Streaming(conf), Some(id))
                     .await?
             }
             SessionHeaderType::BeaconPubSub => {
@@ -325,19 +314,72 @@ impl SessionLayer {
     /// Set the configuration of a session
     pub(crate) async fn set_session_config(
         &self,
-        session_id: Id,
         session_config: &SessionConfig,
+        session_id: Option<Id>,
     ) -> Result<(), SessionError> {
+        // If no session ID is provided, modify the default session
+        let session_id = match session_id {
+            Some(id) => id,
+            None => {
+                // modify the default session
+                match &session_config {
+                    SessionConfig::FireAndForget(_) => {
+                        return self.default_ff_conf.write().replace(session_config);
+                    }
+                    SessionConfig::RequestResponse(_) => {
+                        return self.default_rr_conf.write().replace(session_config);
+                    }
+                    SessionConfig::Streaming(_) => {
+                        return self.default_stream_conf.write().replace(session_config);
+                    }
+                }
+            }
+        };
+
         // get the write lock
         let mut pool = self.pool.write().await;
 
         // check if the session exists
         if let Some(session) = pool.get_mut(&session_id) {
             // set the session config
-            session.set_session_config(session_config)?
+            return session.set_session_config(session_config);
         }
 
         Err(SessionError::SessionNotFound(session_id.to_string()))
+    }
+
+    /// Get the session configuration
+    pub(crate) async fn get_session_config(
+        &self,
+        session_id: Id,
+    ) -> Result<SessionConfig, SessionError> {
+        // get the read lock
+        let pool = self.pool.read().await;
+
+        // check if the session exists
+        if let Some(session) = pool.get(&session_id) {
+            return Ok(session.session_config());
+        }
+
+        Err(SessionError::SessionNotFound(session_id.to_string()))
+    }
+
+    /// Get the session configuration
+    pub(crate) async fn get_default_session_config(
+        &self,
+        session_type: SessionType,
+    ) -> Result<SessionConfig, SessionError> {
+        match session_type {
+            SessionType::FireAndForget => Ok(SessionConfig::FireAndForget(
+                self.default_ff_conf.read().clone(),
+            )),
+            SessionType::RequestResponse => Ok(SessionConfig::RequestResponse(
+                self.default_rr_conf.read().clone(),
+            )),
+            SessionType::Streaming => Ok(SessionConfig::Streaming(
+                self.default_stream_conf.read().clone(),
+            )),
+        }
     }
 }
 

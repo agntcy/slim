@@ -37,6 +37,8 @@ pub enum ServiceError {
     ClientAlreadyConnected(String),
     #[error("server not found: {0}")]
     ServerNotFound(String),
+    #[error("error sendinfg message: {0}")]
+    MessageSendingError(String),
     #[error("unknown error")]
     Unknown,
 }
@@ -67,6 +69,8 @@ pub enum SessionError {
     SessionUnknown(String),
     #[error("session not found: {0}")]
     SessionNotFound(String),
+    #[error("default for session not supported: {0}")]
+    SessionDefaultNotSupported(String),
     #[error("missing session id: {0}")]
     MissingSessionId(String),
     #[error("error during message validation: {0}")]

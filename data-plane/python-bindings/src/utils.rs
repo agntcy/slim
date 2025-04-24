@@ -3,6 +3,7 @@
 
 use pyo3::prelude::*;
 use pyo3_stub_gen::derive::gen_stub_pyclass;
+use pyo3_stub_gen::derive::gen_stub_pyfunction;
 use pyo3_stub_gen::derive::gen_stub_pymethods;
 use tokio::sync::OnceCell;
 
@@ -10,8 +11,8 @@ use agp_datapath::messages::encoder::AgentType;
 
 /// agent class
 #[gen_stub_pyclass]
-#[pyclass]
-#[derive(Clone)]
+#[pyclass(eq)]
+#[derive(Clone, PartialEq)]
 pub struct PyAgentType {
     #[pyo3(get, set)]
     pub organization: String,
@@ -23,15 +24,15 @@ pub struct PyAgentType {
     pub agent_type: String,
 }
 
-impl Into<AgentType> for PyAgentType {
-    fn into(self) -> AgentType {
-        AgentType::from_strings(&self.organization, &self.namespace, &self.agent_type)
+impl From<PyAgentType> for AgentType {
+    fn from(value: PyAgentType) -> AgentType {
+        AgentType::from_strings(&value.organization, &value.namespace, &value.agent_type)
     }
 }
 
-impl Into<AgentType> for &PyAgentType {
-    fn into(self) -> AgentType {
-        AgentType::from_strings(&self.organization, &self.namespace, &self.agent_type)
+impl From<&PyAgentType> for AgentType {
+    fn from(value: &PyAgentType) -> AgentType {
+        AgentType::from_strings(&value.organization, &value.namespace, &value.agent_type)
     }
 }
 
@@ -59,17 +60,17 @@ async fn init_tracing_impl(log_level: String, enable_opentelemetry: bool) {
                 config = config.clone().enable_opentelemetry();
             }
 
-            let otel_guard = config.setup_tracing_subscriber();
-
-            otel_guard
+            config.setup_tracing_subscriber()
         })
         .await;
 }
 
+#[gen_stub_pyfunction]
 #[pyfunction]
 #[pyo3(signature = (log_level="info".to_string(), enable_opentelemetry=false,))]
 pub fn init_tracing(py: Python, log_level: String, enable_opentelemetry: bool) {
     let _ = pyo3_async_runtimes::tokio::future_into_py(py, async move {
-        Ok(init_tracing_impl(log_level, enable_opentelemetry).await)
+        init_tracing_impl(log_level, enable_opentelemetry).await;
+        Ok(())
     });
 }

@@ -245,7 +245,7 @@ mod tests {
         let config = Config::default();
         assert_eq!(config.ca_file, None);
         assert_eq!(config.ca_pem, None);
-        assert_eq!(config.include_system_ca_certs_pool, false);
+        assert!(!config.include_system_ca_certs_pool);
         assert_eq!(config.cert_file, None);
         assert_eq!(config.cert_pem, None);
         assert_eq!(config.key_file, None);

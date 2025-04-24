@@ -171,11 +171,33 @@ pub(crate) enum MessageDirection {
     South,
 }
 
+/// The session type
+#[derive(Clone, PartialEq, Debug)]
+pub enum SessionType {
+    FireAndForget,
+    RequestResponse,
+    Streaming,
+}
+
+impl std::fmt::Display for SessionType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            SessionType::FireAndForget => write!(f, "FireAndForget"),
+            SessionType::RequestResponse => write!(f, "RequestResponse"),
+            SessionType::Streaming => write!(f, "Streaming"),
+        }
+    }
+}
+
 #[derive(Clone, PartialEq, Debug)]
 pub enum SessionConfig {
     FireAndForget(FireAndForgetConfiguration),
     RequestResponse(RequestResponseConfiguration),
     Streaming(StreamingConfiguration),
+}
+
+pub trait SessionConfigTrait {
+    fn replace(&mut self, session_config: &SessionConfig) -> Result<(), SessionError>;
 }
 
 impl std::fmt::Display for SessionConfig {
@@ -200,11 +222,9 @@ pub(crate) trait CommonSession {
     fn source(&self) -> &Agent;
 
     // get the session config
-    #[allow(dead_code)]
     fn session_config(&self) -> SessionConfig;
 
     // set the session config
-    #[allow(dead_code)]
     fn set_session_config(&self, session_config: &SessionConfig) -> Result<(), SessionError>;
 }
 
@@ -265,7 +285,17 @@ impl CommonSession for Common {
     fn set_session_config(&self, session_config: &SessionConfig) -> Result<(), SessionError> {
         let mut conf = self.session_config.write();
 
-        *conf = session_config.clone();
+        match *conf {
+            SessionConfig::FireAndForget(ref mut config) => {
+                config.replace(session_config)?;
+            }
+            SessionConfig::RequestResponse(ref mut config) => {
+                config.replace(session_config)?;
+            }
+            SessionConfig::Streaming(ref mut config) => {
+                config.replace(session_config)?;
+            }
+        }
         Ok(())
     }
 }

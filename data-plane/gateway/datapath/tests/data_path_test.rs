@@ -67,7 +67,7 @@ mod tests {
                     info!("sent message {:?} to the server", n);
                 }
                 Err(err) => {
-                    assert!(false, "error sending message {:?}", err);
+                    panic!("error sending message {:?}", err);
                 }
             };
         }
@@ -86,11 +86,7 @@ mod tests {
             let res = msg_processor.send_msg(msg, 0).await;
             match res {
                 Ok(_) => info!("sent message {:?} to the client", n),
-                Err(e) => assert!(
-                    false,
-                    "an error occurred sending message from server {:?}",
-                    e
-                ),
+                Err(e) => panic!("error sending message {:?}", e),
             };
         }
 
@@ -153,7 +149,7 @@ mod tests {
 
         tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
         let expected_msg = "forward subscription (add = true) to 0";
-        assert!(logs_contain(&expected_msg));
+        assert!(logs_contain(expected_msg));
     }
 
     fn make_message(org: &str, ns: &str, agent_type: &str) -> Message {

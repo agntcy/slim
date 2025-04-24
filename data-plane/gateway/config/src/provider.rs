@@ -110,6 +110,8 @@ mod tests {
 
         // set an env variable to test
         unsafe {
+            // ignore clippy warning for this line
+            #[allow(clippy::disallowed_methods)]
             std::env::set_var("HOME", "/home/user");
         }
 
@@ -150,7 +152,7 @@ mod tests {
         ]);
         assert!(resolver.resolve(&mut value).is_ok());
         assert!(value.as_sequence().unwrap().iter().all(|v| v.is_string()));
-        assert!(value[0].as_str().unwrap() == "/home/user".to_string());
+        assert!(value[0].as_str().unwrap() == "/home/user");
         assert!(value[1].as_str().unwrap() == file_str);
 
         // Test resolving a mapping

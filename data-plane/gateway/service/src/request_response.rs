@@ -11,7 +11,8 @@ use tracing::debug;
 use crate::errors::SessionError;
 use crate::session::{AppChannelSender, GwChannelSender, SessionConfig};
 use crate::session::{
-    Common, CommonSession, Id, MessageDirection, Session, SessionDirection, State,
+    Common, CommonSession, Id, MessageDirection, Session, SessionConfigTrait, SessionDirection,
+    State,
 };
 use crate::{SessionMessage, timer};
 use agp_datapath::messages::encoder::Agent;
@@ -21,14 +22,27 @@ use agp_datapath::pubsub::proto::pubsub::v1::SessionHeaderType;
 /// This configuration is used to set the maximum number of retries and the timeout
 #[derive(Debug, Clone, PartialEq)]
 pub struct RequestResponseConfiguration {
-    pub max_retries: u32,
     pub timeout: std::time::Duration,
+}
+
+impl SessionConfigTrait for RequestResponseConfiguration {
+    fn replace(&mut self, session_config: &SessionConfig) -> Result<(), SessionError> {
+        match session_config {
+            SessionConfig::RequestResponse(config) => {
+                *self = config.clone();
+                Ok(())
+            }
+            _ => Err(SessionError::ConfigurationError(format!(
+                "invalid session config type: expected RequestResponse, got {:?}",
+                session_config
+            ))),
+        }
+    }
 }
 
 impl Default for RequestResponseConfiguration {
     fn default() -> Self {
         RequestResponseConfiguration {
-            max_retries: 0,
             timeout: std::time::Duration::from_millis(1000),
         }
     }
@@ -38,8 +52,7 @@ impl std::fmt::Display for RequestResponseConfiguration {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "RequestResponseConfiguration: max_retries: {}, timeout: {} ms",
-            self.max_retries,
+            "RequestResponseConfiguration: timeout: {} ms",
             self.timeout.as_millis()
         )
     }
@@ -141,7 +154,7 @@ impl RequestResponse {
             timer::TimerType::Constant,
             duration,
             None,
-            Some(session_config.max_retries),
+            Some(0),
         );
 
         // send message
@@ -274,7 +287,6 @@ mod tests {
         let (tx_app, _) = tokio::sync::mpsc::channel(1);
 
         let session_config = RequestResponseConfiguration {
-            max_retries: 0,
             timeout: std::time::Duration::from_millis(1000),
         };
 
@@ -303,7 +315,6 @@ mod tests {
         let (tx_app, mut rx_app) = tokio::sync::mpsc::channel(1);
 
         let session_config = RequestResponseConfiguration {
-            max_retries: 0,
             timeout: std::time::Duration::from_millis(1000),
         };
 
@@ -376,7 +387,6 @@ mod tests {
         let (tx_app, _) = tokio::sync::mpsc::channel(1);
 
         let session_config = RequestResponseConfiguration {
-            max_retries: 0,
             timeout: std::time::Duration::from_millis(1000),
         };
 

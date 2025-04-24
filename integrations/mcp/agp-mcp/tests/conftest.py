@@ -2,10 +2,12 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import asyncio
-
-import pytest_asyncio
+import logging
 
 import agp_bindings
+import pytest_asyncio
+
+logger = logging.getLogger(__name__)
 
 
 @pytest_asyncio.fixture(scope="function")

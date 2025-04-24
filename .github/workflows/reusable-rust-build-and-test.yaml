@@ -118,6 +118,14 @@ jobs:
           cache-on-failure: false
           shared-key: ${{runner.os}}-rust-${{hashFiles('**/Cargo.lock')}}-${{ steps.get_hash.outputs.components_hash }}
 
+      - name: Setup Python
+        uses: ./.github/actions/setup-python
+        with:
+          py-install: false
+          py-version: 3.x
+          uv-install: true
+          poetry-install: false
+
       - name: lint
         run: |
           task data-plane:lint

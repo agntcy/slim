@@ -34,7 +34,7 @@ async def test_streaming(server):
 
         # Connect to gateway server
         _ = await participant.connect(
-            {"endpoint": "http://127.0.0.1:12375", "tls_settings": {"insecure": True}}
+            {"endpoint": "http://127.0.0.1:12375", "tls": {"insecure": True}}
         )
 
         # set route for the chat, so that messages can be sent to the other participants
@@ -46,8 +46,8 @@ async def test_streaming(server):
         print(f"{name} -> Creating new pubsub sessions...")
         # create pubsubb session. A pubsub session is a just a bidirectional
         # streaming session, where participants are both sender and receivers
-        session_info = await participant.create_streaming_session(
-            agp_bindings.PyStreamingConfiguration(
+        session_info = await participant.create_session(
+            agp_bindings.PySessionConfiguration.Streaming(
                 agp_bindings.PySessionDirection.BIDIRECTIONAL,
                 topic=agp_bindings.PyAgentType(org, ns, chat),
                 max_retries=5,
@@ -128,10 +128,11 @@ async def test_streaming(server):
                     break
 
     # start participants in background
-    for i in range(participants_count):
+    for i in reversed(range(participants_count)):
         task = asyncio.create_task(background_task(i))
         task.set_name(f"participant-{i}")
         participants.append(task)
+        time.sleep(0.1)
 
     # Wait for the task to complete
     for task in participants:

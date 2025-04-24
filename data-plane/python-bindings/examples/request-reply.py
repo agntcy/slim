@@ -8,7 +8,6 @@ import os
 from common import format_message, split_id
 
 import agp_bindings
-from agp_bindings import GatewayConfig
 
 
 async def run_client(local_id, remote_id, message, address, enable_opentelemetry: bool):
@@ -27,7 +26,7 @@ async def run_client(local_id, remote_id, message, address, enable_opentelemetry
 
     # Connect to the service and subscribe for the local name
     print(format_message("connecting to:", address))
-    _ = await gateway.connect({"endpoint": address, "tls_settings": {"insecure": True}})
+    _ = await gateway.connect({"endpoint": address, "tls": {"insecure": True}})
 
     # Get the local agent instance from env
     instance = os.getenv("AGP_INSTANCE_ID", local_agent)
@@ -41,8 +40,8 @@ async def run_client(local_id, remote_id, message, address, enable_opentelemetry
             await gateway.set_route(remote_organization, remote_namespace, remote_agent)
 
             # create a session
-            session = await gateway.create_rr_session(
-                agp_bindings.PyRequestResponseConfiguration()
+            session = await gateway.create_session(
+                agp_bindings.PySessionConfiguration.RequestResponse()
             )
 
             try:

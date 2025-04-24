@@ -41,12 +41,14 @@ agp-bindings = ">=0.1.0"
 ### Server
 
 ```python
+# Copyright AGNTCY Contributors (https://github.com/agntcy)
+# SPDX-License-Identifier: Apache-2.0
+
 import argparse
 import asyncio
 from signal import SIGINT
 
 import agp_bindings
-from agp_bindings import GatewayConfig
 
 
 async def run_server(address: str, enable_opentelemetry: bool):
@@ -59,12 +61,8 @@ async def run_server(address: str, enable_opentelemetry: bool):
     # create new gateway object
     gateway = await agp_bindings.Gateway.new("cisco", "default", "gateway")
 
-    # Configure gateway
-    config = GatewayConfig(endpoint=address, insecure=True)
-    gateway.configure(config)
-
     # Run as server
-    await gateway.run_server()
+    await gateway.run_server({"endpoint": address, "tls": {"insecure": True}})
 
 
 async def main():
@@ -122,13 +120,14 @@ if __name__ == "__main__":
 ### PubSub Client
 
 ```python
+# Copyright AGNTCY Contributors (https://github.com/agntcy)
+# SPDX-License-Identifier: Apache-2.0
+
 import argparse
 import asyncio
 import datetime
-import signal
 
 import agp_bindings
-
 
 class color:
     PURPLE = "\033[95m"
@@ -177,10 +176,11 @@ async def run_client(local_id, remote_id, address, enable_opentelemetry: bool):
     participant = await agp_bindings.Gateway.new(
         local_organization, local_namespace, local_agent
     )
-    participant.configure(agp_bindings.GatewayConfig(endpoint=address, insecure=True))
 
     # Connect to gateway server
-    _ = await participant.connect()
+    _ = await participant.connect(
+        {"endpoint": address, "tls": {"insecure": True}}
+    )
 
     # set route for the chat, so that messages can be sent to the other participants
     await participant.set_route(remote_organization, remote_namespace, broadcast_topic)
@@ -191,8 +191,8 @@ async def run_client(local_id, remote_id, address, enable_opentelemetry: bool):
     print(f"{name} -> Creating new pubsub sessions...")
     # create pubsubb session. A pubsub session is a just a bidirectional
     # streaming session, where participants are both sender and receivers
-    session_info = await participant.create_streaming_session(
-        agp_bindings.PyStreamingConfiguration(
+    session_info = await participant.create_session(
+        agp_bindings.PySessionConfiguration.Streaming(
             agp_bindings.PySessionDirection.BIDIRECTIONAL,
             topic=agp_bindings.PyAgentType(
                 remote_organization, remote_namespace, broadcast_topic
@@ -317,15 +317,15 @@ if __name__ == "__main__":
 ### Streaming producer and consumer
 
 ```python
+# Copyright AGNTCY Contributors (https://github.com/agntcy)
+# SPDX-License-Identifier: Apache-2.0
+
 import argparse
 import asyncio
 import datetime
-import time
 import os
 
 import agp_bindings
-from agp_bindings import GatewayConfig, PySessionInfo
-
 
 class color:
     PURPLE = "\033[95m"
@@ -344,6 +344,17 @@ def format_message(message1, message2):
     return f"{color.BOLD}{color.CYAN}{message1.capitalize() :<45}{color.END}{message2}"
 
 
+def split_id(id):
+    # Split the IDs into their respective components
+    try:
+        local_organization, local_namespace, local_agent = id.split("/")
+    except ValueError as e:
+        print("Error: IDs must be in the format organization/namespace/agent.")
+        raise e
+
+    return local_organization, local_namespace, local_agent
+
+
 async def run_client(
     local_id, remote_id, address, producer, enable_opentelemetry: bool
 ):
@@ -353,31 +364,19 @@ async def run_client(
     )
 
     # Split the IDs into their respective components
-    try:
-        local_organization, local_namespace, local_agent = local_id.split("/")
-    except ValueError:
-        print("Error: IDs must be in the format organization/namespace/agent.")
-        return
+    local_organization, local_namespace, local_agent = split_id(local_id)
 
     # create new gateway object
     gateway = await agp_bindings.Gateway.new(
         local_organization, local_namespace, local_agent
     )
 
-    # Configure gateway
-    config = GatewayConfig(endpoint=address, insecure=True)
-    gateway.configure(config)
-
     # Connect to the service and subscribe for the local name
-    print(format_message(f"connecting to:", address))
-    _ = await gateway.connect()
+    print(format_message("connecting to:", address))
+    _ = await gateway.connect({"endpoint": address, "tls": {"insecure": True}})
 
     # Split the IDs into their respective components
-    try:
-        remote_organization, remote_namespace, broadcast_topic = remote_id.split("/")
-    except ValueError:
-        print("Error: IDs must be in the format organization/namespace/agent.")
-        return
+    remote_organization, remote_namespace, broadcast_topic = split_id(remote_id)
 
     # Get the local agent instance from env
     instance = os.getenv("AGP_INSTANCE_ID", local_agent)
@@ -390,8 +389,8 @@ async def run_client(
             )
 
             # create streaming session with default config
-            session_info = await gateway.create_streaming_session(
-                agp_bindings.PyStreamingConfiguration(
+            session_info = await gateway.create_session(
+                agp_bindings.PySessionConfiguration.Streaming(
                     agp_bindings.PySessionDirection.SENDER,
                     topic=None,
                     max_retries=5,
@@ -442,10 +441,10 @@ async def run_client(
                     )
                 )
 
-                async def background_task():
+                async def background_task(session_info):
                     while True:
                         # Receive the message from the session
-                        session, msg = await gateway.receive(session=session_info.id)
+                        session, msg = await gateway.receive(session=session_info)
                         print(
                             format_message(
                                 f"{local_agent.capitalize()} received from {remote_organization}/{remote_namespace}/{broadcast_topic}: ",
@@ -453,7 +452,7 @@ async def run_client(
                             )
                         )
 
-                asyncio.create_task(background_task())
+                asyncio.create_task(background_task(session_info.id))
 
 
 async def main():
@@ -511,18 +510,20 @@ if __name__ == "__main__":
         asyncio.run(main())
     except KeyboardInterrupt:
         print("Program terminated by user.")
+
 ```
 
 ### Fire And Forget sender and receiver
 
 ```python
+# Copyright AGNTCY Contributors (https://github.com/agntcy)
+# SPDX-License-Identifier: Apache-2.0
+
 import argparse
 import asyncio
-import time
 import os
 
 import agp_bindings
-from agp_bindings import GatewayConfig, PySessionInfo
 
 
 class color:
@@ -573,13 +574,9 @@ async def run_client(
         local_organization, local_namespace, local_agent
     )
 
-    # Configure gateway
-    config = GatewayConfig(endpoint=address, insecure=True)
-    gateway.configure(config)
-
     # Connect to remote gateway server
-    print(format_message(f"connecting to:", address))
-    _ = await gateway.connect()
+    print(format_message(f"connecting to: {address}"))
+    _ = await gateway.connect({"endpoint": address, "tls": {"insecure": True}})
 
     # Get the local agent instance from env
     instance = os.getenv("AGP_INSTANCE_ID", local_agent)
@@ -593,8 +590,8 @@ async def run_client(
             await gateway.set_route(remote_organization, remote_namespace, remote_agent)
 
             # create a session
-            session = await gateway.create_ff_session(
-                agp_bindings.PyFireAndForgetConfiguration()
+            session = await gateway.create_session(
+                agp_bindings.PySessionConfiguration.FireAndForget()
             )
 
             for i in range(0, iterations):
@@ -632,13 +629,13 @@ async def run_client(
                     )
                 )
 
-                async def background_task():
+                async def background_task(session_id):
                     while True:
                         # Receive the message from the session
-                        session, msg = await gateway.receive(session=session_info.id)
+                        session, msg = await gateway.receive(session=session_id)
                         print(
                             format_message(
-                                f"{instance.capitalize()} received (from session {session.id}):",
+                                f"{instance.capitalize()} received (from session {session_id}):",
                                 f"{msg.decode()}",
                             )
                         )
@@ -648,7 +645,7 @@ async def run_client(
                         await gateway.publish_to(session, ret.encode())
                         print(format_message(f"{instance.capitalize()} replies:", ret))
 
-                asyncio.create_task(background_task())
+                asyncio.create_task(background_task(session_info.id))
 
 
 async def main():
@@ -712,13 +709,14 @@ if __name__ == "__main__":
 ### Request/Response Requester and Responder
 
 ```python
+# Copyright AGNTCY Contributors (https://github.com/agntcy)
+# SPDX-License-Identifier: Apache-2.0
+
 import argparse
 import asyncio
-import time
 import os
 
 import agp_bindings
-from agp_bindings import GatewayConfig, PySessionInfo
 
 
 class color:
@@ -763,13 +761,9 @@ async def run_client(local_id, remote_id, message, address, enable_opentelemetry
         local_organization, local_namespace, local_agent
     )
 
-    # Configure gateway
-    config = GatewayConfig(endpoint=address, insecure=True)
-    gateway.configure(config)
-
     # Connect to the service and subscribe for the local name
-    print(format_message(f"connecting to:", address))
-    _ = await gateway.connect()
+    print(format_message("connecting to:", address))
+    _ = await gateway.connect({"endpoint": address, "tls": {"insecure": True}})
 
     # Get the local agent instance from env
     instance = os.getenv("AGP_INSTANCE_ID", local_agent)
@@ -783,8 +777,8 @@ async def run_client(local_id, remote_id, message, address, enable_opentelemetry
             await gateway.set_route(remote_organization, remote_namespace, remote_agent)
 
             # create a session
-            session = await gateway.create_rr_session(
-                agp_bindings.PyRequestResponseConfiguration()
+            session = await gateway.create_session(
+                agp_bindings.PySessionConfiguration.RequestResponse()
             )
 
             try:
@@ -819,13 +813,13 @@ async def run_client(local_id, remote_id, message, address, enable_opentelemetry
                     )
                 )
 
-                async def background_task():
+                async def background_task(session_id):
                     while True:
                         # Receive the message from the session
-                        session, msg = await gateway.receive(session=session_info.id)
+                        session, msg = await gateway.receive(session=session_id)
                         print(
                             format_message(
-                                f"{instance.capitalize()} received (from session {session.id}):",
+                                f"{instance.capitalize()} received (from session {session_id}):",
                                 f"{msg.decode()}",
                             )
                         )
@@ -835,7 +829,7 @@ async def run_client(local_id, remote_id, message, address, enable_opentelemetry
                         await gateway.publish_to(session, ret.encode())
                         print(format_message(f"{instance.capitalize()} replies:", ret))
 
-                asyncio.create_task(background_task())
+                asyncio.create_task(background_task(session_info.id))
 
 
 async def main():
@@ -854,7 +848,7 @@ async def main():
         type=str,
         help="Remote ID in the format organization/namespace/agent.",
     )
-    parser.add_argument("-m", "--message", type=str, help="Message to send")
+    parser.add_argument("-m", "--message", type=str, help="Message to send.")
     parser.add_argument(
         "-g",
         "--gateway",

@@ -7,7 +7,7 @@ use rand::Rng;
 use crate::errors::SessionError;
 use crate::session::{
     AppChannelSender, Common, CommonSession, GwChannelSender, Id, MessageDirection, Session,
-    SessionConfig, SessionDirection, SessionMessage, State,
+    SessionConfig, SessionConfigTrait, SessionDirection, SessionMessage, State,
 };
 use agp_datapath::messages::encoder::Agent;
 use agp_datapath::pubsub::proto::pubsub::v1::SessionHeaderType;
@@ -15,6 +15,21 @@ use agp_datapath::pubsub::proto::pubsub::v1::SessionHeaderType;
 /// Configuration for the Fire and Forget session
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct FireAndForgetConfiguration {}
+
+impl SessionConfigTrait for FireAndForgetConfiguration {
+    fn replace(&mut self, session_config: &SessionConfig) -> Result<(), SessionError> {
+        match session_config {
+            SessionConfig::FireAndForget(config) => {
+                *self = config.clone();
+                Ok(())
+            }
+            _ => Err(SessionError::ConfigurationError(format!(
+                "invalid session config type: expected FireAndForget, got {:?}",
+                session_config
+            ))),
+        }
+    }
+}
 
 impl std::fmt::Display for FireAndForgetConfiguration {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
