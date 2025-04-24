@@ -20,3 +20,4 @@ rmcp = { git = "https://github.com/modelcontextprotocol/rust-sdk", branch = "mai
     "transport-child-process",
     "tower"
 ] }
+rand = "0.9.1"

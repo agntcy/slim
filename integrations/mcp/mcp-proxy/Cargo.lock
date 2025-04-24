@@ -1345,6 +1345,7 @@ dependencies = [
  "agp-gw",
  "agp-service",
  "anyhow",
+ "rand 0.9.1",
  "rmcp",
  "serde",
  "serde_json",
