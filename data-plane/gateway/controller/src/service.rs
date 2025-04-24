@@ -276,7 +276,7 @@ impl ControllerService {
             }
             Err(_) => Err(ControllerError::ConnectionError(
                 "reached max connection retries".to_string(),
-            ))
+            )),
         }
     }
 }
