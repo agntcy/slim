@@ -12,6 +12,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/spf13/cobra"
+	"google.golang.org/protobuf/types/known/wrapperspb"
 
 	"github.com/agntcy/agp/control-plane/internal/controller"
 	"github.com/agntcy/agp/control-plane/internal/options"
@@ -51,7 +52,7 @@ func newAddCmd(opts *options.CommonOptions) *cobra.Command {
 				return fmt.Errorf("invalid syntax: expected 'via' keyword, got '%s'", args[1])
 			}
 
-			company, namespace, agentName, err := parseRoute(routeID)
+			company, namespace, agentName, agentID, err := parseRoute(routeID)
 			if err != nil {
 				return err
 			}
@@ -66,7 +67,7 @@ func newAddCmd(opts *options.CommonOptions) *cobra.Command {
 				Namespace:    namespace,
 				AgentName:    agentName,
 				ConnectionId: connID,
-				AgentId:      nil,
+				AgentId:      wrapperspb.UInt64(agentID),
 			}
 
 			msg := &grpcapi.ControlMessage{
@@ -99,7 +100,7 @@ func newDelCmd(opts *options.CommonOptions) *cobra.Command {
 				return fmt.Errorf("invalid syntax: expected 'via' keyword, got '%s'", args[1])
 			}
 
-			company, namespace, agentName, err := parseRoute(routeID)
+			company, namespace, agentName, agentID, err := parseRoute(routeID)
 			if err != nil {
 				return err
 			}
@@ -116,7 +117,7 @@ func newDelCmd(opts *options.CommonOptions) *cobra.Command {
 				Namespace:    namespace,
 				AgentName:    agentName,
 				ConnectionId: connID,
-				AgentId:      nil,
+				AgentId:      wrapperspb.UInt64(agentID),
 			}
 
 			msg := &grpcapi.ControlMessage{
@@ -134,16 +135,28 @@ func newDelCmd(opts *options.CommonOptions) *cobra.Command {
 	return cmd
 }
 
-func parseRoute(routeID string) (company, namespace, agentName string, err error) {
-	parts := strings.SplitN(routeID, "/", 3)
-	if len(parts) != 3 || parts[0] == "" || parts[1] == "" || parts[2] == "" {
-		err = fmt.Errorf("invalid route format '%s', expected 'company/namespace/agentname'", routeID)
+func parseRoute(route string) (company, namespace, agentName string, agentID uint64, err error) {
+	parts := strings.Split(route, "/")
+
+	if len(parts) != 4 {
+		err = fmt.Errorf("invalid route format '%s', expected 'company/namespace/agentname/agentid'", route)
+		return
+	}
+
+	if parts[0] == "" || parts[1] == "" || parts[2] == "" || parts[3] == "" {
+		err = fmt.Errorf("invalid route format '%s', expected 'company/namespace/agentname/agentid'", route)
 		return
 	}
 
 	company = parts[0]
 	namespace = parts[1]
 	agentName = parts[2]
+
+	agentID, err = strconv.ParseUint(parts[3], 10, 64)
+	if err != nil {
+		err = fmt.Errorf("invalid agent ID %s", parts[3])
+		return
+	}
 
 	return
 }
