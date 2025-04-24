@@ -13,6 +13,6 @@ async fn main() {
     let svc_id = agp_config::component::id::ID::new_with_str("gateway/0").unwrap();
     let _guard = config.tracing.setup_tracing_subscriber();
 
-    let mut proxy = proxy::Proxy::new(AgentType::from_strings("cisco","mcp", "proxy"), None, config, svc_id).await;
+    let mut proxy = proxy::Proxy::new(AgentType::from_strings("cisco","mcp", "proxy"), None, config, svc_id, "http://localhost:8000/sse".to_string()).await;
     proxy.start().await;
 }
