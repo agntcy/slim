@@ -184,8 +184,8 @@ impl Service {
 
         Service {
             id,
-            message_processor: message_processor,
-            controller: controller,
+            message_processor,
+            controller,
             controller_cancellation_token: CancellationToken::new(),
             config: ServiceConfiguration::new(),
             session_layers: RwLock::new(HashMap::new()),
