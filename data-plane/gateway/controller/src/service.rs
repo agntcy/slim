@@ -8,6 +8,7 @@ use std::sync::{Arc, OnceLock};
 use agp_config::tls::client::TlsClientConfig;
 use tokio::sync::mpsc;
 use tokio_stream::{Stream, StreamExt, wrappers::ReceiverStream};
+use tokio_util::sync::CancellationToken;
 use tonic::codegen::{Body, StdError};
 use tonic::{Request, Response, Status};
 use tracing::{debug, error};
@@ -69,7 +70,6 @@ impl ControllerService {
                                 match client_config.to_channel() {
                                     Err(e) => {
                                         error!("error reading channel config {:?}", e);
-                                        //Err(ControllerError::ConfigError(e.to_string()))
                                     }
                                     Ok(channel) => {
                                         let ret = self
@@ -109,7 +109,6 @@ impl ControllerService {
                                 continue;
                             }
 
-                            // TODO: handle error if it fails
                             let conn = self
                                 .connections
                                 .read()
@@ -146,7 +145,6 @@ impl ControllerService {
                                 continue;
                             }
 
-                            // TODO: handle error if it fails
                             let conn = self
                                 .connections
                                 .read()
@@ -224,10 +222,12 @@ impl ControllerService {
 
     async fn process_stream(
         &self,
+        cancellation_token: CancellationToken,
         mut stream: impl Stream<Item = Result<ControlMessage, Status>> + Unpin + Send + 'static,
         tx: mpsc::Sender<Result<ControlMessage, Status>>,
     ) -> tokio::task::JoinHandle<()> {
         let svc = self.clone();
+        let token = cancellation_token.clone();
 
         tokio::spawn(async move {
             loop {
@@ -237,12 +237,12 @@ impl ControllerService {
                             Some(result) => {
                                 match result {
                                     Ok(msg) => {
-                                        if let Err(_e) = svc.handle_new_message(msg, tx.clone()).await {
-                                            //TODO: handle error
+                                        if let Err(e) = svc.handle_new_message(msg, tx.clone()).await {
+                                            error!("error processing incoming control message: {:?}", e);
                                         }
                                     }
-                                    Err(_e) => {
-                                        //TODO: handle error
+                                    Err(e) => {
+                                        error!("error receiving control messages: {:?}", e);
                                     }
                                 }
                             }
@@ -251,6 +251,10 @@ impl ControllerService {
                                 break;
                             }
                         }
+                    }
+                    _ = token.cancelled() => {
+                        debug!("shutting down stream on cancellation token");
+                        break;
                     }
                 }
             }
@@ -267,20 +271,35 @@ impl ControllerService {
         C::ResponseBody: Body<Data = bytes::Bytes> + std::marker::Send + 'static,
         <C::ResponseBody as Body>::Error: Into<StdError> + std::marker::Send,
     {
+        //TODO(zkacsand): make this a constant or make it configurable?
+        let max_retry = 10;
+
         let mut client: ControllerServiceClient<C> = ControllerServiceClient::new(channel);
+        let mut i = 0;
+        while i < max_retry {
+            let (tx, rx) = mpsc::channel::<Result<ControlMessage, Status>>(128);
+            let out_stream = ReceiverStream::new(rx).map(|res| res.expect("mapping error"));
 
-        let (tx, rx) = mpsc::channel::<Result<ControlMessage, Status>>(128);
-        let out_stream = ReceiverStream::new(rx).map(|res| res.expect("mapping error"));
+            match client.open_control_channel(Request::new(out_stream)).await {
+                Ok(stream) => {
+                    let ret = self.process_stream(CancellationToken::new(), stream.into_inner(), tx).await;
+                    return Ok(ret)
+                }
+                Err(e) => {
+                    error!("connection error: {:?}.", e.to_string());
+                }
+            };
 
-        match client.open_control_channel(Request::new(out_stream)).await {
-            Ok(stream) => {
-                let ret = self.process_stream(stream.into_inner(), tx).await;
-                Ok(ret)
-            }
-            Err(_) => Err(ControllerError::ConnectionError(
-                "reached max connection retries".to_string(),
-            )),
+            i += 1;
+
+            // sleep 1 sec between each connection retry
+            tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
         }
+
+        error!("unable to connect to the endpoint");
+        Err(ControllerError::ConnectionError(
+            "reached max connection retries".to_string(),
+        ))
     }
 }
 
@@ -296,7 +315,7 @@ impl GrpcControllerService for ControllerService {
         let stream = request.into_inner();
         let (tx, rx) = mpsc::channel::<Result<ControlMessage, Status>>(128);
 
-        self.process_stream(stream, tx.clone()).await;
+        self.process_stream(CancellationToken::new(), stream, tx.clone()).await;
 
         let out_stream = ReceiverStream::new(rx);
         Ok(Response::new(
