@@ -228,7 +228,8 @@ impl Default for OpenTelemetryConfig {
     fn default() -> Self {
         OpenTelemetryConfig {
             enabled: false,
-            grpc: ClientConfig::with_endpoint(OTEL_EXPORTER_OTLP_ENDPOINT).with_tls_setting(TlsClientConfig::new().with_insecure(true)),
+            grpc: ClientConfig::with_endpoint(OTEL_EXPORTER_OTLP_ENDPOINT)
+                .with_tls_setting(TlsClientConfig::new().with_insecure(true)),
             service_name: default_service_name(),
             service_version: default_service_version(),
             environment: default_environment(),
