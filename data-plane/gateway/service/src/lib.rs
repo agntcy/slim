@@ -873,7 +873,7 @@ mod tests {
             .publish(
                 &publisher_agent,
                 session_info.clone(),
-                &subscriber_agent.agent_type(),
+                subscriber_agent.agent_type(),
                 Some(subscriber_agent.agent_id()),
                 message_blob.clone(),
             )

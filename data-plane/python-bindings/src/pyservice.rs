@@ -41,7 +41,7 @@ struct PyServiceInternal {
 impl PyService {
     #[getter]
     pub fn id(&self) -> u64 {
-        self.sdk.agent.agent_id() as u64
+        self.sdk.agent.agent_id()
     }
 }
 
@@ -75,11 +75,11 @@ impl PyService {
         // create the service
         let sdk = Arc::new(PyServiceInternal {
             service: svc,
-            agent: agent,
+            agent,
             rx: RwLock::new(rx),
         });
 
-        Ok(PyService { sdk: sdk })
+        Ok(PyService { sdk })
     }
 
     async fn create_session(
@@ -187,7 +187,7 @@ impl PyService {
                     Some(agent) => (
                         agent.agent_type().clone(),
                         Some(agent.agent_id()),
-                        session_info.input_connection.clone(),
+                        session_info.input_connection,
                     ),
                     None => {
                         return Err(ServiceError::ConfigError("no agent specified".to_string()));

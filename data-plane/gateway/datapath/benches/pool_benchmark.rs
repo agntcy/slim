@@ -41,8 +41,8 @@ fn bench_assume_init_ref(c: &mut Criterion) {
 
     c.bench_function("assume_init_ref only", |b| {
         b.iter(|| {
-            for i in 0..size {
-                let _ = black_box(unsafe { pool[i].assume_init_ref() });
+            for item in pool.iter() {
+                let _ = black_box(unsafe { item.assume_init_ref() });
             }
         })
     });

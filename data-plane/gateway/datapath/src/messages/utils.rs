@@ -750,13 +750,13 @@ mod tests {
             }
         };
 
-        let flags = if let None = flags {
+        let flags = if flags.is_none() {
             Some(AgpHeaderFlags::default())
         } else {
             flags
         };
 
-        assert_eq!(sub.is_publish(), false);
+        assert!(!sub.is_publish());
         assert_eq!(sub.is_subscribe(), subscription);
         assert_eq!(sub.is_unsubscribe(), !subscription);
         assert_eq!(flags.as_ref().unwrap().recv_from, sub.get_recv_from());
@@ -783,15 +783,15 @@ mod tests {
             "this is the content of the message".into(),
         );
 
-        let flags = if let None = flags {
+        let flags = if flags.is_none() {
             Some(AgpHeaderFlags::default())
         } else {
             flags
         };
 
-        assert_eq!(pub_msg.is_publish(), true);
-        assert_eq!(pub_msg.is_subscribe(), false);
-        assert_eq!(pub_msg.is_unsubscribe(), false);
+        assert!(pub_msg.is_publish());
+        assert!(!pub_msg.is_subscribe());
+        assert!(!pub_msg.is_unsubscribe());
         assert_eq!(flags.as_ref().unwrap().recv_from, pub_msg.get_recv_from());
         assert_eq!(flags.as_ref().unwrap().forward_to, pub_msg.get_forward_to());
         assert_eq!(None, pub_msg.try_get_incoming_conn());
