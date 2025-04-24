@@ -3,8 +3,9 @@
 
 use std::collections::HashMap;
 use std::pin::Pin;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
+use agp_config::tls::client::TlsClientConfig;
 use tokio::sync::mpsc;
 use tokio_stream::{Stream, StreamExt, wrappers::ReceiverStream};
 use tonic::codegen::{Body, StdError};
@@ -29,7 +30,7 @@ pub struct ControllerService {
     message_processor: Arc<MessageProcessor>,
 
     /// channel to send messages into the datapath
-    tx_gw: mpsc::Sender<Result<PubsubMessage, Status>>,
+    tx_gw: OnceLock<mpsc::Sender<Result<PubsubMessage, Status>>>,
 
     /// map of connection IDs to their configuration
     connections: Arc<parking_lot::RwLock<HashMap<String, u64>>>,
@@ -37,11 +38,9 @@ pub struct ControllerService {
 
 impl ControllerService {
     pub fn new(message_processor: Arc<MessageProcessor>) -> Self {
-        let (_, tx_gw, _) = message_processor.register_local_connection();
-
         ControllerService {
             message_processor,
-            tx_gw,
+            tx_gw: OnceLock::new(),
             connections: Arc::new(parking_lot::RwLock::new(HashMap::new())),
         }
     }
@@ -56,13 +55,14 @@ impl ControllerService {
                 match payload {
                     crate::api::proto::api::v1::control_message::Payload::ConfigCommand(config) => {
                         for conn in &config.connections_to_create {
-                            // connect to an endpoint if it's not already connected
                             let client_endpoint =
                                 format!("{}:{}", conn.remote_address, conn.remote_port);
 
+                            // connect to an endpoint if it's not already connected
                             if !self.connections.read().contains_key(&client_endpoint) {
                                 let client_config = ClientConfig {
-                                    endpoint: client_endpoint,
+                                    endpoint: format!("http://{}", client_endpoint),
+                                    tls_setting: TlsClientConfig::default().with_insecure(true),
                                     ..ClientConfig::default()
                                 };
 
@@ -97,7 +97,7 @@ impl ControllerService {
 
                                         self.connections
                                             .write()
-                                            .insert(client_config.endpoint.clone(), conn_id);
+                                            .insert(client_endpoint, conn_id);
                                     }
                                 }
                             }
@@ -211,7 +211,12 @@ impl ControllerService {
     }
 
     async fn send_message(&self, msg: PubsubMessage) -> Result<(), ControllerError> {
-        self.tx_gw.send(Ok(msg)).await.map_err(|e| {
+        let sender = self.tx_gw.get_or_init(|| {
+            let (_, tx_gw, _) = self.message_processor.register_local_connection();
+            tx_gw
+        });
+
+        sender.send(Ok(msg)).await.map_err(|e| {
             error!("error sending message into datapath: {}", e);
             ControllerError::DatapathError(e.to_string())
         })
