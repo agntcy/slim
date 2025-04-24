@@ -7,7 +7,6 @@ import logging
 import agp_bindings
 import pytest_asyncio
 
-
 logger = logging.getLogger(__name__)
 
 
@@ -19,7 +18,6 @@ async def server(request):
 
     # init tracing
     agp_bindings.init_tracing({"log_level": "info"})
-
 
     # run gateway server in background
     await agp_bindings.run_server(

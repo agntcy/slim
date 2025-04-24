@@ -2,13 +2,11 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import logging
-
 from contextlib import asynccontextmanager
 from typing import Any
 
 import agp_bindings
 from mcp import ClientSession
-
 
 from agp_mcp.common import AGPBase
 
@@ -16,7 +14,6 @@ logger = logging.getLogger(__name__)
 
 
 class AGPClient(AGPBase):
-
     """
     AGP transport client for MCP (Model Context Protocol) communication.
 
@@ -126,4 +123,3 @@ class AGPClient(AGPBase):
         async with self.new_streams(session) as (read_stream, write_stream):
             async with ClientSession(read_stream, write_stream) as mcp_session:
                 yield mcp_session
-

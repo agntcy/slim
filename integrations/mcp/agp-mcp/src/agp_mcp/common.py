@@ -249,7 +249,7 @@ class AGPBase(ABC):
                         raise
             finally:
                 await write_stream_reader.aclose()
-                
+
         async with anyio.create_task_group() as tg:
             tg.start_soon(agp_reader)
             tg.start_soon(agp_writer)
