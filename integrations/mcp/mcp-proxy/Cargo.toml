@@ -22,3 +22,4 @@ rmcp = { git = "https://github.com/modelcontextprotocol/rust-sdk", branch = "mai
 ] }
 rand = "0.9.1"
 thiserror = "2.0.12"
+clap = "4.5.37"

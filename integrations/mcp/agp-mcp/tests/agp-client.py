@@ -3,11 +3,16 @@
 
 import asyncio
 import datetime
+import logging
+
 
 from mcp import ClientSession
 
 from agp_mcp import AGPClient
 
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 async def main():
     org = "cisco"
@@ -25,20 +30,13 @@ async def main():
     async with (
         AGPClient(config, org, ns, "client1", org, ns, mcp_server) as agp_client,
     ):
-        async with agp_client.new_session() as streams:
-            async with ClientSession(streams[0], streams[1]) as mcp_session:
-                try:
-                    await mcp_session.initialize()
+        async with agp_client.to_mcp_session() as mcp_session:
+            logger.info("initialize session")
+            await mcp_session.initialize()
 
-                    print(
-                        f"Client session initialized at {datetime.datetime.now().isoformat()}"
-                    )
-
-                    tools = await mcp_session.list_tools()
-                    assert tools is not None
-                    print(tools)
-                except Exception as e:
-                    print(f"Error initializing session: {e}")
-                    raise e
+            # Test tool listing
+            tools = await mcp_session.list_tools()
+            assert tools is not None, "Failed to list tools"
+            logger.info(f"Successfully retrieved tools: {tools}")
 
 asyncio.run(main())

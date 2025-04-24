@@ -216,7 +216,7 @@ pub struct Proxy {
 }
 
 impl Proxy {
-    pub async fn new(name: AgentType, id: Option<u64>, config: ConfigResult, svc_id: agp_config::component::id::ID, mcp_server: String) -> Self {
+    pub fn new(name: AgentType, id: Option<u64>, config: ConfigResult, svc_id: agp_config::component::id::ID, mcp_server: String) -> Self {
         let agent_id = match id {
             None => {
                 rand::random::<u64>()
