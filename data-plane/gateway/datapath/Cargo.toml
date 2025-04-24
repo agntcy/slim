@@ -6,31 +6,31 @@ license = { workspace = true }
 description = "Core data plane functionality for AGP"
 
 [dependencies]
-agp-config = { path = "../config", version = "0.1.6" }
-agp-tracing = { path = "../tracing", version = "0.1.4" }
-bit-vec = "0.8"
-bytes = { version = "1.9.0" }
-drain = { version = "0.1", features = ["retain"] }
-h2 = "0.4.7"
-opentelemetry = { version = "0.29.0", features = ["trace", "metrics"] }
-parking_lot = "0.12"
-prost = "0.13"
-rand = "0.9.0"
-thiserror = "2.0.5"
-tokio = { version = "1.0", features = ["macros", "rt-multi-thread"] }
-tokio-stream = "0.1"
-tokio-util = "0.7.14"
-tonic = "0.13"
-tracing = "0.1.41"
-tracing-opentelemetry = "0.30.0"
+agp-config = { workspace = true }
+agp-tracing = { workspace = true }
+bit-vec = { workspace = true }
+bytes = { workspace = true }
+drain = { workspace = true }
+h2 = { workspace = true }
+opentelemetry = { workspace = true }
+parking_lot = { workspace = true }
+prost = { workspace = true }
+rand = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+tokio-stream = { workspace = true }
+tokio-util = { workspace = true }
+tonic = { workspace = true }
+tracing = { workspace = true }
+tracing-opentelemetry = { workspace = true }
 
 [dev-dependencies]
-criterion = { version = "0.5", features = ["html_reports"] }
-tracing-test = { version = "0.2.5", features = ["no-env-filter"] }
+criterion = { workspace = true }
+tracing-test = { workspace = true }
 
 [build-dependencies]
-protoc-bin-vendored = "3.1.0"
-tonic-build = { version = "0.13", features = ["prost"] }
+protoc-bin-vendored = { workspace = true }
+tonic-build = { workspace = true }
 
 [[bench]]
 name = "pool_benchmark"
