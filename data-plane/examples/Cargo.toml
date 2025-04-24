@@ -9,11 +9,11 @@ name = "sdk-mock"
 path = "src/sdk-mock/main.rs"
 
 [dependencies]
-agp-config = { path = "../gateway/config", version = "0.1.6" }
-agp-datapath = { path = "../gateway/datapath", version = "0.5.0" }
-agp-gw = { path = "../gateway/gateway", version = "0.3.11" }
-agp-service = { path = "../gateway/service", version = "0.3.0" }
-agp-signal = { path = "../gateway/signal", version = "0.1.1" }
-clap = "4.5"
-tokio = "1"
-tracing = "0.1.41"
+agp-config = { workspace = true }
+agp-datapath = { workspace = true }
+agp-gw = { workspace = true }
+agp-service = { workspace = true }
+agp-signal = { workspace = true }
+clap = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }

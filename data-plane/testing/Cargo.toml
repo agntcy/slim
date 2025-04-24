@@ -18,15 +18,15 @@ name = "publisher"
 path = "src/bin/publisher.rs"
 
 [dependencies]
-agp-config = { path = "../gateway/config", version = "0.1.6" }
-agp-datapath = { path = "../gateway/datapath", version = "0.5.0" }
-agp-gw = { path = "../gateway/gateway", version = "0.3.11" }
-agp-service = { path = "../gateway/service", version = "0.3.0" }
-clap = { version = "4.5", features = ["derive"] }
-indicatif = "0.17.11"
-parking_lot = "0.12"
-rand = "0.9.0"
-thiserror = "2.0.11"
-tokio = "1"
-tokio-util = "0.7.13"
-tracing = "0.1.41"
+agp-config = { workspace = true }
+agp-datapath = { workspace = true }
+agp-gw = { workspace = true }
+agp-service = { workspace = true }
+clap = { workspace = true }
+indicatif = { workspace = true }
+parking_lot = { workspace = true }
+rand = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+tokio-util = { workspace = true }
+tracing = { workspace = true }

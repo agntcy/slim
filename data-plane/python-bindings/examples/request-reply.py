@@ -13,7 +13,15 @@ import agp_bindings
 async def run_client(local_id, remote_id, message, address, enable_opentelemetry: bool):
     # init tracing
     agp_bindings.init_tracing(
-        log_level="info", enable_opentelemetry=enable_opentelemetry
+        {
+            "log_level": "info",
+            "opentelemetry": {
+                "enabled": enable_opentelemetry,
+                "grpc": {
+                    "endpoint": "http://localhost:4317",
+                },
+            },
+        }
     )
 
     # Split the IDs into their respective components
