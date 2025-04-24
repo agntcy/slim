@@ -10,6 +10,8 @@ set: [pipefail]
 shopt: [globstar]
 
 vars:
+  GLOBAL_ARGS: '{{.GLOBAL_ARGS | default ""}}'
+
   PROFILE: '{{.PROFILE | default "debug"}}'
   RELEASE:
     sh: '[[ {{.PROFILE}} == "release" ]] && echo "--release" || echo ""'
@@ -122,7 +124,7 @@ tasks:
     cmds:
       - task: toolchain:check
         vars:
-          ARGS: "--workspace --all-targets --locked"
+          ARGS: "{{.GLOBAL_ARGS}} --all-targets --locked"
 
   clean:
     desc: "Clean the project"
@@ -134,14 +136,14 @@ tasks:
     cmds:
       - task: toolchain:clippy
         vars:
-          ARGS: "--workspace --all-targets --locked --all-features"
+          ARGS: "{{.GLOBAL_ARGS}} --all-targets --locked --all-features"
 
   sort:check:
     desc: "Check the dependencies are sorted"
     cmds:
       - task: toolchain:sort
         vars:
-          ARGS: "--check --workspace"
+          ARGS: "{{.GLOBAL_ARGS}} --check"
 
   unused:check:
     desc: "Check for unused dependencies"
@@ -163,14 +165,14 @@ tasks:
     cmds:
       - task: toolchain:sort
         vars:
-          ARGS: "--workspace"
+          ARGS: "{{.GLOBAL_ARGS}}"
 
   doc:
     desc: "Generate the documentation"
     cmds:
       - task: toolchain:doc
         vars:
-          ARGS: "--no-deps --workspace --locked --all-features"
+          ARGS: "{{.GLOBAL_ARGS}} --no-deps --locked --all-features"
 
   lintall:
     desc: "Run the linter"
@@ -187,14 +189,14 @@ tasks:
     cmds:
       - task: toolchain:test:build
         vars:
-          ARGS: "--workspace --all-targets --locked --all-features"
+          ARGS: "{{.GLOBAL_ARGS}} --all-targets --locked --all-features"
 
   test:
     desc: "Run the tests"
     cmds:
       - task: toolchain:test
         vars:
-          ARGS: "--workspace --all-targets --locked --all-features -- --nocapture"
+          ARGS: "{{.GLOBAL_ARGS}} --all-targets --locked --all-features -- --nocapture"
       - task: bindings:test
 
   test:coverage:
@@ -202,18 +204,14 @@ tasks:
     cmds:
       - task: toolchain:test:coverage
         vars:
-          ARGS: "--workspace --all-targets --locked --all-features"
+          ARGS: "{{.GLOBAL_ARGS}} --all-targets --locked --all-features"
 
   build:
     desc: "Build the project"
     cmds:
-      - rm -f {{.TARGET_BIN}} {{.TARGET_BIN}}.dbg
       - task: toolchain:build
         vars:
           ARGS: "--locked --all-targets --all-features"
-    vars:
-      TARGET_DIR: "target/{{.TARGET}}/{{.PROFILE}}"
-      TARGET_BIN: "{{.TARGET_DIR}}/gateway"
 
   vuln:
     desc: "Check for vulnerabilities"
