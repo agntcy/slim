@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0](https://github.com/agntcy/agp/compare/agp-tracing-v0.1.4...agp-tracing-v0.2.0) - 2025-04-24
+
+### Added
+
+- improve configuration handling for tracing ([#186](https://github.com/agntcy/agp/pull/186))
+
+### Fixed
+
+- *(data-plane)* make new linter version happy ([#184](https://github.com/agntcy/agp/pull/184))
+
+### Other
+
+- upgrade to rust edition 2024 and toolchain 1.86.0 ([#164](https://github.com/agntcy/agp/pull/164))
+
 ## [0.1.4](https://github.com/agntcy/agp/compare/agp-tracing-v0.1.3...agp-tracing-v0.1.4) - 2025-04-08
 
 ### Other

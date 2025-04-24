@@ -2,11 +2,11 @@
 name = "agp-tracing"
 edition = { workspace = true }
 license = { workspace = true }
-version = "0.1.4"
+version = "0.2.0"
 description = "Observability for AGP data plane: logs, traces and metrics infrastructure."
 
 [dependencies]
-agp-config = { path = "../config", version = "0.1.6" }
+agp-config = { path = "../config", version = "0.1.7" }
 once_cell = "1.21.0"
 opentelemetry = { version = "0.29.0", features = ["trace", "metrics"] }
 opentelemetry-otlp = { version = "0.29.0", features = ["metrics", "grpc-tonic"] }

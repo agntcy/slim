@@ -2,7 +2,7 @@
 name = "agp-signal"
 edition = { workspace = true }
 license = { workspace = true }
-version = "0.1.1"
+version = "0.1.2"
 description = "Small library to handle OS signals."
 
 [dependencies]

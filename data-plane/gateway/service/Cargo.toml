@@ -2,12 +2,12 @@
 name = "agp-service"
 edition = { workspace = true }
 license = { workspace = true }
-version = "0.3.0"
+version = "0.4.0"
 description = "Main service and public API to interact with AGP data plane."
 
 [dependencies]
-agp-config = { path = "../config", version = "0.1.6" }
-agp-datapath = { path = "../datapath", version = "0.5.0" }
+agp-config = { path = "../config", version = "0.1.7" }
+agp-datapath = { path = "../datapath", version = "0.6.0" }
 async-trait = "0.1.88"
 drain = { version = "0.1", features = ["retain"] }
 parking_lot = "0.12.3"

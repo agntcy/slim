@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.7](https://github.com/agntcy/agp/compare/agp-config-v0.1.6...agp-config-v0.1.7) - 2025-04-24
+
+### Added
+
+- improve configuration handling for tracing ([#186](https://github.com/agntcy/agp/pull/186))
+- *(data-plane)* support for multiple servers ([#173](https://github.com/agntcy/agp/pull/173))
+
+### Fixed
+
+- *(data-plane)* make new linter version happy ([#184](https://github.com/agntcy/agp/pull/184))
+
+### Other
+
+- *(data-plane)* tonic 0.12.3 -> 0.13 ([#170](https://github.com/agntcy/agp/pull/170))
+- upgrade to rust edition 2024 and toolchain 1.86.0 ([#164](https://github.com/agntcy/agp/pull/164))
+
 ## [0.1.6](https://github.com/agntcy/agp/compare/agp-config-v0.1.5...agp-config-v0.1.6) - 2025-04-08
 
 ### Other

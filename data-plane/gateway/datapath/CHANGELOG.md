@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.0](https://github.com/agntcy/agp/compare/agp-datapath-v0.5.0...agp-datapath-v0.6.0) - 2025-04-24
+
+### Added
+
+- improve configuration handling for tracing ([#186](https://github.com/agntcy/agp/pull/186))
+- add beacon messages from the producer for streaming and pub/sub ([#177](https://github.com/agntcy/agp/pull/177))
+- *(python-bindings)* improve configuration handling and further refactoring ([#167](https://github.com/agntcy/agp/pull/167))
+- *(session layer)* send rtx error if the packet is not in the producer buffer ([#166](https://github.com/agntcy/agp/pull/166))
+
+### Fixed
+
+- *(data-plane)* make new linter version happy ([#184](https://github.com/agntcy/agp/pull/184))
+
+### Other
+
+- *(data-plane)* tonic 0.12.3 -> 0.13 ([#170](https://github.com/agntcy/agp/pull/170))
+- upgrade to rust edition 2024 and toolchain 1.86.0 ([#164](https://github.com/agntcy/agp/pull/164))
+
 ## [0.5.0](https://github.com/agntcy/agp/compare/agp-datapath-v0.4.2...agp-datapath-v0.5.0) - 2025-04-08
 
 ### Added

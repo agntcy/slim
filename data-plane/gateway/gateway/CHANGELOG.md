@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.12](https://github.com/agntcy/agp/compare/agp-gw-v0.3.11...agp-gw-v0.3.12) - 2025-04-24
+
+### Added
+
+- *(python-bindings)* improve configuration handling and further refactoring ([#167](https://github.com/agntcy/agp/pull/167))
+- *(data-plane)* support for multiple servers ([#173](https://github.com/agntcy/agp/pull/173))
+
+### Other
+
+- upgrade to rust edition 2024 and toolchain 1.86.0 ([#164](https://github.com/agntcy/agp/pull/164))
+
 ## [0.3.11](https://github.com/agntcy/agp/compare/agp-gw-v0.3.10...agp-gw-v0.3.11) - 2025-04-08
 
 ### Other
