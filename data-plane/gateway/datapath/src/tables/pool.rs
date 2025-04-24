@@ -233,7 +233,7 @@ mod tests {
 
         let element = 1;
         let res = pool.insert_at(element, index);
-        assert_eq!(res, true);
+        assert!(res);
         assert_eq!(pool.len(), 8);
         assert_eq!(pool.get(index), Some(&element));
         assert_eq!(pool.get_mut(index), Some(&mut 1));
@@ -241,7 +241,7 @@ mod tests {
 
         let element = 56898;
         let res = pool.insert_at(element, index);
-        assert_eq!(res, true);
+        assert!(res);
         assert_eq!(pool.len(), 8);
         assert_eq!(pool.get(index), Some(&element));
         assert_eq!(pool.get_mut(index), Some(&mut 56898));
@@ -249,7 +249,7 @@ mod tests {
 
         let element = 49;
         let res = pool.insert_at(element, index);
-        assert_eq!(res, true);
+        assert!(res);
         assert_eq!(pool.len(), 8);
         assert_eq!(pool.get(index), Some(&element));
         assert_eq!(pool.get_mut(index), Some(&mut 49));
@@ -257,14 +257,14 @@ mod tests {
 
         let element = 50;
         let res = pool.insert_at(element, index + 1);
-        assert_eq!(res, true);
+        assert!(res);
         assert_eq!(pool.len(), 9);
         assert_eq!(pool.get(index + 1), Some(&element));
         assert_eq!(pool.get_mut(index + 1), Some(&mut 50));
         assert_eq!(pool.max_set(), 8);
 
         let res = pool.insert_at(element, 100000000);
-        assert_eq!(res, false);
+        assert!(!res);
 
         let current_len = pool.len();
         let mut curr_max_set = pool.max_set();
@@ -290,7 +290,7 @@ mod tests {
             let pivot = rand::rng().random_range(0..1000) as usize;
             if i < pivot {
                 let ret = pool.remove(i);
-                assert_eq!(ret, true);
+                assert!(ret);
 
                 if i == curr_max_set {
                     assert_ne!(curr_max_set, pool.max_set());
@@ -308,9 +308,9 @@ mod tests {
         let mut curr_max_set = pool.max_set();
 
         // Insert new elements in the pool and check whether they are inserted in the same indexes
-        for mut i in 0..removed_indexes.len() {
+        for (mut i, idx) in removed_indexes.iter().enumerate() {
             let index = pool.insert(i);
-            assert_eq!(index, removed_indexes[i]);
+            assert_eq!(index, *idx);
             assert_eq!(pool.get(index), Some(&i));
             assert_eq!(pool.get_mut(index), Some(&mut i));
             if i > curr_max_set {

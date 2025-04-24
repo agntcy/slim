@@ -118,16 +118,16 @@ mod tests {
         let p3 = Message::new_publish_with_headers(Some(agp_header), Some(h3), "", vec![]);
         let p4 = Message::new_publish_with_headers(Some(agp_header), Some(h4), "", vec![]);
 
-        assert_eq!(buffer.push(p0.clone()), true);
+        assert!(buffer.push(p0.clone()));
 
         assert_eq!(buffer.get(0).unwrap(), p0);
         assert_eq!(buffer.get(0).unwrap(), p0);
         assert_eq!(buffer.get(0).unwrap(), p0);
         assert_eq!(buffer.get(1), None);
 
-        assert_eq!(buffer.push(p0.clone()), true);
-        assert_eq!(buffer.push(p1.clone()), true);
-        assert_eq!(buffer.push(p2.clone()), true);
+        assert!(buffer.push(p0.clone()));
+        assert!(buffer.push(p1.clone()));
+        assert!(buffer.push(p2.clone()));
 
         assert_eq!(buffer.get(0).unwrap(), p0);
         assert_eq!(buffer.get(1).unwrap(), p1);
@@ -135,7 +135,7 @@ mod tests {
         assert_eq!(buffer.get(3), None);
 
         // now the buffer is full, add a new element will remote the elem 0
-        assert_eq!(buffer.push(p3.clone()), true);
+        assert!(buffer.push(p3.clone()));
         assert_eq!(buffer.get(0), None);
         assert_eq!(buffer.get(1).unwrap(), p1);
         assert_eq!(buffer.get(2).unwrap(), p2);
@@ -143,7 +143,7 @@ mod tests {
         assert_eq!(buffer.get(4), None);
 
         // now the buffer is full, add a new element will remote the elem 1
-        assert_eq!(buffer.push(p4.clone()), true);
+        assert!(buffer.push(p4.clone()));
         assert_eq!(buffer.get(0), None);
         assert_eq!(buffer.get(1), None);
         assert_eq!(buffer.get(2).unwrap(), p2);
@@ -159,11 +159,11 @@ mod tests {
         assert_eq!(buffer.get(4), None);
 
         // add all msgs and check again
-        assert_eq!(buffer.push(p0.clone()), true);
-        assert_eq!(buffer.push(p1.clone()), true);
-        assert_eq!(buffer.push(p2.clone()), true);
-        assert_eq!(buffer.push(p3.clone()), true);
-        assert_eq!(buffer.push(p4.clone()), true);
+        assert!(buffer.push(p0.clone()));
+        assert!(buffer.push(p1.clone()));
+        assert!(buffer.push(p2.clone()));
+        assert!(buffer.push(p3.clone()));
+        assert!(buffer.push(p4.clone()));
         assert_eq!(buffer.get(0), None);
         assert_eq!(buffer.get(1), None);
         assert_eq!(buffer.get(2).unwrap(), p2);

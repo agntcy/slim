@@ -990,7 +990,7 @@ mod tests {
 
         // set session header type for test check
         let mut expected_msg = message.clone();
-        let _ = expected_msg.set_header_type(SessionHeaderType::Stream);
+        expected_msg.set_header_type(SessionHeaderType::Stream);
         expected_msg.set_fanout(STREAM_BROADCAST);
 
         let session_msg = SessionMessage::new(message.clone(), Info::new(0));

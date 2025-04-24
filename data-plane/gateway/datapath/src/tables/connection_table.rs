@@ -92,7 +92,7 @@ mod tests {
         assert!(table.is_empty());
 
         let connection = 10;
-        let index = table.insert(connection.clone());
+        let index = table.insert(connection);
         assert_eq!(table.len(), 1);
         assert!(!table.is_empty());
 

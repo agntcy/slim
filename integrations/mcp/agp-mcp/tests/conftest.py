@@ -2,9 +2,13 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import asyncio
+import logging
 
 import agp_bindings
 import pytest_asyncio
+
+
+logger = logging.getLogger(__name__)
 
 
 @pytest_asyncio.fixture(scope="function")
@@ -14,7 +18,8 @@ async def server(request):
     svc_server = await agp_bindings.create_pyservice("cisco", "default", "server")
 
     # init tracing
-    agp_bindings.init_tracing(log_level="info")
+    agp_bindings.init_tracing({"log_level": "info"})
+
 
     # run gateway server in background
     await agp_bindings.run_server(

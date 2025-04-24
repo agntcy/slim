@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use opentelemetry::{KeyValue, global, trace::TracerProvider as _};
+use opentelemetry_otlp::WithExportConfig;
 use opentelemetry_sdk::{
     Resource,
     metrics::{MeterProviderBuilder, PeriodicReader, SdkMeterProvider},
@@ -10,18 +11,27 @@ use opentelemetry_sdk::{
 use opentelemetry_semantic_conventions::attribute::{
     DEPLOYMENT_ENVIRONMENT_NAME, SERVICE_NAME, SERVICE_VERSION,
 };
-
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
+use thiserror::Error;
 use tracing::Level;
 use tracing_opentelemetry::{MetricsLayer, OpenTelemetryLayer};
 use tracing_subscriber::{
     Layer, filter::LevelFilter, fmt, layer::SubscriberExt, util::SubscriberInitExt,
 };
 
-pub mod opaque;
+use agp_config::{grpc::client::ClientConfig, tls::client::TlsClientConfig};
+
 pub mod utils;
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+const OTEL_EXPORTER_OTLP_ENDPOINT: &str = "http://localhost:4317";
+
+#[derive(Error, Debug)]
+pub enum ConfigError {
+    #[error("error loading GRPC config: {0}")]
+    GRPCError(String),
+}
+
+#[derive(Clone, Debug, Deserialize)]
 pub struct TracingConfiguration {
     #[serde(default = "default_log_level")]
     log_level: String,
@@ -52,10 +62,13 @@ impl Default for TracingConfiguration {
     }
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize)]
 pub struct OpenTelemetryConfig {
     #[serde(default)]
     enabled: bool,
+
+    #[serde(default)]
+    grpc: ClientConfig,
 
     #[serde(default = "default_service_name")]
     service_name: String,
@@ -70,11 +83,153 @@ pub struct OpenTelemetryConfig {
     metrics_interval_secs: u64,
 }
 
+impl OpenTelemetryConfig {
+    /// Sets whether OpenTelemetry tracing and metrics are enabled.
+    ///
+    /// # Arguments
+    ///
+    /// * `enabled` - A boolean indicating whether OpenTelemetry should be enabled
+    ///
+    /// # Returns
+    ///
+    /// Returns `self` for method chaining
+    pub fn with_enabled(mut self, enabled: bool) -> Self {
+        self.enabled = enabled;
+        self
+    }
+
+    /// Sets the gRPC configuration for OpenTelemetry export.
+    ///
+    /// # Arguments
+    ///
+    /// * `grpc_config` - The gRPC client configuration to use for OpenTelemetry export
+    ///
+    /// # Returns
+    ///
+    /// Returns `self` for method chaining
+    pub fn with_grpc_config(mut self, grpc_config: ClientConfig) -> Self {
+        self.grpc = grpc_config;
+        self
+    }
+
+    /// Sets the service name for OpenTelemetry traces and metrics.
+    ///
+    /// # Arguments
+    ///
+    /// * `service_name` - The name of the service to be used in OpenTelemetry data
+    ///
+    /// # Returns
+    ///
+    /// Returns `self` for method chaining
+    pub fn with_service_name(mut self, service_name: String) -> Self {
+        self.service_name = service_name;
+        self
+    }
+
+    /// Sets the service version for OpenTelemetry traces and metrics.
+    ///
+    /// # Arguments
+    ///
+    /// * `service_version` - The version of the service to be used in OpenTelemetry data
+    ///
+    /// # Returns
+    ///
+    /// Returns `self` for method chaining
+    pub fn with_service_version(mut self, service_version: String) -> Self {
+        self.service_version = service_version;
+        self
+    }
+
+    /// Sets the deployment environment for OpenTelemetry traces and metrics.
+    ///
+    /// # Arguments
+    ///
+    /// * `environment` - The deployment environment (e.g., "development", "production")
+    ///
+    /// # Returns
+    ///
+    /// Returns `self` for method chaining
+    pub fn with_environment(mut self, environment: String) -> Self {
+        self.environment = environment;
+        self
+    }
+
+    /// Sets the interval in seconds between metric exports.
+    ///
+    /// # Arguments
+    ///
+    /// * `metrics_interval_secs` - The interval in seconds between metric exports
+    ///
+    /// # Returns
+    ///
+    /// Returns `self` for method chaining
+    pub fn with_metrics_interval_secs(mut self, metrics_interval_secs: u64) -> Self {
+        self.metrics_interval_secs = metrics_interval_secs;
+        self
+    }
+
+    /// Returns whether OpenTelemetry tracing and metrics are enabled.
+    ///
+    /// # Returns
+    ///
+    /// Returns a boolean indicating whether OpenTelemetry is enabled
+    pub fn enabled(&self) -> bool {
+        self.enabled
+    }
+
+    /// Returns the gRPC configuration for OpenTelemetry export.
+    ///
+    /// # Returns
+    ///
+    /// Returns a reference to the gRPC client configuration
+    pub fn grpc_config(&self) -> &ClientConfig {
+        &self.grpc
+    }
+
+    /// Returns the service name used in OpenTelemetry data.
+    ///
+    /// # Returns
+    ///
+    /// Returns a reference to the service name string
+    pub fn service_name(&self) -> &str {
+        &self.service_name
+    }
+
+    /// Returns the service version used in OpenTelemetry data.
+    ///
+    /// # Returns
+    ///
+    /// Returns a reference to the service version string
+    pub fn service_version(&self) -> &str {
+        &self.service_version
+    }
+
+    /// Returns the deployment environment used in OpenTelemetry data.
+    ///
+    /// # Returns
+    ///
+    /// Returns a reference to the environment string
+    pub fn environment(&self) -> &str {
+        &self.environment
+    }
+
+    /// Returns the interval in seconds between metric exports.
+    ///
+    /// # Returns
+    ///
+    /// Returns the metrics interval in seconds
+    pub fn metrics_interval_secs(&self) -> u64 {
+        self.metrics_interval_secs
+    }
+}
+
 // default implementation for OpenTelemetryConfig
 impl Default for OpenTelemetryConfig {
     fn default() -> Self {
         OpenTelemetryConfig {
             enabled: false,
+            grpc: ClientConfig::with_endpoint(OTEL_EXPORTER_OTLP_ENDPOINT)
+                .with_tls_setting(TlsClientConfig::new().with_insecure(true)),
             service_name: default_service_name(),
             service_version: default_service_version(),
             environment: default_environment(),
@@ -203,7 +358,7 @@ impl TracingConfiguration {
     }
 
     /// Set up a subscriber
-    pub fn setup_tracing_subscriber(&self) -> OtelGuard {
+    pub fn setup_tracing_subscriber(&self) -> Result<OtelGuard, ConfigError> {
         let fmt_layer = fmt::layer()
             .with_thread_ids(self.display_thread_ids)
             .with_thread_names(self.display_thread_names)
@@ -219,6 +374,10 @@ impl TracingConfiguration {
         let level_filter = LevelFilter::from_level(resolve_level(&self.log_level));
 
         if self.opentelemetry.enabled {
+            // TODO(msardara): derive a tonic channel directly when opentelemetry-otlp
+            // upgrades to tonic version 0.13.0
+            let endpoint = self.opentelemetry.grpc.endpoint.clone();
+
             // resource
             let resource = Resource::builder()
                 .with_attributes([
@@ -234,8 +393,9 @@ impl TracingConfiguration {
             // init tracer provider
             let exporter = opentelemetry_otlp::SpanExporter::builder()
                 .with_tonic()
+                .with_endpoint(&endpoint)
                 .build()
-                .unwrap();
+                .map_err(|e| ConfigError::GRPCError(e.to_string()))?;
 
             let tracer_provider = SdkTracerProvider::builder()
                 // TODO(zkacsand): customize sampling strategy
@@ -247,12 +407,12 @@ impl TracingConfiguration {
                 .with_batch_exporter(exporter)
                 .build();
 
-            // init meter provider
             let exporter = opentelemetry_otlp::MetricExporter::builder()
                 .with_tonic()
+                .with_endpoint(&endpoint)
                 .with_temporality(opentelemetry_sdk::metrics::Temporality::default())
                 .build()
-                .unwrap();
+                .map_err(|e| ConfigError::GRPCError(e.to_string()))?;
 
             let reader = PeriodicReader::builder(exporter)
                 .with_interval(std::time::Duration::from_secs(
@@ -286,10 +446,10 @@ impl TracingConfiguration {
                 .with(OpenTelemetryLayer::new(tracer))
                 .init();
 
-            OtelGuard {
+            Ok(OtelGuard {
                 tracer_provider: Some(tracer_provider),
                 meter_provider: Some(meter_provider),
-            }
+            })
         } else {
             // Basic subscriber without OpenTelemetry
             tracing_subscriber::registry()
@@ -297,10 +457,10 @@ impl TracingConfiguration {
                 .with(fmt_layer)
                 .init();
 
-            OtelGuard {
+            Ok(OtelGuard {
                 tracer_provider: None,
                 meter_provider: None,
-            }
+            })
         }
     }
 }
@@ -327,5 +487,64 @@ mod tests {
         assert_eq!(resolve_level("warn"), Level::WARN);
         assert_eq!(resolve_level("error"), Level::ERROR);
         assert_eq!(resolve_level("invalid"), Level::INFO);
+    }
+
+    #[test]
+    fn test_tracing_configuration_builder_methods() {
+        let config = TracingConfiguration::default()
+            .with_log_level("debug".to_string())
+            .with_display_thread_names(false)
+            .with_display_thread_ids(true)
+            .with_filter("debug".to_string());
+
+        assert_eq!(config.log_level(), "debug");
+        assert!(!config.display_thread_names());
+        assert!(config.display_thread_ids());
+        assert_eq!(config.filter(), "debug");
+    }
+
+    #[test]
+    fn test_opentelemetry_config_default() {
+        let config = OpenTelemetryConfig::default();
+        assert!(!config.enabled());
+        assert_eq!(config.service_name(), default_service_name());
+        assert_eq!(config.grpc_config().endpoint, OTEL_EXPORTER_OTLP_ENDPOINT);
+        assert_eq!(config.service_version(), default_service_version());
+        assert_eq!(config.environment(), default_environment());
+        assert_eq!(config.metrics_interval_secs(), default_metrics_interval());
+    }
+
+    #[test]
+    fn test_tracing_configuration_with_opentelemetry() {
+        let otel_config = OpenTelemetryConfig::default()
+            .with_enabled(true)
+            .with_service_name("test-service".to_string())
+            .with_service_version("1.0.0".to_string());
+
+        let config = TracingConfiguration::default().with_opentelemetry_config(otel_config);
+
+        assert!(config.opentelemetry.enabled());
+        assert_eq!(config.opentelemetry.service_name(), "test-service");
+        assert_eq!(config.opentelemetry.service_version(), "1.0.0");
+    }
+
+    #[test]
+    fn test_enable_opentelemetry() {
+        let config = TracingConfiguration::default().enable_opentelemetry();
+        assert!(config.opentelemetry.enabled());
+    }
+
+    #[test]
+    fn test_with_metrics_interval() {
+        let config = TracingConfiguration::default().with_metrics_interval(60);
+        assert_eq!(config.opentelemetry.metrics_interval_secs(), 60);
+    }
+
+    #[test]
+    fn test_otel_guard_drop() {
+        // This test verifies that OtelGuard can be created and dropped without panicking
+        let config = TracingConfiguration::default();
+        let guard = config.setup_tracing_subscriber().unwrap();
+        drop(guard); // Should not panic
     }
 }

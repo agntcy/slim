@@ -6,18 +6,18 @@ version = "0.3.0"
 description = "Main service and public API to interact with AGP data plane."
 
 [dependencies]
-agp-config = { path = "../config", version = "0.1.6" }
-agp-datapath = { path = "../datapath", version = "0.5.0" }
-async-trait = "0.1.88"
-drain = { version = "0.1", features = ["retain"] }
-parking_lot = "0.12.3"
-rand = "0.9.0"
-serde = "1.0.217"
-thiserror = "2.0.9"
-tokio = "1.42.0"
-tokio-util = "0.7.14"
-tonic = "0.13"
-tracing = "0.1.41"
+agp-config = { workspace = true }
+agp-datapath = { workspace = true }
+async-trait = { workspace = true }
+drain = { workspace = true }
+parking_lot = { workspace = true }
+rand = { workspace = true }
+serde = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+tokio-util = { workspace = true }
+tonic = { workspace = true }
+tracing = { workspace = true }
 
 [dev-dependencies]
-tracing-test = { version = "0.2.5", features = ["no-env-filter"] }
+tracing-test = { workspace = true }

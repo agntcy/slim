@@ -485,7 +485,7 @@ mod test {
         assert_eq!(keepalive.tcp_keepalive, Duration::from_secs(60));
         assert_eq!(keepalive.http2_keepalive, Duration::from_secs(60));
         assert_eq!(keepalive.timeout, Duration::from_secs(10));
-        assert_eq!(keepalive.keep_alive_while_idle, false);
+        assert!(!keepalive.keep_alive_while_idle);
     }
 
     #[test]

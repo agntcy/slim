@@ -751,7 +751,7 @@ mod tests {
             let out = t.match_one(agent_type1.clone(), None, 100).unwrap();
             if out != 1 && out != 2 {
                 // the output must be 1 or 2
-                assert!(false);
+                panic!("the output must be 1 or 2");
             }
         }
 
@@ -780,7 +780,7 @@ mod tests {
             let out = t.match_one(agent_type2.clone(), Some(2), 100).unwrap();
             if out != 3 && out != 4 {
                 // the output must be 2 or 4
-                assert!(false);
+                panic!("the output must be 2 or 4");
             }
         }
 
