@@ -770,13 +770,13 @@ impl Service {
             None => {
                 error!("no controller server configured");
                 return Err(ServiceError::ConfigError(
-                    "no controller server configured".into()
+                    "no controller server configured".into(),
                 ));
             }
         };
 
         info!("controller server configured: setting it up");
-        
+
         let server_future = controller_server_config
             .to_server_future(&[ControllerServiceServer::from_arc(self.controller.clone())])
             .map_err(|e| ServiceError::ConfigError(e.to_string()))?;

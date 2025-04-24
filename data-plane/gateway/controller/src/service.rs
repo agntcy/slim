@@ -81,7 +81,9 @@ impl ControllerService {
                                                 None,
                                             )
                                             .await
-                                            .map_err(|e| ControllerError::ConnectionError(e.to_string()));
+                                            .map_err(|e| {
+                                                ControllerError::ConnectionError(e.to_string())
+                                            });
 
                                         let conn_id = match ret {
                                             Err(e) => {
@@ -123,7 +125,7 @@ impl ControllerService {
                             let agent_type = AgentType::from_strings(
                                 route.company.as_str(),
                                 route.namespace.as_str(),
-                                "gateway"
+                                "gateway",
                             );
 
                             let msg = PubsubMessage::new_subscribe(
@@ -155,12 +157,12 @@ impl ControllerService {
                                 route.company.as_str(),
                                 route.namespace.as_str(),
                                 "gateway",
-                                0
+                                0,
                             );
                             let agent_type = AgentType::from_strings(
                                 route.company.as_str(),
                                 route.namespace.as_str(),
-                                "gateway"
+                                "gateway",
                             );
 
                             let msg = PubsubMessage::new_unsubscribe(
@@ -185,7 +187,7 @@ impl ControllerService {
                             message_id: uuid::Uuid::new_v4().to_string(),
                             payload: Some(
                                 crate::api::proto::api::v1::control_message::Payload::Ack(ack),
-                            )
+                            ),
                         };
 
                         if let Err(e) = tx.send(Ok(reply)).await {
@@ -198,7 +200,10 @@ impl ControllerService {
                 }
             }
             None => {
-                println!("received control message {} with no payload", msg.message_id);
+                println!(
+                    "received control message {} with no payload",
+                    msg.message_id
+                );
             }
         }
 
@@ -269,11 +274,9 @@ impl ControllerService {
                 let ret = self.process_stream(stream.into_inner(), tx).await;
                 return Ok(ret);
             }
-            Err(_) => {
-                Err(ControllerError::ConnectionError(
-                    "reached max connection retries".to_string(),
-                ))
-            }
+            Err(_) => Err(ControllerError::ConnectionError(
+                "reached max connection retries".to_string(),
+            ))
         }
     }
 }
