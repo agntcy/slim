@@ -20,7 +20,7 @@ use serde_json::Value;
 use std::collections::HashMap;
 use thiserror::Error;
 use tokio::sync::mpsc;
-use tracing::{error, info, trace};
+use tracing::{debug, error, info, trace};
 
 #[derive(Error, Debug)]
 pub enum ProxyError {
@@ -93,7 +93,7 @@ impl Session {
                 client_info: params.client_info,
             };
 
-            info!("client paramters {:?}", client_info);
+            debug!("try to connect new client with paramters {:?}", client_info);
 
             // init session
             let transport = match SseTransport::start(mcp_server).await {
@@ -117,7 +117,7 @@ impl Session {
             };
 
             let server_info = client.peer_info();
-            info!("Connected to server: {server_info:#?}");
+            info!("new client onnected to server: {:?}", server_info);
 
             // reply
             let reply = ServerJsonRpcMessage::Response(JsonRpcResponse {
@@ -126,7 +126,7 @@ impl Session {
                 result: ServerResult::InitializeResult(server_info.clone()),
             });
 
-            info!("reply {:?}", reply);
+            debug!("init reply form server {:?}", reply);
 
             let vec = serde_json::to_vec(&reply).unwrap();
             let _ = tx_channel.send(Ok((agw_session.clone(), vec))).await;
@@ -134,7 +134,7 @@ impl Session {
             loop {
                 match rx_session.recv().await {
                     None => {
-                        info!("end of the stream, break");
+                        debug!("end of the stream, stop receiving loop");
                         break;
                     }
                     Some(result) => match result {
@@ -152,7 +152,7 @@ impl Session {
                                 }
                             };
 
-                            info!("parsed message {:?}", parsed);
+                            debug!("recevied new message {:?}", parsed);
 
                             // get the method
                             let method = match parsed.get("method") {
@@ -167,11 +167,11 @@ impl Session {
                                 }
                             };
 
-                            info!("method {:?}", method);
+                            trace!("method in new message {:?}", method);
 
                             if method.contains("notifications") {
                                 // send notification
-                                info!("received a notification");
+                                trace!("received a notification message, send to the server");
                                 let not: ClientNotification = match serde_json::from_slice(&payload)
                                 {
                                     Ok(not) => not,
@@ -183,14 +183,16 @@ impl Session {
                                     }
                                 };
 
-                                let _ = client.send_notification(not).await; 
+                                let _ = client.send_notification(not).await;
                             } else {
-                                info!("received a request");
+                                trace!(
+                                    "received a request message, extract id and send it to the server"
+                                );
                                 // the req id is always present in a request
                                 let req_id: NumberOrString =
                                     serde_json::from_value(parsed.get("id").unwrap().clone())
                                         .unwrap();
-                                info!("req id {:?}", req_id);
+                                trace!("req id {:?}", req_id);
 
                                 let request: ClientRequest = match serde_json::from_slice(&payload)
                                 {
@@ -203,7 +205,7 @@ impl Session {
                                     }
                                 };
 
-                                info!("client req {:?}", request);
+                                trace!("client req {:?}", request);
                                 let server_reply = match client.send_request(request).await {
                                     Ok(server_reply) => server_reply,
                                     Err(e) => {
@@ -214,7 +216,7 @@ impl Session {
                                     }
                                 };
 
-                                info!("reply {:?}", server_reply);
+                                trace!("reply from server {:?}", server_reply);
                                 let reply = ServerJsonRpcMessage::Response(JsonRpcResponse {
                                     jsonrpc: JsonRpcVersion2_0,
                                     id: req_id,
@@ -329,7 +331,7 @@ impl Proxy {
                 next_from_gw = gw_rx.recv() => {
                     match next_from_gw {
                         None => {
-                            info!("end of the stream, break");
+                            debug!("end of the stream, stop the loop");
                             break;
                         }
                         Some(result) => match result {
@@ -342,7 +344,7 @@ impl Proxy {
                                 let src = msg.message.get_source();
                                 match self.connections.get(&src) {
                                     None => {
-                                        info!("the source {} those not exists, create a new connection", src);
+                                        debug!("the source {} dose not exists, create a new connection", src);
 
                                         // get parameters to setup the connection
                                         let payload = msg.message.get_payload().unwrap().blob.to_vec();
@@ -355,9 +357,7 @@ impl Proxy {
                                             }
                                         };
 
-                                        info!("{:?}", request);
-
-                                        if request.request.method != "initialize" { // TODO check this if you can do better
+                                        if request.request.method != "initialize" {
                                             error!("received unexpected initalizatio method {}", request.request.method);
                                             continue;
                                         }
@@ -367,7 +367,7 @@ impl Proxy {
                                         self.connections.insert(src, session_tx);
                                     }
                                     Some(client) => {
-                                        info!("connection exists for source {}, forward MCP message", src);
+                                        debug!("connection exists for source {}, forward MCP message", src);
                                         let _ = client.send(Ok(msg.message)).await;
                                     }
                                 }
@@ -381,7 +381,7 @@ impl Proxy {
                 next_from_session = proxy_rx.recv() => {
                     match next_from_session {
                         None => {
-                            info!("end of the stream, ignore");
+                            debug!("end of the stream, ignore");
                         }
                         Some(result) => match result {
                             Ok((info, msg)) => {

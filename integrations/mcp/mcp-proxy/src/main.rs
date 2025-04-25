@@ -1,8 +1,8 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
-use agp_gw::config;
 use agp_datapath::messages::AgentType;
+use agp_gw::config;
 use clap::Parser;
 use tracing::{error, info};
 
