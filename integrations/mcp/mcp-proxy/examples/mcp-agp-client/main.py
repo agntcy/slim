@@ -39,4 +39,6 @@ async def main():
             assert tools is not None, "Failed to list tools"
             logger.info(f"Successfully retrieved tools: {tools}")
 
-asyncio.run(main())
+
+if __name__ == "__main__":
+    asyncio.run(main())
