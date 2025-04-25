@@ -1,35 +1,30 @@
+use agp_datapath::{
+    messages::{Agent, AgentType},
+    pubsub::proto::pubsub::v1::Message,
+};
+use agp_gw::config::ConfigResult;
+use agp_service::{FireAndForgetConfiguration, session, session::SessionConfig};
 use rmcp::{
     ServiceExt,
-    model::ClientInfo,
+    model::{
+        ClientInfo, ClientNotification, ClientRequest, InitializeRequestParam, JsonRpcRequest,
+        JsonRpcResponse, JsonRpcVersion2_0, NumberOrString, ServerJsonRpcMessage, ServerResult,
+    },
     transport::SseTransport,
 };
 
-use agp_datapath::messages::Agent;
-use agp_service::session::SessionConfig;
-use agp_service::FireAndForgetConfiguration;
-use tracing::{info, error, trace};
-use std::collections::HashMap;
-use rmcp::model::InitializeRequestParam;
-use rmcp::model::JsonRpcRequest;
-use rmcp::model::ServerJsonRpcMessage;
 use serde_json::Value;
-use rmcp::model::ServerResult;
-use rmcp::model::JsonRpcMessage;
-use rmcp::model::ClientNotification;
-use rmcp::model::ClientRequest;
-use agp_datapath::messages::AgentType;
-use agp_gw::config::ConfigResult;
-use agp_service::session;
-use tokio::sync::mpsc;
-use agp_datapath::pubsub::proto::pubsub::v1::Message;
+use std::collections::HashMap;
 use thiserror::Error;
+use tokio::sync::mpsc;
+use tracing::{error, info, trace};
 
 #[derive(Error, Debug)]
 pub enum ProxyError {
     #[error("Connection Error {0}")]
-    ConnectionError(String),
+    ConnectionFailed(String),
     #[error("MCP Client Creation Error {0}")]
-    ClientCreationError(String),
+    ClientCreationFailed(String),
     #[error("Parsion Error {0}")]
     ParsingError(String),
     #[error("Error Sending Message to MCP Server {0}")]
@@ -44,20 +39,42 @@ struct Session {
 }
 
 impl Session {
-    fn new (agw_session: session::Info, tx_proxy: mpsc::Sender<Result<(session::Info, Vec<u8>), ProxyError>>) -> Self {
+    fn new(
+        agw_session: session::Info,
+        tx_proxy: mpsc::Sender<Result<(session::Info, Vec<u8>), ProxyError>>,
+    ) -> Self {
         Session {
-            agw_session, tx_proxy,
+            agw_session,
+            tx_proxy,
         }
     }
 
-    async fn run_session(&self, mcp_server: String, request: JsonRpcRequest) -> mpsc::Sender<Result<Message, ProxyError>> {
+    async fn run_session(
+        &self,
+        mcp_server: String,
+        request: JsonRpcRequest,
+    ) -> mpsc::Sender<Result<Message, ProxyError>> {
         let (tx_session, mut rx_session) = mpsc::channel::<Result<Message, ProxyError>>(128);
         let tx_channel = self.tx_proxy.clone();
         let agw_session = self.agw_session.clone();
 
         tokio::spawn(async move {
             // get paramters from the request
-            let params = match serde_json::from_value::<InitializeRequestParam>(serde_json::Value::Object(request.request.params)) {
+            let with_meta = match request.request.params {
+                Some(with_meta) => with_meta,
+                None => {
+                    let _ = tx_channel
+                        .send(Err(ProxyError::ParsingError(
+                            "missing init paramters".to_string(),
+                        )))
+                        .await;
+                    return;
+                }
+            };
+
+            let params = match serde_json::from_value::<InitializeRequestParam>(
+                serde_json::Value::Object(with_meta.inner),
+            ) {
                 Ok(params) => params,
                 Err(e) => {
                     error!("error parsing init request parametes: {}", e.to_string());
@@ -79,15 +96,19 @@ impl Session {
             let transport = match SseTransport::start(mcp_server).await {
                 Ok(transport) => transport,
                 Err(e) => {
-                    let _ = tx_channel.send(Err(ProxyError::ConnectionError(e.to_string()))).await;
+                    let _ = tx_channel
+                        .send(Err(ProxyError::ConnectionFailed(e.to_string())))
+                        .await;
                     return;
-                } 
+                }
             };
 
             let client = match client_info.serve(transport).await {
                 Ok(client) => client,
                 Err(e) => {
-                    let _ = tx_channel.send(Err(ProxyError::ClientCreationError(e.to_string()))).await;
+                    let _ = tx_channel
+                        .send(Err(ProxyError::ClientCreationFailed(e.to_string())))
+                        .await;
                     return;
                 }
             };
@@ -96,10 +117,12 @@ impl Session {
             info!("Connected to server: {server_info:#?}");
 
             // reply
-            let reply = ServerJsonRpcMessage::response( 
-            ServerResult::InitializeResult(server_info.clone()),
-                req_id,
-            );
+            let reply = ServerJsonRpcMessage::Response(JsonRpcResponse {
+                jsonrpc: JsonRpcVersion2_0,
+                id: req_id,
+                result: ServerResult::InitializeResult(server_info.clone()),
+            });
+
             info!("reply {:?}", reply);
 
             let vec = serde_json::to_vec(&reply).unwrap();
@@ -119,7 +142,9 @@ impl Session {
                             let parsed: Value = match serde_json::from_slice(&payload) {
                                 Ok(parsed) => parsed,
                                 Err(e) => {
-                                    let _ = tx_channel.send(Err(ProxyError::ParsingError(e.to_string()))).await;
+                                    let _ = tx_channel
+                                        .send(Err(ProxyError::ParsingError(e.to_string())))
+                                        .await;
                                     continue;
                                 }
                             };
@@ -129,7 +154,11 @@ impl Session {
                             let method = match parsed.get("method") {
                                 Some(val) => val.to_string(),
                                 None => {
-                                    let _ = tx_channel.send(Err(ProxyError::ParsingError("missing method".to_string()))).await;
+                                    let _ = tx_channel
+                                        .send(Err(ProxyError::ParsingError(
+                                            "missing method".to_string(),
+                                        )))
+                                        .await;
                                     continue;
                                 }
                             };
@@ -138,31 +167,33 @@ impl Session {
 
                             if method.contains("notifications") {
                                 info!("received a notification");
-                                let not: ClientNotification = match serde_json::from_slice(&payload) {
+                                let not: ClientNotification = match serde_json::from_slice(&payload)
+                                {
                                     Ok(not) => not,
                                     Err(e) => {
-                                        let _ = tx_channel.send(Err(ProxyError::ParsingError(e.to_string()))).await;
+                                        let _ = tx_channel
+                                            .send(Err(ProxyError::ParsingError(e.to_string())))
+                                            .await;
                                         continue;
                                     }
-                                }; 
+                                };
 
-                                match client.send_notification(not).await {
-                                    Ok(()) => {}
-                                    Err(e) => {
-                                        let _ = tx_channel.send(Err(ProxyError::SendToMCPError(e.to_string()))).await;
-                                        continue;
-                                    }
-                                }
+                                let _ = client.send_notification(not).await; 
                             } else {
                                 info!("received a request");
                                 // the req id is always present in a request
-                                let req_id =  serde_json::from_value(parsed.get("id").unwrap().clone()).unwrap();
+                                let req_id: NumberOrString =
+                                    serde_json::from_value(parsed.get("id").unwrap().clone())
+                                        .unwrap();
                                 info!("req id {:?}", req_id);
 
-                                let request: ClientRequest = match serde_json::from_slice(&payload) {
+                                let request: ClientRequest = match serde_json::from_slice(&payload)
+                                {
                                     Ok(request) => request,
                                     Err(e) => {
-                                        let _ = tx_channel.send(Err(ProxyError::ParsingError(e.to_string()))).await;
+                                        let _ = tx_channel
+                                            .send(Err(ProxyError::ParsingError(e.to_string())))
+                                            .await;
                                         continue;
                                     }
                                 };
@@ -171,41 +202,44 @@ impl Session {
                                 let server_reply = match client.send_request(request).await {
                                     Ok(server_reply) => server_reply,
                                     Err(e) => {
-                                        let _ = tx_channel.send(Err(ProxyError::SendToMCPError(e.to_string()))).await;
+                                        let _ = tx_channel
+                                            .send(Err(ProxyError::SendToMCPError(e.to_string())))
+                                            .await;
                                         continue;
                                     }
                                 };
 
                                 info!("reply {:?}", server_reply);
-                                let parsed_reply = match serde_json::to_value(server_reply) {
-                                    Ok(parsed_reply) => parsed_reply,
-                                    Err(e) => {
-                                        let _ = tx_channel.send(Err(ProxyError::ParsingError(e.to_string()))).await;
-                                        continue;
-                                    }
-                                };
-                                let reply: JsonRpcMessage = JsonRpcMessage::response(parsed_reply.as_object().unwrap().clone(), req_id);
+                                let reply = ServerJsonRpcMessage::Response(JsonRpcResponse {
+                                    jsonrpc: JsonRpcVersion2_0,
+                                    id: req_id,
+                                    result: server_reply,
+                                });
+
                                 let reply_bytes = match serde_json::to_vec(&reply) {
                                     Ok(reply_bytes) => reply_bytes,
                                     Err(e) => {
-                                        let _ = tx_channel.send(Err(ProxyError::ParsingError(e.to_string()))).await;
+                                        let _ = tx_channel
+                                            .send(Err(ProxyError::ParsingError(e.to_string())))
+                                            .await;
                                         continue;
                                     }
                                 };
-                                let _ = tx_channel.send(Ok((agw_session.clone(), reply_bytes))).await;
+                                let _ = tx_channel
+                                    .send(Ok((agw_session.clone(), reply_bytes)))
+                                    .await;
                             }
                         }
                         Err(e) => {
                             error!("received error message: {:?}", e);
                         }
-                    }
+                    },
                 }
             }
         });
         tx_session
     }
 }
-
 
 pub struct Proxy {
     name: Agent,
@@ -216,17 +250,21 @@ pub struct Proxy {
 }
 
 impl Proxy {
-    pub fn new(name: AgentType, id: Option<u64>, config: ConfigResult, svc_id: agp_config::component::id::ID, mcp_server: String) -> Self {
+    pub fn new(
+        name: AgentType,
+        id: Option<u64>,
+        config: ConfigResult,
+        svc_id: agp_config::component::id::ID,
+        mcp_server: String,
+    ) -> Self {
         let agent_id = match id {
-            None => {
-                rand::random::<u64>()
-            }
-            Some(id) => id
+            None => rand::random::<u64>(),
+            Some(id) => id,
         };
 
         let agent_name = Agent::new(name, agent_id);
 
-        Proxy{
+        Proxy {
             name: agent_name,
             config,
             svc_id,
@@ -254,12 +292,13 @@ impl Proxy {
 
         // subscribe for local name
         match svc
-        .subscribe(
-            &self.name,
-            self.name.agent_type(),
-            self.name.agent_id_option(),
-            Some(conn_id),
-        ).await
+            .subscribe(
+                &self.name,
+                self.name.agent_type(),
+                self.name.agent_id_option(),
+                Some(conn_id),
+            )
+            .await
         {
             Ok(_) => {}
             Err(e) => {
@@ -270,7 +309,7 @@ impl Proxy {
         let res = svc
             .create_session(
                 &self.name,
-                SessionConfig::FireAndForget(FireAndForgetConfiguration {})
+                SessionConfig::FireAndForget(FireAndForgetConfiguration {}),
             )
             .await;
         if res.is_err() {
@@ -325,7 +364,7 @@ impl Proxy {
                                                 continue;
                                             }
                                         };
-                                        
+
                                         info!("Version {:?}", params.protocol_version);
                                         info!("Capabilities {:?}", params.capabilities);
                                         info!("client info {:?}", params.client_info);*/
@@ -382,7 +421,7 @@ impl Proxy {
                                         error!("error while sending message to agent {:?}: {}", src, e.to_string());
                                     }
                                 }
-                            }   
+                            }
                             Err(e) => {
                                 error!("an error occured: {}", e.to_string());
                             }

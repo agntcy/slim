@@ -1,9 +1,7 @@
-
 use agp_gw::config;
-//use tracing::{info, error, trace};
 use agp_datapath::messages::AgentType;
 use clap::Parser;
-use tracing::{info, error};
+use tracing::{error, info};
 
 mod proxy;
 
@@ -47,7 +45,7 @@ impl Args {
     pub fn id(&self) -> Option<&u64> {
         self.id.as_ref()
     }
-    
+
     pub fn mcp_server(&self) -> &String {
         &self.mcp_server
     }
@@ -75,9 +73,13 @@ async fn main() {
     let _guard = config.tracing.setup_tracing_subscriber();
 
     let mut proxy = proxy::Proxy::new(
-        AgentType::from_strings(v_name[0], v_name[1], v_name[2]), 
-        id.copied(), config, svc_id, server.clone());
-    
+        AgentType::from_strings(v_name[0], v_name[1], v_name[2]),
+        id.copied(),
+        config,
+        svc_id,
+        server.clone(),
+    );
+
     info!("starting MCP proxy");
     proxy.start().await;
 }

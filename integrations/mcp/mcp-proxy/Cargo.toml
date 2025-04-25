@@ -8,18 +8,15 @@ agp-config = { path = "../../../data-plane/gateway/config", version = "0.1.6" }
 agp-datapath = { path = "../../../data-plane/gateway/datapath", version = "0.5.0" }
 agp-gw = { path = "../../../data-plane/gateway/gateway", version = "0.3.11" }
 agp-service = { path = "../../../data-plane/gateway/service", version = "0.3.0" }
-tokio = { version = "1", features = ["full"] }
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
-tracing = "0.1.41"
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-anyhow = "1.0"
-rmcp = { git = "https://github.com/modelcontextprotocol/rust-sdk", branch = "main", features = [
+clap = "4.5.37"
+rand = "0.9.1"
+rmcp = { version = "0.1.5", features = [
     "client",
     "transport-sse",
     "transport-child-process",
     "tower"
 ] }
-rand = "0.9.1"
+serde_json = "1.0"
 thiserror = "2.0.12"
-clap = "4.5.37"
+tokio = { version = "1", features = ["full"] }
+tracing = "0.1.41"
