@@ -215,7 +215,7 @@ impl Session {
                                 };
 
                                 info!("reply {:?}", server_reply);
-                                let reply = ServerJsonRpcMessage::(JsonRpcResponse {
+                                let reply = ServerJsonRpcMessage::Response(JsonRpcResponse {
                                     jsonrpc: JsonRpcVersion2_0,
                                     id: req_id,
                                     result: server_reply,

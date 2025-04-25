@@ -39,6 +39,10 @@ async def main():
             assert tools is not None, "Failed to list tools"
             logger.info(f"Successfully retrieved tools: {tools}")
 
+            # Test use fetch tool
+            res = await mcp_session.call_tool("fetch", {"url": "https://example.com"})
+            assert res is not None, "Failed to use the fetch tool"
+            logger.info(f"Successfully used tool: {res}")
 
 if __name__ == "__main__":
     asyncio.run(main())
