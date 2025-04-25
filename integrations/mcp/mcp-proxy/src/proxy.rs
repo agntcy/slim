@@ -138,7 +138,7 @@ impl Session {
                         Ok(msg) => {
                             // received a message to forward to the MCP server
                             let payload = msg.get_payload().unwrap().blob.to_vec();
-                            // this should be done in better way
+                            // parse the json
                             let parsed: Value = match serde_json::from_slice(&payload) {
                                 Ok(parsed) => parsed,
                                 Err(e) => {
@@ -151,6 +151,7 @@ impl Session {
 
                             info!("parsed message {:?}", parsed);
 
+                            // get the method
                             let method = match parsed.get("method") {
                                 Some(val) => val.to_string(),
                                 None => {
@@ -166,6 +167,7 @@ impl Session {
                             info!("method {:?}", method);
 
                             if method.contains("notifications") {
+                                // send notification
                                 info!("received a notification");
                                 let not: ClientNotification = match serde_json::from_slice(&payload)
                                 {
@@ -210,7 +212,7 @@ impl Session {
                                 };
 
                                 info!("reply {:?}", server_reply);
-                                let reply = ServerJsonRpcMessage::Response(JsonRpcResponse {
+                                let reply = ServerJsonRpcMessage::(JsonRpcResponse {
                                     jsonrpc: JsonRpcVersion2_0,
                                     id: req_id,
                                     result: server_reply,
@@ -356,18 +358,6 @@ impl Proxy {
                                             error!("received unexpected initalizatio method {}", request.request.method);
                                             continue;
                                         }
-
-                                        /*let params = match serde_json::from_value::<InitializeRequestParam>(serde_json::Value::Object(request.request.params)) {
-                                            Ok(params) => params,
-                                            Err(e) => {
-                                                error!("error parsing init request parametes: {}", e.to_string());
-                                                continue;
-                                            }
-                                        };
-
-                                        info!("Version {:?}", params.protocol_version);
-                                        info!("Capabilities {:?}", params.capabilities);
-                                        info!("client info {:?}", params.client_info);*/
 
                                         let session = Session::new(msg.info.clone(), proxy_tx.clone());
                                         let session_tx = session.run_session(self.mcp_server.clone(), request).await;

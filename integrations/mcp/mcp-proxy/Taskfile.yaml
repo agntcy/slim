@@ -19,9 +19,15 @@ tasks:
   default:
     cmds:
       - task -l
-
   mcp-porxy:run-mcp-server:
     desc: run mcp server
+    cmds:
+      - |
+        cd examples/mcp-server/
+        uv run main.py --port 8000
+
+  mcp-porxy:run-mcp-server2:
+    desc: run mcp server2
     cmds:
       - |
         cd examples/simple-tool/

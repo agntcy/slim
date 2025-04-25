@@ -1,9 +1,14 @@
-import anyio
+# Copyright AGNTCY Contributors (https://github.com/agntcy)
+# SPDX-License-Identifier: Apache-2.0
+
 import click
 import httpx
 import mcp.types as types
 from mcp.server.lowlevel import Server
-
+from mcp.server.sse import SseServerTransport
+from starlette.applications import Starlette
+from starlette.routing import Mount, Route
+import uvicorn
 
 async def fetch_website(
     url: str,
@@ -16,17 +21,11 @@ async def fetch_website(
         response.raise_for_status()
         return [types.TextContent(type="text", text=response.text)]
 
-
 @click.command()
 @click.option("--port", default=8000, help="Port to listen on for SSE")
-@click.option(
-    "--transport",
-    type=click.Choice(["stdio", "sse"]),
-    default="stdio",
-    help="Transport type",
-)
-def main(port: int, transport: str) -> int:
-    app = Server("mcp-website-fetcher")
+
+def main(port: int):
+    app = Server("mcp-server")
 
     @app.call_tool()
     async def fetch_tool(
@@ -57,41 +56,25 @@ def main(port: int, transport: str) -> int:
             )
         ]
 
-    if transport == "sse":
-        from mcp.server.sse import SseServerTransport
-        from starlette.applications import Starlette
-        from starlette.routing import Mount, Route
+    sse = SseServerTransport("/messages/")
 
-        sse = SseServerTransport("/messages/")
+    async def handle_sse(request):
+        async with sse.connect_sse(
+            request.scope, request.receive, request._send
+        ) as streams:
+            await app.run(
+                streams[0], streams[1], app.create_initialization_options()
+            )
 
-        async def handle_sse(request):
-            async with sse.connect_sse(
-                request.scope, request.receive, request._send
-            ) as streams:
-                await app.run(
-                    streams[0], streams[1], app.create_initialization_options()
-                )
+    starlette_app = Starlette(
+        debug=True,
+        routes=[
+            Route("/sse", endpoint=handle_sse),
+            Mount("/messages/", app=sse.handle_post_message),
+        ],
+    )
 
-        starlette_app = Starlette(
-            debug=True,
-            routes=[
-                Route("/sse", endpoint=handle_sse),
-                Mount("/messages/", app=sse.handle_post_message),
-            ],
-        )
+    uvicorn.run(starlette_app, host="0.0.0.0", port=port)
 
-        import uvicorn
-
-        uvicorn.run(starlette_app, host="0.0.0.0", port=port)
-    else:
-        from mcp.server.stdio import stdio_server
-
-        async def arun():
-            async with stdio_server() as streams:
-                await app.run(
-                    streams[0], streams[1], app.create_initialization_options()
-                )
-
-        anyio.run(arun)
-
-    return 0
+if __name__ == "__main__":
+    main()
