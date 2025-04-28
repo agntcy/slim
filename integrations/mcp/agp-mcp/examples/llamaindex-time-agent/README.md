@@ -1,7 +1,8 @@
 # LlamaIndex Time Agent
 
 A Langchain client that uses MCP server for time queries and timezone conversions.
-This application demonstrates how to integrate LlamaIndex with MCP.
+This application demonstrates how to integrate a llamaindex agent with MCP using
+AGP as transport.
 
 ## Features
 
