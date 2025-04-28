@@ -6,9 +6,9 @@ edition = "2024"
 
 [dependencies]
 agp-config = { path = "../../../data-plane/gateway/config", version = "0.1.6" }
-agp-datapath = { path = "../../../data-plane/gateway/datapath", version = "0.5.0" }
+agp-datapath = { path = "../../../data-plane/gateway/datapath", version = "0.6.0" }
 agp-gw = { path = "../../../data-plane/gateway/gateway", version = "0.3.11" }
-agp-service = { path = "../../../data-plane/gateway/service", version = "0.3.0" }
+agp-service = { path = "../../../data-plane/gateway/service", version = "0.4.0" }
 clap = "4.5.37"
 rand = "0.9.1"
 rmcp =  { version = "0.1.5", features = [
