@@ -1,0 +1,42 @@
+[graph]
+targets = [
+    { triple = "x86_64-unknown-linux-gnu" },
+    { triple = "aarch64-unknown-linux-gnu" },
+    { triple = "armv7-unknown-linux-gnu" },
+]
+
+[advisories]
+db-path = "~/.cargo/advisory-db"
+db-urls = ["https://github.com/rustsec/advisory-db"]
+
+[licenses]
+allow = [
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "MIT",
+    "Unicode-3.0",
+    "OpenSSL",
+]
+# Ignore local workspace license values for unpublished crates.
+private = { ignore = true }
+confidence-threshold = 0.8
+exceptions = []
+
+[bans]
+# TODO: Remove duplicate dependencies.
+multiple-versions = "allow"
+wildcards = "allow"
+highlight = "all"
+# deny = [
+#    # rustls-webpki is the correct one
+#    { name = "webpki" },
+# ]
+skip = []
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]

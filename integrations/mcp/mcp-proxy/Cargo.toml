@@ -1,6 +1,7 @@
 [package]
 name = "mcp-proxy"
 version = "0.1.0"
+license = "Apache-2.0"
 edition = "2024"
 
 [dependencies]
@@ -10,11 +11,9 @@ agp-gw = { path = "../../../data-plane/gateway/gateway", version = "0.3.11" }
 agp-service = { path = "../../../data-plane/gateway/service", version = "0.3.0" }
 clap = "4.5.37"
 rand = "0.9.1"
-rmcp = { version = "0.1.5", features = [
+rmcp =  { version = "0.1.5", features = [
     "client",
     "transport-sse",
-    "transport-child-process",
-    "tower"
 ] }
 serde_json = "1.0"
 thiserror = "2.0.12"
