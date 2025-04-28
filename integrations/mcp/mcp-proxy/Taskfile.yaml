@@ -10,16 +10,24 @@ set: [pipefail]
 shopt: [globstar]
 
 includes:
-  data-plane:
+  mcp-proxy:
     taskfile: ../../../tasks/rust.yaml
-    vars:
-      GLOBAL_ARGS: "--workspace"
+
+vars:
+  CARGO_COMPONENTS: "cargo-sort cargo-audit cargo-llvm-cov cargo-machete@0.7.0 cargo-deny@0.17.0 typos-cli"
 
 tasks:
-  default:
+  mcp-proxy:bindings:test:
+    desc: "Test the Python bindings"
     cmds:
-      - task -l
-  mcp-porxy:run-mcp-server:
+      - echo "no python bindings exists for mcp-proxy"
+
+  mcp-proxy:lint:
+    desc: "Run the linter"
+    cmds:
+      - task: mcp-proxy:lintall
+
+  mcp-proxy:run-mcp-server:
     desc: run mcp server using SSE transport
     cmds:
       - |

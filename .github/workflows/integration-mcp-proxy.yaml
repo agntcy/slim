@@ -24,3 +24,4 @@ jobs:
     uses: ./.github/workflows/reusable-rust-build-and-test.yaml
     with:
       working-directory: ./integrations/mcp/mcp-proxy
+      task-prefix: mcp-proxy

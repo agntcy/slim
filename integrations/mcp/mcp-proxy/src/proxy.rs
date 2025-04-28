@@ -62,13 +62,13 @@ impl Session {
         let agw_session = self.agw_session.clone();
 
         tokio::spawn(async move {
-            // get paramters from the request
+            // get parameters from the request
             let with_meta = match request.request.params {
                 Some(with_meta) => with_meta,
                 None => {
                     let _ = tx_channel
                         .send(Err(ProxyError::ParsingError(
-                            "missing init paramters".to_string(),
+                            "missing init parameters".to_string(),
                         )))
                         .await;
                     return;
@@ -80,7 +80,7 @@ impl Session {
             ) {
                 Ok(params) => params,
                 Err(e) => {
-                    error!("error parsing init request parametes: {}", e.to_string());
+                    error!("error parsing init request parameters: {}", e.to_string());
                     return;
                 }
             };
@@ -93,7 +93,10 @@ impl Session {
                 client_info: params.client_info,
             };
 
-            debug!("try to connect new client with paramters {:?}", client_info);
+            debug!(
+                "try to connect new client with parameters {:?}",
+                client_info
+            );
 
             // init session
             let transport = match SseTransport::start(mcp_server).await {
@@ -152,7 +155,7 @@ impl Session {
                                 }
                             };
 
-                            debug!("recevied new message {:?}", parsed);
+                            debug!("received new message {:?}", parsed);
 
                             // get the method
                             let method = match parsed.get("method") {
@@ -373,7 +376,7 @@ impl Proxy {
                                 }
                             }
                             Err(e) => {
-                                error!("an error occured while receiving a message {:?}", e);
+                                error!("an error occurred while receiving a message {:?}", e);
                             }
                         }
                     }
@@ -388,7 +391,7 @@ impl Proxy {
                                 let src = match info.message_source {
                                     Some(ref s) => s.clone(),
                                     None => {
-                                        error!("cannot send reply message, unkwon destionation");
+                                        error!("cannot send reply message, unkwon destination");
                                         continue;
                                     }
                                 };
@@ -408,7 +411,7 @@ impl Proxy {
                                     msg,
                                 ).await {
                                     Ok(()) => {
-                                        trace!("sent message to destionation {:?}", src);
+                                        trace!("sent message to destination {:?}", src);
                                     }
                                     Err(e) => {
                                         error!("error while sending message to agent {:?}: {}", src, e.to_string());
@@ -416,7 +419,7 @@ impl Proxy {
                                 }
                             }
                             Err(e) => {
-                                error!("an error occured: {}", e.to_string());
+                                error!("an error occurred: {}", e.to_string());
                             }
                         }
                     }
