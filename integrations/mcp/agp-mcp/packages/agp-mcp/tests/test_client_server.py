@@ -64,7 +64,9 @@ async def handle_sessions(mcp_app: Server, agp_server: AGPServer):
                     raise
 
             task = asyncio.create_task(handle_session(new_session))
-            task.add_done_callback(tasks.discard(task))  # Remove task from set when done
+            task.add_done_callback(
+                tasks.discard(task)
+            )  # Remove task from set when done
             tasks.add(task)
 
             # Log new session
