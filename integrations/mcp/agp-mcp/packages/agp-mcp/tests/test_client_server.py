@@ -16,7 +16,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # Test configuration
-TEST_ORG = "cisco"
+TEST_ORG = "org"
 TEST_NS = "default"
 TEST_MCP_SERVER = "mcp1"
 TEST_CLIENT_ID = "client1"

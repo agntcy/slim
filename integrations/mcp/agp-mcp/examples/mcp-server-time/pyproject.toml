@@ -1,3 +1,6 @@
+# Copyright AGNTCY Contributors (https://github.com/agntcy)
+# SPDX-License-Identifier: Apache-2.0
+
 [project]
 name = "mcp-server-time"
 version = "0.6.2"
