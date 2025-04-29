@@ -1,6 +1,6 @@
 # LlamaIndex Time Agent
 
-A Langchain client that uses MCP server for time queries and timezone conversions.
+A llamaindex agent that uses a MCP server over AGP for time queries and timezone conversions.
 This application demonstrates how to integrate a llamaindex agent with MCP using
 AGP as transport.
 
@@ -9,7 +9,6 @@ AGP as transport.
 - Time queries and timezone conversions using MCP server
 - Support for multiple LLM backends (Azure OpenAI and Ollama)
 - Interactive command-line interface
-- Configurable MCP server connection
 
 ## Prerequisites
 
@@ -20,7 +19,9 @@ AGP as transport.
 
 ## Configuration
 
-The application can be configured using command-line arguments or environment variables. All options can be set using environment variables with the `TIME_AGENT_` prefix. For example, `--llm-type` becomes `TIME_AGENT_LLM_TYPE`.
+The application can be configured using command-line arguments or environment
+variables. All options can be set using environment variables with the `TIME_AGENT_`
+prefix. For example, `--llm-type` becomes `TIME_AGENT_LLM_TYPE`.
 
 Available options:
 
