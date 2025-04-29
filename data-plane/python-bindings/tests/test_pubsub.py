@@ -99,7 +99,7 @@ async def test_streaming(server):
                         )
 
                         # wait a moment to simulate processing time
-                        time.sleep(1)
+                        await asyncio.sleep(1)
 
                         # as the message is for this specific participant, we can
                         # reply to the session and call out the next participant
@@ -132,7 +132,7 @@ async def test_streaming(server):
         task = asyncio.create_task(background_task(i))
         task.set_name(f"participant-{i}")
         participants.append(task)
-        time.sleep(0.1)
+        await asyncio.sleep(0.1)
 
     # Wait for the task to complete
     for task in participants:

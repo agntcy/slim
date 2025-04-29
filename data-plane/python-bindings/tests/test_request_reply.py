@@ -144,26 +144,24 @@ async def test_request_reply(server):
     async with gateway1, gateway2:
         # create background task for gateway1
         async def background_task():
-            while True:
-                try:
-                    # wait for message from any new session
-                    recv_session, _ = await gateway1.receive()
+            try:
+                # wait for message from any new session
+                recv_session, _ = await gateway1.receive()
 
-                    # receive message from session
-                    recv_session, msg_rcv = await gateway1.receive(
-                        session=recv_session.id
-                    )
+                # receive message from session
+                recv_session, msg_rcv = await gateway1.receive(
+                    session=recv_session.id
+                )
 
-                    # make sure the message is correct
-                    assert msg_rcv == bytes(pub_msg)
+                # make sure the message is correct
+                assert msg_rcv == bytes(pub_msg)
 
-                    # reply to the session
-                    await gateway1.publish_to(recv_session, res_msg)
-                except Exception as e:
-                    print("Error receiving message on gateway1:", e)
-                    break
-
-        asyncio.create_task(background_task())
+                # reply to the session
+                await gateway1.publish_to(recv_session, res_msg)
+            except Exception as e:
+                print("Error receiving message on gateway1:", e)
+        
+        t = asyncio.create_task(background_task())
 
         # send a request and expect a response in gateway2
         session_info, message = await gateway2.request_reply(
@@ -172,3 +170,6 @@ async def test_request_reply(server):
 
         # check if the message is correct
         assert message == bytes(res_msg)
+
+        # wait for task to finish
+        await t

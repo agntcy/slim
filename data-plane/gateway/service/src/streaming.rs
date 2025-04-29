@@ -115,7 +115,7 @@ impl timer::TimerObserver for RtxTimerObserver {
             .await
             .is_err()
         {
-            error!("error notifying the process loop");
+            error!("error notifying the process loop - rtx timer");
         }
     }
 
@@ -132,7 +132,7 @@ impl timer::TimerObserver for RtxTimerObserver {
             .await
             .is_err()
         {
-            error!("error notifying the process loop");
+            error!("error notifying the process loop - rtx timer failure");
         }
     }
 
@@ -156,7 +156,7 @@ impl timer::TimerObserver for ProducerTimerObserver {
 
         // notify the process loop
         if self.channel.send(Ok(())).await.is_err() {
-            error!("error notifying the process loop");
+            error!("error notifying the process loop - producer timer");
         }
     }
 
