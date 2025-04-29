@@ -996,7 +996,6 @@ dependencies = [
     { name = "llama-index-llms-openai-like" },
     { name = "llama-index-tools-mcp" },
     { name = "mcp" },
-    { name = "python-dotenv" },
 ]
 
 [package.dev-dependencies]
@@ -1017,7 +1016,6 @@ requires-dist = [
     { name = "llama-index-llms-openai-like", specifier = ">=0.3.4" },
     { name = "llama-index-tools-mcp", specifier = ">=0.1.2" },
     { name = "mcp", specifier = ">=1.0.0" },
-    { name = "python-dotenv", specifier = ">=1.0.1" },
 ]
 
 [package.metadata.requires-dev]

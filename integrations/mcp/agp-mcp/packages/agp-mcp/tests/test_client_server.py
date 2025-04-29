@@ -65,7 +65,7 @@ async def handle_sessions(mcp_app: Server, agp_server: AGPServer):
 
             task = asyncio.create_task(handle_session(new_session))
             task.add_done_callback(
-                tasks.discard(task)
+                lambda t: tasks.discard(t)
             )  # Remove task from set when done
             tasks.add(task)
 
@@ -114,7 +114,7 @@ def example_tool() -> types.Tool:
 @pytest.fixture
 def mcp_app(example_tool: types.Tool) -> Server:
     """Create and configure an MCP server application."""
-    app = Server("example-server")
+    app: Server = Server("example-server")
 
     @app.list_tools()
     async def list_tools() -> list[types.Tool]:

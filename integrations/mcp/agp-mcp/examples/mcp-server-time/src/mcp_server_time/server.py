@@ -6,22 +6,21 @@ MCP Time Server - A server implementation for time and timezone conversion funct
 This module provides tools for getting current time in different timezones and converting times between timezones.
 """
 
+import asyncio
+import json
+import logging
+from collections.abc import Sequence
 from datetime import datetime, timedelta
 from enum import Enum
-import json
-from typing import Sequence
-import logging
-import asyncio
+from zoneinfo import ZoneInfo
 
 import click
-from agp_mcp import AGPServer, init_tracing
-
-from zoneinfo import ZoneInfo
-from mcp.server.lowlevel import Server
 from mcp import types
+from mcp.server.lowlevel import Server
 from mcp.shared.exceptions import McpError
-
 from pydantic import BaseModel
+
+from agp_mcp import AGPServer, init_tracing
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -79,7 +78,12 @@ def get_local_tz(local_tz_override: str | None = None) -> ZoneInfo:
     tzinfo = datetime.now().astimezone(tz=None).tzinfo
     if tzinfo is not None:
         return ZoneInfo(str(tzinfo))
-    raise McpError("Could not determine local timezone - tzinfo is None")
+    raise McpError(
+        types.ErrorData(
+            code=types.INTERNAL_ERROR,
+            message="Could not determine local timezone - tzinfo is None",
+        )
+    )
 
 
 def get_zoneinfo(timezone_name: str) -> ZoneInfo:
@@ -98,7 +102,12 @@ def get_zoneinfo(timezone_name: str) -> ZoneInfo:
     try:
         return ZoneInfo(timezone_name)
     except Exception as e:
-        raise McpError(f"Invalid timezone: {str(e)}")
+        raise McpError(
+            types.ErrorData(
+                code=types.INTERNAL_ERROR,
+                message=f"Invalid timezone: {str(e)}",
+            )
+        )
 
 
 class TimeServer:
@@ -199,7 +208,7 @@ class TimeServerApp:
         Args:
             local_timezone: Optional override for local timezone
         """
-        self.app = Server("mcp-time")
+        self.app: Server = Server("mcp-time")
         self.time_server = TimeServer()
         self.local_tz = str(get_local_tz(local_timezone))
         self._setup_tools()
@@ -271,6 +280,9 @@ class TimeServerApp:
             Raises:
                 ValueError: If tool name is unknown or arguments are invalid
             """
+
+            result: TimeResult | TimeConversionResult
+
             try:
                 match name:
                     case TimeTools.GET_CURRENT_TIME.value:
@@ -372,7 +384,7 @@ async def serve(
     await init_tracing({"log_level": "info"})
 
     time_app = TimeServerApp(local_timezone)
-    tasks = set()
+    tasks: set[asyncio.Task] = set()
 
     async with AGPServer(config, organization, namespace, mcp_server) as agp_server:
         try:

@@ -6,12 +6,10 @@ import logging
 
 import click
 from dotenv import load_dotenv
-
-from llama_index.tools.mcp import McpToolSpec
 from llama_index.core.agent.workflow import ReActAgent
-from llama_index.core.memory import ChatMemoryBuffer
-from llama_index.llms.ollama import Ollama
 from llama_index.llms.azure_openai import AzureOpenAI
+from llama_index.llms.ollama import Ollama
+from llama_index.tools.mcp import McpToolSpec
 
 from agp_mcp import AGPClient
 
@@ -20,6 +18,7 @@ logger = logging.getLogger(__name__)
 
 # load .env file
 load_dotenv()
+
 
 async def amain(
     llm_type, llm_endpoint, llm_key, organization, namespace, mcp_server, city, config
