@@ -17,7 +17,9 @@ async def server(request):
     svc_server = await agp_bindings.create_pyservice("cisco", "default", "server")
 
     # init tracing
-    agp_bindings.init_tracing({"log_level": "info"})
+    agp_bindings.init_tracing(
+        {"log_level": "info", "opentelemetry": {"enabled": False}}
+    )
 
     # run gateway server in background
     await agp_bindings.run_server(

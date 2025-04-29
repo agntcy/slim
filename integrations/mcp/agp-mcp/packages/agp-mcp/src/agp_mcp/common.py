@@ -117,13 +117,7 @@ class AGPBase(ABC):
 
             # connect to AGP server
             logger.info(
-                "Connecting to AGP server",
-                extra={
-                    "endpoint": self.config[CONFIG_ENDPOINT_KEY],
-                    "local_org": self.local_organization,
-                    "local_namespace": self.local_namespace,
-                    "local_agent": self.local_agent,
-                },
+                f"Connecting to AGP server: {self.config}",
             )
             try:
                 await self.gateway.connect(self.config)

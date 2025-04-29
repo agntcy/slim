@@ -16,7 +16,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # Test configuration
-TEST_ORG = "cisco"
+TEST_ORG = "org"
 TEST_NS = "default"
 TEST_MCP_SERVER = "mcp1"
 TEST_CLIENT_ID = "client1"
@@ -64,7 +64,9 @@ async def handle_sessions(mcp_app: Server, agp_server: AGPServer):
                     raise
 
             task = asyncio.create_task(handle_session(new_session))
-            task.add_done_callback(tasks.discard(task))  # Remove task from set when done
+            task.add_done_callback(
+                lambda t: tasks.discard(t)
+            )  # Remove task from set when done
             tasks.add(task)
 
             # Log new session
@@ -112,7 +114,7 @@ def example_tool() -> types.Tool:
 @pytest.fixture
 def mcp_app(example_tool: types.Tool) -> Server:
     """Create and configure an MCP server application."""
-    app = Server("example-server")
+    app: Server = Server("example-server")
 
     @app.list_tools()
     async def list_tools() -> list[types.Tool]:
