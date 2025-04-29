@@ -51,6 +51,10 @@ on:
         required: false
         type: string
         default: .
+      task-prefix:
+        description: "Prefix to use for task commands data-plane or mcp-proxy"
+        type: string
+        default: data-plane
 
 jobs:
   setup-environment:
@@ -70,7 +74,7 @@ jobs:
       - name: Get components hash
         id: get_hash
         run: |
-          COMPONENTS_HASH=$(task data-plane:tools:hash)
+          COMPONENTS_HASH=$(task ${{ inputs.task-prefix }}:tools:hash)
           echo "components_hash=$COMPONENTS_HASH" >> $GITHUB_OUTPUT
 
       - name: Setup Rust Caching
@@ -84,8 +88,8 @@ jobs:
 
       - name: Install dependencies
         run: |
-          task data-plane:fetch
-          task data-plane:tools:fetch
+          task ${{ inputs.task-prefix }}:fetch
+          task ${{ inputs.task-prefix }}:tools:fetch
 
   lint:
     runs-on: ${{ inputs.runner }}
@@ -106,7 +110,7 @@ jobs:
       - name: Get components hash
         id: get_hash
         run: |
-          COMPONENTS_HASH=$(task data-plane:tools:hash)
+          COMPONENTS_HASH=$(task ${{ inputs.task-prefix }}:tools:hash)
           echo "components_hash=$COMPONENTS_HASH" >> $GITHUB_OUTPUT
 
       - name: Setup Rust Caching
@@ -128,7 +132,7 @@ jobs:
 
       - name: lint
         run: |
-          task data-plane:lint
+          task ${{ inputs.task-prefix }}:lint
 
   rustvulncheck:
     runs-on: ${{ inputs.runner }}
@@ -152,7 +156,7 @@ jobs:
       - name: Get components hash
         id: get_hash
         run: |
-          COMPONENTS_HASH=$(task data-plane:tools:hash)
+          COMPONENTS_HASH=$(task ${{ inputs.task-prefix }}:tools:hash)
           echo "components_hash=$COMPONENTS_HASH" >> $GITHUB_OUTPUT
 
       - name: Setup Rust Caching
@@ -166,7 +170,7 @@ jobs:
 
       - name: Run `vuln`
         run: |
-          task data-plane:vuln
+          task ${{ inputs.task-prefix }}:vuln
 
   test-coverage:
     runs-on: ${{ inputs.runner }}
@@ -189,7 +193,7 @@ jobs:
       - name: Get components hash
         id: get_hash
         run: |
-          COMPONENTS_HASH=$(task data-plane:tools:hash)
+          COMPONENTS_HASH=$(task ${{ inputs.task-prefix }}:tools:hash)
           echo "components_hash=$COMPONENTS_HASH" >> $GITHUB_OUTPUT
 
       - name: Setup Rust Caching
@@ -203,7 +207,7 @@ jobs:
 
       - name: Run `coverage`
         run: |
-          task data-plane:test:coverage
+          task ${{ inputs.task-prefix }}:test:coverage
 
   unittest-matrix:
     runs-on: ${{ inputs.runner }}
@@ -226,7 +230,7 @@ jobs:
       - name: Get components hash
         id: get_hash
         run: |
-          COMPONENTS_HASH=$(task data-plane:tools:hash)
+          COMPONENTS_HASH=$(task ${{ inputs.task-prefix }}:tools:hash)
           echo "components_hash=$COMPONENTS_HASH" >> $GITHUB_OUTPUT
 
       - name: Setup Rust Caching
@@ -248,7 +252,7 @@ jobs:
 
       - name: Run Unit Tests
         run: |
-          task data-plane:test
+          task ${{ inputs.task-prefix }}:test
 
   unittest:
     runs-on: ${{ inputs.runner }}
@@ -300,7 +304,7 @@ jobs:
       - name: Get components hash
         id: get_hash
         run: |
-          COMPONENTS_HASH=$(task data-plane:tools:hash)
+          COMPONENTS_HASH=$(task ${{ inputs.task-prefix }}:tools:hash)
           echo "components_hash=$COMPONENTS_HASH" >> $GITHUB_OUTPUT
 
       - name: Setup Rust Caching
@@ -314,4 +318,4 @@ jobs:
 
       - name: Build
         run: |
-          task data-plane:build TARGET=${{matrix.arch}}-unknown-${{ matrix.os }}-gnu PROFILE=${{ matrix.profile }}
+          task ${{ inputs.task-prefix }}:build TARGET=${{matrix.arch}}-unknown-${{ matrix.os }}-gnu PROFILE=${{ matrix.profile }}
