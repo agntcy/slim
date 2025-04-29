@@ -10,6 +10,11 @@ shopt: [globstar]
 
 verbose: false
 
+include:
+  rust:
+    taskfile: ../../tasks/rust.yaml
+    internal: true
+
 tasks:
   default:
     cmds:

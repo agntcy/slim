@@ -32,6 +32,8 @@ async def test_end_to_end(server):
     await agp_bindings.subscribe(svc_alice, conn_id_alice, alice_class, 1234)
     await agp_bindings.subscribe(svc_bob, conn_id_bob, bob_class, None)
 
+    await asyncio.sleep(0.1)
+
     # set routes
     await agp_bindings.set_route(svc_alice, conn_id_alice, bob_class, None)
 
@@ -40,15 +42,23 @@ async def test_end_to_end(server):
         svc_alice, agp_bindings.PySessionConfiguration.FireAndForget()
     )
 
+    print("1")
+
     # send msg from Alice to Bob
     msg = [1, 2, 3, 4, 5, 6, 7, 8, 9]
     await agp_bindings.publish(svc_alice, session_info, 1, msg, bob_class, None)
 
+    print("2")
+
     # receive message from Alice
     session_info_ret, msg_rcv = await agp_bindings.receive(svc_bob)
 
+    print("3")
+
     # make seure the session id corresponds
     assert session_info_ret.id == session_info.id
+
+    print("4")
 
     # check if the message is correct
     assert msg_rcv == bytes(msg)
@@ -56,10 +66,14 @@ async def test_end_to_end(server):
     # reply to Alice
     await agp_bindings.publish(svc_bob, session_info_ret, 1, msg_rcv)
 
+    print("5")
+
     # wait for message
     session_info_ret, msg_rcv = await agp_bindings.receive(svc_alice)
 
     print(msg_rcv)
+
+    print("6")
 
     # check if the message is correct
     assert msg_rcv == bytes(msg)
@@ -67,6 +81,8 @@ async def test_end_to_end(server):
     # delete sessions
     await agp_bindings.delete_session(svc_alice, session_info.id)
     await agp_bindings.delete_session(svc_bob, session_info.id)
+
+    print("7")
 
     # try to send a message after deleting the session - this should raise an exception
     try:
@@ -233,6 +249,9 @@ async def test_gateway_wrapper(server):
         {"endpoint": "http://127.0.0.1:12345", "tls": {"insecure": True}}
     )
 
+    # Wait for routes to propagate
+    await asyncio.sleep(0.1)
+
     # set route
     await gateway2.set_route("cisco", "default", agent1)
 
@@ -305,6 +324,9 @@ async def test_auto_reconnect_after_server_restart(server):
     bob_class = agp_bindings.PyAgentType("cisco", "default", "bob")
     await agp_bindings.subscribe(svc_alice, conn_id_alice, alice_class, 1234)
     await agp_bindings.subscribe(svc_bob, conn_id_bob, bob_class, 1234)
+
+    # Wait for routes to propagate
+    await asyncio.sleep(0.1)
 
     # set routing from Alice to Bob
     await agp_bindings.set_route(svc_alice, conn_id_alice, bob_class, None)

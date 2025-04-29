@@ -78,8 +78,9 @@ tasks:
     cmds:
       - task: data-plane:toolchain:run-command
         vars:
-          COMMAND: "task python-bindings:test"
+          COMMAND: "task python-bindings:test TESTS={{.TESTS}}"
           DIR: "python-bindings"
+          TESTS: '{{.TESTS | default ""}}'
 
   data-plane:gw:version:
     desc: "Get version from corresponding git tag"

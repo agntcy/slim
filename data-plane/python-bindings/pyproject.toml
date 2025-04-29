@@ -30,7 +30,7 @@ Issues = "https://github.com/agntcy/agp/issues"
 Changelog = "https://github.com/agntcy/agp/blob/main/data-plane/python-bindings/CHANGELOG.md"
 
 [dependency-groups]
-building = ["maturin"]
+building = ["maturin", "maturin[patchelf]"]
 
 testing = ["pytest", "pytest-asyncio"]
 
