@@ -10,12 +10,12 @@ agp-datapath = { path = "../../../data-plane/gateway/datapath", version = "0.6.0
 agp-gw = { path = "../../../data-plane/gateway/gateway", version = "0.3.11" }
 agp-service = { path = "../../../data-plane/gateway/service", version = "0.4.0" }
 clap = "4.5.37"
+futures-util = "0.3.31"
 rand = "0.9.1"
 rmcp =  { version = "0.1.5", features = [
     "client",
     "transport-sse",
 ] }
 serde_json = "1.0"
-thiserror = "2.0.12"
 tokio = { version = "1", features = ["full"] }
 tracing = "0.1.41"

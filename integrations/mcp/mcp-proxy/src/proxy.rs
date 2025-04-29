@@ -8,242 +8,90 @@ use agp_datapath::{
 use agp_gw::config::ConfigResult;
 use agp_service::{FireAndForgetConfiguration, session, session::SessionConfig};
 use rmcp::{
-    ServiceExt,
-    model::{
-        ClientInfo, ClientNotification, ClientRequest, InitializeRequestParam, JsonRpcRequest,
-        JsonRpcResponse, JsonRpcVersion2_0, NumberOrString, ServerJsonRpcMessage, ServerResult,
-    },
-    transport::SseTransport,
+    RoleClient,
+    model::{ClientNotification, ClientRequest, ClientResult, JsonRpcMessage, JsonRpcRequest},
+    transport::{IntoTransport, SseTransport, sse::SseTransportError},
 };
 
-use serde_json::Value;
+use futures_util::{StreamExt, sink::SinkExt};
 use std::collections::HashMap;
-use thiserror::Error;
 use tokio::sync::mpsc;
 use tracing::{debug, error, info, trace};
-
-#[derive(Error, Debug)]
-pub enum ProxyError {
-    #[error("Connection Error {0}")]
-    ConnectionFailed(String),
-    #[error("MCP Client Creation Error {0}")]
-    ClientCreationFailed(String),
-    #[error("Parsion Error {0}")]
-    ParsingError(String),
-    #[error("Error Sending Message to MCP Server {0}")]
-    SendToMCPError(String),
-}
 
 struct Session {
     // name of the agent connect to this session
     agw_session: session::Info,
     // send messages to proxy
-    tx_proxy: mpsc::Sender<Result<(session::Info, Vec<u8>), ProxyError>>,
+    tx_proxy: mpsc::Sender<(session::Info, Vec<u8>)>,
 }
 
 impl Session {
-    fn new(
-        agw_session: session::Info,
-        tx_proxy: mpsc::Sender<Result<(session::Info, Vec<u8>), ProxyError>>,
-    ) -> Self {
+    fn new(agw_session: session::Info, tx_proxy: mpsc::Sender<(session::Info, Vec<u8>)>) -> Self {
         Session {
             agw_session,
             tx_proxy,
         }
     }
 
-    async fn run_session(
-        &self,
-        mcp_server: String,
-        request: JsonRpcRequest,
-    ) -> mpsc::Sender<Result<Message, ProxyError>> {
-        let (tx_session, mut rx_session) = mpsc::channel::<Result<Message, ProxyError>>(128);
+    async fn run_session(&self, mcp_server: String) -> mpsc::Sender<Message> {
+        let (tx_session, mut rx_session) = mpsc::channel::<Message>(128);
         let tx_channel = self.tx_proxy.clone();
         let agw_session = self.agw_session.clone();
 
         tokio::spawn(async move {
-            // get parameters from the request
-            let with_meta = match request.request.params {
-                Some(with_meta) => with_meta,
-                None => {
-                    let _ = tx_channel
-                        .send(Err(ProxyError::ParsingError(
-                            "missing init parameters".to_string(),
-                        )))
-                        .await;
-                    return;
-                }
-            };
-
-            let params = match serde_json::from_value::<InitializeRequestParam>(
-                serde_json::Value::Object(with_meta.inner),
-            ) {
-                Ok(params) => params,
-                Err(e) => {
-                    error!("error parsing init request parameters: {}", e.to_string());
-                    return;
-                }
-            };
-
-            let req_id = request.id;
-
-            let client_info = ClientInfo {
-                protocol_version: params.protocol_version,
-                capabilities: params.capabilities,
-                client_info: params.client_info,
-            };
-
-            debug!(
-                "try to connect new client with parameters {:?}",
-                client_info
-            );
-
-            // init session
+            // connect to the MCP server
             let transport = match SseTransport::start(mcp_server).await {
                 Ok(transport) => transport,
                 Err(e) => {
-                    let _ = tx_channel
-                        .send(Err(ProxyError::ConnectionFailed(e.to_string())))
-                        .await;
+                    error!("error connecting to the MCP server: {}", e.to_string());
                     return;
                 }
             };
 
-            let client = match client_info.serve(transport).await {
-                Ok(client) => client,
-                Err(e) => {
-                    let _ = tx_channel
-                        .send(Err(ProxyError::ClientCreationFailed(e.to_string())))
-                        .await;
-                    return;
-                }
-            };
-
-            let server_info = client.peer_info();
-            info!("new client onnected to server: {:?}", server_info);
-
-            // reply
-            let reply = ServerJsonRpcMessage::Response(JsonRpcResponse {
-                jsonrpc: JsonRpcVersion2_0,
-                id: req_id,
-                result: ServerResult::InitializeResult(server_info.clone()),
-            });
-
-            debug!("init reply form server {:?}", reply);
-
-            let vec = serde_json::to_vec(&reply).unwrap();
-            let _ = tx_channel.send(Ok((agw_session.clone(), vec))).await;
+            // get streams
+            let (mut sink, mut stream) =
+                <SseTransport as IntoTransport<RoleClient, SseTransportError, ()>>::into_transport(
+                    transport,
+                );
 
             loop {
-                match rx_session.recv().await {
-                    None => {
-                        debug!("end of the stream, stop receiving loop");
-                        break;
+                tokio::select! {
+                    next_from_gw = rx_session.recv() => {
+                        match next_from_gw {
+                            None => {
+                                debug!("end of the stream from GW, stop receiving loop");
+                                break;
+                            }
+                            Some(msg) => {
+                                debug!("received message from GW");
+                                // received a message from the GW, send it to the MCP server
+                                let payload = msg.get_payload().unwrap().blob.to_vec();
+                                let jsonrpcmsg: JsonRpcMessage<ClientRequest, ClientResult, ClientNotification> =
+                                    match serde_json::from_slice(&payload) {
+                                        Ok(jsonrpcmsg) => jsonrpcmsg,
+                                        Err(e) => {
+                                            error!("error parsing the message: {}", e.to_string());
+                                            continue;
+                                        }
+                                };
+                                debug!("send message {:?}", jsonrpcmsg);
+                                sink.send(jsonrpcmsg).await.unwrap();
+                            },
+                        }
                     }
-                    Some(result) => match result {
-                        Ok(msg) => {
-                            // received a message to forward to the MCP server
-                            let payload = msg.get_payload().unwrap().blob.to_vec();
-                            // parse the json
-                            let parsed: Value = match serde_json::from_slice(&payload) {
-                                Ok(parsed) => parsed,
-                                Err(e) => {
-                                    let _ = tx_channel
-                                        .send(Err(ProxyError::ParsingError(e.to_string())))
-                                        .await;
-                                    continue;
-                                }
-                            };
-
-                            debug!("received new message {:?}", parsed);
-
-                            // get the method
-                            let method = match parsed.get("method") {
-                                Some(val) => val.to_string(),
-                                None => {
-                                    let _ = tx_channel
-                                        .send(Err(ProxyError::ParsingError(
-                                            "missing method".to_string(),
-                                        )))
-                                        .await;
-                                    continue;
-                                }
-                            };
-
-                            trace!("method in new message {:?}", method);
-
-                            if method.contains("notifications") {
-                                // send notification
-                                trace!("received a notification message, send to the server");
-                                let not: ClientNotification = match serde_json::from_slice(&payload)
-                                {
-                                    Ok(not) => not,
-                                    Err(e) => {
-                                        let _ = tx_channel
-                                            .send(Err(ProxyError::ParsingError(e.to_string())))
-                                            .await;
-                                        continue;
-                                    }
-                                };
-
-                                let _ = client.send_notification(not).await;
-                            } else {
-                                trace!(
-                                    "received a request message, extract id and send it to the server"
-                                );
-                                // the req id is always present in a request
-                                let req_id: NumberOrString =
-                                    serde_json::from_value(parsed.get("id").unwrap().clone())
-                                        .unwrap();
-                                trace!("req id {:?}", req_id);
-
-                                let request: ClientRequest = match serde_json::from_slice(&payload)
-                                {
-                                    Ok(request) => request,
-                                    Err(e) => {
-                                        let _ = tx_channel
-                                            .send(Err(ProxyError::ParsingError(e.to_string())))
-                                            .await;
-                                        continue;
-                                    }
-                                };
-
-                                trace!("client req {:?}", request);
-                                let server_reply = match client.send_request(request).await {
-                                    Ok(server_reply) => server_reply,
-                                    Err(e) => {
-                                        let _ = tx_channel
-                                            .send(Err(ProxyError::SendToMCPError(e.to_string())))
-                                            .await;
-                                        continue;
-                                    }
-                                };
-
-                                trace!("reply from server {:?}", server_reply);
-                                let reply = ServerJsonRpcMessage::Response(JsonRpcResponse {
-                                    jsonrpc: JsonRpcVersion2_0,
-                                    id: req_id,
-                                    result: server_reply,
-                                });
-
-                                let reply_bytes = match serde_json::to_vec(&reply) {
-                                    Ok(reply_bytes) => reply_bytes,
-                                    Err(e) => {
-                                        let _ = tx_channel
-                                            .send(Err(ProxyError::ParsingError(e.to_string())))
-                                            .await;
-                                        continue;
-                                    }
-                                };
-                                let _ = tx_channel
-                                    .send(Ok((agw_session.clone(), reply_bytes)))
-                                    .await;
+                    next_from_mpc = stream.next() => {
+                        match next_from_mpc {
+                            None => {
+                                debug!("end of the stream from MCP, stop receiving loop");
+                                break;
+                            }
+                            Some(msg) => {
+                                // received a message from the MCP server, send it to the GW
+                                let vec = serde_json::to_vec(&msg).unwrap();
+                                let _ = tx_channel.send((agw_session.clone(), vec)).await;
                             }
                         }
-                        Err(e) => {
-                            error!("received error message: {:?}", e);
-                        }
-                    },
+                    }
                 }
             }
         });
@@ -251,12 +99,20 @@ impl Session {
     }
 }
 
+#[derive(Debug, Eq, Hash, PartialEq)]
+struct SessionId {
+    /// name of the source of the packet
+    source: Agent,
+    /// AGP session id
+    id: u32,
+}
+
 pub struct Proxy {
     name: Agent,
     config: ConfigResult,
     svc_id: agp_config::component::id::ID,
     mcp_server: String,
-    connections: HashMap<Agent, mpsc::Sender<Result<Message, ProxyError>>>,
+    connections: HashMap<SessionId, mpsc::Sender<Message>>,
 }
 
 impl Proxy {
@@ -344,12 +200,15 @@ impl Proxy {
                                     continue;
                                 }
 
-                                let src = msg.message.get_source();
-                                match self.connections.get(&src) {
+                                let session_id = SessionId {
+                                    source: msg.message.get_source(),
+                                    id: msg.info.id,
+                                };
+                                match self.connections.get(&session_id) {
                                     None => {
-                                        debug!("the source {} dose not exists, create a new connection", src);
+                                        debug!("the session {:?} does not exists, create a new connection", session_id);
 
-                                        // get parameters to setup the connection
+                                        // this must be an InitializeRequest
                                         let payload = msg.message.get_payload().unwrap().blob.to_vec();
 
                                         let request: JsonRpcRequest = match serde_json::from_slice(&payload) {
@@ -361,17 +220,22 @@ impl Proxy {
                                         };
 
                                         if request.request.method != "initialize" {
-                                            error!("received unexpected initalizatio method {}", request.request.method);
+                                            error!("received unexpected initialization method {}", request.request.method);
                                             continue;
                                         }
 
                                         let session = Session::new(msg.info.clone(), proxy_tx.clone());
-                                        let session_tx = session.run_session(self.mcp_server.clone(), request).await;
-                                        self.connections.insert(src, session_tx);
+                                        let session_tx = session.run_session(self.mcp_server.clone()).await;
+
+                                        // send the message to the new created session
+                                        let _ = session_tx.send(msg.message).await;
+
+                                        // store the new sessiopm
+                                        self.connections.insert(session_id, session_tx);
                                     }
-                                    Some(client) => {
-                                        debug!("connection exists for source {}, forward MCP message", src);
-                                        let _ = client.send(Ok(msg.message)).await;
+                                    Some(session_tx) => {
+                                        debug!("connection exists for session {:?}, forward MCP message", session_id);
+                                        let _ = session_tx.send(msg.message).await;
                                     }
                                 }
                             }
@@ -386,40 +250,35 @@ impl Proxy {
                         None => {
                             debug!("end of the stream, ignore");
                         }
-                        Some(result) => match result {
-                            Ok((info, msg)) => {
-                                let src = match info.message_source {
-                                    Some(ref s) => s.clone(),
-                                    None => {
-                                        error!("cannot send reply message, unkwon destination");
-                                        continue;
-                                    }
-                                };
-                                let conn_id = match info.input_connection {
-                                    Some(c) => c,
-                                    None => {
-                                        error!("cannot send reply message, unkwon incoming connection");
-                                        continue;
-                                    }
-                                };
-                                match svc.publish_to(
-                                    &self.name,
-                                    info,
-                                    src.agent_type(),
-                                    Some(src.agent_id()),
-                                    conn_id,
-                                    msg,
-                                ).await {
-                                    Ok(()) => {
-                                        trace!("sent message to destination {:?}", src);
-                                    }
-                                    Err(e) => {
-                                        error!("error while sending message to agent {:?}: {}", src, e.to_string());
-                                    }
+                        Some((info, msg)) => {
+                            let src = match info.message_source {
+                                Some(ref s) => s.clone(),
+                                None => {
+                                    error!("cannot send reply message, unkwon destination");
+                                    continue;
                                 }
-                            }
-                            Err(e) => {
-                                error!("an error occurred: {}", e.to_string());
+                            };
+                            let conn_id = match info.input_connection {
+                                Some(c) => c,
+                                None => {
+                                    error!("cannot send reply message, unkwon incoming connection");
+                                    continue;
+                                }
+                            };
+                            match svc.publish_to(
+                                &self.name,
+                                info,
+                                src.agent_type(),
+                                Some(src.agent_id()),
+                                conn_id,
+                                msg,
+                            ).await {
+                                Ok(()) => {
+                                    trace!("sent message to destination {:?}", src);
+                                }
+                                Err(e) => {
+                                    error!("error while sending message to agent {:?}: {}", src, e.to_string());
+                                }
                             }
                         }
                     }

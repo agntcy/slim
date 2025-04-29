@@ -1284,10 +1284,10 @@ dependencies = [
  "agp-gw",
  "agp-service",
  "clap",
+ "futures-util",
  "rand 0.9.1",
  "rmcp",
  "serde_json",
- "thiserror",
  "tokio",
  "tracing",
 ]
