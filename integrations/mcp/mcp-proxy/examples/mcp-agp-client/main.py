@@ -6,7 +6,7 @@ import datetime
 import logging
 import time
 
-from mcp import ClientSession
+from mcp import ClientSession, types
 from mcp.types import AnyUrl
 
 from agp_mcp import AGPClient
@@ -15,8 +15,13 @@ from agp_mcp import AGPClient
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+async def logging_callback_fn(
+    params: types.LoggingMessageNotificationParams,
+) -> None:
+    logger.info(f"Received Server Log Notification {params}")
+
 async def main():
-    org = "cisco"
+    org = "org"
     ns = "mcp"
     mcp_server = "proxy"
 
@@ -31,7 +36,7 @@ async def main():
     async with (
         AGPClient(config, org, ns, "client1", org, ns, mcp_server) as agp_client,
     ):
-        async with agp_client.to_mcp_session() as mcp_session:
+        async with agp_client.to_mcp_session(logging_callback=logging_callback_fn) as mcp_session:
             logger.info("initialize session")
             await mcp_session.initialize()
 

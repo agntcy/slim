@@ -25,7 +25,7 @@ testing = [
 [[package]]
 name = "agp-mcp"
 version = "0.1.0"
-source = { directory = "../../../agp-mcp" }
+source = { directory = "../../../agp-mcp/packages/agp-mcp" }
 dependencies = [
     { name = "agp-bindings" },
     { name = "anyio" },
@@ -191,7 +191,7 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "agp-bindings", directory = "../../../../../data-plane/python-bindings" },
-    { name = "agp-mcp", directory = "../../../agp-mcp" },
+    { name = "agp-mcp", directory = "../../../agp-mcp/packages/agp-mcp" },
     { name = "anyio", specifier = ">=4.5" },
     { name = "mcp", specifier = ">=1.6.0" },
 ]

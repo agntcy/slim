@@ -116,6 +116,9 @@ def main(port: int):
 
         if name not in SAMPLE_RESOURCES:
             raise ValueError(f"Unknown resource: {uri}")
+        
+        # send a log notification for the resource read
+        await app.request_context.session.send_log_message("info", "read_resource", f"client read resource {uri}")
 
         return SAMPLE_RESOURCES[name]
 

@@ -37,14 +37,14 @@ tasks:
   mcp-proxy:run-mcp-proxy:
     desc: run mcp proxy
     cmds:
-      - cargo run -- --config config/mcp-proxy-config.yaml --svc-name gateway/0 --name cisco/mcp/proxy --mcp-server http://localhost:8000/sse
+      - cargo run -- --config config/mcp-proxy-config.yaml --svc-name gateway/0 --name org/mcp/proxy --mcp-server http://localhost:8000/sse
 
   mcp-proxy:run-mcp-client:
     desc: run a simple MCP client that use AGP as transport protocol
     cmds:
       - |
         cd examples/mcp-agp-client
-        uv run main.py
+        uv run --reinstall main.py
 
   mcp-proxy:run-agp:
     desc: run an AGP node
