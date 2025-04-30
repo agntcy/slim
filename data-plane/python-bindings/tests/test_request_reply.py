@@ -149,9 +149,7 @@ async def test_request_reply(server):
                 recv_session, _ = await gateway1.receive()
 
                 # receive message from session
-                recv_session, msg_rcv = await gateway1.receive(
-                    session=recv_session.id
-                )
+                recv_session, msg_rcv = await gateway1.receive(session=recv_session.id)
 
                 # make sure the message is correct
                 assert msg_rcv == bytes(pub_msg)
@@ -160,7 +158,7 @@ async def test_request_reply(server):
                 await gateway1.publish_to(recv_session, res_msg)
             except Exception as e:
                 print("Error receiving message on gateway1:", e)
-        
+
         t = asyncio.create_task(background_task())
 
         # send a request and expect a response in gateway2
