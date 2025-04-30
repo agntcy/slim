@@ -32,7 +32,7 @@ async def test_end_to_end(server):
     await agp_bindings.subscribe(svc_alice, conn_id_alice, alice_class, 1234)
     await agp_bindings.subscribe(svc_bob, conn_id_bob, bob_class, None)
 
-    await asyncio.sleep(0.1)
+    await asyncio.sleep(1)
 
     # set routes
     await agp_bindings.set_route(svc_alice, conn_id_alice, bob_class, None)
@@ -234,7 +234,7 @@ async def test_gateway_wrapper(server):
     )
 
     # Wait for routes to propagate
-    await asyncio.sleep(0.1)
+    await asyncio.sleep(1)
 
     # set route
     await gateway2.set_route("cisco", "default", agent1)
@@ -310,7 +310,7 @@ async def test_auto_reconnect_after_server_restart(server):
     await agp_bindings.subscribe(svc_bob, conn_id_bob, bob_class, 1234)
 
     # Wait for routes to propagate
-    await asyncio.sleep(0.1)
+    await asyncio.sleep(1)
 
     # set routing from Alice to Bob
     await agp_bindings.set_route(svc_alice, conn_id_alice, bob_class, None)
