@@ -10,7 +10,7 @@ shopt: [globstar]
 
 verbose: false
 
-include:
+includes:
   rust:
     taskfile: ../../tasks/rust.yaml
     internal: true
@@ -23,12 +23,18 @@ tasks:
   python-bindings:build:
     desc: "Build the Python bindings"
     cmds:
-      - uv run maturin develop --uv
+      - task: rust:toolchain:run-command
+        vars:
+          COMMAND: |
+            uv run maturin develop --uv
 
   python-bindings:build:release:
     desc: "Release the Python bindings"
     cmds:
-      - uv run maturin develop --uv --release
+      - task: rust:toolchain:run-command
+        vars:
+          COMMAND: |
+            uv run maturin develop --uv --release
 
   python-bindings:lint:
     desc: "Lint the Python bindings"
@@ -54,29 +60,32 @@ tasks:
         sh: '[[ {{.PROFILE}} == "release" ]] && echo "--release" || echo ""'
       TARGET: '{{.TARGET | default ""}}'
     cmds:
-      - rustup target add {{.TARGET}}
       - for:
           matrix:
             PYTHON: ["3.9", "3.10", "3.11", "3.12", "3.13"]
         cmd: |
           uv python install {{.ITEM.PYTHON}}
           uv python pin {{.ITEM.PYTHON}}
-      - |
-        uv sync
+      - task: rust:toolchain:run-command
+        vars:
+          COMMAND: |
+            rustup target add {{.TARGET}}
+            
+            uv sync
 
-        uv run maturin develop --uv {{.RELEASE}}
+            uv run maturin develop --uv {{.RELEASE}}
 
-        # This file if a leftover from the previous build, delete it otherwise
-        # maturin will try to add it to the wheel, and it will fail
-        rm -f agp_bindings/*.pyd
+            # This file if a leftover from the previous build, delete it otherwise
+            # maturin will try to add it to the wheel, and it will fail
+            rm -f agp_bindings/*.pyd
 
-        PYTHONS=(3.9 3.10 3.11 3.12 3.13)
-        uv run maturin build {{.RELEASE}} \
-          --out dist                      \
-          --target {{.TARGET}}            \
-          --frozen                        \
-          -i                              \
-          ${PYTHONS[@]}
+            PYTHONS=(3.9 3.10 3.11 3.12 3.13)
+            uv run maturin build {{.RELEASE}} \
+              --out dist                      \
+              --target {{.TARGET}}            \
+              --frozen                        \
+              -i                              \
+              ${PYTHONS[@]}
 
   python-bindings:example:server:
     desc: "Run the server example"

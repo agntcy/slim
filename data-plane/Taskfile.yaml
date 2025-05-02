@@ -67,20 +67,20 @@ tasks:
 
   data-plane:bindings:python:
     desc: "Generate the Python bindings"
+    dir: ./python-bindings
     cmds:
-      - task: data-plane:toolchain:run-command
-        vars:
-          COMMAND: "task python-bindings:packaging PROFILE={{.PROFILE}} TARGET={{.TARGET}}"
-          DIR: "python-bindings"
+      - task python-bindings:packaging PROFILE={{.PROFILE}} TARGET={{.TARGET}}
+    vars:
+      PROFILE: '{{.PROFILE | default "debug"}}'
+      TARGET: '{{.TARGET | default ""}}'
 
   data-plane:bindings:test:
     desc: "Test the Python bindings"
+    dir: ./python-bindings
     cmds:
-      - task: data-plane:toolchain:run-command
-        vars:
-          COMMAND: "task python-bindings:test TESTS={{.TESTS}}"
-          DIR: "python-bindings"
-          TESTS: '{{.TESTS | default ""}}'
+      - task python-bindings:test TESTS={{.TESTS}}
+    vars:
+      TESTS: '{{.TESTS | default ""}}'
 
   data-plane:gw:version:
     desc: "Get version from corresponding git tag"
