@@ -75,6 +75,7 @@ impl Timer {
             let mut timeouts = 0;
             let mut last_duration = duration;
 
+            trace!("timer {} started", timer_id);
             loop {
                 let timer_duration = match timer_type {
                     TimerType::Constant => {
@@ -151,14 +152,20 @@ impl Timer {
         });
     }
 
-    pub fn stop(&self) {
+    pub fn stop(&mut self) {
         self.cancellation_token.cancel();
+        self.cancellation_token = CancellationToken::new();
     }
 
     pub fn reset<T: TimerObserver + Send + Sync + 'static>(&mut self, observer: Arc<T>) {
         self.stop();
-        self.cancellation_token = CancellationToken::new();
         self.start(observer);
+    }
+}
+
+impl Drop for Timer {
+    fn drop(&mut self) {
+        self.cancellation_token.cancel();
     }
 }
 
@@ -245,7 +252,7 @@ mod tests {
         assert!(logs_contain(expected_msg));
 
         let o = Arc::new(Observer { id: 30 });
-        let t = Timer::new(
+        let mut t = Timer::new(
             o.id,
             TimerType::Exponential,
             Duration::from_millis(100),
@@ -277,7 +284,7 @@ mod tests {
     async fn test_timer_stop() {
         let o = Arc::new(Observer { id: 10 });
 
-        let t = Timer::new(
+        let mut t = Timer::new(
             o.id,
             TimerType::Constant,
             Duration::from_millis(100),
@@ -311,21 +318,21 @@ mod tests {
         let o2 = Arc::new(Observer { id: 2 });
         let o3 = Arc::new(Observer { id: 3 });
 
-        let t1 = Timer::new(
+        let mut t1 = Timer::new(
             o1.id,
             TimerType::Constant,
             Duration::from_millis(100),
             None,
             Some(5),
         );
-        let t2 = Timer::new(
+        let mut t2 = Timer::new(
             o2.id,
             TimerType::Constant,
             Duration::from_millis(200),
             None,
             Some(5),
         );
-        let t3 = Timer::new(
+        let mut t3 = Timer::new(
             o3.id,
             TimerType::Constant,
             Duration::from_millis(200),

@@ -55,9 +55,10 @@ impl PyAgentType {
 
 async fn init_tracing_impl(config: TracingConfiguration) -> Result<(), agp_tracing::ConfigError> {
     static TRACING_GUARD: OnceCell<agp_tracing::OtelGuard> = OnceCell::const_new();
-    let otel_guard = config.setup_tracing_subscriber()?;
 
-    let _ = TRACING_GUARD.get_or_init(|| async { otel_guard }).await;
+    let _ = TRACING_GUARD
+        .get_or_init(|| async { config.setup_tracing_subscriber().unwrap() })
+        .await;
 
     Ok(())
 }

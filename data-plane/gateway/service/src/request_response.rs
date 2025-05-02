@@ -197,7 +197,7 @@ impl Session for RequestResponse {
                         // this is a reply - remove the timer
                         let message_id = session_header.message_id;
                         match self.internal.timers.write().remove(&message_id) {
-                            Some((timer, _message)) => {
+                            Some((mut timer, _message)) => {
                                 // stop the timer
                                 timer.stop();
                             }

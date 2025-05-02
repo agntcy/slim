@@ -115,7 +115,7 @@ impl timer::TimerObserver for RtxTimerObserver {
             .await
             .is_err()
         {
-            error!("error notifying the process loop");
+            error!("error notifying the process loop - rtx timer");
         }
     }
 
@@ -132,7 +132,7 @@ impl timer::TimerObserver for RtxTimerObserver {
             .await
             .is_err()
         {
-            error!("error notifying the process loop");
+            error!("error notifying the process loop - rtx timer failure");
         }
     }
 
@@ -156,7 +156,7 @@ impl timer::TimerObserver for ProducerTimerObserver {
 
         // notify the process loop
         if self.channel.send(Ok(())).await.is_err() {
-            error!("error notifying the process loop");
+            error!("error notifying the process loop - producer timer");
         }
     }
 
@@ -650,7 +650,7 @@ async fn process_message_from_gw(
             }
 
             // try to clean local state
-            match receiver.timers_map.get(&msg_id) {
+            match receiver.timers_map.get_mut(&msg_id) {
                 Some(timer) => {
                     timer.stop();
                     receiver.timers_map.remove(&msg_id);
@@ -754,7 +754,7 @@ async fn handle_rtx_timeout(
             error!(
                 "rtx message does not exist in the map, skip retransmission and try to stop the timer"
             );
-            let timer = match receiver.timers_map.get(&msg_id) {
+            let timer = match receiver.timers_map.get_mut(&msg_id) {
                 Some(t) => t,
                 None => {
                     error!("timer not found");
