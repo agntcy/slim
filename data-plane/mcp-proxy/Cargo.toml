@@ -9,7 +9,7 @@ agp-config = { workspace = true }
 agp-datapath = { workspace = true }
 agp-gw = { workspace = true }
 agp-service = { workspace = true }
-clap = { workspace = true, features = ["derive", "env"] }
+clap = { workspace = true }
 futures-util = { workspace = true }
 rand = { workspace = true }
 rmcp =  { workspace = true }
