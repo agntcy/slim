@@ -105,7 +105,7 @@ async def test_streaming(server):
                         called = True
 
                         # wait a moment to simulate processing time
-                        await asyncio.sleep(1)
+                        await asyncio.sleep(0.1)
 
                         # as the message is for this specific participant, we can
                         # reply to the session and call out the next participant
@@ -127,6 +127,7 @@ async def test_streaming(server):
                     # If we received as many messages as the number of participants, we can exit
                     if local_count >= (participants_count - 1):
                         print(f"{name} -> Received all messages, exiting...")
+                        await participant.delete_session(session_info.id)
                         break
 
                 except Exception as e:
