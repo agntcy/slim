@@ -19,6 +19,7 @@ allow = [
     "MIT",
     "Unicode-3.0",
     "OpenSSL",
+    "CDLA-Permissive-2.0",
 ]
 # Ignore local workspace license values for unpublished crates.
 private = { ignore = true }

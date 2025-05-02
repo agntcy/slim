@@ -9,6 +9,7 @@ members = [
     "gateway/service",
     "gateway/signal",
     "gateway/tracing",
+    "mcp-proxy",
     "python-bindings",
     "testing",
 ]
@@ -22,6 +23,7 @@ default-members = [
     "gateway/service",
     "gateway/signal",
     "gateway/tracing",
+    "mcp-proxy",
     "testing",
 ]
 
@@ -44,10 +46,11 @@ agp-tracing = { path = "gateway/tracing", version = "0.2.0" }
 async-trait = "0.1.88"
 bit-vec = "0.8"
 bytes = "1.9.0"
-clap = { version = "4.5.23", features = ["derive", "env"] }
+clap = { version = "4.5.23" }
 drain = { version = "0.1", features = ["retain"] }
 duration-str = "0.12.0"
 futures = "0.3.31"
+futures-util = "0.3.31"
 http = "1.2.0"
 hyper-rustls = { version = "0.27", features = [
     "http2",
@@ -70,12 +73,17 @@ pyo3-async-runtimes = { version = "0.24", features = ["tokio-runtime"] }
 pyo3-stub-gen = "0.7.0"
 rand = "0.9.0"
 regex = "1.11.1"
+rmcp =  { version = "0.1.5", features = [
+    "client",
+    "transport-sse",
+] }
 rustls = "0.23.19"
 rustls-native-certs = "0.8.1"
 rustls-pki-types = "1.10.0"
 serde = "1.0.217"
 serde-pyobject = "0.6.1"
 serde_yaml = "0.9.34"
+serde_json = "1.0"
 thiserror = "2.0.9"
 tokio = "1.42.0"
 tokio-stream = "0.1"
@@ -97,7 +105,6 @@ tonic-build = { version = "0.13", features = ["prost"] }
 
 # Dev dependencies
 criterion = { version = "0.5", features = ["html_reports"] }
-serde_json = "1.0.137"
 tower-reqwest = "0.4.1"
 tracing-test = { version = "0.2.5", features = ["no-env-filter"] }
 

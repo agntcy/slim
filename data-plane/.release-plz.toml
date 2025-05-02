@@ -55,3 +55,9 @@ name = "agp-bindings"
 publish = false
 release = true
 changelog_update = true
+
+[[package]]
+name = "agp-mcp-proxy"
+publish = true
+release = true
+changelog_update = true
