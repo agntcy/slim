@@ -22,7 +22,7 @@ agp-config = { workspace = true }
 agp-datapath = { workspace = true }
 agp-gw = { workspace = true }
 agp-service = { workspace = true }
-clap = { workspace = true }
+clap = { workspace = true, features = ["derive", "env"] }
 indicatif = { workspace = true }
 parking_lot = { workspace = true }
 rand = { workspace = true }

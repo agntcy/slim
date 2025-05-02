@@ -14,6 +14,6 @@ agp-datapath = { workspace = true }
 agp-gw = { workspace = true }
 agp-service = { workspace = true }
 agp-signal = { workspace = true }
-clap = { workspace = true }
+clap = { workspace = true, features = ["derive", "env"] }
 tokio = { workspace = true }
 tracing = { workspace = true }
