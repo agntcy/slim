@@ -33,4 +33,4 @@ tasks:
     desc: run an AGP node
     cmds:
       - |
-        cd .. && cargo run --bin gateway -- --config config/base/server-config.yaml
+        cd ../../.. && cargo run --bin gateway -- --config config/base/server-config.yaml

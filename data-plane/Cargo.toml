@@ -9,7 +9,7 @@ members = [
     "gateway/service",
     "gateway/signal",
     "gateway/tracing",
-    "mcp-proxy",
+    "integrations/mcp/mcp-proxy",
     "python-bindings",
     "testing",
 ]
@@ -23,7 +23,7 @@ default-members = [
     "gateway/service",
     "gateway/signal",
     "gateway/tracing",
-    "mcp-proxy",
+    "integrations/mcp/mcp-proxy",
     "testing",
 ]
 
