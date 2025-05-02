@@ -9,9 +9,6 @@ silent: true
 set: [pipefail]
 shopt: [globstar]
 
-vars:
-  CARGO_COMPONENTS: "cargo-sort cargo-audit cargo-llvm-cov cargo-machete@0.7.0 cargo-deny@0.17.0 typos-cli"
-
 tasks:
   mcp-proxy:run-mcp-server:
     desc: run mcp server using SSE transport
