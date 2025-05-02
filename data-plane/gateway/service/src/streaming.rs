@@ -149,7 +149,7 @@ struct ProducerTimerObserver {
 #[async_trait]
 impl timer::TimerObserver for ProducerTimerObserver {
     async fn on_timeout(&self, _timer_id: u32, timeouts: u32) {
-        error!(
+        trace!(
             "timeout number {} for producer timer, send beacon",
             timeouts
         );
