@@ -117,7 +117,20 @@ def main(port: int):
         if name not in SAMPLE_RESOURCES:
             raise ValueError(f"Unknown resource: {uri}")
 
+        # send a log notification for the resource read
+        await app.request_context.session.send_log_message("info", "read_resource", f"client read resource {uri}")
+
         return SAMPLE_RESOURCES[name]
+
+    @app.subscribe_resource()
+    async def subscribe_resources(uri: FileUrl):
+        # send a log notification for the subscription
+        await app.request_context.session.send_log_message("info", "subscribe_resource", f"client sent a subscription for resource {uri}")
+
+    @app.unsubscribe_resource()
+    async def unsubscribe_resources(uri: FileUrl):
+        # send a log notification for the usubscription
+        await app.request_context.session.send_log_message("info", "unsubscribe_resource", f"client sent an unsubscription resource {uri}")
 
     # Prompt
     @app.list_prompts()
