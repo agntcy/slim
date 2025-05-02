@@ -127,6 +127,11 @@ impl Timer {
                 tokio::pin!(timer);
 
                 tokio::select! {
+                    biased;
+                    _ = cancellation_token.cancelled() => {
+                        observer.on_stop(timer_id).await;
+                        break;
+                    },
                     _ = timer.as_mut() => {
                         timeouts += 1;
                         match max_retries {
@@ -141,10 +146,6 @@ impl Timer {
                             None => observer.on_timeout(timer_id, timeouts).await
                         }
                         retry += 1;
-                    },
-                    _ = cancellation_token.cancelled() => {
-                        observer.on_stop(timer_id).await;
-                        break;
                     },
                 }
             }

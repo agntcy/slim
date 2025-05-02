@@ -54,6 +54,9 @@ async def test_streaming(server):
             )
         )
 
+        # Track if this participant was called
+        called = False
+
         # wait a bit for all chat participants to be ready
         await asyncio.sleep(5)
 
@@ -67,6 +70,8 @@ async def test_streaming(server):
                 msg = f"{message} - {next_participant_name}"
 
                 print(f"{name} -> Publishing message as first participant: {msg}")
+
+                called = True
 
                 await participant.publish(
                     session_info,
@@ -91,11 +96,13 @@ async def test_streaming(server):
 
                     # Check if the message is calling this specific participant
                     # if not, ignore it
-                    if msg_rcv.decode().endswith(name):
+                    if (not called) and msg_rcv.decode().endswith(name):
                         # print the message
                         print(
                             f"{name} -> Received: {msg_rcv.decode()}, local count: {local_count}"
                         )
+
+                        called = True
 
                         # wait a moment to simulate processing time
                         await asyncio.sleep(1)
