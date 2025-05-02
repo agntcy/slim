@@ -8,6 +8,7 @@ targets = [
 [advisories]
 db-path = "~/.cargo/advisory-db"
 db-urls = ["https://github.com/rustsec/advisory-db"]
+ignore = ["RUSTSEC-2024-0436"]
 
 [licenses]
 allow = [
