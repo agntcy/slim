@@ -797,16 +797,24 @@ impl Service {
             .to_server_future(&[ControllerServiceServer::from_arc(self.controller.clone())])
             .map_err(|e| ServiceError::ConfigError(e.to_string()))?;
 
+        // clone the watcher to be notified when the service is shutting down
+        let drain_rx = self.watch.clone();
+
         let token = self.controller_cancellation_token.clone();
 
         tokio::spawn(async move {
             info!("controller server running");
+            let shutdown = drain_rx.signaled();
+
             tokio::select! {
                 res = server_future => {
                     match res {
                         Ok(_) => info!("controller server shutdown"),
                         Err(e) => error!("controller server error: {:?}", e),
                     }
+                }
+                _ = shutdown => {
+                    info!("shutting down controller server");
                 }
                 _ = token.cancelled() => {
                     info!("Shutting down controller server (cancellation token triggered)");

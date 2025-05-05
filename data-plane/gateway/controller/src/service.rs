@@ -250,7 +250,7 @@ impl ControllerService {
                         }
                     }
                     _ = token.cancelled() => {
-                        debug!("shutting down stream on cancellation token");
+                        debug!("shutting down stream on cancellation token!!!!");
                         break;
                     }
                 }
