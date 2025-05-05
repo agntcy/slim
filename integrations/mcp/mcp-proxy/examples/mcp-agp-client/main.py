@@ -7,6 +7,8 @@ import logging
 import time
 
 from mcp import ClientSession, types
+from mcp.shared.session import BaseSession, RequestResponder
+from mcp.client.session import ClientSession
 from mcp.types import AnyUrl
 
 from agp_mcp import AGPClient
@@ -114,6 +116,9 @@ async def main():
                 logger.error("Failed to get the prompt")
                 return
             logger.info(f"Successfully got prompt: {prompt}")
+
+            await mcp_session.close()
+
 
 if __name__ == "__main__":
     asyncio.run(main())

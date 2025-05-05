@@ -48,6 +48,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "agp-controller"
+version = "0.1.0"
+dependencies = [
+ "agp-config",
+ "agp-datapath",
+ "bytes",
+ "parking_lot",
+ "prost",
+ "protoc-bin-vendored",
+ "thiserror",
+ "tokio",
+ "tokio-stream",
+ "tokio-util",
+ "tonic 0.13.0",
+ "tonic-build",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
 name = "agp-datapath"
 version = "0.6.0"
 dependencies = [
@@ -97,6 +117,7 @@ name = "agp-service"
 version = "0.4.0"
 dependencies = [
  "agp-config",
+ "agp-controller",
  "agp-datapath",
  "async-trait",
  "drain",
@@ -1289,6 +1310,7 @@ dependencies = [
  "rmcp",
  "serde_json",
  "tokio",
+ "tonic 0.13.0",
  "tracing",
 ]
 
