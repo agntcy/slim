@@ -13,7 +13,8 @@ runtime:
 
 services:
   gateway/0:
-    servers:
+    pubsub:
+      servers:
       - endpoint: "0.0.0.0:46357"
         tls:
           cert_file: "./config/crypto/server-cert.pem"
@@ -23,4 +24,4 @@ services:
             username: username
             password: ${env:PASSWORD}
 
-    clients: []
+      clients: []
