@@ -1,0 +1,7 @@
+[workspace]
+
+[[package]]
+name = "agp-mcp-proxy"
+publish = true
+release = true
+changelog_update = true

@@ -41,6 +41,7 @@ jobs:
         with:
           command: release
           manifest_path: ./data-plane/integrations/mcp/mcp-proxy/Cargo.toml
+          config: ./data-plane/integrations/mcp/mcp-proxy/.release-plz.toml
         env:
           GITHUB_TOKEN: ${{ secrets.AGNTCY_BUILD_BOT_GH_TOKEN }}
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
@@ -76,6 +77,7 @@ jobs:
         with:
           command: release-pr
           manifest_path: ./data-plane/integrations/mcp/mcp-proxy/Cargo.toml
+          config: ./data-plane/integrations/mcp/mcp-proxy/.release-plz.toml
         env:
           GITHUB_TOKEN: ${{ secrets.AGNTCY_BUILD_BOT_GH_TOKEN }}
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
