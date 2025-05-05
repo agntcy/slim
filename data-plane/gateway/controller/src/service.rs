@@ -232,18 +232,20 @@ impl ControllerService {
                 tokio::select! {
                     next = stream.next() => {
                         match next {
-                            Some(result) => {
-                                match result {
-                                    Ok(msg) => {
-                                        if let Err(e) = svc.handle_new_message(msg, tx.clone()).await {
-                                            error!("error processing incoming control message: {:?}", e);
-                                        }
-                                    }
-                                    Err(e) => {
-                                        error!("error receiving control messages: {:?}", e);
-                                    }
+                        match next {
+                            Some(Ok(msg)) => {
+                                if let Err(e) = svc.handle_new_message(msg, tx.clone()).await {
+                                    error!("error processing incoming control message: {:?}", e);
                                 }
                             }
+                            Some(Err(e)) => {
+                                error!("error receiving control messages: {:?}", e);
+                            }
+                            None => {
+                                debug!("end of stream");
+                                break;
+                            }
+                        }
                             None => {
                                 debug!("end of stream");
                                 break;
