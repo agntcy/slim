@@ -7,6 +7,7 @@ description = "Main service and public API to interact with AGP data plane."
 
 [dependencies]
 agp-config = { workspace = true }
+agp-controller = { workspace = true }
 agp-datapath = { workspace = true }
 async-trait = { workspace = true }
 drain = { workspace = true }

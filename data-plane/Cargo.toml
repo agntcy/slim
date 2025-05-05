@@ -3,6 +3,7 @@
 members = [
     "examples",
     "gateway/config",
+    "gateway/controller",
     "gateway/datapath",
     "gateway/gateway",
     "gateway/nop_component",
@@ -34,6 +35,7 @@ edition = "2024"
 [workspace.dependencies]
 # Local dependencies
 agp-config = { path = "gateway/config", version = "0.1.7" }
+agp-controller = { path = "gateway/controller", version = "0.1.0" }
 agp-datapath = { path = "gateway/datapath", version = "0.6.0" }
 agp-gw = { path = "gateway/gateway", version = "0.3.12" }
 agp-service = { path = "gateway/service", version = "0.4.0" }

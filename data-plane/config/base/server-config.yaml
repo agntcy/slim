@@ -13,8 +13,15 @@ runtime:
 
 services:
   gateway/0:
-    servers:
-      - endpoint: "0.0.0.0:46357"
+    pubsub:
+      servers:
+        - endpoint: "0.0.0.0:46357"
+          tls:
+            insecure: true
+
+      clients: []
+    controller:
+      server:
+        endpoint: "0.0.0.0:46358"
         tls:
           insecure: true
-    clients: []

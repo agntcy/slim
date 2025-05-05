@@ -109,7 +109,7 @@ mod tests {
         assert!(opaque.contains("pass"));
         assert!(opaque.contains("word"));
         assert!(opaque.contains("passw"));
-        assert!(!opaque.contains("wordd"));
+        assert!(!opaque.contains("wordd")); // spellchecker:disable-line
         assert!(opaque.starts_with("pass"));
         assert!(opaque.ends_with("word"));
         assert!(!opaque.ends_with("worrd"));

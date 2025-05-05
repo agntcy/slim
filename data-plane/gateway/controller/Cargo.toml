@@ -1,0 +1,24 @@
+[package]
+name = "agp-controller"
+edition = { workspace = true }
+license = { workspace = true }
+version = "0.1.0"
+description = "Controller service and control API to configure the AGP data plane through the control plane."
+
+[dependencies]
+agp-config = { workspace = true }
+agp-datapath = { workspace = true }
+bytes = { workspace = true }
+parking_lot = { workspace = true }
+prost = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+tokio-stream = { workspace = true }
+tokio-util = { workspace = true }
+tonic = { workspace = true }
+tracing = { workspace = true }
+uuid = { workspace = true, features = ["v4"] }
+
+[build-dependencies]
+protoc-bin-vendored = { workspace = true }
+tonic-build = { workspace = true, features = ["prost"] }

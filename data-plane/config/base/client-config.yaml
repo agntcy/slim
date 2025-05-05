@@ -13,7 +13,8 @@ runtime:
 
 services:
   gateway/0:
-    clients:
-      - endpoint: "http://localhost:46357"
-        tls:
-          insecure: true
+    pubsub:
+      clients:
+        - endpoint: "http://localhost:46357"
+          tls:
+            insecure: true

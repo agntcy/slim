@@ -13,9 +13,10 @@ runtime:
 
 services:
   gateway/0:
-    clients:
-      - endpoint: "https://localhost:46357"
-        tls:
-          ca_file: "./config/crypto/server-ca-cert.pem"
-          cert_file: "./config/crypto/client-cert.pem"
-          key_file: "./config/crypto/client-key.pem"
+    pubsub:
+      clients:
+        - endpoint: "https://localhost:46357"
+          tls:
+            ca_file: "./config/crypto/server-ca-cert.pem"
+            cert_file: "./config/crypto/client-cert.pem"
+            key_file: "./config/crypto/client-key.pem"

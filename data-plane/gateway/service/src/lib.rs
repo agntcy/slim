@@ -37,6 +37,8 @@ use agp_config::component::id::{ID, Kind};
 use agp_config::component::{Component, ComponentBuilder, ComponentError};
 use agp_config::grpc::client::ClientConfig;
 use agp_config::grpc::server::ServerConfig;
+use agp_controller::api::proto::api::v1::controller_service_server::ControllerServiceServer;
+use agp_controller::service::ControllerService;
 use agp_datapath::message_processing::MessageProcessor;
 use agp_datapath::pubsub::proto::pubsub::v1::Message;
 use agp_datapath::pubsub::proto::pubsub::v1::pub_sub_service_server::PubSubServiceServer;
@@ -46,14 +48,36 @@ pub use errors::ServiceError;
 pub const KIND: &str = "gateway";
 
 #[derive(Debug, Clone, Deserialize, Default)]
-pub struct ServiceConfiguration {
-    /// The GRPC server settings
+pub struct PubsubConfig {
+    /// Pubsub GRPC server settings
     #[serde(default)]
     servers: Vec<ServerConfig>,
 
-    /// Client config to connect to other services
+    /// Pubsub client config to connect to other services
     #[serde(default)]
     clients: Vec<ClientConfig>,
+}
+
+#[derive(Debug, Clone, Deserialize, Default)]
+pub struct ControllerConfig {
+    /// Controller GRPC server settings
+    #[serde(default)]
+    server: Option<ServerConfig>,
+
+    /// Controller client config to connect to control plane
+    #[serde(default)]
+    client: Option<ClientConfig>,
+}
+
+#[derive(Debug, Clone, Deserialize, Default)]
+pub struct ServiceConfiguration {
+    /// Pubsub API configuration
+    #[serde(default)]
+    pub pubsub: PubsubConfig,
+
+    /// Controller API configuration
+    #[serde(default)]
+    pub controller: ControllerConfig,
 }
 
 impl ServiceConfiguration {
@@ -61,23 +85,30 @@ impl ServiceConfiguration {
         ServiceConfiguration::default()
     }
 
-    pub fn with_server(self, server: Vec<ServerConfig>) -> Self {
-        ServiceConfiguration {
-            servers: server,
-            ..self
-        }
+    pub fn with_server(mut self, server: Vec<ServerConfig>) -> Self {
+        self.pubsub.servers = server;
+        self
     }
 
-    pub fn with_client(self, clients: Vec<ClientConfig>) -> Self {
-        ServiceConfiguration { clients, ..self }
+    pub fn with_client(mut self, clients: Vec<ClientConfig>) -> Self {
+        self.pubsub.clients = clients;
+        self
     }
 
     pub fn servers(&self) -> &[ServerConfig] {
-        self.servers.as_ref()
+        self.pubsub.servers.as_ref()
     }
 
     pub fn clients(&self) -> &[ClientConfig] {
-        &self.clients
+        &self.pubsub.clients
+    }
+
+    pub fn controller_server(&self) -> Option<&ServerConfig> {
+        self.controller.server.as_ref()
+    }
+
+    pub fn controller_client(&self) -> Option<&ClientConfig> {
+        self.controller.client.as_ref()
     }
 
     pub fn build_server(&self, id: ID) -> Result<Service, ServiceError> {
@@ -89,11 +120,18 @@ impl ServiceConfiguration {
 impl Configuration for ServiceConfiguration {
     fn validate(&self) -> Result<(), ConfigurationError> {
         // Validate client and server configurations
-        for server in self.servers.iter() {
+        for server in self.pubsub.servers.iter() {
             server.validate()?;
         }
+        for client in &self.pubsub.clients {
+            client.validate()?;
+        }
 
-        for client in self.clients.iter() {
+        // Validate the control server and client
+        if let Some(server) = self.controller.server.as_ref() {
+            server.validate()?;
+        }
+        if let Some(client) = self.controller.client.as_ref() {
             client.validate()?;
         }
 
@@ -108,6 +146,12 @@ pub struct Service {
 
     /// underlying message processor
     message_processor: Arc<MessageProcessor>,
+
+    /// controller service
+    controller: Arc<ControllerService>,
+
+    /// cancellation tokens to stop the servers main loop
+    controller_cancellation_token: CancellationToken,
 
     /// the configuration of the service
     config: ServiceConfiguration,
@@ -133,9 +177,16 @@ impl Service {
     pub fn new(id: ID) -> Self {
         let (signal, watch) = drain::channel();
 
+        let message_processor = Arc::new(MessageProcessor::with_drain_channel(watch.clone()));
+
+        // create the controller service
+        let controller = Arc::new(ControllerService::new(message_processor.clone()));
+
         Service {
             id,
-            message_processor: Arc::new(MessageProcessor::with_drain_channel(watch.clone())),
+            message_processor,
+            controller,
+            controller_cancellation_token: CancellationToken::new(),
             config: ServiceConfiguration::new(),
             session_layers: RwLock::new(HashMap::new()),
             watch,
@@ -172,20 +223,41 @@ impl Service {
     /// Run the service
     pub async fn run(&mut self) -> Result<(), ServiceError> {
         // Check that at least one client or server is configured
-        if self.config.servers().is_empty() && self.config.clients.is_empty() {
+        if self.config.servers().is_empty() && self.config.pubsub.clients.is_empty() {
             return Err(ServiceError::ConfigError(
-                "no server or clients configured".to_string(),
+                "no pubsub server or clients configured".to_string(),
             ));
         }
 
-        for server in self.config.servers.iter() {
+        for server in self.config.pubsub.servers.iter() {
             info!("starting server {}", server.endpoint);
             self.run_server(server)?;
         }
 
-        for client in self.config.clients.iter() {
+        for client in self.config.pubsub.clients.iter() {
             info!("connecting client to {}", client.endpoint);
             _ = self.connect(client).await?;
+        }
+
+        // Controller service
+        if self.config.controller_server().is_some() {
+            info!("starting controller server");
+            self.serve_controller()?;
+        }
+
+        if let Some(controller_client) = self.config.controller_client() {
+            info!(
+                "connecting controller client {}",
+                controller_client.endpoint
+            );
+            let channel = controller_client
+                .to_channel()
+                .map_err(|e| ServiceError::ConfigError(e.to_string()))?;
+
+            self.controller
+                .connect(channel)
+                .await
+                .expect("error connecting controller client");
         }
 
         Ok(())
@@ -453,7 +525,7 @@ impl Service {
         debug!("unset route to {}/{:?}", agent_type, agent_id);
 
         //  send a message with unsubscription from
-        let msg = Message::new_subscribe(
+        let msg = Message::new_unsubscribe(
             local_agent,
             agent_type,
             agent_id,
@@ -706,6 +778,43 @@ impl Service {
             }
         })
         .await
+    }
+
+    fn serve_controller(&self) -> Result<(), ServiceError> {
+        let controller_server_config = match self.config.controller_server() {
+            Some(s) => s.clone(),
+            None => {
+                error!("no controller server configured");
+                return Err(ServiceError::ConfigError(
+                    "no controller server configured".into(),
+                ));
+            }
+        };
+
+        info!("controller server configured: setting it up");
+
+        let server_future = controller_server_config
+            .to_server_future(&[ControllerServiceServer::from_arc(self.controller.clone())])
+            .map_err(|e| ServiceError::ConfigError(e.to_string()))?;
+
+        let token = self.controller_cancellation_token.clone();
+
+        tokio::spawn(async move {
+            info!("controller server running");
+            tokio::select! {
+                res = server_future => {
+                    match res {
+                        Ok(_) => info!("controller server shutdown"),
+                        Err(e) => error!("controller server error: {:?}", e),
+                    }
+                }
+                _ = token.cancelled() => {
+                    info!("Shutting down controller server (cancellation token triggered)");
+                }
+            }
+        });
+
+        Ok(())
     }
 }
 
