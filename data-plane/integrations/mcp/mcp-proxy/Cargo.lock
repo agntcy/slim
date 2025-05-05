@@ -48,6 +48,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "agp-controller"
+version = "0.1.0"
+dependencies = [
+ "agp-config",
+ "agp-datapath",
+ "bytes",
+ "parking_lot",
+ "prost",
+ "protoc-bin-vendored",
+ "thiserror",
+ "tokio",
+ "tokio-stream",
+ "tokio-util",
+ "tonic 0.13.0",
+ "tonic-build",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
 name = "agp-datapath"
 version = "0.6.0"
 dependencies = [
@@ -93,10 +113,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "agp-mcp-proxy"
+version = "0.1.0"
+dependencies = [
+ "agp-config",
+ "agp-datapath",
+ "agp-gw",
+ "agp-service",
+ "clap",
+ "futures-util",
+ "rand 0.9.1",
+ "rmcp",
+ "serde_json",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "agp-service"
 version = "0.4.0"
 dependencies = [
  "agp-config",
+ "agp-controller",
  "agp-datapath",
  "async-trait",
  "drain",
@@ -1274,23 +1312,6 @@ name = "matchit"
 version = "0.8.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "47e1ffaa40ddd1f3ed91f717a33c8c0ee23fff369e3aa8772b9605cc1d22f4c3"
-
-[[package]]
-name = "mcp-proxy"
-version = "0.1.0"
-dependencies = [
- "agp-config",
- "agp-datapath",
- "agp-gw",
- "agp-service",
- "clap",
- "futures-util",
- "rand 0.9.1",
- "rmcp",
- "serde_json",
- "tokio",
- "tracing",
-]
 
 [[package]]
 name = "memchr"
