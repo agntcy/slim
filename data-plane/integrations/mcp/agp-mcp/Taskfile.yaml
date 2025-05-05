@@ -10,4 +10,4 @@ shopt: [globstar]
 
 includes:
   integrations:
-    taskfile: ../../../tasks/python.yaml
+    taskfile: ../../../../tasks/python.yaml
