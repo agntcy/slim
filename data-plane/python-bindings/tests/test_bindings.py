@@ -32,6 +32,8 @@ async def test_end_to_end(server):
     await agp_bindings.subscribe(svc_alice, conn_id_alice, alice_class, 1234)
     await agp_bindings.subscribe(svc_bob, conn_id_bob, bob_class, None)
 
+    await asyncio.sleep(1)
+
     # set routes
     await agp_bindings.set_route(svc_alice, conn_id_alice, bob_class, None)
 
@@ -58,8 +60,6 @@ async def test_end_to_end(server):
 
     # wait for message
     session_info_ret, msg_rcv = await agp_bindings.receive(svc_alice)
-
-    print(msg_rcv)
 
     # check if the message is correct
     assert msg_rcv == bytes(msg)
@@ -233,6 +233,9 @@ async def test_gateway_wrapper(server):
         {"endpoint": "http://127.0.0.1:12345", "tls": {"insecure": True}}
     )
 
+    # Wait for routes to propagate
+    await asyncio.sleep(1)
+
     # set route
     await gateway2.set_route("cisco", "default", agent1)
 
@@ -305,6 +308,9 @@ async def test_auto_reconnect_after_server_restart(server):
     bob_class = agp_bindings.PyAgentType("cisco", "default", "bob")
     await agp_bindings.subscribe(svc_alice, conn_id_alice, alice_class, 1234)
     await agp_bindings.subscribe(svc_bob, conn_id_bob, bob_class, 1234)
+
+    # Wait for routes to propagate
+    await asyncio.sleep(1)
 
     # set routing from Alice to Bob
     await agp_bindings.set_route(svc_alice, conn_id_alice, bob_class, None)

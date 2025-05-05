@@ -30,11 +30,22 @@ Issues = "https://github.com/agntcy/agp/issues"
 Changelog = "https://github.com/agntcy/agp/blob/main/data-plane/python-bindings/CHANGELOG.md"
 
 [dependency-groups]
-building = ["maturin"]
+building = [
+    "maturin>=1.8.2",
+    "maturin[patchelf]>=1.8.2; sys_platform == 'linux'"
+]
 
-testing = ["pytest", "pytest-asyncio"]
+testing = [
+    "pytest>=8.3.4",
+    "pytest-asyncio>=0.25.3"
+]
 
-linting = ["griffe", "pyright", "ruff", "mypy"]
+linting = [
+    "griffe>=1.5.5",
+    "pyright>=1.1.0",
+    "ruff>=0.9.3",
+    "mypy>=1.14.1"
+]
 
 [tool.uv]
 default-groups = ["building", "testing", "linting"]

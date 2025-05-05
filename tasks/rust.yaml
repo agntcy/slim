@@ -2,16 +2,22 @@
 # SPDX-License-Identifier: Apache-2.0
 
 ---
+
 version: '3'
 
+silent: true
 set: [pipefail]
 shopt: [globstar]
 
 vars:
+  GLOBAL_ARGS: '{{.GLOBAL_ARGS | default ""}}'
+
   PROFILE: '{{.PROFILE | default "debug"}}'
   RELEASE:
     sh: '[[ {{.PROFILE}} == "release" ]] && echo "--release" || echo ""'
-  TARGET: '{{.TARGET | default ""}}'
+  CURRENT_TARGET:
+    sh: 'rustc -vV | sed -n "s|host: ||p"'
+  TARGET: '{{.TARGET | default .CURRENT_TARGET}}'
   TARGET_ARGS:
     sh: "[[ -z \"{{.TARGET}}\" ]] && echo '' || echo '--target {{.TARGET}}'"
   TARGET_ARCH:
@@ -82,13 +88,143 @@ tasks:
         echo "  CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER: ${CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER}"
         echo ""
 
-  build:install-target:
+  fmt:
+    desc: "Format the code"
+    cmds:
+      - task: toolchain:fmt
+
+  fmt:check:
+    desc: "Check the code formatting"
+    cmds:
+      - task: toolchain:fmt
+        vars:
+          ARGS: "-- --check"
+
+  fetch:
+    desc: "Fetch the dependencies"
+    cmds:
+      - task: toolchain:fetch
+        vars:
+          ARGS: "--locked"
+
+  tools:fetch:
+    desc: "Fetch the dependencies"
+    cmds:
+      - task: toolchain:build:install-cargo-components
+        vars:
+          COMPONENTS: "{{.CARGO_COMPONENTS}}"
+
+  tools:hash:
+    desc: "Compute the SHA-256 hash of the CARGO_COMPONENTS string"
+    cmds:
+      - cmd: sh -c "echo -n '{{.CARGO_COMPONENTS}}' | sha256sum | cut -d ' ' -f1"
+
+  check:
+    desc: "Check the project"
+    cmds:
+      - task: toolchain:check
+        vars:
+          ARGS: "{{.GLOBAL_ARGS}} --all-targets --locked"
+
+  clean:
+    desc: "Clean the project"
+    cmds:
+      - task: toolchain:clean
+
+  clippy:
+    desc: "Run clippy"
+    cmds:
+      - task: toolchain:clippy
+        vars:
+          ARGS: "{{.GLOBAL_ARGS}} --all-targets --locked --all-features"
+
+  sort:check:
+    desc: "Check the dependencies are sorted"
+    cmds:
+      - task: toolchain:sort
+        vars:
+          ARGS: "{{.GLOBAL_ARGS}} --check"
+
+  unused:check:
+    desc: "Check for unused dependencies"
+    cmds:
+      - task: toolchain:unused
+
+  licenses:
+    desc: "Check for licenses"
+    cmds:
+      - task: toolchain:licenses
+
+  typos:
+    desc: "Check for typos"
+    cmds:
+      - task: toolchain:typos
+
+  sort:
+    desc: "Check the dependencies are sorted"
+    cmds:
+      - task: toolchain:sort
+        vars:
+          ARGS: "{{.GLOBAL_ARGS}}"
+
+  doc:
+    desc: "Generate the documentation"
+    cmds:
+      - task: toolchain:doc
+        vars:
+          ARGS: "{{.GLOBAL_ARGS}} --no-deps --locked --all-features"
+
+  lintall:
+    desc: "Run the linter"
+    cmds:
+      - task: fmt:check
+      - task: clippy
+      - task: sort:check
+      - task: unused:check
+      - task: licenses
+      - task: typos
+
+  test:build:
+    desc: "Build the tests"
+    cmds:
+      - task: toolchain:test:build
+        vars:
+          ARGS: "{{.GLOBAL_ARGS}} --all-targets --locked --all-features"
+
+  test:
+    desc: "Run the tests"
+    cmds:
+      - task: toolchain:test
+        vars:
+          ARGS: "{{.GLOBAL_ARGS}} --all-targets --locked --all-features -- --nocapture"
+      - task: bindings:test
+
+  test:coverage:
+    desc: "Run tests coverage"
+    cmds:
+      - task: toolchain:test:coverage
+        vars:
+          ARGS: "{{.GLOBAL_ARGS}} --all-targets --locked --all-features"
+
+  build:
+    desc: "Build the project"
+    cmds:
+      - task: toolchain:build
+        vars:
+          ARGS: "--locked --all-targets --all-features"
+
+  vuln:
+    desc: "Check for vulnerabilities"
+    cmds:
+      - task: toolchain:vuln
+
+  toolchain:build:install-target:
     desc: "Install the target"
     internal: true
     cmds:
       - rustup target add {{.TARGET}}
 
-  build:install-cargo-components:
+  toolchain:build:install-cargo-components:
     desc: "Install the components"
     internal: true
     cmds:
@@ -96,7 +232,7 @@ tasks:
     vars:
       COMPONENTS: '{{ .COMPONENTS | default "" }}'
 
-  clean:
+  toolchain:clean:
     desc: "Clean the project"
     internal: true
     cmds:
@@ -104,51 +240,52 @@ tasks:
     vars:
       ARGS: '{{ .ARGS | default "" }}'
 
-  fetch:
+  toolchain:fetch:
     desc: "Fetch the dependencies"
     internal: true
     deps:
-      - task: build:install-target
+      - task: toolchain:build:install-target
     cmds:
       - cargo fetch {{.TARGET_ARGS}} {{.ARGS}}
     vars:
       ARGS: '{{ .ARGS | default "" }}'
 
-  build:
+  toolchain:build:
     desc: "Build the project"
     internal: true
     deps:
-      - task: build:install-target
+      - task: toolchain:build:install-target
     cmds:
+      - pwd
       - cargo build {{.RELEASE}} {{.TARGET_ARGS}} {{.ARGS}}
     vars:
       ARGS: '{{ .ARGS | default "" }}'
 
-  check:
+  toolchain:check:
     desc: "Check the project"
     internal: true
     deps:
-      - task: build:install-target
+      - task: toolchain:build:install-target
     cmds:
       - cargo check {{.RELEASE}} {{.TARGET_ARGS}} {{.ARGS}}
     vars:
       ARGS: '{{ .ARGS | default "" }}'
 
-  clippy:
+  toolchain:clippy:
     desc: "Run clippy"
     internal: true
     deps:
-      - task: build:install-target
+      - task: toolchain:build:install-target
     cmds:
       - cargo clippy {{.RELEASE}} {{.TARGET_ARGS}} {{.ARGS}} -- -D warnings
     vars:
       ARGS: '{{ .ARGS | default "" }}'
 
-  sort:
+  toolchain:sort:
     desc: "Install cargo-sort to sort dependencies"
     internal: true
     deps:
-      - task: build:install-cargo-components
+      - task: toolchain:build:install-cargo-components
         vars:
           COMPONENTS: "cargo-sort"
     cmds:
@@ -156,11 +293,11 @@ tasks:
     vars:
       ARGS: '{{ .ARGS | default "" }}'
 
-  unused:
+  toolchain:unused:
     desc: "Install cargo-machete and check for unused dependencies"
     internal: true
     deps:
-      - task: build:install-cargo-components
+      - task: toolchain:build:install-cargo-components
         vars:
           COMPONENTS: "cargo-machete@0.7.0"
     cmds:
@@ -168,11 +305,11 @@ tasks:
     vars:
       ARGS: '{{ .ARGS | default "" }}'
 
-  vuln:
+  toolchain:vuln:
     desc: "Check for vulnerabilities"
     internal: true
     deps:
-      - task: build:install-cargo-components
+      - task: toolchain:build:install-cargo-components
         vars:
           COMPONENTS: "cargo-audit"
     cmds:
@@ -180,11 +317,11 @@ tasks:
     vars:
       ARGS: '{{ .ARGS | default "" }}'
 
-  licenses:
+  toolchain:licenses:
     desc: "Check for licenses"
     internal: true
     deps:
-      - task: build:install-cargo-components
+      - task: toolchain:build:install-cargo-components
         vars:
           COMPONENTS: "cargo-deny@0.17.0"
     cmds:
@@ -192,7 +329,7 @@ tasks:
     vars:
       ARGS: '{{ .ARGS | default "" }}'
 
-  fmt:
+  toolchain:fmt:
     desc: "Format the code"
     internal: true
     cmds:
@@ -200,19 +337,11 @@ tasks:
     vars:
       ARGS: '{{ .ARGS | default "" }}'
 
-  fmt:
-    desc: ""
-    internal: true
-    cmds:
-      - cargo fmt {{.ARGS}}
-    vars:
-      ARGS: '{{ .ARGS | default "" }}'
-
-  typos:
+  toolchain:typos:
     desc: "Check for typos"
     internal: true
     deps:
-      - task: build:install-cargo-components
+      - task: toolchain:build:install-cargo-components
         vars:
           COMPONENTS: "typos-cli"
     cmds:
@@ -220,27 +349,27 @@ tasks:
     vars:
       ARGS: '{{ .ARGS | default "" }}'
 
-  doc:
+  toolchain:doc:
     desc: "Generate the documentation"
     internal: true
     cmds:
       - cargo doc {{.RELEASE}} {{.TARGET_ARGS}}
 
-  test:build:
+  toolchain:test:build:
     desc: "Build the tests"
     internal: true
     deps:
-      - task: build:install-target
+      - task: toolchain:build:install-target
     cmds:
       - cargo test --no-run {{.RELEASE}} {{.TARGET_ARGS}} {{.ARGS}}
     vars:
       ARGS: '{{ .ARGS | default "" }}'
 
-  test:coverage:
+  toolchain:test:coverage:
     desc: "Run the tests"
     internal: true
     deps:
-      - task: build:install-cargo-components
+      - task: toolchain:build:install-cargo-components
         vars:
           COMPONENTS: "cargo-llvm-cov"
     cmds:
@@ -248,7 +377,7 @@ tasks:
     vars:
       ARGS: '{{ .ARGS | default "" }}'
 
-  test:
+  toolchain:test:
     desc: "Run the tests"
     internal: true
     cmds:
@@ -256,7 +385,7 @@ tasks:
     vars:
       ARGS: '{{ .ARGS | default "" }}'
 
-  strip:
+  toolchain:strip:
     desc: "Strip the binary"
     internal: true
     cmds:
@@ -266,7 +395,7 @@ tasks:
     vars:
       TARGET_BIN: '{{.TARGET_BIN | default ""}}'
 
-  run:
+  toolchain:run:
     desc: "Run a binary"
     internal: true
     cmds:
@@ -276,16 +405,11 @@ tasks:
       ARGS: '{{ .ARGS | default "" }}'
       BIN_ARGS: '{{ .BIN_ARGS | default "" }}'
 
-  bindings:python:
-    desc: "Generate the Python bindings for python versions 3.9, 3.10, 3.11, 3.12 and 3.13"
+  toolchain:run-command:
+    desc: "Run a command"
     internal: true
-    dir: ./python-bindings
+    dir: '{{.DIR | default ""}}'
     cmds:
-      - task python-bindings:packaging PROFILE={{.PROFILE}} TARGET={{.TARGET}}
-
-  bindings:python:test:
-    desc: "Test the Python bindings"
-    internal: true
-    dir: ./python-bindings
-    cmds:
-      - task python-bindings:test
+      - "{{.COMMAND}}"
+    vars:
+      COMMAND: '{{.COMMAND | default ""}}'

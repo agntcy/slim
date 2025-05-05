@@ -108,7 +108,7 @@ class AGPClient(AGPBase):
             raise RuntimeError(f"Failed to send message: {str(e)}") from e
 
     @asynccontextmanager
-    async def to_mcp_session(self):
+    async def to_mcp_session(self, *args, **kwargs):
         """Create a new MCP session.
 
         Returns:
@@ -121,5 +121,5 @@ class AGPClient(AGPBase):
 
         # create streams
         async with self.new_streams(session) as (read_stream, write_stream):
-            async with ClientSession(read_stream, write_stream) as mcp_session:
+            async with ClientSession(read_stream, write_stream, *args, **kwargs) as mcp_session:
                 yield mcp_session
