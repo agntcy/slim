@@ -117,8 +117,6 @@ async def main():
                 return
             logger.info(f"Successfully got prompt: {prompt}")
 
-            await mcp_session.close()
-
 
 if __name__ == "__main__":
     asyncio.run(main())

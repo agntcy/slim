@@ -369,6 +369,7 @@ impl Proxy {
                                             continue;
                                         }
 
+                                        info!("start new session {:?}", session_id);
                                         let session = ProxySession::new(msg.info.clone(), proxy_tx.clone());
                                         let session_tx = session.run_session(self.mcp_server.clone()).await;
 
@@ -443,7 +444,7 @@ impl Proxy {
 
                                 // remove the proxy session if it exists
                                 self.connections.remove(&session_id);
-                                info!("session {:?} just stopped", session_id);
+                                info!("stop session {:?}", session_id);
                             }
                         }
                     }

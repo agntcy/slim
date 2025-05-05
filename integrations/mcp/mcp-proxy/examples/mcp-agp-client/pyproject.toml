@@ -5,7 +5,7 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.13"
 
-dependencies = ["agp-bindings>=0.3.0", "mcp>=1.6.0", "anyio>=4.5", "agp-mcp>=0.1.0"]
+dependencies = ["agp-bindings>=0.3.0", "mcp>=1.7.1", "anyio>=4.5", "agp-mcp>=0.1.0"]
 
 [tool.uv.sources]
 agp-bindings = { path = "../../../../../data-plane/python-bindings" }
