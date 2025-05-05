@@ -35,7 +35,7 @@ dependencies = [
 
 [[package]]
 name = "agp-config"
-version = "0.1.7"
+version = "0.1.8"
 dependencies = [
  "duration-str",
  "futures",
@@ -88,7 +88,7 @@ dependencies = [
 
 [[package]]
 name = "agp-datapath"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "agp-config",
  "agp-tracing",
@@ -129,7 +129,7 @@ dependencies = [
 
 [[package]]
 name = "agp-gw"
-version = "0.3.12"
+version = "0.3.13"
 dependencies = [
  "agp-config",
  "agp-service",
@@ -159,7 +159,7 @@ dependencies = [
 
 [[package]]
 name = "agp-service"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "agp-config",
  "agp-controller",
@@ -187,7 +187,7 @@ dependencies = [
 
 [[package]]
 name = "agp-tracing"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "agp-config",
  "once_cell",
