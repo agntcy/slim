@@ -1,4 +1,4 @@
-# Copyright AGNTCY Contributors (https://github.com/agntcy)
+# SPDX-FileCopyrightText: Copyright (c) 2025 Cisco and/or its affiliates.
 # SPDX-License-Identifier: Apache-2.0
 
 ---
@@ -7,7 +7,7 @@ name: ci-release-images
 on:
   push:
     tags:
-      - 'agp-gw-v[0-9]+.[0-9]+.[0-9]+'
+      - 'agp-*'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -32,18 +32,29 @@ jobs:
           # This assumes tags are in this form
           # agp-<component1>-<component2>-v<version>
 
-          # get version only
-          version=${GITHUB_REF_NAME##*-v}
+          # strip agp- prefix from the tag
+          _target=${GITHUB_REF_NAME#agp-}
 
-          # set version as output
+          # remove version to only get the component
+          target=${_target%-v*}
+
+          # get version only
+          version=${_target##*-v}
+
+          # set target and version as output
+          echo target=${target} >> ${GITHUB_OUTPUT}
           echo version=${version} >> ${GITHUB_OUTPUT}
 
-          # Print version
+          # Print the target and version
+          echo "Target: $target"
           echo "Version: $version"
 
       - name: List all targets
         id: all-targets
         uses: docker/bake-action/subaction/list-targets@a4d7f0b5b91c14a296d792d4ec53a9db17f02e67 # v5.5.0
+        with:
+          target: ${{ steps.resolve.outputs.target }}
+        continue-on-error: true
 
   build-push:
     name: Build docker image - ${{ matrix.target }}
@@ -64,12 +75,3 @@ jobs:
       image-tag: ${{ needs.prepare-build.outputs.image-tag }}
     secrets:
       github-token: ${{ secrets.GITHUB_TOKEN }}
-
-  test-integration:
-    name: Run integration tests
-    needs: [ build-push ]
-    runs-on: ubuntu-latest
-    steps:
-      - name: Trigger CSIT integration CI
-        uses: ./.github/actions/trigger-integrations
-

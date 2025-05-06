@@ -2,6 +2,7 @@
 pr_branch_prefix = "mcp-proxy-"
 pr_name = "release {{ package }}-v{{ version }}"
 git_tag_name = "{{ package }}-v{{ version }}"
+git_release_name = "{{ package }}-v{{ version }}"
 
 [[package]]
 name = "agp-mcp-proxy"
