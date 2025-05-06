@@ -5,7 +5,6 @@ package controller
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -49,7 +48,7 @@ func (s *fakeServer) OpenControlChannel(
 	stream grpcapi.ControllerService_OpenControlChannelServer,
 ) error {
 	msg, err := stream.Recv()
-	if errors.Is(err, io.EOF) {
+	if err == io.EOF { //nolint:errorlint
 		return nil
 	}
 	if err != nil {
@@ -112,7 +111,7 @@ func TestSendConfigMessage(t *testing.T) {
 
 	ack, err := stream.Recv()
 	if err != nil {
-		if errors.Is(err, io.EOF) {
+		if err == io.EOF { //nolint:errorlint
 			t.Fatalf("stream Recv got EOF, expected ACK message")
 		}
 		t.Fatalf("stream.Recv failed: %v", err)
@@ -139,7 +138,7 @@ func TestSendConfigMessage(t *testing.T) {
 	}
 
 	_, err = stream.Recv()
-	if errors.Is(err, io.EOF) {
+	if err != io.EOF { //nolint:errorlint
 		t.Errorf(
 			"expected io.EOF after receiving ACK (server should close), got err: %v",
 			err,
