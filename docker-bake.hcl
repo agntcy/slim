@@ -64,7 +64,7 @@ target "gw-debug" {
 target "mcp-proxy" {
   context = "."
   dockerfile = "./data-plane/Dockerfile"
-  target = "rust"
+  target = "mcp-proxy-release"
   inherits = [
     "_common",
     "docker-metadata-action",

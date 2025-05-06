@@ -95,11 +95,11 @@ FROM ghcr.io/distroless/cc-debian12:nonroot AS mcp-proxy-debug
 ARG TARGETARCH
 
 # copy the artifacts from the build stage
-COPY --from=rust /app/data-plane/integrations/mcp/mcp-proxy/target/${TARGETARCH}-unknown-linux-gnu/release/mcp-proxy /mcp-proxy
-COPY --from=rust /app/data-plane/integrations/mcp/mcp-proxy/target/${TARGETARCH}-unknown-linux-gnu/release/mcp-proxy.dbg /mcp-proxy.dbg
+COPY --from=rust /app/data-plane/integrations/mcp/mcp-proxy/target/${TARGETARCH}-unknown-linux-gnu/release/agp-mcp-proxy /agp-mcp-proxy
+COPY --from=rust /app/data-plane/integrations/mcp/mcp-proxy/target/${TARGETARCH}-unknown-linux-gnu/release/agp-mcp-proxy.dbg /agp-mcp-proxy.dbg
 
 FROM gcr.io/distroless/cc-debian12:nonroot AS mcp-proxy-release
 ARG TARGETARCH
 
 # copy the artifacts from the build stage
-COPY --from=rust /app/data-plane/integrations/mcp/mcp-proxy/target/${TARGETARCH}-unknown-linux-gnu/release/mcp-proxy /mcp-proxy
+COPY --from=rust /app/data-plane/integrations/mcp/mcp-proxy/target/${TARGETARCH}-unknown-linux-gnu/release/agp-mcp-proxy /agp-mcp-proxy

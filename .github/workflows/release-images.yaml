@@ -75,3 +75,15 @@ jobs:
       image-tag: ${{ needs.prepare-build.outputs.image-tag }}
     secrets:
       github-token: ${{ secrets.GITHUB_TOKEN }}
+
+  test-integration:
+    name: Run integration tests
+    needs: [ build-push ]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Trigger CSIT integration CI
+        uses: ./.github/actions/trigger-integrations
