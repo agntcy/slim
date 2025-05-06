@@ -186,7 +186,6 @@ name = "mcp-agp-client"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
-    { name = "agp-bindings" },
     { name = "agp-mcp" },
     { name = "anyio" },
     { name = "mcp" },
@@ -194,7 +193,6 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
-    { name = "agp-bindings", directory = "../../../../../python-bindings" },
     { name = "agp-mcp", directory = "../../../agp-mcp/packages/agp-mcp" },
     { name = "anyio", specifier = ">=4.5" },
     { name = "mcp", specifier = ">=1.7.1" },

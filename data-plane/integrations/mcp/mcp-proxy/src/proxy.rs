@@ -213,13 +213,11 @@ impl ProxySession {
                             Some(_) => {
                                 if pending_pings.len() >= MAX_PENDING_PINGS {
                                     // too many pending pings, we consider the client down
-                                    info!("the client is not replying to the ping anymore, drop the connection");
+                                    debug!("the client is not replying to the ping anymore, drop the connection");
                                     ping_timer.stop();
                                     let _ = sink.close().await;
                                     let _ = tx_channel.send(Err(agw_session.clone())).await;
                                     break;
-                                } else {
-                                    info!("pending size = {}", pending_pings.len());
                                 }
 
                                 // time to send a new ping to the client
@@ -454,6 +452,10 @@ impl Proxy {
                             }
                         }
                     }
+                }
+                _ = agp_signal::shutdown() => {
+                    info!("Received shutdown signal, stop mcp-proxy");
+                    break;
                 }
             }
         }

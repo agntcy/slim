@@ -10,6 +10,7 @@ agp-config = { path = "../../../gateway/config", version = "0.1.6" }
 agp-datapath = { path = "../../../gateway/datapath", version = "0.6.0" }
 agp-gw = { path = "../../../gateway/gateway", version = "0.3.11" }
 agp-service = { path = "../../../gateway/service", version = "0.4.0" }
+agp-signal = "0.1.2"
 clap = "4.5.37"
 futures-util = "0.3.31"
 rand = "0.9.1"
