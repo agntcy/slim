@@ -124,6 +124,7 @@ tasks:
         {{.REPO_ROOT}}/.tools/protoc --proto_path=../proto \
           --go_out=paths=source_relative:./internal/proto \
           --go-grpc_out=paths=source_relative:./internal/proto \
+          --plugin={{.REPO_ROOT}}/.tools/protoc-gen-go \
           controller/v1/controller.proto
 
   control-plane:agpctl:build:

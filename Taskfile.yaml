@@ -18,7 +18,7 @@ silent: true
 tasks:
   default:
     cmds:
-      - task: toolchain:print-vars
+      #- task: toolchain:print-vars
       - task -l
 
   version:
