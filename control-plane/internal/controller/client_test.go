@@ -5,6 +5,7 @@ package controller
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -36,7 +37,7 @@ func init() {
 	}()
 }
 
-func bufDialer(ctx context.Context, address string) (net.Conn, error) {
+func bufDialer(_ context.Context, _ string) (net.Conn, error) {
 	return lis.Dial()
 }
 
@@ -48,7 +49,7 @@ func (s *fakeServer) OpenControlChannel(
 	stream grpcapi.ControllerService_OpenControlChannelServer,
 ) error {
 	msg, err := stream.Recv()
-	if err == io.EOF {
+	if errors.Is(err, io.EOF) {
 		return nil
 	}
 	if err != nil {
@@ -87,29 +88,31 @@ func TestSendConfigMessage(t *testing.T) {
 
 	configMsg := &grpcapi.ControlMessage{
 		MessageId: "test-cfg-123",
-		Payload: &grpcapi.ControlMessage_ConfigCommand{ConfigCommand: &grpcapi.ConfigurationCommand{
-			ConnectionsToCreate: []*grpcapi.Connection{{
-				ConnectionId:  "c1",
-				RemoteAddress: "10.0.0.1",
-				RemotePort:    8080,
-			}},
-			RoutesToSet: []*grpcapi.Route{{
-				Company:      "acme",
-				Namespace:    "outshift",
-				AgentName:    "agent",
-				AgentId:      &wrapperspb.UInt64Value{Value: 1},
-				ConnectionId: "c1",
-			}},
-		}},
+		Payload: &grpcapi.ControlMessage_ConfigCommand{
+			ConfigCommand: &grpcapi.ConfigurationCommand{
+				ConnectionsToCreate: []*grpcapi.Connection{{
+					ConnectionId:  "c1",
+					RemoteAddress: "10.0.0.1",
+					RemotePort:    8080,
+				}},
+				RoutesToSet: []*grpcapi.Route{{
+					Company:      "acme",
+					Namespace:    "outshift",
+					AgentName:    "agent",
+					AgentId:      &wrapperspb.UInt64Value{Value: 1},
+					ConnectionId: "c1",
+				}},
+			},
+		},
 	}
 
-	if err := stream.Send(configMsg); err != nil {
+	if err = stream.Send(configMsg); err != nil {
 		t.Fatalf("stream.Send failed: %v", err)
 	}
 
 	ack, err := stream.Recv()
 	if err != nil {
-		if err == io.EOF {
+		if errors.Is(err, io.EOF) {
 			t.Fatalf("stream Recv got EOF, expected ACK message")
 		}
 		t.Fatalf("stream.Recv failed: %v", err)
@@ -117,18 +120,29 @@ func TestSendConfigMessage(t *testing.T) {
 
 	a := ack.GetAck()
 	if a == nil {
-		t.Fatalf("received message is not an ACK, got payload type: %T, msg: %+v", ack.Payload, ack)
+		t.Fatalf(
+			"received message is not an ACK, got payload type: %T, msg: %+v",
+			ack.Payload,
+			ack,
+		)
 	}
 
 	if a.OriginalMessageId != configMsg.MessageId {
-		t.Errorf("expected original_message_id '%s', got '%s'", configMsg.MessageId, a.OriginalMessageId)
+		t.Errorf(
+			"expected original_message_id '%s', got '%s'",
+			configMsg.MessageId,
+			a.OriginalMessageId,
+		)
 	}
 	if !a.Success {
 		t.Errorf("expected ack.Success=true, got false")
 	}
 
 	_, err = stream.Recv()
-	if err != io.EOF {
-		t.Errorf("expected io.EOF after receiving ACK (server should close), got err: %v", err)
+	if errors.Is(err, io.EOF) {
+		t.Errorf(
+			"expected io.EOF after receiving ACK (server should close), got err: %v",
+			err,
+		)
 	}
 }
