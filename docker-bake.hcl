@@ -42,9 +42,43 @@ target "docker-metadata-action" {
 target "gw" {
   context = "."
   dockerfile = "./data-plane/Dockerfile"
+  target = "gateway-release"
   inherits = [
     "_common",
     "docker-metadata-action",
   ]
   tags = get_tag(target.docker-metadata-action.tags, "${target.gw.name}")
+}
+
+target "gw-debug" {
+  context = "."
+  dockerfile = "./data-plane/Dockerfile"
+  target = "gateway-debug"
+  inherits = [
+    "_common",
+    "docker-metadata-action",
+  ]
+  tags = get_tag(target.docker-metadata-action.tags, "${target.gw-debug.name}")
+}
+
+target "mcp-proxy" {
+  context = "."
+  dockerfile = "./data-plane/Dockerfile"
+  target = "rust"
+  inherits = [
+    "_common",
+    "docker-metadata-action",
+  ]
+  tags = get_tag(target.docker-metadata-action.tags, "${target.mcp-proxy.name}")
+}
+
+target "mcp-proxy-debug" {
+  context = "."
+  dockerfile = "./data-plane/Dockerfile"
+  target = "mcp-proxy-debug"
+  inherits = [
+    "_common",
+    "docker-metadata-action",
+  ]
+  tags = get_tag(target.docker-metadata-action.tags, "${target.mcp-proxy-debug.name}")
 }

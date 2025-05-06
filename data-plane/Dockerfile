@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 # Build container
-FROM --platform=${BUILDPLATFORM} rust:1.83-slim-bookworm AS rust
+FROM --platform=${BUILDPLATFORM} rust:1.86-slim-bookworm AS rust
 
 SHELL ["/bin/bash", "-c"]
 
@@ -67,10 +67,15 @@ esac
 # Build application
 task -v data-plane:build:strip TARGET=${RUSTARCH}-unknown-linux-gnu PROFILE=release
 mv target/${RUSTARCH}-unknown-linux-gnu target/${TARGETARCH}-unknown-linux-gnu
+
+pushd integrations/mcp/mcp-proxy
+task -v mcp-proxy:build:strip TARGET=${RUSTARCH}-unknown-linux-gnu PROFILE=release
+mv target/${RUSTARCH}-unknown-linux-gnu target/${TARGETARCH}-unknown-linux-gnu
+popd
 EOF
 
 # runtime images  - debug executable, debug symbols and, most importantly, a shell :)
-FROM debian:bookworm-slim AS debug
+FROM debian:bookworm-slim AS gateway-debug
 
 ARG TARGETARCH
 
@@ -79,9 +84,22 @@ COPY --from=rust /app/data-plane/target/${TARGETARCH}-unknown-linux-gnu/release/
 COPY --from=rust /app/data-plane/target/${TARGETARCH}-unknown-linux-gnu/release/gateway.dbg /gateway.dbg
 
 # runtime images  - release executable
-FROM gcr.io/distroless/cc-debian12:nonroot AS release
+FROM gcr.io/distroless/cc-debian12:nonroot AS gateway-release
 
 ARG TARGETARCH
 
 # copy the artifacts from the build stage
 COPY --from=rust /app/data-plane/target/${TARGETARCH}-unknown-linux-gnu/release/gateway /gateway
+
+FROM ghcr.io/distroless/cc-debian12:nonroot AS mcp-proxy-debug
+ARG TARGETARCH
+
+# copy the artifacts from the build stage
+COPY --from=rust /app/data-plane/integrations/mcp/mcp-proxy/target/${TARGETARCH}-unknown-linux-gnu/release/mcp-proxy /mcp-proxy
+COPY --from=rust /app/data-plane/integrations/mcp/mcp-proxy/target/${TARGETARCH}-unknown-linux-gnu/release/mcp-proxy.dbg /mcp-proxy.dbg
+
+FROM gcr.io/distroless/cc-debian12:nonroot AS mcp-proxy-release
+ARG TARGETARCH
+
+# copy the artifacts from the build stage
+COPY --from=rust /app/data-plane/integrations/mcp/mcp-proxy/target/${TARGETARCH}-unknown-linux-gnu/release/mcp-proxy /mcp-proxy
