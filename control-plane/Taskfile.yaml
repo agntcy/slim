@@ -118,7 +118,7 @@ tasks:
   control-plane:proto:generate:
     desc: Generate Go protobuf and gRPC code
     deps:
-      - tools:protoc
+      - tools
     cmds:
       - >
         {{.REPO_ROOT}}/.tools/protoc --proto_path=../proto \
