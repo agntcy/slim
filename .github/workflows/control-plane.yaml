@@ -27,5 +27,5 @@ jobs:
       go-version: 1.23.6
       working-directory: ./control-plane
 
-    secrets:
-      github-token: ${{ secrets.GITHUB_TOKEN }}
+    #secrets:
+    #  github-token: ${{ secrets.GITHUB_TOKEN }}
