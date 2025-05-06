@@ -12,4 +12,3 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - release mcp proxy ([#206](https://github.com/agntcy/agp/pull/206))
-- release mcp proxy ([#204](https://github.com/agntcy/agp/pull/204))
