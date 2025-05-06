@@ -4,7 +4,7 @@
 package main
 
 import (
-	"log"
+	"fmt"
 	"os"
 
 	"github.com/spf13/cobra"
@@ -26,7 +26,7 @@ func main() {
 	rootCmd.AddCommand(version.NewVersionCmd(opts))
 
 	if err := rootCmd.Execute(); err != nil {
-		log.Fatalf("CLI error: %v", err)
+		fmt.Printf("CLI error: %v", err)
 		os.Exit(1)
 	}
 }

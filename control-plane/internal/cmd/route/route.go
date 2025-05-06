@@ -28,8 +28,14 @@ func NewRouteCmd(opts *options.CommonOptions) *cobra.Command {
 		Long:  `Manage gateway routes`,
 	}
 
-	cmd.PersistentFlags().StringVarP(&serverAddr, "server", "s", "localhost:46357", "gateway gRPC control API endpoint (host:port)")
-	cmd.MarkPersistentFlagRequired("server")
+	cmd.PersistentFlags().StringVarP(
+		&serverAddr,
+		"server",
+		"s",
+		"localhost:46357",
+		"gateway gRPC control API endpoint (host:port)",
+	)
+	_ = cmd.MarkPersistentFlagRequired("server")
 
 	cmd.AddCommand(newAddCmd(opts))
 	cmd.AddCommand(newDelCmd(opts))
@@ -37,7 +43,7 @@ func NewRouteCmd(opts *options.CommonOptions) *cobra.Command {
 	return cmd
 }
 
-func newAddCmd(opts *options.CommonOptions) *cobra.Command {
+func newAddCmd(_ *options.CommonOptions) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "add <company/namespace/agentname/agentid> via <host:port>",
 		Short: "Add a route to the gateway",
@@ -49,7 +55,10 @@ func newAddCmd(opts *options.CommonOptions) *cobra.Command {
 			endpoint := args[2]
 
 			if viaKeyword != "via" {
-				return fmt.Errorf("invalid syntax: expected 'via' keyword, got '%s'", args[1])
+				return fmt.Errorf(
+					"invalid syntax: expected 'via' keyword, got '%s'",
+					args[1],
+				)
 			}
 
 			company, namespace, agentName, agentID, err := parseRoute(routeID)
@@ -72,11 +81,13 @@ func newAddCmd(opts *options.CommonOptions) *cobra.Command {
 
 			msg := &grpcapi.ControlMessage{
 				MessageId: uuid.NewString(),
-				Payload: &grpcapi.ControlMessage_ConfigCommand{ConfigCommand: &grpcapi.ConfigurationCommand{
-					ConnectionsToCreate: []*grpcapi.Connection{conn},
-					RoutesToSet:         []*grpcapi.Route{route},
-					RoutesToDelete:      []*grpcapi.Route{},
-				}},
+				Payload: &grpcapi.ControlMessage_ConfigCommand{
+					ConfigCommand: &grpcapi.ConfigurationCommand{
+						ConnectionsToCreate: []*grpcapi.Connection{conn},
+						RoutesToSet:         []*grpcapi.Route{route},
+						RoutesToDelete:      []*grpcapi.Route{},
+					},
+				},
 			}
 
 			return sendConfigMessage(cmd.Context(), serverAddr, msg)
@@ -85,7 +96,7 @@ func newAddCmd(opts *options.CommonOptions) *cobra.Command {
 	return cmd
 }
 
-func newDelCmd(opts *options.CommonOptions) *cobra.Command {
+func newDelCmd(_ *options.CommonOptions) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "del <company/namespace/agentname/agentid> via <host:port>",
 		Short: "Delete a route from the gateway",
@@ -97,7 +108,10 @@ func newDelCmd(opts *options.CommonOptions) *cobra.Command {
 			endpoint := args[2]
 
 			if viaKeyword != "via" {
-				return fmt.Errorf("invalid syntax: expected 'via' keyword, got '%s'", args[1])
+				return fmt.Errorf(
+					"invalid syntax: expected 'via' keyword, got '%s'",
+					args[1],
+				)
 			}
 
 			company, namespace, agentName, agentID, err := parseRoute(routeID)
@@ -107,9 +121,7 @@ func newDelCmd(opts *options.CommonOptions) *cobra.Command {
 
 			_, connID, err := parseEndpoint(endpoint)
 			if err != nil {
-				if err != nil {
-					return fmt.Errorf("invalid endpoint format '%s': %w", endpoint, err)
-				}
+				return fmt.Errorf("invalid endpoint format '%s': %w", endpoint, err)
 			}
 
 			route := &grpcapi.Route{
@@ -122,11 +134,13 @@ func newDelCmd(opts *options.CommonOptions) *cobra.Command {
 
 			msg := &grpcapi.ControlMessage{
 				MessageId: uuid.NewString(),
-				Payload: &grpcapi.ControlMessage_ConfigCommand{ConfigCommand: &grpcapi.ConfigurationCommand{
-					ConnectionsToCreate: []*grpcapi.Connection{},
-					RoutesToSet:         []*grpcapi.Route{},
-					RoutesToDelete:      []*grpcapi.Route{route},
-				}},
+				Payload: &grpcapi.ControlMessage_ConfigCommand{
+					ConfigCommand: &grpcapi.ConfigurationCommand{
+						ConnectionsToCreate: []*grpcapi.Connection{},
+						RoutesToSet:         []*grpcapi.Route{},
+						RoutesToDelete:      []*grpcapi.Route{route},
+					},
+				},
 			}
 
 			return sendConfigMessage(cmd.Context(), serverAddr, msg)
@@ -135,16 +149,28 @@ func newDelCmd(opts *options.CommonOptions) *cobra.Command {
 	return cmd
 }
 
-func parseRoute(route string) (company, namespace, agentName string, agentID uint64, err error) {
+func parseRoute(route string) (
+	company,
+	namespace,
+	agentName string,
+	agentID uint64,
+	err error,
+) {
 	parts := strings.Split(route, "/")
 
 	if len(parts) != 4 {
-		err = fmt.Errorf("invalid route format '%s', expected 'company/namespace/agentname/agentid'", route)
+		err = fmt.Errorf(
+			"invalid route format '%s', expected 'company/namespace/agentname/agentid'",
+			route,
+		)
 		return
 	}
 
 	if parts[0] == "" || parts[1] == "" || parts[2] == "" || parts[3] == "" {
-		err = fmt.Errorf("invalid route format '%s', expected 'company/namespace/agentname/agentid'", route)
+		err = fmt.Errorf(
+			"invalid route format '%s', expected 'company/namespace/agentname/agentid'",
+			route,
+		)
 		return
 	}
 
@@ -164,19 +190,35 @@ func parseRoute(route string) (company, namespace, agentName string, agentID uin
 func parseEndpoint(endpoint string) (*grpcapi.Connection, string, error) {
 	host, portStr, err := net.SplitHostPort(endpoint)
 	if err != nil {
-		return nil, "", fmt.Errorf("cannot split endpoint '%s' into host:port: %w", endpoint, err)
+		return nil, "", fmt.Errorf(
+			"cannot split endpoint '%s' into host:port: %w",
+			endpoint,
+			err,
+		)
 	}
 
 	if host == "" {
-		return nil, "", fmt.Errorf("invalid endpoint format '%s': host part is missing", endpoint)
+		return nil, "", fmt.Errorf(
+			"invalid endpoint format '%s': host part is missing",
+			endpoint,
+		)
 	}
 
 	port, err := strconv.ParseInt(portStr, 10, 32)
 	if err != nil {
-		return nil, "", fmt.Errorf("invalid port '%s' in endpoint '%s': %w", portStr, endpoint, err)
+		return nil, "", fmt.Errorf(
+			"invalid port '%s' in endpoint '%s': %w",
+			portStr,
+			endpoint,
+			err,
+		)
 	}
 	if port <= 0 || port > 65535 {
-		return nil, "", fmt.Errorf("port number '%d' in endpoint '%s' out of range (1-65535)", port, endpoint)
+		return nil, "", fmt.Errorf(
+			"port number '%d' in endpoint '%s' out of range (1-65535)",
+			port,
+			endpoint,
+		)
 	}
 
 	connID := endpoint
@@ -189,7 +231,11 @@ func parseEndpoint(endpoint string) (*grpcapi.Connection, string, error) {
 	return conn, connID, nil
 }
 
-func sendConfigMessage(ctx context.Context, targetServer string, msg *grpcapi.ControlMessage) error {
+func sendConfigMessage(
+	ctx context.Context,
+	targetServer string,
+	msg *grpcapi.ControlMessage,
+) error {
 	ack, err := controller.SendConfigMessage(ctx, targetServer, msg)
 	if err != nil {
 		return fmt.Errorf("failed to send command: %w", err)

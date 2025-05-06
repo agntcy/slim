@@ -19,7 +19,7 @@ func SendConfigMessage(
 	serverAddr string,
 	msg *grpcapi.ControlMessage,
 ) (*grpcapi.ControlMessage, error) {
-	//TODO(zkacsand): make the timeout configurable
+	// TODO(zkacsand): make the timeout configurable
 	opCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
@@ -36,11 +36,18 @@ func SendConfigMessage(
 
 	stream, err := client.OpenControlChannel(opCtx)
 	if err != nil {
-		return nil, fmt.Errorf("cannot open control channel to %s: %w", serverAddr, err)
+		return nil, fmt.Errorf(
+			"cannot open control channel to %s: %w",
+			serverAddr,
+			err,
+		)
 	}
 
-	if err := stream.Send(msg); err != nil {
-		return nil, fmt.Errorf("cannot send config message via stream: %w", err)
+	if err = stream.Send(msg); err != nil {
+		return nil, fmt.Errorf(
+			"cannot send config message via stream: %w",
+			err,
+		)
 	}
 
 	ack, err := stream.Recv()
