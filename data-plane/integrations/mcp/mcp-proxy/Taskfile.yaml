@@ -52,3 +52,11 @@ tasks:
       - |
         cd ../../../data-plane/
         cargo run --bin gateway -- --config config/base/server-config.yaml
+
+  mcp-proxy:build:strip:
+    desc: "Build the project and strip the debug symbols"
+    cmds:
+      - task: mcp-proxy:build
+      - task: mcp-proxy:toolchain:strip
+        vars:
+          TARGET_BIN: "target/{{.TARGET}}/{{.PROFILE}}/agp-mcp-proxy"
