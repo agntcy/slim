@@ -5,7 +5,7 @@ requires-python = ">=3.13"
 [[package]]
 name = "agp-bindings"
 version = "0.3.0"
-source = { directory = "../../../../../data-plane/python-bindings" }
+source = { directory = "../../../../../python-bindings" }
 
 [package.metadata]
 
@@ -37,7 +37,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
-    { name = "agp-bindings", directory = "../../../../../data-plane/python-bindings" },
+    { name = "agp-bindings", directory = "../../../../../python-bindings" },
     { name = "anyio", specifier = ">=4.5" },
     { name = "mcp", specifier = ">=1.6.0" },
 ]
@@ -194,7 +194,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
-    { name = "agp-bindings", directory = "../../../../../data-plane/python-bindings" },
+    { name = "agp-bindings", directory = "../../../../../python-bindings" },
     { name = "agp-mcp", directory = "../../../agp-mcp/packages/agp-mcp" },
     { name = "anyio", specifier = ">=4.5" },
     { name = "mcp", specifier = ">=1.7.1" },

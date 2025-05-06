@@ -1,0 +1,23 @@
+[package]
+name = "agp-mcp-proxy"
+version = "0.1.1"
+edition = "2024"
+license = "Apache-2.0"
+description = "Proxy for exposing a native MCP server over AGP"
+
+[dependencies]
+agp-config = { path = "../../../gateway/config", version = "0.1.6" }
+agp-datapath = { path = "../../../gateway/datapath", version = "0.6.0" }
+agp-gw = { path = "../../../gateway/gateway", version = "0.3.11" }
+agp-service = { path = "../../../gateway/service", version = "0.4.0" }
+clap = "4.5.37"
+futures-util = "0.3.31"
+rand = "0.9.1"
+rmcp =  { version = "0.1.5", features = [
+    "client",
+    "transport-sse",
+] }
+serde_json = "1.0"
+tokio = { version = "1", features = ["full"] }
+tonic = "0.13.0"
+tracing = "0.1.41"
