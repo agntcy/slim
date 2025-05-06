@@ -33,6 +33,9 @@ use tracing::{debug, error, info, trace};
 
 use tonic::async_trait;
 
+const PING_INTERVAL: u64 = 20;
+const MAX_PENDING_PINGS: usize = 6;
+
 struct PingTimerObserver {
     tx_proxy_session: mpsc::Sender<u32>,
 }
@@ -101,7 +104,7 @@ impl ProxySession {
             let mut ping_timer = Timer::new(
                 1,
                 timer::TimerType::Constant,
-                Duration::from_millis(1000),
+                Duration::from_secs(PING_INTERVAL),
                 None,
                 None,
             );
@@ -147,10 +150,11 @@ impl ProxySession {
                                                 match json_rpc_response.id {
                                                     Number(index) => {
                                                         if pending_pings.contains(&index) {
-                                                            // this is a ping reply, remove the index
-                                                            // from pending_pings and drop
-                                                            debug!("received ping response with id  {:?}, remove it from the pending packets", index);
-                                                            pending_pings.remove(&index);
+                                                            // this is a ping reply, clear all pending pings
+                                                            // here we remove all the pending pings because we have the
+                                                            // prove that the client is still alive. maybe previous packets got lost
+                                                            debug!("received ping response with id  {:?}, clear the pending pings", index);
+                                                            pending_pings.clear();
                                                         } else {
                                                             // this index is unknown so it may be something else
                                                             // forward to the server
@@ -207,13 +211,15 @@ impl ProxySession {
                                 break;
                             }
                             Some(_) => {
-                                if pending_pings.len() > 10 {
+                                if pending_pings.len() >= MAX_PENDING_PINGS {
                                     // too many pending pings, we consider the client down
-                                    debug!("the client is not replying to the ping anymore, drop the connection");
+                                    info!("the client is not replying to the ping anymore, drop the connection");
                                     ping_timer.stop();
                                     let _ = sink.close().await;
                                     let _ = tx_channel.send(Err(agw_session.clone())).await;
                                     break;
+                                } else {
+                                    info!("pending size = {}", pending_pings.len());
                                 }
 
                                 // time to send a new ping to the client
