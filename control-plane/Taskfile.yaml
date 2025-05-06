@@ -122,8 +122,8 @@ tasks:
     cmds:
       - >
         {{.REPO_ROOT}}/.tools/protoc --proto_path=../proto \
-          --go_out=paths=source_relative:./internal/proto \
-          --go-grpc_out=paths=source_relative:./internal/proto \
+          --go_out=paths=source_relative:./agpctl/internal/proto \
+          --go-grpc_out=paths=source_relative:./agpctl/internal/proto \
           --plugin={{.REPO_ROOT}}/.tools/protoc-gen-go \
           --plugin={{.REPO_ROOT}}/.tools/protoc-gen-go-grpc \
           controller/v1/controller.proto
@@ -132,16 +132,16 @@ tasks:
     desc: Build agpctl
     deps:
       - control-plane:proto:generate
-    dir: cmd/agpctl
+    dir: agpctl/cmd
     cmds:
       - |
         go build -o \
           {{.OUTPUT_DIR}}/bin/agpctl \
           -ldflags \
           " \
-            -X '{{.MAIN_MODULE}}/control-plane/internal/cmd/version.semVersion={{.VERSION}}'
-            -X '{{.MAIN_MODULE}}/control-plane/internal/cmd/version.gitCommit={{.GIT_COMMIT}}'
-            -X '{{.MAIN_MODULE}}/control-plane/internal/cmd/version.buildDate={{.BUILD_DATE}}'
+            -X '{{.MAIN_MODULE}}/control-plane/agpctl/internal/cmd/version.semVersion={{.VERSION}}'
+            -X '{{.MAIN_MODULE}}/control-plane/agpctl/internal/cmd/version.gitCommit={{.GIT_COMMIT}}'
+            -X '{{.MAIN_MODULE}}/control-plane/agpctl/internal/cmd/version.buildDate={{.BUILD_DATE}}'
             {{.FLAGS}} \
           "
     vars:

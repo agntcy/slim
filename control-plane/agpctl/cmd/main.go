@@ -9,9 +9,9 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/agntcy/agp/control-plane/internal/cmd/route"
-	"github.com/agntcy/agp/control-plane/internal/cmd/version"
-	"github.com/agntcy/agp/control-plane/internal/options"
+	"github.com/agntcy/agp/control-plane/agpctl/internal/cmd/route"
+	"github.com/agntcy/agp/control-plane/agpctl/internal/cmd/version"
+	"github.com/agntcy/agp/control-plane/agpctl/internal/options"
 )
 
 func main() {

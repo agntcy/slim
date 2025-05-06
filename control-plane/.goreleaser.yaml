@@ -1,0 +1,37 @@
+version: 2
+
+before:
+  hooks:
+    - control-plane:proto:generate
+
+builds:
+  - main: ./cmd
+    binary: agpctl
+    env:
+      - CGO_ENABLED=0
+    ldflags:
+      - -s -w
+      - -X github.com/agntcy/agp/control-plane/agpctl/internal/cmd/version.semVersion={{.Version}}
+      - -X github.com/agntcy/agp/control-plane/agpctl/internal/cmd/version.gitCommit={{.Commit}}
+      - -X github.com/agntcy/agp/control-plane/agpctl/internal/cmd/version.buildDate={{.Date}}
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+
+archives:
+  - format: binary
+    strip_binary_directory: true
+    name_template: "{{ .Binary }}-{{ .Os }}-{{ .Arch }}"
+
+checksum:
+  name_template: 'agpctl-checksums.txt'
+
+release:
+  mode: 'keep-existing'
+
+changelog:
+  skip: true

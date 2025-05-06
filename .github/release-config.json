@@ -12,6 +12,10 @@
         "charts/agp": {
             "package-name": "agp-helm",
             "release-type": "helm"
+        },
+        "control-plane/agpctl": {
+            "package-name": "agpctl",
+            "release-type": "go"
         }
     }
 }
