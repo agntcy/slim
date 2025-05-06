@@ -35,6 +35,5 @@ jobs:
     name: Build gateway docker image
     uses: ./.github/workflows/reusable-docker-build-push.yaml
     with:
-      bake-target: gw
-      image-name: gw
+      bake-targets: gw,mcp-proxy
       image-tag: ${{ github.sha }}

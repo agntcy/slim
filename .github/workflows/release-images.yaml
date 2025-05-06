@@ -70,8 +70,7 @@ jobs:
       packages: 'write'
       attestations: 'write'
     with:
-      bake-target: ${{ matrix.target }}
-      image-name: ${{ matrix.target }}
+      bake-targets: ${{ matrix.target }}
       image-tag: ${{ needs.prepare-build.outputs.image-tag }}
     secrets:
       github-token: ${{ secrets.GITHUB_TOKEN }}

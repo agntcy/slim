@@ -10,7 +10,7 @@ variable "IMAGE_TAG" {default = "v0.0.0-dev"}
 
 function "get_tag" {
   params = [tags, name]
-  result = coalescelist(tags, ["${IMAGE_REPO}/${name}:${IMAGE_TAG}"])
+  result = [for tag in tags: "${IMAGE_REPO}/${name}:${tag}"]
 }
 
 group "default" {
