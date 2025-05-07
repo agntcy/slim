@@ -1,0 +1,54 @@
+# Copyright AGNTCY Contributors (https://github.com/agntcy)
+# SPDX-License-Identifier: Apache-2.0
+
+---
+name: ci-release-agpctl
+
+on:
+  push:
+    tags:
+      - 'agpctl-*'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        shell: bash
+
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [darwin, linux]
+        arch: [amd64, arm64]
+        exclude:
+          - os: darwin
+            arch: arm64
+          - os: linux
+            arch: arm64
+          - os: darwin
+            arch: amd64
+
+    steps:
+      - name: Checkout Repo
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: ./.github/actions/setup-go
+
+      - name: Build
+        run: task control-plane:agpctl:build
+
+      - name: Authenticate
+        run: gh auth login --with-token <<< "${{ secrets.GITHUB_TOKEN }}"
+
+      - name: Upload to existing release
+        run: |
+          mv .dist/bin/agpctl .dist/bin/agpctl-${{ matrix.os }}-${{ matrix.arch }}
+          TAG=${GITHUB_REF#refs/tags/}
+          gh release upload "$TAG" dist/agpctl-${{ matrix.os }}-${{ matrix.arch }} --clobber

@@ -5,7 +5,6 @@ replace github.com/agntcy/agp/control-plane => ..
 go 1.23.6
 
 require (
-	github.com/agntcy/agp/control-plane v0.0.0-00010101000000-000000000000
 	github.com/spf13/cobra v1.8.1
 	go.uber.org/zap v1.27.0
 )

@@ -14,9 +14,9 @@ import (
 	"github.com/spf13/cobra"
 	"google.golang.org/protobuf/types/known/wrapperspb"
 
-	"github.com/agntcy/agp/control-plane/internal/controller"
-	"github.com/agntcy/agp/control-plane/internal/options"
-	grpcapi "github.com/agntcy/agp/control-plane/internal/proto/controller/v1"
+	"github.com/agntcy/agp/control-plane/agpctl/internal/controller"
+	"github.com/agntcy/agp/control-plane/agpctl/internal/options"
+	grpcapi "github.com/agntcy/agp/control-plane/agpctl/internal/proto/controller/v1"
 )
 
 var serverAddr string

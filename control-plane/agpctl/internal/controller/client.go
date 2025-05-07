@@ -11,7 +11,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
-	grpcapi "github.com/agntcy/agp/control-plane/internal/proto/controller/v1"
+	grpcapi "github.com/agntcy/agp/control-plane/agpctl/internal/proto/controller/v1"
 )
 
 func SendConfigMessage(

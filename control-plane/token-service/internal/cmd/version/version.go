@@ -10,7 +10,7 @@ import (
 	"github.com/spf13/cobra"
 	"go.uber.org/zap"
 
-	"github.com/agntcy/agp/control-plane/internal/options"
+	"github.com/agntcy/agp/control-plane/token-service/internal/options"
 )
 
 var (
