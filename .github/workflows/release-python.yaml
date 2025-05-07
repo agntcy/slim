@@ -23,7 +23,7 @@ jobs:
   build-mcp-wheels:
     name: Data plane - Python wheels
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/agp-mcp-')
-    uses: ./.github/workflows/reusable-python-build-wheels.yaml
+    uses: ./.github/workflows/reusable-python-build-and-test.yaml
     with:
       working-directory: ./data-plane/integrations/mcp/agp-mcp
       prefix: integrations
