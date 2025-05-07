@@ -1,6 +1,6 @@
 # Changelog
 
-## [0.1.1](https://github.com/agntcy/agp/compare/agp-mcp-v0.1.0...agp-mcp-v0.1.1) (2025-05-07)
+## [0.1.1](https://github.com/agntcy/agp/compare/agp-mcp-v0.1.0...agp-mcp-v0.1.0) (2025-05-07)
 
 
 ### Features
