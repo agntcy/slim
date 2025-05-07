@@ -6,14 +6,47 @@ name: ci-release-agpctl
 
 on:
   push:
-    tags:
-      - 'agpctl-*'
+    #tags:
+    #  - 'agpctl-*'
+    branch:
+      - 'ci/release-agpctl'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        shell: bash
+
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [darwin, linux]
+        arch: [amd64, arm64]
+        exclude:
+          - go-fips: true
+            os: darwin
+            arch: arm64
+          - go-fips: true
+            os: linux
+            arch: arm64
+          - go-fips: true
+            os: darwin
+            arch: amd64
+
+    steps:
+      - name: Checkout Repo
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: ./.github/actions/setup-go
+
+
   goreleaser:
     runs-on: ubuntu-latest
     steps:
@@ -25,11 +58,5 @@ jobs:
       - name: Setup Go
         uses: ./.github/actions/setup-go
 
-      - name: goreleaser
-        uses: goreleaser/goreleaser-action@v6
-        with:
-          version: latest
-          args: release --clean
-          workdir: ./control-plane/agpctl
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build
+        run: task control-plane:agpctl:build

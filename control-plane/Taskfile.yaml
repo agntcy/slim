@@ -150,7 +150,7 @@ tasks:
       BUILD_DATE:
         sh: date -u +'%Y-%m-%dT%H:%M:%SZ'
       VERSION:
-         sh: pushd {{.REPO_ROOT}} > /dev/null && task version && popd > /dev/null
+        sh: pushd {{.REPO_ROOT}} > /dev/null && task version && popd > /dev/null
 
   control-plane:token-service:build:
     desc: Build token service
@@ -172,7 +172,7 @@ tasks:
       BUILD_DATE:
         sh: date -u +'%Y-%m-%dT%H:%M:%SZ'
       VERSION:
-         sh: pushd {{.REPO_ROOT}} > /dev/null && task version && popd > /dev/null
+        sh: pushd {{.REPO_ROOT}} > /dev/null && task version && popd > /dev/null
 
   control-plane:build:
     desc: Build go binaries
