@@ -1,5 +1,5 @@
 {
     "data-plane/python-bindings": "0.3.0",
     "charts/agp": "0.1.3",
-    "control-plane/agpctl": "0.1.2"
+    "control-plane/agpctl": "0.1.3"
 }
