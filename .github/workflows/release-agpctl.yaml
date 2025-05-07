@@ -8,7 +8,7 @@ on:
   push:
     #tags:
     #  - 'agpctl-*'
-    branch:
+    branches:
       - 'ci/release-agpctl'
 
 concurrency:
