@@ -40,7 +40,6 @@ dependencies = [
     { name = "agp-bindings" },
     { name = "anyio" },
     { name = "mcp" },
-    { name = "readerwriterlock" },
 ]
 
 [package.dev-dependencies]
@@ -60,7 +59,6 @@ requires-dist = [
     { name = "agp-bindings", directory = "../../../python-bindings" },
     { name = "anyio", specifier = ">=4.5" },
     { name = "mcp", specifier = ">=1.6.0" },
-    { name = "readerwriterlock", specifier = ">=1.0.9" },
 ]
 
 [package.metadata.requires-dev]
@@ -1721,18 +1719,6 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/fe/0f/25911a9f080464c59fab9027482f822b86bf0608957a5fcc6eaac85aa515/PyYAML-6.0.2-cp313-cp313-musllinux_1_1_x86_64.whl", hash = "sha256:68ccc6023a3400877818152ad9a1033e3db8625d899c72eacb5a668902e4d652", size = 751597 },
     { url = "https://files.pythonhosted.org/packages/14/0d/e2c3b43bbce3cf6bd97c840b46088a3031085179e596d4929729d8d68270/PyYAML-6.0.2-cp313-cp313-win32.whl", hash = "sha256:bc2fa7c6b47d6bc618dd7fb02ef6fdedb1090ec036abab80d4681424b84c1183", size = 140527 },
     { url = "https://files.pythonhosted.org/packages/fa/de/02b54f42487e3d3c6efb3f89428677074ca7bf43aae402517bc7cca949f3/PyYAML-6.0.2-cp313-cp313-win_amd64.whl", hash = "sha256:8388ee1976c416731879ac16da0aff3f63b286ffdd57cdeb95f3f2e085687563", size = 156446 },
-]
-
-[[package]]
-name = "readerwriterlock"
-version = "1.0.9"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "typing-extensions" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/a4/b9/6b7c390440ec23bf5fdf33e76d6c3b697a788b983c11cb2739d6541835d6/readerwriterlock-1.0.9.tar.gz", hash = "sha256:b7c4cc003435d7a8ff15b312b0a62a88d9800ba6164af88991f87f8b748f9bea", size = 16595 }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/c2/5a/2f2e7fc026d5e64b5408aa3fbe0296a6407b8481196cae4daacacb3a3ae0/readerwriterlock-1.0.9-py3-none-any.whl", hash = "sha256:8c4b704e60d15991462081a27ef46762fea49b478aa4426644f2146754759ca7", size = 9999 },
 ]
 
 [[package]]

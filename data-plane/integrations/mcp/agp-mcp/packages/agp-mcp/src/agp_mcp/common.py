@@ -103,6 +103,7 @@ class AGPBase(ABC):
         self,
         session: agp_bindings.PySessionInfo,
         message: types.JSONRPCMessage,
+        pendin_pings: list[int],
     ) -> bool:
         """
         Check the message content. If it returns True the message should be
@@ -121,6 +122,7 @@ class AGPBase(ABC):
     async def _ping(
         self,
         session: agp_bindings.PySessionInfo,
+        pendin_pings: list[int],
     ):
         """
         Send an MCP ping message to the other endpoint
@@ -130,21 +132,6 @@ class AGPBase(ABC):
         """
 
         pass
-
-    def _stop_session(
-        self,
-        session: agp_bindings.PySessionInfo,
-    ) -> bool:
-        """
-        Check if the session should be closed or not
-
-        session (agp_bindings.PySessionInfo): AGP session info.
-
-        Returns:
-            bool: True if the session needs to be close, False otherwise
-        """
-
-        return False
 
     async def __aenter__(self):
         """Initialize and connect to the AGP gateway.
@@ -260,6 +247,8 @@ class AGPBase(ABC):
         read_stream_writer, read_stream = anyio.create_memory_object_stream(0)
         write_stream, write_stream_reader = anyio.create_memory_object_stream(0)
 
+        pending_pings = []
+
         async def agp_reader():
             session = accepted_session
             try:
@@ -271,7 +260,9 @@ class AGPBase(ABC):
                         )
 
                         message = types.JSONRPCMessage.model_validate_json(msg.decode())
-                        if not self._filter_message(accepted_session, message):
+                        if not self._filter_message(
+                            accepted_session, message, pending_pings
+                        ):
                             await read_stream_writer.send(message)
                     except Exception as exc:
                         logger.error("Error receiving message", exc_info=True)
@@ -296,12 +287,11 @@ class AGPBase(ABC):
         async def ping():
             session = accepted_session
             try:
-                t1 = asyncio.create_task(self._ping(session))
+                t1 = asyncio.create_task(self._ping(session, pending_pings))
                 await t1
             finally:
-                if self._stop_session(session):
+                if len(pending_pings) != 0:
                     tg.cancel_scope.cancel()
-                    # await self.gateway.delete_session(accepted_session.id)
                 else:
                     t1.cancel()
 

@@ -6,7 +6,6 @@ from contextlib import asynccontextmanager
 from typing import Any
 
 import agp_bindings
-import mcp.types as types
 from mcp import ClientSession
 
 from agp_mcp.common import AGPBase

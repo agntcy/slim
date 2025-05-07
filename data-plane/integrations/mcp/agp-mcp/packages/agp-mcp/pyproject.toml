@@ -22,7 +22,7 @@ classifiers = [
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
 ]
-dependencies = ["agp-bindings>=0.3.0", "mcp>=1.6.0", "anyio>=4.5", "readerwriterlock>=1.0.9"]
+dependencies = ["agp-bindings>=0.3.0", "mcp>=1.6.0", "anyio>=4.5"]
 
 [dependency-groups]
 testing = ["pytest>=8.3.5", "pytest-asyncio>=0.26.0"]
