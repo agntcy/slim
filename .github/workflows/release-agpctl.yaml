@@ -47,4 +47,4 @@ jobs:
         run: task control-plane:agpctl:build
 
       - name: List
-        run: ls -alh .dist/
+        run: ls -alh .dist/bin/
