@@ -48,3 +48,6 @@ jobs:
 
       - name: List
         run: ls -alh .dist/bin/
+
+      - name: Test
+        run: echo "${{ matrix.os }}-${{ matrix.arch }}"
