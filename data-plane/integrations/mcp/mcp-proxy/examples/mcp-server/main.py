@@ -1,6 +1,7 @@
 # Copyright AGNTCY Contributors (https://github.com/agntcy)
 # SPDX-License-Identifier: Apache-2.0
 
+import anyio
 import click
 import httpx
 import mcp.types as types
@@ -9,6 +10,8 @@ from pydantic import FileUrl
 
 from mcp.server.sse import SseServerTransport
 from starlette.applications import Starlette
+from starlette.requests import Request
+from starlette.responses import Response
 from starlette.routing import Mount, Route
 import uvicorn
 
@@ -182,11 +185,12 @@ def main(port: int):
             await app.run(
                 streams[0], streams[1], app.create_initialization_options()
             )
+        return Response()
 
     starlette_app = Starlette(
         debug=True,
         routes=[
-            Route("/sse", endpoint=handle_sse),
+            Route("/sse", endpoint=handle_sse, methods=["GET"]),
             Mount("/messages/", app=sse.handle_post_message),
         ],
     )

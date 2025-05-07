@@ -6,28 +6,70 @@ use agp_datapath::{
     pubsub::proto::pubsub::v1::Message,
 };
 use agp_gw::config::ConfigResult;
-use agp_service::{FireAndForgetConfiguration, session, session::SessionConfig};
+use agp_service::{
+    FireAndForgetConfiguration,
+    session::{self, SessionConfig},
+    timer::{self, Timer},
+};
+use rmcp::model::ClientResult::EmptyResult;
 use rmcp::{
     RoleClient,
-    model::{ClientNotification, ClientRequest, ClientResult, JsonRpcMessage, JsonRpcRequest},
+    model::{
+        ClientNotification, ClientRequest, ClientResult, JsonRpcMessage, JsonRpcRequest,
+        PingRequest, PingRequestMethod, ServerJsonRpcMessage,
+    },
     transport::{IntoTransport, SseTransport, sse::SseTransportError},
 };
 
 use futures_util::{StreamExt, sink::SinkExt};
-use std::collections::HashMap;
+use rmcp::model::NumberOrString::Number;
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
+    time::Duration,
+};
 use tokio::sync::mpsc;
 use tracing::{debug, error, info, trace};
 
-struct Session {
+use async_trait::async_trait;
+
+const PING_INTERVAL: u64 = 20;
+const MAX_PENDING_PINGS: usize = 3;
+
+struct PingTimerObserver {
+    tx_proxy_session: mpsc::Sender<u32>,
+}
+
+#[async_trait]
+impl timer::TimerObserver for PingTimerObserver {
+    async fn on_timeout(&self, timer_id: u32, timeouts: u32) {
+        trace!("timeout number {} for rtx {}, retry", timeouts, timer_id);
+        let _ = self.tx_proxy_session.send(timer_id).await;
+    }
+
+    async fn on_failure(&self, _timer_id: u32, _timeouts: u32) {
+        panic!("timer on failure, this should never happen");
+    }
+
+    async fn on_stop(&self, _timer_id: u32) {
+        trace!("timer cancelled");
+        // nothing to do
+    }
+}
+
+struct ProxySession {
     // name of the agent connect to this session
     agw_session: session::Info,
     // send messages to proxy
-    tx_proxy: mpsc::Sender<(session::Info, Vec<u8>)>,
+    tx_proxy: mpsc::Sender<Result<(session::Info, Vec<u8>), session::Info>>,
 }
 
-impl Session {
-    fn new(agw_session: session::Info, tx_proxy: mpsc::Sender<(session::Info, Vec<u8>)>) -> Self {
-        Session {
+impl ProxySession {
+    fn new(
+        agw_session: session::Info,
+        tx_proxy: mpsc::Sender<Result<(session::Info, Vec<u8>), session::Info>>,
+    ) -> Self {
+        ProxySession {
             agw_session,
             tx_proxy,
         }
@@ -54,12 +96,30 @@ impl Session {
                     transport,
                 );
 
+            // start new ping timer
+            let (tx_timer, mut rx_timer) = mpsc::channel(128);
+            let ping_timer_observer = Arc::new(PingTimerObserver {
+                tx_proxy_session: tx_timer,
+            });
+            let mut ping_timer = Timer::new(
+                1,
+                timer::TimerType::Constant,
+                Duration::from_secs(PING_INTERVAL),
+                None,
+                None,
+            );
+            ping_timer.start(ping_timer_observer);
+            let mut pending_pings = HashSet::new();
+
             loop {
                 tokio::select! {
                     next_from_gw = rx_session.recv() => {
                         match next_from_gw {
                             None => {
                                 debug!("end of the stream from GW, stop receiving loop");
+                                ping_timer.stop();
+                                let _ = sink.close().await;
+                                let _ = tx_channel.send(Err(agw_session.clone())).await;
                                 break;
                             }
                             Some(msg) => {
@@ -74,27 +134,116 @@ impl Session {
                                             continue;
                                         }
                                 };
-                                debug!("send message {:?}", jsonrpcmsg);
-                                sink.send(jsonrpcmsg).await.unwrap();
+                                match jsonrpcmsg {
+                                    JsonRpcMessage::Response(json_rpc_response) => {
+                                        debug!("received response message: {:?}", json_rpc_response);
+                                        // in this case the message may be the response for
+                                        // an MCP ping message the the proxy sent to the
+                                        // client. In all the other cases we forward the reply
+                                        // to the real MCP server.
+                                        // ping message format:
+                                        // JsonRpcResponse { jsonrpc: JsonRpcVersion2_0, id: Number(1), result: EmptyResult(EmptyObject) }
+
+                                        match json_rpc_response.result {
+                                            EmptyResult(_) => {
+                                                // this can be a ping response
+                                                match json_rpc_response.id {
+                                                    Number(index) => {
+                                                        if pending_pings.contains(&index) {
+                                                            // this is a ping reply, clear all pending pings
+                                                            // here we remove all the pending pings because we have the
+                                                            // prove that the client is still alive. maybe previous packets got lost
+                                                            debug!("received ping response with id  {:?}, clear the pending pings", index);
+                                                            pending_pings.clear();
+                                                        } else {
+                                                            // this index is unknown so it may be something else
+                                                            // forward to the server
+                                                            debug!("forward message to the server {:?}", json_rpc_response);
+                                                            sink.send(rmcp::model::JsonRpcMessage::Response(json_rpc_response)).await.unwrap();
+                                                        }
+                                                    }
+                                                    _ => {
+                                                        // not a ping, simply forward
+                                                        debug!("forward message to the server {:?}", json_rpc_response);
+                                                        sink.send(rmcp::model::JsonRpcMessage::Response(json_rpc_response)).await.unwrap();
+                                                    }
+                                                }
+                                            }
+                                            _ => {
+                                                // not a ping, simply forward
+                                                debug!("forward message to the server {:?}", json_rpc_response);
+                                                sink.send(rmcp::model::JsonRpcMessage::Response(json_rpc_response)).await.unwrap();
+                                            }
+                                        }
+                                    }
+                                    _ => {
+                                        // this is not a message response, simply forward
+                                        debug!("forward message to the server {:?}", jsonrpcmsg);
+                                        sink.send(jsonrpcmsg).await.unwrap();
+                                    },
+                                }
                             },
                         }
                     }
                     next_from_mpc = stream.next() => {
                         match next_from_mpc {
                             None => {
-                                debug!("end of the stream from MCP, stop receiving loop");
+                                info!("end of the stream from MCP, stop receiving loop");
+                                ping_timer.stop();
+                                let _ = sink.close().await;
+                                let _ = tx_channel.send(Err(agw_session.clone())).await;
                                 break;
                             }
                             Some(msg) => {
                                 // received a message from the MCP server, send it to the GW
                                 let vec = serde_json::to_vec(&msg).unwrap();
-                                let _ = tx_channel.send((agw_session.clone(), vec)).await;
+                                let _ = tx_channel.send(Ok((agw_session.clone(), vec))).await;
+                            }
+                        }
+                    }
+                    next_from_timer =  rx_timer.recv() => {
+                        match next_from_timer {
+                            None => {
+                                debug!("end of stream from timer, stop receivieng loop");
+                                ping_timer.stop();
+                                let _ = sink.close().await;
+                                let _ = tx_channel.send(Err(agw_session.clone())).await;
+                                break;
+                            }
+                            Some(_) => {
+                                if pending_pings.len() >= MAX_PENDING_PINGS {
+                                    // too many pending pings, we consider the client down
+                                    debug!("the client is not replying to the ping anymore, drop the connection");
+                                    ping_timer.stop();
+                                    let _ = sink.close().await;
+                                    let _ = tx_channel.send(Err(agw_session.clone())).await;
+                                    break;
+                                }
+
+                                // time to send a new ping to the client
+                                let ping_req = PingRequest {
+                                    method: PingRequestMethod,
+
+                                };
+                                let index = rand::random::<u32>();
+                                pending_pings.insert(index);
+                                let req = ServerJsonRpcMessage::Request(JsonRpcRequest {
+                                    jsonrpc: rmcp::model::JsonRpcVersion2_0,
+                                    id: Number(index),
+                                    request: rmcp::model::ServerRequest::PingRequest(ping_req)
+                                });
+
+                                let vec = serde_json::to_vec(&req).unwrap();
+                                let _ = tx_channel.send(Ok((agw_session.clone(), vec))).await;
+
                             }
                         }
                     }
                 }
             }
         });
+
+        // return tx_session
         tx_session
     }
 }
@@ -190,7 +339,7 @@ impl Proxy {
                 next_from_gw = gw_rx.recv() => {
                     match next_from_gw {
                         None => {
-                            debug!("end of the stream, stop the loop");
+                            info!("end of the stream from the gateway, stop the MCP prefix");
                             break;
                         }
                         Some(result) => match result {
@@ -219,12 +368,13 @@ impl Proxy {
                                             }
                                         };
 
-                                        if request.request.method != "initialize" {
+                                        if request.request.method != "initialize" { // InitializeResultMethod
                                             error!("received unexpected initialization method {}", request.request.method);
                                             continue;
                                         }
 
-                                        let session = Session::new(msg.info.clone(), proxy_tx.clone());
+                                        info!("start new session {:?}", session_id);
+                                        let session = ProxySession::new(msg.info.clone(), proxy_tx.clone());
                                         let session_tx = session.run_session(self.mcp_server.clone()).await;
 
                                         // send the message to the new created session
@@ -248,40 +398,64 @@ impl Proxy {
                 next_from_session = proxy_rx.recv() => {
                     match next_from_session {
                         None => {
-                            debug!("end of the stream, ignore");
+                            debug!("some proxy session unexpectedly stopped. ignore it");
                         }
-                        Some((info, msg)) => {
-                            let src = match info.message_source {
-                                Some(ref s) => s.clone(),
-                                None => {
-                                    error!("cannot send reply message, unkwon destination");
-                                    continue;
+                        Some(result) => match result {
+                            Ok((info, msg)) => {
+                                let src = match info.message_source {
+                                    Some(ref s) => s.clone(),
+                                    None => {
+                                        error!("cannot send reply message, unknown destination");
+                                        continue;
+                                    }
+                                };
+                                let conn_id = match info.input_connection {
+                                    Some(c) => c,
+                                    None => {
+                                        error!("cannot send reply message, unknown incoming connection");
+                                        continue;
+                                    }
+                                };
+                                match svc.publish_to(
+                                    &self.name,
+                                    info,
+                                    src.agent_type(),
+                                    Some(src.agent_id()),
+                                    conn_id,
+                                    msg,
+                                ).await {
+                                    Ok(()) => {
+                                        debug!("sent message to destination {:?}", src);
+                                    }
+                                    Err(e) => {
+                                        error!("error while sending message to agent {:?}: {}", src, e.to_string());
+                                    }
                                 }
-                            };
-                            let conn_id = match info.input_connection {
-                                Some(c) => c,
-                                None => {
-                                    error!("cannot send reply message, unkwon incoming connection");
-                                    continue;
-                                }
-                            };
-                            match svc.publish_to(
-                                &self.name,
-                                info,
-                                src.agent_type(),
-                                Some(src.agent_id()),
-                                conn_id,
-                                msg,
-                            ).await {
-                                Ok(()) => {
-                                    trace!("sent message to destination {:?}", src);
-                                }
-                                Err(e) => {
-                                    error!("error while sending message to agent {:?}: {}", src, e.to_string());
-                                }
+                            }
+                            Err(info) => {
+                                let src = match info.message_source {
+                                    Some(ref s) => s.clone(),
+                                    None => {
+                                        error!("cannot stop proxy session, unknown destination");
+                                        continue;
+                                    }
+                                };
+
+                                let session_id = SessionId {
+                                    source: src,
+                                    id: info.id,
+                                };
+
+                                // remove the proxy session if it exists
+                                self.connections.remove(&session_id);
+                                info!("stop session {:?}", session_id);
                             }
                         }
                     }
+                }
+                _ = agp_signal::shutdown() => {
+                    info!("Received shutdown signal, stop mcp-proxy");
+                    break;
                 }
             }
         }

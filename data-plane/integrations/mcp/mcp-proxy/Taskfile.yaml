@@ -44,13 +44,20 @@ tasks:
     cmds:
       - |
         cd examples/mcp-agp-client
+        uv run main.py
+  
+  mcp-proxy:reinstall-and-run-mcp-client:
+    desc: run a simple MCP client that use AGP as transport protocol
+    cmds:
+      - |
+        cd examples/mcp-agp-client
         uv run --reinstall main.py
 
   mcp-proxy:run-agp:
     desc: run an AGP node
     cmds:
       - |
-        cd ../../../data-plane/
+        cd ../../../
         cargo run --bin gateway -- --config config/base/server-config.yaml
 
   mcp-proxy:build:strip:
