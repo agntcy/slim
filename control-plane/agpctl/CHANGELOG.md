@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.3](https://github.com/agntcy/agp/compare/agpctl-v0.1.2...agpctl-v0.1.3) (2025-05-07)
+
+
+### Bug Fixes
+
+* fix description ([#220](https://github.com/agntcy/agp/issues/220)) ([b316693](https://github.com/agntcy/agp/commit/b316693fc4b71a976b831b98d99bf629a60fa21b))
+
 ## [0.1.2](https://github.com/agntcy/agp/compare/agpctl-v0.1.1...agpctl-v0.1.2) (2025-05-07)
 
 
