@@ -34,6 +34,10 @@ jobs:
     needs:
       - build-bindings-wheels
       - build-mcp-wheels
+    if: |
+      always() &&
+      (needs.build-bindings-wheels.result == 'skipped' || needs.build-bindings-wheels.result == 'success') &&
+      (needs.build-mcp-wheels.result == 'skipped' || needs.build-mcp-wheels.result == 'success')
     environment: pypi
     permissions:
       # IMPORTANT: this permission is mandatory for Trusted Publishing
