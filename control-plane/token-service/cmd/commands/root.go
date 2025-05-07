@@ -10,10 +10,10 @@ import (
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 
-	"github.com/agntcy/agp/control-plane/internal/cmd/version"
-	"github.com/agntcy/agp/control-plane/internal/logging"
-	"github.com/agntcy/agp/control-plane/internal/options"
 	"github.com/agntcy/agp/control-plane/token-service/cmd/common"
+	"github.com/agntcy/agp/control-plane/token-service/internal/cmd/version"
+	"github.com/agntcy/agp/control-plane/token-service/internal/logging"
+	"github.com/agntcy/agp/control-plane/token-service/internal/options"
 )
 
 // New instantiates the root command and initializes the tree of commands.

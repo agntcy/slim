@@ -4,7 +4,7 @@
 package common
 
 import (
-	"github.com/agntcy/agp/control-plane/internal/options"
+	"github.com/agntcy/agp/control-plane/token-service/internal/options"
 )
 
 type RootOptions struct {

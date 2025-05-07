@@ -16,6 +16,10 @@
         "data-plane/integrations/mcp/agp-mcp/packages/agp-mcp": {
             "package-name": "agp-mcp",
             "release-type": "python"
+        },
+        "control-plane/agpctl": {
+            "package-name": "agpctl",
+            "release-type": "go"
         }
     }
 }

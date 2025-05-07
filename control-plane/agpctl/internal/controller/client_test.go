@@ -16,7 +16,7 @@ import (
 	"google.golang.org/grpc/test/bufconn"
 	"google.golang.org/protobuf/types/known/wrapperspb"
 
-	grpcapi "github.com/agntcy/agp/control-plane/internal/proto/controller/v1"
+	grpcapi "github.com/agntcy/agp/control-plane/agpctl/internal/proto/controller/v1"
 )
 
 const bufSize = 1024 * 1024
