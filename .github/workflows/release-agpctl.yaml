@@ -6,10 +6,8 @@ name: ci-release-agpctl
 
 on:
   push:
-    #tags:
-    #  - 'agpctl-*'
-    branches:
-      - 'ci/release-agpctl'
+    tags:
+      - 'agpctl-*'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -46,8 +44,11 @@ jobs:
       - name: Build
         run: task control-plane:agpctl:build
 
-      - name: List
-        run: ls -alh .dist/bin/
+      - name: Authenticate
+        run: gh auth login --with-token <<< "${{ secrets.GITHUB_TOKEN }}"
 
-      - name: Test
-        run: echo "${{ matrix.os }}-${{ matrix.arch }}"
+      - name: Upload to existing release
+        run: |
+          mv .dist/bin/agpctl .dist/bin/agpctl-${{ matrix.os }}-${{ matrix.arch }}
+          TAG=${GITHUB_REF#refs/tags/}
+          gh release upload "$TAG" dist/agpctl-${{ matrix.os }}-${{ matrix.arch }} --clobber
