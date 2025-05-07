@@ -45,7 +45,7 @@ jobs:
         uses: ./.github/actions/setup-go
 
       - name: Build
-        run: task control-plane:agpctl:build
+        run: CGO_ENABLED=0 task control-plane:agpctl:build
 
       - name: Authenticate
         run: gh auth login --with-token <<< "${{ secrets.GITHUB_TOKEN }}"

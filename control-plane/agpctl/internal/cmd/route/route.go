@@ -33,7 +33,7 @@ func NewRouteCmd(opts *options.CommonOptions) *cobra.Command {
 		"server",
 		"s",
 		"localhost:46357",
-		"Gateway gRPC control API endpoint (host:port)",
+		"gateway gRPC control API endpoint (host:port)",
 	)
 	_ = cmd.MarkPersistentFlagRequired("server")
 
