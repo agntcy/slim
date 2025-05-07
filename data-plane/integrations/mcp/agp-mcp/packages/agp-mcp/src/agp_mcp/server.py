@@ -1,13 +1,20 @@
 # Copyright AGNTCY Contributors (https://github.com/agntcy)
 # SPDX-License-Identifier: Apache-2.0
 
+import asyncio
 import logging
+import random
+import sys
 
 import agp_bindings
+import mcp.types as types
 
 from agp_mcp.common import AGPBase
 
 logger = logging.getLogger(__name__)
+
+MAX_PENDING_PINGS = 3
+PING_INTERVAL = 20
 
 
 class AGPServer(AGPBase):
@@ -68,6 +75,42 @@ class AGPServer(AGPBase):
             session,
             message,
         )
+
+    def _filter_message(
+        self,
+        session: agp_bindings.PySessionInfo,
+        message: types.JSONRPCMessage,
+        pending_pings: list[int],
+    ) -> bool:
+        if isinstance(message.root, types.JSONRPCResponse):
+            response: type.JSONRPCResponse = message.root
+            if response.result == {}:
+                if response.id in pending_pings:
+                    logger.debug(f"Received ping reply on session {session.id}")
+                    pending_pings.clear()
+                    return True
+
+        return False
+
+    async def _ping(
+        self, session: agp_bindings.PySessionInfo, pending_pings: list[int]
+    ):
+        while True:
+            id = random.randint(0, sys.maxsize)
+            pending_pings.append(id)
+
+            if len(pending_pings) > MAX_PENDING_PINGS:
+                logger.debug(
+                    f"Maximum number of pending pings reached in session {session.id}"
+                )
+                return
+
+            message = types.JSONRPCMessage(
+                root=types.JSONRPCRequest(jsonrpc="2.0", id=id, method="ping")
+            )
+            json = message.model_dump_json(by_alias=True, exclude_none=True)
+            await self._send_message(session, json.encode())
+            await asyncio.sleep(PING_INTERVAL)
 
     def __aiter__(self):
         """

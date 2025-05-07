@@ -1,6 +1,7 @@
 # Copyright AGNTCY Contributors (https://github.com/agntcy)
 # SPDX-License-Identifier: Apache-2.0
 
+import asyncio
 import logging
 from abc import ABC, abstractmethod
 from contextlib import asynccontextmanager
@@ -91,10 +92,45 @@ class AGPBase(ABC):
         Send a message to the AGP server.
 
         Args:
+            session (agp_bindings.PySessionInfo): AGP session info.
             message (bytes): Message to send.
         """
 
         # This method should be implemented in subclasses.
+        pass
+
+    def _filter_message(
+        self,
+        session: agp_bindings.PySessionInfo,
+        message: types.JSONRPCMessage,
+        pendin_pings: list[int],
+    ) -> bool:
+        """
+        Check the message content. If it returns True the message should be
+        droped and not pass to the application
+
+        Args:
+            session (agp_bindings.PySessionInfo): AGP session info.
+            message (types.JSONRPCMessage): Message to control.
+
+        Returns:
+            bool: True if the message has to be droped, False otherwise
+        """
+
+        return False
+
+    async def _ping(
+        self,
+        session: agp_bindings.PySessionInfo,
+        pendin_pings: list[int],
+    ):
+        """
+        Send an MCP ping message to the other endpoint
+
+        Args:
+            session (agp_bindings.PySessionInfo): AGP session info.
+        """
+
         pass
 
     async def __aenter__(self):
@@ -211,6 +247,8 @@ class AGPBase(ABC):
         read_stream_writer, read_stream = anyio.create_memory_object_stream(0)
         write_stream, write_stream_reader = anyio.create_memory_object_stream(0)
 
+        pending_pings = []
+
         async def agp_reader():
             session = accepted_session
             try:
@@ -222,7 +260,10 @@ class AGPBase(ABC):
                         )
 
                         message = types.JSONRPCMessage.model_validate_json(msg.decode())
-                        await read_stream_writer.send(message)
+                        if not self._filter_message(
+                            accepted_session, message, pending_pings
+                        ):
+                            await read_stream_writer.send(message)
                     except Exception as exc:
                         logger.error("Error receiving message", exc_info=True)
                         await read_stream_writer.send(exc)
@@ -243,13 +284,28 @@ class AGPBase(ABC):
             finally:
                 await write_stream_reader.aclose()
 
+        async def ping():
+            session = accepted_session
+            try:
+                t1 = asyncio.create_task(self._ping(session, pending_pings))
+                await t1
+            finally:
+                if len(pending_pings) != 0:
+                    tg.cancel_scope.cancel()
+                else:
+                    t1.cancel()
+
         async with anyio.create_task_group() as tg:
             tg.start_soon(agp_reader)
             tg.start_soon(agp_writer)
+            tg.start_soon(ping)
             try:
                 yield read_stream, write_stream
             finally:
                 # cancel the task group
                 tg.cancel_scope.cancel()
                 # delete the session
+                logger.info(
+                    f"Closing session: {accepted_session.id}",
+                )
                 await self.gateway.delete_session(accepted_session.id)
