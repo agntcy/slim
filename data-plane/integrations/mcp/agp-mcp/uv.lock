@@ -12,21 +12,24 @@ members = [
 [[package]]
 name = "agp-bindings"
 version = "0.3.0"
-source = { directory = "../../../data-plane/python-bindings" }
+source = { directory = "../../../python-bindings" }
 
 [package.metadata]
 
 [package.metadata.requires-dev]
-building = [{ name = "maturin" }]
+building = [
+    { name = "maturin", specifier = ">=1.8.2" },
+    { name = "maturin", extras = ["patchelf"], marker = "sys_platform == 'linux'", specifier = ">=1.8.2" },
+]
 linting = [
-    { name = "griffe" },
-    { name = "mypy" },
-    { name = "pyright" },
-    { name = "ruff" },
+    { name = "griffe", specifier = ">=1.5.5" },
+    { name = "mypy", specifier = ">=1.14.1" },
+    { name = "pyright", specifier = ">=1.1.0" },
+    { name = "ruff", specifier = ">=0.9.3" },
 ]
 testing = [
-    { name = "pytest" },
-    { name = "pytest-asyncio" },
+    { name = "pytest", specifier = ">=8.3.4" },
+    { name = "pytest-asyncio", specifier = ">=0.25.3" },
 ]
 
 [[package]]
@@ -53,7 +56,7 @@ testing = [
 
 [package.metadata]
 requires-dist = [
-    { name = "agp-bindings", directory = "../../../data-plane/python-bindings" },
+    { name = "agp-bindings", directory = "../../../python-bindings" },
     { name = "anyio", specifier = ">=4.5" },
     { name = "mcp", specifier = ">=1.6.0" },
 ]

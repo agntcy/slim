@@ -11,7 +11,7 @@ pip install agp-mcp
 
 ## Overview
 
-AGP-MCP provides a seamless integration between AGP (Advanced Gateway Protocol)
+AGP-MCP provides a seamless integration between AGP (Agent Gateway Protocol)
 and MCP (Model Context Protocol), allowing you to:
 
 - Create MCP servers that can be discovered and accessed through AGP
