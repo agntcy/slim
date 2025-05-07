@@ -51,4 +51,4 @@ jobs:
         run: |
           mv .dist/bin/agpctl .dist/bin/agpctl-${{ matrix.os }}-${{ matrix.arch }}
           TAG=${GITHUB_REF#refs/tags/}
-          gh release upload "$TAG" .dist/agpctl-${{ matrix.os }}-${{ matrix.arch }} --clobber
+          gh release upload "$TAG" .dist/bin/agpctl-${{ matrix.os }}-${{ matrix.arch }} --clobber
