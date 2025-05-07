@@ -98,7 +98,7 @@ version = "0.3.12"
 dependencies = [
  "agp-config",
  "agp-service",
- "agp-signal 0.1.2",
+ "agp-signal",
  "agp-tracing",
  "clap",
  "duration-str",
@@ -120,14 +120,14 @@ dependencies = [
  "agp-datapath",
  "agp-gw",
  "agp-service",
- "agp-signal 0.1.2 (registry+https://github.com/rust-lang/crates.io-index)",
+ "agp-signal",
+ "async-trait",
  "clap",
  "futures-util",
  "rand 0.9.1",
  "rmcp",
  "serde_json",
  "tokio",
- "tonic 0.13.1",
  "tracing",
 ]
 
@@ -153,16 +153,6 @@ dependencies = [
 [[package]]
 name = "agp-signal"
 version = "0.1.2"
-dependencies = [
- "tokio",
- "tracing",
-]
-
-[[package]]
-name = "agp-signal"
-version = "0.1.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e7aef6138c1e06f3494d97c0ac8376d66c3abc3f96d6c27e3ba73f707f0e7826"
 dependencies = [
  "tokio",
  "tracing",

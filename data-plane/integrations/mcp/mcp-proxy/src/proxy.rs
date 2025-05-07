@@ -31,10 +31,10 @@ use std::{
 use tokio::sync::mpsc;
 use tracing::{debug, error, info, trace};
 
-use tonic::async_trait;
+use async_trait::async_trait;
 
 const PING_INTERVAL: u64 = 20;
-const MAX_PENDING_PINGS: usize = 6;
+const MAX_PENDING_PINGS: usize = 3;
 
 struct PingTimerObserver {
     tx_proxy_session: mpsc::Sender<u32>,
@@ -48,7 +48,7 @@ impl timer::TimerObserver for PingTimerObserver {
     }
 
     async fn on_failure(&self, _timer_id: u32, _timeouts: u32) {
-        panic!("timer on faulire, this should never happen");
+        panic!("timer on failure, this should never happen");
     }
 
     async fn on_stop(&self, _timer_id: u32) {
@@ -405,14 +405,14 @@ impl Proxy {
                                 let src = match info.message_source {
                                     Some(ref s) => s.clone(),
                                     None => {
-                                        error!("cannot send reply message, unkwon destination");
+                                        error!("cannot send reply message, unknown destination");
                                         continue;
                                     }
                                 };
                                 let conn_id = match info.input_connection {
                                     Some(c) => c,
                                     None => {
-                                        error!("cannot send reply message, unkwon incoming connection");
+                                        error!("cannot send reply message, unknown incoming connection");
                                         continue;
                                     }
                                 };
@@ -436,7 +436,7 @@ impl Proxy {
                                 let src = match info.message_source {
                                     Some(ref s) => s.clone(),
                                     None => {
-                                        error!("cannot stop proxy session, unkwon destination");
+                                        error!("cannot stop proxy session, unknown destination");
                                         continue;
                                     }
                                 };
