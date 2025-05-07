@@ -31,7 +31,6 @@ class AGPBase(ABC):
         remote_organization (Optional[str]): Remote organization identifier
         remote_namespace (Optional[str]): Remote namespace identifier
         remote_mcp_agent (Optional[str]): Remote MCP agent identifier
-        gateway (Optional[agp_bindings.Gateway]): AGP gateway instance
     """
 
     def __init__(
@@ -72,7 +71,7 @@ class AGPBase(ABC):
         self.remote_namespace = remote_namespace
         self.remote_mcp_agent = remote_mcp_agent
 
-        self.gateway = None
+        self.gateway: agp_bindings.Gateway
 
     def is_connected(self) -> bool:
         """Check if the client is connected to the gateway.

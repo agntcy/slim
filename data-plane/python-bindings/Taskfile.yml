@@ -70,7 +70,7 @@ tasks:
         vars:
           COMMAND: |
             rustup target add {{.TARGET}}
-            
+
             uv sync
 
             uv run maturin develop --uv {{.RELEASE}}
@@ -86,6 +86,8 @@ tasks:
               --frozen                        \
               -i                              \
               ${PYTHONS[@]}
+
+            uv run maturin sdist --out dist
 
   python-bindings:example:server:
     desc: "Run the server example"

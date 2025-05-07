@@ -11,3 +11,5 @@ shopt: [globstar]
 includes:
   integrations:
     taskfile: ../../../../tasks/python.yaml
+    vars:
+      UV_ARGS: '--package agp-mcp'

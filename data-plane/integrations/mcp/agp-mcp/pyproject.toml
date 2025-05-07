@@ -3,7 +3,7 @@ members = ["packages/*", "examples/*"]
 
 [tool.uv.sources]
 agp-mcp = { workspace = true }
-agp-bindings = { path = "../../../data-plane/python-bindings" }
+agp-bindings = { path = "../../../python-bindings" }
 
 [tool.ruff.format]
 quote-style = "double"
@@ -15,8 +15,5 @@ testpaths = "tests"
 extend-exclude = []
 
 [tool.ruff.lint]
-extend-select = ["Q", "RUF100", "C90", "I", "UP"]
-extend-ignore = ["E721"]
-flake8-quotes = { inline-quotes = "double", multiline-quotes = "double" }
 mccabe = { max-complexity = 13 }
 isort = { known-first-party = ["agp_mcp", "tests"] }

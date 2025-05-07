@@ -54,8 +54,8 @@ class AGPServer(AGPBase):
             session (agp_bindings.PySessionInfo): Session information.
             message (bytes): Message to send.
 
-        Returns:
-            MemoryObjectReceiveStream: Stream to receive the response.
+        Raises:
+            RuntimeError: If the gateway is not connected.
         """
 
         if not self.gateway:
@@ -70,6 +70,16 @@ class AGPServer(AGPBase):
         )
 
     def __aiter__(self):
+        """
+        Initialize the async iterator.
+
+        Returns:
+            AGPServer: The current instance of the AGPServer.
+
+        Raises:
+            RuntimeError: If the gateway is not connected.
+        """
+
         # make sure gateway is connected
         if not self.gateway:
             raise RuntimeError(
@@ -85,12 +95,7 @@ class AGPServer(AGPBase):
         and receives the next session from the gateway.
 
         Returns:
-            tuple[MemoryObjectReceiveStream, MemoryObjectSendStream]: A tuple containing
-            the receive and send streams for the session.
-
-        Raises:
-            RuntimeError: If the gateway is not connected.
-            Exception: If there is an error processing the session.
+            agp_bindings.PySessionInfo: The received session.
         """
 
         session, _ = await self.gateway.receive()

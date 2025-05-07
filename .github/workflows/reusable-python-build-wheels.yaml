@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 ---
-name: go-build-and-test
+name: python-build-and-test
 on:
   workflow_call:
 
@@ -12,7 +12,7 @@ jobs:
     defaults:
       run:
         shell: bash
-        working-directory: ./data-plane
+        working-directory: ./data-plane/python-bindings
     strategy:
       matrix:
         platform:
@@ -52,26 +52,9 @@ jobs:
           shared-key: ${{runner.os}}-rust-${{hashFiles('**/Cargo.lock')}}
       - name: Build wheels
         run: |
-          git status
-          task data-plane:bindings:python PROFILE=release
+          task python-bindings:packaging PROFILE=release
       - name: Upload wheels
         uses: actions/upload-artifact@v4
         with:
           name: wheels-${{ matrix.platform.os }}-${{ matrix.platform.target }}
-          path: ./data-plane/python-bindings/dist
-
-  python-bindings-sdist:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Build sdist
-        uses: PyO3/maturin-action@v1
-        with:
-          command: sdist
-          args: --out dist
-          working-directory: ./data-plane/python-bindings
-      - name: Upload sdist
-        uses: actions/upload-artifact@v4
-        with:
-          name: wheels-sdist
           path: ./data-plane/python-bindings/dist
