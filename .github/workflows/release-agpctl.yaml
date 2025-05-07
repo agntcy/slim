@@ -43,17 +43,5 @@ jobs:
       - name: Setup Go
         uses: ./.github/actions/setup-go
 
-
-  goreleaser:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout Repo
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Setup Go
-        uses: ./.github/actions/setup-go
-
       - name: Build
         run: task control-plane:agpctl:build
