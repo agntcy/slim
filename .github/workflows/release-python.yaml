@@ -32,7 +32,8 @@ jobs:
     name: Upload release to PyPI
     runs-on: ubuntu-latest
     needs:
-      - build-wheels
+      - build-bindings-wheels
+      - build-mcp-wheels
     environment: pypi
     permissions:
       # IMPORTANT: this permission is mandatory for Trusted Publishing
