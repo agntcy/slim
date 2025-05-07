@@ -22,8 +22,11 @@ jobs:
 
   build-mcp-wheels:
     name: Data plane - Python wheels
-    uses: ./.github/workflows/reusable-python-build-wheels.yaml
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/agp-mcp-')
+    uses: ./.github/workflows/reusable-python-build-wheels.yaml
+    with:
+      working-directory: ./data-plane/integrations/mcp/agp-mcp
+      prefix: integrations
 
   pypi-publish:
     name: Upload release to PyPI
