@@ -7,12 +7,12 @@ name: ci-test-and-build-integration-mcp-proxy
 on:
   push:
     paths:
-      - 'data-plane/integrations/mcp/mcp-proxy/**'
+      - 'data-plane/integrations/mcp/**'
     branches:
       - main
   pull_request:
     paths:
-      - 'data-plane/integrations/mcp/mcp-proxy/**'
+      - 'data-plane/integrations/mcp/**'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -25,3 +25,10 @@ jobs:
     with:
       working-directory: ./data-plane/integrations/mcp/mcp-proxy
       task-prefix: mcp-proxy
+
+  data-plane-python:
+    name: Data plane - Python tests
+    uses: ./.github/workflows/reusable-python-build-and-test.yaml
+    with:
+      working-directory: ./data-plane/integrations/mcp/agp-mcp
+      prefix: integrations
