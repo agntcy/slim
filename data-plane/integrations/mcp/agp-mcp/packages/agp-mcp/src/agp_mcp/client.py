@@ -77,8 +77,7 @@ class AGPClient(AGPBase):
             message: Message to send in bytes format
 
         Raises:
-            RuntimeError: If the gateway is not connected
-            Exception: If there's an error sending the message
+            RuntimeError: If the gateway is not connected or if sending fails
         """
         if not self.is_connected():
             raise RuntimeError(
@@ -121,5 +120,7 @@ class AGPClient(AGPBase):
 
         # create streams
         async with self.new_streams(session) as (read_stream, write_stream):
-            async with ClientSession(read_stream, write_stream, *args, **kwargs) as mcp_session:
+            async with ClientSession(
+                read_stream, write_stream, *args, **kwargs
+            ) as mcp_session:
                 yield mcp_session

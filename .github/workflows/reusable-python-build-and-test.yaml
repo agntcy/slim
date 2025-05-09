@@ -1,0 +1,110 @@
+---
+
+name: python-build-and-test
+on:
+  workflow_call:
+    inputs:
+      runner:
+        description: Github hosted runner or Self hosted runner
+        required: false
+        type: string
+        default: ubuntu-latest
+      working-directory:
+        description: Working directory
+        required: false
+        type: string
+        default: ""
+      prefix:
+        description: Taskfile task prefix
+        required: false
+        type: string
+        default: ""
+      continue-on-error:
+        description: Whether to skip the status update for this job
+        required: false
+        type: boolean
+        default: false
+      py-lint:
+        description: Whether to run "task lint"
+        required: false
+        type: boolean
+        default: true
+      py-vuln:
+        description: Whether to run "task vuln"
+        required: false
+        type: boolean
+        default: true
+      py-test:
+        description: Whether to run "task coverage"
+        required: false
+        type: boolean
+        default: true
+      py-package:
+        description: Whether to run "task package"
+        required: false
+        type: boolean
+        default: true
+
+jobs:
+  pylint:
+    runs-on: ubuntu-latest
+    if: ${{ inputs.py-lint }}
+    defaults:
+      run:
+        working-directory: ${{ inputs.working-directory }}
+    steps:
+      - name: Checkout Repo
+        uses: actions/checkout@v4
+      - name: Setup UV
+        id: setup-uv
+        uses: ./.github/actions/setup-python
+        with:
+          uv-install: true
+      - name: lint
+        run: |
+          task ${{ inputs.prefix }}:lint
+
+  pytest:
+    runs-on: ubuntu-latest
+    if: ${{ inputs.py-test }}
+    defaults:
+      run:
+        working-directory: ${{ inputs.working-directory }}
+    steps:
+      - name: Checkout Repo
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Setup UV
+        id: setup-uv
+        uses: ./.github/actions/setup-python
+        with:
+          uv-install: true
+      - name: Run test
+        run: |
+          task ${{ inputs.prefix }}:test
+
+  pypackage:
+    runs-on: ubuntu-latest
+    if: ${{ inputs.py-package }}
+    defaults:
+      run:
+        working-directory: ${{ inputs.working-directory }}
+    steps:
+      - name: Checkout Repo
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Setup UV
+        id: setup-uv
+        uses: ./.github/actions/setup-python
+        with:
+          uv-install: true
+      - name: Build package
+        run: |
+          task ${{ inputs.prefix }}:packaging
+      - name: Upload wheels
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: ${{ inputs.working-directory }}/dist

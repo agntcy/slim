@@ -8,35 +8,29 @@ silent: true
 set: [pipefail]
 shopt: [globstar]
 
+vars:
+  UV_ARGS: '{{.UV_ARGS | default ""}}'
+
 tasks:
   fix-lint:
     desc: "Automatically fix code style and formatting issues using ruff and mypy"
     cmds:
-      - uv {{.UV_ARGS}} run ruff format
-      - uv {{.UV_ARGS}} run ruff check --fix
-    vars:
-      UV_ARGS: '{{.UV_ARGS | default ""}}'
+      - uv run {{.UV_ARGS}} ruff format
+      - uv run {{.UV_ARGS}} ruff check --fix
 
   lint:
     desc: "Check code style, formatting, and type hints without making changes"
     cmds:
-      - uv {{.UV_ARGS}} run ruff check
-      - uv {{.UV_ARGS}} run ruff format --check
-      - uv {{.UV_ARGS}} run mypy .
-    vars:
-      UV_ARGS: '{{.UV_ARGS | default ""}}'
+      - uv run {{.UV_ARGS}} ruff check
+      - uv run {{.UV_ARGS}} ruff format --check
+      - uv run {{.UV_ARGS}} mypy --ignore-missing-imports .
 
   test:
     desc: "Run pytest test suite with optional test path specification"
     cmds:
-      - uv {{.UV_ARGS}} run pytest -s {{.TESTS}}
-    vars:
-      TARGET: '{{.TESTS | default ""}}'
-      UV_ARGS: '{{.UV_ARGS | default ""}}'
+      - uv run {{.UV_ARGS}} pytest -s {{.TESTS}}
 
-  package:
+  packaging:
     desc: "Build Python package and generate distribution artifacts"
     cmds:
-      - uv {{.UV_ARGS}} build --all-packages
-    vars:
-      UV_ARGS: '{{.UV_ARGS | default ""}}'
+      - uv build {{.UV_ARGS}}

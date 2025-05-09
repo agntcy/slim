@@ -31,6 +31,13 @@ jobs:
     name: Data plane - Python wheels
     uses: ./.github/workflows/reusable-python-build-wheels.yaml
 
+  data-plane-python:
+    name: Data plane - Python tests
+    uses: ./.github/workflows/reusable-python-build-and-test.yaml
+    with:
+      working-directory: ./data-plane/integrations/mcp/agp-mcp
+      prefix: integrations
+
   data-plane-docker-build:
     name: Build gateway docker image
     uses: ./.github/workflows/reusable-docker-build-push.yaml
