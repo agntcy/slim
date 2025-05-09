@@ -363,8 +363,7 @@ async def cleanup_tasks(tasks):
             logger.error("Error during task cleanup", exc_info=True)
             raise
 
-
-async def serve(
+async def serve_agp(
     local_timezone: str | None = None,
     organization: str = "org",
     namespace: str = "ns",
@@ -372,7 +371,7 @@ async def serve(
     config: dict = {},
 ) -> None:
     """
-    Main server function that initializes and runs the time server.
+    Main server function that initializes and runs the time server using AGP transport.
 
     Args:
         local_timezone: Optional override for local timezone
@@ -382,7 +381,6 @@ async def serve(
         config: Server configuration dictionary
     """
     await init_tracing({"log_level": "info"})
-
     time_app = TimeServerApp(local_timezone)
     tasks: set[asyncio.Task] = set()
 
@@ -400,14 +398,56 @@ async def serve(
             await cleanup_tasks(tasks)
             logger.info("Server stopped")
 
+def serve_sse(
+    local_timezone: str | None = None,
+    port: int = 8000,
+) -> None:
+    """
+    Main server function that initializes and runs the time server using SSE transport.
+
+    Args:
+        local_timezone: Optional override for local timezone
+        port: Server listening port
+    """
+    time_app = TimeServerApp(local_timezone)
+
+    from mcp.server.sse import SseServerTransport
+    from starlette.applications import Starlette
+    from starlette.responses import Response
+    from starlette.routing import Mount, Route
+
+    sse = SseServerTransport("/messages/")
+
+    async def handle_sse(request):
+        async with sse.connect_sse(
+            request.scope, request.receive, request._send
+        ) as streams:
+            await time_app.app.run(
+                streams[0], streams[1], time_app.app.create_initialization_options()
+            )
+        return Response()
+
+    starlette_app = Starlette(
+        debug=True,
+        routes=[
+            Route("/sse", endpoint=handle_sse, methods=["GET"]),
+            Mount("/messages/", app=sse.handle_post_message),
+        ],
+    )
+
+    import uvicorn
+
+    uvicorn.run(starlette_app, host="0.0.0.0", port=port)
 
 @click.command(context_settings={"auto_envvar_prefix": "MCP_TIME_SERVER"})
 @click.option(
     "--local-timezone", type=str, help="Override local timezone", default=None
 )
-@click.option("--organization", default="org")
-@click.option("--namespace", default="ns")
-@click.option("--mcp-server", default="time-server")
+@click.option("--transport", default="agp", help="transport option: agp or sse")
+@click.option("--port", default="8000", type=int, help="listening port, used only with sse transport")
+@click.option("--organization", default="org", help="server organization, used only with agp transport")
+@click.option("--namespace", default="ns", help="server namespace, used only with agp transport")
+@click.option("--mcp-server", default="time-server", help="server name, used only with agp transport")
 @click.option(
     "--config",
     default={
@@ -417,18 +457,17 @@ async def serve(
         },
     },
     type=dict,
+    help="agp server configuration, used only with agp transport"
 )
-def main(local_timezone, organization, namespace, mcp_server, config):
+def main(local_timezone, transport, port, organization, namespace, mcp_server, config):
     """
     MCP Time Server - Time and timezone conversion functionality for MCP.
-
-    Args:
-        local_timezone: Optional override for local timezone
-        organization: Organization name
-        namespace: Namespace name
-        mcp_server: MCP server name
-        config: Server configuration dictionary
     """
-    import asyncio
 
-    asyncio.run(serve(local_timezone, organization, namespace, mcp_server, config))
+    if transport == "agp":
+        import asyncio
+
+        asyncio.run(serve_agp(local_timezone, organization, namespace, mcp_server, config))
+    else:
+        serve_sse(local_timezone, port)
+    
