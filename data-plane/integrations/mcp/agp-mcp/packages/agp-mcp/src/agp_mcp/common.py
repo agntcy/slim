@@ -247,7 +247,7 @@ class AGPBase(ABC):
         read_stream_writer, read_stream = anyio.create_memory_object_stream(0)
         write_stream, write_stream_reader = anyio.create_memory_object_stream(0)
 
-        pending_pings = []
+        pending_pings: list = []
 
         async def agp_reader():
             session = accepted_session
