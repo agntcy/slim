@@ -27,7 +27,7 @@ jobs:
       task-prefix: mcp-proxy
 
   data-plane-python:
-    name: Data plane - Python tests
+    name: AGP-MCP - Python tests
     uses: ./.github/workflows/reusable-python-build-and-test.yaml
     with:
       working-directory: ./data-plane/integrations/mcp/agp-mcp
