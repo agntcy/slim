@@ -107,14 +107,14 @@ class AGPBase(ABC):
     ) -> bool:
         """
         Check the message content. If it returns True the message should be
-        droped and not pass to the application
+        dropped and not pass to the application
 
         Args:
             session (agp_bindings.PySessionInfo): AGP session info.
             message (types.JSONRPCMessage): Message to control.
 
         Returns:
-            bool: True if the message has to be droped, False otherwise
+            bool: True if the message has to be dropped, False otherwise
         """
 
         return False

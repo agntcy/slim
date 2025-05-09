@@ -50,6 +50,13 @@ func SendConfigMessage(
 		)
 	}
 
+	if err = stream.CloseSend(); err != nil {
+		return nil, fmt.Errorf(
+			"cannot send Close via stream: %w",
+			err,
+		)
+	}
+
 	ack, err := stream.Recv()
 	if err != nil {
 		return nil, fmt.Errorf("error receiving ack via stream: %w", err)

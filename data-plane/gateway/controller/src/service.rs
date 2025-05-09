@@ -11,7 +11,7 @@ use tokio_stream::{Stream, StreamExt, wrappers::ReceiverStream};
 use tokio_util::sync::CancellationToken;
 use tonic::codegen::{Body, StdError};
 use tonic::{Request, Response, Status};
-use tracing::{debug, error};
+use tracing::{debug, error, info};
 
 use crate::api::proto::api::v1::{
     Ack, ControlMessage, controller_service_client::ControllerServiceClient,
@@ -24,9 +24,6 @@ use agp_datapath::message_processing::MessageProcessor;
 use agp_datapath::messages::utils::AgpHeaderFlags;
 use agp_datapath::messages::{Agent, AgentType};
 use agp_datapath::pubsub::proto::pubsub::v1::Message as PubsubMessage;
-
-// "fake" agent type for comminicating with the message processing layer
-pub const AGENT_TYPE: &str = "gateway";
 
 #[derive(Debug, Clone)]
 pub struct ControllerService {
@@ -119,13 +116,13 @@ impl ControllerService {
                             let source = Agent::from_strings(
                                 route.company.as_str(),
                                 route.namespace.as_str(),
-                                AGENT_TYPE,
+                                route.agent_name.as_str(),
                                 0,
                             );
                             let agent_type = AgentType::from_strings(
                                 route.company.as_str(),
                                 route.namespace.as_str(),
-                                AGENT_TYPE,
+                                route.agent_name.as_str(),
                             );
 
                             let msg = PubsubMessage::new_subscribe(
@@ -155,13 +152,13 @@ impl ControllerService {
                             let source = Agent::from_strings(
                                 route.company.as_str(),
                                 route.namespace.as_str(),
-                                AGENT_TYPE,
+                                route.agent_name.as_str(),
                                 0,
                             );
                             let agent_type = AgentType::from_strings(
                                 route.company.as_str(),
                                 route.namespace.as_str(),
-                                AGENT_TYPE,
+                                route.agent_name.as_str(),
                             );
 
                             let msg = PubsubMessage::new_unsubscribe(
@@ -241,7 +238,14 @@ impl ControllerService {
                                 }
                             }
                             Some(Err(e)) => {
-                                error!("error receiving control messages: {:?}", e);
+                                if let Some(io_err) = ControllerService::match_for_io_error(&e) {
+                                    if io_err.kind() == std::io::ErrorKind::BrokenPipe {
+                                        info!("connection closed by peer");
+                                    }
+                                } else {
+                                    error!("error receiving control messages: {:?}", e);
+                                }
+                                break;
                             }
                             None => {
                                 debug!("end of stream");
@@ -299,6 +303,26 @@ impl ControllerService {
         Err(ControllerError::ConnectionError(
             "reached max connection retries".to_string(),
         ))
+    }
+
+    fn match_for_io_error(err_status: &Status) -> Option<&std::io::Error> {
+        let mut err: &(dyn std::error::Error + 'static) = err_status;
+
+        loop {
+            if let Some(io_err) = err.downcast_ref::<std::io::Error>() {
+                return Some(io_err);
+            }
+
+            // h2::Error do not expose std::io::Error with `source()`
+            // https://github.com/hyperium/h2/pull/462
+            if let Some(h2_err) = err.downcast_ref::<h2::Error>() {
+                if let Some(io_err) = h2_err.get_io() {
+                    return Some(io_err);
+                }
+            }
+
+            err = err.source()?;
+        }
     }
 }
 
