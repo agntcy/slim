@@ -25,9 +25,6 @@ use agp_datapath::messages::utils::AgpHeaderFlags;
 use agp_datapath::messages::{Agent, AgentType};
 use agp_datapath::pubsub::proto::pubsub::v1::Message as PubsubMessage;
 
-// "fake" agent type for comminicating with the message processing layer
-pub const AGENT_TYPE: &str = "gateway";
-
 #[derive(Debug, Clone)]
 pub struct ControllerService {
     /// underlying message processor
@@ -119,13 +116,13 @@ impl ControllerService {
                             let source = Agent::from_strings(
                                 route.company.as_str(),
                                 route.namespace.as_str(),
-                                &route.agent_name.as_str(),
+                                route.agent_name.as_str(),
                                 0,
                             );
                             let agent_type = AgentType::from_strings(
                                 route.company.as_str(),
                                 route.namespace.as_str(),
-                                &route.agent_name.as_str(),
+                                route.agent_name.as_str(),
                             );
 
                             let msg = PubsubMessage::new_subscribe(
@@ -155,13 +152,13 @@ impl ControllerService {
                             let source = Agent::from_strings(
                                 route.company.as_str(),
                                 route.namespace.as_str(),
-                                AGENT_TYPE,
+                                route.agent_name.as_str(),
                                 0,
                             );
                             let agent_type = AgentType::from_strings(
                                 route.company.as_str(),
                                 route.namespace.as_str(),
-                                AGENT_TYPE,
+                                route.agent_name.as_str(),
                             );
 
                             let msg = PubsubMessage::new_unsubscribe(
