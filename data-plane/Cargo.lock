@@ -73,6 +73,7 @@ dependencies = [
  "agp-config",
  "agp-datapath",
  "bytes",
+ "h2",
  "parking_lot",
  "prost",
  "protoc-bin-vendored",

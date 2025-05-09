@@ -43,7 +43,7 @@ async fn main() {
 
     // create local agent
     let agent_id = 0;
-    let agent_name = Agent::from_strings("cisco", "default", local_agent, agent_id);
+    let agent_name = Agent::from_strings("org", "default", local_agent, agent_id);
     let mut rx = svc
         .create_agent(&agent_name)
         .await
@@ -57,7 +57,7 @@ async fn main() {
         .get_connection_id(&svc.config().clients()[0].endpoint)
         .unwrap();
 
-    let local_agent_type = AgentType::from_strings("cisco", "default", local_agent);
+    let local_agent_type = AgentType::from_strings("org", "default", local_agent);
     svc.subscribe(
         &agent_name,
         &local_agent_type,
@@ -68,7 +68,7 @@ async fn main() {
     .unwrap();
 
     // Set a route for the remote agent
-    let route = AgentType::from_strings("cisco", "default", remote_agent);
+    let route = AgentType::from_strings("org", "default", remote_agent);
     info!("allowing messages to remote agent: {:?}", route);
     svc.set_route(&agent_name, &route, None, conn_id)
         .await

@@ -1,0 +1,37 @@
+# Copyright AGNTCY Contributors (https://github.com/agntcy)
+# SPDX-License-Identifier: Apache-2.0
+
+---
+version: "3"
+
+includes:
+  control-plane:
+    taskfile: ../control-plane/Taskfile.yaml
+    flatten: true
+    dir: ../control-plane
+  data-plane:
+    taskfile: ../data-plane/Taskfile.yaml
+    flatten: true
+    dir: ../data-plane
+
+silent: true
+
+tasks:
+  default:
+    cmds:
+      - task -l
+
+  tests:sdk-mock:build:
+    desc: "Build sdk-mock example"
+    dir: "../data-plane/examples"
+    cmds:
+      - cargo build --bin sdk-mock
+
+  tests:integration:
+    desc: "Run integration tests"
+    deps:
+      - data-plane:build
+      - control-plane:build
+      - tests:sdk-mock:build
+    cmds:
+      - go -C ./integration test -v -failfast -test.v -test.paniconexit0 -ginkgo.timeout 5m -timeout 5m -ginkgo.v .
