@@ -11,7 +11,7 @@ use tokio_stream::{Stream, StreamExt, wrappers::ReceiverStream};
 use tokio_util::sync::CancellationToken;
 use tonic::codegen::{Body, StdError};
 use tonic::{Request, Response, Status};
-use tracing::{debug, info, error};
+use tracing::{debug, error, info};
 
 use crate::api::proto::api::v1::{
     Ack, ControlMessage, controller_service_client::ControllerServiceClient,
