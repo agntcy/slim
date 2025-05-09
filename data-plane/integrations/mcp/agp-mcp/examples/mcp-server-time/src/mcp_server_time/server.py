@@ -363,6 +363,7 @@ async def cleanup_tasks(tasks):
             logger.error("Error during task cleanup", exc_info=True)
             raise
 
+
 async def serve_agp(
     local_timezone: str | None = None,
     organization: str = "org",
@@ -397,6 +398,7 @@ async def serve_agp(
         finally:
             await cleanup_tasks(tasks)
             logger.info("Server stopped")
+
 
 def serve_sse(
     local_timezone: str | None = None,
@@ -439,15 +441,31 @@ def serve_sse(
 
     uvicorn.run(starlette_app, host="0.0.0.0", port=port)
 
+
 @click.command(context_settings={"auto_envvar_prefix": "MCP_TIME_SERVER"})
 @click.option(
     "--local-timezone", type=str, help="Override local timezone", default=None
 )
 @click.option("--transport", default="agp", help="transport option: agp or sse")
-@click.option("--port", default="8000", type=int, help="listening port, used only with sse transport")
-@click.option("--organization", default="org", help="server organization, used only with agp transport")
-@click.option("--namespace", default="ns", help="server namespace, used only with agp transport")
-@click.option("--mcp-server", default="time-server", help="server name, used only with agp transport")
+@click.option(
+    "--port",
+    default="8000",
+    type=int,
+    help="listening port, used only with sse transport",
+)
+@click.option(
+    "--organization",
+    default="org",
+    help="server organization, used only with agp transport",
+)
+@click.option(
+    "--namespace", default="ns", help="server namespace, used only with agp transport"
+)
+@click.option(
+    "--mcp-server",
+    default="time-server",
+    help="server name, used only with agp transport",
+)
 @click.option(
     "--config",
     default={
@@ -457,7 +475,7 @@ def serve_sse(
         },
     },
     type=dict,
-    help="agp server configuration, used only with agp transport"
+    help="agp server configuration, used only with agp transport",
 )
 def main(local_timezone, transport, port, organization, namespace, mcp_server, config):
     """
@@ -467,7 +485,8 @@ def main(local_timezone, transport, port, organization, namespace, mcp_server, c
     if transport == "agp":
         import asyncio
 
-        asyncio.run(serve_agp(local_timezone, organization, namespace, mcp_server, config))
+        asyncio.run(
+            serve_agp(local_timezone, organization, namespace, mcp_server, config)
+        )
     else:
         serve_sse(local_timezone, port)
-    
