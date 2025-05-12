@@ -645,6 +645,15 @@ impl ProtoMessage {
         self.get_agp_header().get_dst()
     }
 
+    pub fn get_name_as_agent(&self) -> Agent {
+        let (a_type, a_id) = self.get_agp_header().get_dst();
+        let id = match a_id {
+            None => DEFAULT_AGENT_ID,
+            Some(id) => id,
+        };
+        Agent::new(a_type, id)
+    }
+
     pub fn get_type(&self) -> &MessageType {
         match &self.message_type {
             Some(t) => t,
