@@ -38,7 +38,7 @@ impl<T> Pool<T> {
         }
     }
 
-    pub fn iter(&self) -> impl Iterator<Item=&T> {
+    pub fn iter(&self) -> impl Iterator<Item = &T> {
         Iter {
             bit_vec_iter: self.bitmap.iter(),
             pool: self,
@@ -192,7 +192,7 @@ impl<'a, T> Iterator for Iter<'a, T> {
             }
 
             // if the bit is set, return the element
-            let ret= self.pool.get(self.current_index);
+            let ret = self.pool.get(self.current_index);
 
             // debug assert that the element is not None
             debug_assert!(ret.is_some(), "Element is None");
