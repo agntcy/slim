@@ -18,9 +18,9 @@ runtime:
 services:
   gateway/0:
     pubsub:
-      server:
-        endpoint: "0.0.0.0:46357"
-        tls:
-          insecure: true
+      servers:
+        - endpoint: "0.0.0.0:46357"
+          tls:
+            insecure: true
 
       clients: []
