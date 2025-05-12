@@ -38,6 +38,14 @@ impl<T> Pool<T> {
         }
     }
 
+    pub fn iter(&self) -> impl Iterator<Item=&T> {
+        Iter {
+            bit_vec_iter: self.bitmap.iter(),
+            pool: self,
+            current_index: 0,
+        }
+    }
+
     /// Get the number of elements in the pool
     pub fn len(&self) -> usize {
         self.len
@@ -155,6 +163,67 @@ impl<T> Pool<T> {
             true
         } else {
             false
+        }
+    }
+}
+
+/// An iterator for the pool.
+#[derive(Clone)]
+pub struct Iter<'a, T> {
+    bit_vec_iter: bit_vec::Iter<'a>,
+    pool: &'a Pool<T>,
+    current_index: usize,
+}
+
+impl<'a, T> Iterator for Iter<'a, T> {
+    type Item = &'a T;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        // only returns the elements that are set
+
+        // iterate until we find a true bit
+        // TODO: this can be optimized a lot by skipping the elements
+        // that are not set and returning the first element that is set
+        while let Some(index) = self.bit_vec_iter.next() {
+            if !index {
+                // if the bit is not set, continue
+                self.current_index += 1;
+                continue;
+            }
+
+            // if the bit is set, return the element
+            let ret= self.pool.get(self.current_index);
+
+            // debug assert that the element is not None
+            debug_assert!(ret.is_some(), "Element is None");
+
+            // increment the current index
+            self.current_index += 1;
+
+            // return the element
+            return ret;
+        }
+
+        None
+    }
+}
+
+// iterator for the pool
+impl<T> Iterator for Pool<T> {
+    type Item = (usize, T);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        // Find the next set bit
+        if let Some(index) = self.bitmap.iter().position(|x| x) {
+            // Get the element at the index
+            if let Some(element) = self.pool[index].take() {
+                // Return the index and element
+                Some((index, element))
+            } else {
+                None
+            }
+        } else {
+            None
         }
     }
 }
@@ -361,5 +430,33 @@ mod tests {
         assert_eq!(*drop_count.borrow(), 0);
         pool.remove(pos);
         assert_eq!(*drop_count.borrow(), 1);
+    }
+
+    #[test]
+    fn test_pool_iter() {
+        let mut pool = Pool::with_capacity(10);
+        let elements = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+        for element in &elements {
+            pool.insert(*element);
+        }
+
+        let mut iter = pool.iter();
+        for element in elements.iter() {
+            assert_eq!(iter.next(), Some(element));
+        }
+        assert_eq!(iter.next(), None);
+
+        // drop the iterator to be able to reuse the pool
+        drop(iter);
+
+        // Check that the iterator skips unset bits
+        pool.remove(2);
+        pool.remove(4);
+        pool.remove(6);
+        let mut iter = pool.iter();
+        for element in elements.iter().filter(|&&x| x != 3 && x != 5 && x != 7) {
+            assert_eq!(iter.next(), Some(element));
+        }
+        assert_eq!(iter.next(), None);
     }
 }
