@@ -184,7 +184,7 @@ impl<'a, T> Iterator for Iter<'a, T> {
         // iterate until we find a true bit
         // TODO: this can be optimized a lot by skipping the elements
         // that are not set and returning the first element that is set
-        while let Some(index) = self.bit_vec_iter.next() {
+        for index in self.bit_vec_iter.by_ref() {
             if !index {
                 // if the bit is not set, continue
                 self.current_index += 1;
@@ -205,26 +205,6 @@ impl<'a, T> Iterator for Iter<'a, T> {
         }
 
         None
-    }
-}
-
-// iterator for the pool
-impl<T> Iterator for Pool<T> {
-    type Item = (usize, T);
-
-    fn next(&mut self) -> Option<Self::Item> {
-        // Find the next set bit
-        if let Some(index) = self.bitmap.iter().position(|x| x) {
-            // Get the element at the index
-            if let Some(element) = self.pool[index].take() {
-                // Return the index and element
-                Some((index, element))
-            } else {
-                None
-            }
-        } else {
-            None
-        }
     }
 }
 
