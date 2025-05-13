@@ -130,7 +130,6 @@ func main() {
 
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Fprintf(os.Stderr, "CLI error: %v", err)
-		fmt.Println(opts)
 		os.Exit(1)
 	}
 }
