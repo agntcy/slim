@@ -262,7 +262,7 @@ impl Streaming {
                     timer: timer::Timer::new(
                         1,
                         timer::TimerType::Exponential,
-                        Duration::from_millis(500),
+                        Duration::from_millis(1000),
                         Some(Duration::from_secs(30)),
                         None,
                     ),
