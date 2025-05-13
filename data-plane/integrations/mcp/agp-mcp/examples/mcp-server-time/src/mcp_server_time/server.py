@@ -442,6 +442,20 @@ def serve_sse(
     uvicorn.run(starlette_app, host="0.0.0.0", port=port)
 
 
+class DictParamType(click.ParamType):
+    name = "dict"
+
+    def convert(self, value, param, ctx):
+        import json
+
+        if isinstance(value, dict):
+            return value  # Already a dict (for default value)
+        try:
+            return json.loads(value)
+        except json.JSONDecodeError:
+            self.fail(f"{value} is not valid JSON", param, ctx)
+
+
 @click.command(context_settings={"auto_envvar_prefix": "MCP_TIME_SERVER"})
 @click.option(
     "--local-timezone", type=str, help="Override local timezone", default=None
@@ -474,7 +488,7 @@ def serve_sse(
             "insecure": True,
         },
     },
-    type=dict,
+    type=DictParamType(),
     help="agp server configuration, used only with agp transport",
 )
 def main(local_timezone, transport, port, organization, namespace, mcp_server, config):
