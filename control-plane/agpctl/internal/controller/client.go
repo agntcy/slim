@@ -5,30 +5,44 @@ package controller
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
-	"time"
 
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
 
+	"github.com/agntcy/agp/control-plane/agpctl/internal/options"
 	grpcapi "github.com/agntcy/agp/control-plane/agpctl/internal/proto/controller/v1"
 )
 
 func SendConfigMessage(
 	ctx context.Context,
-	serverAddr string,
+	opts *options.CommonOptions,
 	msg *grpcapi.ControlMessage,
 ) (*grpcapi.ControlMessage, error) {
-	// TODO(zkacsand): make the timeout configurable
-	opCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	opCtx, cancel := context.WithTimeout(ctx, opts.Timeout)
 	defer cancel()
 
+	var creds credentials.TransportCredentials
+	if opts.TLSInsecure {
+		creds = insecure.NewCredentials()
+	} else if opts.TLSCAFile != "" {
+		c, err := credentials.NewClientTLSFromFile(opts.TLSCAFile, "")
+		if err != nil {
+			return nil, fmt.Errorf("loading CA file %q: %w", opts.TLSCAFile, err)
+		}
+		creds = c
+	} else {
+		creds = credentials.NewTLS(&tls.Config{InsecureSkipVerify: false})
+	}
+
 	conn, err := grpc.NewClient(
-		serverAddr,
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		opts.Server,
+		grpc.WithTransportCredentials(creds),
 	)
 	if err != nil {
-		return nil, fmt.Errorf("grpc.NewClient(%s) failed: %w", serverAddr, err)
+		return nil, fmt.Errorf("grpc.NewClient(%s) failed: %w", opts.Server, err)
 	}
 	defer conn.Close()
 
@@ -38,7 +52,7 @@ func SendConfigMessage(
 	if err != nil {
 		return nil, fmt.Errorf(
 			"cannot open control channel to %s: %w",
-			serverAddr,
+			opts.Server,
 			err,
 		)
 	}
