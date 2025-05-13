@@ -76,8 +76,8 @@ var _ = BeforeSuite(func() {
 
 var _ = AfterSuite(func() {
 	// terminate gateways
-	serverASession.Terminate().Wait(3 * time.Second)
-	serverBSession.Terminate().Wait(3 * time.Second)
+	serverASession.Terminate().Wait(10 * time.Second)
+	serverBSession.Terminate().Wait(10 * time.Second)
 })
 
 var _ = Describe("Routing", func() {
