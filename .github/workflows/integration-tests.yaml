@@ -1,0 +1,45 @@
+# Copyright AGNTCY Contributors (https://github.com/agntcy)
+# SPDX-License-Identifier: Apache-2.0
+
+---
+name: ci-integration-tests
+
+on:
+  push:
+    paths:
+      - 'control-plane/**'
+      - 'data-plane/**'
+      - '!data-plane/integrations/mcp/**'
+    branches:
+      - main
+  pull_request:
+    paths:
+      - 'control-plane/**'
+      - 'data-plane/**'
+      - '!data-plane/integrations/mcp/**'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  integration-tests:
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - name: Checkout Repo
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: ./.github/actions/setup-go
+
+      - name: Setup Rust
+        uses: ./.github/actions/setup-rust
+
+      - name: Run integration test suite
+        working-directory: ./tests
+        run: task tests:integration

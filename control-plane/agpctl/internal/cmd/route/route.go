@@ -45,7 +45,7 @@ func NewRouteCmd(opts *options.CommonOptions) *cobra.Command {
 
 func newAddCmd(_ *options.CommonOptions) *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "add <company/namespace/agentname/agentid> via <host:port>",
+		Use:   "add <organization/namespace/agentname/agentid> via <host:port>",
 		Short: "Add a route to the gateway",
 		Long:  `Add a route to the gateway`,
 		Args:  cobra.ExactArgs(3),
@@ -98,7 +98,7 @@ func newAddCmd(_ *options.CommonOptions) *cobra.Command {
 
 func newDelCmd(_ *options.CommonOptions) *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "del <company/namespace/agentname/agentid> via <host:port>",
+		Use:   "del <organization/namespace/agentname/agentid> via <host:port>",
 		Short: "Delete a route from the gateway",
 		Long:  `Delete a route from the gateway`,
 		Args:  cobra.ExactArgs(3),
