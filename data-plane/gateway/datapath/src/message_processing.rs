@@ -14,7 +14,7 @@ use tokio_stream::{Stream, StreamExt};
 use tokio_util::sync::CancellationToken;
 use tonic::codegen::{Body, StdError};
 use tonic::{Request, Response, Status};
-use tracing::{debug, error, info};
+use tracing::{Span, debug, error, info};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 
 use crate::connection::{Channel, Connection, Type as ConnectionType};
@@ -68,6 +68,38 @@ fn inject_current_context(msg: &mut Message) {
     opentelemetry::global::get_text_map_propagator(|propagator| {
         propagator.inject_context(&cx, &mut injector)
     });
+}
+
+// Helper function to create the trace span
+fn create_span(function: &str, out_conn: u64, msg: &Message) -> Span {
+    let span = tracing::span!(
+        tracing::Level::INFO,
+        "agp_process_message",
+        function = function,
+        source = format!("{}", msg.get_source()),
+        destination =  format!("{}",msg.get_name_as_agent()),
+        instance_id = %INSTANCE_ID.as_str(),
+        connection_id = out_conn,
+        message_type = msg.get_type().to_string(),
+        telemetry = true
+    );
+
+    match msg.get_type() {
+        PublishType(_) => {
+            span.set_attribute("session_type", msg.get_header_type().as_str_name());
+            span.set_attribute(
+                "session_id",
+                msg.get_session_header().get_session_id().to_string(),
+            );
+            span.set_attribute(
+                "message_id",
+                msg.get_session_header().get_message_id().to_string(),
+            );
+        }
+        _ => {} // the session header is not present do nothing
+    }
+
+    span
 }
 
 #[derive(Debug)]
@@ -292,14 +324,7 @@ impl MessageProcessor {
 
                 // telemetry ////////////////////////////////////////////////////////
                 let parent_context = extract_parent_context(&msg);
-                let span = tracing::span!(
-                    tracing::Level::INFO,
-                    "send_message",
-                    instance_id = %INSTANCE_ID.as_str(),
-                    connection_id = out_conn,
-                    message_type = msg.get_type().to_string(),
-                    telemetry = true
-                );
+                let span = create_span("send_message", out_conn, &msg);
 
                 if let Some(ctx) = parent_context {
                     span.set_parent(ctx);
@@ -529,14 +554,8 @@ impl MessageProcessor {
         // telemetry /////////////////////////////////////////
         if is_local {
             // handling the message from the local application
-            let span = tracing::span!(
-                tracing::Level::INFO,
-                "process_local",
-                instance_id = %INSTANCE_ID.as_str(),
-                connection_id = conn_index,
-                message_type = msg.get_type().to_string(),
-                telemetry = true
-            );
+            let span = create_span("process_local", conn_index, &msg);
+
             let _guard = span.enter();
 
             inject_current_context(&mut msg);
@@ -544,14 +563,7 @@ impl MessageProcessor {
             // handling the message from a remote gateway
             let parent_context = extract_parent_context(&msg);
 
-            let span = tracing::span!(
-                tracing::Level::INFO,
-                "process_remote",
-                instance_id = %INSTANCE_ID.as_str(),
-                connection_id = conn_index,
-                message_type = msg.get_type().to_string(),
-                telemetry = true
-            );
+            let span = create_span("process_local", conn_index, &msg);
 
             if let Some(ctx) = parent_context {
                 span.set_parent(ctx);

@@ -88,7 +88,7 @@ async def run_client(
                 except Exception as e:
                     print("received error: ", e)
                 finally:
-                    await asyncio.sleep(1)
+                    await asyncio.sleep(0.5)
         else:
             # subscribe to streaming session
             await gateway.subscribe(
