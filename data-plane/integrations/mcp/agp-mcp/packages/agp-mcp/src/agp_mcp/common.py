@@ -107,14 +107,14 @@ class AGPBase(ABC):
     ) -> bool:
         """
         Check the message content. If it returns True the message should be
-        droped and not pass to the application
+        dropped and not pass to the application
 
         Args:
             session (agp_bindings.PySessionInfo): AGP session info.
             message (types.JSONRPCMessage): Message to control.
 
         Returns:
-            bool: True if the message has to be droped, False otherwise
+            bool: True if the message has to be dropped, False otherwise
         """
 
         return False
@@ -247,7 +247,7 @@ class AGPBase(ABC):
         read_stream_writer, read_stream = anyio.create_memory_object_stream(0)
         write_stream, write_stream_reader = anyio.create_memory_object_stream(0)
 
-        pending_pings = []
+        pending_pings: list = []
 
         async def agp_reader():
             session = accepted_session

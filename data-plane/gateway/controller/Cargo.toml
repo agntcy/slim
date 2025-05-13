@@ -9,6 +9,7 @@ description = "Controller service and control API to configure the AGP data plan
 agp-config = { workspace = true }
 agp-datapath = { workspace = true }
 bytes = { workspace = true }
+h2 = { workspace = true }
 parking_lot = { workspace = true }
 prost = { workspace = true }
 thiserror = { workspace = true }

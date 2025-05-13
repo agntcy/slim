@@ -83,7 +83,7 @@ class AGPServer(AGPBase):
         pending_pings: list[int],
     ) -> bool:
         if isinstance(message.root, types.JSONRPCResponse):
-            response: type.JSONRPCResponse = message.root
+            response: types.JSONRPCResponse = message.root
             if response.result == {}:
                 if response.id in pending_pings:
                     logger.debug(f"Received ping reply on session {session.id}")

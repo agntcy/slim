@@ -24,7 +24,7 @@ vars:
 
   MODULES:
     sh: |
-      find {{.REPO_ROOT}} -type f -name "go.mod" ! -path "./third-party/*" -exec dirname {} \; | \
+      find {{.REPO_ROOT}}/control-plane -type f -name "go.mod" ! -path "./third-party/*" -exec dirname {} \; | \
         sort | \
         tr '\n' ' '
 
