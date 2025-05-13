@@ -12,15 +12,33 @@ pub struct AgentType {
     organization: u64,
     namespace: u64,
     agent_type: u64,
+
+    // Store the original string representation of the agent type
+    // This is useful for debugging and logging purposes
+    strings: Option<Box<(String, String, String)>>,
 }
 
 impl std::fmt::Display for AgentType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
+        let res = write!(
             f,
             "{:x}/{:x}/{:x}",
             self.organization, self.namespace, self.agent_type
-        )
+        );
+
+        if let Err(e) = res {
+            return Err(e);
+        }
+
+        if let Some(strings) = &self.strings {
+            write!(
+                f,
+                " ({}/{}/{})",
+                strings.0, strings.1, strings.2
+            )
+        } else {
+            Ok(())
+        }
     }
 }
 
@@ -30,6 +48,7 @@ impl From<&ProtoAgent> for AgentType {
             organization: agent.organization,
             namespace: agent.namespace,
             agent_type: agent.agent_type,
+            strings: None,
         }
     }
 }
@@ -41,6 +60,7 @@ impl AgentType {
             organization,
             namespace,
             agent_type,
+            strings: None,
         }
     }
 
@@ -49,6 +69,11 @@ impl AgentType {
             organization: calculate_hash(organization),
             namespace: calculate_hash(namespace),
             agent_type: calculate_hash(agent_type),
+            strings: Some(Box::new((
+                organization.to_string(),
+                namespace.to_string(),
+                agent_type.to_string(),
+            ))),
         }
     }
 
