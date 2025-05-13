@@ -19,8 +19,6 @@ import (
 	grpcapi "github.com/agntcy/agp/control-plane/agpctl/internal/proto/controller/v1"
 )
 
-var serverAddr string
-
 func NewRouteCmd(opts *options.CommonOptions) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "route",
@@ -28,22 +26,13 @@ func NewRouteCmd(opts *options.CommonOptions) *cobra.Command {
 		Long:  `Manage gateway routes`,
 	}
 
-	cmd.PersistentFlags().StringVarP(
-		&serverAddr,
-		"server",
-		"s",
-		"localhost:46357",
-		"gateway gRPC control API endpoint (host:port)",
-	)
-	_ = cmd.MarkPersistentFlagRequired("server")
-
 	cmd.AddCommand(newAddCmd(opts))
 	cmd.AddCommand(newDelCmd(opts))
 
 	return cmd
 }
 
-func newAddCmd(_ *options.CommonOptions) *cobra.Command {
+func newAddCmd(opts *options.CommonOptions) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "add <organization/namespace/agentname/agentid> via <host:port>",
 		Short: "Add a route to the gateway",
@@ -90,13 +79,13 @@ func newAddCmd(_ *options.CommonOptions) *cobra.Command {
 				},
 			}
 
-			return sendConfigMessage(cmd.Context(), serverAddr, msg)
+			return sendConfigMessage(cmd.Context(), opts, msg)
 		},
 	}
 	return cmd
 }
 
-func newDelCmd(_ *options.CommonOptions) *cobra.Command {
+func newDelCmd(opts *options.CommonOptions) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "del <organization/namespace/agentname/agentid> via <host:port>",
 		Short: "Delete a route from the gateway",
@@ -143,7 +132,7 @@ func newDelCmd(_ *options.CommonOptions) *cobra.Command {
 				},
 			}
 
-			return sendConfigMessage(cmd.Context(), serverAddr, msg)
+			return sendConfigMessage(cmd.Context(), opts, msg)
 		},
 	}
 	return cmd
@@ -233,10 +222,10 @@ func parseEndpoint(endpoint string) (*grpcapi.Connection, string, error) {
 
 func sendConfigMessage(
 	ctx context.Context,
-	targetServer string,
+	opts *options.CommonOptions,
 	msg *grpcapi.ControlMessage,
 ) error {
-	ack, err := controller.SendConfigMessage(ctx, targetServer, msg)
+	ack, err := controller.SendConfigMessage(ctx, opts, msg)
 	if err != nil {
 		return fmt.Errorf("failed to send command: %w", err)
 	}
