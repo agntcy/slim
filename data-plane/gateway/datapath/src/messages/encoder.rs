@@ -7,7 +7,7 @@ use crate::pubsub::ProtoAgent;
 
 pub const DEFAULT_AGENT_ID: u64 = u64::MAX;
 
-#[derive(Hash, Debug, Clone, Default)]
+#[derive(Debug, Clone, Default)]
 pub struct AgentType {
     organization: u64,
     namespace: u64,
@@ -16,6 +16,14 @@ pub struct AgentType {
     // Store the original string representation of the agent type
     // This is useful for debugging and logging purposes
     strings: Option<Box<(String, String, String)>>,
+}
+
+impl Hash for AgentType {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.organization.hash(state);
+        self.namespace.hash(state);
+        self.agent_type.hash(state);
+    }
 }
 
 impl PartialEq for AgentType {
