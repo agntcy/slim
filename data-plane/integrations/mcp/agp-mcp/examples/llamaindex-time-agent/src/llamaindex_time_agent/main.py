@@ -72,6 +72,7 @@ async def amain(
 
             await mcp_session.close()
 
+
 class DictParamType(click.ParamType):
     name = "dict"
 
