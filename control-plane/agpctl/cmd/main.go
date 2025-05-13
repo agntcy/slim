@@ -84,7 +84,7 @@ func main() {
 		Use:   "agpctl",
 		Short: "AGP control CLI",
 		PersistentPreRunE: func(cmd *cobra.Command, _ []string) error {
-			return initConfig(opts, cmd.PersistentFlags())
+			return initConfig(opts, cmd.Root().PersistentFlags())
 		},
 	}
 
