@@ -32,7 +32,7 @@ func initConfig(opts *options.CommonOptions) {
 	viper.SetDefault("tls.insecure", true)
 
 	if err := viper.ReadInConfig(); err != nil {
-		if _, ok := err.(viper.ConfigFileNotFoundError); !ok {
+		if _, ok := err.(viper.ConfigFileNotFoundError); !ok { //nolint:errorlint
 			fmt.Fprintf(os.Stderr, "Error reading config file: %v\n", err)
 			os.Exit(1)
 		}
@@ -51,29 +51,72 @@ func main() {
 	rootCmd := &cobra.Command{
 		Use:   "agpctl",
 		Short: "AGP control CLI",
-		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+		PersistentPreRunE: func(_ *cobra.Command, _ []string) error {
 			initConfig(opts)
 			return nil
 		},
 	}
 
-	rootCmd.PersistentFlags().StringP("server", "s", "", "gateway gRPC control API endpoint (host:port)")
-	_ = viper.BindPFlag("server", rootCmd.PersistentFlags().Lookup("server"))
+	rootCmd.PersistentFlags().StringP(
+		"server",
+		"s",
+		"",
+		"gateway gRPC control API endpoint (host:port)",
+	)
+	_ = viper.BindPFlag(
+		"server",
+		rootCmd.PersistentFlags().Lookup("server"),
+	)
 
-	rootCmd.PersistentFlags().Duration("timeout", 0, "gRPC request timeout (e.g. 5s, 1m)")
-	_ = viper.BindPFlag("timeout", rootCmd.PersistentFlags().Lookup("timeout"))
+	rootCmd.PersistentFlags().Duration(
+		"timeout",
+		0,
+		"gRPC request timeout (e.g. 5s, 1m)",
+	)
+	_ = viper.BindPFlag(
+		"timeout",
+		rootCmd.PersistentFlags().Lookup("timeout"),
+	)
 
-	rootCmd.PersistentFlags().Bool("tls.insecure", false, "skip TLS certificate verification")
-	_ = viper.BindPFlag("tls.insecure", rootCmd.PersistentFlags().Lookup("tls.insecure"))
+	rootCmd.PersistentFlags().Bool(
+		"tls.insecure",
+		false,
+		"skip TLS certificate verification",
+	)
+	_ = viper.BindPFlag(
+		"tls.insecure",
+		rootCmd.PersistentFlags().Lookup("tls.insecure"),
+	)
 
-	rootCmd.PersistentFlags().String("tls.ca_file", "", "path to TLS CA certificate")
-	_ = viper.BindPFlag("tls.ca_file", rootCmd.PersistentFlags().Lookup("tls.ca_file"))
+	rootCmd.PersistentFlags().String(
+		"tls.ca_file",
+		"",
+		"path to TLS CA certificate",
+	)
+	_ = viper.BindPFlag(
+		"tls.ca_file",
+		rootCmd.PersistentFlags().Lookup("tls.ca_file"),
+	)
 
-	rootCmd.PersistentFlags().String("tls.cert_file", "", "path to client TLS certificate")
-	_ = viper.BindPFlag("tls.cert_file", rootCmd.PersistentFlags().Lookup("tls.cert_file"))
+	rootCmd.PersistentFlags().String(
+		"tls.cert_file",
+		"",
+		"path to client TLS certificate",
+	)
+	_ = viper.BindPFlag(
+		"tls.cert_file",
+		rootCmd.PersistentFlags().Lookup("tls.cert_file"),
+	)
 
-	rootCmd.PersistentFlags().String("tls.key_file", "", "path to client TLS key")
-	_ = viper.BindPFlag("tls.key_file", rootCmd.PersistentFlags().Lookup("tls.key_file"))
+	rootCmd.PersistentFlags().String(
+		"tls.key_file",
+		"",
+		"path to client TLS key",
+	)
+	_ = viper.BindPFlag(
+		"tls.key_file",
+		rootCmd.PersistentFlags().Lookup("tls.key_file"),
+	)
 
 	rootCmd.AddCommand(route.NewRouteCmd(opts))
 	rootCmd.AddCommand(version.NewVersionCmd(opts))

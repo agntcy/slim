@@ -19,8 +19,6 @@ import (
 	grpcapi "github.com/agntcy/agp/control-plane/agpctl/internal/proto/controller/v1"
 )
 
-var serverAddr string
-
 func NewRouteCmd(opts *options.CommonOptions) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "route",

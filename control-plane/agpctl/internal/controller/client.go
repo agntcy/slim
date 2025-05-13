@@ -5,7 +5,6 @@ package controller
 
 import (
 	"context"
-	"crypto/tls"
 	"fmt"
 
 	"google.golang.org/grpc"
@@ -33,8 +32,6 @@ func SendConfigMessage(
 			return nil, fmt.Errorf("loading CA file %q: %w", opts.TLSCAFile, err)
 		}
 		creds = c
-	} else {
-		creds = credentials.NewTLS(&tls.Config{InsecureSkipVerify: false})
 	}
 
 	conn, err := grpc.NewClient(
