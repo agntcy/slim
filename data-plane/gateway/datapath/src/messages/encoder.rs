@@ -20,25 +20,17 @@ pub struct AgentType {
 
 impl std::fmt::Display for AgentType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let res = write!(
+        write!(
             f,
             "{:x}/{:x}/{:x}",
             self.organization, self.namespace, self.agent_type
-        );
-
-        if let Err(e) = res {
-            return Err(e);
-        }
+        )?;
 
         if let Some(strings) = &self.strings {
-            write!(
-                f,
-                " ({}/{}/{})",
-                strings.0, strings.1, strings.2
-            )
-        } else {
-            Ok(())
+            write!(f, " ({}/{}/{})", strings.0, strings.1, strings.2)?;
         }
+
+        Ok(())
     }
 }
 
