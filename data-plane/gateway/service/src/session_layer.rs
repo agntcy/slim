@@ -415,7 +415,7 @@ mod tests {
         let agent = Agent::from_strings("org", "ns", "type", 0);
 
         let session_layer = SessionLayer::new(&agent, 0, tx_gw.clone(), tx_app.clone());
-        let session_config = FireAndForgetConfiguration {};
+        let session_config = FireAndForgetConfiguration::default();
 
         let ret = session_layer
             .create_session(SessionConfig::FireAndForget(session_config), Some(1))
@@ -437,7 +437,7 @@ mod tests {
 
         let res = session_layer
             .create_session(
-                SessionConfig::FireAndForget(FireAndForgetConfiguration {}),
+                SessionConfig::FireAndForget(FireAndForgetConfiguration::default()),
                 None,
             )
             .await;
@@ -454,7 +454,7 @@ mod tests {
 
         let res = session_layer
             .create_session(
-                SessionConfig::FireAndForget(FireAndForgetConfiguration {}),
+                SessionConfig::FireAndForget(FireAndForgetConfiguration::default()),
                 Some(1),
             )
             .await;
@@ -476,7 +476,7 @@ mod tests {
 
         let session_layer = SessionLayer::new(&agent, 0, tx_gw.clone(), tx_app.clone());
 
-        let session_config = FireAndForgetConfiguration {};
+        let session_config = FireAndForgetConfiguration::default();
 
         // create a new session
         let res = session_layer

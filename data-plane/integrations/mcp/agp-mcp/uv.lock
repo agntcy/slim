@@ -11,7 +11,7 @@ members = [
 
 [[package]]
 name = "agp-bindings"
-version = "0.3.0"
+version = "0.3.1"
 source = { directory = "../../../python-bindings" }
 
 [package.metadata]
@@ -34,7 +34,7 @@ testing = [
 
 [[package]]
 name = "agp-mcp"
-version = "0.1.0"
+version = "0.1.1"
 source = { editable = "packages/agp-mcp" }
 dependencies = [
     { name = "agp-bindings" },

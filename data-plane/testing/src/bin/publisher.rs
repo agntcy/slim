@@ -385,7 +385,7 @@ async fn main() {
         .create_session(
             &agent_name,
             agp_service::session::SessionConfig::FireAndForget(
-                agp_service::FireAndForgetConfiguration {},
+                agp_service::FireAndForgetConfiguration::default(),
             ),
         )
         .await;
