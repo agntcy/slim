@@ -12,24 +12,19 @@ members = [
 [[package]]
 name = "agp-bindings"
 version = "0.3.0"
-source = { directory = "../../../python-bindings" }
-
-[package.metadata]
-
-[package.metadata.requires-dev]
-building = [
-    { name = "maturin", specifier = ">=1.8.2" },
-    { name = "maturin", extras = ["patchelf"], marker = "sys_platform == 'linux'", specifier = ">=1.8.2" },
-]
-linting = [
-    { name = "griffe", specifier = ">=1.5.5" },
-    { name = "mypy", specifier = ">=1.14.1" },
-    { name = "pyright", specifier = ">=1.1.0" },
-    { name = "ruff", specifier = ">=0.9.3" },
-]
-testing = [
-    { name = "pytest", specifier = ">=8.3.4" },
-    { name = "pytest-asyncio", specifier = ">=0.25.3" },
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/e6/b6/c2318b0c1d42c55e200df84f55ef2f5074ea81a1011e195783e474c801ae/agp_bindings-0.3.0.tar.gz", hash = "sha256:458d39630d70a507ae5d1a275a17ff656eadcad5072a25ff3b32ba70733de13f", size = 174867 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/04/66/585881ce8d30752e82d8b8ccac745d1aa7ade1f483a6e9fad5a96785b43d/agp_bindings-0.3.0-cp312-cp312-macosx_10_12_x86_64.whl", hash = "sha256:674197b099c9c611b429af8af8e5d453b53f7eba9f772650890554966b2e5e8c", size = 5692363 },
+    { url = "https://files.pythonhosted.org/packages/0d/da/01ba52789a08030b83b09631e19a9d83431ba4f1bc47942bd3b86fc94e56/agp_bindings-0.3.0-cp312-cp312-macosx_11_0_arm64.whl", hash = "sha256:b3845abbf8d270d2d28178003c41a59cdd5a91cbb7a4cadc92f2aed3ae6a1061", size = 5445430 },
+    { url = "https://files.pythonhosted.org/packages/08/08/46cf19186fa1111bf8285c05c24a5ad5413134914e651ead4f4004f2d8d5/agp_bindings-0.3.0-cp312-cp312-manylinux_2_34_aarch64.whl", hash = "sha256:1e89b80e118c17ed8983e96a14737fdf6c4f44f46dd34ac5533a74f826f3aef9", size = 5961496 },
+    { url = "https://files.pythonhosted.org/packages/6a/31/2ff07fbffa221f7859ce7719475821a9a81aa0bb1294565cfb8c673cfd1b/agp_bindings-0.3.0-cp312-cp312-manylinux_2_34_x86_64.whl", hash = "sha256:ee2faf109f5b13ae3127ddd502f0e72829182ac88024ae247e3328ce51c8be06", size = 6157581 },
+    { url = "https://files.pythonhosted.org/packages/9f/07/b9189c64acdcf3227c7eafc1025822b3e9c3e9cb4f16732db471263f53ca/agp_bindings-0.3.0-cp312-cp312-win_amd64.whl", hash = "sha256:574dfb480c3dff515ede830996e7a15fe3f2a43698f84e06a5926b6cf95ee330", size = 4771865 },
+    { url = "https://files.pythonhosted.org/packages/b8/66/994038d853e97eb45a1260083033458c6d4914da4022e82772e2872fc371/agp_bindings-0.3.0-cp313-cp313-macosx_10_12_x86_64.whl", hash = "sha256:b8f4316b1b1face0095e9d8a9fd2d7c2cdc8f559c51d4dfbd19058b73fe3e79e", size = 5690829 },
+    { url = "https://files.pythonhosted.org/packages/c4/74/3d1d1293f36730eb94de127789e0b9420bc2ab15b880b6db749bcd994a11/agp_bindings-0.3.0-cp313-cp313-macosx_11_0_arm64.whl", hash = "sha256:7983e7ed5732de5da5ec9bf587c682314ce3e6734831c48ed73d0f25f372a78e", size = 5445227 },
+    { url = "https://files.pythonhosted.org/packages/53/d3/2f8188e1b9192fd74b97f282d28894b5b17d1713a724bcc1167d8345fa3e/agp_bindings-0.3.0-cp313-cp313-manylinux_2_34_aarch64.whl", hash = "sha256:2b16c77cba73319a5c95f80b8d036ee6872d27cd10197856e248e05392dab0ff", size = 5961026 },
+    { url = "https://files.pythonhosted.org/packages/cc/7b/af5ed93b6b333a95457628e8f6585cecb30b109568955f7e82c9c7306cb9/agp_bindings-0.3.0-cp313-cp313-manylinux_2_34_x86_64.whl", hash = "sha256:dd18256d89a122b33e926611e2d067e19d5969cadf5585beb210d4b0e3d8ebaa", size = 6156926 },
+    { url = "https://files.pythonhosted.org/packages/28/21/70e8c93739d1080174a306ddc12eb3ddba76a1f1dfb816699968ed33f22f/agp_bindings-0.3.0-cp313-cp313-win_amd64.whl", hash = "sha256:ae5089f224bdaf5257e2ad367bb5fac9ff0f2662d6809381c4f46fe3987c47fe", size = 4771487 },
 ]
 
 [[package]]
@@ -56,7 +51,7 @@ testing = [
 
 [package.metadata]
 requires-dist = [
-    { name = "agp-bindings", directory = "../../../python-bindings" },
+    { name = "agp-bindings", specifier = ">=0.3.0" },
     { name = "anyio", specifier = ">=4.5" },
     { name = "mcp", specifier = ">=1.6.0" },
 ]
