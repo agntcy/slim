@@ -351,20 +351,6 @@ pub struct SubscriptionTableImpl {
     connections: RwLock<HashMap<u64, HashSet<Agent>>>,
 }
 
-pub struct Iter<'a> {
-    iter: std::collections::hash_map::Iter<'a, AgentType, AgentTypeState>,
-}
-
-impl<'a> Iterator for Iter<'a> {
-    type Item = (&'a AgentType, u64, &'a Vec<u64>, &'a Vec<u64>);
-
-    fn next(&mut self) -> Option<Self::Item> {
-        let (k0, v0) = self.iter.next()?;
-        let (k1, v1) = v0.ids.iter().next()?;
-        Some((k0, *k1, v1[0].as_ref(), v1[1].as_ref()))
-    }
-}
-
 impl Display for SubscriptionTableImpl {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         // print main table
