@@ -874,7 +874,7 @@ mod tests {
             Ok(())
         );
 
-        let mut v = Vec::new();
+        let mut h = HashMap::new();
 
         t.for_each(|k, id, local, remote| {
             println!(
@@ -882,17 +882,16 @@ mod tests {
                 k, id, local, remote
             );
 
-            v.push((k.clone(), id, local.to_vec(), remote.to_vec()));
+            h.insert(k.clone(), (id, local.to_vec(), remote.to_vec()));
         });
 
-        assert_eq!(v.len(), 2);
-        assert_eq!(v[0].0, agent_type1);
-        assert_eq!(v[0].1, DEFAULT_AGENT_ID);
-        assert_eq!(v[0].2, vec![]);
-        assert_eq!(v[0].3, vec![1, 2]);
-        assert_eq!(v[1].0, agent_type2);
-        assert_eq!(v[1].1, DEFAULT_AGENT_ID);
-        assert_eq!(v[1].2, vec![3]);
-        assert_eq!(v[1].3, vec![]);
+        assert_eq!(h.len(), 2);
+        assert_eq!(h[&agent_type1].0, DEFAULT_AGENT_ID);
+        assert_eq!(h[&agent_type1].1, vec![]);
+        assert_eq!(h[&agent_type1].2, vec![1, 2]);
+
+        assert_eq!(h[&agent_type2].0, DEFAULT_AGENT_ID);
+        assert_eq!(h[&agent_type2].1, vec![3]);
+        assert_eq!(h[&agent_type2].2, vec![]);
     }
 }

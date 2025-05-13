@@ -7,7 +7,7 @@ use crate::pubsub::ProtoAgent;
 
 pub const DEFAULT_AGENT_ID: u64 = u64::MAX;
 
-#[derive(Hash, Eq, PartialEq, Debug, Clone, Default)]
+#[derive(Hash, Debug, Clone, Default)]
 pub struct AgentType {
     organization: u64,
     namespace: u64,
@@ -17,6 +17,16 @@ pub struct AgentType {
     // This is useful for debugging and logging purposes
     strings: Option<Box<(String, String, String)>>,
 }
+
+impl PartialEq for AgentType {
+    fn eq(&self, other: &Self) -> bool {
+        self.organization == other.organization
+            && self.namespace == other.namespace
+            && self.agent_type == other.agent_type
+    }
+}
+
+impl Eq for AgentType {}
 
 impl std::fmt::Display for AgentType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

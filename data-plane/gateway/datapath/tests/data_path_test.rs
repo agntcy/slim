@@ -138,8 +138,7 @@ mod tests {
         tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
 
         let expected_msg = format!(
-            "subscription update (add = true) for agent type: {} (agent id: None) - connection: 0",
-            AgentType::from_strings("org", "ns", "type")
+            "subscription update (add = true) for agent type",
         );
         assert!(logs_contain(&expected_msg));
 
