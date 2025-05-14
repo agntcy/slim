@@ -1,19 +1,20 @@
+{{- if .Values.mcpProxy.enabled -}}
 # Copyright AGNTCY Contributors (https://github.com/agntcy)
 # SPDX-License-Identifier: Apache-2.0
 
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ include "agp.fullname" . }}
+  name: {{ include "agp.mcpProxyName" . }}
   labels:
-    {{- include "agp.labels" . | nindent 4 }}
+    {{- include "agp.mcpProxyLabels" . | nindent 4 }}
 spec:
   {{- if not .Values.autoscaling.enabled }}
-  replicas: {{ .Values.gw.replicaCount }}
+  replicas: {{ .Values.replicaCount }}
   {{- end }}
   selector:
     matchLabels:
-      {{- include "agp.selectorLabels" . | nindent 6 }}
+      {{- include "agp.mcpProxySelectorLabels" . | nindent 6 }}
   template:
     metadata:
       {{- with .Values.podAnnotations }}
@@ -21,7 +22,7 @@ spec:
         {{- toYaml . | nindent 8 }}
       {{- end }}
       labels:
-        {{- include "agp.labels" . | nindent 8 }}
+        {{- include "agp.mcpProxyLabels" . | nindent 8 }}
         {{- with .Values.podLabels }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
@@ -37,19 +38,21 @@ spec:
         - name: {{ .Chart.Name }}
           securityContext:
             {{- toYaml .Values.securityContext | nindent 12 }}
-          image: "{{ .Values.gw.image.repository }}:{{ .Values.gw.image.tag | default .Chart.AppVersion }}"
-          imagePullPolicy: {{ .Values.gw.image.pullPolicy }}
+          image: "{{ .Values.mcpProxy.image.repository }}:{{ .Values.mcpProxy.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.mcpProxy.image.pullPolicy }}
           command:
-            - "/gateway"
+            - "/agp-mcp-proxy"
           args:
             - "--config"
             - "/config.yaml"
-          ports:
-            - name: messenger
-              containerPort: {{ .Values.gw.service.port }}
-              protocol: TCP
+            - "--svc-name"
+            - {{ .Values.mcpProxy.args.svcName | quote }}
+            - "--name"
+            - {{ .Values.mcpProxy.args.name | quote }}
+            - "--mcp-server"
+            - {{ .Values.mcpProxy.args.mcpServer | quote }}
           resources:
-            {{- toYaml .Values.gw.resources | nindent 12 }}
+            {{- toYaml .Values.mcpProxy.resources | nindent 12 }}
           volumeMounts:
             - name: config-volume
               mountPath: /config.yaml
@@ -57,7 +60,7 @@ spec:
       volumes:
         - name: config-volume
           configMap:
-            name: {{ include "agp.fullname" . }}
+            name: {{ include "agp.mcpProxyName" . }}
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}
@@ -70,4 +73,4 @@ spec:
       tolerations:
         {{- toYaml . | nindent 8 }}
       {{- end }}
-
+{{- end }}

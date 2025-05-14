@@ -1,0 +1,14 @@
+{{- if .Values.mcpProxy.enabled -}}
+# Copyright AGNTCY Contributors (https://github.com/agntcy)
+# SPDX-License-Identifier: Apache-2.0
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "agp.mcpProxyName" . }}
+  labels:
+    {{- include "agp.mcpProxyLabels" . | nindent 4 }}
+data:
+  config.yaml: |
+    {{- .Values.mcpProxy.config | toYaml | nindent 4 }}
+{{- end }}
