@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.3.1](https://github.com/agntcy/agp/compare/agp-bindings-v0.3.0...agp-bindings-v0.3.1) (2025-05-14)
+
+
+### Features
+
+* AGP-MCP integration ([#183](https://github.com/agntcy/agp/issues/183)) ([102132c](https://github.com/agntcy/agp/commit/102132c2d395323241f20bdbd999191d5046b949))
+* improve configuration handling for tracing ([#186](https://github.com/agntcy/agp/issues/186)) ([ff959ee](https://github.com/agntcy/agp/commit/ff959ee95670ce8bbfc48bc18ccb534270178a2e))
+* improve tracing in agp ([#237](https://github.com/agntcy/agp/issues/237)) ([ed1401c](https://github.com/agntcy/agp/commit/ed1401cf91aefa0e3f66c5461e6b331c96f26811))
+* release agp-mcp pypi package ([#225](https://github.com/agntcy/agp/issues/225)) ([238d683](https://github.com/agntcy/agp/commit/238d68300134dc6771191077b9b18525609bb7af))
+
+
+### Bug Fixes
+
+* **data-plane:** make new linter version happy ([#184](https://github.com/agntcy/agp/issues/184)) ([cbc624b](https://github.com/agntcy/agp/commit/cbc624b542e7088b59149d9dd9f066b312886270))
+* **python-bindings:** build sdist only once ([#243](https://github.com/agntcy/agp/issues/243)) ([6ba8e0f](https://github.com/agntcy/agp/commit/6ba8e0f989159360e6a33eab1b2758a0904a89a2))
+* **python-bindings:** test failure ([#194](https://github.com/agntcy/agp/issues/194)) ([4c42676](https://github.com/agntcy/agp/commit/4c42676a30e100eac4e872bc89db6ba9bf3623f2))
+
 ## [0.3.0](https://github.com/agntcy/agp/compare/agp-bindings-v0.2.4...agp-bindings-v0.3.0) (2025-04-17)
 
 
