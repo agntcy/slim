@@ -6,7 +6,7 @@ build-backend = "hatchling.build"
 name = "agp-mcp"
 description = "Model Context Protocol with AGP as transport"
 readme = "README.md"
-version = "0.1.1"
+version = "0.1.2"
 requires-python = ">=3.10, <4.0"
 license = "Apache-2.0"
 classifiers = [
@@ -22,6 +22,7 @@ classifiers = [
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
 ]
+
 dependencies = ["agp-bindings>=0.3.1", "mcp==1.6.0", "anyio>=4.5"]
 
 [dependency-groups]

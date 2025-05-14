@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.2](https://github.com/agntcy/agp/compare/agp-mcp-v0.1.1...agp-mcp-v0.1.2) (2025-05-14)
+
+
+### Features
+
+* **agp-mcp:** update to latest bindings version ([#255](https://github.com/agntcy/agp/issues/255)) ([a4792b0](https://github.com/agntcy/agp/commit/a4792b0a0d35cbbe533ac8e83162ff48a0a9da56))
+
 ## [0.1.1](https://github.com/agntcy/agp/compare/agp-mcp-v0.1.0...agp-mcp-v0.1.1) (2025-05-14)
 
 
