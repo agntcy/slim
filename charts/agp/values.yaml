@@ -30,13 +30,18 @@ gw:
 
     services:
       gateway/0:
-        server:
-          endpoint: "0.0.0.0:46357"
-          tls:
-            insecure: true
+        pubsub:
+          servers:
+            - endpoint: "0.0.0.0:46357"
+              tls:
+                insecure: true
 
-        clients: []
-        shutdown_timeout: 10s
+          clients: []
+        controller:
+          server:
+            endpoint: "0.0.0.0:46358"
+            tls:
+              insecure: true
 
   # This is for setting up a service more information can be found here: https://kubernetes.io/docs/concepts/services-networking/service/
   service:
