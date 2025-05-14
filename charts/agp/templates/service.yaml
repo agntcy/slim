@@ -8,9 +8,9 @@ metadata:
   labels:
     {{- include "agp.labels" . | nindent 4 }}
 spec:
-  type: {{ .Values.service.type }}
+  type: {{ .Values.gw.service.type }}
   ports:
-    - port: {{ .Values.service.port }}
+    - port: {{ .Values.gw.service.port }}
       targetPort: messenger
       protocol: TCP
       name: messenger
