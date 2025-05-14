@@ -13,9 +13,6 @@ includes:
   mcp-proxy:
     taskfile: ../../../../tasks/rust.yaml
 
-vars:
-  CARGO_COMPONENTS: "cargo-sort cargo-audit cargo-llvm-cov cargo-machete@0.7.0 cargo-deny@0.17.0 typos-cli"
-
 tasks:
   mcp-proxy:bindings:test:
     desc: "Test the Python bindings"

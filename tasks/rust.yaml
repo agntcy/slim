@@ -39,6 +39,8 @@ vars:
   LINKER:
     sh: '[[ "$(uname -m)" == "{{.TARGET_ARCH}}" ]] && echo "/usr/bin/ld" || echo "/usr/{{.TARGET_ARCH}}-linux-gnu/bin/ld"'
 
+  CARGO_COMPONENTS: "cargo-sort cargo-fmt cargo-audit cargo-llvm-cov cargo-machete@0.7.0 cargo-deny@0.17.0 typos-cli"
+
 env:
   # linux/arm64 + gnu
   AR_aarch64_unknown_linux_gnu: "{{.AR}}"
