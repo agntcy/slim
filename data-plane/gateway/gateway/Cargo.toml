@@ -3,7 +3,7 @@ name = "agp-gw"
 version = "0.3.14"
 edition = { workspace = true }
 license = { workspace = true }
-description = "The main gateway executable"
+description = "The main gateway executable."
 
 [[bin]]
 name = "gateway"
