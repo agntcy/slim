@@ -95,7 +95,7 @@ dependencies = [
 
 [[package]]
 name = "agp-gw"
-version = "0.3.14"
+version = "0.3.15"
 dependencies = [
  "agp-config",
  "agp-service",
