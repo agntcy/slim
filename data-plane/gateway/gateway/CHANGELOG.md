@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.15](https://github.com/agntcy/agp/compare/agp-gw-v0.3.14...agp-gw-v0.3.15) - 2025-05-14
+
+### Fixed
+
+- *(mcp-proxy)* dependencies ([#252](https://github.com/agntcy/agp/pull/252))
+
 ## [0.3.14](https://github.com/agntcy/agp/compare/agp-gw-v0.3.13...agp-gw-v0.3.14) - 2025-05-14
 
 ### Other
