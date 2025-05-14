@@ -22,8 +22,12 @@ classifiers = [
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
 ]
+<<<<<<< HEAD
 
 dependencies = ["agp-bindings>=0.3.1", "mcp==1.6.0", "anyio>=4.5"]
+=======
+dependencies = ["agp-bindings>=0.3.1", "mcp>=1.6.0", "anyio>=4.5"]
+>>>>>>> 3d18dce (fix: install bindings 0.3.1)
 
 [dependency-groups]
 testing = ["pytest>=8.3.5", "pytest-asyncio>=0.26.0"]
