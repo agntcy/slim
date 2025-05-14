@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.0](https://github.com/agntcy/agp/compare/agp-datapath-v0.6.0...agp-datapath-v0.7.0) - 2025-05-14
+
+### Added
+
+- *(subscription_table)* add foreach to iterate over the table ([#240](https://github.com/agntcy/agp/pull/240))
+- *(pool.rs)* add iterator to pool ([#236](https://github.com/agntcy/agp/pull/236))
+- improve tracing in agp ([#237](https://github.com/agntcy/agp/pull/237))
+- implement control API ([#147](https://github.com/agntcy/agp/pull/147))
+
 ## [0.6.0](https://github.com/agntcy/agp/compare/agp-datapath-v0.5.0...agp-datapath-v0.6.0) - 2025-04-24
 
 ### Added
