@@ -13,9 +13,6 @@ fn main() {
 
     tonic_build::configure()
         .out_dir("src/pubsub/gen")
-        .compile_protos(
-            &["../../../proto/pubsub/v1/pubsub.proto"],
-            &["../../../proto"],
-        )
+        .compile_protos(&["pubsub/proto/v1/pubsub.proto"], &["pubsub/proto/v1"])
         .unwrap();
 }
