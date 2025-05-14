@@ -95,7 +95,7 @@ func TestSendConfigMessage(t *testing.T) {
 					RemotePort:    8080,
 				}},
 				RoutesToSet: []*grpcapi.Route{{
-					Company:      "acme",
+					Organization: "acme",
 					Namespace:    "outshift",
 					AgentName:    "agent",
 					AgentId:      &wrapperspb.UInt64Value{Value: 1},

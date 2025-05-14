@@ -114,13 +114,13 @@ impl ControllerService {
                                 .cloned()
                                 .unwrap();
                             let source = Agent::from_strings(
-                                route.company.as_str(),
+                                &route.organization.as_str(),
                                 route.namespace.as_str(),
                                 route.agent_name.as_str(),
                                 0,
                             );
                             let agent_type = AgentType::from_strings(
-                                route.company.as_str(),
+                                route.organization.as_str(),
                                 route.namespace.as_str(),
                                 route.agent_name.as_str(),
                             );
@@ -150,13 +150,13 @@ impl ControllerService {
                                 .cloned()
                                 .unwrap();
                             let source = Agent::from_strings(
-                                route.company.as_str(),
+                                route.organization.as_str(),
                                 route.namespace.as_str(),
                                 route.agent_name.as_str(),
                                 0,
                             );
                             let agent_type = AgentType::from_strings(
-                                route.company.as_str(),
+                                route.organization.as_str(),
                                 route.namespace.as_str(),
                                 route.agent_name.as_str(),
                             );

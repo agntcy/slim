@@ -50,7 +50,7 @@ func newAddCmd(opts *options.CommonOptions) *cobra.Command {
 				)
 			}
 
-			company, namespace, agentName, agentID, err := parseRoute(routeID)
+			organization, namespace, agentName, agentID, err := parseRoute(routeID)
 			if err != nil {
 				return err
 			}
@@ -61,7 +61,7 @@ func newAddCmd(opts *options.CommonOptions) *cobra.Command {
 			}
 
 			route := &grpcapi.Route{
-				Company:      company,
+				Organization: organization,
 				Namespace:    namespace,
 				AgentName:    agentName,
 				ConnectionId: connID,
@@ -103,7 +103,7 @@ func newDelCmd(opts *options.CommonOptions) *cobra.Command {
 				)
 			}
 
-			company, namespace, agentName, agentID, err := parseRoute(routeID)
+			organization, namespace, agentName, agentID, err := parseRoute(routeID)
 			if err != nil {
 				return err
 			}
@@ -114,7 +114,7 @@ func newDelCmd(opts *options.CommonOptions) *cobra.Command {
 			}
 
 			route := &grpcapi.Route{
-				Company:      company,
+				Organization: organization,
 				Namespace:    namespace,
 				AgentName:    agentName,
 				ConnectionId: connID,
@@ -139,7 +139,7 @@ func newDelCmd(opts *options.CommonOptions) *cobra.Command {
 }
 
 func parseRoute(route string) (
-	company,
+	organization,
 	namespace,
 	agentName string,
 	agentID uint64,
@@ -149,7 +149,7 @@ func parseRoute(route string) (
 
 	if len(parts) != 4 {
 		err = fmt.Errorf(
-			"invalid route format '%s', expected 'company/namespace/agentname/agentid'",
+			"invalid route format '%s', expected 'organization/namespace/agentname/agentid'",
 			route,
 		)
 		return
@@ -157,13 +157,13 @@ func parseRoute(route string) (
 
 	if parts[0] == "" || parts[1] == "" || parts[2] == "" || parts[3] == "" {
 		err = fmt.Errorf(
-			"invalid route format '%s', expected 'company/namespace/agentname/agentid'",
+			"invalid route format '%s', expected 'organization/namespace/agentname/agentid'",
 			route,
 		)
 		return
 	}
 
-	company = parts[0]
+	organization = parts[0]
 	namespace = parts[1]
 	agentName = parts[2]
 

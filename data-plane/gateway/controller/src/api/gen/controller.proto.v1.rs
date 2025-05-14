@@ -28,7 +28,7 @@ pub struct Connection {
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct Route {
     #[prost(string, tag = "1")]
-    pub company: ::prost::alloc::string::String,
+    pub organization: ::prost::alloc::string::String,
     #[prost(string, tag = "2")]
     pub namespace: ::prost::alloc::string::String,
     #[prost(string, tag = "3")]

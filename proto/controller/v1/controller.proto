@@ -28,7 +28,7 @@ message Connection {
 }
 
 message Route {
-  string company = 1;
+  string organization = 1;
   string namespace = 2;
   string agent_name = 3;
   google.protobuf.UInt64Value agent_id = 4;
