@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.3](https://github.com/agntcy/agp/compare/agp-mcp-v0.1.2...agp-mcp-v0.1.3) (2025-05-14)
+
+
+### Bug Fixes
+
+* **agp-mcp:** use fix version of mcp dependency ([#258](https://github.com/agntcy/agp/issues/258)) ([eeb5f71](https://github.com/agntcy/agp/commit/eeb5f71f17597ef9b21114b6d079980b499d7aed))
+
 ## [0.1.2](https://github.com/agntcy/agp/compare/agp-mcp-v0.1.1...agp-mcp-v0.1.2) (2025-05-14)
 
 
