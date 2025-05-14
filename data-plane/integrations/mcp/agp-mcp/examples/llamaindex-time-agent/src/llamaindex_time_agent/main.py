@@ -73,6 +73,20 @@ async def amain(
             await mcp_session.close()
 
 
+class DictParamType(click.ParamType):
+    name = "dict"
+
+    def convert(self, value, param, ctx):
+        import json
+
+        if isinstance(value, dict):
+            return value  # Already a dict (for default value)
+        try:
+            return json.loads(value)
+        except json.JSONDecodeError:
+            self.fail(f"{value} is not valid JSON", param, ctx)
+
+
 @click.command(context_settings={"auto_envvar_prefix": "TIME_AGENT"})
 @click.option("--llm-type", default="azure")
 @click.option("--llm-endpoint", default=None)
@@ -89,7 +103,7 @@ async def amain(
             "insecure": True,
         },
     },
-    type=dict,
+    type=DictParamType(),
 )
 def main(
     llm_type,

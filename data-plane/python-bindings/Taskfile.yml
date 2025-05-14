@@ -87,8 +87,6 @@ tasks:
               -i                              \
               ${PYTHONS[@]}
 
-            uv run maturin sdist --out dist
-
   python-bindings:example:server:
     desc: "Run the server example"
     env:

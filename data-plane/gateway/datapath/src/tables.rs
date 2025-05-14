@@ -15,6 +15,10 @@ use crate::messages::AgentType;
 use errors::SubscriptionTableError;
 
 pub trait SubscriptionTable {
+    fn for_each<F>(&self, f: F)
+    where
+        F: FnMut(&AgentType, u64, &[u64], &[u64]);
+
     fn add_subscription(
         &self,
         agent_type: AgentType,

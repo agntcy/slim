@@ -511,6 +511,19 @@ fn remove_subscription_from_connection(
 }
 
 impl SubscriptionTable for SubscriptionTableImpl {
+    fn for_each<F>(&self, mut f: F)
+    where
+        F: FnMut(&AgentType, u64, &[u64], &[u64]),
+    {
+        let table = self.table.read();
+
+        for (k, v) in table.iter() {
+            for (id, conn) in v.ids.iter() {
+                f(k, *id, conn[0].as_ref(), conn[1].as_ref());
+            }
+        }
+    }
+
     fn add_subscription(
         &self,
         agent_type: AgentType,
@@ -775,7 +788,7 @@ mod tests {
             Ok(())
         );
 
-        // run multiple times for randomenes
+        // run multiple times for randomness
         for _ in 0..20 {
             let out = t.match_one(agent_type2.clone(), Some(2), 100).unwrap();
             if out != 3 && out != 4 {
@@ -839,5 +852,46 @@ mod tests {
             t.remove_subscription(agent_type2.clone(), None, 2, false),
             Err(SubscriptionTableError::AgentIdNotFound)
         );
+    }
+
+    #[test]
+    fn test_iter() {
+        let agent_type1 = AgentType::from_strings("Org", "Default", "type_ONE");
+        let agent_type2 = AgentType::from_strings("Org", "Default", "type_TWO");
+
+        let t = SubscriptionTableImpl::default();
+
+        assert_eq!(
+            t.add_subscription(agent_type1.clone(), None, 1, false),
+            Ok(())
+        );
+        assert_eq!(
+            t.add_subscription(agent_type1.clone(), None, 2, false),
+            Ok(())
+        );
+        assert_eq!(
+            t.add_subscription(agent_type2.clone(), None, 3, true),
+            Ok(())
+        );
+
+        let mut h = HashMap::new();
+
+        t.for_each(|k, id, local, remote| {
+            println!(
+                "key: {}, id: {}, local: {:?}, remote: {:?}",
+                k, id, local, remote
+            );
+
+            h.insert(k.clone(), (id, local.to_vec(), remote.to_vec()));
+        });
+
+        assert_eq!(h.len(), 2);
+        assert_eq!(h[&agent_type1].0, DEFAULT_AGENT_ID);
+        assert_eq!(h[&agent_type1].1, vec![]);
+        assert_eq!(h[&agent_type1].2, vec![1, 2]);
+
+        assert_eq!(h[&agent_type2].0, DEFAULT_AGENT_ID);
+        assert_eq!(h[&agent_type2].1, vec![3]);
+        assert_eq!(h[&agent_type2].2, vec![]);
     }
 }

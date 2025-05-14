@@ -13,9 +13,6 @@ fn main() {
 
     tonic_build::configure()
         .out_dir("src/api/gen")
-        .compile_protos(
-            &["../../../proto/controller/v1/controller.proto"],
-            &["../../../proto"],
-        )
+        .compile_protos(&["proto/v1/controller.proto"], &["proto/v1"])
         .unwrap();
 }

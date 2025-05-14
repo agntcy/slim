@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.2](https://github.com/agntcy/agp/compare/agp-service-v0.4.1...agp-service-v0.4.2) - 2025-05-14
+
+### Other
+
+- updated the following local packages: agp-controller
+
+## [0.4.1](https://github.com/agntcy/agp/compare/agp-service-v0.4.0...agp-service-v0.4.1) - 2025-05-14
+
+### Added
+
+- improve tracing in agp ([#237](https://github.com/agntcy/agp/pull/237))
+- implement control API ([#147](https://github.com/agntcy/agp/pull/147))
+
+### Fixed
+
+- shut down controller server properly ([#202](https://github.com/agntcy/agp/pull/202))
+- *(python-bindings)* test failure ([#194](https://github.com/agntcy/agp/pull/194))
+
 ## [0.4.0](https://github.com/agntcy/agp/compare/agp-service-v0.3.0...agp-service-v0.4.0) - 2025-04-24
 
 ### Added
