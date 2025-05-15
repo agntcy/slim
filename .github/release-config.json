@@ -20,6 +20,14 @@
         "control-plane/agpctl": {
             "package-name": "agpctl",
             "release-type": "go"
+        },
+        "data-plane/integrations/mcp/agp-mcp/examples/llamaindex-time-agent": {
+            "package-name": "agp-llamaindex-time-agent",
+            "release-type": "simple"
+        },
+        "data-plane/integrations/mcp/agp-mcp/examples/mcp-server-time": {
+            "package-name": "agp-mcp-server-time",
+            "release-type": "simple"
         }
     }
 }
