@@ -17,7 +17,7 @@ pub struct Forwarder<T>
 where
     T: Default + Clone,
 {
-    subscription_table: SubscriptionTableImpl,
+    pub subscription_table: SubscriptionTableImpl,
     remote_subscription_table: RemoteSubscriptions,
     connection_table: ConnectionTable<T>,
 }

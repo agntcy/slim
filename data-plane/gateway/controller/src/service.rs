@@ -14,7 +14,8 @@ use tonic::{Request, Response, Status};
 use tracing::{debug, error, info};
 
 use crate::api::proto::api::v1::{
-    Ack, ControlMessage, controller_service_client::ControllerServiceClient,
+    Ack, ControlMessage, SubscriptionEntry, SubscriptionListRequest,
+    controller_service_client::ControllerServiceClient,
     controller_service_server::ControllerService as GrpcControllerService,
 };
 use crate::errors::ControllerError;
@@ -24,6 +25,7 @@ use agp_datapath::message_processing::MessageProcessor;
 use agp_datapath::messages::utils::AgpHeaderFlags;
 use agp_datapath::messages::{Agent, AgentType};
 use agp_datapath::pubsub::proto::pubsub::v1::Message as PubsubMessage;
+use agp_datapath::tables::SubscriptionTable;
 
 #[derive(Debug, Clone)]
 pub struct ControllerService {
@@ -218,7 +220,7 @@ impl ControllerService {
         })
     }
 
-    async fn process_stream(
+    async fn process_control_message_stream(
         &self,
         cancellation_token: CancellationToken,
         mut stream: impl Stream<Item = Result<ControlMessage, Status>> + Unpin + Send + 'static,
@@ -262,6 +264,58 @@ impl ControllerService {
         })
     }
 
+    fn process_list_subscription_stream(
+        &self,
+        cancellation_token: CancellationToken,
+        mut stream: impl Stream<Item = Result<SubscriptionListRequest, Status>> + Unpin + Send + 'static,
+        tx: mpsc::Sender<Result<SubscriptionEntry, Status>>,
+    ) -> tokio::task::JoinHandle<()> {
+        let svc = self.clone();
+
+        tokio::spawn(async move {
+            // wait for SubscriptionListRequest
+            tokio::select! {
+                biased;
+
+                _ = cancellation_token.cancelled() => {
+                    return;
+                }
+
+                msg = stream.next() => {
+                    match msg {
+                        Some(Ok(_)) => { }
+                        Some(Err(e)) => {
+                            let _ = tx.send(Err(Status::invalid_argument(
+                                format!("invalid SubscriptionListRequest: {}", e),
+                            ))).await;
+                            return;
+                        }
+                        None => {
+                            return;
+                        }
+                    }
+                }
+            }
+
+            svc.message_processor.subscription_table().for_each(
+                |agent_type, agent_id, local, remote| {
+                    let entry = SubscriptionEntry {
+                        company: agent_type.organization().to_string(),
+                        namespace: agent_type.namespace().to_string(),
+                        agent_name: agent_type.agent_type().to_string(),
+                        agent_id: Some(agent_id),
+                        local_connection_ids: local.to_vec(),
+                        remote_connection_ids: remote.to_vec(),
+                    };
+
+                    if tx.blocking_send(Ok(entry)).is_err() {
+                        //TODO
+                    }
+                },
+            );
+        })
+    }
+
     pub async fn connect<C>(
         &self,
         channel: C,
@@ -284,7 +338,11 @@ impl ControllerService {
             match client.open_control_channel(Request::new(out_stream)).await {
                 Ok(stream) => {
                     let ret = self
-                        .process_stream(CancellationToken::new(), stream.into_inner(), tx)
+                        .process_control_message_stream(
+                            CancellationToken::new(),
+                            stream.into_inner(),
+                            tx,
+                        )
                         .await;
                     return Ok(ret);
                 }
@@ -331,6 +389,9 @@ impl GrpcControllerService for ControllerService {
     type OpenControlChannelStream =
         Pin<Box<dyn Stream<Item = Result<ControlMessage, Status>> + Send + 'static>>;
 
+    type ListSubscriptionsStream =
+        Pin<Box<dyn Stream<Item = Result<SubscriptionEntry, Status>> + Send + 'static>>;
+
     async fn open_control_channel(
         &self,
         request: Request<tonic::Streaming<ControlMessage>>,
@@ -338,12 +399,28 @@ impl GrpcControllerService for ControllerService {
         let stream = request.into_inner();
         let (tx, rx) = mpsc::channel::<Result<ControlMessage, Status>>(128);
 
-        self.process_stream(CancellationToken::new(), stream, tx.clone())
+        self.process_control_message_stream(CancellationToken::new(), stream, tx.clone())
             .await;
 
         let out_stream = ReceiverStream::new(rx);
         Ok(Response::new(
             Box::pin(out_stream) as Self::OpenControlChannelStream
+        ))
+    }
+
+    async fn list_subscriptions(
+        &self,
+        request: Request<tonic::Streaming<SubscriptionListRequest>>,
+    ) -> Result<Response<Self::ListSubscriptionsStream>, Status> {
+        let stream = request.into_inner();
+        let (tx, rx) = mpsc::channel::<Result<SubscriptionEntry, Status>>(128);
+
+        self.process_list_subscription_stream(CancellationToken::new(), stream, tx.clone())
+            .await;
+
+        let out_stream = ReceiverStream::new(rx);
+        Ok(Response::new(
+            Box::pin(out_stream) as Self::ListSubscriptionsStream
         ))
     }
 }
