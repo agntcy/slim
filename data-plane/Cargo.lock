@@ -68,7 +68,7 @@ dependencies = [
 
 [[package]]
 name = "agp-controller"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "agp-config",
  "agp-datapath",
@@ -130,7 +130,7 @@ dependencies = [
 
 [[package]]
 name = "agp-gw"
-version = "0.3.13"
+version = "0.3.15"
 dependencies = [
  "agp-config",
  "agp-service",
@@ -160,7 +160,7 @@ dependencies = [
 
 [[package]]
 name = "agp-service"
-version = "0.4.1"
+version = "0.4.2"
 dependencies = [
  "agp-config",
  "agp-controller",

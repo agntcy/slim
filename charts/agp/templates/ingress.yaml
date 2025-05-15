@@ -1,24 +1,24 @@
 # Copyright AGNTCY Contributors (https://github.com/agntcy)
 # SPDX-License-Identifier: Apache-2.0
 
-{{- if .Values.ingress.enabled -}}
+{{- if .Values.gw.ingress.enabled -}}
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
   name: {{ include "agp.fullname" . }}
   labels:
     {{- include "agp.labels" . | nindent 4 }}
-  {{- with .Values.ingress.annotations }}
+  {{- with .Values.gw.ingress.annotations }}
   annotations:
     {{- toYaml . | nindent 4 }}
   {{- end }}
 spec:
-  {{- with .Values.ingress.className }}
+  {{- with .Values.gw.ingress.className }}
   ingressClassName: {{ . }}
   {{- end }}
-  {{- if .Values.ingress.tls }}
+  {{- if .Values.gw.ingress.tls }}
   tls:
-    {{- range .Values.ingress.tls }}
+    {{- range .Values.gw.ingress.tls }}
     - hosts:
         {{- range .hosts }}
         - {{ . | quote }}
@@ -27,7 +27,7 @@ spec:
     {{- end }}
   {{- end }}
   rules:
-    {{- range .Values.ingress.hosts }}
+    {{- range .Values.gw.ingress.hosts }}
     - host: {{ .host | quote }}
       http:
         paths:
@@ -40,7 +40,7 @@ spec:
               service:
                 name: {{ include "agp.fullname" $ }}
                 port:
-                  number: {{ $.Values.service.port }}
+                  number: {{ $.Values.gw.service.port }}
           {{- end }}
     {{- end }}
 {{- end }}

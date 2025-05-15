@@ -24,6 +24,13 @@ If release name contains chart name it will be used as a full name.
 {{- end }}
 
 {{/*
+MCP proxy name
+*/}}
+{{- define "agp.mcpProxyName" -}}
+{{ include "agp.fullname" . }}-mcp-proxy
+{{- end }}
+
+{{/*
 Create chart name and version as used by the chart label.
 */}}
 {{- define "agp.chart" -}}
@@ -47,6 +54,26 @@ Selector labels
 */}}
 {{- define "agp.selectorLabels" -}}
 app.kubernetes.io/name: {{ include "agp.name" . }}
+app.kubernetes.io/instance: {{ .Release.Name }}
+{{- end }}
+
+{{/*
+MCP proxy labels
+*/}}
+{{- define "agp.mcpProxyLabels" -}}
+helm.sh/chart: {{ include "agp.chart" . }}
+{{ include "agp.mcpProxySelectorLabels" . }}
+{{- if .Chart.AppVersion }}
+app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
+{{- end }}
+app.kubernetes.io/managed-by: {{ .Release.Service }}
+{{- end }}
+
+{{/*
+Selector labels for MCP proxy
+*/}}
+{{- define "agp.mcpProxySelectorLabels" -}}
+app.kubernetes.io/name: {{ include "agp.mcpProxyName" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
 
