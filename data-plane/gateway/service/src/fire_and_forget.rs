@@ -15,9 +15,9 @@ use crate::session::{
     AppChannelSender, Common, CommonSession, GwChannelSender, Id, MessageDirection, Session,
     SessionConfig, SessionConfigTrait, SessionDirection, SessionMessage, State,
 };
+use crate::timer;
 use agp_datapath::messages::encoder::Agent;
 use agp_datapath::pubsub::proto::pubsub::v1::{Message, SessionHeaderType};
-use crate::timer;
 
 /// Configuration for the Fire and Forget session
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -65,10 +65,15 @@ impl timer::TimerObserver for FireAndForgetInternal {
         let msg;
         {
             let lock = self.timers.read();
-            let(_timer, message) = lock.get(&message_id).expect("timer not found");
+            let (_timer, message) = lock.get(&message_id).expect("timer not found");
             msg = message.message.clone();
         }
-        let _ = self.common.tx_gw_ref().send(Ok(msg)).await.map_err(|e| SessionError::AppTransmission(e.to_string()));
+        let _ = self
+            .common
+            .tx_gw_ref()
+            .send(Ok(msg))
+            .await
+            .map_err(|e| SessionError::AppTransmission(e.to_string()));
     }
 
     async fn on_failure(&self, message_id: u32, _timeouts: u32) {
@@ -96,7 +101,7 @@ impl timer::TimerObserver for FireAndForgetInternal {
     }
 }
 
-pub(crate) struct FireAndForget{
+pub(crate) struct FireAndForget {
     internal: Arc<FireAndForgetInternal>,
 }
 
@@ -120,7 +125,7 @@ impl FireAndForget {
             ),
             timers: RwLock::new(HashMap::new()),
         };
-        
+
         FireAndForget {
             internal: Arc::new(internal),
         }
@@ -144,7 +149,7 @@ impl FireAndForget {
                 ));
             }
         };
-        
+
         // create timer if needed
         if session_config.timeout.is_some() {
             header.header_type = i32::from(SessionHeaderType::FnfReliable);
@@ -158,7 +163,7 @@ impl FireAndForget {
                 session_config.max_retry,
             );
 
-             // start timer
+            // start timer
             timer.start(self.internal.clone());
 
             // store timer and message
@@ -205,11 +210,11 @@ impl FireAndForget {
                 let agp_header = Some(AgpHeader::new(
                     self.internal.common.source(),
                     &dst_type,
-                    dst_id, 
+                    dst_id,
                     None,
                 ));
 
-                let session_header =  Some(SessionHeader::new(
+                let session_header = Some(SessionHeader::new(
                     SessionHeaderType::FnfAck.into(),
                     message.info.id,
                     message_id,
@@ -231,7 +236,7 @@ impl FireAndForget {
                     .tx_app_ref()
                     .send(Ok(message))
                     .await
-                    .map_err(|e| SessionError::GatewayTransmission(e.to_string()))?; 
+                    .map_err(|e| SessionError::GatewayTransmission(e.to_string()))?;
             }
             SessionHeaderType::FnfAck => {
                 // remove the timer and drop the message
@@ -259,24 +264,19 @@ impl FireAndForget {
         // we are good
         Ok(())
     }
-
 }
 
 #[async_trait]
 impl Session for FireAndForget {
     async fn on_message(
         &self,
-        mut message: SessionMessage,
+        message: SessionMessage,
         direction: MessageDirection,
     ) -> Result<(), SessionError> {
         // clone tx
         match direction {
-            MessageDirection::North => {
-                self.send_message_to_app(message).await
-            }
-            MessageDirection::South => {
-                self.send_message_to_gw(message).await
-            }
+            MessageDirection::North => self.send_message_to_app(message).await,
+            MessageDirection::South => self.send_message_to_gw(message).await,
         }
     }
 }
@@ -378,7 +378,7 @@ mod tests {
             source,
             tx_gw,
             tx_app,
-        );  
+        );
 
         let mut message = ProtoMessage::new_publish(
             &Agent::from_strings("cisco", "default", "local_agent", 0),
@@ -421,6 +421,63 @@ mod tests {
         let header = msg.get_session_header();
         assert_eq!(header.header_type, SessionHeaderType::FnfAck.into());
         assert_eq!(header.get_message_id(), 12345);
+    }
+
+    #[tokio::test]
+    async fn test_fire_and_forget_timers() {
+        let (tx_gw, mut rx_gw) = tokio::sync::mpsc::channel(1);
+        let (tx_app, mut rx_app) = tokio::sync::mpsc::channel(1);
+
+        let source = Agent::from_strings("cisco", "default", "local_agent", 0);
+
+        let session = FireAndForget::new(
+            0,
+            FireAndForgetConfiguration {
+                timeout: Some(Duration::from_millis(500)),
+                max_retry: Some(5),
+            },
+            SessionDirection::Bidirectional,
+            source,
+            tx_gw,
+            tx_app,
+        );
+
+        let mut message = ProtoMessage::new_publish(
+            &Agent::from_strings("cisco", "default", "local_agent", 0),
+            &AgentType::from_strings("cisco", "default", "remote_agent"),
+            Some(0),
+            None,
+            "msg",
+            vec![0x1, 0x2, 0x3, 0x4],
+        );
+
+        // set the session id in the message
+        let header = message.get_session_header_mut();
+        header.session_id = 0;
+        header.header_type = i32::from(SessionHeaderType::FnfReliable);
+
+        let res = session
+            .on_message(
+                SessionMessage::from(message.clone()),
+                MessageDirection::South,
+            )
+            .await;
+        assert!(res.is_ok());
+
+        for _i in 0..6 {
+            let mut msg = rx_gw
+                .recv()
+                .await
+                .expect("no message received")
+                .expect("error");
+            // msg must be the same as message, except for the rundom message_id
+            let header = msg.get_session_header_mut();
+            header.message_id = 0;
+            assert_eq!(msg, message);
+        }
+
+        let msg = rx_app.recv().await.expect("no message received");
+        assert!(msg.is_err());
     }
 
     #[tokio::test]
