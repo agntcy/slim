@@ -22,6 +22,7 @@ tls:
 
 ## Commands
 
+* `agpctl route list` List routes on a gateway.
 * `agpctl route add <organization/namespace/agentName/agentId> via <host:port>` Add a route to the gateway.
 * `agpctl route del <organization/namespace/agentName/agentId> via <host:port>` Delete a route from the gateway.
 * `agpctl version` Print version information.

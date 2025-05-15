@@ -10,6 +10,7 @@ option go_package = "github.com/agntcy/agp/control-plane/internal/proto/controll
 
 service ControllerService {
   rpc OpenControlChannel(stream ControlMessage) returns (stream ControlMessage) {}
+  rpc ListSubscriptions(stream SubscriptionListRequest) returns (stream SubscriptionEntry) {}
 }
 
 message ControlMessage {
@@ -45,4 +46,16 @@ message Ack {
   string original_message_id = 1;
   bool success = 2;
   repeated string messages = 3;
+}
+
+message SubscriptionListRequest {
+}
+
+message SubscriptionEntry {
+  string company = 1;
+  string namespace = 2;
+  string agent_name = 3;
+  google.protobuf.UInt64Value agent_id = 4;
+  repeated uint64 local_connection_ids  = 5;
+  repeated uint64 remote_connection_ids = 6;
 }

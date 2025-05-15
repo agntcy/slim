@@ -26,9 +26,50 @@ func NewRouteCmd(opts *options.CommonOptions) *cobra.Command {
 		Long:  `Manage gateway routes`,
 	}
 
+	cmd.AddCommand(newListCmd(opts))
 	cmd.AddCommand(newAddCmd(opts))
 	cmd.AddCommand(newDelCmd(opts))
 
+	return cmd
+}
+
+func newListCmd(opts *options.CommonOptions) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "list",
+		Short: "List routes",
+		Long:  `List routes`,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			stream, err := controller.ListSubscriptions(cmd.Context(), opts)
+			if err != nil {
+				return fmt.Errorf("failed to list subscriptions: %w", err)
+			}
+
+			if err := stream.Send(&grpcapi.SubscriptionListRequest{}); err != nil {
+				return fmt.Errorf("failed to send list request: %w", err)
+			}
+
+			if err := stream.CloseSend(); err != nil {
+				return fmt.Errorf("close send failed: %w", err)
+			}
+
+			for {
+				entry, err := stream.Recv()
+				if err != nil {
+					break
+				}
+				fmt.Printf("%s/%s/%s id=%d local=%v remote=%v\n",
+					entry.Company,
+					entry.Namespace,
+					entry.AgentName,
+					entry.AgentId.GetValue(),
+					entry.LocalConnectionIds,
+					entry.RemoteConnectionIds,
+				)
+			}
+
+			return nil
+		},
+	}
 	return cmd
 }
 

@@ -23,6 +23,7 @@ const _ = grpc.SupportPackageIsVersion8
 
 const (
 	ControllerService_OpenControlChannel_FullMethodName = "/controller.proto.v1.ControllerService/OpenControlChannel"
+	ControllerService_ListSubscriptions_FullMethodName  = "/controller.proto.v1.ControllerService/ListSubscriptions"
 )
 
 // ControllerServiceClient is the client API for ControllerService service.
@@ -30,6 +31,7 @@ const (
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type ControllerServiceClient interface {
 	OpenControlChannel(ctx context.Context, opts ...grpc.CallOption) (ControllerService_OpenControlChannelClient, error)
+	ListSubscriptions(ctx context.Context, opts ...grpc.CallOption) (ControllerService_ListSubscriptionsClient, error)
 }
 
 type controllerServiceClient struct {
@@ -72,11 +74,44 @@ func (x *controllerServiceOpenControlChannelClient) Recv() (*ControlMessage, err
 	return m, nil
 }
 
+func (c *controllerServiceClient) ListSubscriptions(ctx context.Context, opts ...grpc.CallOption) (ControllerService_ListSubscriptionsClient, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	stream, err := c.cc.NewStream(ctx, &ControllerService_ServiceDesc.Streams[1], ControllerService_ListSubscriptions_FullMethodName, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &controllerServiceListSubscriptionsClient{ClientStream: stream}
+	return x, nil
+}
+
+type ControllerService_ListSubscriptionsClient interface {
+	Send(*SubscriptionListRequest) error
+	Recv() (*SubscriptionEntry, error)
+	grpc.ClientStream
+}
+
+type controllerServiceListSubscriptionsClient struct {
+	grpc.ClientStream
+}
+
+func (x *controllerServiceListSubscriptionsClient) Send(m *SubscriptionListRequest) error {
+	return x.ClientStream.SendMsg(m)
+}
+
+func (x *controllerServiceListSubscriptionsClient) Recv() (*SubscriptionEntry, error) {
+	m := new(SubscriptionEntry)
+	if err := x.ClientStream.RecvMsg(m); err != nil {
+		return nil, err
+	}
+	return m, nil
+}
+
 // ControllerServiceServer is the server API for ControllerService service.
 // All implementations must embed UnimplementedControllerServiceServer
 // for forward compatibility
 type ControllerServiceServer interface {
 	OpenControlChannel(ControllerService_OpenControlChannelServer) error
+	ListSubscriptions(ControllerService_ListSubscriptionsServer) error
 	mustEmbedUnimplementedControllerServiceServer()
 }
 
@@ -86,6 +121,9 @@ type UnimplementedControllerServiceServer struct {
 
 func (UnimplementedControllerServiceServer) OpenControlChannel(ControllerService_OpenControlChannelServer) error {
 	return status.Errorf(codes.Unimplemented, "method OpenControlChannel not implemented")
+}
+func (UnimplementedControllerServiceServer) ListSubscriptions(ControllerService_ListSubscriptionsServer) error {
+	return status.Errorf(codes.Unimplemented, "method ListSubscriptions not implemented")
 }
 func (UnimplementedControllerServiceServer) mustEmbedUnimplementedControllerServiceServer() {}
 
@@ -126,6 +164,32 @@ func (x *controllerServiceOpenControlChannelServer) Recv() (*ControlMessage, err
 	return m, nil
 }
 
+func _ControllerService_ListSubscriptions_Handler(srv interface{}, stream grpc.ServerStream) error {
+	return srv.(ControllerServiceServer).ListSubscriptions(&controllerServiceListSubscriptionsServer{ServerStream: stream})
+}
+
+type ControllerService_ListSubscriptionsServer interface {
+	Send(*SubscriptionEntry) error
+	Recv() (*SubscriptionListRequest, error)
+	grpc.ServerStream
+}
+
+type controllerServiceListSubscriptionsServer struct {
+	grpc.ServerStream
+}
+
+func (x *controllerServiceListSubscriptionsServer) Send(m *SubscriptionEntry) error {
+	return x.ServerStream.SendMsg(m)
+}
+
+func (x *controllerServiceListSubscriptionsServer) Recv() (*SubscriptionListRequest, error) {
+	m := new(SubscriptionListRequest)
+	if err := x.ServerStream.RecvMsg(m); err != nil {
+		return nil, err
+	}
+	return m, nil
+}
+
 // ControllerService_ServiceDesc is the grpc.ServiceDesc for ControllerService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -137,6 +201,12 @@ var ControllerService_ServiceDesc = grpc.ServiceDesc{
 		{
 			StreamName:    "OpenControlChannel",
 			Handler:       _ControllerService_OpenControlChannel_Handler,
+			ServerStreams: true,
+			ClientStreams: true,
+		},
+		{
+			StreamName:    "ListSubscriptions",
+			Handler:       _ControllerService_ListSubscriptions_Handler,
 			ServerStreams: true,
 			ClientStreams: true,
 		},
