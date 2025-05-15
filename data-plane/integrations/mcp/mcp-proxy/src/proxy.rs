@@ -28,7 +28,7 @@ use std::{
     sync::Arc,
     time::Duration,
 };
-use tokio::sync::mpsc;
+use tokio::{sync::mpsc, time};
 use tracing::{debug, error, info, trace};
 
 use async_trait::async_trait;
@@ -290,7 +290,7 @@ impl Proxy {
 
     pub async fn start(&mut self) {
         // create service from config
-        let svc = self.config.services.get_mut(&self.svc_id).unwrap();
+        let mut svc = self.config.services.remove(&self.svc_id).unwrap();
 
         let mut gw_rx = svc
             .create_agent(&self.name)
@@ -458,6 +458,17 @@ impl Proxy {
                     break;
                 }
             }
+        }
+
+        info!("shutting down proxy server");
+        self.connections.clear();
+
+        // consume the service and get the drain signal
+        let signal = svc.signal();
+
+        match time::timeout(self.config.runtime.drain_timeout(), signal.drain()).await {
+            Ok(()) => {}
+            Err(_) => panic!("timeout waiting for drain for service"),
         }
     }
 }

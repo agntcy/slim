@@ -62,7 +62,6 @@ jobs:
       - name: Run chart-testing (lint & test)
         run: |
           args=(
-            --upgrade
             --debug
             --target-branch=${{ github.event_name == 'pull_request' && github.base_ref || github.ref_name }}
             --chart-dirs ${{ inputs.chart-path }}

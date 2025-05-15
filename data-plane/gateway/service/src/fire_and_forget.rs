@@ -145,7 +145,6 @@ impl FireAndForget {
             }
         };
         
-
         // create timer if needed
         if session_config.timeout.is_some() {
             header.header_type = i32::from(SessionHeaderType::FnfReliable);
@@ -187,9 +186,6 @@ impl FireAndForget {
         &self,
         message: SessionMessage,
     ) -> Result<(), SessionError> {
-        // ACK -> spegni il timer se c'è
-        // FNFRELIABLE -> manda ack e manda sopra
-        // FNF -> manda sopra
         let message_id = message.info.message_id.expect("message id not found");
 
         match message.message.get_header_type() {
@@ -276,27 +272,9 @@ impl Session for FireAndForget {
         // clone tx
         match direction {
             MessageDirection::North => {
-                let header = message.message.get_session_header_mut();
-                // make sure we got a valid fnf message
-                let expected = i32::from(SessionHeaderType::Fnf);
-                if header.header_type != expected {
-                    return Err(SessionError::ValidationError(format!(
-                        "invalid header type: expected {}, got {}",
-                        expected, header.header_type
-                    )));
-                }
-
                 self.send_message_to_app(message).await
             }
             MessageDirection::South => {
-                // set the session type
-                //if session_config.timeout.is_some() {
-                //    header.header_type = i32::from(SessionHeaderType::Fnf);
-                // add a nonce to the message
-                //header.message_id = rand::rng().random();
-                //message.info.set_message_id(session_header.message_id);
-
-
                 self.send_message_to_gw(message).await
             }
         }
@@ -307,6 +285,8 @@ delegate_common_behavior!(FireAndForget, internal, common);
 
 #[cfg(test)]
 mod tests {
+    use std::time::Duration;
+
     use super::*;
     use agp_datapath::{
         messages::{Agent, AgentType},
@@ -382,6 +362,65 @@ mod tests {
             .expect("error");
         assert_eq!(msg.message, message);
         assert_eq!(msg.info.id, 1);
+    }
+
+    #[tokio::test]
+    async fn test_fire_and_forget_on_message_with_ack() {
+        let (tx_gw, mut rx_gw) = tokio::sync::mpsc::channel(1);
+        let (tx_app, mut rx_app) = tokio::sync::mpsc::channel(1);
+
+        let source = Agent::from_strings("cisco", "default", "local_agent", 0);
+
+        let session = FireAndForget::new(
+            0,
+            FireAndForgetConfiguration::default(),
+            SessionDirection::Bidirectional,
+            source,
+            tx_gw,
+            tx_app,
+        );  
+
+        let mut message = ProtoMessage::new_publish(
+            &Agent::from_strings("cisco", "default", "local_agent", 0),
+            &AgentType::from_strings("cisco", "default", "remote_agent"),
+            Some(0),
+            None,
+            "msg",
+            vec![0x1, 0x2, 0x3, 0x4],
+        );
+
+        // set the session id in the message
+        let header = message.get_session_header_mut();
+        header.session_id = 0;
+        header.message_id = 12345;
+        header.header_type = i32::from(SessionHeaderType::FnfReliable);
+
+        let res = session
+            .on_message(
+                SessionMessage::from(message.clone()),
+                MessageDirection::North,
+            )
+            .await;
+        assert!(res.is_ok());
+
+        let msg = rx_app
+            .recv()
+            .await
+            .expect("no message received")
+            .expect("error");
+        assert_eq!(msg.message, message);
+        assert_eq!(msg.info.id, 0);
+        print!("{:?}", message);
+
+        let msg = rx_gw
+            .recv()
+            .await
+            .expect("no message received")
+            .expect("error");
+
+        let header = msg.get_session_header();
+        assert_eq!(header.header_type, SessionHeaderType::FnfAck.into());
+        assert_eq!(header.get_message_id(), 12345);
     }
 
     #[tokio::test]

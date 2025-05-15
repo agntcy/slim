@@ -161,7 +161,7 @@ impl From<PySessionConfiguration> for session::SessionConfig {
     fn from(value: PySessionConfiguration) -> Self {
         match value {
             PySessionConfiguration::FireAndForget {} => {
-                session::SessionConfig::FireAndForget(FireAndForgetConfiguration {})
+                session::SessionConfig::FireAndForget(FireAndForgetConfiguration::default())
             }
             PySessionConfiguration::RequestResponse { timeout } => {
                 session::SessionConfig::RequestResponse(RequestResponseConfiguration { timeout })

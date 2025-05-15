@@ -82,3 +82,25 @@ target "mcp-proxy-debug" {
   ]
   tags = get_tag(target.docker-metadata-action.tags, "${target.mcp-proxy-debug.name}")
 }
+
+target "mcp-server-time" {
+  context = "./data-plane/integrations/mcp/agp-mcp"
+  dockerfile = "./examples/mcp-server-time/Dockerfile"
+  target = "mcp-server-time"
+  inherits = [
+    "_common",
+    "docker-metadata-action",
+  ]
+  tags = get_tag(target.docker-metadata-action.tags, "${target.mcp-server-time.name}")
+}
+
+target "llamaindex-time-agent" {
+  context = "./data-plane/integrations/mcp/agp-mcp"
+  dockerfile = "./examples/llamaindex-time-agent/Dockerfile"
+  target = "llamaindex-time-agent"
+  inherits = [
+    "_common",
+    "docker-metadata-action",
+  ]
+  tags = get_tag(target.docker-metadata-action.tags, "${target.llamaindex-time-agent.name}")
+}

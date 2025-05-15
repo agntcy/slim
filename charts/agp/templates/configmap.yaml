@@ -9,4 +9,4 @@ metadata:
     {{- include "agp.labels" . | nindent 4 }}
 data:
   config.yaml: |
-    {{- .Values.config | toYaml | nindent 4 }}
+    {{- .Values.gw.config | toYaml | nindent 4 }}
