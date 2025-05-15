@@ -424,7 +424,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_fire_and_forget_timers() {
+    async fn test_fire_and_forget_timers_until_error() {
         let (tx_gw, mut rx_gw) = tokio::sync::mpsc::channel(1);
         let (tx_app, mut rx_app) = tokio::sync::mpsc::channel(1);
 
@@ -451,11 +451,6 @@ mod tests {
             vec![0x1, 0x2, 0x3, 0x4],
         );
 
-        // set the session id in the message
-        let header = message.get_session_header_mut();
-        header.session_id = 0;
-        header.header_type = i32::from(SessionHeaderType::FnfReliable);
-
         let res = session
             .on_message(
                 SessionMessage::from(message.clone()),
@@ -463,6 +458,11 @@ mod tests {
             )
             .await;
         assert!(res.is_ok());
+
+        // set the session id in the message for the comparison inside the for loop
+        let header = message.get_session_header_mut();
+        header.session_id = 0;
+        header.header_type = i32::from(SessionHeaderType::FnfReliable);
 
         for _i in 0..6 {
             let mut msg = rx_gw
@@ -478,6 +478,111 @@ mod tests {
 
         let msg = rx_app.recv().await.expect("no message received");
         assert!(msg.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_fire_and_forget_timers_and_ack() {
+        let (tx_gw_sender, mut rx_gw_sender) = tokio::sync::mpsc::channel(1);
+        let (tx_app_sender, _rx_app_sender) = tokio::sync::mpsc::channel(1);
+
+        let (tx_gw_receiver, mut rx_gw_receiver) = tokio::sync::mpsc::channel(1);
+        let (tx_app_receiver, mut rx_app_receiver) = tokio::sync::mpsc::channel(1);
+
+        let session_sender = FireAndForget::new(
+            0,
+            FireAndForgetConfiguration {
+                timeout: Some(Duration::from_millis(500)),
+                max_retry: Some(5),
+            },
+            SessionDirection::Bidirectional,
+            Agent::from_strings("cisco", "default", "local_agent", 0),
+            tx_gw_sender,
+            tx_app_sender,
+        );
+
+        // this can be a standard fnf session
+        let session_recv = FireAndForget::new(
+            0,
+            FireAndForgetConfiguration::default(),
+            SessionDirection::Bidirectional,
+            Agent::from_strings("cisco", "default", "remote_agent", 0),
+            tx_gw_receiver,
+            tx_app_receiver,
+        );
+
+        let mut message = ProtoMessage::new_publish(
+            &Agent::from_strings("cisco", "default", "local_agent", 0),
+            &AgentType::from_strings("cisco", "default", "remote_agent"),
+            Some(0),
+            None,
+            "msg",
+            vec![0x1, 0x2, 0x3, 0x4],
+        );
+
+        // set the session id in the message
+        let header = message.get_session_header_mut();
+        header.session_id = 0;
+        header.header_type = i32::from(SessionHeaderType::FnfReliable);
+
+        let res = session_sender
+            .on_message(
+                SessionMessage::from(message.clone()),
+                MessageDirection::South,
+            )
+            .await;
+        assert!(res.is_ok());
+
+        // get one message and drop it to kick in the timers
+        let mut msg = rx_gw_sender
+            .recv()
+            .await
+            .expect("no message received")
+            .expect("error");
+        // msg must be the same as message, except for the rundom message_id
+        let header = msg.get_session_header_mut();
+        header.message_id = 0;
+        assert_eq!(msg, message);
+
+        // this is the first RTX
+        let msg = rx_gw_sender
+            .recv()
+            .await
+            .expect("no message received")
+            .expect("error");
+
+        // this second message is received by the receiver
+        let res = session_recv
+            .on_message(SessionMessage::from(msg.clone()), MessageDirection::North)
+            .await;
+        assert!(res.is_ok());
+
+        // the message should be delivered to the app
+        let mut msg = rx_app_receiver
+            .recv()
+            .await
+            .expect("no message received")
+            .expect("error");
+        // msg must be the same as message, except for the rundom message_id
+        let header = msg.message.get_session_header_mut();
+        header.message_id = 0;
+        assert_eq!(msg.message, message);
+
+        // the session layer should generate an ack
+        let ack = rx_gw_receiver
+            .recv()
+            .await
+            .expect("no message received")
+            .expect("error");
+        let header = ack.get_session_header();
+        assert_eq!(header.header_type, SessionHeaderType::FnfAck.into());
+
+        // deliver the ack to the sender
+        let res = session_sender
+            .on_message(SessionMessage::from(ack.clone()), MessageDirection::North)
+            .await;
+        assert!(res.is_ok());
+
+        // TODO check that the timer is gone
     }
 
     #[tokio::test]
