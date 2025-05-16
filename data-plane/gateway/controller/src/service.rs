@@ -48,7 +48,7 @@ impl ControllerService {
         }
     }
 
-    async fn handle_new_message(
+    async fn handle_new_control_message(
         &self,
         msg: ControlMessage,
         tx: mpsc::Sender<Result<ControlMessage, Status>>,
@@ -134,7 +134,7 @@ impl ControllerService {
                                 Some(AgpHeaderFlags::default().with_recv_from(conn)),
                             );
 
-                            if let Err(e) = self.send_message(msg).await {
+                            if let Err(e) = self.send_control_message(msg).await {
                                 error!("failed to subscribe: {}", e);
                             }
                         }
@@ -170,7 +170,7 @@ impl ControllerService {
                                 Some(AgpHeaderFlags::default().with_recv_from(conn)),
                             );
 
-                            if let Err(e) = self.send_message(msg).await {
+                            if let Err(e) = self.send_control_message(msg).await {
                                 error!("failed to unsubscribe: {}", e);
                             }
                         }
@@ -208,7 +208,7 @@ impl ControllerService {
         Ok(())
     }
 
-    async fn send_message(&self, msg: PubsubMessage) -> Result<(), ControllerError> {
+    async fn send_control_message(&self, msg: PubsubMessage) -> Result<(), ControllerError> {
         let sender = self.tx_gw.get_or_init(|| {
             let (_, tx_gw, _) = self.message_processor.register_local_connection();
             tx_gw
@@ -235,7 +235,7 @@ impl ControllerService {
                     next = stream.next() => {
                         match next {
                             Some(Ok(msg)) => {
-                                if let Err(e) = svc.handle_new_message(msg, tx.clone()).await {
+                                if let Err(e) = svc.handle_new_control_message(msg, tx.clone()).await {
                                     error!("error processing incoming control message: {:?}", e);
                                 }
                             }
@@ -264,55 +264,70 @@ impl ControllerService {
         })
     }
 
-    fn process_list_subscription_stream(
+    async fn handle_new_subscription_list_request(
+        &self,
+        _: SubscriptionListRequest,
+        tx: mpsc::Sender<Result<SubscriptionEntry, Status>>,
+    ) -> Result<(), ControllerError> {
+        self.message_processor.subscription_table().for_each(
+            |agent_type, agent_id, local, remote| {
+                let entry = SubscriptionEntry {
+                    company: agent_type.organization().to_string(),
+                    namespace: agent_type.namespace().to_string(),
+                    agent_name: agent_type.agent_type().to_string(),
+                    agent_id: Some(agent_id),
+                    local_connection_ids: local.to_vec(),
+                    remote_connection_ids: remote.to_vec(),
+                };
+
+                let _ = tx.try_send(Ok(entry));
+            },
+        );
+
+        Ok(())
+    }
+
+    async fn process_list_subscription_stream(
         &self,
         cancellation_token: CancellationToken,
         mut stream: impl Stream<Item = Result<SubscriptionListRequest, Status>> + Unpin + Send + 'static,
         tx: mpsc::Sender<Result<SubscriptionEntry, Status>>,
     ) -> tokio::task::JoinHandle<()> {
         let svc = self.clone();
+        let token = cancellation_token.clone();
 
         tokio::spawn(async move {
-            // wait for SubscriptionListRequest
-            tokio::select! {
-                biased;
-
-                _ = cancellation_token.cancelled() => {
-                    return;
-                }
-
-                msg = stream.next() => {
-                    match msg {
-                        Some(Ok(_)) => { }
-                        Some(Err(e)) => {
-                            let _ = tx.send(Err(Status::invalid_argument(
-                                format!("invalid SubscriptionListRequest: {}", e),
-                            ))).await;
-                            return;
+            loop {
+                tokio::select! {
+                    next = stream.next() => {
+                        match next {
+                            Some(Ok(msg)) => {
+                                if let Err(e) = svc.handle_new_subscription_list_request(msg, tx.clone()).await {
+                                    error!("error processing incoming subscription list request: {:?}", e);
+                                }
+                            }
+                            Some(Err(e)) => {
+                                if let Some(io_err) = ControllerService::match_for_io_error(&e) {
+                                    if io_err.kind() == std::io::ErrorKind::BrokenPipe {
+                                        info!("connection closed by peer");
+                                    }
+                                } else {
+                                    error!("error receiving subscription list request: {:?}", e);
+                                }
+                                break;
+                            }
+                            None => {
+                                debug!("end of stream");
+                                break;
+                            }
                         }
-                        None => {
-                            return;
-                        }
+                    }
+                    _ = token.cancelled() => {
+                        debug!("shutting down stream on cancellation token");
+                        break;
                     }
                 }
             }
-
-            svc.message_processor.subscription_table().for_each(
-                |agent_type, agent_id, local, remote| {
-                    let entry = SubscriptionEntry {
-                        company: agent_type.organization().to_string(),
-                        namespace: agent_type.namespace().to_string(),
-                        agent_name: agent_type.agent_type().to_string(),
-                        agent_id: Some(agent_id),
-                        local_connection_ids: local.to_vec(),
-                        remote_connection_ids: remote.to_vec(),
-                    };
-
-                    if tx.blocking_send(Ok(entry)).is_err() {
-                        //TODO
-                    }
-                },
-            );
         })
     }
 
