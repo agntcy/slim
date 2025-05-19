@@ -18,7 +18,6 @@ message ControlMessage {
   oneof payload {
     ConfigurationCommand config_command = 2;
     Ack ack = 3;
-
     SubscriptionListRequest  subscription_list_request = 4;
     SubscriptionListResponse subscription_list_response = 5;
   }

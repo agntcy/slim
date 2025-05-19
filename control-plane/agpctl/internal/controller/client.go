@@ -19,8 +19,7 @@ func OpenControlChannel(
 	ctx context.Context,
 	opts *options.CommonOptions,
 ) (grpcapi.ControllerService_OpenControlChannelClient, error) {
-	opCtx, cancel := context.WithTimeout(ctx, opts.Timeout)
-	defer cancel()
+	opCtx, _ := context.WithTimeout(ctx, opts.Timeout)
 
 	var creds credentials.TransportCredentials
 	if opts.TLSInsecure {
