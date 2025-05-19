@@ -324,7 +324,7 @@ impl Proxy {
         let res = svc
             .create_session(
                 &self.name,
-                SessionConfig::FireAndForget(FireAndForgetConfiguration {}),
+                SessionConfig::FireAndForget(FireAndForgetConfiguration::default()),
             )
             .await;
         if res.is_err() {

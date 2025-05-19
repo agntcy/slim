@@ -124,11 +124,13 @@ impl From<agp_service::RequestResponseConfiguration> for PyRequestResponseConfig
 #[derive(Clone, PartialEq)]
 #[pyclass(eq)]
 pub(crate) enum PySessionConfiguration {
-    FireAndForget {},
-    #[pyo3(constructor = (timeout=std::time::Duration::from_millis(1000)))]
-    RequestResponse {
-        timeout: std::time::Duration,
+    #[pyo3(constructor = (timeout=None, max_retries=None))]
+    FireAndForget {
+        timeout: Option<std::time::Duration>,
+        max_retries: Option<u32>,
     },
+    #[pyo3(constructor = (timeout=std::time::Duration::from_millis(1000)))]
+    RequestResponse { timeout: std::time::Duration },
     #[pyo3(constructor = (session_direction, topic=None, max_retries=0, timeout=std::time::Duration::from_millis(1000)))]
     Streaming {
         session_direction: PySessionDirection,
@@ -141,7 +143,12 @@ pub(crate) enum PySessionConfiguration {
 impl From<session::SessionConfig> for PySessionConfiguration {
     fn from(session_config: session::SessionConfig) -> Self {
         match session_config {
-            session::SessionConfig::FireAndForget(_) => PySessionConfiguration::FireAndForget {},
+            session::SessionConfig::FireAndForget(config) => {
+                PySessionConfiguration::FireAndForget {
+                    timeout: config.timeout,
+                    max_retries: config.max_retries,
+                }
+            }
             session::SessionConfig::RequestResponse(config) => {
                 PySessionConfiguration::RequestResponse {
                     timeout: config.timeout,
@@ -160,9 +167,13 @@ impl From<session::SessionConfig> for PySessionConfiguration {
 impl From<PySessionConfiguration> for session::SessionConfig {
     fn from(value: PySessionConfiguration) -> Self {
         match value {
-            PySessionConfiguration::FireAndForget {} => {
-                session::SessionConfig::FireAndForget(FireAndForgetConfiguration {})
-            }
+            PySessionConfiguration::FireAndForget {
+                timeout,
+                max_retries,
+            } => session::SessionConfig::FireAndForget(FireAndForgetConfiguration {
+                timeout,
+                max_retries,
+            }),
             PySessionConfiguration::RequestResponse { timeout } => {
                 session::SessionConfig::RequestResponse(RequestResponseConfiguration { timeout })
             }

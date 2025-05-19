@@ -42,19 +42,23 @@ message Agent {
 enum SessionHeaderType {
   UNSPECIFIED = 0;
   FNF = 1;
-  REQUEST = 2;
-  REPLY = 3;
-  STREAM = 4;
-  PUB_SUB = 5;
-  RTX_REQUEST = 6;
-  RTX_REPLY = 7;
-  BEACON_STREAM = 8;
-  BEACON_PUB_SUB = 9;
+  FNF_RELIABLE = 2;
+  FNF_ACK = 3;
+  REQUEST = 4;
+  REPLY = 5;
+  STREAM = 6;
+  PUB_SUB = 7;
+  RTX_REQUEST = 8;
+  RTX_REPLY = 9;
+  BEACON_STREAM = 10;
+  BEACON_PUB_SUB = 11;
 }
 // Session.session_id is the ID of the session
 
 // Session.message_id meaning according to the SessionHeaderType
 // FNF = nonce
+// FNF_RELIABLE = nonce
+// FNF_ACK = nonce of the received FNF_RELIABLE message
 // REQUEST = nonce
 // REPLY = nonce of the associated REQUEST
 // STREAM = sequential incremental ID
