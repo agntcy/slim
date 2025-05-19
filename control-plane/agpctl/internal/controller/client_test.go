@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/test/bufconn"
@@ -48,47 +49,49 @@ func (s *fakeServer) OpenControlChannel(
 	stream grpcapi.ControllerService_OpenControlChannelServer,
 ) error {
 	msg, err := stream.Recv()
-	if err == io.EOF { //nolint:errorlint
-		return nil
-	}
 	if err != nil {
 		return err
 	}
-
-	return stream.Send(&grpcapi.ControlMessage{
-		MessageId: "ack-for-" + msg.MessageId,
-		Payload: &grpcapi.ControlMessage_Ack{Ack: &grpcapi.Ack{
-			OriginalMessageId: msg.MessageId,
-			Success:           true,
-		}},
-	})
-}
-
-func (s *fakeServer) ListSubscriptions(
-	stream grpcapi.ControllerService_ListSubscriptionsServer,
-) error {
-	_, _ = stream.Recv()
-
-	entries := []*grpcapi.SubscriptionEntry{
-		{
-			Company:             "org1",
-			Namespace:           "ns1",
-			AgentName:           "alice",
-			AgentId:             &wrapperspb.UInt64Value{Value: 42},
-			LocalConnectionIds:  []uint64{1},
-			RemoteConnectionIds: []uint64{2},
-		},
-		{
-			Company:             "org2",
-			Namespace:           "ns2",
-			AgentName:           "bob",
-			AgentId:             &wrapperspb.UInt64Value{Value: 7},
-			LocalConnectionIds:  []uint64{},
-			RemoteConnectionIds: []uint64{3},
-		},
-	}
-	for _, e := range entries {
-		if err := stream.Send(e); err != nil {
+	switch msg.Payload.(type) {
+	case *grpcapi.ControlMessage_ConfigCommand:
+		reply := &grpcapi.ControlMessage{
+			MessageId: "ack-for-" + msg.MessageId,
+			Payload: &grpcapi.ControlMessage_Ack{Ack: &grpcapi.Ack{
+				OriginalMessageId: msg.MessageId,
+				Success:           true,
+			}},
+		}
+		if err := stream.Send(reply); err != nil {
+			return err
+		}
+	case *grpcapi.ControlMessage_SubscriptionListRequest:
+		entries := []*grpcapi.SubscriptionEntry{
+			{
+				Company:             "org1",
+				Namespace:           "ns1",
+				AgentName:           "alice",
+				AgentId:             &wrapperspb.UInt64Value{Value: 42},
+				LocalConnectionIds:  []uint64{1},
+				RemoteConnectionIds: []uint64{2},
+			},
+			{
+				Company:             "org2",
+				Namespace:           "ns2",
+				AgentName:           "bob",
+				AgentId:             &wrapperspb.UInt64Value{Value: 7},
+				LocalConnectionIds:  []uint64{},
+				RemoteConnectionIds: []uint64{3},
+			},
+		}
+		resp := &grpcapi.ControlMessage{
+			MessageId: uuid.NewString(),
+			Payload: &grpcapi.ControlMessage_SubscriptionListResponse{
+				SubscriptionListResponse: &grpcapi.SubscriptionListResponse{
+					Entries: entries,
+				},
+			},
+		}
+		if err := stream.Send(resp); err != nil {
 			return err
 		}
 	}
@@ -194,25 +197,33 @@ func TestListSubscriptions(t *testing.T) {
 
 	client := grpcapi.NewControllerServiceClient(conn)
 
-	stream, err := client.ListSubscriptions(ctx)
+	stream, err := client.OpenControlChannel(ctx)
 	if err != nil {
-		t.Fatalf("client.ListSubscriptions failed: %v", err)
+		t.Fatalf("client.OpenControlChannel failed: %v", err)
 	}
 
-	if err := stream.Send(&grpcapi.SubscriptionListRequest{}); err != nil {
+	msg := &grpcapi.ControlMessage{
+		MessageId: uuid.NewString(),
+		Payload:   &grpcapi.ControlMessage_SubscriptionListRequest{},
+	}
+
+	if err = stream.Send(msg); err != nil {
 		t.Fatalf("stream.Send failed: %v", err)
 	}
 
 	var received []*grpcapi.SubscriptionEntry
 	for {
-		entry, err := stream.Recv()
+		resp, err := stream.Recv()
 		if err == io.EOF { //nolint:errorlint
 			break
 		}
 		if err != nil {
 			t.Fatalf("stream.Recv failed: %v", err)
 		}
-		received = append(received, entry)
+
+		if listResp := resp.GetSubscriptionListResponse(); listResp != nil {
+			received = append(received, listResp.Entries...)
+		}
 	}
 
 	if len(received) != 2 {

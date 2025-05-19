@@ -10,7 +10,6 @@ option go_package = "github.com/agntcy/agp/control-plane/internal/proto/controll
 
 service ControllerService {
   rpc OpenControlChannel(stream ControlMessage) returns (stream ControlMessage) {}
-  rpc ListSubscriptions(stream SubscriptionListRequest) returns (stream SubscriptionEntry) {}
 }
 
 message ControlMessage {
@@ -19,6 +18,9 @@ message ControlMessage {
   oneof payload {
     ConfigurationCommand config_command = 2;
     Ack ack = 3;
+
+    SubscriptionListRequest  subscription_list_request = 4;
+    SubscriptionListResponse subscription_list_response = 5;
   }
 }
 
@@ -48,7 +50,10 @@ message Ack {
   repeated string messages = 3;
 }
 
-message SubscriptionListRequest {
+message SubscriptionListRequest {}
+
+message SubscriptionListResponse {
+  repeated SubscriptionEntry entries = 1;
 }
 
 message SubscriptionEntry {

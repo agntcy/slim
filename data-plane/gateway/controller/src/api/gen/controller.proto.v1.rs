@@ -3,7 +3,7 @@
 pub struct ControlMessage {
     #[prost(string, tag = "1")]
     pub message_id: ::prost::alloc::string::String,
-    #[prost(oneof = "control_message::Payload", tags = "2, 3")]
+    #[prost(oneof = "control_message::Payload", tags = "2, 3, 4, 5")]
     pub payload: ::core::option::Option<control_message::Payload>,
 }
 /// Nested message and enum types in `ControlMessage`.
@@ -14,6 +14,10 @@ pub mod control_message {
         ConfigCommand(super::ConfigurationCommand),
         #[prost(message, tag = "3")]
         Ack(super::Ack),
+        #[prost(message, tag = "4")]
+        SubscriptionListRequest(super::SubscriptionListRequest),
+        #[prost(message, tag = "5")]
+        SubscriptionListResponse(super::SubscriptionListResponse),
     }
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -58,6 +62,11 @@ pub struct Ack {
 }
 #[derive(Clone, Copy, PartialEq, ::prost::Message)]
 pub struct SubscriptionListRequest {}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct SubscriptionListResponse {
+    #[prost(message, repeated, tag = "1")]
+    pub entries: ::prost::alloc::vec::Vec<SubscriptionEntry>,
+}
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct SubscriptionEntry {
     #[prost(string, tag = "1")]
@@ -193,37 +202,6 @@ pub mod controller_service_client {
                 );
             self.inner.streaming(req, path, codec).await
         }
-        pub async fn list_subscriptions(
-            &mut self,
-            request: impl tonic::IntoStreamingRequest<
-                Message = super::SubscriptionListRequest,
-            >,
-        ) -> std::result::Result<
-            tonic::Response<tonic::codec::Streaming<super::SubscriptionEntry>>,
-            tonic::Status,
-        > {
-            self.inner
-                .ready()
-                .await
-                .map_err(|e| {
-                    tonic::Status::unknown(
-                        format!("Service was not ready: {}", e.into()),
-                    )
-                })?;
-            let codec = tonic::codec::ProstCodec::default();
-            let path = http::uri::PathAndQuery::from_static(
-                "/controller.proto.v1.ControllerService/ListSubscriptions",
-            );
-            let mut req = request.into_streaming_request();
-            req.extensions_mut()
-                .insert(
-                    GrpcMethod::new(
-                        "controller.proto.v1.ControllerService",
-                        "ListSubscriptions",
-                    ),
-                );
-            self.inner.streaming(req, path, codec).await
-        }
     }
 }
 /// Generated server implementations.
@@ -250,19 +228,6 @@ pub mod controller_service_server {
             request: tonic::Request<tonic::Streaming<super::ControlMessage>>,
         ) -> std::result::Result<
             tonic::Response<Self::OpenControlChannelStream>,
-            tonic::Status,
-        >;
-        /// Server streaming response type for the ListSubscriptions method.
-        type ListSubscriptionsStream: tonic::codegen::tokio_stream::Stream<
-                Item = std::result::Result<super::SubscriptionEntry, tonic::Status>,
-            >
-            + std::marker::Send
-            + 'static;
-        async fn list_subscriptions(
-            &self,
-            request: tonic::Request<tonic::Streaming<super::SubscriptionListRequest>>,
-        ) -> std::result::Result<
-            tonic::Response<Self::ListSubscriptionsStream>,
             tonic::Status,
         >;
     }
@@ -379,58 +344,6 @@ pub mod controller_service_server {
                     let inner = self.inner.clone();
                     let fut = async move {
                         let method = OpenControlChannelSvc(inner);
-                        let codec = tonic::codec::ProstCodec::default();
-                        let mut grpc = tonic::server::Grpc::new(codec)
-                            .apply_compression_config(
-                                accept_compression_encodings,
-                                send_compression_encodings,
-                            )
-                            .apply_max_message_size_config(
-                                max_decoding_message_size,
-                                max_encoding_message_size,
-                            );
-                        let res = grpc.streaming(method, req).await;
-                        Ok(res)
-                    };
-                    Box::pin(fut)
-                }
-                "/controller.proto.v1.ControllerService/ListSubscriptions" => {
-                    #[allow(non_camel_case_types)]
-                    struct ListSubscriptionsSvc<T: ControllerService>(pub Arc<T>);
-                    impl<
-                        T: ControllerService,
-                    > tonic::server::StreamingService<super::SubscriptionListRequest>
-                    for ListSubscriptionsSvc<T> {
-                        type Response = super::SubscriptionEntry;
-                        type ResponseStream = T::ListSubscriptionsStream;
-                        type Future = BoxFuture<
-                            tonic::Response<Self::ResponseStream>,
-                            tonic::Status,
-                        >;
-                        fn call(
-                            &mut self,
-                            request: tonic::Request<
-                                tonic::Streaming<super::SubscriptionListRequest>,
-                            >,
-                        ) -> Self::Future {
-                            let inner = Arc::clone(&self.0);
-                            let fut = async move {
-                                <T as ControllerService>::list_subscriptions(
-                                        &inner,
-                                        request,
-                                    )
-                                    .await
-                            };
-                            Box::pin(fut)
-                        }
-                    }
-                    let accept_compression_encodings = self.accept_compression_encodings;
-                    let send_compression_encodings = self.send_compression_encodings;
-                    let max_decoding_message_size = self.max_decoding_message_size;
-                    let max_encoding_message_size = self.max_encoding_message_size;
-                    let inner = self.inner.clone();
-                    let fut = async move {
-                        let method = ListSubscriptionsSvc(inner);
                         let codec = tonic::codec::ProstCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
                             .apply_compression_config(

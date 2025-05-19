@@ -13,9 +13,9 @@ use tonic::codegen::{Body, StdError};
 use tonic::{Request, Response, Status};
 use tracing::{debug, error, info};
 
+use crate::api::proto::api::v1::SubscriptionListResponse;
 use crate::api::proto::api::v1::{
-    Ack, ControlMessage, SubscriptionEntry, SubscriptionListRequest,
-    controller_service_client::ControllerServiceClient,
+    Ack, ControlMessage, SubscriptionEntry, controller_service_client::ControllerServiceClient,
     controller_service_server::ControllerService as GrpcControllerService,
 };
 use crate::errors::ControllerError;
@@ -192,8 +192,56 @@ impl ControllerService {
                             eprintln!("failed to send ACK: {}", e);
                         }
                     }
+                    crate::api::proto::api::v1::control_message::Payload::SubscriptionListRequest(_) => {
+                        let mut batch = Vec::new();
+                        const BATCH_SIZE: usize = 100;
+
+                        self.message_processor.subscription_table().for_each(
+                            |agent_type, agent_id, local, remote| {
+                                batch.push(SubscriptionEntry {
+                                    company: agent_type.organization().to_string(),
+                                    namespace: agent_type.namespace().to_string(),
+                                    agent_name: agent_type.agent_type().to_string(),
+                                    agent_id: Some(agent_id),
+                                    local_connection_ids: local.to_vec(),
+                                    remote_connection_ids: remote.to_vec(),
+                                });
+
+                                if batch.len() == BATCH_SIZE {
+                                    let entries_to_send = std::mem::take(&mut batch);
+                                    let resp = ControlMessage {
+                                        message_id: uuid::Uuid::new_v4().to_string(),
+                                        payload: Some(
+                                            crate::api::proto::api::v1::control_message::Payload::SubscriptionListResponse(
+                                                SubscriptionListResponse { entries: entries_to_send }
+                                            ),
+                                        ),
+                                    };
+
+                                    let _ = tx.try_send(Ok(resp));
+                                }
+
+                                if !batch.is_empty() {
+                                    let remaining_entries = std::mem::take(&mut batch);
+                                    let resp = ControlMessage {
+                                        message_id: uuid::Uuid::new_v4().to_string(),
+                                        payload: Some(
+                                            crate::api::proto::api::v1::control_message::Payload::SubscriptionListResponse(
+                                                SubscriptionListResponse { entries: remaining_entries }
+                                            ),
+                                        ),
+                                    };
+
+                                    let _ = tx.try_send(Ok(resp));
+                                }
+                            },
+                        );
+                    }
                     crate::api::proto::api::v1::control_message::Payload::Ack(_ack) => {
                         // received an ack, do nothing - this should not happen
+                    }
+                    crate::api::proto::api::v1::control_message::Payload::SubscriptionListResponse(_) => {
+                        // received a subscription list response, do nothing - this should not happen
                     }
                 }
             }
@@ -264,73 +312,6 @@ impl ControllerService {
         })
     }
 
-    async fn handle_new_subscription_list_request(
-        &self,
-        _: SubscriptionListRequest,
-        tx: mpsc::Sender<Result<SubscriptionEntry, Status>>,
-    ) -> Result<(), ControllerError> {
-        self.message_processor.subscription_table().for_each(
-            |agent_type, agent_id, local, remote| {
-                let entry = SubscriptionEntry {
-                    company: agent_type.organization().to_string(),
-                    namespace: agent_type.namespace().to_string(),
-                    agent_name: agent_type.agent_type().to_string(),
-                    agent_id: Some(agent_id),
-                    local_connection_ids: local.to_vec(),
-                    remote_connection_ids: remote.to_vec(),
-                };
-
-                let _ = tx.try_send(Ok(entry));
-            },
-        );
-
-        Ok(())
-    }
-
-    async fn process_list_subscription_stream(
-        &self,
-        cancellation_token: CancellationToken,
-        mut stream: impl Stream<Item = Result<SubscriptionListRequest, Status>> + Unpin + Send + 'static,
-        tx: mpsc::Sender<Result<SubscriptionEntry, Status>>,
-    ) -> tokio::task::JoinHandle<()> {
-        let svc = self.clone();
-        let token = cancellation_token.clone();
-
-        tokio::spawn(async move {
-            loop {
-                tokio::select! {
-                    next = stream.next() => {
-                        match next {
-                            Some(Ok(msg)) => {
-                                if let Err(e) = svc.handle_new_subscription_list_request(msg, tx.clone()).await {
-                                    error!("error processing incoming subscription list request: {:?}", e);
-                                }
-                            }
-                            Some(Err(e)) => {
-                                if let Some(io_err) = ControllerService::match_for_io_error(&e) {
-                                    if io_err.kind() == std::io::ErrorKind::BrokenPipe {
-                                        info!("connection closed by peer");
-                                    }
-                                } else {
-                                    error!("error receiving subscription list request: {:?}", e);
-                                }
-                                break;
-                            }
-                            None => {
-                                debug!("end of stream");
-                                break;
-                            }
-                        }
-                    }
-                    _ = token.cancelled() => {
-                        debug!("shutting down stream on cancellation token");
-                        break;
-                    }
-                }
-            }
-        })
-    }
-
     pub async fn connect<C>(
         &self,
         channel: C,
@@ -348,9 +329,13 @@ impl ControllerService {
         let mut i = 0;
         while i < max_retry {
             let (tx, rx) = mpsc::channel::<Result<ControlMessage, Status>>(128);
-            let out_stream = ReceiverStream::new(rx).map(|res| res.expect("mapping error"));
+            let stream =
+                ReceiverStream::new(rx).map(|res| res.expect("mapping error"));
 
-            match client.open_control_channel(Request::new(out_stream)).await {
+            match client
+                .open_control_channel(Request::new(stream))
+                .await
+            {
                 Ok(stream) => {
                     let ret = self
                         .process_control_message_stream(
@@ -404,9 +389,6 @@ impl GrpcControllerService for ControllerService {
     type OpenControlChannelStream =
         Pin<Box<dyn Stream<Item = Result<ControlMessage, Status>> + Send + 'static>>;
 
-    type ListSubscriptionsStream =
-        Pin<Box<dyn Stream<Item = Result<SubscriptionEntry, Status>> + Send + 'static>>;
-
     async fn open_control_channel(
         &self,
         request: Request<tonic::Streaming<ControlMessage>>,
@@ -420,22 +402,6 @@ impl GrpcControllerService for ControllerService {
         let out_stream = ReceiverStream::new(rx);
         Ok(Response::new(
             Box::pin(out_stream) as Self::OpenControlChannelStream
-        ))
-    }
-
-    async fn list_subscriptions(
-        &self,
-        request: Request<tonic::Streaming<SubscriptionListRequest>>,
-    ) -> Result<Response<Self::ListSubscriptionsStream>, Status> {
-        let stream = request.into_inner();
-        let (tx, rx) = mpsc::channel::<Result<SubscriptionEntry, Status>>(128);
-
-        self.process_list_subscription_stream(CancellationToken::new(), stream, tx.clone())
-            .await;
-
-        let out_stream = ReceiverStream::new(rx);
-        Ok(Response::new(
-            Box::pin(out_stream) as Self::ListSubscriptionsStream
         ))
     }
 }
