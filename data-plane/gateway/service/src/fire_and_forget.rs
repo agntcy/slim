@@ -23,7 +23,7 @@ use agp_datapath::pubsub::proto::pubsub::v1::{Message, SessionHeaderType};
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct FireAndForgetConfiguration {
     pub timeout: Option<std::time::Duration>,
-    pub max_retry: Option<u32>,
+    pub max_retries: Option<u32>,
 }
 
 impl SessionConfigTrait for FireAndForgetConfiguration {
@@ -47,7 +47,7 @@ impl std::fmt::Display for FireAndForgetConfiguration {
             f,
             "FireAndForgetConfiguration: timeout: {} ms, max retries: {}",
             self.timeout.unwrap_or_default().as_millis(),
-            self.max_retry.unwrap_or_default(),
+            self.max_retries.unwrap_or_default(),
         )
     }
 }
@@ -160,7 +160,7 @@ impl FireAndForget {
                 timer::TimerType::Constant,
                 duration,
                 None,
-                session_config.max_retry,
+                session_config.max_retries,
             );
 
             // start timer
@@ -434,7 +434,7 @@ mod tests {
             0,
             FireAndForgetConfiguration {
                 timeout: Some(Duration::from_millis(500)),
-                max_retry: Some(5),
+                max_retries: Some(5),
             },
             SessionDirection::Bidirectional,
             source,
@@ -492,7 +492,7 @@ mod tests {
             0,
             FireAndForgetConfiguration {
                 timeout: Some(Duration::from_millis(500)),
-                max_retry: Some(5),
+                max_retries: Some(5),
             },
             SessionDirection::Bidirectional,
             Agent::from_strings("cisco", "default", "local_agent", 0),
