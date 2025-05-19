@@ -93,14 +93,16 @@ pub mod message {
 pub enum SessionHeaderType {
     Unspecified = 0,
     Fnf = 1,
-    Request = 2,
-    Reply = 3,
-    Stream = 4,
-    PubSub = 5,
-    RtxRequest = 6,
-    RtxReply = 7,
-    BeaconStream = 8,
-    BeaconPubSub = 9,
+    FnfReliable = 2,
+    FnfAck = 3,
+    Request = 4,
+    Reply = 5,
+    Stream = 6,
+    PubSub = 7,
+    RtxRequest = 8,
+    RtxReply = 9,
+    BeaconStream = 10,
+    BeaconPubSub = 11,
 }
 impl SessionHeaderType {
     /// String value of the enum field names used in the ProtoBuf definition.
@@ -111,6 +113,8 @@ impl SessionHeaderType {
         match self {
             Self::Unspecified => "UNSPECIFIED",
             Self::Fnf => "FNF",
+            Self::FnfReliable => "FNF_RELIABLE",
+            Self::FnfAck => "FNF_ACK",
             Self::Request => "REQUEST",
             Self::Reply => "REPLY",
             Self::Stream => "STREAM",
@@ -126,6 +130,8 @@ impl SessionHeaderType {
         match value {
             "UNSPECIFIED" => Some(Self::Unspecified),
             "FNF" => Some(Self::Fnf),
+            "FNF_RELIABLE" => Some(Self::FnfReliable),
+            "FNF_ACK" => Some(Self::FnfAck),
             "REQUEST" => Some(Self::Request),
             "REPLY" => Some(Self::Reply),
             "STREAM" => Some(Self::Stream),
