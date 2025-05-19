@@ -199,9 +199,9 @@ impl ControllerService {
                         self.message_processor.subscription_table().for_each(
                             |agent_type, agent_id, local, remote| {
                                 batch.push(SubscriptionEntry {
-                                    company: agent_type.organization().to_string(),
-                                    namespace: agent_type.namespace().to_string(),
-                                    agent_name: agent_type.agent_type().to_string(),
+                                    company: agent_type.organization_name(),
+                                    namespace: agent_type.namespace_name(),
+                                    agent_name: agent_type.agent_type_name(),
                                     agent_id: Some(agent_id),
                                     local_connection_ids: local.to_vec(),
                                     remote_connection_ids: remote.to_vec(),

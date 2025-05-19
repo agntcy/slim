@@ -113,6 +113,27 @@ impl AgentType {
     pub fn agent_type(&self) -> u64 {
         self.agent_type
     }
+
+    pub fn organization_name(&self) -> String {
+        self.strings
+            .as_ref()
+            .map(|s| s.0.clone())
+            .unwrap_or_else(|| format!("{:x}", self.organization))
+    }
+
+    pub fn namespace_name(&self) -> String {
+        self.strings
+            .as_ref()
+            .map(|s| s.1.clone())
+            .unwrap_or_else(|| format!("{:x}", self.namespace))
+    }
+
+    pub fn agent_type_name(&self) -> String {
+        self.strings
+            .as_ref()
+            .map(|s| s.2.clone())
+            .unwrap_or_else(|| format!("{:x}", self.agent_type))
+    }
 }
 
 #[derive(Hash, Eq, PartialEq, Debug, Clone, Default)]
