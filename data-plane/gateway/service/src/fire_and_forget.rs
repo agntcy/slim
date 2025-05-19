@@ -45,7 +45,7 @@ impl std::fmt::Display for FireAndForgetConfiguration {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "RequestResponseConfiguration: timeout: {} ms, max retries: {}",
+            "FireAndForgetConfiguration: timeout: {} ms, max retries: {}",
             self.timeout.unwrap_or_default().as_millis(),
             self.max_retry.unwrap_or_default(),
         )
@@ -62,12 +62,12 @@ pub(crate) struct FireAndForgetInternal {
 impl timer::TimerObserver for FireAndForgetInternal {
     async fn on_timeout(&self, message_id: u32, _timeouts: u32) {
         // try to send the message again
-        let msg;
-        {
+        let msg = {
             let lock = self.timers.read();
             let (_timer, message) = lock.get(&message_id).expect("timer not found");
-            msg = message.message.clone();
-        }
+            message.message.clone()
+        };
+
         let _ = self
             .common
             .tx_gw_ref()
@@ -137,7 +137,7 @@ impl FireAndForget {
     ) -> Result<(), SessionError> {
         let message_id = rand::rng().random();
         let header = message.message.get_session_header_mut();
-        header.message_id = message_id;
+        header.set_message_id(message_id);
         message.info.set_message_id(message_id);
 
         // get session config
@@ -204,7 +204,7 @@ impl FireAndForget {
                     .map_err(|e| SessionError::GatewayTransmission(e.to_string()))?;
             }
             SessionHeaderType::FnfReliable => {
-                // send an ack to as reply and forward the incoming message to the app
+                // send an ack back as reply and forward the incoming message to the app
                 // create ack message
                 let (dst_type, dst_id) = message.message.get_name();
                 let agp_header = Some(AgpHeader::new(
@@ -521,8 +521,8 @@ mod tests {
 
         // set the session id in the message
         let header = message.get_session_header_mut();
-        header.session_id = 0;
-        header.header_type = i32::from(SessionHeaderType::FnfReliable);
+        header.set_session_id(0);
+        header.set_header_type(SessionHeaderType::FnfReliable);
 
         let res = session_sender
             .on_message(
@@ -540,7 +540,7 @@ mod tests {
             .expect("error");
         // msg must be the same as message, except for the rundom message_id
         let header = msg.get_session_header_mut();
-        header.message_id = 0;
+        header.set_message_id(0);
         assert_eq!(msg, message);
 
         // this is the first RTX
@@ -562,9 +562,9 @@ mod tests {
             .await
             .expect("no message received")
             .expect("error");
-        // msg must be the same as message, except for the rundom message_id
+        // msg must be the same as message, except for the random message_id
         let header = msg.message.get_session_header_mut();
-        header.message_id = 0;
+        header.set_message_id(0);
         assert_eq!(msg.message, message);
 
         // the session layer should generate an ack
@@ -582,7 +582,11 @@ mod tests {
             .await;
         assert!(res.is_ok());
 
-        // TODO check that the timer is gone
+        // make sure the timer is not running anymore
+        let timers = session_sender.internal.timers.read();
+
+        // check whether the timers table contains the message id
+        assert!(!timers.contains_key(&header.get_message_id()));
     }
 
     #[tokio::test]
