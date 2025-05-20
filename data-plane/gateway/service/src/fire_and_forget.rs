@@ -8,7 +8,7 @@ use agp_datapath::pubsub::{AgpHeader, SessionHeader};
 use async_trait::async_trait;
 use parking_lot::RwLock;
 use rand::Rng;
-use tracing::{debug, info};
+use tracing::debug;
 
 use crate::errors::SessionError;
 use crate::session::{
@@ -62,8 +62,6 @@ pub(crate) struct FireAndForgetInternal {
 #[async_trait]
 impl timer::TimerObserver for FireAndForgetInternal {
     async fn on_timeout(&self, message_id: u32, _timeouts: u32) {
-        info!("timer expired: {}", message_id);
-
         // try to send the message again
         let msg = {
             let lock = self.timers.read();
@@ -80,8 +78,6 @@ impl timer::TimerObserver for FireAndForgetInternal {
     }
 
     async fn on_failure(&self, message_id: u32, _timeouts: u32) {
-        info!("timer expired: {}", message_id);
-
         // remove the state for the lost message
         let (_timer, message) = self
             .timers
@@ -157,8 +153,7 @@ impl FireAndForget {
 
         // create timer if needed
         if session_config.timeout.is_some() {
-            info!("ok");
-            header.set_header_type(SessionHeaderType::FnfReliable.into());
+            header.set_header_type(SessionHeaderType::FnfReliable);
             let duration = session_config.timeout.unwrap();
 
             let timer = timer::Timer::new(
@@ -178,8 +173,7 @@ impl FireAndForget {
                 .write()
                 .insert(message_id, (timer, message.clone()));
         } else {
-            info!("nok");
-            header.set_header_type(SessionHeaderType::Fnf.into());
+            header.set_header_type(SessionHeaderType::Fnf);
         }
 
         // send message
@@ -394,7 +388,7 @@ mod tests {
             &Agent::from_strings("cisco", "default", "local_agent", 0),
             &AgentType::from_strings("cisco", "default", "remote_agent"),
             Some(0),
-            None,
+            Some(AgpHeaderFlags::default().with_incoming_conn(0)),
             "msg",
             vec![0x1, 0x2, 0x3, 0x4],
         );
@@ -524,7 +518,7 @@ mod tests {
             &Agent::from_strings("cisco", "default", "local_agent", 0),
             &AgentType::from_strings("cisco", "default", "remote_agent"),
             Some(0),
-            None,
+            Some(AgpHeaderFlags::default().with_incoming_conn(0)),
             "msg",
             vec![0x1, 0x2, 0x3, 0x4],
         );
@@ -587,7 +581,7 @@ mod tests {
         assert_eq!(header.header_type, SessionHeaderType::FnfAck.into());
 
         // Check that the ack is sent back to the sender
-        assert_eq!(ack.get_source(), ack.get_name_as_agent());
+        assert_eq!(message.get_source(), ack.get_name_as_agent());
 
         // deliver the ack to the sender
         let res = session_sender
