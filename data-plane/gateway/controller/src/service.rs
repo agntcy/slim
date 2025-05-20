@@ -201,9 +201,9 @@ impl ControllerService {
                             .subscription_table()
                             .for_each(|agent_type, agent_id, local, remote| {
                                 entries.push(SubscriptionEntry {
-                                    company:            agent_type.organization_name(),
-                                    namespace:          agent_type.namespace_name(),
-                                    agent_name:         agent_type.agent_type_name(),
+                                    company:            agent_type.organization_string().unwrap_or_else(|| agent_type.organization().to_string()),
+                                    namespace:          agent_type.namespace_string().unwrap_or_else(|| agent_type.namespace().to_string()),
+                                    agent_name:         agent_type.agent_type_string().unwrap_or_else(|| agent_type.agent_type().to_string()),
                                     agent_id:           Some(agent_id),
                                     local_connection_ids:  local.to_vec(),
                                     remote_connection_ids: remote.to_vec(),

@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.2](https://github.com/agntcy/agp/compare/agp-bindings-v0.3.1...agp-bindings-v0.3.2) (2025-05-19)
+
+
+### Features
+
+* add optional acks for FNF messages ([#264](https://github.com/agntcy/agp/issues/264)) ([508fdf3](https://github.com/agntcy/agp/commit/508fdf3ce00650a8a8d237db7223e7928c6bf395))
+
 ## [0.3.1](https://github.com/agntcy/agp/compare/agp-bindings-v0.3.0...agp-bindings-v0.3.1) (2025-05-14)
 
 

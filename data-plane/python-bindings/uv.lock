@@ -1,5 +1,4 @@
 version = 1
-revision = 1
 requires-python = ">=3.9, <4.0"
 resolution-markers = [
     "sys_platform == 'linux'",
@@ -8,7 +7,7 @@ resolution-markers = [
 
 [[package]]
 name = "agp-bindings"
-version = "0.3.1"
+version = "0.3.2"
 source = { editable = "." }
 
 [package.dev-dependencies]
