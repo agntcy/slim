@@ -121,8 +121,8 @@ class AGPClient(AGPBase):
         # create session
         session = await self.gateway.create_session(
             agp_bindings.PySessionConfiguration.FireAndForget(
-                timeout=self.message_timeout,
-                max_retries=self.message_retries,
+                # timeout=self.message_timeout,
+                # max_retries=self.message_retries,
             )
         )
 

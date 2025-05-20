@@ -3,6 +3,7 @@ members = ["packages/*", "examples/*"]
 
 [tool.uv.sources]
 agp-mcp = { workspace = true }
+agp-bindings = { path = "../../../python-bindings" }
 
 [tool.ruff.format]
 quote-style = "double"

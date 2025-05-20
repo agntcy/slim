@@ -8,7 +8,7 @@ use agp_datapath::pubsub::{AgpHeader, SessionHeader};
 use async_trait::async_trait;
 use parking_lot::RwLock;
 use rand::Rng;
-use tracing::debug;
+use tracing::{debug, info};
 
 use crate::errors::SessionError;
 use crate::session::{
@@ -17,6 +17,7 @@ use crate::session::{
 };
 use crate::timer;
 use agp_datapath::messages::encoder::Agent;
+use agp_datapath::messages::utils::AgpHeaderFlags;
 use agp_datapath::pubsub::proto::pubsub::v1::{Message, SessionHeaderType};
 
 /// Configuration for the Fire and Forget session
@@ -61,6 +62,8 @@ pub(crate) struct FireAndForgetInternal {
 #[async_trait]
 impl timer::TimerObserver for FireAndForgetInternal {
     async fn on_timeout(&self, message_id: u32, _timeouts: u32) {
+        info!("timer expired: {}", message_id);
+
         // try to send the message again
         let msg = {
             let lock = self.timers.read();
@@ -77,6 +80,8 @@ impl timer::TimerObserver for FireAndForgetInternal {
     }
 
     async fn on_failure(&self, message_id: u32, _timeouts: u32) {
+        info!("timer expired: {}", message_id);
+
         // remove the state for the lost message
         let (_timer, message) = self
             .timers
@@ -152,7 +157,8 @@ impl FireAndForget {
 
         // create timer if needed
         if session_config.timeout.is_some() {
-            header.header_type = i32::from(SessionHeaderType::FnfReliable);
+            info!("ok");
+            header.set_header_type(SessionHeaderType::FnfReliable.into());
             let duration = session_config.timeout.unwrap();
 
             let timer = timer::Timer::new(
@@ -172,7 +178,8 @@ impl FireAndForget {
                 .write()
                 .insert(message_id, (timer, message.clone()));
         } else {
-            header.header_type = i32::from(SessionHeaderType::Fnf);
+            info!("nok");
+            header.set_header_type(SessionHeaderType::Fnf.into());
         }
 
         // send message
@@ -206,12 +213,15 @@ impl FireAndForget {
             SessionHeaderType::FnfReliable => {
                 // send an ack back as reply and forward the incoming message to the app
                 // create ack message
-                let (dst_type, dst_id) = message.message.get_name();
+                let src = message.message.get_source();
                 let agp_header = Some(AgpHeader::new(
                     self.internal.common.source(),
-                    &dst_type,
-                    dst_id,
-                    None,
+                    src.agent_type(),
+                    Some(src.agent_id()),
+                    Some(
+                        AgpHeaderFlags::default()
+                            .with_forward_to(message.message.get_incoming_conn()),
+                    ),
                 ));
 
                 let session_header = Some(SessionHeader::new(
@@ -575,6 +585,9 @@ mod tests {
             .expect("error");
         let header = ack.get_session_header();
         assert_eq!(header.header_type, SessionHeaderType::FnfAck.into());
+
+        // Check that the ack is sent back to the sender
+        assert_eq!(ack.get_source(), ack.get_name_as_agent());
 
         // deliver the ack to the sender
         let res = session_sender

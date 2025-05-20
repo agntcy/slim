@@ -11,20 +11,25 @@ members = [
 
 [[package]]
 name = "agp-bindings"
-version = "0.3.2"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/38/38/040a84ebc50a437297bbd193c79f630a95476b92a3ff661543b077ffd3a7/agp_bindings-0.3.2.tar.gz", hash = "sha256:40a77cd9142cf569447488c4d16c149991096e9c66c45ca683673b27f2d4c555", size = 190821, upload_time = "2025-05-20T14:37:33.271Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/07/2e/26c18957de88112322bde711c882e5fdbf6c44244b60594d14cabe2948aa/agp_bindings-0.3.2-cp312-cp312-macosx_10_12_x86_64.whl", hash = "sha256:a803b73e523433f572443675e9f670041d331db2887b29bb6e6a84fcc9cd42e7", size = 5817357, upload_time = "2025-05-20T14:37:07.155Z" },
-    { url = "https://files.pythonhosted.org/packages/96/e8/8bbba26ab6e27cb9a05279591941664419e7b1f90d5f1059954f60f24537/agp_bindings-0.3.2-cp312-cp312-macosx_11_0_arm64.whl", hash = "sha256:bbccbd4a17c587fb9d07499948af6fa7e2729b41fb008f537a1bc6a6a653a1cb", size = 5589128, upload_time = "2025-05-20T14:37:08.493Z" },
-    { url = "https://files.pythonhosted.org/packages/1d/f3/5f04c33391bf05071321438e20489db38384fbc77f631e362c9945f498cf/agp_bindings-0.3.2-cp312-cp312-manylinux_2_34_aarch64.whl", hash = "sha256:e06e2da6f2bc172684255ece4b419c424f1081317b14b90f42af9269a3cd9cde", size = 6115783, upload_time = "2025-05-20T14:37:09.974Z" },
-    { url = "https://files.pythonhosted.org/packages/de/15/a342a119024075e7e0d02b41c5fe1c34091d0b26e336754427a324ae5577/agp_bindings-0.3.2-cp312-cp312-manylinux_2_34_x86_64.whl", hash = "sha256:2426cc5d7cab847f8701e5293e03d7b1459c35f38c28a111dc06ab9ad6a0619e", size = 6309132, upload_time = "2025-05-20T14:37:11.673Z" },
-    { url = "https://files.pythonhosted.org/packages/36/14/77e5361a7165647ae554ee251cea46e6f9db544ba4d954dbececd809305f/agp_bindings-0.3.2-cp312-cp312-win_amd64.whl", hash = "sha256:3bdc715687f721c7c3bce864c3994804c0d707355631b6429996f701929f4a89", size = 4904725, upload_time = "2025-05-20T14:37:13.495Z" },
-    { url = "https://files.pythonhosted.org/packages/26/47/9560e77c95ebc262f8a308253c7137e03625b6ef9f6349938520aa068dae/agp_bindings-0.3.2-cp313-cp313-macosx_10_12_x86_64.whl", hash = "sha256:99b7930c8b1aa2054d29458802485aeba1658d124a4a63b0ea384eb230346380", size = 5816988, upload_time = "2025-05-20T14:37:16.008Z" },
-    { url = "https://files.pythonhosted.org/packages/a6/39/7ef18afc97916b24df97ce5a96cc0301a737afaa073f937decfaf85af7c3/agp_bindings-0.3.2-cp313-cp313-macosx_11_0_arm64.whl", hash = "sha256:4429978196e9bdc2a40a19d0bac2f8f09b5694ea43172673b21ac1e0bcbe22e7", size = 5587004, upload_time = "2025-05-20T14:37:17.476Z" },
-    { url = "https://files.pythonhosted.org/packages/52/b4/f47012262d7ceef8cdc67f819865fcca38d2f86e44dee703f727661482cb/agp_bindings-0.3.2-cp313-cp313-manylinux_2_34_aarch64.whl", hash = "sha256:1dbca08b9e8d29ce9e9b6af29b9a159ebf49ea0f48f5b77a6286c619425eca3d", size = 6114616, upload_time = "2025-05-20T14:37:19.403Z" },
-    { url = "https://files.pythonhosted.org/packages/50/0c/784fd6a018fc6e19c947e4206715a53b4074c062867419dae04f05c36433/agp_bindings-0.3.2-cp313-cp313-manylinux_2_34_x86_64.whl", hash = "sha256:aefbe9165bfea8e0a3984fd75c4df2fe4339d6217f8f4350d7fc41b58dfd4106", size = 6307123, upload_time = "2025-05-20T14:37:20.826Z" },
-    { url = "https://files.pythonhosted.org/packages/70/bc/3cea0a94f74f26ea85d33de5f2dcd51a6c548a6c1f52dd699b6b764d4b7b/agp_bindings-0.3.2-cp313-cp313-win_amd64.whl", hash = "sha256:d0609990ec4530c3371cd71935e79e5e7a89d13d47d44463befa254eb9de3875", size = 4904089, upload_time = "2025-05-20T14:37:22.19Z" },
+version = "0.3.3"
+source = { directory = "../../../python-bindings" }
+
+[package.metadata]
+
+[package.metadata.requires-dev]
+building = [
+    { name = "maturin", specifier = ">=1.8.2" },
+    { name = "maturin", extras = ["patchelf"], marker = "sys_platform == 'linux'", specifier = ">=1.8.2" },
+]
+linting = [
+    { name = "griffe", specifier = ">=1.5.5" },
+    { name = "mypy", specifier = ">=1.14.1" },
+    { name = "pyright", specifier = ">=1.1.0" },
+    { name = "ruff", specifier = ">=0.9.3" },
+]
+testing = [
+    { name = "pytest", specifier = ">=8.3.4" },
+    { name = "pytest-asyncio", specifier = ">=0.25.3" },
 ]
 
 [[package]]
@@ -51,7 +56,7 @@ testing = [
 
 [package.metadata]
 requires-dist = [
-    { name = "agp-bindings", specifier = ">=0.3.2" },
+    { name = "agp-bindings", directory = "../../../python-bindings" },
     { name = "anyio", specifier = ">=4.5" },
     { name = "mcp", specifier = "==1.6.0" },
 ]
