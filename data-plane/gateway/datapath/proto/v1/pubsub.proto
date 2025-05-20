@@ -8,7 +8,12 @@ service PubSubService {
   rpc OpenChannel(stream Message) returns (stream Message) {}
 }
 
-message Subscribe { AGPHeader header = 1; }
+message Subscribe {
+  AGPHeader header = 1;
+  string organization = 2;
+  string namespace = 3;
+  string agent_type = 4;
+}
 
 message Unsubscribe { AGPHeader header = 1; }
 
