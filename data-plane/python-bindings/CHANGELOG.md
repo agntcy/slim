@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.3.3](https://github.com/agntcy/agp/compare/agp-bindings-v0.3.2...agp-bindings-v0.3.3) (2025-05-20)
+
+
+### Features
+
+* add optional acks for FNF messages ([#264](https://github.com/agntcy/agp/issues/264)) ([508fdf3](https://github.com/agntcy/agp/commit/508fdf3ce00650a8a8d237db7223e7928c6bf395))
+* **control-plane:** list subscriptions on control-plane ([#265](https://github.com/agntcy/agp/issues/265)) ([f77f0fb](https://github.com/agntcy/agp/commit/f77f0fbcd1274a6d4ea8e59dbb7bedc2fc2d1669))
+* improve tracing in agp ([#237](https://github.com/agntcy/agp/issues/237)) ([ed1401c](https://github.com/agntcy/agp/commit/ed1401cf91aefa0e3f66c5461e6b331c96f26811))
+* release agp-mcp pypi package ([#225](https://github.com/agntcy/agp/issues/225)) ([238d683](https://github.com/agntcy/agp/commit/238d68300134dc6771191077b9b18525609bb7af))
+
+
+### Bug Fixes
+
+* **python-bindings:** build sdist only once ([#243](https://github.com/agntcy/agp/issues/243)) ([6ba8e0f](https://github.com/agntcy/agp/commit/6ba8e0f989159360e6a33eab1b2758a0904a89a2))
+* **python-bindings:** do not install lint dependencies when building wheels ([#272](https://github.com/agntcy/agp/issues/272)) ([5adccc7](https://github.com/agntcy/agp/commit/5adccc78d8100c9edeadaf18989377da3146bd39))
+
 ## [0.3.2](https://github.com/agntcy/agp/compare/agp-bindings-v0.3.1...agp-bindings-v0.3.2) (2025-05-19)
 
 
