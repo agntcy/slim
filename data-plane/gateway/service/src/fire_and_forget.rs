@@ -17,6 +17,7 @@ use crate::session::{
 };
 use crate::timer;
 use agp_datapath::messages::encoder::Agent;
+use agp_datapath::messages::utils::AgpHeaderFlags;
 use agp_datapath::pubsub::proto::pubsub::v1::{Message, SessionHeaderType};
 
 /// Configuration for the Fire and Forget session
@@ -152,7 +153,7 @@ impl FireAndForget {
 
         // create timer if needed
         if session_config.timeout.is_some() {
-            header.header_type = i32::from(SessionHeaderType::FnfReliable);
+            header.set_header_type(SessionHeaderType::FnfReliable);
             let duration = session_config.timeout.unwrap();
 
             let timer = timer::Timer::new(
@@ -172,7 +173,7 @@ impl FireAndForget {
                 .write()
                 .insert(message_id, (timer, message.clone()));
         } else {
-            header.header_type = i32::from(SessionHeaderType::Fnf);
+            header.set_header_type(SessionHeaderType::Fnf);
         }
 
         // send message
@@ -206,12 +207,15 @@ impl FireAndForget {
             SessionHeaderType::FnfReliable => {
                 // send an ack back as reply and forward the incoming message to the app
                 // create ack message
-                let (dst_type, dst_id) = message.message.get_name();
+                let src = message.message.get_source();
                 let agp_header = Some(AgpHeader::new(
                     self.internal.common.source(),
-                    &dst_type,
-                    dst_id,
-                    None,
+                    src.agent_type(),
+                    Some(src.agent_id()),
+                    Some(
+                        AgpHeaderFlags::default()
+                            .with_forward_to(message.message.get_incoming_conn()),
+                    ),
                 ));
 
                 let session_header = Some(SessionHeader::new(
@@ -384,7 +388,7 @@ mod tests {
             &Agent::from_strings("cisco", "default", "local_agent", 0),
             &AgentType::from_strings("cisco", "default", "remote_agent"),
             Some(0),
-            None,
+            Some(AgpHeaderFlags::default().with_incoming_conn(0)),
             "msg",
             vec![0x1, 0x2, 0x3, 0x4],
         );
@@ -514,7 +518,7 @@ mod tests {
             &Agent::from_strings("cisco", "default", "local_agent", 0),
             &AgentType::from_strings("cisco", "default", "remote_agent"),
             Some(0),
-            None,
+            Some(AgpHeaderFlags::default().with_incoming_conn(0)),
             "msg",
             vec![0x1, 0x2, 0x3, 0x4],
         );
@@ -575,6 +579,9 @@ mod tests {
             .expect("error");
         let header = ack.get_session_header();
         assert_eq!(header.header_type, SessionHeaderType::FnfAck.into());
+
+        // Check that the ack is sent back to the sender
+        assert_eq!(message.get_source(), ack.get_name_as_agent());
 
         // deliver the ack to the sender
         let res = session_sender
