@@ -71,9 +71,14 @@ tasks:
           COMMAND: |
             rustup target add {{.TARGET}}
 
-            uv sync --no-default-groups --group building
+            UV_ARGS=(
+              --no-default-groups
+              --group building
+            )
 
-            uv run maturin develop --uv {{.RELEASE}}
+            uv sync ${UV_ARGS[@]}
+
+            uv run ${UV_ARGS[@]} maturin develop --uv {{.RELEASE}}
 
             # This file if a leftover from the previous build, delete it otherwise
             # maturin will try to add it to the wheel, and it will fail
@@ -81,8 +86,7 @@ tasks:
 
             PYTHONS=(3.9 3.10 3.11 3.12 3.13)
             uv run                            \
-              --no-default-groups             \
-              --group building                \
+              ${UV_ARGS[@]}                   \
               maturin build {{.RELEASE}}      \
               --out dist                      \
               --target {{.TARGET}}            \
