@@ -193,49 +193,39 @@ impl ControllerService {
                         }
                     }
                     crate::api::proto::api::v1::control_message::Payload::SubscriptionListRequest(_) => {
-                        let mut batch = Vec::new();
-                        const BATCH_SIZE: usize = 100;
+                        const CHUNK_SIZE: usize = 100;
 
-                        self.message_processor.subscription_table().for_each(
-                            |agent_type, agent_id, local, remote| {
-                                batch.push(SubscriptionEntry {
-                                    company: agent_type.organization_name(),
-                                    namespace: agent_type.namespace_name(),
-                                    agent_name: agent_type.agent_type_name(),
-                                    agent_id: Some(agent_id),
-                                    local_connection_ids: local.to_vec(),
+                        let mut entries = Vec::new();
+                        self
+                            .message_processor
+                            .subscription_table()
+                            .for_each(|agent_type, agent_id, local, remote| {
+                                entries.push(SubscriptionEntry {
+                                    company:            agent_type.organization_name(),
+                                    namespace:          agent_type.namespace_name(),
+                                    agent_name:         agent_type.agent_type_name(),
+                                    agent_id:           Some(agent_id),
+                                    local_connection_ids:  local.to_vec(),
                                     remote_connection_ids: remote.to_vec(),
                                 });
+                            });
 
-                                if batch.len() == BATCH_SIZE {
-                                    let entries_to_send = std::mem::take(&mut batch);
-                                    let resp = ControlMessage {
-                                        message_id: uuid::Uuid::new_v4().to_string(),
-                                        payload: Some(
-                                            crate::api::proto::api::v1::control_message::Payload::SubscriptionListResponse(
-                                                SubscriptionListResponse { entries: entries_to_send }
-                                            ),
-                                        ),
-                                    };
+                        for chunk in entries.chunks(CHUNK_SIZE) {
+                            let resp = ControlMessage {
+                                message_id: uuid::Uuid::new_v4().to_string(),
+                                payload: Some(
+                                    crate::api::proto::api::v1::control_message::Payload::SubscriptionListResponse(
+                                        SubscriptionListResponse {
+                                            entries: chunk.to_vec(),
+                                        }
+                                    )
+                                ),
+                            };
 
-                                    let _ = tx.try_send(Ok(resp));
-                                }
-
-                                if !batch.is_empty() {
-                                    let remaining_entries = std::mem::take(&mut batch);
-                                    let resp = ControlMessage {
-                                        message_id: uuid::Uuid::new_v4().to_string(),
-                                        payload: Some(
-                                            crate::api::proto::api::v1::control_message::Payload::SubscriptionListResponse(
-                                                SubscriptionListResponse { entries: remaining_entries }
-                                            ),
-                                        ),
-                                    };
-
-                                    let _ = tx.try_send(Ok(resp));
-                                }
-                            },
-                        );
+                            if let Err(e) = tx.try_send(Ok(resp)) {
+                                error!("failed to send subscription batch: {}", e);
+                            }
+                        }
                     }
                     crate::api::proto::api::v1::control_message::Payload::Ack(_ack) => {
                         // received an ack, do nothing - this should not happen
