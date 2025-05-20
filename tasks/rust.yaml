@@ -228,7 +228,7 @@ tasks:
     desc: "Install the components"
     internal: true
     cmds:
-      - cargo install {{.COMPONENTS}} --locked
+      - cargo install {{.COMPONENTS}}
     vars:
       COMPONENTS: '{{ .COMPONENTS | default "" }}'
 

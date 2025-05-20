@@ -307,10 +307,6 @@ impl SessionHeader {
 /// ProtoSubscribe
 /// This message is used to subscribe to a topic
 impl ProtoSubscribe {
-    pub fn with_header(header: Option<AgpHeader>) -> Self {
-        ProtoSubscribe { header }
-    }
-
     pub fn new(
         source: &Agent,
         agent_type: &AgentType,
@@ -319,7 +315,12 @@ impl ProtoSubscribe {
     ) -> Self {
         let header = Some(AgpHeader::new(source, agent_type, agent_id, flags));
 
-        Self::with_header(header)
+        ProtoSubscribe {
+            header,
+            organization: agent_type.organization_string().unwrap(),
+            namespace: agent_type.namespace_string().unwrap(),
+            agent_type: agent_type.agent_type_string().unwrap(),
+        }
     }
 }
 
@@ -642,7 +643,21 @@ impl ProtoMessage {
     }
 
     pub fn get_name(&self) -> (AgentType, Option<u64>) {
-        self.get_agp_header().get_dst()
+        let (agent_type, agent_id) = self.get_agp_header().get_dst();
+
+        // complete agent_type with the original name if the message is a subscribe
+        if let Some(ProtoSubscribeType(subscribe)) = &self.message_type {
+            return (
+                AgentType::from_strings(
+                    subscribe.organization.as_str(),
+                    subscribe.namespace.as_str(),
+                    subscribe.agent_type.as_str(),
+                ),
+                agent_id,
+            );
+        }
+
+        (agent_type, agent_id)
     }
 
     pub fn get_name_as_agent(&self) -> Agent {

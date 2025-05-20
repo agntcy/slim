@@ -113,6 +113,18 @@ impl AgentType {
     pub fn agent_type(&self) -> u64 {
         self.agent_type
     }
+
+    pub fn organization_string(&self) -> Option<String> {
+        self.strings.as_ref().map(|s| s.0.clone())
+    }
+
+    pub fn namespace_string(&self) -> Option<String> {
+        self.strings.as_ref().map(|s| s.1.clone())
+    }
+
+    pub fn agent_type_string(&self) -> Option<String> {
+        self.strings.as_ref().map(|s| s.2.clone())
+    }
 }
 
 #[derive(Hash, Eq, PartialEq, Debug, Clone, Default)]
