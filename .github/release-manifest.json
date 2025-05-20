@@ -1,5 +1,5 @@
 {
-    "data-plane/python-bindings": "0.3.3",
+    "data-plane/python-bindings": "0.3.4",
     "charts/agp": "0.1.4",
     "data-plane/integrations/mcp/agp-mcp/packages/agp-mcp": "0.1.3",
     "control-plane/agpctl": "0.1.4",
