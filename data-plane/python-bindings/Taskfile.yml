@@ -71,7 +71,7 @@ tasks:
           COMMAND: |
             rustup target add {{.TARGET}}
 
-            uv sync
+            uv sync --no-default-groups --group building
 
             uv run maturin develop --uv {{.RELEASE}}
 
