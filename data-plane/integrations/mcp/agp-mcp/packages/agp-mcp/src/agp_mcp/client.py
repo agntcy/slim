@@ -3,6 +3,7 @@
 
 import logging
 from contextlib import asynccontextmanager
+import datetime
 from typing import Any
 
 import agp_bindings
@@ -36,6 +37,8 @@ class AGPClient(AGPBase):
         remote_organization: str,
         remote_namespace: str,
         remote_mcp_agent: str,
+        message_timeout: datetime.timedelta = datetime.timedelta(seconds=15),
+        message_retries: int = 2,
     ) -> None:
         """
         Initialize the AGP client.
@@ -63,6 +66,8 @@ class AGPClient(AGPBase):
             remote_organization,
             remote_namespace,
             remote_mcp_agent,
+            message_timeout=message_timeout,
+            message_retries=message_retries,
         )
 
     async def _send_message(
@@ -115,7 +120,10 @@ class AGPClient(AGPBase):
         """
         # create session
         session = await self.gateway.create_session(
-            agp_bindings.PySessionConfiguration.FireAndForget()
+            agp_bindings.PySessionConfiguration.FireAndForget(
+                timeout=self.message_timeout,
+                max_retries=self.message_retries,
+            )
         )
 
         # create streams

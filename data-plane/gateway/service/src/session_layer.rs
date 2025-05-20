@@ -260,7 +260,7 @@ impl SessionLayer {
         }
 
         let new_session_id = match session_type {
-            SessionHeaderType::Fnf => {
+            SessionHeaderType::Fnf | SessionHeaderType::FnfReliable => {
                 let conf = self.default_ff_conf.read().clone();
                 self.create_session(SessionConfig::FireAndForget(conf), Some(id))
                     .await?
@@ -270,7 +270,7 @@ impl SessionLayer {
                 self.create_session(SessionConfig::RequestResponse(conf), Some(id))
                     .await?
             }
-            SessionHeaderType::Stream => {
+            SessionHeaderType::Stream | SessionHeaderType::BeaconStream => {
                 let conf = self.default_stream_conf.read().clone();
                 self.create_session(session::SessionConfig::Streaming(conf), Some(id))
                     .await?
@@ -280,11 +280,6 @@ impl SessionLayer {
                 return Err(SessionError::SessionUnknown(
                     session_type.as_str_name().to_string(),
                 ));
-            }
-            SessionHeaderType::BeaconStream => {
-                let conf = self.default_stream_conf.read().clone();
-                self.create_session(session::SessionConfig::Streaming(conf), Some(id))
-                    .await?
             }
             SessionHeaderType::BeaconPubSub => {
                 warn!("received beacon pub/sub message with unknown session id");

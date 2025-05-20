@@ -5,6 +5,7 @@ import asyncio
 import logging
 from abc import ABC, abstractmethod
 from contextlib import asynccontextmanager
+import datetime
 from typing import Any
 
 import agp_bindings
@@ -43,6 +44,8 @@ class AGPBase(ABC):
         remote_organization: str | None = None,
         remote_namespace: str | None = None,
         remote_mcp_agent: str | None = None,
+        message_timeout: datetime.timedelta = datetime.timedelta(seconds=15),
+        message_retries: int = 2,
     ):
         """Initialize the AGP base class.
 
@@ -73,6 +76,9 @@ class AGPBase(ABC):
         self.remote_mcp_agent = remote_mcp_agent
 
         self.gateway: agp_bindings.Gateway
+
+        self.message_timeout = message_timeout
+        self.message_retries = message_retries
 
     def is_connected(self) -> bool:
         """Check if the client is connected to the gateway.
@@ -199,6 +205,29 @@ class AGPBase(ABC):
                         exc_info=True,
                     )
                     raise RuntimeError(f"Failed to set route: {str(e)}") from e
+
+            # Set default fire and forget session configuration to be reliable
+            try:
+                await self.gateway.set_default_session_config(
+                    agp_bindings.PySessionConfiguration.FireAndForget(
+                        timeout=self.message_timeout,
+                        max_retries=self.message_retries,
+                    )
+                )
+            except Exception as e:
+                logger.error(
+                    "Failed to set default session configuration",
+                    extra={
+                        "error": str(e),
+                        "remote_org": self.remote_organization,
+                        "remote_namespace": self.remote_namespace,
+                        "remote_agent": self.remote_mcp_agent,
+                    },
+                    exc_info=True,
+                )
+                raise RuntimeError(
+                    f"Failed to set default session configuration: {str(e)}"
+                ) from e
 
             # start receiving messages
             try:
