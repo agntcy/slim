@@ -80,7 +80,10 @@ tasks:
             rm -f agp_bindings/*.pyd
 
             PYTHONS=(3.9 3.10 3.11 3.12 3.13)
-            uv run maturin build {{.RELEASE}} \
+            uv run                            \
+              --no-default-groups             \
+              --group building                \
+              maturin build {{.RELEASE}}      \
               --out dist                      \
               --target {{.TARGET}}            \
               --frozen                        \
