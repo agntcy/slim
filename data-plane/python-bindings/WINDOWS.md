@@ -9,15 +9,20 @@ Instructions to compile `agp_bindings` wheel on Windows.
    - Make sure `cargo`, `rustc` are in your PATH.
 2. **Python**
    - Install a Python version (3.9–3.13).
-   - **Optional**: Use [pyenv-win](https://github.com/pyenv-win/pyenv-win) or another Python version manager if you need multiple versions.
+   - **Optional**: Use [pyenv-win](https://github.com/pyenv-win/pyenv-win) or
+     another Python version manager if you need multiple versions.
 3. **Maturin**
-   - You can install Maturin via `pip install maturin` or `cargo install maturin`.
+   - You can install Maturin via `pip install maturin` or `cargo install
+     maturin`.
 4. **Task/`taskfile`**
-   - If you’re using [go-task](https://taskfile.dev/) or a similar tool, make sure it’s installed.
-   - Alternatively, if `task` is just a script/alias in your project, ensure it’s executable.
+   - If you’re using [go-task](https://taskfile.dev/) or a similar tool, make
+     sure it’s installed.
+   - Alternatively, if `task` is just a script/alias in your project, ensure
+     it’s executable.
 5. Install/verify you have "Desktop development with C++" in Visual Studio.
 
-   In particular, make sure you have the following key items checked, which are most important for MSVC + CMake builds:
+   In particular, make sure you have the following key items checked, which are
+   most important for MSVC + CMake builds:
 
    - MSVC v143 – VS 2022 C++ x64/x86 build tools
    - C++ CMake Tools for Windows
@@ -25,7 +30,8 @@ Instructions to compile `agp_bindings` wheel on Windows.
 
 ## 2. Run the Build Locally
 
-Clone <https://github.com/agntcy/agp> and change to folder `data-plane\python-bindings`
+Clone <https://github.com/agntcy/agp> and change to folder
+`data-plane\python-bindings`
 
 Inside this folder (where the Taskfile is), you can run:
 
@@ -37,7 +43,8 @@ task
 task python-bindings:build
 ```
 
-This will build the wheel under a temporary folder that will be removed immediately but serves to test if the toolchain is correctly setup.
+This will build the wheel under a temporary folder that will be removed
+immediately but serves to test if the toolchain is correctly setup.
 
 You should see a similar output:
 
@@ -47,7 +54,9 @@ Built wheel for CPython 3.13 to C:\Users\dummy\AppData\Local\Temp\.tmpYMjkNn\agp
 
 ### Build Bindings to Dist Directory
 
-1. Disable any cloud data syncing programs, such as `OneDrive` or `Dropbox`, that may be monitoring the folder you are working on. Otherwise, the build will fail due to file locking issues.
+1. Disable any cloud data syncing programs, such as `OneDrive` or `Dropbox`,
+   that may be monitoring the folder you are working on. Otherwise, the build
+   will fail due to file locking issues.
 
 2. Execute maturin
 
@@ -69,14 +78,16 @@ pip install .\dist\agp_bindings-0.1.7-cp313-cp313-win_amd64.whl
 
 ### Verify
 
-It is very important that the path displayed **points to your virtual environment** and not to the folder `agp_bindings`
+It is very important that the path displayed **points to your virtual
+environment** and not to the folder `agp_bindings`
 
 ```Powershell
 cd agp\data-plane\
 python -c "import agp_bindings; print(agp_bindings.__file__)"
 ```
 
-That should show a path to the installed agp_bindings in your virtual environment’s Lib\site-packages. Example:
+That should show a path to the installed agp_bindings in your virtual
+environment’s Lib\site-packages. Example:
 
 ```Powershell
 agp\data-plane\python-bindings\.venv\Lib\site-packages\agp_bindings\__init__.py
@@ -84,10 +95,15 @@ agp\data-plane\python-bindings\.venv\Lib\site-packages\agp_bindings\__init__.py
 
 ## 4. Troubleshooting on Windows
 
-- **MSVC / cl.exe** not found:  
-  Make sure you installed the **"Desktop development with C++"** workload in Visual Studio Installer and that you’re building in a Developer Command Prompt.
-- **File Tracker (FTK1011) or Temp Directory** errors:  
-  If you see warnings about building from `Temp`, try changing or shortening your Windows temp directory [as discussed in previous steps](https://docs.microsoft.com/en-us/cpp/build/reference/filetracker).
+- **MSVC / cl.exe** not found: Make sure you installed the **"Desktop
+  development with C++"** workload in Visual Studio Installer and that you’re
+  building in a Developer Command Prompt.
+- **File Tracker (FTK1011) or Temp Directory** errors: If you see warnings about
+  building from `Temp`, try changing or shortening your Windows temp directory
+  [as discussed in previous
+  steps](https://docs.microsoft.com/en-us/cpp/build/reference/filetracker).
 - **There’s an Old \_agp_bindings.pyd or a Naming Conflict**
 
-  Sometimes you can end up with two .pyd files or an out-of-date file in `agp_bindings`. This can confuse Python or Maturin. If you see multiple \_agp_bindings.cpXYZ-win_amd64.pyd files, remove the duplicates.
+  Sometimes you can end up with two .pyd files or an out-of-date file in
+  `agp_bindings`. This can confuse Python or Maturin. If you see multiple
+  \_agp_bindings.cpXYZ-win_amd64.pyd files, remove the duplicates.

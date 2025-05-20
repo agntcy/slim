@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/test/bufconn"
@@ -48,20 +49,54 @@ func (s *fakeServer) OpenControlChannel(
 	stream grpcapi.ControllerService_OpenControlChannelServer,
 ) error {
 	msg, err := stream.Recv()
-	if err == io.EOF { //nolint:errorlint
-		return nil
-	}
 	if err != nil {
 		return err
 	}
+	switch msg.Payload.(type) {
+	case *grpcapi.ControlMessage_ConfigCommand:
+		reply := &grpcapi.ControlMessage{
+			MessageId: "ack-for-" + msg.MessageId,
+			Payload: &grpcapi.ControlMessage_Ack{Ack: &grpcapi.Ack{
+				OriginalMessageId: msg.MessageId,
+				Success:           true,
+			}},
+		}
+		if err := stream.Send(reply); err != nil {
+			return err
+		}
+	case *grpcapi.ControlMessage_SubscriptionListRequest:
+		entries := []*grpcapi.SubscriptionEntry{
+			{
+				Company:             "org1",
+				Namespace:           "ns1",
+				AgentName:           "alice",
+				AgentId:             &wrapperspb.UInt64Value{Value: 42},
+				LocalConnectionIds:  []uint64{1},
+				RemoteConnectionIds: []uint64{2},
+			},
+			{
+				Company:             "org2",
+				Namespace:           "ns2",
+				AgentName:           "bob",
+				AgentId:             &wrapperspb.UInt64Value{Value: 7},
+				LocalConnectionIds:  []uint64{},
+				RemoteConnectionIds: []uint64{3},
+			},
+		}
+		resp := &grpcapi.ControlMessage{
+			MessageId: uuid.NewString(),
+			Payload: &grpcapi.ControlMessage_SubscriptionListResponse{
+				SubscriptionListResponse: &grpcapi.SubscriptionListResponse{
+					Entries: entries,
+				},
+			},
+		}
+		if err := stream.Send(resp); err != nil {
+			return err
+		}
+	}
 
-	return stream.Send(&grpcapi.ControlMessage{
-		MessageId: "ack-for-" + msg.MessageId,
-		Payload: &grpcapi.ControlMessage_Ack{Ack: &grpcapi.Ack{
-			OriginalMessageId: msg.MessageId,
-			Success:           true,
-		}},
-	})
+	return nil
 }
 
 func TestSendConfigMessage(t *testing.T) {
@@ -143,5 +178,95 @@ func TestSendConfigMessage(t *testing.T) {
 			"expected io.EOF after receiving ACK (server should close), got err: %v",
 			err,
 		)
+	}
+}
+
+func TestListSubscriptions(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	conn, err := grpc.NewClient(
+		"passthrough://bufnet",
+		grpc.WithContextDialer(bufDialer),
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+	)
+	if err != nil {
+		t.Fatalf("grpc.NewClient failed: %v", err)
+	}
+	defer conn.Close()
+
+	client := grpcapi.NewControllerServiceClient(conn)
+
+	stream, err := client.OpenControlChannel(ctx)
+	if err != nil {
+		t.Fatalf("client.OpenControlChannel failed: %v", err)
+	}
+
+	msg := &grpcapi.ControlMessage{
+		MessageId: uuid.NewString(),
+		Payload:   &grpcapi.ControlMessage_SubscriptionListRequest{},
+	}
+
+	if err = stream.Send(msg); err != nil {
+		t.Fatalf("stream.Send failed: %v", err)
+	}
+
+	var received []*grpcapi.SubscriptionEntry
+	for {
+		resp, err := stream.Recv()
+		if err == io.EOF { //nolint:errorlint
+			break
+		}
+		if err != nil {
+			t.Fatalf("stream.Recv failed: %v", err)
+		}
+
+		if listResp := resp.GetSubscriptionListResponse(); listResp != nil {
+			received = append(received, listResp.Entries...)
+		}
+	}
+
+	if len(received) != 2 {
+		t.Fatalf("expected 2 entries, got %d", len(received))
+	}
+
+	e1 := received[0]
+	if e1.Company != "org1" {
+		t.Errorf("expected Company 'org1', got '%s'", e1.Company)
+	}
+	if e1.Namespace != "ns1" {
+		t.Errorf("expected Namespace 'ns1', got '%s'", e1.Namespace)
+	}
+	if e1.AgentName != "alice" {
+		t.Errorf("expected AgentName 'alice', got '%s'", e1.AgentName)
+	}
+	if e1.AgentId.GetValue() != 42 {
+		t.Errorf("expected AgentId 42, got %d", e1.AgentId.GetValue())
+	}
+	if len(e1.LocalConnectionIds) != 1 || e1.LocalConnectionIds[0] != 1 {
+		t.Errorf("expected LocalConnectionIds [1], got %v", e1.LocalConnectionIds)
+	}
+	if len(e1.RemoteConnectionIds) != 1 || e1.RemoteConnectionIds[0] != 2 {
+		t.Errorf("expected RemoteConnectionIds [2], got %v", e1.RemoteConnectionIds)
+	}
+
+	e2 := received[1]
+	if e2.Company != "org2" {
+		t.Errorf("expected Company 'org2', got '%s'", e2.Company)
+	}
+	if e2.Namespace != "ns2" {
+		t.Errorf("expected Namespace 'ns2', got '%s'", e2.Namespace)
+	}
+	if e2.AgentName != "bob" {
+		t.Errorf("expected AgentName 'bob', got '%s'", e2.AgentName)
+	}
+	if e2.AgentId.GetValue() != 7 {
+		t.Errorf("expected AgentId 7, got %d", e2.AgentId.GetValue())
+	}
+	if len(e2.LocalConnectionIds) != 0 {
+		t.Errorf("expected LocalConnectionIds [], got %v", e2.LocalConnectionIds)
+	}
+	if len(e2.RemoteConnectionIds) != 1 || e2.RemoteConnectionIds[0] != 3 {
+		t.Errorf("expected RemoteConnectionIds [3], got %v", e2.RemoteConnectionIds)
 	}
 }

@@ -26,6 +26,7 @@ use crate::pubsub::proto::pubsub::v1::message::MessageType::Subscribe as Subscri
 use crate::pubsub::proto::pubsub::v1::message::MessageType::Unsubscribe as UnsubscribeType;
 use crate::pubsub::proto::pubsub::v1::pub_sub_service_client::PubSubServiceClient;
 use crate::pubsub::proto::pubsub::v1::{Message, pub_sub_service_server::PubSubService};
+use crate::tables::subscription_table::SubscriptionTableImpl;
 
 // Implementation based on: https://docs.rs/opentelemetry-tonic/latest/src/opentelemetry_tonic/lib.rs.html#1-134
 struct MetadataExtractor<'a>(&'a std::collections::HashMap<String, String>);
@@ -771,6 +772,10 @@ impl MessageProcessor {
 
             err = err.source()?;
         }
+    }
+
+    pub fn subscription_table(&self) -> &SubscriptionTableImpl {
+        &self.internal.forwarder.subscription_table
     }
 }
 

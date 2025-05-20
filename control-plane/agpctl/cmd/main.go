@@ -61,7 +61,11 @@ func initConfig(opts *options.CommonOptions, flagSet *pflag.FlagSet) error {
 	}
 
 	envOpts := env.Provider("AGPCTL_", ".", func(s string) string {
-		return strings.ReplaceAll(strings.ToLower(strings.TrimPrefix(s, "AGPCTL_")), "_", ".")
+		return strings.ReplaceAll(
+			strings.ToLower(strings.TrimPrefix(s, "AGPCTL_")),
+			"_",
+			".",
+		)
 	})
 	if err := k.Load(envOpts, nil); err != nil {
 		return fmt.Errorf("error loading env: %w", err)
