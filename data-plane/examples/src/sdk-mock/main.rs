@@ -83,7 +83,7 @@ async fn main() {
         let res = svc
             .create_session(
                 &agent_name,
-                SessionConfig::FireAndForget(FireAndForgetConfiguration {}),
+                SessionConfig::FireAndForget(FireAndForgetConfiguration::default()),
             )
             .await;
         if res.is_err() {
