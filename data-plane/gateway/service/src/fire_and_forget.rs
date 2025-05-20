@@ -388,7 +388,7 @@ mod tests {
             &Agent::from_strings("cisco", "default", "local_agent", 0),
             &AgentType::from_strings("cisco", "default", "remote_agent"),
             Some(0),
-            None,
+            Some(AgpHeaderFlags::default().with_incoming_conn(0)),
             "msg",
             vec![0x1, 0x2, 0x3, 0x4],
         );
@@ -518,7 +518,7 @@ mod tests {
             &Agent::from_strings("cisco", "default", "local_agent", 0),
             &AgentType::from_strings("cisco", "default", "remote_agent"),
             Some(0),
-            None,
+            Some(AgpHeaderFlags::default().with_incoming_conn(0)),
             "msg",
             vec![0x1, 0x2, 0x3, 0x4],
         );
@@ -581,7 +581,7 @@ mod tests {
         assert_eq!(header.header_type, SessionHeaderType::FnfAck.into());
 
         // Check that the ack is sent back to the sender
-        assert_eq!(ack.get_source(), ack.get_name_as_agent());
+        assert_eq!(message.get_source(), ack.get_name_as_agent());
 
         // deliver the ack to the sender
         let res = session_sender
