@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.4](https://github.com/agntcy/agp/compare/agp-bindings-v0.3.3...agp-bindings-v0.3.4) (2025-05-20)
+
+
+### Bug Fixes
+
+* **fire-and-forget:** send the ack back to the source ([#273](https://github.com/agntcy/agp/issues/273)) ([d39f80b](https://github.com/agntcy/agp/commit/d39f80b98181dbaa466b2db55c870c1e3a0e5568))
+
 ## [0.3.3](https://github.com/agntcy/agp/compare/agp-bindings-v0.3.2...agp-bindings-v0.3.3) (2025-05-20)
 
 
