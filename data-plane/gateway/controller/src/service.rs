@@ -13,8 +13,9 @@ use tonic::codegen::{Body, StdError};
 use tonic::{Request, Response, Status};
 use tracing::{debug, error, info};
 
+use crate::api::proto::api::v1::SubscriptionListResponse;
 use crate::api::proto::api::v1::{
-    Ack, ControlMessage, controller_service_client::ControllerServiceClient,
+    Ack, ControlMessage, SubscriptionEntry, controller_service_client::ControllerServiceClient,
     controller_service_server::ControllerService as GrpcControllerService,
 };
 use crate::errors::ControllerError;
@@ -24,6 +25,7 @@ use agp_datapath::message_processing::MessageProcessor;
 use agp_datapath::messages::utils::AgpHeaderFlags;
 use agp_datapath::messages::{Agent, AgentType};
 use agp_datapath::pubsub::proto::pubsub::v1::Message as PubsubMessage;
+use agp_datapath::tables::SubscriptionTable;
 
 #[derive(Debug, Clone)]
 pub struct ControllerService {
@@ -46,7 +48,7 @@ impl ControllerService {
         }
     }
 
-    async fn handle_new_message(
+    async fn handle_new_control_message(
         &self,
         msg: ControlMessage,
         tx: mpsc::Sender<Result<ControlMessage, Status>>,
@@ -132,7 +134,7 @@ impl ControllerService {
                                 Some(AgpHeaderFlags::default().with_recv_from(conn)),
                             );
 
-                            if let Err(e) = self.send_message(msg).await {
+                            if let Err(e) = self.send_control_message(msg).await {
                                 error!("failed to subscribe: {}", e);
                             }
                         }
@@ -168,7 +170,7 @@ impl ControllerService {
                                 Some(AgpHeaderFlags::default().with_recv_from(conn)),
                             );
 
-                            if let Err(e) = self.send_message(msg).await {
+                            if let Err(e) = self.send_control_message(msg).await {
                                 error!("failed to unsubscribe: {}", e);
                             }
                         }
@@ -190,8 +192,46 @@ impl ControllerService {
                             eprintln!("failed to send ACK: {}", e);
                         }
                     }
+                    crate::api::proto::api::v1::control_message::Payload::SubscriptionListRequest(_) => {
+                        const CHUNK_SIZE: usize = 100;
+
+                        let mut entries = Vec::new();
+                        self
+                            .message_processor
+                            .subscription_table()
+                            .for_each(|agent_type, agent_id, local, remote| {
+                                entries.push(SubscriptionEntry {
+                                    company:            agent_type.organization_string().unwrap_or_else(|| agent_type.organization().to_string()),
+                                    namespace:          agent_type.namespace_string().unwrap_or_else(|| agent_type.namespace().to_string()),
+                                    agent_name:         agent_type.agent_type_string().unwrap_or_else(|| agent_type.agent_type().to_string()),
+                                    agent_id:           Some(agent_id),
+                                    local_connection_ids:  local.to_vec(),
+                                    remote_connection_ids: remote.to_vec(),
+                                });
+                            });
+
+                        for chunk in entries.chunks(CHUNK_SIZE) {
+                            let resp = ControlMessage {
+                                message_id: uuid::Uuid::new_v4().to_string(),
+                                payload: Some(
+                                    crate::api::proto::api::v1::control_message::Payload::SubscriptionListResponse(
+                                        SubscriptionListResponse {
+                                            entries: chunk.to_vec(),
+                                        }
+                                    )
+                                ),
+                            };
+
+                            if let Err(e) = tx.try_send(Ok(resp)) {
+                                error!("failed to send subscription batch: {}", e);
+                            }
+                        }
+                    }
                     crate::api::proto::api::v1::control_message::Payload::Ack(_ack) => {
                         // received an ack, do nothing - this should not happen
+                    }
+                    crate::api::proto::api::v1::control_message::Payload::SubscriptionListResponse(_) => {
+                        // received a subscription list response, do nothing - this should not happen
                     }
                 }
             }
@@ -206,7 +246,7 @@ impl ControllerService {
         Ok(())
     }
 
-    async fn send_message(&self, msg: PubsubMessage) -> Result<(), ControllerError> {
+    async fn send_control_message(&self, msg: PubsubMessage) -> Result<(), ControllerError> {
         let sender = self.tx_gw.get_or_init(|| {
             let (_, tx_gw, _) = self.message_processor.register_local_connection();
             tx_gw
@@ -218,7 +258,7 @@ impl ControllerService {
         })
     }
 
-    async fn process_stream(
+    async fn process_control_message_stream(
         &self,
         cancellation_token: CancellationToken,
         mut stream: impl Stream<Item = Result<ControlMessage, Status>> + Unpin + Send + 'static,
@@ -233,7 +273,7 @@ impl ControllerService {
                     next = stream.next() => {
                         match next {
                             Some(Ok(msg)) => {
-                                if let Err(e) = svc.handle_new_message(msg, tx.clone()).await {
+                                if let Err(e) = svc.handle_new_control_message(msg, tx.clone()).await {
                                     error!("error processing incoming control message: {:?}", e);
                                 }
                             }
@@ -284,7 +324,11 @@ impl ControllerService {
             match client.open_control_channel(Request::new(out_stream)).await {
                 Ok(stream) => {
                     let ret = self
-                        .process_stream(CancellationToken::new(), stream.into_inner(), tx)
+                        .process_control_message_stream(
+                            CancellationToken::new(),
+                            stream.into_inner(),
+                            tx,
+                        )
                         .await;
                     return Ok(ret);
                 }
@@ -338,7 +382,7 @@ impl GrpcControllerService for ControllerService {
         let stream = request.into_inner();
         let (tx, rx) = mpsc::channel::<Result<ControlMessage, Status>>(128);
 
-        self.process_stream(CancellationToken::new(), stream, tx.clone())
+        self.process_control_message_stream(CancellationToken::new(), stream, tx.clone())
             .await;
 
         let out_stream = ReceiverStream::new(rx);

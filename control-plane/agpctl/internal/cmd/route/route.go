@@ -26,9 +26,60 @@ func NewRouteCmd(opts *options.CommonOptions) *cobra.Command {
 		Long:  `Manage gateway routes`,
 	}
 
+	cmd.AddCommand(newListCmd(opts))
 	cmd.AddCommand(newAddCmd(opts))
 	cmd.AddCommand(newDelCmd(opts))
 
+	return cmd
+}
+
+func newListCmd(opts *options.CommonOptions) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "list",
+		Short: "List routes",
+		Long:  `List routes`,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			msg := &grpcapi.ControlMessage{
+				MessageId: uuid.NewString(),
+				Payload:   &grpcapi.ControlMessage_SubscriptionListRequest{},
+			}
+
+			ctx, cancel := context.WithTimeout(cmd.Context(), opts.Timeout)
+			defer cancel()
+
+			stream, err := controller.OpenControlChannel(ctx, opts)
+			if err != nil {
+				return fmt.Errorf("failed to open control channel: %w", err)
+			}
+
+			if err := stream.Send(msg); err != nil {
+				return fmt.Errorf("failed to send control message: %w", err)
+			}
+
+			if err := stream.CloseSend(); err != nil {
+				return fmt.Errorf("failed to close send: %w", err)
+			}
+
+			for {
+				resp, err := stream.Recv()
+				if err != nil {
+					break
+				}
+
+				if listResp := resp.GetSubscriptionListResponse(); listResp != nil {
+					for _, e := range listResp.Entries {
+						fmt.Printf("%s/%s/%s id=%d local=%v remote=%v\n",
+							e.Company, e.Namespace, e.AgentName,
+							e.AgentId.GetValue(),
+							e.LocalConnectionIds, e.RemoteConnectionIds,
+						)
+					}
+				}
+			}
+
+			return nil
+		},
+	}
 	return cmd
 }
 
@@ -79,7 +130,44 @@ func newAddCmd(opts *options.CommonOptions) *cobra.Command {
 				},
 			}
 
-			return sendConfigMessage(cmd.Context(), opts, msg)
+			ctx, cancel := context.WithTimeout(cmd.Context(), opts.Timeout)
+			defer cancel()
+
+			stream, err := controller.OpenControlChannel(ctx, opts)
+			if err != nil {
+				return fmt.Errorf("failed to open control channel: %w", err)
+			}
+
+			if err = stream.Send(msg); err != nil {
+				return fmt.Errorf("failed to send control message: %w", err)
+			}
+
+			if err = stream.CloseSend(); err != nil {
+				return fmt.Errorf("failed to close send: %w", err)
+			}
+
+			ack, err := stream.Recv()
+			if err != nil {
+				return fmt.Errorf("error receiving ack via stream: %w", err)
+			}
+
+			a := ack.GetAck()
+			if a == nil {
+				return fmt.Errorf("unexpected response type received (not an ACK): %v", ack)
+			}
+
+			fmt.Printf(
+				"ACK received for %s: success=%t\n",
+				a.OriginalMessageId,
+				a.Success,
+			)
+			if len(a.Messages) > 0 {
+				for i, ackMsg := range a.Messages {
+					fmt.Printf("    [%d] %s\n", i+1, ackMsg)
+				}
+			}
+
+			return nil
 		},
 	}
 	return cmd
@@ -132,7 +220,44 @@ func newDelCmd(opts *options.CommonOptions) *cobra.Command {
 				},
 			}
 
-			return sendConfigMessage(cmd.Context(), opts, msg)
+			ctx, cancel := context.WithTimeout(cmd.Context(), opts.Timeout)
+			defer cancel()
+
+			stream, err := controller.OpenControlChannel(ctx, opts)
+			if err != nil {
+				return fmt.Errorf("failed to open control channel: %w", err)
+			}
+
+			if err = stream.Send(msg); err != nil {
+				return fmt.Errorf("failed to send control message: %w", err)
+			}
+
+			if err = stream.CloseSend(); err != nil {
+				return fmt.Errorf("failed to close send: %w", err)
+			}
+
+			ack, err := stream.Recv()
+			if err != nil {
+				return fmt.Errorf("error receiving ack via stream: %w", err)
+			}
+
+			a := ack.GetAck()
+			if a == nil {
+				return fmt.Errorf("unexpected response type received (not an ACK): %v", ack)
+			}
+
+			fmt.Printf(
+				"ACK received for %s: success=%t\n",
+				a.OriginalMessageId,
+				a.Success,
+			)
+			if len(a.Messages) > 0 {
+				for i, ackMsg := range a.Messages {
+					fmt.Printf("    [%d] %s\n", i+1, ackMsg)
+				}
+			}
+
+			return nil
 		},
 	}
 	return cmd
@@ -218,30 +343,4 @@ func parseEndpoint(endpoint string) (*grpcapi.Connection, string, error) {
 	}
 
 	return conn, connID, nil
-}
-
-func sendConfigMessage(
-	ctx context.Context,
-	opts *options.CommonOptions,
-	msg *grpcapi.ControlMessage,
-) error {
-	ack, err := controller.SendConfigMessage(ctx, opts, msg)
-	if err != nil {
-		return fmt.Errorf("failed to send command: %w", err)
-	}
-
-	a := ack.GetAck()
-	if a == nil {
-		return fmt.Errorf("unexpected response type received (not an ACK): %v", ack)
-	}
-
-	fmt.Printf("ACK received for %s: success=%t\n", a.OriginalMessageId, a.Success)
-
-	if len(a.Messages) > 0 {
-		for i, ackMsg := range a.Messages {
-			fmt.Printf("    [%d] %s\n", i+1, ackMsg)
-		}
-	}
-
-	return nil
 }

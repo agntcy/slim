@@ -15,14 +15,10 @@ import (
 	grpcapi "github.com/agntcy/agp/control-plane/agpctl/internal/proto/controller/v1"
 )
 
-func SendConfigMessage(
+func OpenControlChannel(
 	ctx context.Context,
 	opts *options.CommonOptions,
-	msg *grpcapi.ControlMessage,
-) (*grpcapi.ControlMessage, error) {
-	opCtx, cancel := context.WithTimeout(ctx, opts.Timeout)
-	defer cancel()
-
+) (grpcapi.ControllerService_OpenControlChannelClient, error) {
 	var creds credentials.TransportCredentials
 	if opts.TLSInsecure {
 		creds = insecure.NewCredentials()
@@ -39,14 +35,13 @@ func SendConfigMessage(
 		grpc.WithTransportCredentials(creds),
 	)
 	if err != nil {
-		return nil, fmt.Errorf("grpc.NewClient(%s) failed: %w", opts.Server, err)
+		return nil, fmt.Errorf("error connecting to server(%s): %w", opts.Server, err)
 	}
-	defer conn.Close()
 
 	client := grpcapi.NewControllerServiceClient(conn)
-
-	stream, err := client.OpenControlChannel(opCtx)
+	stream, err := client.OpenControlChannel(ctx)
 	if err != nil {
+		conn.Close()
 		return nil, fmt.Errorf(
 			"cannot open control channel to %s: %w",
 			opts.Server,
@@ -54,24 +49,5 @@ func SendConfigMessage(
 		)
 	}
 
-	if err = stream.Send(msg); err != nil {
-		return nil, fmt.Errorf(
-			"cannot send config message via stream: %w",
-			err,
-		)
-	}
-
-	if err = stream.CloseSend(); err != nil {
-		return nil, fmt.Errorf(
-			"cannot send Close via stream: %w",
-			err,
-		)
-	}
-
-	ack, err := stream.Recv()
-	if err != nil {
-		return nil, fmt.Errorf("error receiving ack via stream: %w", err)
-	}
-
-	return ack, nil
+	return stream, nil
 }

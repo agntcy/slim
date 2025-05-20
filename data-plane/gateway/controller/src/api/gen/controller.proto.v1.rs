@@ -3,7 +3,7 @@
 pub struct ControlMessage {
     #[prost(string, tag = "1")]
     pub message_id: ::prost::alloc::string::String,
-    #[prost(oneof = "control_message::Payload", tags = "2, 3")]
+    #[prost(oneof = "control_message::Payload", tags = "2, 3, 4, 5")]
     pub payload: ::core::option::Option<control_message::Payload>,
 }
 /// Nested message and enum types in `ControlMessage`.
@@ -14,6 +14,10 @@ pub mod control_message {
         ConfigCommand(super::ConfigurationCommand),
         #[prost(message, tag = "3")]
         Ack(super::Ack),
+        #[prost(message, tag = "4")]
+        SubscriptionListRequest(super::SubscriptionListRequest),
+        #[prost(message, tag = "5")]
+        SubscriptionListResponse(super::SubscriptionListResponse),
     }
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -55,6 +59,28 @@ pub struct Ack {
     pub success: bool,
     #[prost(string, repeated, tag = "3")]
     pub messages: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+}
+#[derive(Clone, Copy, PartialEq, ::prost::Message)]
+pub struct SubscriptionListRequest {}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct SubscriptionListResponse {
+    #[prost(message, repeated, tag = "1")]
+    pub entries: ::prost::alloc::vec::Vec<SubscriptionEntry>,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct SubscriptionEntry {
+    #[prost(string, tag = "1")]
+    pub company: ::prost::alloc::string::String,
+    #[prost(string, tag = "2")]
+    pub namespace: ::prost::alloc::string::String,
+    #[prost(string, tag = "3")]
+    pub agent_name: ::prost::alloc::string::String,
+    #[prost(message, optional, tag = "4")]
+    pub agent_id: ::core::option::Option<u64>,
+    #[prost(uint64, repeated, tag = "5")]
+    pub local_connection_ids: ::prost::alloc::vec::Vec<u64>,
+    #[prost(uint64, repeated, tag = "6")]
+    pub remote_connection_ids: ::prost::alloc::vec::Vec<u64>,
 }
 /// Generated client implementations.
 pub mod controller_service_client {

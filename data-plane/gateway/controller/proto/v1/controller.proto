@@ -18,6 +18,8 @@ message ControlMessage {
   oneof payload {
     ConfigurationCommand config_command = 2;
     Ack ack = 3;
+    SubscriptionListRequest  subscription_list_request = 4;
+    SubscriptionListResponse subscription_list_response = 5;
   }
 }
 
@@ -45,4 +47,19 @@ message Ack {
   string original_message_id = 1;
   bool success = 2;
   repeated string messages = 3;
+}
+
+message SubscriptionListRequest {}
+
+message SubscriptionListResponse {
+  repeated SubscriptionEntry entries = 1;
+}
+
+message SubscriptionEntry {
+  string company = 1;
+  string namespace = 2;
+  string agent_name = 3;
+  google.protobuf.UInt64Value agent_id = 4;
+  repeated uint64 local_connection_ids  = 5;
+  repeated uint64 remote_connection_ids = 6;
 }
