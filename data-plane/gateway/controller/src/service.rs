@@ -329,13 +329,9 @@ impl ControllerService {
         let mut i = 0;
         while i < max_retry {
             let (tx, rx) = mpsc::channel::<Result<ControlMessage, Status>>(128);
-            let stream =
-                ReceiverStream::new(rx).map(|res| res.expect("mapping error"));
+            let out_stream = ReceiverStream::new(rx).map(|res| res.expect("mapping error"));
 
-            match client
-                .open_control_channel(Request::new(stream))
-                .await
-            {
+            match client.open_control_channel(Request::new(out_stream)).await {
                 Ok(stream) => {
                     let ret = self
                         .process_control_message_stream(

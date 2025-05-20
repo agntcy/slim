@@ -19,8 +19,6 @@ func OpenControlChannel(
 	ctx context.Context,
 	opts *options.CommonOptions,
 ) (grpcapi.ControllerService_OpenControlChannelClient, error) {
-	opCtx, _ := context.WithTimeout(ctx, opts.Timeout)
-
 	var creds credentials.TransportCredentials
 	if opts.TLSInsecure {
 		creds = insecure.NewCredentials()
@@ -41,7 +39,7 @@ func OpenControlChannel(
 	}
 
 	client := grpcapi.NewControllerServiceClient(conn)
-	stream, err := client.OpenControlChannel(opCtx)
+	stream, err := client.OpenControlChannel(ctx)
 	if err != nil {
 		conn.Close()
 		return nil, fmt.Errorf(

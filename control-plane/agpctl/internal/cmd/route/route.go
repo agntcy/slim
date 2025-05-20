@@ -4,6 +4,7 @@
 package route
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"strconv"
@@ -43,7 +44,10 @@ func newListCmd(opts *options.CommonOptions) *cobra.Command {
 				Payload:   &grpcapi.ControlMessage_SubscriptionListRequest{},
 			}
 
-			stream, err := controller.OpenControlChannel(cmd.Context(), opts)
+			ctx, cancel := context.WithTimeout(cmd.Context(), opts.Timeout)
+			defer cancel()
+
+			stream, err := controller.OpenControlChannel(ctx, opts)
 			if err != nil {
 				return fmt.Errorf("failed to open control channel: %w", err)
 			}
@@ -126,7 +130,10 @@ func newAddCmd(opts *options.CommonOptions) *cobra.Command {
 				},
 			}
 
-			stream, err := controller.OpenControlChannel(cmd.Context(), opts)
+			ctx, cancel := context.WithTimeout(cmd.Context(), opts.Timeout)
+			defer cancel()
+
+			stream, err := controller.OpenControlChannel(ctx, opts)
 			if err != nil {
 				return fmt.Errorf("failed to open control channel: %w", err)
 			}
@@ -213,7 +220,10 @@ func newDelCmd(opts *options.CommonOptions) *cobra.Command {
 				},
 			}
 
-			stream, err := controller.OpenControlChannel(cmd.Context(), opts)
+			ctx, cancel := context.WithTimeout(cmd.Context(), opts.Timeout)
+			defer cancel()
+
+			stream, err := controller.OpenControlChannel(ctx, opts)
 			if err != nil {
 				return fmt.Errorf("failed to open control channel: %w", err)
 			}
