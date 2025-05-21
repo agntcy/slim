@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.4](https://github.com/agntcy/agp/compare/agp-mcp-v0.1.3...agp-mcp-v0.1.4) (2025-05-21)
+
+
+### Features
+
+* **agp-mcp:** use reliable fire and forget ([#275](https://github.com/agntcy/agp/issues/275)) ([e609e69](https://github.com/agntcy/agp/commit/e609e696a2f2e28bfebe1d88ee4bc2f48013a6cb))
+
 ## [0.1.3](https://github.com/agntcy/agp/compare/agp-mcp-v0.1.2...agp-mcp-v0.1.3) (2025-05-14)
 
 

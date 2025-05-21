@@ -6,7 +6,7 @@ build-backend = "hatchling.build"
 name = "agp-mcp"
 description = "Model Context Protocol with AGP as transport"
 readme = "README.md"
-version = "0.1.3"
+version = "0.1.4"
 requires-python = ">=3.10, <4.0"
 license = "Apache-2.0"
 classifiers = [
