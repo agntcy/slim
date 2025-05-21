@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import asyncio
+import datetime
 import logging
 import random
 import sys
@@ -24,6 +25,8 @@ class AGPServer(AGPBase):
         local_organization: str,
         local_namespace: str,
         local_agent: str,
+        message_timeout: datetime.timedelta = datetime.timedelta(seconds=15),
+        message_retries: int = 2,
     ):
         """
         AGP transport Server for MCP (Model Context Protocol) communication.

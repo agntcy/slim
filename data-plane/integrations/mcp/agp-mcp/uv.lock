@@ -11,25 +11,25 @@ members = [
 
 [[package]]
 name = "agp-bindings"
-version = "0.3.1"
+version = "0.3.4"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/94/d4/a9ea7ac4b5b25b8530d6cec8fd2682fb0b9cd24cd657883d9d4999ff55bb/agp_bindings-0.3.1.tar.gz", hash = "sha256:c80bd643c199600106be31f9dd7006401cce8671165f3c4899787010e80a1a27", size = 187760, upload_time = "2025-05-14T08:06:19.661Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/3f/6d/55c81e0877e43fb5d7a2ad09fdaa018504d2e22a3ebb066ac872f6829623/agp_bindings-0.3.4.tar.gz", hash = "sha256:0c90a9aaa81b2de12a8196c91fe646826e259d6f34e321124e4a9d54cef338b8", size = 193052, upload_time = "2025-05-20T18:35:42.785Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/93/a0/b9aa64a7fabc854f49acb57a0d208ce0e46ca6b3da15e8d3afe1894a27cb/agp_bindings-0.3.1-cp312-cp312-macosx_10_12_x86_64.whl", hash = "sha256:08a6decda96d4222d1edd8717f5bdb534d59889011855f9f89c5853557eaa7df", size = 5818293, upload_time = "2025-05-14T08:05:54.185Z" },
-    { url = "https://files.pythonhosted.org/packages/fb/1f/dcbc4eeb57ea8cfde53013a52947e279c4af39b5e3cc0ff5110117457bba/agp_bindings-0.3.1-cp312-cp312-macosx_11_0_arm64.whl", hash = "sha256:05c730c325e43e71080efc0981e1fa39157b6411154974a36b1ef2372beb8c57", size = 5579181, upload_time = "2025-05-14T08:05:55.734Z" },
-    { url = "https://files.pythonhosted.org/packages/ae/69/f01f8c2ae21edbf95bbc4fc40075a191286d0b868d03b2031a9afe05096f/agp_bindings-0.3.1-cp312-cp312-manylinux_2_34_aarch64.whl", hash = "sha256:aa27a8077debb6ea1aec6cf4898d11dfb598b490ef249e7ee3d90d39d15041ba", size = 6105510, upload_time = "2025-05-14T08:05:57.138Z" },
-    { url = "https://files.pythonhosted.org/packages/56/22/f2a3ea472b78b6df1d405bc6a55df81ff67b44eb2c7975f9da393f2542ca/agp_bindings-0.3.1-cp312-cp312-manylinux_2_34_x86_64.whl", hash = "sha256:6cd7d3d3ce67ba18602fc66ea8cdc22f6809b6f8b3b652d28625e193202ca700", size = 6298903, upload_time = "2025-05-14T08:05:58.657Z" },
-    { url = "https://files.pythonhosted.org/packages/93/5b/0457c23d71b36f697d501718b69e44f0204649ae9d5957c1be8c847644b6/agp_bindings-0.3.1-cp312-cp312-win_amd64.whl", hash = "sha256:ceaa3b2234613b5db9d2717f38aeb028d989db51a87ce04c09255d21a7dc6ba9", size = 4879639, upload_time = "2025-05-14T08:06:00.743Z" },
-    { url = "https://files.pythonhosted.org/packages/07/31/26b1356d568fc28477ad10703cb173c80c7f259c1b6051bdad06a37b5822/agp_bindings-0.3.1-cp313-cp313-macosx_10_12_x86_64.whl", hash = "sha256:75f3bcdd04e49a292012e376ff555c71e8b96d2a5b3faff40a40179eca1967e1", size = 5817871, upload_time = "2025-05-14T08:06:03.019Z" },
-    { url = "https://files.pythonhosted.org/packages/46/6f/634c1cd89861ffc4fbe7e3871064c05bff8ac76d888134e892b203869f34/agp_bindings-0.3.1-cp313-cp313-macosx_11_0_arm64.whl", hash = "sha256:6d7ad2eef24367773451133dd6966e8ce58256d3c74d86801eaf1fcfc2e1dfaf", size = 5577910, upload_time = "2025-05-14T08:06:04.894Z" },
-    { url = "https://files.pythonhosted.org/packages/ac/a2/91732599666d998437c437b47b10b50914e4b5b07013ef850d5344d8d69b/agp_bindings-0.3.1-cp313-cp313-manylinux_2_34_aarch64.whl", hash = "sha256:ddeac3c883c2dc382ba16cf80abd715a4bfab64bab08fb3857bb87dac256b054", size = 6106827, upload_time = "2025-05-14T08:06:06.359Z" },
-    { url = "https://files.pythonhosted.org/packages/82/56/3cf4cfd6abbd731c474a91253d71c6228bd84d9fb80ee3cb005b0a194358/agp_bindings-0.3.1-cp313-cp313-manylinux_2_34_x86_64.whl", hash = "sha256:4a49b1f971dfd1c6a34c28a02481b400945a7394d9983d5f59068604db73adaa", size = 6297605, upload_time = "2025-05-14T08:06:07.85Z" },
-    { url = "https://files.pythonhosted.org/packages/6e/7b/0fee3bf0928645be34e34b4d2edaea51f976652e447a2635415409d09248/agp_bindings-0.3.1-cp313-cp313-win_amd64.whl", hash = "sha256:3cf2cf0b915357fe5266d77f51614b788f11701d8a5e6b7243905e706adf1151", size = 4878991, upload_time = "2025-05-14T08:06:09.893Z" },
+    { url = "https://files.pythonhosted.org/packages/35/36/45df935a60043f6f3d7fb59aa33284fa7fb9e9183166b7ca4ff7bab37535/agp_bindings-0.3.4-cp312-cp312-macosx_10_12_x86_64.whl", hash = "sha256:a93925364806378efca5f7aa1e549bd9a58913fc4ff9576a71986e7b3217b26a", size = 5835951, upload_time = "2025-05-20T18:35:15.934Z" },
+    { url = "https://files.pythonhosted.org/packages/c7/85/140505727e7aed879f6ea75b6d8e3d34dd7c032f92abdf60c357aee670c9/agp_bindings-0.3.4-cp312-cp312-macosx_11_0_arm64.whl", hash = "sha256:5637870a28a74227c6ade44fcdf81c4cad6868d84ffc267faf7d45ab4bf44047", size = 5597198, upload_time = "2025-05-20T18:35:18.343Z" },
+    { url = "https://files.pythonhosted.org/packages/8e/2d/dcfcabf1c16adb038d226e2036a5392eee15e0995fcf426bccf33bd28a17/agp_bindings-0.3.4-cp312-cp312-manylinux_2_34_aarch64.whl", hash = "sha256:7471efd5540c6a50823bceccb9f91e83e1f9e1315452aa920743bef6c9b7cf73", size = 6132981, upload_time = "2025-05-20T18:35:20.75Z" },
+    { url = "https://files.pythonhosted.org/packages/97/13/5a1522363b93e849488183df2e13dc8205630de6dfd61164b4612d7e9905/agp_bindings-0.3.4-cp312-cp312-manylinux_2_34_x86_64.whl", hash = "sha256:d2922ee61fe3893bb5413fc5ecf88ae196ba13fef42728381c477cb873646196", size = 6320311, upload_time = "2025-05-20T18:35:23.123Z" },
+    { url = "https://files.pythonhosted.org/packages/e0/81/ae7c33416810b8a6cd9cfa7510e1fe98c0dbd931707654447044aab00e0d/agp_bindings-0.3.4-cp312-cp312-win_amd64.whl", hash = "sha256:8439b82abda1683c917a848a959adb27be1e0bbea85b80dd1ddb89824a281411", size = 4916536, upload_time = "2025-05-20T18:35:25.476Z" },
+    { url = "https://files.pythonhosted.org/packages/2f/c9/d6aaadb085052b837b79dd6fc9eb34f5d279fe8f2174cfa8217b971b11b5/agp_bindings-0.3.4-cp313-cp313-macosx_10_12_x86_64.whl", hash = "sha256:7f4999433d20ba53ae53f8f1c6fbc68a5ae8e0c0803e81cc682221d70312b50b", size = 5833860, upload_time = "2025-05-20T18:35:26.873Z" },
+    { url = "https://files.pythonhosted.org/packages/8e/b4/193951760b0dae280d1de7caab73caaccd9758da227d6e3b48980e490fbd/agp_bindings-0.3.4-cp313-cp313-macosx_11_0_arm64.whl", hash = "sha256:b5d2b4e669e882d51b5e15f8055023ad0f3ac6b0e176cd169652ea1a17c59159", size = 5595090, upload_time = "2025-05-20T18:35:28.244Z" },
+    { url = "https://files.pythonhosted.org/packages/b6/46/5ae65af28e902ec38406fe06dbb6f2efbb419b58bca99fe1e2ed13817673/agp_bindings-0.3.4-cp313-cp313-manylinux_2_34_aarch64.whl", hash = "sha256:4d67bdfc23cfcc6e87d22fd3ef5f4d4b658768de851d847f55ac85c8b6b49cd0", size = 6130108, upload_time = "2025-05-20T18:35:29.667Z" },
+    { url = "https://files.pythonhosted.org/packages/1a/ed/e38ab6fabb2daf89215969c94461843195d03c8d9551d9470b870262131f/agp_bindings-0.3.4-cp313-cp313-manylinux_2_34_x86_64.whl", hash = "sha256:99fad0a122955638b4517188cfc4fee7a19d0f996677a46de3edc7829bca4d85", size = 6319068, upload_time = "2025-05-20T18:35:31.088Z" },
+    { url = "https://files.pythonhosted.org/packages/cb/cc/d435355ab084de54610e337b24c582d4e9eec8e426a685b4b2229ca226b5/agp_bindings-0.3.4-cp313-cp313-win_amd64.whl", hash = "sha256:04f6603bceca9c31a87d04ad92b45aa98d3bbd0b3c9b3fac7218475e6d67a06b", size = 4915898, upload_time = "2025-05-20T18:35:32.465Z" },
 ]
 
 [[package]]
 name = "agp-mcp"
-version = "0.1.1"
+version = "0.1.3"
 source = { editable = "packages/agp-mcp" }
 dependencies = [
     { name = "agp-bindings" },
@@ -51,9 +51,9 @@ testing = [
 
 [package.metadata]
 requires-dist = [
-    { name = "agp-bindings", specifier = ">=0.3.1" },
+    { name = "agp-bindings", specifier = ">=0.3.4" },
     { name = "anyio", specifier = ">=4.5" },
-    { name = "mcp", specifier = ">=1.6.0" },
+    { name = "mcp", specifier = "==1.6.0" },
 ]
 
 [package.metadata.requires-dev]
