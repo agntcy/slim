@@ -50,5 +50,11 @@ jobs:
     needs: [ release ]
     runs-on: ubuntu-latest
     steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - name: Trigger CSIT integration CI
         uses: ./.github/actions/trigger-integrations
+        with:
+          github-token: ${{ secrets.AGNTCY_BUILD_BOT_GH_TOKEN }}

@@ -4,6 +4,11 @@
 ---
 name: Trigger integrations
 description: Run the integration tests in CSIT repository
+inputs:
+  github-token:
+    description: 'GitHub token'
+    required: false
+    default: ${{ github.token }}
 
 runs:
   using: 'composite'
@@ -27,6 +32,7 @@ runs:
     - name: Trigger integration tests
       uses: actions/github-script@v7
       with:
+        github-token: ${{ inputs.github-token }}
         script: |
           await github.rest.actions.createWorkflowDispatch({
               owner: 'agntcy',
