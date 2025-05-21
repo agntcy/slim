@@ -7,6 +7,7 @@ name: ci-integration-tests
 on:
   push:
     paths:
+      - 'tests/**'
       - 'control-plane/**'
       - 'data-plane/**'
       - '!data-plane/integrations/mcp/**'
@@ -14,6 +15,7 @@ on:
       - main
   pull_request:
     paths:
+      - 'tests/**'
       - 'control-plane/**'
       - 'data-plane/**'
       - '!data-plane/integrations/mcp/**'
