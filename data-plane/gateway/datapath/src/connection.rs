@@ -79,12 +79,12 @@ impl Connection {
     }
 
     /// Get the remote address
-    pub(crate) fn remote_addr(&self) -> Option<&SocketAddr> {
+    pub fn remote_addr(&self) -> Option<&SocketAddr> {
         self.remote_addr.as_ref()
     }
 
     /// Get the local address
-    pub(crate) fn local_addr(&self) -> Option<&SocketAddr> {
+    pub fn local_addr(&self) -> Option<&SocketAddr> {
         self.local_addr.as_ref()
     }
 

@@ -60,6 +60,11 @@ message SubscriptionEntry {
   string namespace = 2;
   string agent_name = 3;
   google.protobuf.UInt64Value agent_id = 4;
-  repeated uint64 local_connection_ids  = 5;
-  repeated uint64 remote_connection_ids = 6;
+  repeated ConnectionEntry local_connections  = 5;
+  repeated ConnectionEntry remote_connections = 6;
+}
+
+message ConnectionEntry {
+  uint64 id  = 1;
+  string name = 2;
 }

@@ -68,10 +68,18 @@ func newListCmd(opts *options.CommonOptions) *cobra.Command {
 
 				if listResp := resp.GetSubscriptionListResponse(); listResp != nil {
 					for _, e := range listResp.Entries {
+						var localNames, remoteNames []string
+						for _, c := range e.LocalConnections {
+							localNames = append(localNames, c.Name)
+						}
+						for _, c := range e.RemoteConnections {
+							remoteNames = append(remoteNames, c.Name)
+						}
+
 						fmt.Printf("%s/%s/%s id=%d local=%v remote=%v\n",
 							e.Company, e.Namespace, e.AgentName,
 							e.AgentId.GetValue(),
-							e.LocalConnectionIds, e.RemoteConnectionIds,
+							localNames, remoteNames,
 						)
 					}
 				}

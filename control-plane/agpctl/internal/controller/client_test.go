@@ -67,20 +67,26 @@ func (s *fakeServer) OpenControlChannel(
 	case *grpcapi.ControlMessage_SubscriptionListRequest:
 		entries := []*grpcapi.SubscriptionEntry{
 			{
-				Company:             "org1",
-				Namespace:           "ns1",
-				AgentName:           "alice",
-				AgentId:             &wrapperspb.UInt64Value{Value: 42},
-				LocalConnectionIds:  []uint64{1},
-				RemoteConnectionIds: []uint64{2},
+				Company:   "org1",
+				Namespace: "ns1",
+				AgentName: "alice",
+				AgentId:   &wrapperspb.UInt64Value{Value: 42},
+				LocalConnections: []*grpcapi.ConnectionEntry{
+					{Id: 1, Name: "local:1"},
+				},
+				RemoteConnections: []*grpcapi.ConnectionEntry{
+					{Id: 2, Name: "remote:unknown:unknown:2"},
+				},
 			},
 			{
-				Company:             "org2",
-				Namespace:           "ns2",
-				AgentName:           "bob",
-				AgentId:             &wrapperspb.UInt64Value{Value: 7},
-				LocalConnectionIds:  []uint64{},
-				RemoteConnectionIds: []uint64{3},
+				Company:          "org2",
+				Namespace:        "ns2",
+				AgentName:        "bob",
+				AgentId:          &wrapperspb.UInt64Value{Value: 7},
+				LocalConnections: []*grpcapi.ConnectionEntry{},
+				RemoteConnections: []*grpcapi.ConnectionEntry{
+					{Id: 3, Name: "remote:unknown:unknown:3"},
+				},
 			},
 		}
 		resp := &grpcapi.ControlMessage{
@@ -243,11 +249,19 @@ func TestListSubscriptions(t *testing.T) {
 	if e1.AgentId.GetValue() != 42 {
 		t.Errorf("expected AgentId 42, got %d", e1.AgentId.GetValue())
 	}
-	if len(e1.LocalConnectionIds) != 1 || e1.LocalConnectionIds[0] != 1 {
-		t.Errorf("expected LocalConnectionIds [1], got %v", e1.LocalConnectionIds)
+	if len(e1.LocalConnections) != 1 {
+		t.Fatalf("expected 1 local connection, got %d", len(e1.LocalConnections))
 	}
-	if len(e1.RemoteConnectionIds) != 1 || e1.RemoteConnectionIds[0] != 2 {
-		t.Errorf("expected RemoteConnectionIds [2], got %v", e1.RemoteConnectionIds)
+	lc := e1.LocalConnections[0]
+	if lc.Id != 1 || lc.Name != "local:1" {
+		t.Errorf("expected local connection {Id:1,Name:local:1}, got %+v", lc)
+	}
+	if len(e1.RemoteConnections) != 1 {
+		t.Fatalf("expected 1 remote connection, got %d", len(e1.RemoteConnections))
+	}
+	rc := e1.RemoteConnections[0]
+	if rc.Id != 2 || rc.Name != "remote:unknown:unknown:2" {
+		t.Errorf("expected remote connection {Id:2,Name:remote:unknown:unknown:2}, got %+v", rc)
 	}
 
 	e2 := received[1]
@@ -263,10 +277,14 @@ func TestListSubscriptions(t *testing.T) {
 	if e2.AgentId.GetValue() != 7 {
 		t.Errorf("expected AgentId 7, got %d", e2.AgentId.GetValue())
 	}
-	if len(e2.LocalConnectionIds) != 0 {
-		t.Errorf("expected LocalConnectionIds [], got %v", e2.LocalConnectionIds)
+	if len(e2.LocalConnections) != 0 {
+		t.Errorf("expected no local connections, got %v", e2.LocalConnections)
 	}
-	if len(e2.RemoteConnectionIds) != 1 || e2.RemoteConnectionIds[0] != 3 {
-		t.Errorf("expected RemoteConnectionIds [3], got %v", e2.RemoteConnectionIds)
+	if len(e2.RemoteConnections) != 1 {
+		t.Fatalf("expected 1 remote connection, got %d", len(e2.RemoteConnections))
+	}
+	rc2 := e2.RemoteConnections[0]
+	if rc2.Id != 3 || rc2.Name != "remote:unknown:unknown:3" {
+		t.Errorf("expected remote connection {Id:3,Name:remote:unknown:unknown:3}, got %+v", rc2)
 	}
 }

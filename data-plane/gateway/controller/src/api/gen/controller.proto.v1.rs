@@ -77,10 +77,17 @@ pub struct SubscriptionEntry {
     pub agent_name: ::prost::alloc::string::String,
     #[prost(message, optional, tag = "4")]
     pub agent_id: ::core::option::Option<u64>,
-    #[prost(uint64, repeated, tag = "5")]
-    pub local_connection_ids: ::prost::alloc::vec::Vec<u64>,
-    #[prost(uint64, repeated, tag = "6")]
-    pub remote_connection_ids: ::prost::alloc::vec::Vec<u64>,
+    #[prost(message, repeated, tag = "5")]
+    pub local_connections: ::prost::alloc::vec::Vec<ConnectionEntry>,
+    #[prost(message, repeated, tag = "6")]
+    pub remote_connections: ::prost::alloc::vec::Vec<ConnectionEntry>,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ConnectionEntry {
+    #[prost(uint64, tag = "1")]
+    pub id: u64,
+    #[prost(string, tag = "2")]
+    pub name: ::prost::alloc::string::String,
 }
 /// Generated client implementations.
 pub mod controller_service_client {

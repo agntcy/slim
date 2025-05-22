@@ -15,7 +15,7 @@ use tracing::{debug, error, info};
 
 use crate::api::proto::api::v1::SubscriptionListResponse;
 use crate::api::proto::api::v1::{
-    Ack, ControlMessage, SubscriptionEntry, controller_service_client::ControllerServiceClient,
+    Ack, ConnectionEntry, ControlMessage, SubscriptionEntry, controller_service_client::ControllerServiceClient,
     controller_service_server::ControllerService as GrpcControllerService,
 };
 use crate::errors::ControllerError;
@@ -195,19 +195,43 @@ impl ControllerService {
                     crate::api::proto::api::v1::control_message::Payload::SubscriptionListRequest(_) => {
                         const CHUNK_SIZE: usize = 100;
 
+                        let conn_table = self.message_processor.connection_table();
                         let mut entries = Vec::new();
+
                         self
                             .message_processor
                             .subscription_table()
                             .for_each(|agent_type, agent_id, local, remote| {
-                                entries.push(SubscriptionEntry {
-                                    company:            agent_type.organization_string().unwrap_or_else(|| agent_type.organization().to_string()),
-                                    namespace:          agent_type.namespace_string().unwrap_or_else(|| agent_type.namespace().to_string()),
-                                    agent_name:         agent_type.agent_type_string().unwrap_or_else(|| agent_type.agent_type().to_string()),
-                                    agent_id:           Some(agent_id),
-                                    local_connection_ids:  local.to_vec(),
-                                    remote_connection_ids: remote.to_vec(),
-                                });
+                                let mut entry = SubscriptionEntry::default();
+                                entry.company = agent_type.organization_string().unwrap_or_else(|| agent_type.organization().to_string());
+                                entry.namespace = agent_type.namespace_string().unwrap_or_else(|| agent_type.organization().to_string());
+                                entry.agent_name = agent_type.agent_type_string().unwrap_or_else(|| agent_type.organization().to_string());
+                                entry.agent_id = Some(agent_id);
+
+                                for &cid in local {
+                                    let name = format!("local:{}", cid);
+                                    entry.local_connections.push(ConnectionEntry { id: cid, name });
+                                }
+
+                                for &cid in remote {
+                                    let name = match conn_table.get(cid as usize) {
+                                        Some(conn) => {
+                                            if let Some(sock) = conn.remote_addr() {
+                                                format!("remote:{}:{}:{}", sock.ip(), sock.port(), cid)
+                                            } else {
+                                                format!("remote:{}", cid)
+                                            }
+                                        }
+                                        None => {
+                                            error!("no connection entry for id {}", cid);
+                                            format!("remote:{}", cid)
+                                        }
+                                    };
+
+                                    entry.remote_connections.push(ConnectionEntry { id: cid, name });
+                                }
+
+                                entries.push(entry);
                             });
 
                         for chunk in entries.chunks(CHUNK_SIZE) {
