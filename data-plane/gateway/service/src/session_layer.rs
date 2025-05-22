@@ -260,7 +260,9 @@ impl SessionLayer {
         }
 
         let new_session_id = match session_type {
-            SessionHeaderType::Fnf | SessionHeaderType::FnfReliable => {
+            SessionHeaderType::Fnf
+            | SessionHeaderType::FnfReliable
+            | SessionHeaderType::FnfDiscovery => {
                 let conf = self.default_ff_conf.read().clone();
                 self.create_session(SessionConfig::FireAndForget(conf), Some(id))
                     .await?

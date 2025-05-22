@@ -85,4 +85,6 @@ pub enum SessionError {
     ConfigurationError(String),
     #[error("message lost: {0}")]
     MessageLost(String),
+    #[error("session closed: {0}")]
+    SessionClosed(String),
 }

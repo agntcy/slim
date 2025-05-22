@@ -212,6 +212,14 @@ impl AgpHeader {
         }
     }
 
+    pub fn set_source(&mut self, source: &Agent) {
+        self.source = Some(ProtoAgent::from(source));
+    }
+
+    pub fn set_destination(&mut self, dst: &Agent) {
+        self.destination = Some(ProtoAgent::from(dst));
+    }
+
     pub fn get_fanout(&self) -> u32 {
         self.fanout
     }

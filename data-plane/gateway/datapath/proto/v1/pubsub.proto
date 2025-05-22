@@ -49,14 +49,16 @@ enum SessionHeaderType {
   FNF = 1;
   FNF_RELIABLE = 2;
   FNF_ACK = 3;
-  REQUEST = 4;
-  REPLY = 5;
-  STREAM = 6;
-  PUB_SUB = 7;
-  RTX_REQUEST = 8;
-  RTX_REPLY = 9;
-  BEACON_STREAM = 10;
-  BEACON_PUB_SUB = 11;
+  FNF_DISCOVERY = 4;
+  FNF_DISCOVERY_REPLY = 5;
+  REQUEST = 6;
+  REPLY = 7;
+  STREAM = 8;
+  PUB_SUB = 9;
+  RTX_REQUEST = 10;
+  RTX_REPLY = 11;
+  BEACON_STREAM = 12;
+  BEACON_PUB_SUB = 13;
 }
 // Session.session_id is the ID of the session
 

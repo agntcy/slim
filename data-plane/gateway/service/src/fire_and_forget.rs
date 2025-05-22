@@ -1,14 +1,16 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 
+use agp_datapath::messages::AgentType;
 use agp_datapath::pubsub::{AgpHeader, SessionHeader};
 use async_trait::async_trait;
-use parking_lot::RwLock;
 use rand::Rng;
-use tracing::debug;
+use tokio::sync::mpsc::{self, Receiver, Sender};
+use tokio_util::sync::CancellationToken;
+use tracing::{debug, error};
 
 use crate::errors::SessionError;
 use crate::session::{
@@ -25,6 +27,7 @@ use agp_datapath::pubsub::proto::pubsub::v1::{Message, SessionHeaderType};
 pub struct FireAndForgetConfiguration {
     pub timeout: Option<std::time::Duration>,
     pub max_retries: Option<u32>,
+    pub sticky: bool,
 }
 
 impl SessionConfigTrait for FireAndForgetConfiguration {
@@ -53,48 +56,79 @@ impl std::fmt::Display for FireAndForgetConfiguration {
     }
 }
 
-/// Fire and Forget session
-pub(crate) struct FireAndForgetInternal {
-    common: Common,
-    timers: RwLock<HashMap<u32, (timer::Timer, SessionMessage)>>,
+#[derive(Debug, Clone, PartialEq, Default)]
+enum StickySessionStatus {
+    #[default]
+    Uninitialized,
+    Discovering,
+    Established,
+    Failed,
+}
+
+/// Message types for internal FireAndForget communication
+enum InternalMessage {
+    OnMessage {
+        message: SessionMessage,
+        direction: MessageDirection,
+    },
+    SetConfig {
+        config: FireAndForgetConfiguration,
+    },
+    TimerTimeout {
+        message_id: u32,
+        timeouts: u32,
+    },
+    TimerFailure {
+        message_id: u32,
+        timeouts: u32,
+    },
+}
+
+struct FireAndForgetState {
+    session_id: u32,
+    source: Agent,
+    tx_app: AppChannelSender,
+    tx_gw: GwChannelSender,
+    config: FireAndForgetConfiguration,
+    timers: HashMap<u32, (timer::Timer, Message)>,
+    sticky_name: Option<Agent>,
+    sticky_session_status: StickySessionStatus,
+    sticky_buffer: VecDeque<Message>,
+}
+
+struct RtxTimerObserver {
+    tx: Sender<InternalMessage>,
+}
+
+/// The internal part of the Fire and Forget session that handles message processing
+struct FireAndForgetProcessor {
+    state: FireAndForgetState,
+    timer_observer: Arc<RtxTimerObserver>,
+    rx: Receiver<InternalMessage>,
+    cancellation_token: CancellationToken,
 }
 
 #[async_trait]
-impl timer::TimerObserver for FireAndForgetInternal {
-    async fn on_timeout(&self, message_id: u32, _timeouts: u32) {
-        // try to send the message again
-        let msg = {
-            let lock = self.timers.read();
-            let (_timer, message) = lock.get(&message_id).expect("timer not found");
-            message.message.clone()
-        };
-
-        let _ = self
-            .common
-            .tx_gw_ref()
-            .send(Ok(msg))
+impl timer::TimerObserver for RtxTimerObserver {
+    async fn on_timeout(&self, message_id: u32, timeouts: u32) {
+        self.tx
+            .send(InternalMessage::TimerTimeout {
+                message_id,
+                timeouts,
+            })
             .await
-            .map_err(|e| SessionError::AppTransmission(e.to_string()));
+            .expect("failed to send timer timeout");
     }
 
-    async fn on_failure(&self, message_id: u32, _timeouts: u32) {
+    async fn on_failure(&self, message_id: u32, timeouts: u32) {
         // remove the state for the lost message
-        let (_timer, message) = self
-            .timers
-            .write()
-            .remove(&message_id)
-            .expect("timer not found");
-
-        let _ = self
-            .common
-            .tx_app_ref()
-            .send(Err(SessionError::Timeout {
-                session_id: self.common.id(),
+        self.tx
+            .send(InternalMessage::TimerFailure {
                 message_id,
-                message: Box::new(message),
-            }))
+                timeouts,
+            })
             .await
-            .map_err(|e| SessionError::AppTransmission(e.to_string()));
+            .expect("failed to send timer failure");
     }
 
     async fn on_stop(&self, message_id: u32) {
@@ -102,114 +136,348 @@ impl timer::TimerObserver for FireAndForgetInternal {
     }
 }
 
-pub(crate) struct FireAndForget {
-    internal: Arc<FireAndForgetInternal>,
-}
-
-impl FireAndForget {
-    pub(crate) fn new(
-        id: Id,
-        session_config: FireAndForgetConfiguration,
-        session_direction: SessionDirection,
-        agent: Agent,
-        tx_gw: GwChannelSender,
-        tx_app: AppChannelSender,
-    ) -> FireAndForget {
-        let internal = FireAndForgetInternal {
-            common: Common::new(
-                id,
-                session_direction,
-                SessionConfig::FireAndForget(session_config),
-                agent,
-                tx_gw,
-                tx_app,
-            ),
-            timers: RwLock::new(HashMap::new()),
-        };
-
-        FireAndForget {
-            internal: Arc::new(internal),
+impl FireAndForgetProcessor {
+    fn new(
+        state: FireAndForgetState,
+        tx: Sender<InternalMessage>,
+        rx: Receiver<InternalMessage>,
+        cancellation_token: CancellationToken,
+    ) -> Self {
+        FireAndForgetProcessor {
+            state,
+            timer_observer: Arc::new(RtxTimerObserver { tx: tx.clone() }),
+            rx,
+            cancellation_token,
         }
     }
 
-    pub(crate) async fn send_message_to_gw(
-        &self,
-        mut message: SessionMessage,
-    ) -> Result<(), SessionError> {
-        let message_id = rand::rng().random();
-        let header = message.message.get_session_header_mut();
-        header.set_message_id(message_id);
-        message.info.set_message_id(message_id);
+    async fn process_loop(mut self) {
+        debug!("Starting FireAndForgetProcessor loop");
 
-        // get session config
-        let session_config = match self.session_config() {
-            SessionConfig::FireAndForget(config) => config,
-            _ => {
-                return Err(SessionError::AppTransmission(
-                    "invalid session config".to_string(),
-                ));
+        loop {
+            tokio::select! {
+                next = self.rx.recv() => {
+                    match next {
+                        Some(message) => match message {
+                            InternalMessage::OnMessage { message, direction } => {
+                                let result = match direction {
+                                    MessageDirection::North => self.handle_message_to_app(message).await,
+                                    MessageDirection::South => self.handle_message_to_gw(message).await,
+                                };
+
+                                if let Err(e) = result {
+                                    error!("error processing message: {}", e);
+                                }
+                            }
+                            InternalMessage::SetConfig { config } => {
+                                debug!("setting fire and forget session config: {}", config);
+                                self.state.config = config;
+                            }
+                            InternalMessage::TimerTimeout {
+                                message_id,
+                                timeouts,
+                            } => {
+                                debug!("timer timeout for message id {}: {}", message_id, timeouts);
+                                self.handle_timer_timeout(message_id).await;
+                            }
+                            InternalMessage::TimerFailure {
+                                message_id,
+                                timeouts,
+                            } => {
+                                debug!("timer failure for message id {}: {}", message_id, timeouts);
+                                self.handle_timer_failure(message_id).await;
+                            }
+                        },
+                        None => {
+                            debug!("ff session {} channel closed", self.state.session_id);
+                            break;
+                        }
+                    }
+                }
+                _ = self.cancellation_token.cancelled() => {
+                    debug!("ff session {} deleted", self.state.session_id);
+                    break;
+                }
             }
-        };
+        }
 
-        // create timer if needed
-        if session_config.timeout.is_some() {
-            header.set_header_type(SessionHeaderType::FnfReliable);
-            let duration = session_config.timeout.unwrap();
+        // Clean up any remaining timers
+        for (_, (mut timer, _)) in self.state.timers.drain() {
+            timer.stop();
+        }
 
+        debug!("FireAndForgetProcessor loop exited");
+    }
+
+    async fn handle_timer_timeout(&mut self, message_id: u32) {
+        // Try to send the message again
+        if let Some((_timer, message)) = self.state.timers.get(&message_id) {
+            let msg = message.clone();
+
+            let _ = self
+                .state
+                .tx_gw
+                .send(Ok(msg))
+                .await
+                .map_err(|e| SessionError::AppTransmission(e.to_string()));
+        }
+    }
+
+    async fn handle_timer_failure(&mut self, message_id: u32) {
+        // Remove the state for the lost message
+        if let Some((_timer, message)) = self.state.timers.remove(&message_id) {
+            let _ = self
+                .state
+                .tx_app
+                .send(Err(SessionError::Timeout {
+                    session_id: self.state.session_id,
+                    message_id,
+                    message: Box::new(SessionMessage::from(message)),
+                }))
+                .await
+                .map_err(|e| SessionError::AppTransmission(e.to_string()));
+        }
+    }
+
+    async fn start_sticky_session_discovery(
+        &mut self,
+        agent_type: &AgentType,
+    ) -> Result<(), SessionError> {
+        debug!("starting sticky session discovery");
+
+        // Create a probe message to discover the sticky session
+        let mut probe_message = Message::new_publish(
+            &self.state.source,
+            agent_type,
+            None,
+            None,
+            "sticky_session_discovery",
+            vec![],
+        );
+
+        let session_header = probe_message.get_session_header_mut();
+        session_header.set_header_type(SessionHeaderType::FnfDiscovery);
+        session_header.set_session_id(self.state.session_id);
+
+        self.state.sticky_session_status = StickySessionStatus::Discovering;
+
+        // Send the probe message to the gateway
+        self.state
+            .tx_gw
+            .send(Ok(probe_message))
+            .await
+            .map_err(|e| SessionError::GatewayTransmission(e.to_string()))
+    }
+
+    async fn handle_sticky_session_discovery(
+        &mut self,
+        message: SessionMessage,
+    ) -> Result<(), SessionError> {
+        // Received a sticky session dicovery message! Let's reply back with a
+        // sticky session discovery reply and set the sticky name!
+
+        let source = message.message.get_source();
+        let mut sticky_session_reply = Message::new_publish(
+            &self.state.source,
+            source.agent_type(),
+            Some(source.agent_id()),
+            Some(AgpHeaderFlags::default().with_forward_to(message.message.get_incoming_conn())),
+            "sticky_session_discovery_reply",
+            vec![],
+        );
+
+        // Set the session header type to FnfDiscoveryReply
+        let session_header = sticky_session_reply.get_session_header_mut();
+        session_header.set_header_type(SessionHeaderType::FnfDiscoveryReply);
+
+        // Let's also make this session sticky
+        self.state.sticky_name = Some(source.clone());
+        self.state.sticky_session_status = StickySessionStatus::Established;
+
+        // Send the sticky session discovery reply to the source
+        self.send_message(sticky_session_reply).await?;
+
+        Ok(())
+    }
+
+    async fn handle_sticky_session_discovery_reply(
+        &mut self,
+        message: SessionMessage,
+    ) -> Result<(), SessionError> {
+        // Check if the sticky session is established
+        let source = message.message.get_source();
+        let status = self.state.sticky_session_status.clone();
+
+        match status {
+            StickySessionStatus::Discovering => {
+                // If we are still discovering, set the sticky name
+                self.state.sticky_name = Some(source.clone());
+                self.state.sticky_session_status = StickySessionStatus::Established;
+
+                // Collect messages first to avoid multiple mutable borrows
+                let messages: Vec<Message> = self.state.sticky_buffer.drain(..).collect();
+
+                // Send all buffered messages to the sticky name
+                for msg in messages {
+                    self.send_message(msg).await?;
+                }
+
+                Ok(())
+            }
+            _ => {
+                // Check if the sticky name is already set, and if it's different from the source
+                if let Some(name) = &self.state.sticky_name {
+                    let message = if name != &source {
+                        format!(
+                            "sticky session already established with a different name: {}, received: {}",
+                            name, source
+                        )
+                    } else {
+                        "sticky session already established".to_string()
+                    };
+
+                    return Err(SessionError::AppTransmission(message));
+                }
+
+                Ok(())
+            }
+        }
+    }
+
+    async fn send_message(&mut self, mut message: Message) -> Result<(), SessionError> {
+        // Set the message id to a random value
+        let message_id = rand::rng().random_range(0..u32::MAX);
+
+        // Get a mutable reference to the message header
+        let header = message.get_session_header_mut();
+
+        // Set the session id and message id
+        header.set_message_id(message_id);
+        header.set_session_id(self.state.session_id);
+
+        // If we have a sticky name, set the destination to the sticky name
+        if let Some(ref name) = self.state.sticky_name {
+            message.get_agp_header_mut().set_destination(name);
+        }
+
+        if let Some(timeout_duration) = self.state.config.timeout {
+            // Create timer
+            let message_id = message.get_id();
             let timer = timer::Timer::new(
                 message_id,
                 timer::TimerType::Constant,
-                duration,
+                timeout_duration,
                 None,
-                session_config.max_retries,
+                self.state.config.max_retries,
             );
 
             // start timer
-            timer.start(self.internal.clone());
+            timer.start(self.timer_observer.clone());
 
-            // store timer and message
-            self.internal
+            // Store timer and message
+            self.state
                 .timers
-                .write()
                 .insert(message_id, (timer, message.clone()));
+        }
+
+        // Send message
+        self.state
+            .tx_gw
+            .send(Ok(message))
+            .await
+            .map_err(|e| SessionError::GatewayTransmission(e.to_string()))
+    }
+
+    pub(crate) async fn handle_message_to_gw(
+        &mut self,
+        mut message: SessionMessage,
+    ) -> Result<(), SessionError> {
+        // If session is sticky, and we have a sticky name, set the destination
+        // to the sticky name
+        if self.state.config.sticky {
+            match self.state.sticky_name {
+                Some(ref name) => {
+                    message.message.get_agp_header_mut().set_destination(name);
+                }
+                None => {
+                    let ret = match self.state.sticky_session_status {
+                        StickySessionStatus::Uninitialized => {
+                            self.start_sticky_session_discovery(
+                                &message.message.get_agp_header().get_dst().0,
+                            )
+                            .await?;
+
+                            self.state.sticky_buffer.push_back(message.message);
+
+                            Ok(())
+                        }
+                        StickySessionStatus::Established => {
+                            // This should not happen, as we should have a sticky name
+                            Err(SessionError::AppTransmission(
+                                "sticky session already established".to_string(),
+                            ))
+                        }
+                        StickySessionStatus::Discovering => {
+                            // Still discovering the sticky session. Store message in a buffer and send it later
+                            // when the sticky session is established
+                            self.state.sticky_buffer.push_back(message.message);
+                            Ok(())
+                        }
+                        StickySessionStatus::Failed => {
+                            // The sticky session failed. We need to send the message to the gateway
+                            // without a sticky name
+                            Err(SessionError::AppTransmission(
+                                "sticky session failed".to_string(),
+                            ))
+                        }
+                    };
+
+                    return ret;
+                }
+            }
+        }
+
+        // Set the session type
+        let header = message.message.get_session_header_mut();
+        if self.state.config.timeout.is_some() {
+            header.set_header_type(SessionHeaderType::FnfReliable);
         } else {
             header.set_header_type(SessionHeaderType::Fnf);
         }
 
-        // send message
-        self.internal
-            .common
-            .tx_gw_ref()
-            .send(Ok(message.message))
-            .await
-            .map_err(|e| SessionError::GatewayTransmission(e.to_string()))?;
-
-        // we are good
-        Ok(())
+        self.send_message(message.message).await
     }
 
-    pub(crate) async fn send_message_to_app(
-        &self,
+    pub(crate) async fn handle_message_to_app(
+        &mut self,
         message: SessionMessage,
     ) -> Result<(), SessionError> {
         let message_id = message.info.message_id.expect("message id not found");
 
+        // If session is sticky, check if the source matches the sticky name
+        if self.state.config.sticky {
+            if let Some(name) = &self.state.sticky_name {
+                let source = message.message.get_source();
+                if *name != source {
+                    return Err(SessionError::AppTransmission(format!(
+                        "message source {} does not match sticky name {}",
+                        source, name
+                    )));
+                }
+            }
+        }
+
         match message.message.get_header_type() {
             SessionHeaderType::Fnf => {
-                // simply send the message tot the application
-                self.internal
-                    .common
-                    .tx_app_ref()
-                    .send(Ok(message))
-                    .await
-                    .map_err(|e| SessionError::GatewayTransmission(e.to_string()))?;
+                // Simply send the message to the application
+                self.send_message_to_app(message).await
             }
             SessionHeaderType::FnfReliable => {
-                // send an ack back as reply and forward the incoming message to the app
-                // create ack message
+                // Send an ack back as reply and forward the incoming message to the app
+                // Create ack message
                 let src = message.message.get_source();
                 let agp_header = Some(AgpHeader::new(
-                    self.internal.common.source(),
+                    &self.state.source,
                     src.agent_type(),
                     Some(src.agent_id()),
                     Some(
@@ -226,47 +494,167 @@ impl FireAndForget {
 
                 let ack = Message::new_publish_with_headers(agp_header, session_header, "", vec![]);
 
-                // send the ack
-                self.internal
-                    .common
-                    .tx_gw_ref()
+                // Send the ack
+                self.state
+                    .tx_gw
                     .send(Ok(ack))
                     .await
                     .map_err(|e| SessionError::GatewayTransmission(e.to_string()))?;
 
-                // forward the message to the app
-                self.internal
-                    .common
-                    .tx_app_ref()
-                    .send(Ok(message))
-                    .await
-                    .map_err(|e| SessionError::GatewayTransmission(e.to_string()))?;
+                // Forward the message to the app
+                self.send_message_to_app(message).await
             }
             SessionHeaderType::FnfAck => {
-                // remove the timer and drop the message
-                match self.internal.timers.write().remove(&message_id) {
-                    Some((mut timer, _message)) => {
-                        // stop the timer
-                        timer.stop();
-                    }
-                    None => {
-                        return Err(SessionError::AppTransmission(format!(
-                            "timer not found for message id {}",
-                            message_id
-                        )));
-                    }
-                }
+                // Remove the timer and drop the message
+                self.stop_and_remove_timer(message_id)
+            }
+            SessionHeaderType::FnfDiscovery => {
+                // Handle sticky session discovery
+                self.handle_sticky_session_discovery(message).await
+            }
+            SessionHeaderType::FnfDiscoveryReply => {
+                // Handle sticky session discovery reply
+                self.handle_sticky_session_discovery_reply(message).await
             }
             _ => {
-                // unexpected header
-                return Err(SessionError::AppTransmission(
+                // Unexpected header
+                Err(SessionError::AppTransmission(
                     "invalid session header".to_string(),
-                ));
+                ))
             }
         }
+    }
 
-        // we are good
+    /// Helper function to send a message to the application.
+    /// This is used by both the Fnf and FnfReliable message handlers.
+    async fn send_message_to_app(&mut self, message: SessionMessage) -> Result<(), SessionError> {
+        self.state
+            .tx_app
+            .send(Ok(message))
+            .await
+            .map_err(|e| SessionError::GatewayTransmission(e.to_string()))
+    }
+
+    /// Helper function to stop and remove a timer by message ID.
+    /// Returns Ok(()) if the timer was found and stopped, or an appropriate error if not.
+    fn stop_and_remove_timer(&mut self, message_id: u32) -> Result<(), SessionError> {
+        match self.state.timers.remove(&message_id) {
+            Some((mut timer, _message)) => {
+                // Stop the timer
+                timer.stop();
+                Ok(())
+            }
+            None => Err(SessionError::AppTransmission(format!(
+                "timer not found for message id {}",
+                message_id
+            ))),
+        }
+    }
+}
+
+/// The interface for the Fire and Forget session
+pub(crate) struct FireAndForget {
+    common: Common,
+    tx: Sender<InternalMessage>,
+    cancellation_token: CancellationToken,
+}
+
+impl FireAndForget {
+    pub(crate) fn new(
+        id: Id,
+        session_config: FireAndForgetConfiguration,
+        session_direction: SessionDirection,
+        agent: Agent,
+        tx_gw: GwChannelSender,
+        tx_app: AppChannelSender,
+    ) -> FireAndForget {
+        let (tx, rx) = mpsc::channel(32);
+
+        // Common session stuff
+        let common = Common::new(
+            id,
+            session_direction,
+            SessionConfig::FireAndForget(session_config.clone()),
+            agent,
+            tx_gw,
+            tx_app,
+        );
+
+        // FireAnfForget internal state
+        let state = FireAndForgetState {
+            session_id: id,
+            source: common.source().clone(),
+            tx_app: common.tx_app(),
+            tx_gw: common.tx_gw(),
+            config: session_config,
+            timers: HashMap::new(),
+            sticky_name: None,
+            sticky_session_status: StickySessionStatus::Uninitialized,
+            sticky_buffer: VecDeque::new(),
+        };
+
+        // Cancellation token
+        let cancellation_token = CancellationToken::new();
+
+        // Create the processor
+        let processor =
+            FireAndForgetProcessor::new(state, tx.clone(), rx, cancellation_token.clone());
+
+        // Start the processor loop
+        tokio::spawn(processor.process_loop());
+
+        FireAndForget {
+            common,
+            tx,
+            cancellation_token,
+        }
+    }
+}
+
+impl CommonSession for FireAndForget {
+    fn id(&self) -> Id {
+        // concat the token stream
+        self.common.id()
+    }
+
+    fn state(&self) -> &State {
+        self.common.state()
+    }
+
+    fn session_config(&self) -> SessionConfig {
+        self.common.session_config()
+    }
+
+    fn set_session_config(&self, session_config: &SessionConfig) -> Result<(), SessionError> {
+        self.common.set_session_config(session_config)?;
+
+        // Also set the config in the processor
+        let tx = self.tx.clone();
+        let config = match session_config {
+            SessionConfig::FireAndForget(config) => config.clone(),
+            _ => {
+                return Err(SessionError::ConfigurationError(
+                    "invalid session config type".to_string(),
+                ));
+            }
+        };
+
+        tokio::spawn(async move {
+            let _ = tx.send(InternalMessage::SetConfig { config });
+        });
+
         Ok(())
+    }
+
+    fn source(&self) -> &Agent {
+        self.common.source()
+    }
+}
+
+impl Drop for FireAndForget {
+    fn drop(&mut self) {
+        // Signal the processor to stop
+        self.cancellation_token.cancel();
     }
 }
 
@@ -277,19 +665,17 @@ impl Session for FireAndForget {
         message: SessionMessage,
         direction: MessageDirection,
     ) -> Result<(), SessionError> {
-        // clone tx
-        match direction {
-            MessageDirection::North => self.send_message_to_app(message).await,
-            MessageDirection::South => self.send_message_to_gw(message).await,
-        }
+        self.tx
+            .send(InternalMessage::OnMessage { message, direction })
+            .await
+            .map_err(|e| SessionError::SessionClosed(e.to_string()))
     }
 }
-
-delegate_common_behavior!(FireAndForget, internal, common);
 
 #[cfg(test)]
 mod tests {
     use std::time::Duration;
+    use tracing_test::traced_test;
 
     use super::*;
     use agp_datapath::{
@@ -439,6 +825,7 @@ mod tests {
             FireAndForgetConfiguration {
                 timeout: Some(Duration::from_millis(500)),
                 max_retries: Some(5),
+                sticky: false,
             },
             SessionDirection::Bidirectional,
             source,
@@ -474,7 +861,7 @@ mod tests {
                 .await
                 .expect("no message received")
                 .expect("error");
-            // msg must be the same as message, except for the rundom message_id
+            // msg must be the same as message, except for the random message_id
             let header = msg.get_session_header_mut();
             header.message_id = 0;
             assert_eq!(msg, message);
@@ -497,6 +884,7 @@ mod tests {
             FireAndForgetConfiguration {
                 timeout: Some(Duration::from_millis(500)),
                 max_retries: Some(5),
+                sticky: false,
             },
             SessionDirection::Bidirectional,
             Agent::from_strings("cisco", "default", "local_agent", 0),
@@ -588,15 +976,10 @@ mod tests {
             .on_message(SessionMessage::from(ack.clone()), MessageDirection::North)
             .await;
         assert!(res.is_ok());
-
-        // make sure the timer is not running anymore
-        let timers = session_sender.internal.timers.read();
-
-        // check whether the timers table contains the message id
-        assert!(!timers.contains_key(&header.get_message_id()));
     }
 
     #[tokio::test]
+    #[traced_test]
     async fn test_session_delete() {
         let (tx_gw, _) = tokio::sync::mpsc::channel(1);
         let (tx_app, _) = tokio::sync::mpsc::channel(1);
@@ -613,5 +996,121 @@ mod tests {
                 tx_app,
             );
         }
+
+        // sleep for a bit to let the session drop
+        tokio::time::sleep(Duration::from_millis(1000)).await;
+
+        // // check that the session is closed
+        // assert!(logs_contain(
+        //     "fire and forget channel closed, exiting processor loop"
+        // ));
+    }
+
+    #[tokio::test]
+    async fn test_fire_and_forget_sticky_session() {
+        let (sender_tx_gw, mut sender_rx_gw) = tokio::sync::mpsc::channel(1);
+        let (sender_tx_app, _sender_rx_app) = tokio::sync::mpsc::channel(1);
+
+        let (receiver_tx_gw, mut receiver_rx_gw) = tokio::sync::mpsc::channel(1);
+        let (receiver_tx_app, mut receiver_rx_app) = tokio::sync::mpsc::channel(1);
+
+        let source = Agent::from_strings("cisco", "default", "local_agent", 0);
+
+        let sender_session = FireAndForget::new(
+            0,
+            FireAndForgetConfiguration {
+                timeout: Some(Duration::from_millis(500)),
+                max_retries: Some(5),
+                sticky: true,
+            },
+            SessionDirection::Bidirectional,
+            source,
+            sender_tx_gw,
+            sender_tx_app,
+        );
+
+        let receiver_session = FireAndForget::new(
+            0,
+            FireAndForgetConfiguration::default(),
+            SessionDirection::Bidirectional,
+            Agent::from_strings("cisco", "default", "remote_agent", 0),
+            receiver_tx_gw,
+            receiver_tx_app,
+        );
+
+        // Create a message to send
+        let mut message = ProtoMessage::new_publish(
+            &Agent::from_strings("cisco", "default", "local_agent", 0),
+            &AgentType::from_strings("cisco", "default", "remote_agent"),
+            Some(0),
+            None,
+            "msg",
+            vec![0x1, 0x2, 0x3, 0x4],
+        );
+
+        // set the session id in the message
+        let header = message.get_session_header_mut();
+        header.set_session_id(0);
+        header.set_header_type(SessionHeaderType::FnfReliable);
+
+        // Send the message
+        let res = sender_session
+            .on_message(
+                SessionMessage::from(message.clone()),
+                MessageDirection::South,
+            )
+            .await;
+        assert!(res.is_ok());
+
+        // We should now get a sticky session discovery message
+        let mut msg = sender_rx_gw
+            .recv()
+            .await
+            .expect("no message received")
+            .expect("error");
+        let header = msg.get_session_header();
+        assert_eq!(header.header_type, SessionHeaderType::FnfDiscovery.into());
+
+        // set a fake incoming connection id
+        let agp_header = msg.get_agp_header_mut();
+        agp_header.set_incoming_conn(Some(0));
+
+        // Pass the discovery message to the receiver session
+        let res = receiver_session
+            .on_message(SessionMessage::from(msg.clone()), MessageDirection::North)
+            .await;
+        assert!(res.is_ok());
+
+        // The receiver session should now send a sticky session discovery reply
+        let msg = receiver_rx_gw
+            .recv()
+            .await
+            .expect("no message received")
+            .expect("error");
+
+        let header = msg.get_session_header();
+        assert_eq!(
+            header.header_type,
+            SessionHeaderType::FnfDiscoveryReply.into()
+        );
+
+        // Pass the discovery reply message to the sender session
+        let res = sender_session
+            .on_message(SessionMessage::from(msg.clone()), MessageDirection::North)
+            .await;
+        assert!(res.is_ok());
+
+        // The sender session should now send the original message to the receiver
+        let msg = sender_rx_gw
+            .recv()
+            .await
+            .expect("no message received")
+            .expect("error");
+        let header = msg.get_session_header();
+        assert_eq!(header.header_type, SessionHeaderType::FnfReliable.into());
+
+        // Check the payload
+        let payload = msg.get_payload();
+        assert_eq!(payload, message.get_payload());
     }
 }
