@@ -124,10 +124,11 @@ impl From<agp_service::RequestResponseConfiguration> for PyRequestResponseConfig
 #[derive(Clone, PartialEq)]
 #[pyclass(eq)]
 pub(crate) enum PySessionConfiguration {
-    #[pyo3(constructor = (timeout=None, max_retries=None))]
+    #[pyo3(constructor = (timeout=None, max_retries=None, sticky=false))]
     FireAndForget {
         timeout: Option<std::time::Duration>,
         max_retries: Option<u32>,
+        sticky: bool,
     },
     #[pyo3(constructor = (timeout=std::time::Duration::from_millis(1000)))]
     RequestResponse { timeout: std::time::Duration },
@@ -147,6 +148,7 @@ impl From<session::SessionConfig> for PySessionConfiguration {
                 PySessionConfiguration::FireAndForget {
                     timeout: config.timeout,
                     max_retries: config.max_retries,
+                    sticky: config.sticky,
                 }
             }
             session::SessionConfig::RequestResponse(config) => {
@@ -170,9 +172,11 @@ impl From<PySessionConfiguration> for session::SessionConfig {
             PySessionConfiguration::FireAndForget {
                 timeout,
                 max_retries,
+                sticky,
             } => session::SessionConfig::FireAndForget(FireAndForgetConfiguration {
                 timeout,
                 max_retries,
+                sticky,
             }),
             PySessionConfiguration::RequestResponse { timeout } => {
                 session::SessionConfig::RequestResponse(RequestResponseConfiguration { timeout })

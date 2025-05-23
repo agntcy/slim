@@ -304,7 +304,7 @@ impl Common {
     pub(crate) fn new(
         id: Id,
         session_direction: SessionDirection,
-        session_type: SessionConfig,
+        session_config: SessionConfig,
         source: Agent,
         tx_gw: GwChannelSender,
         tx_app: AppChannelSender,
@@ -313,7 +313,7 @@ impl Common {
             id,
             state: State::Active,
             session_direction,
-            session_config: RwLock::new(session_type),
+            session_config: RwLock::new(session_config),
             source,
             tx_gw,
             tx_app,

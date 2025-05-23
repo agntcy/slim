@@ -24,13 +24,13 @@ tonic = { workspace = true }
 tracing = { workspace = true }
 tracing-opentelemetry = { workspace = true }
 
-[dev-dependencies]
-criterion = { workspace = true }
-tracing-test = { workspace = true }
-
 [build-dependencies]
 protoc-bin-vendored = { workspace = true }
 tonic-build = { workspace = true }
+
+[dev-dependencies]
+criterion = { workspace = true }
+tracing-test = { workspace = true }
 
 [[bench]]
 name = "pool_benchmark"

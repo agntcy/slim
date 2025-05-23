@@ -241,6 +241,13 @@ impl AgentTypeState {
                 let val = self.ids.get(&id);
                 match val {
                     None => {
+                        // If there is only 1 connection for the agent type, we can still
+                        // try to use it
+                        if self.connections[index].index.len() == 1 {
+                            return self.connections[index].get_one(incoming_conn);
+                        }
+
+                        // We cannot return any connection for this agent id
                         debug!(
                             "cannot find out connection, agent id does not exists {:?}",
                             id
@@ -831,14 +838,7 @@ mod tests {
             t.remove_connection(4, false),
             Err(SubscriptionTableError::ConnectionIdNotFound)
         );
-        assert_eq!(
-            t.match_one(agent_type1.clone(), Some(1), 100),
-            Err(SubscriptionTableError::NoMatch(format!(
-                "{}, {:?}",
-                agent_type1,
-                Some(1)
-            )))
-        );
+        assert_eq!(t.match_one(agent_type1.clone(), Some(1), 100), Ok(2),);
         assert_eq!(
             // this generates a warning
             t.add_subscription(agent_type2.clone(), Some(2), 3, false),
