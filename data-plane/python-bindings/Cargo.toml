@@ -5,6 +5,9 @@ license = { workspace = true }
 publish = false
 version = "0.1.0"
 
+[package.metadata.maturin]
+name = "pydantic_core._pydantic_core"
+
 [lib]
 name = "_agp_bindings"
 crate-type = ["cdylib", "rlib"]
@@ -20,6 +23,3 @@ pyo3-stub-gen = { workspace = true }
 rand = { workspace = true }
 serde-pyobject = { workspace = true }
 tokio = { workspace = true }
-
-[package.metadata.maturin]
-name = "pydantic_core._pydantic_core"

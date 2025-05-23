@@ -62,10 +62,10 @@ enum StickySessionStatus {
     Uninitialized,
     Discovering,
     Established,
-    Failed,
 }
 
 /// Message types for internal FireAndForget communication
+#[allow(clippy::large_enum_variant)]
 enum InternalMessage {
     OnMessage {
         message: SessionMessage,
@@ -92,6 +92,7 @@ struct FireAndForgetState {
     config: FireAndForgetConfiguration,
     timers: HashMap<u32, (timer::Timer, Message)>,
     sticky_name: Option<Agent>,
+    sticky_connection: Option<u64>,
     sticky_session_status: StickySessionStatus,
     sticky_buffer: VecDeque<Message>,
 }
@@ -273,10 +274,17 @@ impl FireAndForgetProcessor {
         &mut self,
         message: SessionMessage,
     ) -> Result<(), SessionError> {
-        // Received a sticky session dicovery message! Let's reply back with a
+        // Received a sticky session discovery message! Let's reply back with a
         // sticky session discovery reply and set the sticky name!
 
         let source = message.message.get_source();
+
+        debug!(
+            "received sticky session discovery from {} and incoming conn {}",
+            source,
+            message.message.get_incoming_conn()
+        );
+
         let mut sticky_session_reply = Message::new_publish(
             &self.state.source,
             source.agent_type(),
@@ -292,6 +300,7 @@ impl FireAndForgetProcessor {
 
         // Let's also make this session sticky
         self.state.sticky_name = Some(source.clone());
+        self.state.sticky_connection = Some(message.message.get_incoming_conn());
         self.state.sticky_session_status = StickySessionStatus::Established;
 
         // Send the sticky session discovery reply to the source
@@ -308,10 +317,19 @@ impl FireAndForgetProcessor {
         let source = message.message.get_source();
         let status = self.state.sticky_session_status.clone();
 
+        debug!(
+            "received sticky session discovery reply from {} and incoming conn {}",
+            source,
+            message.message.get_incoming_conn()
+        );
+
         match status {
             StickySessionStatus::Discovering => {
+                debug!("sticky session discovery established with {}", source);
+
                 // If we are still discovering, set the sticky name
                 self.state.sticky_name = Some(source.clone());
+                self.state.sticky_connection = Some(message.message.get_incoming_conn());
                 self.state.sticky_session_status = StickySessionStatus::Established;
 
                 // Collect messages first to avoid multiple mutable borrows
@@ -325,6 +343,8 @@ impl FireAndForgetProcessor {
                 Ok(())
             }
             _ => {
+                debug!("sticky session discovery reply received, but already established");
+
                 // Check if the sticky name is already set, and if it's different from the source
                 if let Some(name) = &self.state.sticky_name {
                     let message = if name != &source {
@@ -356,8 +376,12 @@ impl FireAndForgetProcessor {
         header.set_session_id(self.state.session_id);
 
         // If we have a sticky name, set the destination to the sticky name
+        // and force the message to be sent to the sticky connection
         if let Some(ref name) = self.state.sticky_name {
             message.get_agp_header_mut().set_destination(name);
+            message
+                .get_agp_header_mut()
+                .set_forward_to(self.state.sticky_connection);
         }
 
         if let Some(timeout_duration) = self.state.config.timeout {
@@ -380,6 +404,11 @@ impl FireAndForgetProcessor {
                 .insert(message_id, (timer, message.clone()));
         }
 
+        debug!(
+            "sending sticky session discovery reply to {}",
+            message.get_source()
+        );
+
         // Send message
         self.state
             .tx_gw
@@ -392,12 +421,24 @@ impl FireAndForgetProcessor {
         &mut self,
         mut message: SessionMessage,
     ) -> Result<(), SessionError> {
+        // Set the session type
+        let header = message.message.get_session_header_mut();
+        if self.state.config.timeout.is_some() {
+            header.set_header_type(SessionHeaderType::FnfReliable);
+        } else {
+            header.set_header_type(SessionHeaderType::Fnf);
+        }
+
         // If session is sticky, and we have a sticky name, set the destination
         // to the sticky name
         if self.state.config.sticky {
             match self.state.sticky_name {
                 Some(ref name) => {
                     message.message.get_agp_header_mut().set_destination(name);
+                    message
+                        .message
+                        .get_agp_header_mut()
+                        .set_forward_to(self.state.sticky_connection);
                 }
                 None => {
                     let ret = match self.state.sticky_session_status {
@@ -423,26 +464,11 @@ impl FireAndForgetProcessor {
                             self.state.sticky_buffer.push_back(message.message);
                             Ok(())
                         }
-                        StickySessionStatus::Failed => {
-                            // The sticky session failed. We need to send the message to the gateway
-                            // without a sticky name
-                            Err(SessionError::AppTransmission(
-                                "sticky session failed".to_string(),
-                            ))
-                        }
                     };
 
                     return ret;
                 }
             }
-        }
-
-        // Set the session type
-        let header = message.message.get_session_header_mut();
-        if self.state.config.timeout.is_some() {
-            header.set_header_type(SessionHeaderType::FnfReliable);
-        } else {
-            header.set_header_type(SessionHeaderType::Fnf);
         }
 
         self.send_message(message.message).await
@@ -453,6 +479,12 @@ impl FireAndForgetProcessor {
         message: SessionMessage,
     ) -> Result<(), SessionError> {
         let message_id = message.info.message_id.expect("message id not found");
+
+        debug!(
+            "received message from gateway: {} with id {}",
+            message.message.get_source(),
+            message_id
+        );
 
         // If session is sticky, check if the source matches the sticky name
         if self.state.config.sticky {
@@ -518,9 +550,10 @@ impl FireAndForgetProcessor {
             }
             _ => {
                 // Unexpected header
-                Err(SessionError::AppTransmission(
-                    "invalid session header".to_string(),
-                ))
+                Err(SessionError::AppTransmission(format!(
+                    "invalid session header {}",
+                    message.message.get_header_type() as u32
+                )))
             }
         }
     }
@@ -580,7 +613,7 @@ impl FireAndForget {
             tx_app,
         );
 
-        // FireAnfForget internal state
+        // FireAndForget internal state
         let state = FireAndForgetState {
             session_id: id,
             source: common.source().clone(),
@@ -589,6 +622,7 @@ impl FireAndForget {
             config: session_config,
             timers: HashMap::new(),
             sticky_name: None,
+            sticky_connection: None,
             sticky_session_status: StickySessionStatus::Uninitialized,
             sticky_buffer: VecDeque::new(),
         };
@@ -640,7 +674,10 @@ impl CommonSession for FireAndForget {
         };
 
         tokio::spawn(async move {
-            let _ = tx.send(InternalMessage::SetConfig { config });
+            let res = tx.send(InternalMessage::SetConfig { config }).await;
+            if let Err(e) = res {
+                error!("failed to send config update: {}", e);
+            }
         });
 
         Ok(())
@@ -1012,7 +1049,7 @@ mod tests {
         let (sender_tx_app, _sender_rx_app) = tokio::sync::mpsc::channel(1);
 
         let (receiver_tx_gw, mut receiver_rx_gw) = tokio::sync::mpsc::channel(1);
-        let (receiver_tx_app, mut receiver_rx_app) = tokio::sync::mpsc::channel(1);
+        let (receiver_tx_app, mut _receiver_rx_app) = tokio::sync::mpsc::channel(1);
 
         let source = Agent::from_strings("cisco", "default", "local_agent", 0);
 
@@ -1053,6 +1090,10 @@ mod tests {
         header.set_session_id(0);
         header.set_header_type(SessionHeaderType::FnfReliable);
 
+        // set a fake incoming connection id
+        let agp_header = message.get_agp_header_mut();
+        agp_header.set_incoming_conn(Some(0));
+
         // Send the message
         let res = sender_session
             .on_message(
@@ -1082,7 +1123,7 @@ mod tests {
         assert!(res.is_ok());
 
         // The receiver session should now send a sticky session discovery reply
-        let msg = receiver_rx_gw
+        let mut msg = receiver_rx_gw
             .recv()
             .await
             .expect("no message received")
@@ -1093,6 +1134,10 @@ mod tests {
             header.header_type,
             SessionHeaderType::FnfDiscoveryReply.into()
         );
+
+        // set a fake incoming connection id
+        let agp_header = msg.get_agp_header_mut();
+        agp_header.set_incoming_conn(Some(0));
 
         // Pass the discovery reply message to the sender session
         let res = sender_session

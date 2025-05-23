@@ -27,7 +27,7 @@ async def test_sticky_session(server):
     # set route to receiver
     await sender.set_route(org, ns, "receiver")
 
-    receiver_counts = { i: 0 for i in range(10) }
+    receiver_counts = {i: 0 for i in range(10)}
 
     # run 10 receivers concurrently
     async def run_receiver(i: int):
@@ -72,7 +72,7 @@ async def test_sticky_session(server):
     await asyncio.sleep(2)
 
     # send a message to the receiver
-    for i in range(2):
+    for i in range(1000):
         await sender.publish(
             session_info,
             b"Hello from sender",
@@ -86,8 +86,8 @@ async def test_sticky_session(server):
 
     # As we setup a sticky session, all the message should be received by only one
     # receiver. Check that the count is 1000 for one of the receivers
-    assert 2 in receiver_counts.values()
+    assert 1000 in receiver_counts.values()
 
-    # Wait for all tasks to finish
+    # Kill all tasks
     for task in tasks:
-        await task
+        task.cancel()
