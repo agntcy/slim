@@ -86,8 +86,38 @@ pub struct SubscriptionEntry {
 pub struct ConnectionEntry {
     #[prost(uint64, tag = "1")]
     pub id: u64,
-    #[prost(string, tag = "2")]
-    pub name: ::prost::alloc::string::String,
+    #[prost(enumeration = "ConnectionType", tag = "2")]
+    pub connection_type: i32,
+    #[prost(string, tag = "3")]
+    pub ip: ::prost::alloc::string::String,
+    #[prost(uint32, tag = "4")]
+    pub port: u32,
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+#[repr(i32)]
+pub enum ConnectionType {
+    Local = 0,
+    Remote = 1,
+}
+impl ConnectionType {
+    /// String value of the enum field names used in the ProtoBuf definition.
+    ///
+    /// The values are not transformed in any way and thus are considered stable
+    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+    pub fn as_str_name(&self) -> &'static str {
+        match self {
+            Self::Local => "CONNECTION_TYPE_LOCAL",
+            Self::Remote => "CONNECTION_TYPE_REMOTE",
+        }
+    }
+    /// Creates an enum from field names used in the ProtoBuf definition.
+    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+        match value {
+            "CONNECTION_TYPE_LOCAL" => Some(Self::Local),
+            "CONNECTION_TYPE_REMOTE" => Some(Self::Remote),
+            _ => None,
+        }
+    }
 }
 /// Generated client implementations.
 pub mod controller_service_client {

@@ -64,7 +64,14 @@ message SubscriptionEntry {
   repeated ConnectionEntry remote_connections = 6;
 }
 
+enum ConnectionType {
+  CONNECTION_TYPE_LOCAL  = 0;
+  CONNECTION_TYPE_REMOTE = 1;
+}
+
 message ConnectionEntry {
-  uint64 id  = 1;
-  string name = 2;
+  uint64 id = 1;
+  ConnectionType connection_type = 2;
+  string ip = 3;
+  uint32 port = 4;
 }

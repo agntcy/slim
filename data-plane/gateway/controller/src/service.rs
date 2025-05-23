@@ -14,12 +14,12 @@ use tonic::codegen::{Body, StdError};
 use tonic::{Request, Response, Status};
 use tracing::{debug, error, info};
 
-use crate::api::proto::api::v1::SubscriptionListResponse;
 use crate::api::proto::api::v1::{
     Ack, ConnectionEntry, ControlMessage, SubscriptionEntry,
     controller_service_client::ControllerServiceClient,
     controller_service_server::ControllerService as GrpcControllerService,
 };
+use crate::api::proto::api::v1::{ConnectionType, SubscriptionListResponse};
 use crate::errors::ControllerError;
 
 use agp_config::grpc::client::ClientConfig;
@@ -221,26 +221,40 @@ impl ControllerService {
                                 };
 
                                 for &cid in local {
-                                    let name = format!("local:{}", cid);
-                                    entry.local_connections.push(ConnectionEntry { id: cid, name });
+                                    entry.local_connections.push(ConnectionEntry {
+                                        id:   cid,
+                                        connection_type: ConnectionType::Local as i32,
+                                        ip:   String::new(),
+                                        port: 0,
+                                    });
                                 }
 
                                 for &cid in remote {
-                                    let name = match conn_table.get(cid as usize) {
-                                        Some(conn) => {
-                                            if let Some(sock) = conn.remote_addr() {
-                                                format!("remote:{}:{}:{}", sock.ip(), sock.port(), cid)
-                                            } else {
-                                                format!("remote:{}", cid)
-                                            }
+                                    if let Some(conn) = conn_table.get(cid as usize) {
+                                        if let Some(sock) = conn.remote_addr() {
+                                            entry.remote_connections.push(ConnectionEntry {
+                                                id:   cid,
+                                                connection_type: ConnectionType::Remote as i32,
+                                                ip:   sock.ip().to_string(),
+                                                port: sock.port() as u32,
+                                            });
+                                        } else {
+                                            entry.remote_connections.push(ConnectionEntry {
+                                                id:   cid,
+                                                connection_type: ConnectionType::Remote as i32,
+                                                ip:   String::new(),
+                                                port: 0,
+                                            });
                                         }
-                                        None => {
-                                            error!("no connection entry for id {}", cid);
-                                            format!("remote:{}", cid)
-                                        }
-                                    };
-
-                                    entry.remote_connections.push(ConnectionEntry { id: cid, name });
+                                    } else {
+                                        error!("no connection entry for id {}", cid);
+                                        entry.remote_connections.push(ConnectionEntry {
+                                            id:   cid,
+                                            connection_type: ConnectionType::Remote as i32,
+                                            ip:   String::new(),
+                                            port: 0,
+                                        });
+                                    }
                                 }
 
                                 entries.push(entry);

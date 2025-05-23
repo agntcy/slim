@@ -126,8 +126,6 @@ var _ = Describe("Routing", func() {
 		Eventually(clientASession.Out, 5*time.Second).
 			Should(gbytes.Say(`received message: hello from the b`))
 
-		time.Sleep(5 * time.Minute)
-
 		out, err := exec.Command(
 			agpctlPath,
 			"route", "list",
