@@ -19,8 +19,9 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 
-	"github.com/agntcy/agp/control-plane/agpctl/internal/cmd/route"
-	"github.com/agntcy/agp/control-plane/agpctl/internal/cmd/version"
+	connectionCmd "github.com/agntcy/agp/control-plane/agpctl/internal/cmd/connection"
+	routeCmd "github.com/agntcy/agp/control-plane/agpctl/internal/cmd/route"
+	versionCmd "github.com/agntcy/agp/control-plane/agpctl/internal/cmd/version"
 	"github.com/agntcy/agp/control-plane/agpctl/internal/options"
 )
 
@@ -129,8 +130,9 @@ func main() {
 		"path to client TLS key",
 	)
 
-	rootCmd.AddCommand(route.NewRouteCmd(opts))
-	rootCmd.AddCommand(version.NewVersionCmd(opts))
+	rootCmd.AddCommand(routeCmd.NewRouteCmd(opts))
+	rootCmd.AddCommand(connectionCmd.NewConnectionCmd(opts))
+	rootCmd.AddCommand(versionCmd.NewVersionCmd(opts))
 
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Fprintf(os.Stderr, "CLI error: %v", err)

@@ -3,7 +3,7 @@
 pub struct ControlMessage {
     #[prost(string, tag = "1")]
     pub message_id: ::prost::alloc::string::String,
-    #[prost(oneof = "control_message::Payload", tags = "2, 3, 4, 5")]
+    #[prost(oneof = "control_message::Payload", tags = "2, 3, 4, 5, 6, 7")]
     pub payload: ::core::option::Option<control_message::Payload>,
 }
 /// Nested message and enum types in `ControlMessage`.
@@ -18,6 +18,10 @@ pub mod control_message {
         SubscriptionListRequest(super::SubscriptionListRequest),
         #[prost(message, tag = "5")]
         SubscriptionListResponse(super::SubscriptionListResponse),
+        #[prost(message, tag = "6")]
+        ConnectionListRequest(super::ConnectionListRequest),
+        #[prost(message, tag = "7")]
+        ConnectionListResponse(super::ConnectionListResponse),
     }
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -77,10 +81,54 @@ pub struct SubscriptionEntry {
     pub agent_name: ::prost::alloc::string::String,
     #[prost(message, optional, tag = "4")]
     pub agent_id: ::core::option::Option<u64>,
-    #[prost(uint64, repeated, tag = "5")]
-    pub local_connection_ids: ::prost::alloc::vec::Vec<u64>,
-    #[prost(uint64, repeated, tag = "6")]
-    pub remote_connection_ids: ::prost::alloc::vec::Vec<u64>,
+    #[prost(message, repeated, tag = "5")]
+    pub local_connections: ::prost::alloc::vec::Vec<ConnectionEntry>,
+    #[prost(message, repeated, tag = "6")]
+    pub remote_connections: ::prost::alloc::vec::Vec<ConnectionEntry>,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ConnectionEntry {
+    #[prost(uint64, tag = "1")]
+    pub id: u64,
+    #[prost(enumeration = "ConnectionType", tag = "2")]
+    pub connection_type: i32,
+    #[prost(string, tag = "3")]
+    pub ip: ::prost::alloc::string::String,
+    #[prost(uint32, tag = "4")]
+    pub port: u32,
+}
+#[derive(Clone, Copy, PartialEq, ::prost::Message)]
+pub struct ConnectionListRequest {}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ConnectionListResponse {
+    #[prost(message, repeated, tag = "1")]
+    pub entries: ::prost::alloc::vec::Vec<ConnectionEntry>,
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+#[repr(i32)]
+pub enum ConnectionType {
+    Local = 0,
+    Remote = 1,
+}
+impl ConnectionType {
+    /// String value of the enum field names used in the ProtoBuf definition.
+    ///
+    /// The values are not transformed in any way and thus are considered stable
+    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+    pub fn as_str_name(&self) -> &'static str {
+        match self {
+            Self::Local => "CONNECTION_TYPE_LOCAL",
+            Self::Remote => "CONNECTION_TYPE_REMOTE",
+        }
+    }
+    /// Creates an enum from field names used in the ProtoBuf definition.
+    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+        match value {
+            "CONNECTION_TYPE_LOCAL" => Some(Self::Local),
+            "CONNECTION_TYPE_REMOTE" => Some(Self::Remote),
+            _ => None,
+        }
+    }
 }
 /// Generated client implementations.
 pub mod controller_service_client {

@@ -77,6 +77,20 @@ where
         let pool = self.pool.read();
         pool.get(index).cloned()
     }
+
+    pub fn for_each<F>(&self, mut f: F)
+    where
+        F: FnMut(usize, Arc<T>),
+    {
+        let pool = self.pool.read();
+
+        let max_index = pool.max_set();
+        for idx in 0..=max_index {
+            if let Some(conn_arc) = pool.get(idx) {
+                f(idx, Arc::clone(conn_arc));
+            }
+        }
+    }
 }
 
 // tests

@@ -19,7 +19,7 @@ where
 {
     pub subscription_table: SubscriptionTableImpl,
     remote_subscription_table: RemoteSubscriptions,
-    connection_table: ConnectionTable<T>,
+    pub connection_table: ConnectionTable<T>,
 }
 
 impl<T> Default for Forwarder<T>

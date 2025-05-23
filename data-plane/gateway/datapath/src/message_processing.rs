@@ -26,6 +26,7 @@ use crate::pubsub::proto::pubsub::v1::message::MessageType::Subscribe as Subscri
 use crate::pubsub::proto::pubsub::v1::message::MessageType::Unsubscribe as UnsubscribeType;
 use crate::pubsub::proto::pubsub::v1::pub_sub_service_client::PubSubServiceClient;
 use crate::pubsub::proto::pubsub::v1::{Message, pub_sub_service_server::PubSubService};
+use crate::tables::connection_table::ConnectionTable;
 use crate::tables::subscription_table::SubscriptionTableImpl;
 
 // Implementation based on: https://docs.rs/opentelemetry-tonic/latest/src/opentelemetry_tonic/lib.rs.html#1-134
@@ -776,6 +777,10 @@ impl MessageProcessor {
 
     pub fn subscription_table(&self) -> &SubscriptionTableImpl {
         &self.internal.forwarder.subscription_table
+    }
+
+    pub fn connection_table(&self) -> &ConnectionTable<Connection> {
+        &self.internal.forwarder.connection_table
     }
 }
 

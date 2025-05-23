@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::collections::HashMap;
+use std::net::ToSocketAddrs;
 use std::pin::Pin;
 use std::sync::{Arc, OnceLock};
 
@@ -13,10 +14,13 @@ use tonic::codegen::{Body, StdError};
 use tonic::{Request, Response, Status};
 use tracing::{debug, error, info};
 
-use crate::api::proto::api::v1::SubscriptionListResponse;
 use crate::api::proto::api::v1::{
-    Ack, ControlMessage, SubscriptionEntry, controller_service_client::ControllerServiceClient,
+    Ack, ConnectionEntry, ControlMessage, SubscriptionEntry,
+    controller_service_client::ControllerServiceClient,
     controller_service_server::ControllerService as GrpcControllerService,
+};
+use crate::api::proto::api::v1::{
+    ConnectionListResponse, ConnectionType, SubscriptionListResponse,
 };
 use crate::errors::ControllerError;
 
@@ -61,6 +65,14 @@ impl ControllerService {
                             let client_endpoint =
                                 format!("{}:{}", conn.remote_address, conn.remote_port);
 
+                            let mut addrs_iter = client_endpoint
+                                .as_str()
+                                .to_socket_addrs()
+                                .map_err(|e| ControllerError::ConnectionError(e.to_string()))?;
+                            let remote_sock = addrs_iter
+                                .next()
+                                .ok_or_else(|| ControllerError::ConnectionError(format!("could not resolve {}", client_endpoint)))?;
+
                             // connect to an endpoint if it's not already connected
                             if !self.connections.read().contains_key(&client_endpoint) {
                                 let client_config = ClientConfig {
@@ -80,7 +92,7 @@ impl ControllerService {
                                                 channel,
                                                 Some(client_config.clone()),
                                                 None,
-                                                None,
+                                                Some(remote_sock),
                                             )
                                             .await
                                             .map_err(|e| {
@@ -195,19 +207,59 @@ impl ControllerService {
                     crate::api::proto::api::v1::control_message::Payload::SubscriptionListRequest(_) => {
                         const CHUNK_SIZE: usize = 100;
 
+                        let conn_table = self.message_processor.connection_table();
                         let mut entries = Vec::new();
+
                         self
                             .message_processor
                             .subscription_table()
                             .for_each(|agent_type, agent_id, local, remote| {
-                                entries.push(SubscriptionEntry {
-                                    company:            agent_type.organization_string().unwrap_or_else(|| agent_type.organization().to_string()),
-                                    namespace:          agent_type.namespace_string().unwrap_or_else(|| agent_type.namespace().to_string()),
-                                    agent_name:         agent_type.agent_type_string().unwrap_or_else(|| agent_type.agent_type().to_string()),
-                                    agent_id:           Some(agent_id),
-                                    local_connection_ids:  local.to_vec(),
-                                    remote_connection_ids: remote.to_vec(),
-                                });
+                                let mut entry = SubscriptionEntry {
+                                    company: agent_type.organization_string().unwrap_or_else(|| agent_type.organization().to_string()),
+                                    namespace: agent_type.namespace_string().unwrap_or_else(|| agent_type.organization().to_string()),
+                                    agent_name: agent_type.agent_type_string().unwrap_or_else(|| agent_type.organization().to_string()),
+                                    agent_id: Some(agent_id),
+                                    ..Default::default()
+                                };
+
+                                for &cid in local {
+                                    entry.local_connections.push(ConnectionEntry {
+                                        id:   cid,
+                                        connection_type: ConnectionType::Local as i32,
+                                        ip:   String::new(),
+                                        port: 0,
+                                    });
+                                }
+
+                                for &cid in remote {
+                                    if let Some(conn) = conn_table.get(cid as usize) {
+                                        if let Some(sock) = conn.remote_addr() {
+                                            entry.remote_connections.push(ConnectionEntry {
+                                                id:   cid,
+                                                connection_type: ConnectionType::Remote as i32,
+                                                ip:   sock.ip().to_string(),
+                                                port: sock.port() as u32,
+                                            });
+                                        } else {
+                                            entry.remote_connections.push(ConnectionEntry {
+                                                id:   cid,
+                                                connection_type: ConnectionType::Remote as i32,
+                                                ip:   String::new(),
+                                                port: 0,
+                                            });
+                                        }
+                                    } else {
+                                        error!("no connection entry for id {}", cid);
+                                        entry.remote_connections.push(ConnectionEntry {
+                                            id:   cid,
+                                            connection_type: ConnectionType::Remote as i32,
+                                            ip:   String::new(),
+                                            port: 0,
+                                        });
+                                    }
+                                }
+
+                                entries.push(entry);
                             });
 
                         for chunk in entries.chunks(CHUNK_SIZE) {
@@ -227,11 +279,50 @@ impl ControllerService {
                             }
                         }
                     }
+                    crate::api::proto::api::v1::control_message::Payload::ConnectionListRequest(_) => {
+                        let mut all_entries = Vec::new();
+                        self.message_processor
+                            .connection_table()
+                            .for_each(|id, conn| {
+                                let (ip, port) = conn
+                                    .remote_addr()
+                                    .map(|sock| (sock.ip().to_string(), sock.port() as u32))
+                                    .unwrap_or_else(|| ("".into(), 0));
+
+                                all_entries.push(ConnectionEntry {
+                                    id: id as u64,
+                                    connection_type: ConnectionType::Remote as i32,
+                                    ip,
+                                    port,
+                                });
+                            });
+
+                        const CHUNK_SIZE: usize = 100;
+                        for chunk in all_entries.chunks(CHUNK_SIZE) {
+                            let resp = ControlMessage {
+                                message_id: uuid::Uuid::new_v4().to_string(),
+                                payload: Some(
+                                    crate::api::proto::api::v1::control_message::Payload::ConnectionListResponse(
+                                        ConnectionListResponse {
+                                            entries: chunk.to_vec(),
+                                        },
+                                    ),
+                                ),
+                            };
+
+                            if let Err(e) = tx.try_send(Ok(resp)) {
+                                error!("failed to send connection list batch: {}", e);
+                            }
+                        }
+                    }
                     crate::api::proto::api::v1::control_message::Payload::Ack(_ack) => {
                         // received an ack, do nothing - this should not happen
                     }
                     crate::api::proto::api::v1::control_message::Payload::SubscriptionListResponse(_) => {
                         // received a subscription list response, do nothing - this should not happen
+                    }
+                    crate::api::proto::api::v1::control_message::Payload::ConnectionListResponse(_) => {
+                        // received a connection list response, do nothing - this should not happen
                     }
                 }
             }

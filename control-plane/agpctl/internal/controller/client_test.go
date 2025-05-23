@@ -67,26 +67,58 @@ func (s *fakeServer) OpenControlChannel(
 	case *grpcapi.ControlMessage_SubscriptionListRequest:
 		entries := []*grpcapi.SubscriptionEntry{
 			{
-				Company:             "org1",
-				Namespace:           "ns1",
-				AgentName:           "alice",
-				AgentId:             &wrapperspb.UInt64Value{Value: 42},
-				LocalConnectionIds:  []uint64{1},
-				RemoteConnectionIds: []uint64{2},
+				Company:   "org1",
+				Namespace: "ns1",
+				AgentName: "alice",
+				AgentId:   &wrapperspb.UInt64Value{Value: 42},
+				LocalConnections: []*grpcapi.ConnectionEntry{
+					{Id: 1, Ip: "", Port: 0},
+				},
+				RemoteConnections: []*grpcapi.ConnectionEntry{
+					{Id: 2, Ip: "10.0.0.2", Port: 2500},
+				},
 			},
 			{
-				Company:             "org2",
-				Namespace:           "ns2",
-				AgentName:           "bob",
-				AgentId:             &wrapperspb.UInt64Value{Value: 7},
-				LocalConnectionIds:  []uint64{},
-				RemoteConnectionIds: []uint64{3},
+				Company:          "org2",
+				Namespace:        "ns2",
+				AgentName:        "bob",
+				AgentId:          &wrapperspb.UInt64Value{Value: 7},
+				LocalConnections: []*grpcapi.ConnectionEntry{},
+				RemoteConnections: []*grpcapi.ConnectionEntry{
+					{Id: 3, Ip: "10.0.0.3", Port: 3500},
+				},
 			},
 		}
 		resp := &grpcapi.ControlMessage{
 			MessageId: uuid.NewString(),
 			Payload: &grpcapi.ControlMessage_SubscriptionListResponse{
 				SubscriptionListResponse: &grpcapi.SubscriptionListResponse{
+					Entries: entries,
+				},
+			},
+		}
+		if err := stream.Send(resp); err != nil {
+			return err
+		}
+	case *grpcapi.ControlMessage_ConnectionListRequest:
+		entries := []*grpcapi.ConnectionEntry{
+			{
+				Id:             1,
+				ConnectionType: grpcapi.ConnectionType_CONNECTION_TYPE_LOCAL,
+				Ip:             "10.1.1.1",
+				Port:           1000,
+			},
+			{
+				Id:             2,
+				ConnectionType: grpcapi.ConnectionType_CONNECTION_TYPE_LOCAL,
+				Ip:             "10.1.1.2",
+				Port:           2000,
+			},
+		}
+		resp := &grpcapi.ControlMessage{
+			MessageId: uuid.NewString(),
+			Payload: &grpcapi.ControlMessage_ConnectionListResponse{
+				ConnectionListResponse: &grpcapi.ConnectionListResponse{
 					Entries: entries,
 				},
 			},
@@ -210,6 +242,9 @@ func TestListSubscriptions(t *testing.T) {
 	if err = stream.Send(msg); err != nil {
 		t.Fatalf("stream.Send failed: %v", err)
 	}
+	if err := stream.CloseSend(); err != nil {
+		t.Fatalf("CloseSend failed: %v", err)
+	}
 
 	var received []*grpcapi.SubscriptionEntry
 	for {
@@ -231,42 +266,96 @@ func TestListSubscriptions(t *testing.T) {
 	}
 
 	e1 := received[0]
-	if e1.Company != "org1" {
-		t.Errorf("expected Company 'org1', got '%s'", e1.Company)
+	if e1.GetCompany() != "org1" ||
+		e1.GetNamespace() != "ns1" ||
+		e1.GetAgentName() != "alice" {
+		t.Errorf("unexpected metadata: %+v", e1)
 	}
-	if e1.Namespace != "ns1" {
-		t.Errorf("expected Namespace 'ns1', got '%s'", e1.Namespace)
+	if e1.GetAgentId().GetValue() != 42 {
+		t.Errorf("expected AgentId=42, got %d", e1.GetAgentId().GetValue())
 	}
-	if e1.AgentName != "alice" {
-		t.Errorf("expected AgentName 'alice', got '%s'", e1.AgentName)
+	if len(e1.LocalConnections) != 1 {
+		t.Fatalf("expected 1 local connection, got %d", len(e1.LocalConnections))
 	}
-	if e1.AgentId.GetValue() != 42 {
-		t.Errorf("expected AgentId 42, got %d", e1.AgentId.GetValue())
+	lc := e1.LocalConnections[0]
+	if lc.GetId() != 1 || lc.GetIp() != "" || lc.GetPort() != 0 {
+		t.Errorf("expected local {Id:1, empty ip/port}, got %+v", lc)
 	}
-	if len(e1.LocalConnectionIds) != 1 || e1.LocalConnectionIds[0] != 1 {
-		t.Errorf("expected LocalConnectionIds [1], got %v", e1.LocalConnectionIds)
+	if len(e1.RemoteConnections) != 1 {
+		t.Fatalf("expected 1 remote connection, got %d", len(e1.RemoteConnections))
 	}
-	if len(e1.RemoteConnectionIds) != 1 || e1.RemoteConnectionIds[0] != 2 {
-		t.Errorf("expected RemoteConnectionIds [2], got %v", e1.RemoteConnectionIds)
+	rc := e1.RemoteConnections[0]
+	if rc.GetId() != 2 || rc.GetIp() != "10.0.0.2" || rc.GetPort() != 2500 {
+		t.Errorf("expected remote {Id:2, ip=10.0.0.2, port=2500}, got %+v", rc)
 	}
 
 	e2 := received[1]
-	if e2.Company != "org2" {
-		t.Errorf("expected Company 'org2', got '%s'", e2.Company)
+	if e2.GetCompany() != "org2" || e2.GetAgentName() != "bob" {
+		t.Errorf("unexpected metadata: %+v", e2)
 	}
-	if e2.Namespace != "ns2" {
-		t.Errorf("expected Namespace 'ns2', got '%s'", e2.Namespace)
+	if len(e2.LocalConnections) != 0 {
+		t.Errorf("expected no local connections, got %v", e2.LocalConnections)
 	}
-	if e2.AgentName != "bob" {
-		t.Errorf("expected AgentName 'bob', got '%s'", e2.AgentName)
+	if len(e2.RemoteConnections) != 1 {
+		t.Fatalf("expected 1 remote connection, got %d", len(e2.RemoteConnections))
 	}
-	if e2.AgentId.GetValue() != 7 {
-		t.Errorf("expected AgentId 7, got %d", e2.AgentId.GetValue())
+	rc2 := e2.RemoteConnections[0]
+	if rc2.GetId() != 3 || rc2.GetIp() != "10.0.0.3" || rc2.GetPort() != 3500 {
+		t.Errorf("expected remote {Id:3, ip=10.0.0.3, port=3500}, got %+v", rc2)
 	}
-	if len(e2.LocalConnectionIds) != 0 {
-		t.Errorf("expected LocalConnectionIds [], got %v", e2.LocalConnectionIds)
+}
+
+func TestListConnections(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	conn, err := grpc.NewClient(
+		"passthrough://bufnet",
+		grpc.WithContextDialer(bufDialer),
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+	)
+	if err != nil {
+		t.Fatalf("grpc.NewClient failed: %v", err)
 	}
-	if len(e2.RemoteConnectionIds) != 1 || e2.RemoteConnectionIds[0] != 3 {
-		t.Errorf("expected RemoteConnectionIds [3], got %v", e2.RemoteConnectionIds)
+	defer conn.Close()
+
+	client := grpcapi.NewControllerServiceClient(conn)
+
+	stream, err := client.OpenControlChannel(ctx)
+	if err != nil {
+		t.Fatalf("client.OpenControlChannel failed: %v", err)
+	}
+
+	msg := &grpcapi.ControlMessage{
+		MessageId: uuid.NewString(),
+		Payload:   &grpcapi.ControlMessage_ConnectionListRequest{},
+	}
+	if err := stream.Send(msg); err != nil {
+		t.Fatalf("Send request failed: %v", err)
+	}
+	if err := stream.CloseSend(); err != nil {
+		t.Fatalf("CloseSend failed: %v", err)
+	}
+
+	var received []*grpcapi.ConnectionEntry
+	for {
+		resp, err := stream.Recv()
+		if err == io.EOF { //nolint:errorlint
+			break
+		}
+		if err != nil {
+			t.Fatalf("stream.Recv failed: %v", err)
+		}
+
+		if listResp := resp.GetConnectionListResponse(); listResp != nil {
+			received = append(received, listResp.Entries...)
+		}
+	}
+
+	if len(received) != 2 {
+		t.Fatalf("expected 2 entries, got %d", len(received))
+	}
+	if received[0].GetIp() != "10.1.1.1" || received[1].GetIp() != "10.1.1.2" {
+		t.Errorf("unexpected entries: %+v", received)
 	}
 }
