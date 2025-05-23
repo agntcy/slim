@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.3.5](https://github.com/agntcy/agp/compare/agp-bindings-v0.3.4...agp-bindings-v0.3.5) (2025-05-23)
+
+
+### Features
+
+* **agp-mcp:** use reliable fire and forget ([#275](https://github.com/agntcy/agp/issues/275)) ([e609e69](https://github.com/agntcy/agp/commit/e609e696a2f2e28bfebe1d88ee4bc2f48013a6cb))
+* **fire-and-forget:** add support for sticky sessions ([#281](https://github.com/agntcy/agp/issues/281)) ([0def2fa](https://github.com/agntcy/agp/commit/0def2fa9d9e7cc30435c62bff287f753088f3bd3))
+* list connections ([#280](https://github.com/agntcy/agp/issues/280)) ([b2f89fd](https://github.com/agntcy/agp/commit/b2f89fdb2bb661373c41463396489b2f55f180ed))
+
 ## [0.3.4](https://github.com/agntcy/agp/compare/agp-bindings-v0.3.3...agp-bindings-v0.3.4) (2025-05-20)
 
 
