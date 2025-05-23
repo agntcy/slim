@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::collections::HashMap;
+use std::net::ToSocketAddrs;
 use std::pin::Pin;
 use std::sync::{Arc, OnceLock};
 
@@ -15,7 +16,8 @@ use tracing::{debug, error, info};
 
 use crate::api::proto::api::v1::SubscriptionListResponse;
 use crate::api::proto::api::v1::{
-    Ack, ConnectionEntry, ControlMessage, SubscriptionEntry, controller_service_client::ControllerServiceClient,
+    Ack, ConnectionEntry, ControlMessage, SubscriptionEntry,
+    controller_service_client::ControllerServiceClient,
     controller_service_server::ControllerService as GrpcControllerService,
 };
 use crate::errors::ControllerError;
@@ -61,6 +63,14 @@ impl ControllerService {
                             let client_endpoint =
                                 format!("{}:{}", conn.remote_address, conn.remote_port);
 
+                            let mut addrs_iter = client_endpoint
+                                .as_str()
+                                .to_socket_addrs()
+                                .map_err(|e| ControllerError::ConnectionError(e.to_string()))?;
+                            let remote_sock = addrs_iter
+                                .next()
+                                .ok_or_else(|| ControllerError::ConnectionError(format!("could not resolve {}", client_endpoint)))?;
+
                             // connect to an endpoint if it's not already connected
                             if !self.connections.read().contains_key(&client_endpoint) {
                                 let client_config = ClientConfig {
@@ -80,7 +90,7 @@ impl ControllerService {
                                                 channel,
                                                 Some(client_config.clone()),
                                                 None,
-                                                None,
+                                                Some(remote_sock),
                                             )
                                             .await
                                             .map_err(|e| {
@@ -202,11 +212,13 @@ impl ControllerService {
                             .message_processor
                             .subscription_table()
                             .for_each(|agent_type, agent_id, local, remote| {
-                                let mut entry = SubscriptionEntry::default();
-                                entry.company = agent_type.organization_string().unwrap_or_else(|| agent_type.organization().to_string());
-                                entry.namespace = agent_type.namespace_string().unwrap_or_else(|| agent_type.organization().to_string());
-                                entry.agent_name = agent_type.agent_type_string().unwrap_or_else(|| agent_type.organization().to_string());
-                                entry.agent_id = Some(agent_id);
+                                let mut entry = SubscriptionEntry {
+                                    company: agent_type.organization_string().unwrap_or_else(|| agent_type.organization().to_string()),
+                                    namespace: agent_type.namespace_string().unwrap_or_else(|| agent_type.organization().to_string()),
+                                    agent_name: agent_type.agent_type_string().unwrap_or_else(|| agent_type.organization().to_string()),
+                                    agent_id: Some(agent_id),
+                                    ..Default::default()
+                                };
 
                                 for &cid in local {
                                     let name = format!("local:{}", cid);

@@ -261,7 +261,10 @@ func TestListSubscriptions(t *testing.T) {
 	}
 	rc := e1.RemoteConnections[0]
 	if rc.Id != 2 || rc.Name != "remote:unknown:unknown:2" {
-		t.Errorf("expected remote connection {Id:2,Name:remote:unknown:unknown:2}, got %+v", rc)
+		t.Errorf(
+			"expected remote connection {Id:2,Name:remote:unknown:unknown:2}, got %+v",
+			rc,
+		)
 	}
 
 	e2 := received[1]
@@ -285,6 +288,9 @@ func TestListSubscriptions(t *testing.T) {
 	}
 	rc2 := e2.RemoteConnections[0]
 	if rc2.Id != 3 || rc2.Name != "remote:unknown:unknown:3" {
-		t.Errorf("expected remote connection {Id:3,Name:remote:unknown:unknown:3}, got %+v", rc2)
+		t.Errorf(
+			"expected remote connection {Id:3,Name:remote:unknown:unknown:3}, got %+v",
+			rc2,
+		)
 	}
 }

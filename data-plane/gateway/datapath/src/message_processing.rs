@@ -779,8 +779,7 @@ impl MessageProcessor {
         &self.internal.forwarder.subscription_table
     }
 
-    pub fn connection_table(&self) -> &ConnectionTable<Connection>
-    {
+    pub fn connection_table(&self) -> &ConnectionTable<Connection> {
         &self.internal.forwarder.connection_table
     }
 }
