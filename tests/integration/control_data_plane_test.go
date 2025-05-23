@@ -126,15 +126,27 @@ var _ = Describe("Routing", func() {
 		Eventually(clientASession.Out, 5*time.Second).
 			Should(gbytes.Say(`received message: hello from the b`))
 
-		out, err := exec.Command(
+		// test listing routes
+		routeListOut, err := exec.Command(
 			agpctlPath,
 			"route", "list",
 			"-s", "127.0.0.1:46358",
 		).CombinedOutput()
-		Expect(err).NotTo(HaveOccurred(), "agpctl route list failed: %s", string(out))
+		Expect(err).NotTo(HaveOccurred(), "agpctl route list failed: %s", string(routeListOut))
 
-		output := string(out)
-		Expect(output).To(ContainSubstring("org/default/a id=0"))
-		Expect(output).To(ContainSubstring("org/default/b id=0"))
+		routeListOutput := string(routeListOut)
+		Expect(routeListOutput).To(ContainSubstring("org/default/a id=0"))
+		Expect(routeListOutput).To(ContainSubstring("org/default/b id=0"))
+
+		// test listing connections
+		connectionListOut, err := exec.Command(
+			agpctlPath,
+			"connection", "list",
+			"-s", "127.0.0.1:46358",
+		).CombinedOutput()
+		Expect(err).NotTo(HaveOccurred(), "agpctl connection list failed: %s", string(connectionListOut))
+
+		connectionOutput := string(connectionListOut)
+		Expect(connectionOutput).To(ContainSubstring("127.0.0.1:46367"))
 	})
 })

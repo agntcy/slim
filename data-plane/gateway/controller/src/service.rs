@@ -19,7 +19,9 @@ use crate::api::proto::api::v1::{
     controller_service_client::ControllerServiceClient,
     controller_service_server::ControllerService as GrpcControllerService,
 };
-use crate::api::proto::api::v1::{ConnectionType, SubscriptionListResponse};
+use crate::api::proto::api::v1::{
+    ConnectionListResponse, ConnectionType, SubscriptionListResponse,
+};
 use crate::errors::ControllerError;
 
 use agp_config::grpc::client::ClientConfig;
@@ -277,11 +279,50 @@ impl ControllerService {
                             }
                         }
                     }
+                    crate::api::proto::api::v1::control_message::Payload::ConnectionListRequest(_) => {
+                        let mut all_entries = Vec::new();
+                        self.message_processor
+                            .connection_table()
+                            .for_each(|id, conn| {
+                                let (ip, port) = conn
+                                    .remote_addr()
+                                    .map(|sock| (sock.ip().to_string(), sock.port() as u32))
+                                    .unwrap_or_else(|| ("".into(), 0));
+
+                                all_entries.push(ConnectionEntry {
+                                    id: id as u64,
+                                    connection_type: ConnectionType::Remote as i32,
+                                    ip,
+                                    port,
+                                });
+                            });
+
+                        const CHUNK_SIZE: usize = 100;
+                        for chunk in all_entries.chunks(CHUNK_SIZE) {
+                            let resp = ControlMessage {
+                                message_id: uuid::Uuid::new_v4().to_string(),
+                                payload: Some(
+                                    crate::api::proto::api::v1::control_message::Payload::ConnectionListResponse(
+                                        ConnectionListResponse {
+                                            entries: chunk.to_vec(),
+                                        },
+                                    ),
+                                ),
+                            };
+
+                            if let Err(e) = tx.try_send(Ok(resp)) {
+                                error!("failed to send connection list batch: {}", e);
+                            }
+                        }
+                    }
                     crate::api::proto::api::v1::control_message::Payload::Ack(_ack) => {
                         // received an ack, do nothing - this should not happen
                     }
                     crate::api::proto::api::v1::control_message::Payload::SubscriptionListResponse(_) => {
                         // received a subscription list response, do nothing - this should not happen
+                    }
+                    crate::api::proto::api::v1::control_message::Payload::ConnectionListResponse(_) => {
+                        // received a connection list response, do nothing - this should not happen
                     }
                 }
             }

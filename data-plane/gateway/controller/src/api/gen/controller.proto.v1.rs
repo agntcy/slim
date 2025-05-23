@@ -3,7 +3,7 @@
 pub struct ControlMessage {
     #[prost(string, tag = "1")]
     pub message_id: ::prost::alloc::string::String,
-    #[prost(oneof = "control_message::Payload", tags = "2, 3, 4, 5")]
+    #[prost(oneof = "control_message::Payload", tags = "2, 3, 4, 5, 6, 7")]
     pub payload: ::core::option::Option<control_message::Payload>,
 }
 /// Nested message and enum types in `ControlMessage`.
@@ -18,6 +18,10 @@ pub mod control_message {
         SubscriptionListRequest(super::SubscriptionListRequest),
         #[prost(message, tag = "5")]
         SubscriptionListResponse(super::SubscriptionListResponse),
+        #[prost(message, tag = "6")]
+        ConnectionListRequest(super::ConnectionListRequest),
+        #[prost(message, tag = "7")]
+        ConnectionListResponse(super::ConnectionListResponse),
     }
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -92,6 +96,13 @@ pub struct ConnectionEntry {
     pub ip: ::prost::alloc::string::String,
     #[prost(uint32, tag = "4")]
     pub port: u32,
+}
+#[derive(Clone, Copy, PartialEq, ::prost::Message)]
+pub struct ConnectionListRequest {}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ConnectionListResponse {
+    #[prost(message, repeated, tag = "1")]
+    pub entries: ::prost::alloc::vec::Vec<ConnectionEntry>,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]

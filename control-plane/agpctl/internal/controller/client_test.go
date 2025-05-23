@@ -100,6 +100,32 @@ func (s *fakeServer) OpenControlChannel(
 		if err := stream.Send(resp); err != nil {
 			return err
 		}
+	case *grpcapi.ControlMessage_ConnectionListRequest:
+		entries := []*grpcapi.ConnectionEntry{
+			{
+				Id:             1,
+				ConnectionType: grpcapi.ConnectionType_CONNECTION_TYPE_LOCAL,
+				Ip:             "10.1.1.1",
+				Port:           1000,
+			},
+			{
+				Id:             2,
+				ConnectionType: grpcapi.ConnectionType_CONNECTION_TYPE_LOCAL,
+				Ip:             "10.1.1.2",
+				Port:           2000,
+			},
+		}
+		resp := &grpcapi.ControlMessage{
+			MessageId: uuid.NewString(),
+			Payload: &grpcapi.ControlMessage_ConnectionListResponse{
+				ConnectionListResponse: &grpcapi.ConnectionListResponse{
+					Entries: entries,
+				},
+			},
+		}
+		if err := stream.Send(resp); err != nil {
+			return err
+		}
 	}
 
 	return nil
@@ -216,6 +242,9 @@ func TestListSubscriptions(t *testing.T) {
 	if err = stream.Send(msg); err != nil {
 		t.Fatalf("stream.Send failed: %v", err)
 	}
+	if err := stream.CloseSend(); err != nil {
+		t.Fatalf("CloseSend failed: %v", err)
+	}
 
 	var received []*grpcapi.SubscriptionEntry
 	for {
@@ -273,5 +302,60 @@ func TestListSubscriptions(t *testing.T) {
 	rc2 := e2.RemoteConnections[0]
 	if rc2.GetId() != 3 || rc2.GetIp() != "10.0.0.3" || rc2.GetPort() != 3500 {
 		t.Errorf("expected remote {Id:3, ip=10.0.0.3, port=3500}, got %+v", rc2)
+	}
+}
+
+func TestListConnections(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	conn, err := grpc.NewClient(
+		"passthrough://bufnet",
+		grpc.WithContextDialer(bufDialer),
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+	)
+	if err != nil {
+		t.Fatalf("grpc.NewClient failed: %v", err)
+	}
+	defer conn.Close()
+
+	client := grpcapi.NewControllerServiceClient(conn)
+
+	stream, err := client.OpenControlChannel(ctx)
+	if err != nil {
+		t.Fatalf("client.OpenControlChannel failed: %v", err)
+	}
+
+	msg := &grpcapi.ControlMessage{
+		MessageId: uuid.NewString(),
+		Payload:   &grpcapi.ControlMessage_ConnectionListRequest{},
+	}
+	if err := stream.Send(msg); err != nil {
+		t.Fatalf("Send request failed: %v", err)
+	}
+	if err := stream.CloseSend(); err != nil {
+		t.Fatalf("CloseSend failed: %v", err)
+	}
+
+	var received []*grpcapi.ConnectionEntry
+	for {
+		resp, err := stream.Recv()
+		if err == io.EOF { //nolint:errorlint
+			break
+		}
+		if err != nil {
+			t.Fatalf("stream.Recv failed: %v", err)
+		}
+
+		if listResp := resp.GetConnectionListResponse(); listResp != nil {
+			received = append(received, listResp.Entries...)
+		}
+	}
+
+	if len(received) != 2 {
+		t.Fatalf("expected 2 entries, got %d", len(received))
+	}
+	if received[0].GetIp() != "10.1.1.1" || received[1].GetIp() != "10.1.1.2" {
+		t.Errorf("unexpected entries: %+v", received)
 	}
 }
