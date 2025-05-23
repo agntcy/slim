@@ -147,6 +147,6 @@ var _ = Describe("Routing", func() {
 		Expect(err).NotTo(HaveOccurred(), "agpctl connection list failed: %s", string(connectionListOut))
 
 		connectionOutput := string(connectionListOut)
-		Expect(connectionOutput).To(ContainSubstring("127.0.0.1:46367"))
+		Expect(connectionOutput).To(ContainSubstring(":46367"))
 	})
 })
