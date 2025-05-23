@@ -838,10 +838,7 @@ mod tests {
             t.remove_connection(4, false),
             Err(SubscriptionTableError::ConnectionIdNotFound)
         );
-        assert_eq!(
-            t.match_one(agent_type1.clone(), Some(1), 100),
-            Ok(2),
-        );
+        assert_eq!(t.match_one(agent_type1.clone(), Some(1), 100), Ok(2),);
         assert_eq!(
             // this generates a warning
             t.add_subscription(agent_type2.clone(), Some(2), 3, false),
