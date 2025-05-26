@@ -618,7 +618,12 @@ impl MessageProcessor {
         }
     }
 
-    async fn reconnect(&self, client_conf: Option<ClientConfig>, conn_index: u64) -> bool {
+    async fn reconnect(
+        &self,
+        client_conf: Option<ClientConfig>,
+        conn_index: u64,
+        cancellation_token: &CancellationToken,
+    ) -> bool {
         let config = client_conf.unwrap();
         match config.to_channel() {
             Err(e) => {
@@ -638,30 +643,39 @@ impl MessageProcessor {
                     .forwarder()
                     .get_subscriptions_forwarded_on_connection(conn_index);
 
-                match self
-                    .try_to_connect(channel, Some(config), None, None, Some(conn_index), 120)
-                    .await
-                {
-                    Ok(_) => {
-                        info!("connection re-established");
-                        // the subscription table should be ok already
-                        for r in remote_subscriptions.iter() {
-                            let sub_msg = Message::new_subscribe(
-                                r.source(),
-                                r.name().agent_type(),
-                                r.name().agent_id_option(),
-                                None,
-                            );
-                            if self.send_msg(sub_msg, conn_index).await.is_err() {
-                                error!("error restoring subscription on remote node");
+                tokio::select! {
+                    _ = cancellation_token.cancelled() => {
+                        debug!("cancellation token signaled, stopping reconnection process");
+                        false
+                    }
+                    _ = self.get_drain_watch().signaled() => {
+                        debug!("drain watch signaled, stopping reconnection process");
+                        false
+                    }
+                    res = self.try_to_connect(channel, Some(config), None, None, Some(conn_index), 120) => {
+                        match res {
+                            Ok(_) => {
+                                info!("connection re-established");
+                                // the subscription table should be ok already
+                                for r in remote_subscriptions.iter() {
+                                    let sub_msg = Message::new_subscribe(
+                                        r.source(),
+                                        r.name().agent_type(),
+                                        r.name().agent_id_option(),
+                                        None,
+                                    );
+                                    if self.send_msg(sub_msg, conn_index).await.is_err() {
+                                        error!("error restoring subscription on remote node");
+                                    }
+                                }
+                                true
+                            }
+                            Err(e) => {
+                                // TODO: notify the app that the connection is not working anymore
+                                error!("unable to connect to remote node {:?}", e.to_string());
+                                false
                             }
                         }
-                        true
-                    }
-                    Err(e) => {
-                        // TODO: notify the app that the connection is not working anymore
-                        error!("unable to connect to remote node {:?}", e.to_string());
-                        false
                     }
                 }
             }
@@ -737,7 +751,9 @@ impl MessageProcessor {
             let mut connected = false;
 
             if try_to_reconnect && client_conf_clone.is_some() {
-                connected = self_clone.reconnect(client_conf_clone, conn_index).await;
+                connected = self_clone
+                    .reconnect(client_conf_clone, conn_index, &token_clone)
+                    .await;
             } else {
                 debug!("close connection {}", conn_index)
             }
