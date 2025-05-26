@@ -33,6 +33,4 @@ pub enum DataPathError {
     StreamError(String),
     #[error("error processing message: {0}")]
     ProcessingError(String),
-    #[error("error during reception: {0}")]
-    ReceptionError(String),
 }
