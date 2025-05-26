@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.5](https://github.com/agntcy/agp/compare/agp-mcp-v0.1.4...agp-mcp-v0.1.5) (2025-05-26)
+
+
+### Features
+
+* **agp-mcp:** use sticky sessions ([#282](https://github.com/agntcy/agp/issues/282)) ([18f1b91](https://github.com/agntcy/agp/commit/18f1b91d18399de03c226921d363e47c1627169c))
+
 ## [0.1.4](https://github.com/agntcy/agp/compare/agp-mcp-v0.1.3...agp-mcp-v0.1.4) (2025-05-21)
 
 
