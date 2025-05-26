@@ -3,7 +3,7 @@
 
 use thiserror::Error;
 
-#[derive(Error, Debug, PartialEq, Clone)]
+#[derive(Error, Debug, PartialEq)]
 pub enum DataPathError {
     #[error("connection error: {0}")]
     ConnectionError(String),
