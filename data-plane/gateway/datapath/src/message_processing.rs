@@ -646,11 +646,11 @@ impl MessageProcessor {
                 tokio::select! {
                     _ = cancellation_token.cancelled() => {
                         debug!("cancellation token signaled, stopping reconnection process");
-                        return false;
+                        false
                     }
                     _ = self.get_drain_watch().signaled() => {
                         debug!("drain watch signaled, stopping reconnection process");
-                        return false;
+                        false
                     }
                     res = self.try_to_connect(channel, Some(config), None, None, Some(conn_index), 120) => {
                         match res {
