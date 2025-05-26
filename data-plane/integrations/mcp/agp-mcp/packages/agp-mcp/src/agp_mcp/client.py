@@ -123,6 +123,7 @@ class AGPClient(AGPBase):
             agp_bindings.PySessionConfiguration.FireAndForget(
                 timeout=self.message_timeout,
                 max_retries=self.message_retries,
+                sticky=True,
             )
         )
 
