@@ -104,14 +104,6 @@ fn create_span(function: &str, out_conn: u64, msg: &Message) -> Span {
     span
 }
 
-// Enum to represent possible actions after processing a stream iteration
-#[derive(Debug, PartialEq)]
-enum StreamAction {
-    Continue,
-    TryReconnect,
-    Stop,
-}
-
 #[derive(Debug)]
 struct MessageProcessorInternal {
     forwarder: Forwarder<Connection>,
@@ -626,44 +618,14 @@ impl MessageProcessor {
         }
     }
 
-    // Helper method to handle a message from the stream
-    async fn handle_stream_message(
+    async fn reconnect(
         &self,
-        result: Result<Message, Status>,
+        client_conf: Option<ClientConfig>,
         conn_index: u64,
-        is_local: bool,
-    ) -> Result<(), DataPathError> {
-        match result {
-            Ok(msg) => {
-                let result = self.handle_new_message(conn_index, is_local, msg).await;
-                if let Err(e) = &result {
-                    error!(%conn_index, %e, "error processing incoming message");
-                    // If the message is coming from a local app, notify it
-                    if is_local {
-                        // try to forward error to the local app
-                        self.send_error_to_local_app(conn_index, e.clone()).await;
-                    }
-                }
-                result
-            }
-            Err(e) => {
-                if let Some(io_err) = MessageProcessor::match_for_io_error(&e) {
-                    if io_err.kind() == std::io::ErrorKind::BrokenPipe {
-                        info!("connection {:?} closed by peer", conn_index);
-                    }
-                } else {
-                    error!("error receiving messages {:?}", e);
-                }
-                Err(DataPathError::ReceptionError(e.to_string()))
-            }
-        }
-    }
-
-    // Helper method to attempt a reconnection
-    async fn attempt_reconnect(&self, client_conf: &ClientConfig, conn_index: u64) -> bool {
-        info!("connection lost with remote endpoint, trying to reconnect");
-
-        match client_conf.to_channel() {
+        cancellation_token: &CancellationToken,
+    ) -> bool {
+        let config = client_conf.unwrap();
+        match config.to_channel() {
             Err(e) => {
                 error!(
                     "cannot parse connection config, unable to reconnect {:?}",
@@ -672,69 +634,57 @@ impl MessageProcessor {
                 false
             }
             Ok(channel) => {
+                info!("connection lost with remote endpoint, try to reconnect");
                 // These are the subscriptions that we forwarded to the remote gateway on
-                // this connection. It is necessary to restore them to keep receiving the messages
+                // this connection. It is necessary to restore them to keep receive the messages
+                // The connections on the local subscription table (created using the set_route command)
+                // are still there and will be removed only if the reconnection process will fail.
                 let remote_subscriptions = self
                     .forwarder()
                     .get_subscriptions_forwarded_on_connection(conn_index);
 
-                // Try to reconnect with a timeout
-                let reconnect_timeout = tokio::time::Duration::from_secs(1);
-                match tokio::time::timeout(
-                    reconnect_timeout,
-                    self.try_to_connect(
-                        channel,
-                        Some(client_conf.clone()),
-                        None,
-                        None,
-                        Some(conn_index),
-                        1,
-                    ),
-                )
-                .await
-                {
-                    Ok(Ok((_, _))) => {
-                        info!("connection re-established");
-                        // Restore subscriptions
-                        for r in remote_subscriptions.iter() {
-                            let sub_msg = Message::new_subscribe(
-                                r.source(),
-                                r.name().agent_type(),
-                                r.name().agent_id_option(),
-                                None,
-                            );
-                            if self.send_msg(sub_msg, conn_index).await.is_err() {
-                                error!("error restoring subscription on remote node");
+                tokio::select! {
+                    _ = cancellation_token.cancelled() => {
+                        debug!("cancellation token signaled, stopping reconnection process");
+                        return false;
+                    }
+                    _ = self.get_drain_watch().signaled() => {
+                        debug!("drain watch signaled, stopping reconnection process");
+                        return false;
+                    }
+                    res = self.try_to_connect(channel, Some(config), None, None, Some(conn_index), 120) => {
+                        match res {
+                            Ok(_) => {
+                                info!("connection re-established");
+                                // the subscription table should be ok already
+                                for r in remote_subscriptions.iter() {
+                                    let sub_msg = Message::new_subscribe(
+                                        r.source(),
+                                        r.name().agent_type(),
+                                        r.name().agent_id_option(),
+                                        None,
+                                    );
+                                    if self.send_msg(sub_msg, conn_index).await.is_err() {
+                                        error!("error restoring subscription on remote node");
+                                    }
+                                }
+                                true
+                            }
+                            Err(e) => {
+                                // TODO: notify the app that the connection is not working anymore
+                                error!("unable to connect to remote node {:?}", e.to_string());
+                                false
                             }
                         }
-                        true
-                    }
-                    Ok(Err(e)) => {
-                        debug!("reconnection attempt failed: {:?}", e.to_string());
-                        false
-                    }
-                    Err(_) => {
-                        debug!("reconnection attempt timed out");
-                        false
                     }
                 }
             }
         }
     }
 
-    // Helper method to clean up connection state
-    fn cleanup_connection(&self, conn_index: u64, is_local: bool) {
-        debug!("closing connection {}", conn_index);
-
-        // Delete connection state
-        self.forwarder().on_connection_drop(conn_index, is_local);
-
-        info!(telemetry = true, counter.num_active_connections = -1);
-    }
-
     fn process_stream(
         &self,
-        stream: impl Stream<Item = Result<Message, Status>> + Unpin + Send + 'static,
+        mut stream: impl Stream<Item = Result<Message, Status>> + Unpin + Send + 'static,
         conn_index: u64,
         client_config: Option<ClientConfig>,
         cancellation_token: CancellationToken,
@@ -744,135 +694,81 @@ impl MessageProcessor {
         let self_clone = self.clone();
         let token_clone = cancellation_token.clone();
         let client_conf_clone = client_config.clone();
-
         let handle = tokio::spawn(async move {
             let mut try_to_reconnect = true;
-            let mut in_reconnect_mode = false;
-            let mut stream_opt = Some(stream);
-
             loop {
-                if in_reconnect_mode && client_conf_clone.is_some() {
-                    // Process reconnection mode
-                    match self_clone
-                        .process_reconnection(
-                            conn_index,
-                            client_conf_clone.as_ref().unwrap(),
-                            &token_clone,
-                        )
-                        .await
-                    {
-                        Ok(true) => {
-                            // Reconnection successful
-                            in_reconnect_mode = false;
-                            continue;
-                        }
-                        Ok(false) => {
-                            // Reconnection failed but should keep trying
-                            tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
-                            continue;
-                        }
-                        Err(_) => {
-                            // Signal received, exit
-                            try_to_reconnect = false;
-                            break;
-                        }
-                    }
-                } else if let Some(stream) = stream_opt.as_mut() {
-                    // Process normal stream mode
-                    match self_clone
-                        .process_stream_iteration(stream, conn_index, is_local, &token_clone)
-                        .await
-                    {
-                        StreamAction::Continue => {
-                            // Continue processing the stream
-                            continue;
-                        }
-                        StreamAction::TryReconnect => {
-                            // Drop the stream and try to reconnect
-                            drop(stream_opt.take());
-                            if try_to_reconnect && client_conf_clone.is_some() {
-                                in_reconnect_mode = true;
-                                continue;
-                            } else {
+                tokio::select! {
+                    next = stream.next() => {
+                        match next {
+                            Some(result) => {
+                                match result {
+                                    Ok(msg) => {
+                                        if let Err(e) = self_clone.handle_new_message(conn_index, is_local, msg).await {
+                                            error!(%conn_index, %e, "error processing incoming message");
+                                            // If the message is coming from a local app, notify it
+                                            if is_local {
+                                                // try to forward error to the local app
+                                                self_clone.send_error_to_local_app(conn_index, e).await;
+                                            }
+                                        }
+                                    }
+                                    Err(e) => {
+                                        if let Some(io_err) = MessageProcessor::match_for_io_error(&e) {
+                                            if io_err.kind() == std::io::ErrorKind::BrokenPipe {
+                                                info!("connection {:?} closed by peer", conn_index);
+                                            }
+                                        } else {
+                                            error!("error receiving messages {:?}", e);
+                                        }
+                                        break;
+                                    }
+                                }
+                            }
+                            None => {
+                                debug!(%conn_index, "end of stream");
                                 break;
                             }
                         }
-                        StreamAction::Stop => {
-                            // Stop processing and exit
-                            try_to_reconnect = false;
-                            break;
-                        }
                     }
-                } else {
-                    // No stream and not in reconnect mode, this should not happen
-                    error!("no stream available and not in reconnect mode, breaking loop");
-                    break;
+                    _ = self_clone.get_drain_watch().signaled() => {
+                        debug!("shutting down stream on drain: {}", conn_index);
+                        try_to_reconnect = false;
+                        break;
+                    }
+                    _ = token_clone.cancelled() => {
+                        debug!("shutting down stream on cancellation token: {}", conn_index);
+                        try_to_reconnect = false;
+                        break;
+                    }
                 }
             }
 
-            // Clean up connection state if not reconnected
-            if in_reconnect_mode || !try_to_reconnect {
-                self_clone.cleanup_connection(conn_index, is_local);
+            // we drop rx now as otherwise the connection will be closed only
+            // when the task is dropped and we want to make sure that the rx
+            // stream is closed as soon as possible
+            drop(stream);
+
+            let mut connected = false;
+
+            if try_to_reconnect && client_conf_clone.is_some() {
+                connected = self_clone
+                    .reconnect(client_conf_clone, conn_index, &token_clone)
+                    .await;
+            } else {
+                debug!("close connection {}", conn_index)
+            }
+
+            if !connected {
+                // delete connection state
+                self_clone
+                    .forwarder()
+                    .on_connection_drop(conn_index, is_local);
+
+                info!(telemetry = true, counter.num_active_connections = -1);
             }
         });
 
         handle
-    }
-
-    // Process one iteration of the stream
-    async fn process_stream_iteration(
-        &self,
-        stream: &mut (impl Stream<Item = Result<Message, Status>> + Unpin),
-        conn_index: u64,
-        is_local: bool,
-        token: &CancellationToken,
-    ) -> StreamAction {
-        tokio::select! {
-            next = stream.next() => {
-                match next {
-                    Some(result) => {
-                        match self.handle_stream_message(result, conn_index, is_local).await {
-                            Ok(_) => StreamAction::Continue,
-                            Err(_) => StreamAction::TryReconnect,
-                        }
-                    }
-                    None => {
-                        debug!(%conn_index, "end of stream");
-                        StreamAction::TryReconnect
-                    }
-                }
-            }
-            _ = self.get_drain_watch().signaled() => {
-                debug!("shutting down stream on drain: {}", conn_index);
-                StreamAction::Stop
-            }
-            _ = token.cancelled() => {
-                debug!("shutting down stream on cancellation token: {}", conn_index);
-                StreamAction::Stop
-            }
-        }
-    }
-
-    // Process reconnection attempts with signal handling
-    async fn process_reconnection(
-        &self,
-        conn_index: u64,
-        client_conf: &ClientConfig,
-        token: &CancellationToken,
-    ) -> Result<bool, ()> {
-        tokio::select! {
-            _ = self.get_drain_watch().signaled() => {
-                debug!("shutting down reconnect attempt on drain: {}", conn_index);
-                Err(())
-            }
-            _ = token.cancelled() => {
-                debug!("shutting down reconnect attempt on cancellation token: {}", conn_index);
-                Err(())
-            }
-            reconnect_result = self.attempt_reconnect(client_conf, conn_index) => {
-                Ok(reconnect_result)
-            }
-        }
     }
 
     fn match_for_io_error(err_status: &Status) -> Option<&std::io::Error> {
