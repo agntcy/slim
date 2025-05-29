@@ -87,19 +87,43 @@ impl AgentType {
         }
     }
 
-    pub fn with_organization(self, organization: u64) -> Self {
-        Self {
-            organization,
-            ..self
-        }
+    pub fn with_organization(mut self, organization: u64) -> Self {
+        self.organization = organization;
+        let s = self.strings.get_or_insert_with(|| {
+            Box::new((
+                self.organization.to_string(),
+                self.namespace.to_string(),
+                self.agent_type.to_string(),
+            ))
+        });
+        s.0 = organization.to_string();
+        self
     }
 
-    pub fn with_namespace(self, namespace: u64) -> Self {
-        Self { namespace, ..self }
+    pub fn with_namespace(mut self, namespace: u64) -> Self {
+        self.namespace = namespace;
+        let s = self.strings.get_or_insert_with(|| {
+            Box::new((
+                self.organization.to_string(),
+                self.namespace.to_string(),
+                self.agent_type.to_string(),
+            ))
+        });
+        s.1 = namespace.to_string();
+        self
     }
 
-    pub fn with_agent_type(self, agent_type: u64) -> Self {
-        Self { agent_type, ..self }
+    pub fn with_agent_type(mut self, agent_type: u64) -> Self {
+        self.agent_type = agent_type;
+        let s = self.strings.get_or_insert_with(|| {
+            Box::new((
+                self.organization.to_string(),
+                self.namespace.to_string(),
+                self.agent_type.to_string(),
+            ))
+        });
+        s.0 = agent_type.to_string();
+        self
     }
 
     pub fn organization(&self) -> u64 {
