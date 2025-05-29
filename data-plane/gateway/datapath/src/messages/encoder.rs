@@ -122,7 +122,7 @@ impl AgentType {
                 self.agent_type.to_string(),
             ))
         });
-        s.0 = agent_type.to_string();
+        s.2 = agent_type.to_string();
         self
     }
 
