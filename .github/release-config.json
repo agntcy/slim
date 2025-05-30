@@ -28,6 +28,10 @@
         "data-plane/integrations/mcp/agp-mcp/examples/mcp-server-time": {
             "package-name": "agp-mcp-server-time",
             "release-type": "simple"
+        },
+        "data-plane/testing": {
+            "package-name": "agp-testutils",
+            "release-type": "simple"
         }
     }
 }
