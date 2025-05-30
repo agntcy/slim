@@ -1,3 +1,6 @@
+// Copyright AGNTCY Contributors (https://github.com/agntcy)
+// SPDX-License-Identifier: Apache-2.0
+
 use std::str::SplitWhitespace;
 
 use agp_datapath::messages::{Agent, AgentType};
@@ -54,44 +57,13 @@ pub fn parse_sub(mut iter: SplitWhitespace<'_>) -> Result<ParsedMessage, Parsing
         },
     }
 
-    let mut a_type = AgentType::default();
-    let mut sub = Agent::default();
-    match iter.next().unwrap().parse::<u64>() {
-        Ok(x) => {
-            a_type = a_type.with_organization(x);
-        }
-        Err(e) => {
-            return Err(ParsingError::ParsingError(e.to_string()));
-        }
-    }
+    let org = iter.next().unwrap().parse::<u64>().unwrap();
+    let namespace = iter.next().unwrap().parse::<u64>().unwrap();
+    let agent_type_val = iter.next().unwrap().parse::<u64>().unwrap();
+    let agent_id = iter.next().unwrap().parse::<u64>().unwrap();
 
-    match iter.next().unwrap().parse::<u64>() {
-        Ok(x) => {
-            a_type = a_type.with_namespace(x);
-        }
-        Err(e) => {
-            return Err(ParsingError::ParsingError(e.to_string()));
-        }
-    }
-
-    match iter.next().unwrap().parse::<u64>() {
-        Ok(x) => {
-            a_type = a_type.with_agent_type(x);
-        }
-        Err(e) => {
-            return Err(ParsingError::ParsingError(e.to_string()));
-        }
-    }
-
-    match iter.next().unwrap().parse::<u64>() {
-        Ok(x) => {
-            sub = sub.with_agent_id(x);
-            sub = sub.with_agent_type(a_type);
-        }
-        Err(e) => {
-            return Err(ParsingError::ParsingError(e.to_string()));
-        }
-    }
+    let a_type = AgentType::from_strings(&org.to_string(), &namespace.to_string(), &agent_type_val.to_string());
+    let sub = Agent::new(a_type, agent_id);
 
     subscription.name = sub;
     Ok(subscription)
@@ -120,44 +92,13 @@ pub fn parse_pub(mut iter: SplitWhitespace<'_>) -> Result<ParsedMessage, Parsing
     }
 
     // get the publication name
-    let mut a_type = AgentType::default();
-    let mut pub_name = Agent::default();
-    match iter.next().unwrap().parse::<u64>() {
-        Ok(x) => {
-            a_type = a_type.with_organization(x);
-        }
-        Err(e) => {
-            return Err(ParsingError::ParsingError(e.to_string()));
-        }
-    }
+    let org = iter.next().unwrap().parse::<u64>().unwrap();
+    let namespace = iter.next().unwrap().parse::<u64>().unwrap();
+    let agent_type_val = iter.next().unwrap().parse::<u64>().unwrap();
+    let agent_id = iter.next().unwrap().parse::<u64>().unwrap();
 
-    match iter.next().unwrap().parse::<u64>() {
-        Ok(x) => {
-            a_type = a_type.with_namespace(x);
-        }
-        Err(e) => {
-            return Err(ParsingError::ParsingError(e.to_string()));
-        }
-    }
-
-    match iter.next().unwrap().parse::<u64>() {
-        Ok(x) => {
-            a_type = a_type.with_agent_type(x);
-        }
-        Err(e) => {
-            return Err(ParsingError::ParsingError(e.to_string()));
-        }
-    }
-
-    match iter.next().unwrap().parse::<u64>() {
-        Ok(x) => {
-            pub_name = pub_name.with_agent_id(x);
-            pub_name = pub_name.with_agent_type(a_type);
-        }
-        Err(e) => {
-            return Err(ParsingError::ParsingError(e.to_string()));
-        }
-    }
+    let a_type = AgentType::from_strings(&org.to_string(), &namespace.to_string(), &agent_type_val.to_string());
+    let pub_name = Agent::new(a_type, agent_id);
 
     // get the len of the possible receivers
     let size = match iter.next().unwrap().parse::<u64>() {
@@ -191,16 +132,14 @@ pub fn parse_pub(mut iter: SplitWhitespace<'_>) -> Result<ParsedMessage, Parsing
 
 pub fn parse_line(line: &str) -> Result<ParsedMessage, ParsingError> {
     let mut iter = line.split_whitespace();
-    let prefix = iter.next();
+    let msg_type = iter
+        .next()
+        .ok_or_else(|| ParsingError::ParsingError("missing type".to_string()))?
+        .to_string();
 
-    if prefix == Some("SUB") {
-        return parse_sub(iter);
+    match msg_type.as_str() {
+        "SUB" => parse_sub(iter),
+        "PUB" => parse_pub(iter),
+        _ => Err(ParsingError::ParsingError(format!("unknown type: {}", msg_type))),
     }
-
-    if prefix == Some("PUB") {
-        return parse_pub(iter);
-    }
-
-    // unable to parse this line
-    Err(ParsingError::ParsingError("unknown prefix".to_string()))
 }
