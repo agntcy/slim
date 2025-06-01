@@ -34,7 +34,7 @@ pub struct Connection {
     pub remote_port: i32,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct Route {
+pub struct Subscription {
     #[prost(string, tag = "1")]
     pub organization: ::prost::alloc::string::String,
     #[prost(string, tag = "2")]
@@ -51,9 +51,9 @@ pub struct ConfigurationCommand {
     #[prost(message, repeated, tag = "1")]
     pub connections_to_create: ::prost::alloc::vec::Vec<Connection>,
     #[prost(message, repeated, tag = "2")]
-    pub routes_to_set: ::prost::alloc::vec::Vec<Route>,
+    pub subscriptions_to_set: ::prost::alloc::vec::Vec<Subscription>,
     #[prost(message, repeated, tag = "3")]
-    pub routes_to_delete: ::prost::alloc::vec::Vec<Route>,
+    pub subscriptions_to_delete: ::prost::alloc::vec::Vec<Subscription>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct Ack {

@@ -31,7 +31,7 @@ message Connection {
   int32 remote_port = 3;
 }
 
-message Route {
+message Subscription {
   string organization = 1;
   string namespace = 2;
   string agent_type = 3;
@@ -41,8 +41,8 @@ message Route {
 
 message ConfigurationCommand {
   repeated Connection connections_to_create = 1;
-  repeated Route routes_to_set = 2;
-  repeated Route routes_to_delete = 3;
+  repeated Subscription subscriptions_to_set = 2;
+  repeated Subscription subscriptions_to_delete = 3;
 }
 
 message Ack {

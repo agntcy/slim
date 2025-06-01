@@ -115,34 +115,34 @@ impl ControllerService {
                             }
                         }
 
-                        for route in &config.routes_to_set {
-                            if !self.connections.read().contains_key(&route.connection_id) {
-                                error!("connection {} not found", route.connection_id);
+                        for subscription in &config.subscriptions_to_set {
+                            if !self.connections.read().contains_key(&subscription.connection_id) {
+                                error!("connection {} not found", subscription.connection_id);
                                 continue;
                             }
 
                             let conn = self
                                 .connections
                                 .read()
-                                .get(&route.connection_id)
+                                .get(&subscription.connection_id)
                                 .cloned()
                                 .unwrap();
                             let source = Agent::from_strings(
-                                route.organization.as_str(),
-                                route.namespace.as_str(),
-                                route.agent_type.as_str(),
+                                subscription.organization.as_str(),
+                                subscription.namespace.as_str(),
+                                subscription.agent_type.as_str(),
                                 0,
                             );
                             let agent_type = AgentType::from_strings(
-                                route.organization.as_str(),
-                                route.namespace.as_str(),
-                                route.agent_type.as_str(),
+                                subscription.organization.as_str(),
+                                subscription.namespace.as_str(),
+                                subscription.agent_type.as_str(),
                             );
 
                             let msg = PubsubMessage::new_subscribe(
                                 &source,
                                 &agent_type,
-                                route.agent_id,
+                                subscription.agent_id,
                                 Some(AgpHeaderFlags::default().with_recv_from(conn)),
                             );
 
@@ -151,34 +151,34 @@ impl ControllerService {
                             }
                         }
 
-                        for route in &config.routes_to_delete {
-                            if !self.connections.read().contains_key(&route.connection_id) {
-                                error!("connection {} not found", route.connection_id);
+                        for subscription in &config.subscriptions_to_delete {
+                            if !self.connections.read().contains_key(&subscription.connection_id) {
+                                error!("connection {} not found", subscription.connection_id);
                                 continue;
                             }
 
                             let conn = self
                                 .connections
                                 .read()
-                                .get(&route.connection_id)
+                                .get(&subscription.connection_id)
                                 .cloned()
                                 .unwrap();
                             let source = Agent::from_strings(
-                                route.organization.as_str(),
-                                route.namespace.as_str(),
-                                route.agent_type.as_str(),
+                                subscription.organization.as_str(),
+                                subscription.namespace.as_str(),
+                                subscription.agent_type.as_str(),
                                 0,
                             );
                             let agent_type = AgentType::from_strings(
-                                route.organization.as_str(),
-                                route.namespace.as_str(),
-                                route.agent_type.as_str(),
+                                subscription.organization.as_str(),
+                                subscription.namespace.as_str(),
+                                subscription.agent_type.as_str(),
                             );
 
                             let msg = PubsubMessage::new_unsubscribe(
                                 &source,
                                 &agent_type,
-                                route.agent_id,
+                                subscription.agent_id,
                                 Some(AgpHeaderFlags::default().with_recv_from(conn)),
                             );
 

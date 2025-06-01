@@ -161,7 +161,7 @@ func TestSendConfigMessage(t *testing.T) {
 					RemoteAddress: "10.0.0.1",
 					RemotePort:    8080,
 				}},
-				RoutesToSet: []*grpcapi.Route{{
+				SubscriptionsToSet: []*grpcapi.Subscription{{
 					Organization: "acme",
 					Namespace:    "outshift",
 					AgentType:    "agent",

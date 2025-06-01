@@ -120,7 +120,7 @@ func newAddCmd(opts *options.CommonOptions) *cobra.Command {
 				return err
 			}
 
-			route := &grpcapi.Route{
+			subscription := &grpcapi.Subscription{
 				Organization: organization,
 				Namespace:    namespace,
 				AgentType:    agentType,
@@ -132,9 +132,9 @@ func newAddCmd(opts *options.CommonOptions) *cobra.Command {
 				MessageId: uuid.NewString(),
 				Payload: &grpcapi.ControlMessage_ConfigCommand{
 					ConfigCommand: &grpcapi.ConfigurationCommand{
-						ConnectionsToCreate: []*grpcapi.Connection{conn},
-						RoutesToSet:         []*grpcapi.Route{route},
-						RoutesToDelete:      []*grpcapi.Route{},
+						ConnectionsToCreate:   []*grpcapi.Connection{conn},
+						SubscriptionsToSet:    []*grpcapi.Subscription{subscription},
+						SubscriptionsToDelete: []*grpcapi.Subscription{},
 					},
 				},
 			}
@@ -210,7 +210,7 @@ func newDelCmd(opts *options.CommonOptions) *cobra.Command {
 				return fmt.Errorf("invalid endpoint format '%s': %w", endpoint, err)
 			}
 
-			route := &grpcapi.Route{
+			subscription := &grpcapi.Subscription{
 				Organization: organization,
 				Namespace:    namespace,
 				AgentType:    agentType,
@@ -222,9 +222,9 @@ func newDelCmd(opts *options.CommonOptions) *cobra.Command {
 				MessageId: uuid.NewString(),
 				Payload: &grpcapi.ControlMessage_ConfigCommand{
 					ConfigCommand: &grpcapi.ConfigurationCommand{
-						ConnectionsToCreate: []*grpcapi.Connection{},
-						RoutesToSet:         []*grpcapi.Route{},
-						RoutesToDelete:      []*grpcapi.Route{route},
+						ConnectionsToCreate:   []*grpcapi.Connection{},
+						SubscriptionsToSet:    []*grpcapi.Subscription{},
+						SubscriptionsToDelete: []*grpcapi.Subscription{subscription},
 					},
 				},
 			}
