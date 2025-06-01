@@ -78,7 +78,7 @@ func newListCmd(opts *options.CommonOptions) *cobra.Command {
 								fmt.Sprintf("remote:%s:%d:%d", c.GetIp(), c.GetPort(), c.GetId()))
 						}
 						fmt.Printf("%s/%s/%s id=%d local=%v remote=%v\n",
-							e.GetCompany(), e.GetNamespace(), e.GetAgentName(),
+							e.GetOrganization(), e.GetNamespace(), e.GetAgentType(),
 							e.GetAgentId().GetValue(),
 							localNames, remoteNames,
 						)
@@ -110,7 +110,7 @@ func newAddCmd(opts *options.CommonOptions) *cobra.Command {
 				)
 			}
 
-			company, namespace, agentName, agentID, err := parseRoute(routeID)
+			organization, namespace, agentType, agentID, err := parseRoute(routeID)
 			if err != nil {
 				return err
 			}
@@ -121,9 +121,9 @@ func newAddCmd(opts *options.CommonOptions) *cobra.Command {
 			}
 
 			route := &grpcapi.Route{
-				Company:      company,
+				Organization: organization,
 				Namespace:    namespace,
-				AgentName:    agentName,
+				AgentType:    agentType,
 				ConnectionId: connID,
 				AgentId:      wrapperspb.UInt64(agentID),
 			}
@@ -200,7 +200,7 @@ func newDelCmd(opts *options.CommonOptions) *cobra.Command {
 				)
 			}
 
-			company, namespace, agentName, agentID, err := parseRoute(routeID)
+			organization, namespace, agentType, agentID, err := parseRoute(routeID)
 			if err != nil {
 				return err
 			}
@@ -211,9 +211,9 @@ func newDelCmd(opts *options.CommonOptions) *cobra.Command {
 			}
 
 			route := &grpcapi.Route{
-				Company:      company,
+				Organization: organization,
 				Namespace:    namespace,
-				AgentName:    agentName,
+				AgentType:    agentType,
 				ConnectionId: connID,
 				AgentId:      wrapperspb.UInt64(agentID),
 			}
@@ -273,9 +273,9 @@ func newDelCmd(opts *options.CommonOptions) *cobra.Command {
 }
 
 func parseRoute(route string) (
-	company,
+	organization,
 	namespace,
-	agentName string,
+	agentType string,
 	agentID uint64,
 	err error,
 ) {
@@ -297,9 +297,9 @@ func parseRoute(route string) (
 		return
 	}
 
-	company = parts[0]
+	organization = parts[0]
 	namespace = parts[1]
-	agentName = parts[2]
+	agentType = parts[2]
 
 	agentID, err = strconv.ParseUint(parts[3], 10, 64)
 	if err != nil {

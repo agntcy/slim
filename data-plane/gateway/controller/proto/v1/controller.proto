@@ -32,9 +32,9 @@ message Connection {
 }
 
 message Route {
-  string company = 1;
+  string organization = 1;
   string namespace = 2;
-  string agent_name = 3;
+  string agent_type = 3;
   google.protobuf.UInt64Value agent_id = 4;
   string connection_id = 5;
 }
@@ -58,9 +58,9 @@ message SubscriptionListResponse {
 }
 
 message SubscriptionEntry {
-  string company = 1;
+  string organization = 1;
   string namespace = 2;
-  string agent_name = 3;
+  string agent_type = 3;
   google.protobuf.UInt64Value agent_id = 4;
   repeated ConnectionEntry local_connections  = 5;
   repeated ConnectionEntry remote_connections = 6;

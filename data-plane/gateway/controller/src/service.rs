@@ -128,15 +128,15 @@ impl ControllerService {
                                 .cloned()
                                 .unwrap();
                             let source = Agent::from_strings(
-                                route.company.as_str(),
+                                route.organization.as_str(),
                                 route.namespace.as_str(),
-                                route.agent_name.as_str(),
+                                route.agent_type.as_str(),
                                 0,
                             );
                             let agent_type = AgentType::from_strings(
-                                route.company.as_str(),
+                                route.organization.as_str(),
                                 route.namespace.as_str(),
-                                route.agent_name.as_str(),
+                                route.agent_type.as_str(),
                             );
 
                             let msg = PubsubMessage::new_subscribe(
@@ -164,15 +164,15 @@ impl ControllerService {
                                 .cloned()
                                 .unwrap();
                             let source = Agent::from_strings(
-                                route.company.as_str(),
+                                route.organization.as_str(),
                                 route.namespace.as_str(),
-                                route.agent_name.as_str(),
+                                route.agent_type.as_str(),
                                 0,
                             );
                             let agent_type = AgentType::from_strings(
-                                route.company.as_str(),
+                                route.organization.as_str(),
                                 route.namespace.as_str(),
-                                route.agent_name.as_str(),
+                                route.agent_type.as_str(),
                             );
 
                             let msg = PubsubMessage::new_unsubscribe(
@@ -215,9 +215,9 @@ impl ControllerService {
                             .subscription_table()
                             .for_each(|agent_type, agent_id, local, remote| {
                                 let mut entry = SubscriptionEntry {
-                                    company: agent_type.organization_string().unwrap_or_else(|| agent_type.organization().to_string()),
+                                    organization: agent_type.organization_string().unwrap_or_else(|| agent_type.organization().to_string()),
                                     namespace: agent_type.namespace_string().unwrap_or_else(|| agent_type.organization().to_string()),
-                                    agent_name: agent_type.agent_type_string().unwrap_or_else(|| agent_type.organization().to_string()),
+                                    agent_type: agent_type.agent_type_string().unwrap_or_else(|| agent_type.organization().to_string()),
                                     agent_id: Some(agent_id),
                                     ..Default::default()
                                 };
