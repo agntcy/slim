@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0](https://github.com/agntcy/agp/compare/agp-service-v0.4.2...agp-service-v0.5.0) - 2025-06-02
+
+### Added
+
+- *(fire-and-forget)* add support for sticky sessions ([#281](https://github.com/agntcy/agp/pull/281))
+- add optional acks for FNF messages ([#264](https://github.com/agntcy/agp/pull/264))
+
+### Fixed
+
+- *(fire-and-forget)* send the ack back to the source ([#273](https://github.com/agntcy/agp/pull/273))
+- create fnf session also on FnfReliable message ([#270](https://github.com/agntcy/agp/pull/270))
+
 ## [0.4.2](https://github.com/agntcy/agp/compare/agp-service-v0.4.1...agp-service-v0.4.2) - 2025-05-14
 
 ### Other

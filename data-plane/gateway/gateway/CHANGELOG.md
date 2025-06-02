@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.16](https://github.com/agntcy/agp/compare/agp-gw-v0.3.15...agp-gw-v0.3.16) - 2025-06-02
+
+### Added
+
+- *(fire-and-forget)* add support for sticky sessions ([#281](https://github.com/agntcy/agp/pull/281))
+
 ## [0.3.15](https://github.com/agntcy/agp/compare/agp-gw-v0.3.14...agp-gw-v0.3.15) - 2025-05-14
 
 ### Fixed

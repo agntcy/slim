@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.0](https://github.com/agntcy/agp/compare/agp-datapath-v0.7.0...agp-datapath-v0.8.0) - 2025-06-02
+
+### Added
+
+- list connections ([#280](https://github.com/agntcy/agp/pull/280))
+- *(fire-and-forget)* add support for sticky sessions ([#281](https://github.com/agntcy/agp/pull/281))
+- *(control-plane)* list subscriptions on control-plane ([#265](https://github.com/agntcy/agp/pull/265))
+- *(subscriptio-table)* store also readable names ([#269](https://github.com/agntcy/agp/pull/269))
+- add optional acks for FNF messages ([#264](https://github.com/agntcy/agp/pull/264))
+
+### Fixed
+
+- keep only the from_strings method to create an AgentType ([#288](https://github.com/agntcy/agp/pull/288))
+- *(data-path)* reconnection loop ([#283](https://github.com/agntcy/agp/pull/283))
+
 ## [0.7.0](https://github.com/agntcy/agp/compare/agp-datapath-v0.6.0...agp-datapath-v0.7.0) - 2025-05-14
 
 ### Added
