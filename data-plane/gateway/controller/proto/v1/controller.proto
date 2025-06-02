@@ -31,18 +31,18 @@ message Connection {
   int32 remote_port = 3;
 }
 
-message Route {
-  string company = 1;
+message Subscription {
+  string organization = 1;
   string namespace = 2;
-  string agent_name = 3;
+  string agent_type = 3;
   google.protobuf.UInt64Value agent_id = 4;
   string connection_id = 5;
 }
 
 message ConfigurationCommand {
   repeated Connection connections_to_create = 1;
-  repeated Route routes_to_set = 2;
-  repeated Route routes_to_delete = 3;
+  repeated Subscription subscriptions_to_set = 2;
+  repeated Subscription subscriptions_to_delete = 3;
 }
 
 message Ack {
@@ -58,9 +58,9 @@ message SubscriptionListResponse {
 }
 
 message SubscriptionEntry {
-  string company = 1;
+  string organization = 1;
   string namespace = 2;
-  string agent_name = 3;
+  string agent_type = 3;
   google.protobuf.UInt64Value agent_id = 4;
   repeated ConnectionEntry local_connections  = 5;
   repeated ConnectionEntry remote_connections = 6;
