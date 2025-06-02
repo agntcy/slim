@@ -211,7 +211,7 @@ tasks:
     cmds:
       - task: toolchain:build
         vars:
-          ARGS: "{{.GLOBAL_ARGS}} {{ .BUILD_ARGS | default \"--all-targets --locked --all-features\" }}"
+          ARGS: "{{ .BUILD_ARGS | default \"--all-targets --locked --all-features\" }}"
 
   vuln:
     desc: "Check for vulnerabilities"
