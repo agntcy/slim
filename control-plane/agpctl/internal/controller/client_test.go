@@ -67,10 +67,10 @@ func (s *fakeServer) OpenControlChannel(
 	case *grpcapi.ControlMessage_SubscriptionListRequest:
 		entries := []*grpcapi.SubscriptionEntry{
 			{
-				Company:   "org1",
-				Namespace: "ns1",
-				AgentName: "alice",
-				AgentId:   &wrapperspb.UInt64Value{Value: 42},
+				Organization: "org1",
+				Namespace:    "ns1",
+				AgentType:    "alice",
+				AgentId:      &wrapperspb.UInt64Value{Value: 42},
 				LocalConnections: []*grpcapi.ConnectionEntry{
 					{Id: 1, Ip: "", Port: 0},
 				},
@@ -79,9 +79,9 @@ func (s *fakeServer) OpenControlChannel(
 				},
 			},
 			{
-				Company:          "org2",
+				Organization:     "org2",
 				Namespace:        "ns2",
-				AgentName:        "bob",
+				AgentType:        "bob",
 				AgentId:          &wrapperspb.UInt64Value{Value: 7},
 				LocalConnections: []*grpcapi.ConnectionEntry{},
 				RemoteConnections: []*grpcapi.ConnectionEntry{
@@ -161,10 +161,10 @@ func TestSendConfigMessage(t *testing.T) {
 					RemoteAddress: "10.0.0.1",
 					RemotePort:    8080,
 				}},
-				RoutesToSet: []*grpcapi.Route{{
-					Company:      "acme",
+				SubscriptionsToSet: []*grpcapi.Subscription{{
+					Organization: "acme",
 					Namespace:    "outshift",
-					AgentName:    "agent",
+					AgentType:    "agent",
 					AgentId:      &wrapperspb.UInt64Value{Value: 1},
 					ConnectionId: "c1",
 				}},
@@ -266,9 +266,9 @@ func TestListSubscriptions(t *testing.T) {
 	}
 
 	e1 := received[0]
-	if e1.GetCompany() != "org1" ||
+	if e1.GetOrganization() != "org1" ||
 		e1.GetNamespace() != "ns1" ||
-		e1.GetAgentName() != "alice" {
+		e1.GetAgentType() != "alice" {
 		t.Errorf("unexpected metadata: %+v", e1)
 	}
 	if e1.GetAgentId().GetValue() != 42 {
@@ -290,7 +290,7 @@ func TestListSubscriptions(t *testing.T) {
 	}
 
 	e2 := received[1]
-	if e2.GetCompany() != "org2" || e2.GetAgentName() != "bob" {
+	if e2.GetOrganization() != "org2" || e2.GetAgentType() != "bob" {
 		t.Errorf("unexpected metadata: %+v", e2)
 	}
 	if len(e2.LocalConnections) != 0 {
