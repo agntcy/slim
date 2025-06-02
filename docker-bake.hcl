@@ -5,12 +5,17 @@
 # Documentation available at: https://docs.docker.com/build/bake/
 
 # Docker build args
-variable "IMAGE_REPO" {default = ""}
-variable "IMAGE_TAG" {default = "v0.0.0-dev"}
+variable "IMAGE_REPO" { default = "" }
+variable "IMAGE_TAG" { default = "v0.0.0-dev" }
 
 function "get_tag" {
   params = [tags, name]
-  result = [for tag in tags: "${IMAGE_REPO}/${name}:${tag}"]
+  // Check if IMAGE_REPO ends with name to avoid repetition
+  result = [for tag in tags:
+    can(regex("${name}$", IMAGE_REPO)) ?
+      "${IMAGE_REPO}:${tag}" :
+      "${IMAGE_REPO}/${name}:${tag}"
+  ]
 }
 
 group "default" {
