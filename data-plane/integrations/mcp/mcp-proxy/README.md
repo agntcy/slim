@@ -17,12 +17,12 @@ task mcp-proxy:run-mcp-proxy
 ### Run the MCP Server
 To run the MCP server example, use the following command:
 ```bash
-task mcp-proxy:run-mcp-server
+task mcp-proxy:test:run-mcp-server
 ```
 The MPC server will start listening on port 8000
 ### Run the MCP Client
 To run the MCP client example, use the following command:
 ```bash
-task mcp-proxy:run-mcp-client
+task mcp-proxy:test:run-mcp-client
 ```
 The client uses the SLIM transport, so it will connect to the SLIM node and communicate with the MCP server through the proxy.
