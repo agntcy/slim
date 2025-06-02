@@ -69,9 +69,7 @@ class SLIMServer(SLIMBase):
         """
 
         if not self.slim:
-            raise RuntimeError(
-                "SLIM is not connected. Please use the with statement."
-            )
+            raise RuntimeError("SLIM is not connected. Please use the with statement.")
 
         # Send message to slim
         await self.slim.publish_to(
@@ -128,9 +126,7 @@ class SLIMServer(SLIMBase):
 
         # make sure slim is connected
         if not self.slim:
-            raise RuntimeError(
-                "SLIM is not connected. Please use the with statement."
-            )
+            raise RuntimeError("SLIM is not connected. Please use the with statement.")
 
         return self
 

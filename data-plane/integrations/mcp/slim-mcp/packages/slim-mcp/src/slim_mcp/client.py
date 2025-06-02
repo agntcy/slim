@@ -85,9 +85,7 @@ class SLIMClient(SLIMBase):
             RuntimeError: If SLIM is not connected or if sending fails
         """
         if not self.is_connected():
-            raise RuntimeError(
-                "SLIM is not connected. Please use the with statement."
-            )
+            raise RuntimeError("SLIM is not connected. Please use the with statement.")
 
         try:
             logger.debug(
