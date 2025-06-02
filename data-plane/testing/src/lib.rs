@@ -37,7 +37,7 @@ fn parse_ids(iter: &mut SplitWhitespace<'_>) -> Result<Agent, ParsingError> {
         .ok_or(ParsingError::ParsingError(
             "missing organization".to_string(),
         ))?
-        .parse::<u64>()
+        .parse::<String>()
         .map_err(|e| ParsingError::ParsingError(format!("failed to parse organization: {}", e)))?;
     let namespace = iter
         .next()
@@ -55,7 +55,7 @@ fn parse_ids(iter: &mut SplitWhitespace<'_>) -> Result<Agent, ParsingError> {
         .parse::<u64>()
         .map_err(|e| ParsingError::ParsingError(format!("failed to parse agent id: {}", e)))?;
 
-    let a_type = AgentType::from_strings(&org.to_string(), &namespace, &agent_type_val);
+    let a_type = AgentType::from_strings(&org, &namespace, &agent_type_val);
 
     Ok(Agent::new(a_type, agent_id))
 }
