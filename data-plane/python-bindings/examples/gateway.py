@@ -31,9 +31,7 @@ async def run_server(address: str, enable_opentelemetry: bool):
 
 
 async def main():
-    parser = argparse.ArgumentParser(
-        description="Command line client for slim server."
-    )
+    parser = argparse.ArgumentParser(description="Command line client for slim server.")
     parser.add_argument(
         "-s", "--slim", type=str, help="Slim address.", default="127.0.0.1:12345"
     )
@@ -60,9 +58,7 @@ async def main():
     loop.add_signal_handler(SIGINT, shutdown)
 
     # Run the client task
-    client_task = asyncio.create_task(
-        run_server(args.slim, args.enable_opentelemetry)
-    )
+    client_task = asyncio.create_task(run_server(args.slim, args.enable_opentelemetry))
 
     # Wait until the stop event is set
     await stop_event.wait()

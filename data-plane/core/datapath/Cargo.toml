@@ -6,8 +6,6 @@ license = { workspace = true }
 description = "Core data plane functionality for SLIM"
 
 [dependencies]
-slim-config = { workspace = true }
-slim-tracing = { workspace = true }
 bit-vec = { workspace = true }
 bytes = { workspace = true }
 drain = { workspace = true }
@@ -16,6 +14,8 @@ opentelemetry = { workspace = true }
 parking_lot = { workspace = true }
 prost = { workspace = true }
 rand = { workspace = true }
+slim-config = { workspace = true }
+slim-tracing = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true }
 tokio-stream = { workspace = true }

@@ -18,14 +18,14 @@ name = "publisher"
 path = "src/bin/publisher.rs"
 
 [dependencies]
-slim-config = { workspace = true }
-slim-datapath = { workspace = true }
-slim = { workspace = true }
-slim-service = { workspace = true }
 clap = { workspace = true }
 indicatif = { workspace = true }
 parking_lot = { workspace = true }
 rand = { workspace = true }
+slim = { workspace = true }
+slim-config = { workspace = true }
+slim-datapath = { workspace = true }
+slim-service = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true }
 tokio-util = { workspace = true }

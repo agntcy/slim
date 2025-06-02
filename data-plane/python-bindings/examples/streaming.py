@@ -48,9 +48,7 @@ async def run_client(
     async with slim:
         if producer:
             # Create a route to the remote ID
-            await slim.set_route(
-                remote_organization, remote_namespace, broadcast_topic
-            )
+            await slim.set_route(remote_organization, remote_namespace, broadcast_topic)
 
             # create streaming session with default config
             session_info = await slim.create_session(
@@ -91,9 +89,7 @@ async def run_client(
                     await asyncio.sleep(0.5)
         else:
             # subscribe to streaming session
-            await slim.subscribe(
-                remote_organization, remote_namespace, broadcast_topic
-            )
+            await slim.subscribe(remote_organization, remote_namespace, broadcast_topic)
 
             # Wait for messages and not reply
             while True:

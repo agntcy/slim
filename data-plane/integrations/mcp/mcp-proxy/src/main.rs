@@ -1,9 +1,9 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
-use slim_datapath::messages::AgentType;
-use slim::config;
 use clap::Parser;
+use slim::config;
+use slim_datapath::messages::AgentType;
 use tracing::{error, info};
 
 mod proxy;

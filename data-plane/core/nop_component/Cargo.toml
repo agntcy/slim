@@ -6,8 +6,8 @@ edition = { workspace = true }
 license = { workspace = true }
 
 [dependencies]
-slim-config = { workspace = true }
 serde = { workspace = true }
+slim-config = { workspace = true }
 
 [dev-dependencies]
 serde_yaml = { workspace = true }

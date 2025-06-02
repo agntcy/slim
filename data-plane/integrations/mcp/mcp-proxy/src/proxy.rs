@@ -1,16 +1,6 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
-use slim_datapath::{
-    messages::{Agent, AgentType},
-    pubsub::proto::pubsub::v1::Message,
-};
-use slim::config::ConfigResult;
-use slim_service::{
-    FireAndForgetConfiguration,
-    session::{self, SessionConfig},
-    timer::{self, Timer},
-};
 use rmcp::model::ClientResult::EmptyResult;
 use rmcp::{
     RoleClient,
@@ -19,6 +9,16 @@ use rmcp::{
         PingRequest, PingRequestMethod, ServerJsonRpcMessage,
     },
     transport::{IntoTransport, SseTransport, sse::SseTransportError},
+};
+use slim::config::ConfigResult;
+use slim_datapath::{
+    messages::{Agent, AgentType},
+    pubsub::proto::pubsub::v1::Message,
+};
+use slim_service::{
+    FireAndForgetConfiguration,
+    session::{self, SessionConfig},
+    timer::{self, Timer},
 };
 
 use futures_util::{StreamExt, sink::SinkExt};

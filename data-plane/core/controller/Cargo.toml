@@ -6,12 +6,12 @@ version = "0.1.1"
 description = "Controller service and control API to configure the SLIM data plane through the control plane."
 
 [dependencies]
-slim-config = { workspace = true }
-slim-datapath = { workspace = true }
 bytes = { workspace = true }
 h2 = { workspace = true }
 parking_lot = { workspace = true }
 prost = { workspace = true }
+slim-config = { workspace = true }
+slim-datapath = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 tokio-stream = { workspace = true }

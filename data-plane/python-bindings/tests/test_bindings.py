@@ -101,7 +101,9 @@ async def test_session_config(server):
     session_config_ret = await slim_bindings.get_session_config(svc, session_info.id)
 
     # check if the session config is correct
-    assert isinstance(session_config, slim_bindings.PySessionConfiguration.FireAndForget)
+    assert isinstance(
+        session_config, slim_bindings.PySessionConfiguration.FireAndForget
+    )
     assert session_config == session_config_ret, (
         f"session config are not equal: {session_config} vs {session_config_ret}"
     )
@@ -166,7 +168,9 @@ async def test_session_config(server):
     session_info = await slim_bindings.create_session(svc, session_config)
     session_config_ret = await slim_bindings.get_session_config(svc, session_info.id)
     # check if the session config is correct
-    assert isinstance(session_config_ret, slim_bindings.PySessionConfiguration.Streaming)
+    assert isinstance(
+        session_config_ret, slim_bindings.PySessionConfiguration.Streaming
+    )
     assert session_config == session_config_ret
 
     # check default values
@@ -202,7 +206,9 @@ async def test_session_config(server):
         svc, slim_bindings.PySessionType.STREAMING
     )
     # check if the session config is correct
-    assert isinstance(session_config_ret, slim_bindings.PySessionConfiguration.Streaming)
+    assert isinstance(
+        session_config_ret, slim_bindings.PySessionConfiguration.Streaming
+    )
     assert session_config == session_config_ret
 
 
