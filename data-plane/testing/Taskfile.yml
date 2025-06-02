@@ -47,12 +47,12 @@ tasks:
   run:shutdown:
     desc: "Shutdown test"
     cmds:
-      - | 
+      - |
         echo "stop all subscribers"
         killall subscriber || true
         echo "stop all publishers"
         killall publisher || true
         echo "stop gateway"
         killall gateway || true
-  
+
 
