@@ -1,6 +1,6 @@
 [package]
 name = "agp-mcp-proxy"
-version = "0.1.4"
+version = "0.1.5"
 edition = "2024"
 license = "Apache-2.0"
 description = "Proxy for exposing a native MCP server over AGP"
