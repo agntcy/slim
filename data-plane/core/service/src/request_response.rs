@@ -9,7 +9,7 @@ use parking_lot::RwLock;
 use tracing::debug;
 
 use crate::errors::SessionError;
-use crate::session::{AppChannelSender, SlimChannelSender, SessionConfig};
+use crate::session::{AppChannelSender, SessionConfig, SlimChannelSender};
 use crate::session::{
     Common, CommonSession, Id, MessageDirection, Session, SessionConfigTrait, SessionDirection,
     State,

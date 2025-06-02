@@ -1,6 +1,6 @@
-use slim_datapath::tables::pool::Pool;
 use bit_vec::BitVec;
 use criterion::{Criterion, black_box, criterion_group, criterion_main};
+use slim_datapath::tables::pool::Pool;
 use std::mem::MaybeUninit;
 
 fn bench_lookup(c: &mut Criterion) {

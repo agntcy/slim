@@ -6,17 +6,17 @@ use std::io::prelude::*;
 use std::time::Duration;
 use std::{collections::HashMap, sync::Arc};
 
+use parking_lot::RwLock;
 use slim_datapath::messages::{Agent, AgentType};
 use slim_service::SlimHeaderFlags;
-use parking_lot::RwLock;
 use testing::parse_line;
 use tokio_util::sync::CancellationToken;
 
 use slim_service::streaming::StreamingConfiguration;
 
-use slim::config;
 use clap::Parser;
 use indicatif::ProgressBar;
+use slim::config;
 use tracing::{debug, error, info};
 
 #[derive(Parser, Debug)]
@@ -274,9 +274,7 @@ async fn main() {
                     Some(msg_info) => match msg_info {
                         Ok(msg) => {
                             if streaming {
-                                panic!(
-                                    "received message from slim, this should never happen"
-                                );
+                                panic!("received message from slim, this should never happen");
                             }
                             if pubsub {
                                 let publisher_id =

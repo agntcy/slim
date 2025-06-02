@@ -4,18 +4,18 @@
 use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 
-use slim_datapath::messages::AgentType;
-use slim_datapath::pubsub::{SlimHeader, SessionHeader};
 use async_trait::async_trait;
 use rand::Rng;
+use slim_datapath::messages::AgentType;
+use slim_datapath::pubsub::{SessionHeader, SlimHeader};
 use tokio::sync::mpsc::{self, Receiver, Sender};
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, error};
 
 use crate::errors::SessionError;
 use crate::session::{
-    AppChannelSender, Common, CommonSession, SlimChannelSender, Id, MessageDirection, Session,
-    SessionConfig, SessionConfigTrait, SessionDirection, SessionMessage, State,
+    AppChannelSender, Common, CommonSession, Id, MessageDirection, Session, SessionConfig,
+    SessionConfigTrait, SessionDirection, SessionMessage, SlimChannelSender, State,
 };
 use crate::timer;
 use slim_datapath::messages::encoder::Agent;
@@ -524,7 +524,8 @@ impl FireAndForgetProcessor {
                     message_id,
                 ));
 
-                let ack = Message::new_publish_with_headers(slim_header, session_header, "", vec![]);
+                let ack =
+                    Message::new_publish_with_headers(slim_header, session_header, "", vec![]);
 
                 // Send the ack
                 self.state

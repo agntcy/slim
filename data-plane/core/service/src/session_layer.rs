@@ -12,8 +12,8 @@ use crate::errors::SessionError;
 use crate::fire_and_forget::FireAndForgetConfiguration;
 use crate::request_response::{RequestResponse, RequestResponseConfiguration};
 use crate::session::{
-    AppChannelSender, SlimChannelSender, Id, Info, MessageDirection, SESSION_RANGE, Session,
-    SessionConfig, SessionConfigTrait, SessionDirection, SessionMessage, SessionType,
+    AppChannelSender, Id, Info, MessageDirection, SESSION_RANGE, Session, SessionConfig,
+    SessionConfigTrait, SessionDirection, SessionMessage, SessionType, SlimChannelSender,
 };
 use crate::streaming::{self, StreamingConfiguration};
 use crate::{fire_and_forget, session};

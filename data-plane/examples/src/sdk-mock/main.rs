@@ -1,8 +1,8 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
-use slim_datapath::messages::{Agent, AgentType};
 use clap::Parser;
+use slim_datapath::messages::{Agent, AgentType};
 use tokio::time;
 use tracing::info;
 

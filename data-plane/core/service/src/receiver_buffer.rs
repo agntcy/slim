@@ -262,7 +262,7 @@ impl ReceiverBuffer {
 mod tests {
     use slim_datapath::messages::encoder::{Agent, AgentType};
     use slim_datapath::pubsub::proto::pubsub::v1::SessionHeaderType;
-    use slim_datapath::pubsub::{SlimHeader, SessionHeader};
+    use slim_datapath::pubsub::{SessionHeader, SlimHeader};
     use tracing_test::traced_test;
 
     use super::*;

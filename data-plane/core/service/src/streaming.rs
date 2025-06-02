@@ -9,8 +9,8 @@ use crate::{
     errors::SessionError,
     producer_buffer, receiver_buffer,
     session::{
-        AppChannelSender, Common, CommonSession, SlimChannelSender, Id, Info, Session, SessionConfig,
-        SessionConfigTrait, SessionDirection, State,
+        AppChannelSender, Common, CommonSession, Id, Info, Session, SessionConfig,
+        SessionConfigTrait, SessionDirection, SlimChannelSender, State,
     },
     timer,
 };
@@ -20,7 +20,7 @@ use receiver_buffer::ReceiverBuffer;
 use slim_datapath::messages::{AgentType, utils::SlimHeaderFlags};
 use slim_datapath::{
     messages::Agent,
-    pubsub::proto::pubsub::v1::{SlimHeader, Message, SessionHeader, SessionHeaderType},
+    pubsub::proto::pubsub::v1::{Message, SessionHeader, SessionHeaderType, SlimHeader},
 };
 
 use tonic::{Status, async_trait};
@@ -504,7 +504,12 @@ async fn process_incoming_rtx_request(
                 msg_rtx_id,
             ));
 
-            Message::new_publish_with_headers(slim_header, session_header, "", payload.blob.to_vec())
+            Message::new_publish_with_headers(
+                slim_header,
+                session_header,
+                "",
+                payload.blob.to_vec(),
+            )
         }
         None => {
             // the packet does not exist return an empty RtxReply with the error flag set
@@ -536,10 +541,7 @@ async fn process_incoming_rtx_request(
 
     trace!("send rtx reply for message {}", msg_rtx_id);
     if send_slim.send(Ok(rtx_pub)).await.is_err() {
-        error!(
-            "error sending RTX packet to slim on session {}",
-            session_id
-        );
+        error!("error sending RTX packet to slim on session {}", session_id);
     }
 }
 
@@ -828,10 +830,7 @@ async fn send_beacon_msg(
     trace!("beacon to send {:?}", msg);
 
     if send_slim.send(Ok(msg)).await.is_err() {
-        error!(
-            "error sending beacon msg to slim on session {}",
-            session_id
-        );
+        error!("error sending beacon msg to slim on session {}", session_id);
     }
 }
 
@@ -847,10 +846,7 @@ async fn send_message_to_app(
                 let session_msg = SessionMessage::new(m, info);
                 // send message to the app
                 if send_app.send(Ok(session_msg)).await.is_err() {
-                    error!(
-                        "error sending packet to slim on session {}",
-                        session_id
-                    );
+                    error!("error sending packet to slim on session {}", session_id);
                 }
             }
             None => {

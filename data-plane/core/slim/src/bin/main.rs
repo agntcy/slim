@@ -5,11 +5,11 @@ use clap::Parser;
 use tokio::time;
 use tracing::{debug, info, span};
 
-use slim_config::component::Component;
 use slim::args;
 use slim::build_info;
 use slim::config;
 use slim::runtime;
+use slim_config::component::Component;
 
 fn main() {
     let args = args::Args::parse();

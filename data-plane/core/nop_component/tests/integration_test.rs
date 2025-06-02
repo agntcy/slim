@@ -4,10 +4,10 @@
 use std::fs::File;
 use std::io::Read;
 
+use serde_yaml::Error;
 use slim_config::component::Component;
 use slim_config::component::id::{ID, Kind};
 use slim_nop_component::{NopComponent, NopComponentBuilder, NopComponentConfig};
-use serde_yaml::Error;
 
 static TEST_PATH: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests");
 

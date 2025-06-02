@@ -4,10 +4,10 @@
 use std::net::SocketAddr;
 use std::{pin::Pin, sync::Arc};
 
-use slim_config::grpc::client::ClientConfig;
-use slim_tracing::utils::INSTANCE_ID;
 use opentelemetry::propagation::{Extractor, Injector};
 use opentelemetry::trace::TraceContextExt;
+use slim_config::grpc::client::ClientConfig;
+use slim_tracing::utils::INSTANCE_ID;
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
 use tokio_stream::{Stream, StreamExt};

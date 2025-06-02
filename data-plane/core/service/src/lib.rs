@@ -13,17 +13,17 @@ mod fire_and_forget;
 mod request_response;
 mod session_layer;
 
-pub use slim_datapath::messages::utils::SlimHeaderFlags;
 pub use fire_and_forget::FireAndForgetConfiguration;
 pub use request_response::RequestResponseConfiguration;
 pub use session::SessionMessage;
+pub use slim_datapath::messages::utils::SlimHeaderFlags;
 pub use streaming::StreamingConfiguration;
 
-use slim_datapath::messages::{Agent, AgentType};
-use slim_datapath::pubsub::MessageType;
 use serde::Deserialize;
 use session::{AppChannelReceiver, MessageDirection};
 use session_layer::SessionLayer;
+use slim_datapath::messages::{Agent, AgentType};
+use slim_datapath::pubsub::MessageType;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -32,6 +32,7 @@ use tokio_util::sync::CancellationToken;
 use tonic::Status;
 use tracing::{debug, error, info};
 
+pub use errors::ServiceError;
 use slim_config::component::configuration::{Configuration, ConfigurationError};
 use slim_config::component::id::{ID, Kind};
 use slim_config::component::{Component, ComponentBuilder, ComponentError};
@@ -42,7 +43,6 @@ use slim_controller::service::ControllerService;
 use slim_datapath::message_processing::MessageProcessor;
 use slim_datapath::pubsub::proto::pubsub::v1::Message;
 use slim_datapath::pubsub::proto::pubsub::v1::pub_sub_service_server::PubSubServiceServer;
-pub use errors::ServiceError;
 
 // Define the kind of the component as static string
 pub const KIND: &str = "slim";

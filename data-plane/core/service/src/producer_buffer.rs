@@ -93,7 +93,7 @@ mod tests {
     use super::*;
     use slim_datapath::messages::encoder::{Agent, AgentType};
     use slim_datapath::pubsub::proto::pubsub::v1::SessionHeaderType;
-    use slim_datapath::pubsub::{SlimHeader, SessionHeader};
+    use slim_datapath::pubsub::{SessionHeader, SlimHeader};
 
     #[test]
     fn test_producer_buffer() {

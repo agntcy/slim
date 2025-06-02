@@ -8,8 +8,8 @@ use tracing::debug;
 
 use super::encoder::{Agent, AgentType, DEFAULT_AGENT_ID};
 use crate::pubsub::{
-    SlimHeader, Content, MessageType, ProtoAgent, ProtoMessage, ProtoPublish, ProtoPublishType,
-    ProtoSubscribe, ProtoSubscribeType, ProtoUnsubscribe, ProtoUnsubscribeType, SessionHeader,
+    Content, MessageType, ProtoAgent, ProtoMessage, ProtoPublish, ProtoPublishType, ProtoSubscribe,
+    ProtoSubscribeType, ProtoUnsubscribe, ProtoUnsubscribeType, SessionHeader, SlimHeader,
     proto::pubsub::v1::SessionHeaderType,
 };
 

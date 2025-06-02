@@ -8,9 +8,9 @@ use std::io::prelude::*;
 use std::time::Duration;
 use testing::parse_line;
 
-use slim::config;
 use clap::Parser;
 use indicatif::ProgressBar;
+use slim::config;
 use tracing::{debug, error, info};
 
 #[derive(Parser, Debug)]

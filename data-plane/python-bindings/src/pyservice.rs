@@ -1,9 +1,5 @@
 use std::sync::Arc;
 
-use slim_datapath::messages::encoder::{Agent, AgentType};
-use slim_datapath::messages::utils::SlimHeaderFlags;
-use slim_service::session;
-use slim_service::{Service, ServiceError};
 use pyo3::exceptions::PyException;
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
@@ -12,6 +8,10 @@ use pyo3_stub_gen::derive::gen_stub_pyfunction;
 use pyo3_stub_gen::derive::gen_stub_pymethods;
 use rand::Rng;
 use serde_pyobject::from_pyobject;
+use slim_datapath::messages::encoder::{Agent, AgentType};
+use slim_datapath::messages::utils::SlimHeaderFlags;
+use slim_service::session;
+use slim_service::{Service, ServiceError};
 use tokio::sync::RwLock;
 
 use crate::pysession::PySessionType;

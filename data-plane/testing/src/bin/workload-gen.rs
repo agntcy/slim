@@ -7,8 +7,8 @@ use std::{
     fs::File,
 };
 
-use slim_datapath::messages::{Agent, AgentType};
 use rand::Rng;
+use slim_datapath::messages::{Agent, AgentType};
 
 use clap::Parser;
 use indicatif::ProgressBar;
