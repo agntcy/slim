@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.6](https://github.com/agntcy/agp/compare/agp-bindings-v0.3.5...agp-bindings-v0.3.6) (2025-06-02)
+
+
+### Bug Fixes
+
+* **data-path:** reconnection loop ([#283](https://github.com/agntcy/agp/issues/283)) ([1b525c6](https://github.com/agntcy/agp/commit/1b525c64b2bd753a98d13809489ed3baf15dff3c))
+
 ## [0.3.5](https://github.com/agntcy/agp/compare/agp-bindings-v0.3.4...agp-bindings-v0.3.5) (2025-05-23)
 
 
