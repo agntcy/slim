@@ -1,6 +1,6 @@
 ## Windows
 
-Instructions to compile `agp_bindings` wheel on Windows.
+Instructions to compile `slim_bindings` wheel on Windows.
 
 ## 1. Build Requirements
 
@@ -30,7 +30,7 @@ Instructions to compile `agp_bindings` wheel on Windows.
 
 ## 2. Run the Build Locally
 
-Clone <https://github.com/agntcy/agp> and change to folder
+Clone <https://github.com/agntcy/slim> and change to folder
 `data-plane\python-bindings`
 
 Inside this folder (where the Taskfile is), you can run:
@@ -49,7 +49,7 @@ immediately but serves to test if the toolchain is correctly setup.
 You should see a similar output:
 
 ```Powershell
-Built wheel for CPython 3.13 to C:\Users\dummy\AppData\Local\Temp\.tmpYMjkNn\agp_bindings-0.1.7-cp313-cp313-win_amd64.whl
+Built wheel for CPython 3.13 to C:\Users\dummy\AppData\Local\Temp\.tmpYMjkNn\slim_bindings-0.1.7-cp313-cp313-win_amd64.whl
 ```
 
 ### Build Bindings to Dist Directory
@@ -67,30 +67,30 @@ Built wheel for CPython 3.13 to C:\Users\dummy\AppData\Local\Temp\.tmpYMjkNn\agp
    You should see a similar output:
 
    ```Powershell
-   📦 Built wheel for CPython 3.13 to dist\agp_bindings-0.1.7-cp313-cp313-win_amd64.whl
+   📦 Built wheel for CPython 3.13 to dist\slim_bindings-0.1.7-cp313-cp313-win_amd64.whl
    ```
 
 ## 3. Install Wheel and Verify the Installation
 
 ```Powershell
-pip install .\dist\agp_bindings-0.1.7-cp313-cp313-win_amd64.whl
+pip install .\dist\slim_bindings-0.1.7-cp313-cp313-win_amd64.whl
 ```
 
 ### Verify
 
 It is very important that the path displayed **points to your virtual
-environment** and not to the folder `agp_bindings`
+environment** and not to the folder `slim_bindings`
 
 ```Powershell
-cd agp\data-plane\
-python -c "import agp_bindings; print(agp_bindings.__file__)"
+cd slim\data-plane\
+python -c "import slim_bindings; print(slim_bindings.__file__)"
 ```
 
-That should show a path to the installed agp_bindings in your virtual
+That should show a path to the installed slim_bindings in your virtual
 environment’s Lib\site-packages. Example:
 
 ```Powershell
-agp\data-plane\python-bindings\.venv\Lib\site-packages\agp_bindings\__init__.py
+slim\data-plane\python-bindings\.venv\Lib\site-packages\slim_bindings\__init__.py
 ```
 
 ## 4. Troubleshooting on Windows
@@ -102,8 +102,8 @@ agp\data-plane\python-bindings\.venv\Lib\site-packages\agp_bindings\__init__.py
   building from `Temp`, try changing or shortening your Windows temp directory
   [as discussed in previous
   steps](https://docs.microsoft.com/en-us/cpp/build/reference/filetracker).
-- **There’s an Old \_agp_bindings.pyd or a Naming Conflict**
+- **There’s an Old \_slim_bindings.pyd or a Naming Conflict**
 
   Sometimes you can end up with two .pyd files or an out-of-date file in
-  `agp_bindings`. This can confuse Python or Maturin. If you see multiple
-  \_agp_bindings.cpXYZ-win_amd64.pyd files, remove the duplicates.
+  `slim_bindings`. This can confuse Python or Maturin. If you see multiple
+  \_slim_bindings.cpXYZ-win_amd64.pyd files, remove the duplicates.

@@ -5,20 +5,20 @@ import asyncio
 
 import pytest_asyncio
 
-import agp_bindings
+import slim_bindings
 
 
 @pytest_asyncio.fixture(scope="function")
 async def server(request):
     # create new server
     global svc_server
-    svc_server = await agp_bindings.create_pyservice("cisco", "default", "server")
+    svc_server = await slim_bindings.create_pyservice("cisco", "default", "server")
 
     # init tracing
-    await agp_bindings.init_tracing({"log_level": "info"})
+    await slim_bindings.init_tracing({"log_level": "info"})
 
-    # run gateway server in background
-    await agp_bindings.run_server(
+    # run slim server in background
+    await slim_bindings.run_server(
         svc_server,
         {"endpoint": request.param, "tls": {"insecure": True}},
     )

@@ -18,7 +18,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "512761e0bb2578dd7380c6baaa0f4ce03e84f95e960231d1dec8bf4d7d6e2627"
 
 [[package]]
-name = "agp-config"
+name = "slim-config"
 version = "0.1.8"
 dependencies = [
  "duration-str",
@@ -48,11 +48,11 @@ dependencies = [
 ]
 
 [[package]]
-name = "agp-controller"
+name = "slim-controller"
 version = "0.1.1"
 dependencies = [
- "agp-config",
- "agp-datapath",
+ "slim-config",
+ "slim-datapath",
  "bytes",
  "h2",
  "parking_lot",
@@ -69,11 +69,11 @@ dependencies = [
 ]
 
 [[package]]
-name = "agp-datapath"
+name = "slim-datapath"
 version = "0.7.0"
 dependencies = [
- "agp-config",
- "agp-tracing",
+ "slim-config",
+ "slim-tracing",
  "bit-vec",
  "bytes",
  "drain",
@@ -94,13 +94,13 @@ dependencies = [
 ]
 
 [[package]]
-name = "agp-gw"
+name = "slim-gw"
 version = "0.3.15"
 dependencies = [
- "agp-config",
- "agp-service",
- "agp-signal",
- "agp-tracing",
+ "slim-config",
+ "slim-service",
+ "slim-signal",
+ "slim-tracing",
  "clap",
  "duration-str",
  "jemallocator",
@@ -114,14 +114,14 @@ dependencies = [
 ]
 
 [[package]]
-name = "agp-mcp-proxy"
+name = "slim-mcp-proxy"
 version = "0.1.4"
 dependencies = [
- "agp-config",
- "agp-datapath",
- "agp-gw",
- "agp-service",
- "agp-signal",
+ "slim-config",
+ "slim-datapath",
+ "slim-gw",
+ "slim-service",
+ "slim-signal",
  "async-trait",
  "clap",
  "futures-util",
@@ -133,12 +133,12 @@ dependencies = [
 ]
 
 [[package]]
-name = "agp-service"
+name = "slim-service"
 version = "0.4.2"
 dependencies = [
- "agp-config",
- "agp-controller",
- "agp-datapath",
+ "slim-config",
+ "slim-controller",
+ "slim-datapath",
  "async-trait",
  "drain",
  "parking_lot",
@@ -152,7 +152,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "agp-signal"
+name = "slim-signal"
 version = "0.1.2"
 dependencies = [
  "tokio",
@@ -160,10 +160,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "agp-tracing"
+name = "slim-tracing"
 version = "0.2.1"
 dependencies = [
- "agp-config",
+ "slim-config",
  "once_cell",
  "opentelemetry",
  "opentelemetry-otlp",

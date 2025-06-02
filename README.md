@@ -1,9 +1,9 @@
-# Agent Gateway Protocol
+# SLIM
 
-The Agent Gateway Protocol (AGP) facilitates communication between AI agents.
+SLIM (Secure Low-Latency Interactive Messaging) facilitates communication between AI agents.
 It supports various communication patterns such as request-response,
 publish-subscribe, fire-and-forget, and streaming. Built on the gRPC framework,
-the Agent Gateway ensures secure and scalable interactions among agents.
+SLIM ensures secure and scalable interactions among agents.
 
 
 ## Features
@@ -65,30 +65,30 @@ instructions in the golang website.
 
 ## Artifacts distribution
 
-### [Crates](./data-plane/gateway)
+### [Crates](./data-plane)
 
 See https://crates.io/users/artifacts-agntcy
 
 ```bash
-cargo install agp-gw
+cargo install slim-gw
 ```
 
 ### [Container images](./data-plane/Dockerfile)
 
 ```bash
-docker pull ghcr.io/agntcy/agp/gw:latest
+docker pull ghcr.io/agntcy/slim/gw:latest
 ```
 
-### [Helm charts](./deploy/charts/agp)
+### [Helm charts](./deploy/charts/slim)
 
 ```bash
-helm pull ghcr.io/agntcy/agp/helm/agp:latest
+helm pull ghcr.io/agntcy/slim/helm/slim:latest
 ```
 
 ### [Pypi packages](./data-plane/python-bindings)
 
 ```bash
-pip install agp-bindings
+pip install slim-bindings
 ```
 
 ### Copyright Notice

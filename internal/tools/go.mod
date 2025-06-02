@@ -1,4 +1,4 @@
-module github.com/agntcy/agp/internal/tools
+module github.com/agntcy/slim/internal/tools
 
 go 1.23.0
 

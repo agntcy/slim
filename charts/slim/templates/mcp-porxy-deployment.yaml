@@ -1,0 +1,76 @@
+{{- if .Values.mcpProxy.enabled -}}
+# Copyright AGNTCY Contributors (https://github.com/agntcy)
+# SPDX-License-Identifier: Apache-2.0
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "slim.mcpProxyName" . }}
+  labels:
+    {{- include "slim.mcpProxyLabels" . | nindent 4 }}
+spec:
+  {{- if not .Values.autoscaling.enabled }}
+  replicas: {{ .Values.replicaCount }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "slim.mcpProxySelectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      labels:
+        {{- include "slim.mcpProxyLabels" . | nindent 8 }}
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "slim.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: {{ .Chart.Name }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          image: "{{ .Values.mcpProxy.image.repository }}:{{ .Values.mcpProxy.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.mcpProxy.image.pullPolicy }}
+          command:
+            - "/slim-mcp-proxy"
+          args:
+            - "--config"
+            - "/config.yaml"
+            - "--svc-name"
+            - {{ .Values.mcpProxy.args.svcName | quote }}
+            - "--name"
+            - {{ .Values.mcpProxy.args.name | quote }}
+            - "--mcp-server"
+            - {{ .Values.mcpProxy.args.mcpServer | quote }}
+          resources:
+            {{- toYaml .Values.mcpProxy.resources | nindent 12 }}
+          volumeMounts:
+            - name: config-volume
+              mountPath: /config.yaml
+              subPath: config.yaml
+      volumes:
+        - name: config-volume
+          configMap:
+            name: {{ include "slim.mcpProxyName" . }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}

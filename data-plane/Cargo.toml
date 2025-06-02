@@ -2,27 +2,27 @@
 
 members = [
     "examples",
-    "gateway/config",
-    "gateway/controller",
-    "gateway/datapath",
-    "gateway/gateway",
-    "gateway/nop_component",
-    "gateway/service",
-    "gateway/signal",
-    "gateway/tracing",
+    "core/config",
+    "core/controller",
+    "core/datapath",
+    "core/slim",
+    "core/nop_component",
+    "core/service",
+    "core/signal",
+    "core/tracing",
     "python-bindings",
     "testing",
 ]
 
 default-members = [
     "examples",
-    "gateway/config",
-    "gateway/datapath",
-    "gateway/gateway",
-    "gateway/nop_component",
-    "gateway/service",
-    "gateway/signal",
-    "gateway/tracing",
+    "core/config",
+    "core/datapath",
+    "core/slim",
+    "core/nop_component",
+    "core/service",
+    "core/signal",
+    "core/tracing",
     "testing",
 ]
 
@@ -36,13 +36,13 @@ edition = "2024"
 
 [workspace.dependencies]
 # Local dependencies
-agp-config = { path = "gateway/config", version = "0.1.8" }
-agp-controller = { path = "gateway/controller", version = "0.1.1" }
-agp-datapath = { path = "gateway/datapath", version = "0.7.0" }
-agp-gw = { path = "gateway/gateway", version = "0.3.15" }
-agp-service = { path = "gateway/service", version = "0.4.2" }
-agp-signal = { path = "gateway/signal", version = "0.1.2" }
-agp-tracing = { path = "gateway/tracing", version = "0.2.1" }
+slim-config = { path = "core/config", version = "0.1.8" }
+slim-controller = { path = "core/controller", version = "0.1.1" }
+slim-datapath = { path = "core/datapath", version = "0.7.0" }
+slim-gw = { path = "core/slim", version = "0.3.15" }
+slim-service = { path = "core/service", version = "0.4.2" }
+slim-signal = { path = "core/signal", version = "0.1.2" }
+slim-tracing = { path = "core/tracing", version = "0.2.1" }
 
 # Core dependencies
 async-trait = "0.1.88"

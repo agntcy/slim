@@ -1,6 +1,6 @@
-module github.com/agntcy/agp/control-plane/token-service
+module github.com/agntcy/slim/control-plane/token-service
 
-replace github.com/agntcy/agp/control-plane => ..
+replace github.com/agntcy/slim/control-plane => ..
 
 go 1.23.6
 

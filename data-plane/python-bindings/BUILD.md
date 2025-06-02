@@ -1,6 +1,6 @@
-# Gateway Python Bindings
+# SLIM Python Bindings
 
-Bindings to call the gateway APIs from a python program.
+Bindings to call the SLIM APIs from a python program.
 
 ## Build the pypi package
 
@@ -20,7 +20,7 @@ task python-bindings:build
 This will build the python bindings in debug mode. Once they are built, you can
 run the examples in the folder.
 
-## Run the gateway via python bindings
+## Run SLIM via python bindings
 
 ### Server
 

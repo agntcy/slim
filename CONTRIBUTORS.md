@@ -1,4 +1,4 @@
-# Contributors to Agent Gateway Protocol
+# Contributors to SLIM
 
 CONTRIBUTOR file should only contain list of copyright holder (i.e. employers of
 maintainers). All files that support comments should include standard header for

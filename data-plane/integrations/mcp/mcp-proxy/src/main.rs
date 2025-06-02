@@ -1,8 +1,8 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
-use agp_datapath::messages::AgentType;
-use agp_gw::config;
+use slim_datapath::messages::AgentType;
+use slim_gw::config;
 use clap::Parser;
 use tracing::{error, info};
 
@@ -11,7 +11,7 @@ mod proxy;
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
 pub struct Args {
-    /// AGP configuration file
+    /// SLIM configuration file
     #[arg(short, long, value_name = "configuration", required = true)]
     config: String,
 
@@ -72,7 +72,7 @@ async fn main() {
     }
 
     let config = config::load_config(config_file).expect("failed to load configuration");
-    let svc_id = agp_config::component::id::ID::new_with_str(svc_name).unwrap();
+    let svc_id = slim_config::component::id::ID::new_with_str(svc_name).unwrap();
     let _guard = config.tracing.setup_tracing_subscriber();
 
     let mut proxy = proxy::Proxy::new(

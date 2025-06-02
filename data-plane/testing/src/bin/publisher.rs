@@ -6,15 +6,15 @@ use std::io::prelude::*;
 use std::time::Duration;
 use std::{collections::HashMap, sync::Arc};
 
-use agp_datapath::messages::{Agent, AgentType};
-use agp_service::AgpHeaderFlags;
+use slim_datapath::messages::{Agent, AgentType};
+use slim_service::SlimHeaderFlags;
 use parking_lot::RwLock;
 use testing::parse_line;
 use tokio_util::sync::CancellationToken;
 
-use agp_service::streaming::StreamingConfiguration;
+use slim_service::streaming::StreamingConfiguration;
 
-use agp_gw::config;
+use slim_gw::config;
 use clap::Parser;
 use indicatif::ProgressBar;
 use tracing::{debug, error, info};
@@ -46,7 +46,7 @@ pub struct Args {
     )]
     pubsub: bool,
 
-    /// Agp config file
+    /// Slim config file
     #[arg(short, long, value_name = "CONFIGURATION", required = true)]
     config: String,
 
@@ -167,7 +167,7 @@ async fn main() {
     // get service
     let mut config = config::load_config(config_file).expect("failed to load configuration");
     let _guard = config.tracing.setup_tracing_subscriber();
-    let svc_id = agp_config::component::id::ID::new_with_str("gateway/0").unwrap();
+    let svc_id = slim_config::component::id::ID::new_with_str("slim/0").unwrap();
     let svc = config.services.get_mut(&svc_id).unwrap();
 
     // create local agent
@@ -235,8 +235,8 @@ async fn main() {
                 // create a producer streaming session
                 svc.create_session(
                     &agent_name,
-                    agp_service::session::SessionConfig::Streaming(StreamingConfiguration::new(
-                        agp_service::session::SessionDirection::Sender,
+                    slim_service::session::SessionConfig::Streaming(StreamingConfiguration::new(
+                        slim_service::session::SessionDirection::Sender,
                         None,
                         None,
                         None,
@@ -248,8 +248,8 @@ async fn main() {
                 // create a pubsub session
                 svc.create_session(
                     &agent_name,
-                    agp_service::session::SessionConfig::Streaming(StreamingConfiguration::new(
-                        agp_service::session::SessionDirection::Bidirectional,
+                    slim_service::session::SessionConfig::Streaming(StreamingConfiguration::new(
+                        slim_service::session::SessionDirection::Bidirectional,
                         Some(topic.clone()),
                         Some(10),
                         Some(Duration::from_millis(1000)),
@@ -263,7 +263,7 @@ async fn main() {
             panic!("error creating fire and forget session");
         }
 
-        // receive packets from gateway
+        // receive packets from slim
         tokio::spawn(async move {
             loop {
                 match rx.recv().await {
@@ -275,12 +275,12 @@ async fn main() {
                         Ok(msg) => {
                             if streaming {
                                 panic!(
-                                    "received message from the gateway, this should never happe"
+                                    "received message from slim, this should never happen"
                                 );
                             }
                             if pubsub {
                                 let publisher_id =
-                                    msg.message.get_agp_header().get_source().agent_id();
+                                    msg.message.get_slim_header().get_source().agent_id();
                                 info!(
                                     "received message {} from publisher {}",
                                     msg.info.message_id.unwrap(),
@@ -303,7 +303,7 @@ async fn main() {
             let payload: Vec<u8> = vec![120; msg_size as usize]; // ASCII for 'x' = 120
             info!("publishing message {}", i);
             // set fanout > 1 to send the message in broadcast
-            let flags = AgpHeaderFlags::new(10, None, None, None, None);
+            let flags = SlimHeaderFlags::new(10, None, None, None, None);
             if svc
                 .publish_with_flags(
                     &agent_name,
@@ -384,8 +384,8 @@ async fn main() {
     let res = svc
         .create_session(
             &agent_name,
-            agp_service::session::SessionConfig::FireAndForget(
-                agp_service::FireAndForgetConfiguration::default(),
+            slim_service::session::SessionConfig::FireAndForget(
+                slim_service::FireAndForgetConfiguration::default(),
             ),
         )
         .await;
@@ -427,7 +427,7 @@ async fn main() {
                             }
 
                             match &msg.message_type.unwrap() {
-                                agp_datapath::pubsub::ProtoPublishType(msg) => {
+                                slim_datapath::pubsub::ProtoPublishType(msg) => {
                                     // parse payload and add info to the result list
                                     let payload = &msg.get_payload().blob;
                                     // the payload needs to start with the publication id and the received id

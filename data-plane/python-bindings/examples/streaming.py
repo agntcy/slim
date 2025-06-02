@@ -8,14 +8,14 @@ import os
 
 from common import format_message, split_id
 
-import agp_bindings
+import slim_bindings
 
 
 async def run_client(
     local_id, remote_id, address, producer, enable_opentelemetry: bool
 ):
     # init tracing
-    agp_bindings.init_tracing(
+    slim_bindings.init_tracing(
         {
             "log_level": "info",
             "opentelemetry": {
@@ -30,32 +30,32 @@ async def run_client(
     # Split the IDs into their respective components
     local_organization, local_namespace, local_agent = split_id(local_id)
 
-    # create new gateway object
-    gateway = await agp_bindings.Gateway.new(
+    # create new slim object
+    slim = await slim_bindings.Slim.new(
         local_organization, local_namespace, local_agent
     )
 
     # Connect to the service and subscribe for the local name
     print(format_message("connecting to:", address))
-    _ = await gateway.connect({"endpoint": address, "tls": {"insecure": True}})
+    _ = await slim.connect({"endpoint": address, "tls": {"insecure": True}})
 
     # Split the IDs into their respective components
     remote_organization, remote_namespace, broadcast_topic = split_id(remote_id)
 
     # Get the local agent instance from env
-    instance = os.getenv("AGP_INSTANCE_ID", local_agent)
+    instance = os.getenv("SLIM_INSTANCE_ID", local_agent)
 
-    async with gateway:
+    async with slim:
         if producer:
             # Create a route to the remote ID
-            await gateway.set_route(
+            await slim.set_route(
                 remote_organization, remote_namespace, broadcast_topic
             )
 
             # create streaming session with default config
-            session_info = await gateway.create_session(
-                agp_bindings.PySessionConfiguration.Streaming(
-                    agp_bindings.PySessionDirection.SENDER,
+            session_info = await slim.create_session(
+                slim_bindings.PySessionConfiguration.Streaming(
+                    slim_bindings.PySessionDirection.SENDER,
                     topic=None,
                     max_retries=5,
                     timeout=datetime.timedelta(seconds=5),
@@ -76,7 +76,7 @@ async def run_client(
                     )
 
                     # Send the message and wait for a reply
-                    await gateway.publish(
+                    await slim.publish(
                         session_info,
                         f"{count}".encode(),
                         remote_organization,
@@ -91,13 +91,13 @@ async def run_client(
                     await asyncio.sleep(0.5)
         else:
             # subscribe to streaming session
-            await gateway.subscribe(
+            await slim.subscribe(
                 remote_organization, remote_namespace, broadcast_topic
             )
 
             # Wait for messages and not reply
             while True:
-                session_info, _ = await gateway.receive()
+                session_info, _ = await slim.receive()
                 print(
                     format_message(
                         f"{instance.capitalize()} received a new session:",
@@ -108,7 +108,7 @@ async def run_client(
                 async def background_task(session_info):
                     while True:
                         # Receive the message from the session
-                        session, msg = await gateway.receive(session=session_info)
+                        session, msg = await slim.receive(session=session_info)
                         print(
                             format_message(
                                 f"{local_agent.capitalize()} received from {remote_organization}/{remote_namespace}/{broadcast_topic}: ",
@@ -136,10 +136,10 @@ async def main():
         help="Remote ID in the format organization/namespace/agent.",
     )
     parser.add_argument(
-        "-g",
-        "--gateway",
+        "-s",
+        "--slim",
         type=str,
-        help="Gateway address.",
+        help="SLIM address.",
         default="http://127.0.0.1:46357",
     )
     parser.add_argument(
@@ -163,7 +163,7 @@ async def main():
     await run_client(
         args.local,
         args.remote,
-        args.gateway,
+        args.slim,
         args.producer,
         args.enable_opentelemetry,
     )

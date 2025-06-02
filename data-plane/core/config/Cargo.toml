@@ -1,0 +1,39 @@
+[package]
+name = "slim-config"
+version = "0.1.8"
+edition = { workspace = true }
+license = { workspace = true }
+description = "Configuration utilities"
+
+[dependencies]
+duration-str = { workspace = true }
+futures = { workspace = true }
+http = { workspace = true }
+hyper-rustls = { workspace = true }
+hyper-util = { workspace = true }
+lazy_static = { workspace = true }
+prost = { workspace = true }
+regex = { workspace = true }
+rustls = { workspace = true }
+rustls-native-certs = { workspace = true }
+rustls-pki-types = { workspace = true }
+serde = { workspace = true }
+serde_yaml = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+tonic = { workspace = true }
+tonic-tls = { workspace = true }
+tower = { workspace = true }
+tower-http = { workspace = true }
+tower-layer = { workspace = true }
+tower-service = { workspace = true }
+tracing = { workspace = true }
+
+[build-dependencies]
+protoc-bin-vendored = { workspace = true }
+tonic-build = { workspace = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }
+tower-reqwest = { workspace = true }
+tracing-test = { workspace = true }

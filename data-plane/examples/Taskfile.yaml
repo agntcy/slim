@@ -19,7 +19,7 @@ tasks:
     desc: "Run the server"
     dir: ".."
     cmds:
-      - cargo run --bin gateway -- --config ./config/base/server-config.yaml
+      - cargo run --bin slim -- --config ./config/base/server-config.yaml
 
   run:mock-agent:server:
     desc: "Run the mock agent server"

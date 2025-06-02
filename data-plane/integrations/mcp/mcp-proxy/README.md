@@ -1,16 +1,16 @@
-# AGP-MCP proxy
-This proxy enables connecting existing MCP servers that use the SSE transport to the AGP network. The proxy is capable of receiving messages from an application running on top of AGP and forwarding them to the SSE server (and vice versa).
+# SLIM-MCP proxy
+This proxy enables connecting existing MCP servers that use the SSE transport to the SLIM network. The proxy is capable of receiving messages from an application running on top of SLIM and forwarding them to the SSE server (and vice versa).
 
 ## How to run the code
 You can use the commands provided in the Taskfile to run the client and server located in the example folder.
 
-### Run the AGP node
-To run the AGP node, use the following command:
+### Run the SLIM node
+To run the SLIM node, use the following command:
 ```bash
-task mcp-proxy:run-agp
+task mcp-proxy:run-slim
 ```
-### Run the AGP-MCP proxy
-To run the AGP-MCP proxy, use the following command:
+### Run the SLIM-MCP proxy
+To run the SLIM-MCP proxy, use the following command:
 ```bash
 task mcp-proxy:run-mcp-proxy
 ```
@@ -25,4 +25,4 @@ To run the MCP client example, use the following command:
 ```bash
 task mcp-proxy:run-mcp-client
 ```
-The client uses the AGP transport, so it will connect to the AGP node and communicate with the MCP server through the proxy.
+The client uses the SLIM transport, so it will connect to the SLIM node and communicate with the MCP server through the proxy.

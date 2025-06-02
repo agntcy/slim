@@ -6,7 +6,7 @@ import datetime
 
 import pytest
 
-import agp_bindings
+import slim_bindings
 
 
 @pytest.mark.asyncio
@@ -20,8 +20,8 @@ async def test_streaming(server):
 
     pub_msg = "Hello from producer"
 
-    # create new gateway object
-    producer = await agp_bindings.Gateway.new(org, ns, agent)
+    # create new SLIM object
+    producer = await slim_bindings.Slim.new(org, ns, agent)
 
     # Connect to the service and subscribe for the local name
     _ = await producer.connect(
@@ -49,9 +49,9 @@ async def test_streaming(server):
 
         print(f"Creating consumer {name}...")
 
-        consumer = await agp_bindings.Gateway.new(org, ns, name)
+        consumer = await slim_bindings.Slim.new(org, ns, name)
 
-        # Connect to gateway server
+        # Connect to SLIM server
         _ = await consumer.connect(
             {"endpoint": "http://127.0.0.1:12365", "tls": {"insecure": True}}
         )
@@ -110,8 +110,8 @@ async def test_streaming(server):
 
     # create streaming session with default config
     session_info = await producer.create_session(
-        agp_bindings.PySessionConfiguration.Streaming(
-            agp_bindings.PySessionDirection.SENDER,
+        slim_bindings.PySessionConfiguration.Streaming(
+            slim_bindings.PySessionDirection.SENDER,
             topic=None,
             max_retries=5,
             timeout=datetime.timedelta(seconds=5),

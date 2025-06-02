@@ -15,13 +15,13 @@ function "get_tag" {
 
 group "default" {
   targets = [
-    "gw",
+    "slim",
   ]
 }
 
 group "data-plane" {
   targets = [
-    "gw",
+    "slim",
   ]
 }
 
@@ -39,26 +39,26 @@ target "docker-metadata-action" {
   tags = []
 }
 
-target "gw" {
+target "slim" {
   context = "."
   dockerfile = "./data-plane/Dockerfile"
-  target = "gateway-release"
+  target = "slim-release"
   inherits = [
     "_common",
     "docker-metadata-action",
   ]
-  tags = get_tag(target.docker-metadata-action.tags, "${target.gw.name}")
+  tags = get_tag(target.docker-metadata-action.tags, "${target.slim.name}")
 }
 
-target "gw-debug" {
+target "slim-debug" {
   context = "."
   dockerfile = "./data-plane/Dockerfile"
-  target = "gateway-debug"
+  target = "slim-debug"
   inherits = [
     "_common",
     "docker-metadata-action",
   ]
-  tags = get_tag(target.docker-metadata-action.tags, "${target.gw-debug.name}")
+  tags = get_tag(target.docker-metadata-action.tags, "${target.slim-debug.name}")
 }
 
 target "mcp-proxy" {
@@ -84,7 +84,7 @@ target "mcp-proxy-debug" {
 }
 
 target "mcp-server-time" {
-  context = "./data-plane/integrations/mcp/agp-mcp"
+  context = "./data-plane/integrations/mcp/slim-mcp"
   dockerfile = "./examples/mcp-server-time/Dockerfile"
   target = "mcp-server-time"
   inherits = [
@@ -95,7 +95,7 @@ target "mcp-server-time" {
 }
 
 target "llamaindex-time-agent" {
-  context = "./data-plane/integrations/mcp/agp-mcp"
+  context = "./data-plane/integrations/mcp/slim-mcp"
   dockerfile = "./examples/llamaindex-time-agent/Dockerfile"
   target = "llamaindex-time-agent"
   inherits = [

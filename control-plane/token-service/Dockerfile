@@ -34,23 +34,23 @@ WORKDIR /home/${USERNAME}
 ########################
 # Build Token Service ##
 ########################
-FROM --platform=${BUILDPLATFORM} development-env AS build-gateway-tks
+FROM --platform=${BUILDPLATFORM} development-env AS build-slim-tks
 
 ARG USERNAME=ubuntu
 ARG TARGETOS
 ARG TARGETARCH
 
-COPY --chown=${USERNAME}:${USERNAME} . ./gateway
-WORKDIR /home/${USERNAME}/gateway
+COPY --chown=${USERNAME}:${USERNAME} . ./slim
+WORKDIR /home/${USERNAME}/slim
 
 RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} task control-plane:token-service:build
 
 ########################
 # Production Image    ##
 ########################
-FROM gcr.io/distroless/static:nonroot AS gateway-tks
+FROM gcr.io/distroless/static:nonroot AS slim-tks
 
 ARG USERNAME=ubuntu
 
-COPY --from=build-gateway-tks /home/${USERNAME}/gateway/.dist/bin/gateway-tks /gateway-tks
-COPY --from=build-gateway-tks /bin/grpc_health_probe /grpc_health_probe
+COPY --from=build-slim-tks /home/${USERNAME}/slim/.dist/bin/slim-tks /slim-tks
+COPY --from=build-slim-tks /bin/grpc_health_probe /grpc_health_probe

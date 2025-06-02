@@ -1,0 +1,85 @@
+// Copyright AGNTCY Contributors (https://github.com/agntcy)
+// SPDX-License-Identifier: Apache-2.0
+
+syntax = "proto3";
+package controller.proto.v1;
+
+import "google/protobuf/wrappers.proto";
+
+option go_package = "github.com/agntcy/slim/control-plane/internal/proto/controller/v1;controllerv1";
+
+service ControllerService {
+  rpc OpenControlChannel(stream ControlMessage) returns (stream ControlMessage) {}
+}
+
+message ControlMessage {
+  string message_id = 1;
+
+  oneof payload {
+    ConfigurationCommand config_command = 2;
+    Ack ack = 3;
+    SubscriptionListRequest subscription_list_request = 4;
+    SubscriptionListResponse subscription_list_response = 5;
+    ConnectionListRequest connection_list_request = 6;
+    ConnectionListResponse connection_list_response = 7;
+  }
+}
+
+message Connection {
+  string connection_id = 1;
+  string remote_address = 2;
+  int32 remote_port = 3;
+}
+
+message Subscription {
+  string organization = 1;
+  string namespace = 2;
+  string agent_type = 3;
+  google.protobuf.UInt64Value agent_id = 4;
+  string connection_id = 5;
+}
+
+message ConfigurationCommand {
+  repeated Connection connections_to_create = 1;
+  repeated Subscription subscriptions_to_set = 2;
+  repeated Subscription subscriptions_to_delete = 3;
+}
+
+message Ack {
+  string original_message_id = 1;
+  bool success = 2;
+  repeated string messages = 3;
+}
+
+message SubscriptionListRequest {}
+
+message SubscriptionListResponse {
+  repeated SubscriptionEntry entries = 1;
+}
+
+message SubscriptionEntry {
+  string organization = 1;
+  string namespace = 2;
+  string agent_type = 3;
+  google.protobuf.UInt64Value agent_id = 4;
+  repeated ConnectionEntry local_connections  = 5;
+  repeated ConnectionEntry remote_connections = 6;
+}
+
+enum ConnectionType {
+  CONNECTION_TYPE_LOCAL  = 0;
+  CONNECTION_TYPE_REMOTE = 1;
+}
+
+message ConnectionEntry {
+  uint64 id = 1;
+  ConnectionType connection_type = 2;
+  string ip = 3;
+  uint32 port = 4;
+}
+
+message ConnectionListRequest {}
+
+message ConnectionListResponse {
+  repeated ConnectionEntry entries = 1;
+}

@@ -1,0 +1,277 @@
+# Copyright AGNTCY Contributors (https://github.com/agntcy)
+# SPDX-License-Identifier: Apache-2.0
+
+# Configuration for the tracing
+tracing:
+  # The logging level. Available options:
+  #  - trace
+  #  - debug
+  #  - info
+  #  - warn
+  #  - error
+  # Default: info
+  log_level: debug
+
+  # Display the thread name in the logs.
+  # Default: true
+  display_thread_names: true
+
+  # Display the thread ID in the logs.
+  # Default: false
+  display_thread_ids: true
+
+runtime:
+  # The number of cores to use for the runtime.
+  # Default: 0 (use all available cores)
+  n_cores: 0
+
+  # The name of the thread(s) that will run the runtime.
+  # Default: "slim"
+  thread_name: "slim-data-plane"
+
+  # The timeout for the runtime to wait for the tasks to finish before shutting down.
+  # Default: 10s
+  drain_timeout: 10s
+
+# Configuration for the services
+services:
+  # Configuration for the clim service.
+  # This is the main service that will handle the incoming requests.
+  slim/0:
+    # GRPC Server configuration
+    server:
+      # The endpoint to listen on.
+      # No default, this must be specified.
+      endpoint: "0.0.0.0:46357"
+
+      # Authentication configuration
+      auth:
+        # Basic authentication configuration
+        basic:
+          # The username for the basic authentication.
+          # No default, this must be specified.
+          username: "username"
+
+          # The password for the basic authentication.
+          # No default, this must be specified.
+          password: "password"
+
+      # TLS configuration
+      tls:
+        # Whether to enable TLS.
+        # Default: true
+        insecure: false
+
+        # Enforce client authentication using mTLS, and use
+        # this CA certificate to verify the client certificate.
+        # client_ca_file:
+        # client_ca_pem:
+
+        # Path to the CA certificate file.
+        # If not specified, it will use the system CA certs pool.
+        # This is used to verify the client certificate in case of mTLS
+        ca_file: "testdata/ca.crt"
+
+        # PEM encoded CA certificate.
+        # If not specified, it will use the system CA certs pool.
+        # This is used to verify the client certificate in case of mTLS
+        # ca_pem: ""
+
+        # The path to the certificate file, if TLS is enabled.
+        # No default, this (or alternatively cert_pem) must be specified.
+        cert_file: "testdata/server.crt"
+
+        # The path to the key file, if TLS is enabled.
+        # No default, this (or alternatively key_pem) must be specified.
+        key_file: "testdata/server.key"
+
+        # The certificate in PEM format, if TLS is enabled.
+        # No default, this (or alternatively cert_file) must be specified.
+        # cert_pem: ""
+
+        # The key in PEM format, if TLS is enabled.
+        # No default, this (or alternatively key_file) must be specified.
+        # key_pem: ""
+
+        # Whether to include the system CA certs pool.
+        # Default: false
+        include_system_ca_certs_pool: false
+
+        # TLS Version. Available options:
+        # - tls1.2
+        # - tls1.3
+        # Default: tls1.3
+        tls_version: "tls1.3"
+
+        # The certificate reload interval. If set, the server will reload the certificate
+        # every time the interval is reached.
+        # reload_interval: 10s
+
+      # Whether to enable HTTP/2 only.
+      # Default: true
+      http2_only: true
+
+      # Maximum size (in MiB) of messages accepted by the server.
+      # Default: It will default from the underlying transport.
+      # max_recv_msg_size: 4
+
+      # Max concurrent streams per connection.
+      # Default: 100
+      # max_concurrent_streams: 100
+
+      # Max header list size.
+      # Default: 16KiB
+      # max_header_list_size: 8192
+
+      # The read buffer size for the server.
+      # This is currently not used
+      # read_buffer_size: 4KiB
+
+      # The write buffer size for the server.
+      # This is currently not used
+      # write_buffer_size: 4KiB
+
+      # Keepalive configuration
+      keepalive:
+        # Sets the time after which an idle connection is closed.
+        # Default: 3600s
+        max_connection_idle: 7200s
+
+        # Sets the maximum amount of time a connection may exist before it will be closed.
+        # Default: 7200s
+        max_connection_age: 14400s
+
+        # Additional time given after MaxConnectionAge before closing the connection.
+        # Default: 300s
+        max_connection_age_grace: 300s
+
+        # Set the frequency of the keepalive ping.
+        # Default: 12ß0s
+        time: 120s
+
+        # Sets the amount of time the server waits for a keepalive ping ack.
+        # Default: 20s
+        timeout: 20s
+
+        # Authenticator configuration.
+        # This is not currently implemented, but its purpose is to specify an
+        # authenticator that can authenticate the messages before they are processed.
+        # authenticator: ""
+
+    # GRPC Clients configuration.
+    clients:
+      # The endpoint to connect to.
+      # No default, this must be specified.
+      - endpoint: "1.2.3.4:54321"
+
+        # Authentication configuration
+        auth:
+          # Basic authentication configuration
+          basic:
+            # The username for the basic authentication.
+            # No default, this must be specified.
+            username: "username"
+
+            # The password for the basic authentication.
+            # No default, this must be specified.
+            password: "password"
+
+        # Origin configuration
+        # Default: none
+        # origin: localhost
+
+        # Compression configuration.
+        # Default: none
+        # compression: none
+
+        # Rate limit configuration. The format is "<limit>/<duration>", with the duration expressed in seconds.
+        # Default: none
+        # rate_limit: 20/60 (20 requests every 60 seconds)
+
+        # Keepalive parameters
+        keepalive:
+          # Sets the TCP keepalive interval
+          # Default: 10s
+          tcp_keepalive: 60s
+
+          # Sets the http 2 keepalive interval
+          # Default: 60s
+          http2_keepalive: 60s
+
+          # The timeout duration for the keepalive
+          # Default: 10s
+          timeout: 10s
+
+          # Whether to permit keepalive without an active stream
+          # Default: false
+          permit_without_stream: false
+
+        # The timeout for the connection with the server
+        # Default is None
+        connection_timeout: 10s
+
+        # The timeout for each request
+        # Default is None
+        request_timeout: 10s
+
+        # The buffer size
+        # Default is None
+        buffer_size: 4096
+
+        # Additional headers to send with the request
+        # Default is None
+        headers:
+          x-header: value
+
+        # authentication configuration.
+        # not used yet
+        # auth:
+
+        # TLS configuration
+        tls:
+          # Whether to enable TLS.
+          # Default: false
+          insecure: true
+
+          # Whether to skip the server name verification.
+          # Default: false
+          insecure_skip_verify: false
+
+          # Path to the CA certificate file.
+          # If not specified, it will use the system CA certs pool.
+          ca_file: "testdata/ca.crt"
+
+          # PEM encoded CA certificate.
+          # If not specified, it will use the system CA certs pool.
+          # ca_pem: ""
+
+          # The path to the certificate file, if TLS is enabled.
+          # No default, this (or alternatively cert_pem) must be specified.
+          # Specifying this effectively enable mTLS.
+          # cert_file: "testdata/client.crt"
+
+          # The path to the key file, if TLS is enabled.
+          # No default, this (or alternatively key_pem) must be specified.
+          # Specifying this effectively enable mTLS.
+          # key_file: "testdata/client.key"
+
+          # The certificate in PEM format, if TLS is enabled.
+          # No default, this (or alternatively cert_file) must be specified.
+          # Specifying this effectively enable mTLS.
+          # cert_pem: ""
+
+          # The key in PEM format, if TLS is enabled.
+          # No default, this (or alternatively key_file) must be specified.
+          # Specifying this effectively enable mTLS.
+          # key_pem: ""
+
+          # TLS Version. Available options:
+          # - tls1.2
+          # - tls1.3
+          # Default: tls1.3
+          tls_version: "tls1.3"
+
+          # The certificate reload interval. If set, the client will reload the certificate
+          # every time the interval is reached.
+          # reload_interval: 10s
+

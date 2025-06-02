@@ -23,8 +23,8 @@ runs:
       shell: bash
       run: |
 
-        CHART_TAG=$(git tag --sort=-creatordate --list 'agp-helm-*' | head -1 | sed 's/agp-helm-//')
-        IMAGE_TAG=$(git tag --sort=-creatordate --list 'agp-gw-v*' | head -1 | sed 's/agp-gw-v//')
+        CHART_TAG=$(git tag --sort=-creatordate --list 'slim-helm-*' | head -1 | sed 's/slim-helm-//')
+        IMAGE_TAG=$(git tag --sort=-creatordate --list 'slim-gw-v*' | head -1 | sed 's/slim-gw-v//')
 
         echo "CHART_TAG=$CHART_TAG" >> $GITHUB_OUTPUT
         echo "IMAGE_TAG=$IMAGE_TAG" >> $GITHUB_OUTPUT
@@ -41,7 +41,7 @@ runs:
               ref: 'main',
               inputs: {
                   skip_directory_test: true,
-                  override_gateway_image_tag: '${{ steps.tags.outputs.IMAGE_TAG }}',
-                  override_gateway_chart_tag: '${{ steps.tags.outputs.CHART_TAG }}',
+                  override_slim_image_tag: '${{ steps.tags.outputs.IMAGE_TAG }}',
+                  override_slim_chart_tag: '${{ steps.tags.outputs.CHART_TAG }}',
               },
           });

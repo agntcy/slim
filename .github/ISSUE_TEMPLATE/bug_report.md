@@ -2,16 +2,16 @@
 name: Bug report
 about: Create a report to help us improve
 title: ''
-labels: A-agp, C-bug
+labels: A-slim, C-bug
 assignees: ''
 
 ---
 
 **Version**
-List the versions of all `agp` crates you are using. The easiest way to get
+List the versions of all `slim` crates you are using. The easiest way to get
 this information is using `cargo tree` subcommand:
 
-`cargo tree | grep agp`
+`cargo tree | grep slim`
 
 **Platform**
 The output of `uname -a` (UNIX), or version and 32 or 64-bit (Windows)

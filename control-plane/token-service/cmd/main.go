@@ -8,8 +8,8 @@ import (
 	"fmt"
 	"os"
 
-	cmd "github.com/agntcy/agp/control-plane/token-service/cmd/commands"
-	"github.com/agntcy/agp/control-plane/token-service/internal/options"
+	cmd "github.com/agntcy/slim/control-plane/token-service/cmd/commands"
+	"github.com/agntcy/slim/control-plane/token-service/internal/options"
 )
 
 func main() {

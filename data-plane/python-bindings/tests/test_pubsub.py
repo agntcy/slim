@@ -6,7 +6,7 @@ import datetime
 
 import pytest
 
-import agp_bindings
+import slim_bindings
 
 
 @pytest.mark.asyncio
@@ -29,9 +29,9 @@ async def test_streaming(server):
 
         print(f"Creating participant {name}...")
 
-        participant = await agp_bindings.Gateway.new(org, ns, chat)
+        participant = await slim_bindings.Slim.new(org, ns, chat)
 
-        # Connect to gateway server
+        # Connect to SLIM server
         _ = await participant.connect(
             {"endpoint": "http://127.0.0.1:12375", "tls": {"insecure": True}}
         )
@@ -46,9 +46,9 @@ async def test_streaming(server):
         # create pubsubb session. A pubsub session is a just a bidirectional
         # streaming session, where participants are both sender and receivers
         session_info = await participant.create_session(
-            agp_bindings.PySessionConfiguration.Streaming(
-                agp_bindings.PySessionDirection.BIDIRECTIONAL,
-                topic=agp_bindings.PyAgentType(org, ns, chat),
+            slim_bindings.PySessionConfiguration.Streaming(
+                slim_bindings.PySessionDirection.BIDIRECTIONAL,
+                topic=slim_bindings.PyAgentType(org, ns, chat),
                 max_retries=5,
                 timeout=datetime.timedelta(seconds=5),
             )

@@ -41,7 +41,7 @@ tasks:
     cmds:
       - uv run ruff check
       - uv run ruff format --check
-      - uv run mypy agp_bindings
+      - uv run mypy slim_bindings
 
   python-bindings:test:
     desc: "Test the Python bindings"
@@ -82,7 +82,7 @@ tasks:
 
             # This file if a leftover from the previous build, delete it otherwise
             # maturin will try to add it to the wheel, and it will fail
-            rm -f agp_bindings/*.pyd
+            rm -f slim_bindings/*.pyd
 
             PYTHONS=(3.9 3.10 3.11 3.12 3.13)
             uv run                            \
@@ -97,16 +97,16 @@ tasks:
   python-bindings:example:server:
     desc: "Run the server example"
     env:
-      AGP_INSTANCE_ID: server
+      SLIM_INSTANCE_ID: server
     cmds:
-      - uv run python ./examples/gateway.py {{.EXTRA_ARGS}}
+      - uv run python ./examples/slim.py {{.EXTRA_ARGS}}
     vars:
       EXTRA_ARGS: '{{.EXTRA_ARGS | default ""}}'
 
   python-bindings:example:ff:alice1:
     desc: "Run the Alice example"
     env:
-      AGP_INSTANCE_ID: alice1
+      SLIM_INSTANCE_ID: alice1
     cmds:
       - |
         uv run python ./examples/fire-and-forget.py \
@@ -119,7 +119,7 @@ tasks:
   python-bindings:example:ff:alice2:
     desc: "Run the Alice example"
     env:
-      AGP_INSTANCE_ID: alice2
+      SLIM_INSTANCE_ID: alice2
     cmds:
       - |
         uv run python ./examples/fire-and-forget.py \
@@ -132,7 +132,7 @@ tasks:
   python-bindings:example:ff:bob:
     desc: "Run the Bob example"
     env:
-      AGP_INSTANCE_ID: bob
+      SLIM_INSTANCE_ID: bob
     cmds:
       - |
         uv run python ./examples/fire-and-forget.py   \
@@ -148,7 +148,7 @@ tasks:
   python-bindings:example:rr:requester:
     desc: "Run the requester example"
     env:
-      AGP_INSTANCE_ID: requester
+      SLIM_INSTANCE_ID: requester
     cmds:
       - |
         uv run python ./examples/request-reply.py   \
@@ -163,7 +163,7 @@ tasks:
   python-bindings:example:rr:responder:
     desc: "Run the responder example"
     env:
-      AGP_INSTANCE_ID: responder
+      SLIM_INSTANCE_ID: responder
     cmds:
       - |
         uv run python ./examples/request-reply.py   \
@@ -176,7 +176,7 @@ tasks:
   python-bindings:example:stream:producer:
     desc: "Run the producer stream example"
     env:
-      AGP_INSTANCE_ID: producer
+      SLIM_INSTANCE_ID: producer
     cmds:
       - |
         uv run python ./examples/streaming.py     \
@@ -191,7 +191,7 @@ tasks:
   python-bindings:example:stream:consumer:
     desc: "Run the consumer stream example"
     env:
-      AGP_INSTANCE_ID: consumer-{{.CONSUMER_ID}}
+      SLIM_INSTANCE_ID: consumer-{{.CONSUMER_ID}}
     cmds:
       - |
         uv run python ./examples/streaming.py         \
@@ -207,7 +207,7 @@ tasks:
   python-bindings:example:pubsub:
     desc: "Run the pubsub example"
     env:
-      AGP_INSTANCE_ID: participant-{{.CONSUMER_ID}}
+      SLIM_INSTANCE_ID: participant-{{.CONSUMER_ID}}
     cmds:
       - |
         uv run python ./examples/pubsub.py         \

@@ -1,5 +1,5 @@
 [package]
-name = "agp-examples"
+name = "slim-examples"
 version = "0.1.0"
 edition = { workspace = true }
 publish = false
@@ -9,11 +9,11 @@ name = "sdk-mock"
 path = "src/sdk-mock/main.rs"
 
 [dependencies]
-agp-config = { workspace = true }
-agp-datapath = { workspace = true }
-agp-gw = { workspace = true }
-agp-service = { workspace = true }
-agp-signal = { workspace = true }
+slim-config = { workspace = true }
+slim-datapath = { workspace = true }
+slim-gw = { workspace = true }
+slim-service = { workspace = true }
+slim-signal = { workspace = true }
 clap = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }

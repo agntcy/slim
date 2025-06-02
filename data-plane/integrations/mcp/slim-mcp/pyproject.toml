@@ -1,0 +1,18 @@
+[tool.uv.workspace]
+members = ["packages/*", "examples/*"]
+
+[tool.uv.sources]
+slim-mcp = { workspace = true }
+
+[tool.ruff.format]
+quote-style = "double"
+
+[tool.pytest.ini_options]
+testpaths = "tests"
+
+[tool.ruff]
+extend-exclude = []
+
+[tool.ruff.lint]
+mccabe = { max-complexity = 13 }
+isort = { known-first-party = ["slim_mcp", "tests"] }

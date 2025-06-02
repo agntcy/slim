@@ -1,9 +1,9 @@
-# Contributing to Agent Gateway Protocol
+# Contributing to SLIM
 
 :balloon: Thanks for your help improving the project! We are so happy to have
 you!
 
-There are opportunities to contribute to AGP at any level. It doesn't matter if
+There are opportunities to contribute to SLIM at any level. It doesn't matter if
 you are just getting started with Rust or are the most weathered expert, we can
 use your help.
 
@@ -22,7 +22,7 @@ please join us!
 For any issue, there are fundamentally three ways an individual can contribute:
 
 1. By opening the issue for discussion: For instance, if you believe that you
-   have discovered a bug in AGP, creating a new issue in [the agntcy/agp
+   have discovered a bug in SLIM, creating a new issue in [the agntcy/slim
    issue tracker][issue] is the way to report it.
 
 2. By helping to triage the issue: This can be done by providing
@@ -33,9 +33,9 @@ For any issue, there are fundamentally three ways an individual can contribute:
 3. By helping to resolve the issue: Typically this is done either in the form of
    demonstrating that the issue reported is not a problem after all, or more
    often, by opening a Pull Request that changes some bit of something in
-   AGP in a concrete and reviewable manner.
+   SLIM in a concrete and reviewable manner.
 
-[issue]: https://github.com/agntcy/agp/issues
+[issue]: https://github.com/agntcy/slim/issues
 
 **Anybody can participate in any stage of contribution**. We urge you to
 participate in the discussion around bugs and participate in reviewing PRs.
@@ -48,11 +48,11 @@ having problems, you can [open a discussion] asking for help.
 In exchange for receiving help, we ask that you contribute back a documentation
 PR that helps others avoid the problems that you encountered.
 
-[open a discussion]: https://github.com/agentcy/agp/discussions/new
+[open a discussion]: https://github.com/agentcy/slim/discussions/new
 
 ### Submitting a Bug Report
 
-When opening a new issue in the AGP issue tracker, you will be presented
+When opening a new issue in the SLIM issue tracker, you will be presented
 with a basic template that should be filled in. If you believe that you have
 uncovered a bug, please fill out this form, following the template to the best
 of your ability. Do not worry if you cannot answer every detail, just fill in
@@ -92,12 +92,12 @@ In the majority of cases, issues are resolved by opening a Pull Request. The
 process for opening and reviewing a Pull Request is similar to that of opening
 and triaging issues, but carries with it a necessary review and approval
 workflow that ensures that the proposed changes meet the minimal quality and
-functional guidelines of the AGP project.
+functional guidelines of the SLIM project.
 
 ## Pull Requests
 
 Pull Requests are the way concrete changes are made to the code, documentation,
-and dependencies in the AGP repository.
+and dependencies in the SLIM repository.
 
 Even tiny pull requests (e.g., one character pull request fixing a typo in API
 documentation) are greatly appreciated. Before making a large change, it is
@@ -129,9 +129,9 @@ git commit --amend --signoff
 
 ```
 
-### Performing spellcheck on AGP codebase
+### Performing spellcheck on SLIM codebase
 
-You can perform spell-check on agp codebase. For details of how to use the
+You can perform spell-check on slim codebase. For details of how to use the
 spellcheck tool, feel free to visit
 
 https://github.com/drahnr/cargo-spellcheck
@@ -251,7 +251,7 @@ however, will stay intact on the Pull Request page.
 
 **Any agentcy community member is welcome to review any pull request**.
 
-All AGP contributors who choose to review and provide feedback on Pull
+All SLIM contributors who choose to review and provide feedback on Pull
 Requests have a responsibility to both the project and the individual making the
 contribution. Reviews and feedback must be helpful, insightful, and geared
 towards improving the contribution as opposed to simply blocking it. If there
@@ -278,8 +278,8 @@ perfect grammar, or exact style matches. Do not succumb to that temptation.
 
 Focus first on the most significant aspects of the change:
 
-1. Does this change make sense for AGP?
-2. Does this change make AGP better, even if only incrementally?
+1. Does this change make sense for SLIM?
+2. Does this change make SLIM better, even if only incrementally?
 3. Are there clear bugs or larger scale issues that need attending to?
 4. Is the commit message readable and correct? If it contains a breaking change
    is it clear enough?
@@ -295,7 +295,7 @@ Specific performance optimization techniques, coding styles and conventions
 change over time. The first impression you give to a new contributor never does.
 
 Nits (requests for small changes that are not essential) are fine, but try to
-avoid stalling the Pull Request. Most nits can typically be fixed by the AGP
+avoid stalling the Pull Request. Most nits can typically be fixed by the SLIM
 Collaborator landing the Pull Request but they can also be an opportunity for
 the contributor to learn a bit more about the project.
 
@@ -310,8 +310,8 @@ with the appropriate reason to keep the conversation flow concise and relevant.
 
 Be aware that *how* you communicate requests and reviews in your feedback can
 have a significant impact on the success of the Pull Request. Yes, we may land
-a particular change that makes AGP better, but the individual might just not
-want to have anything to do with AGP ever again. The goal is not just having
+a particular change that makes SLIM better, but the individual might just not
+want to have anything to do with SLIM ever again. The goal is not just having
 good code.
 
 ### Abandoned or Stalled Pull Requests

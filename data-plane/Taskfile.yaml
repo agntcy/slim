@@ -38,7 +38,7 @@ tasks:
       - task: data-plane:build
       - task: data-plane:toolchain:strip
         vars:
-          TARGET_BIN: "target/{{.TARGET}}/{{.PROFILE}}/gateway"
+          TARGET_BIN: "target/{{.TARGET}}/{{.PROFILE}}/slim"
 
   data-plane:run:server:
     desc: "Run the server"
@@ -47,7 +47,7 @@ tasks:
       - task: data-plane:toolchain:run
         vars:
           ARGS: ""
-          BIN: "gateway"
+          BIN: "slim"
           BIN_ARGS: "--config ./config/base/server-config.yaml"
 
   data-plane:run:server-with-otel:
@@ -57,7 +57,7 @@ tasks:
       - task: data-plane:toolchain:run
         vars:
           ARGS: ""
-          BIN: "gateway"
+          BIN: "slim"
           BIN_ARGS: "--config ./config/telemetry/server-config.yaml"
 
   data-plane:telemetry:start:
@@ -85,4 +85,4 @@ tasks:
   data-plane:gw:version:
     desc: "Get version from corresponding git tag"
     cmds:
-      - git describe --tags --match "agp-gw-v*" | cut -d 'v' -f 2
+      - git describe --tags --match "slim-gw-v*" | cut -d 'v' -f 2

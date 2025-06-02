@@ -7,7 +7,7 @@ name: ci-release-images
 on:
   push:
     tags:
-      - 'agp-*'
+      - 'slim-*'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -30,10 +30,10 @@ jobs:
         id: resolve
         run: |
           # This assumes tags are in this form
-          # agp-<component1>-<component2>-v<version>
+          # slim-<component1>-<component2>-v<version>
 
-          # strip agp- prefix from the tag
-          _target=${GITHUB_REF_NAME#agp-}
+          # strip slim- prefix from the tag
+          _target=${GITHUB_REF_NAME#slim-}
 
           # remove version to only get the component
           target=${_target%-v*}

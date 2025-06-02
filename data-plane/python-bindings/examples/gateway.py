@@ -5,12 +5,12 @@ import argparse
 import asyncio
 from signal import SIGINT
 
-import agp_bindings
+import slim_bindings
 
 
 async def run_server(address: str, enable_opentelemetry: bool):
     # init tracing
-    await agp_bindings.init_tracing(
+    await slim_bindings.init_tracing(
         {
             "log_level": "debug",
             "opentelemetry": {
@@ -22,20 +22,20 @@ async def run_server(address: str, enable_opentelemetry: bool):
         }
     )
 
-    global gateway
-    # create new gateway object
-    gateway = await agp_bindings.Gateway.new("cisco", "default", "gateway")
+    global slim
+    # create new slim object
+    slim = await slim_bindings.Slim.new("cisco", "default", "slim")
 
     # Run as server
-    await gateway.run_server({"endpoint": address, "tls": {"insecure": True}})
+    await slim.run_server({"endpoint": address, "tls": {"insecure": True}})
 
 
 async def main():
     parser = argparse.ArgumentParser(
-        description="Command line client for gateway server."
+        description="Command line client for slim server."
     )
     parser.add_argument(
-        "-g", "--gateway", type=str, help="Gateway address.", default="127.0.0.1:12345"
+        "-s", "--slim", type=str, help="Slim address.", default="127.0.0.1:12345"
     )
     parser.add_argument(
         "--enable-opentelemetry",
@@ -61,7 +61,7 @@ async def main():
 
     # Run the client task
     client_task = asyncio.create_task(
-        run_server(args.gateway, args.enable_opentelemetry)
+        run_server(args.slim, args.enable_opentelemetry)
     )
 
     # Wait until the stop event is set

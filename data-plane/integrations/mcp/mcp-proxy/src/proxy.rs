@@ -1,12 +1,12 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
-use agp_datapath::{
+use slim_datapath::{
     messages::{Agent, AgentType},
     pubsub::proto::pubsub::v1::Message,
 };
-use agp_gw::config::ConfigResult;
-use agp_service::{
+use slim_gw::config::ConfigResult;
+use slim_service::{
     FireAndForgetConfiguration,
     session::{self, SessionConfig},
     timer::{self, Timer},
@@ -252,14 +252,14 @@ impl ProxySession {
 struct SessionId {
     /// name of the source of the packet
     source: Agent,
-    /// AGP session id
+    /// SLIM session id
     id: u32,
 }
 
 pub struct Proxy {
     name: Agent,
     config: ConfigResult,
-    svc_id: agp_config::component::id::ID,
+    svc_id: slim_config::component::id::ID,
     mcp_server: String,
     connections: HashMap<SessionId, mpsc::Sender<Message>>,
 }
@@ -269,7 +269,7 @@ impl Proxy {
         name: AgentType,
         id: Option<u64>,
         config: ConfigResult,
-        svc_id: agp_config::component::id::ID,
+        svc_id: slim_config::component::id::ID,
         mcp_server: String,
     ) -> Self {
         let agent_id = match id {
@@ -339,7 +339,7 @@ impl Proxy {
                 next_from_gw = gw_rx.recv() => {
                     match next_from_gw {
                         None => {
-                            info!("end of the stream from the gateway, stop the MCP prefix");
+                            info!("end of the stream, stop the MCP prefix");
                             break;
                         }
                         Some(result) => match result {
@@ -453,7 +453,7 @@ impl Proxy {
                         }
                     }
                 }
-                _ = agp_signal::shutdown() => {
+                _ = slim_signal::shutdown() => {
                     info!("Received shutdown signal, stop mcp-proxy");
                     break;
                 }

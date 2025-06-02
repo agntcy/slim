@@ -7,7 +7,7 @@ use std::{
     fs::File,
 };
 
-use agp_datapath::messages::{Agent, AgentType};
+use slim_datapath::messages::{Agent, AgentType};
 use rand::Rng;
 
 use clap::Parser;

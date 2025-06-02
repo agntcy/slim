@@ -7,12 +7,12 @@ import datetime
 
 from common import split_id
 
-import agp_bindings
+import slim_bindings
 
 
 async def run_client(local_id, remote_id, address, enable_opentelemetry: bool):
     # init tracing
-    agp_bindings.init_tracing(
+    slim_bindings.init_tracing(
         {
             "log_level": "info",
             "opentelemetry": {
@@ -34,11 +34,11 @@ async def run_client(local_id, remote_id, address, enable_opentelemetry: bool):
 
     print(f"Creating participant {name}...")
 
-    participant = await agp_bindings.Gateway.new(
+    participant = await slim_bindings.Slim.new(
         local_organization, local_namespace, local_agent
     )
 
-    # Connect to gateway server
+    # Connect to slim server
     _ = await participant.connect({"endpoint": address, "tls": {"insecure": True}})
 
     # set route for the chat, so that messages can be sent to the other participants
@@ -51,9 +51,9 @@ async def run_client(local_id, remote_id, address, enable_opentelemetry: bool):
     # create pubsubb session. A pubsub session is a just a bidirectional
     # streaming session, where participants are both sender and receivers
     session_info = await participant.create_session(
-        agp_bindings.PySessionConfiguration.Streaming(
-            agp_bindings.PySessionDirection.BIDIRECTIONAL,
-            topic=agp_bindings.PyAgentType(
+        slim_bindings.PySessionConfiguration.Streaming(
+            slim_bindings.PySessionDirection.BIDIRECTIONAL,
+            topic=slim_bindings.PyAgentType(
                 remote_organization, remote_namespace, broadcast_topic
             ),
             max_retries=5,
@@ -141,10 +141,10 @@ async def main():
         help="Remote ID in the format organization/namespace/agent.",
     )
     parser.add_argument(
-        "-g",
-        "--gateway",
+        "-s",
+        "--slim",
         type=str,
-        help="Gateway address.",
+        help="Slim address.",
         default="http://127.0.0.1:46357",
     )
     parser.add_argument(
@@ -161,7 +161,7 @@ async def main():
     await run_client(
         args.local,
         args.remote,
-        args.gateway,
+        args.slim,
         args.enable_opentelemetry,
     )
 

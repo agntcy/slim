@@ -1,0 +1,10 @@
+[package]
+name = "slim-signal"
+edition = { workspace = true }
+license = { workspace = true }
+version = "0.1.2"
+description = "Small library to handle OS signals."
+
+[dependencies]
+tokio = { version = "1", features = ["macros", "signal"] }
+tracing = { workspace = true }

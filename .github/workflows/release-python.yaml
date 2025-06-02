@@ -7,8 +7,8 @@ name: ci-release-python
 on:
   push:
     tags:
-      - 'agp-bindings-*'
-      - 'agp-mcp-*'
+      - 'slim-bindings-*'
+      - 'slim-mcp-*'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -18,14 +18,14 @@ jobs:
   build-bindings-wheels:
     name: Data plane - Python wheels
     uses: ./.github/workflows/reusable-python-build-wheels.yaml
-    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/agp-bindings-')
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/slim-bindings-')
 
   build-mcp-wheels:
     name: Data plane - Python wheels
-    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/agp-mcp-')
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/slim-mcp-')
     uses: ./.github/workflows/reusable-python-build-and-test.yaml
     with:
-      working-directory: ./data-plane/integrations/mcp/agp-mcp
+      working-directory: ./data-plane/integrations/mcp/slim-mcp
       prefix: integrations
 
   pypi-publish:

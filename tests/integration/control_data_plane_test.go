@@ -18,9 +18,9 @@ import (
 var (
 	target string
 
-	gatewayPath string
+	slimPath    string
 	sdkMockPath string
-	agpctlPath  string
+	slimctlPath string
 
 	serverASession *gexec.Session
 	serverBSession *gexec.Session
@@ -40,34 +40,34 @@ var _ = BeforeSuite(func() {
 	Expect(target).NotTo(BeEmpty(), "failed to parse rustc host target")
 
 	// set binary paths
-	gatewayPath = filepath.Join("..", "..", "data-plane", "target", target, "debug", "gateway")
+	slimPath = filepath.Join("..", "..", "data-plane", "target", target, "debug", "slim")
 	sdkMockPath = filepath.Join("..", "..", "data-plane", "target", target, "debug", "sdk-mock")
-	agpctlPath = filepath.Join("..", "..", ".dist", "bin", "agpctl")
+	slimctlPath = filepath.Join("..", "..", ".dist", "bin", "slimctl")
 
-	// start gateways
+	// start SLIMs
 	var errA, errB error
 	serverASession, errA = gexec.Start(
-		exec.Command(gatewayPath, "--config", "./testdata/server-a-config.yaml"),
+		exec.Command(slimPath, "--config", "./testdata/server-a-config.yaml"),
 		GinkgoWriter, GinkgoWriter,
 	)
 	serverBSession, errB = gexec.Start(
-		exec.Command(gatewayPath, "--config", "./testdata/server-b-config.yaml"),
+		exec.Command(slimPath, "--config", "./testdata/server-b-config.yaml"),
 		GinkgoWriter, GinkgoWriter,
 	)
 	Expect(errA).NotTo(HaveOccurred())
 	Expect(errB).NotTo(HaveOccurred())
 
-	// wait for gateways to start
+	// wait for SLIM instances to start
 	time.Sleep(2000 * time.Millisecond)
 
 	// add routes
-	Expect(exec.Command(agpctlPath,
+	Expect(exec.Command(slimctlPath,
 		"route", "add", "org/default/b/0",
 		"via", "localhost:46367",
 		"-s", "127.0.0.1:46358",
 	).Run()).To(Succeed())
 
-	Expect(exec.Command(agpctlPath,
+	Expect(exec.Command(slimctlPath,
 		"route", "add", "org/default/a/0",
 		"via", "localhost:46357",
 		"-s", "127.0.0.1:46368",
@@ -75,7 +75,7 @@ var _ = BeforeSuite(func() {
 })
 
 var _ = AfterSuite(func() {
-	// terminate gateways
+	// terminate SLIM instances
 	serverASession.Terminate().Wait(30 * time.Second)
 	serverBSession.Terminate().Wait(30 * time.Second)
 })
@@ -128,11 +128,11 @@ var _ = Describe("Routing", func() {
 
 		// test listing routes
 		routeListOut, err := exec.Command(
-			agpctlPath,
+			slimctlPath,
 			"route", "list",
 			"-s", "127.0.0.1:46358",
 		).CombinedOutput()
-		Expect(err).NotTo(HaveOccurred(), "agpctl route list failed: %s", string(routeListOut))
+		Expect(err).NotTo(HaveOccurred(), "slimctl route list failed: %s", string(routeListOut))
 
 		routeListOutput := string(routeListOut)
 		Expect(routeListOutput).To(ContainSubstring("org/default/a id=0"))
@@ -140,11 +140,11 @@ var _ = Describe("Routing", func() {
 
 		// test listing connections
 		connectionListOut, err := exec.Command(
-			agpctlPath,
+			slimctlPath,
 			"connection", "list",
 			"-s", "127.0.0.1:46358",
 		).CombinedOutput()
-		Expect(err).NotTo(HaveOccurred(), "agpctl connection list failed: %s", string(connectionListOut))
+		Expect(err).NotTo(HaveOccurred(), "slimctl connection list failed: %s", string(connectionListOut))
 
 		connectionOutput := string(connectionListOut)
 		Expect(connectionOutput).To(ContainSubstring(":46367"))

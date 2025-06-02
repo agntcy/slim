@@ -10,7 +10,7 @@ use pyo3::prelude::*;
 use pyo3_stub_gen::define_stub_info_gatherer;
 
 #[pymodule]
-mod _agp_bindings {
+mod _slim_bindings {
     use super::*;
 
     #[pymodule_export]

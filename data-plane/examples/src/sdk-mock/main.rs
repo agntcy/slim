@@ -1,13 +1,13 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
-use agp_datapath::messages::{Agent, AgentType};
+use slim_datapath::messages::{Agent, AgentType};
 use clap::Parser;
 use tokio::time;
 use tracing::info;
 
-use agp_gw::config;
-use agp_service::{
+use slim_gw::config;
+use slim_service::{
     FireAndForgetConfiguration,
     session::{self, SessionConfig},
 };
@@ -38,7 +38,7 @@ async fn main() {
     info!(%config_file, %local_agent, %remote_agent, "starting client");
 
     // get service
-    let id = agp_config::component::id::ID::new_with_str("gateway/0").unwrap();
+    let id = slim_config::component::id::ID::new_with_str("slim/0").unwrap();
     let mut svc = config.services.remove(&id).unwrap();
 
     // create local agent
@@ -103,7 +103,7 @@ async fn main() {
     let mut messages = std::collections::VecDeque::<(String, session::Info)>::new();
     loop {
         tokio::select! {
-            _ = agp_signal::shutdown() => {
+            _ = slim_signal::shutdown() => {
                 info!("Received shutdown signal");
                 break;
             }
@@ -124,7 +124,7 @@ async fn main() {
                 let session_msg = next.unwrap().expect("error");
 
                 match &session_msg.message.message_type.unwrap() {
-                    agp_datapath::pubsub::ProtoPublishType(msg) => {
+                    slim_datapath::pubsub::ProtoPublishType(msg) => {
                         let payload = msg.get_payload();
                         info!(
                             "received message: {}",
