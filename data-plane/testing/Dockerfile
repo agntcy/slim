@@ -12,6 +12,9 @@ RUN DEBIAN_FRONTEND=noninteractive \
         clang-14 \
         llvm-14
 
+# Install taskfile
+RUN sh -c "$(curl --location https://taskfile.dev/install.sh)" -- -d -b /usr/local/bin
+
 WORKDIR /app
 COPY . .
 RUN task                                                                        \
