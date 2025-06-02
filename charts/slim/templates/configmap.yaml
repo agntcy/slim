@@ -9,4 +9,4 @@ metadata:
     {{- include "slim.labels" . | nindent 4 }}
 data:
   config.yaml: |
-    {{- .Values.gw.config | toYaml | nindent 4 }}
+    {{- .Values.slim.config | toYaml | nindent 4 }}

@@ -19,7 +19,7 @@
 
 ### Features
 
-* **helm:** release new helm version with gw 0.3.10 ([#113](https://github.com/agntcy/slim/issues/113)) ([b0d0ad6](https://github.com/agntcy/slim/commit/b0d0ad6e6cb75be999b79e1d93d491c4ae59668b))
+* **helm:** release new helm version with slim 0.3.10 ([#113](https://github.com/agntcy/slim/issues/113)) ([b0d0ad6](https://github.com/agntcy/slim/commit/b0d0ad6e6cb75be999b79e1d93d491c4ae59668b))
 
 ## [0.1.1](https://github.com/agntcy/slim/compare/slim-helm-v0.1.0...slim-helm-v0.1.1) (2025-02-14)
 

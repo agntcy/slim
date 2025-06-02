@@ -8,9 +8,9 @@ metadata:
   labels:
     {{- include "slim.labels" . | nindent 4 }}
 spec:
-  type: {{ .Values.gw.service.type }}
+  type: {{ .Values.slim.service.type }}
   ports:
-    - port: {{ .Values.gw.service.port }}
+    - port: {{ .Values.slim.service.port }}
       targetPort: messenger
       protocol: TCP
       name: messenger

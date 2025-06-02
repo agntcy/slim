@@ -12,7 +12,7 @@ use crate::errors::SessionError;
 use crate::fire_and_forget::FireAndForgetConfiguration;
 use crate::request_response::{RequestResponse, RequestResponseConfiguration};
 use crate::session::{
-    AppChannelSender, GwChannelSender, Id, Info, MessageDirection, SESSION_RANGE, Session,
+    AppChannelSender, SlimChannelSender, Id, Info, MessageDirection, SESSION_RANGE, Session,
     SessionConfig, SessionConfigTrait, SessionDirection, SessionMessage, SessionType,
 };
 use crate::streaming::{self, StreamingConfiguration};
@@ -32,7 +32,7 @@ pub(crate) struct SessionLayer {
     conn_id: u64,
 
     /// Tx channels
-    tx_gw: GwChannelSender,
+    tx_slim: SlimChannelSender,
     tx_app: AppChannelSender,
 
     /// Default configuration for the session
@@ -52,14 +52,14 @@ impl SessionLayer {
     pub(crate) fn new(
         agent_name: &Agent,
         conn_id: u64,
-        tx_gw: GwChannelSender,
+        tx_slim: SlimChannelSender,
         tx_app: AppChannelSender,
     ) -> SessionLayer {
         SessionLayer {
             pool: AsyncRwLock::new(HashMap::new()),
             agent_name: agent_name.clone(),
             conn_id,
-            tx_gw,
+            tx_slim,
             tx_app,
             default_ff_conf: SyncRwLock::new(FireAndForgetConfiguration::default()),
             default_rr_conf: SyncRwLock::new(RequestResponseConfiguration::default()),
@@ -67,8 +67,8 @@ impl SessionLayer {
         }
     }
 
-    pub(crate) fn tx_gw(&self) -> GwChannelSender {
-        self.tx_gw.clone()
+    pub(crate) fn tx_slim(&self) -> SlimChannelSender {
+        self.tx_slim.clone()
     }
 
     pub(crate) fn tx_app(&self) -> AppChannelSender {
@@ -127,7 +127,7 @@ impl SessionLayer {
                 conf,
                 SessionDirection::Bidirectional,
                 self.agent_name().clone(),
-                self.tx_gw.clone(),
+                self.tx_slim.clone(),
                 self.tx_app.clone(),
             )),
             SessionConfig::RequestResponse(conf) => Box::new(RequestResponse::new(
@@ -135,7 +135,7 @@ impl SessionLayer {
                 conf,
                 SessionDirection::Bidirectional,
                 self.agent_name().clone(),
-                self.tx_gw.clone(),
+                self.tx_slim.clone(),
                 self.tx_app.clone(),
             )),
             SessionConfig::Streaming(conf) => {
@@ -153,7 +153,7 @@ impl SessionLayer {
                     conf,
                     direction,
                     self.agent_name().clone(),
-                    self.tx_gw.clone(),
+                    self.tx_slim.clone(),
                     self.tx_app.clone(),
                 ))
             }
@@ -391,11 +391,11 @@ mod tests {
     };
 
     fn create_session_layer() -> SessionLayer {
-        let (tx_gw, _) = tokio::sync::mpsc::channel(128);
+        let (tx_slim, _) = tokio::sync::mpsc::channel(128);
         let (tx_app, _) = tokio::sync::mpsc::channel(128);
         let agent = Agent::from_strings("org", "ns", "type", 0);
 
-        SessionLayer::new(&agent, 0, tx_gw, tx_app)
+        SessionLayer::new(&agent, 0, tx_slim, tx_app)
     }
 
     #[tokio::test]
@@ -407,11 +407,11 @@ mod tests {
 
     #[tokio::test]
     async fn test_remove_session() {
-        let (tx_gw, _) = tokio::sync::mpsc::channel(1);
+        let (tx_slim, _) = tokio::sync::mpsc::channel(1);
         let (tx_app, _) = tokio::sync::mpsc::channel(1);
         let agent = Agent::from_strings("org", "ns", "type", 0);
 
-        let session_layer = SessionLayer::new(&agent, 0, tx_gw.clone(), tx_app.clone());
+        let session_layer = SessionLayer::new(&agent, 0, tx_slim.clone(), tx_app.clone());
         let session_config = FireAndForgetConfiguration::default();
 
         let ret = session_layer
@@ -426,11 +426,11 @@ mod tests {
 
     #[tokio::test]
     async fn test_create_session() {
-        let (tx_gw, _) = tokio::sync::mpsc::channel(1);
+        let (tx_slim, _) = tokio::sync::mpsc::channel(1);
         let (tx_app, _) = tokio::sync::mpsc::channel(1);
         let agent = Agent::from_strings("org", "ns", "type", 0);
 
-        let session_layer = SessionLayer::new(&agent, 0, tx_gw.clone(), tx_app.clone());
+        let session_layer = SessionLayer::new(&agent, 0, tx_slim.clone(), tx_app.clone());
 
         let res = session_layer
             .create_session(
@@ -443,11 +443,11 @@ mod tests {
 
     #[tokio::test]
     async fn test_delete_session() {
-        let (tx_gw, _) = tokio::sync::mpsc::channel(1);
+        let (tx_slim, _) = tokio::sync::mpsc::channel(1);
         let (tx_app, _) = tokio::sync::mpsc::channel(1);
         let agent = Agent::from_strings("org", "ns", "type", 0);
 
-        let session_layer = SessionLayer::new(&agent, 0, tx_gw.clone(), tx_app.clone());
+        let session_layer = SessionLayer::new(&agent, 0, tx_slim.clone(), tx_app.clone());
 
         let res = session_layer
             .create_session(
@@ -467,11 +467,11 @@ mod tests {
 
     #[tokio::test]
     async fn test_handle_message() {
-        let (tx_gw, _) = tokio::sync::mpsc::channel(1);
+        let (tx_slim, _) = tokio::sync::mpsc::channel(1);
         let (tx_app, mut rx_app) = tokio::sync::mpsc::channel(1);
         let agent = Agent::from_strings("org", "ns", "type", 0);
 
-        let session_layer = SessionLayer::new(&agent, 0, tx_gw.clone(), tx_app.clone());
+        let session_layer = SessionLayer::new(&agent, 0, tx_slim.clone(), tx_app.clone());
 
         let session_config = FireAndForgetConfiguration::default();
 

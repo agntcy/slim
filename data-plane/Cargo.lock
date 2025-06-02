@@ -2532,6 +2532,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "slim"
+version = "0.3.15"
+dependencies = [
+ "clap",
+ "duration-str",
+ "jemallocator",
+ "lazy_static",
+ "num_cpus",
+ "serde",
+ "serde_yaml",
+ "slim-config",
+ "slim-service",
+ "slim-signal",
+ "slim-tracing",
+ "thiserror",
+ "tokio",
+ "tracing",
+ "tracing-test",
+]
+
+[[package]]
 name = "slim-bindings"
 version = "0.1.0"
 dependencies = [
@@ -2633,34 +2654,13 @@ name = "slim-examples"
 version = "0.1.0"
 dependencies = [
  "clap",
+ "slim",
  "slim-config",
  "slim-datapath",
- "slim-gw",
  "slim-service",
  "slim-signal",
  "tokio",
  "tracing",
-]
-
-[[package]]
-name = "slim-gw"
-version = "0.3.15"
-dependencies = [
- "clap",
- "duration-str",
- "jemallocator",
- "lazy_static",
- "num_cpus",
- "serde",
- "serde_yaml",
- "slim-config",
- "slim-service",
- "slim-signal",
- "slim-tracing",
- "thiserror",
- "tokio",
- "tracing",
- "tracing-test",
 ]
 
 [[package]]
@@ -2811,9 +2811,9 @@ dependencies = [
  "indicatif",
  "parking_lot",
  "rand 0.9.1",
+ "slim",
  "slim-config",
  "slim-datapath",
- "slim-gw",
  "slim-service",
  "thiserror",
  "tokio",

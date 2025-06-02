@@ -7,25 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.3.15](https://github.com/agntcy/slim/compare/slim-gw-v0.3.14...slim-gw-v0.3.15) - 2025-05-14
+## [0.3.15](https://github.com/agntcy/slim/compare/slim-v0.3.14...slim-v0.3.15) - 2025-05-14
 
 ### Fixed
 
 - *(mcp-proxy)* dependencies ([#252](https://github.com/agntcy/slim/pull/252))
 
-## [0.3.14](https://github.com/agntcy/slim/compare/slim-gw-v0.3.13...slim-gw-v0.3.14) - 2025-05-14
+## [0.3.14](https://github.com/agntcy/slim/compare/slim-v0.3.13...slim-v0.3.14) - 2025-05-14
 
 ### Other
 
 - updated the following local packages: slim-service
 
-## [0.3.13](https://github.com/agntcy/slim/compare/slim-gw-v0.3.12...slim-gw-v0.3.13) - 2025-05-14
+## [0.3.13](https://github.com/agntcy/slim/compare/slim-v0.3.12...slim-v0.3.13) - 2025-05-14
 
 ### Other
 
 - updated the following local packages: slim-config, slim-service, slim-tracing
 
-## [0.3.12](https://github.com/agntcy/slim/compare/slim-gw-v0.3.11...slim-gw-v0.3.12) - 2025-04-24
+## [0.3.12](https://github.com/agntcy/slim/compare/slim-v0.3.11...slim-v0.3.12) - 2025-04-24
 
 ### Added
 
@@ -37,91 +37,91 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - declare all dependencies in workspace Cargo.toml ([#187](https://github.com/agntcy/slim/pull/187))
 - upgrade to rust edition 2024 and toolchain 1.86.0 ([#164](https://github.com/agntcy/slim/pull/164))
 
-## [0.3.11](https://github.com/agntcy/slim/compare/slim-gw-v0.3.10...slim-gw-v0.3.11) - 2025-04-08
+## [0.3.11](https://github.com/agntcy/slim/compare/slim-v0.3.10...slim-v0.3.11) - 2025-04-08
 
 ### Other
 
 - update copyright ([#109](https://github.com/agntcy/slim/pull/109))
 
-## [0.3.10](https://github.com/agntcy/slim/compare/slim-gw-v0.3.9...slim-gw-v0.3.10) - 2025-03-19
+## [0.3.10](https://github.com/agntcy/slim/compare/slim-v0.3.9...slim-v0.3.10) - 2025-03-19
 
 ### Other
 
 - release ([#103](https://github.com/agntcy/slim/pull/103))
 
-## [0.3.9](https://github.com/agntcy/slim/compare/slim-gw-v0.3.8...slim-gw-v0.3.9) - 2025-03-19
+## [0.3.9](https://github.com/agntcy/slim/compare/slim-v0.3.8...slim-v0.3.9) - 2025-03-19
 
 ### Other
 
 - updated the following local packages: slim-service
 
-## [0.3.8](https://github.com/agntcy/slim/compare/slim-gw-v0.3.7...slim-gw-v0.3.8) - 2025-03-18
+## [0.3.8](https://github.com/agntcy/slim/compare/slim-v0.3.7...slim-v0.3.8) - 2025-03-18
 
 ### Other
 
 - updated the following local packages: slim-service
 
-## [0.3.7](https://github.com/agntcy/slim/compare/slim-gw-v0.3.6...slim-gw-v0.3.7) - 2025-03-18
+## [0.3.7](https://github.com/agntcy/slim/compare/slim-v0.3.6...slim-v0.3.7) - 2025-03-18
 
 ### Other
 
 - update Cargo.lock dependencies
 
-## [0.3.6](https://github.com/agntcy/slim/compare/slim-gw-v0.3.5...slim-gw-v0.3.6) - 2025-03-12
+## [0.3.6](https://github.com/agntcy/slim/compare/slim-v0.3.5...slim-v0.3.6) - 2025-03-12
 
 ### Other
 
 - updated the following local packages: slim-service
 
-## [0.3.5](https://github.com/agntcy/slim/compare/slim-gw-v0.3.4...slim-gw-v0.3.5) - 2025-03-11
+## [0.3.5](https://github.com/agntcy/slim/compare/slim-v0.3.4...slim-v0.3.5) - 2025-03-11
 
 ### Other
 
 - *(slim-config)* release v0.1.4 ([#79](https://github.com/agntcy/slim/pull/79))
 
-## [0.3.4](https://github.com/agntcy/slim/compare/slim-gw-v0.3.3...slim-gw-v0.3.4) - 2025-02-28
+## [0.3.4](https://github.com/agntcy/slim/compare/slim-v0.3.3...slim-v0.3.4) - 2025-02-28
 
 ### Other
 
 - updated the following local packages: slim-service
 
-## [0.3.3](https://github.com/agntcy/slim/compare/slim-gw-v0.3.2...slim-gw-v0.3.3) - 2025-02-28
+## [0.3.3](https://github.com/agntcy/slim/compare/slim-v0.3.2...slim-v0.3.3) - 2025-02-28
 
 ### Added
 
 - add message handling metrics
 
-## [0.3.2](https://github.com/agntcy/slim/compare/slim-gw-v0.3.1...slim-gw-v0.3.2) - 2025-02-24
+## [0.3.2](https://github.com/agntcy/slim/compare/slim-v0.3.1...slim-v0.3.2) - 2025-02-24
 
 ### Other
 
 - update Cargo.lock dependencies
 
-## [0.3.1](https://github.com/agntcy/slim/compare/slim-gw-v0.3.0...slim-gw-v0.3.1) - 2025-02-20
+## [0.3.1](https://github.com/agntcy/slim/compare/slim-v0.3.0...slim-v0.3.1) - 2025-02-20
 
 ### Other
 
 - release (#58)
 
-## [0.3.0](https://github.com/agntcy/slim/compare/slim-gw-v0.2.1...slim-gw-v0.3.0) - 2025-02-14
+## [0.3.0](https://github.com/agntcy/slim/compare/slim-v0.2.1...slim-v0.3.0) - 2025-02-14
 
 ### Added
 
 - add build info to main SLIM executable (#35)
 
-## [0.2.1](https://github.com/agntcy/slim/compare/slim-gw-v0.2.0...slim-gw-v0.2.1) - 2025-02-14
+## [0.2.1](https://github.com/agntcy/slim/compare/slim-v0.2.0...slim-v0.2.1) - 2025-02-14
 
 ### Added
 
 - implement opentelemetry tracing subscriber
 
-## [0.2.0](https://github.com/agntcy/slim/compare/slim-gw-v0.1.0...slim-gw-v0.2.0) - 2025-02-12
+## [0.2.0](https://github.com/agntcy/slim/compare/slim-v0.1.0...slim-v0.2.0) - 2025-02-12
 
 ### Fixed
 
 - *(slim)* remove unused log level (#28)
 
-## [0.1.0](https://github.com/agntcy/slim/releases/tag/slim-gw-v0.1.0) - 2025-02-10
+## [0.1.0](https://github.com/agntcy/slim/releases/tag/slim-v0.1.0) - 2025-02-10
 
 ### Added
 

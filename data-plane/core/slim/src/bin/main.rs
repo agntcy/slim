@@ -6,10 +6,10 @@ use tokio::time;
 use tracing::{debug, info, span};
 
 use slim_config::component::Component;
-use slim_gw::args;
-use slim_gw::build_info;
-use slim_gw::config;
-use slim_gw::runtime;
+use slim::args;
+use slim::build_info;
+use slim::config;
+use slim::runtime;
 
 fn main() {
     let args = args::Args::parse();

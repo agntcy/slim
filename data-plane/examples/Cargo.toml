@@ -11,7 +11,7 @@ path = "src/sdk-mock/main.rs"
 [dependencies]
 slim-config = { workspace = true }
 slim-datapath = { workspace = true }
-slim-gw = { workspace = true }
+slim = { workspace = true }
 slim-service = { workspace = true }
 slim-signal = { workspace = true }
 clap = { workspace = true }

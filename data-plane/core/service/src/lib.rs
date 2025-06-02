@@ -280,20 +280,20 @@ impl Service {
         debug!(%agent_name, "creating agent");
 
         // Channels to communicate with SLIM
-        let (conn_id, tx_gw, rx_gw) = self.message_processor.register_local_connection();
+        let (conn_id, tx_slim, rx_slim) = self.message_processor.register_local_connection();
 
         // Channels to communicate with the local app
         // TODO(msardara): make the buffer size configurable
         let (tx_app, rx_app) = mpsc::channel(128);
 
         // create session layer
-        let session_layer = Arc::new(SessionLayer::new(agent_name, conn_id, tx_gw, tx_app));
+        let session_layer = Arc::new(SessionLayer::new(agent_name, conn_id, tx_slim, tx_app));
 
         // register agent within session layers
         session_layers.insert(agent_name.clone(), session_layer.clone());
 
         // start message processing using the rx channel
-        self.process_messages(agent_name.clone(), session_layer, rx_gw);
+        self.process_messages(agent_name.clone(), session_layer, rx_slim);
 
         // return the rx channel
         Ok(rx_app)
@@ -451,7 +451,7 @@ impl Service {
                             ServiceError::SessionError(e.to_string())
                         })
                 }
-                None => session.tx_gw().send(Ok(msg)).await.map_err(|e| {
+                None => session.tx_slim().send(Ok(msg)).await.map_err(|e| {
                     error!("error sending message {}", e);
                     ServiceError::MessageSendingError(e.to_string())
                 }),
@@ -608,7 +608,7 @@ impl Service {
             // subscribe for local agent running this loop
             let subscribe_msg =
                 Message::new_subscribe(&agent, agent.agent_type(), Some(agent.agent_id()), None);
-            let tx = session_layer.tx_gw();
+            let tx = session_layer.tx_slim();
             tx.send(Ok(subscribe_msg))
                 .await
                 .expect("error sending subscription");

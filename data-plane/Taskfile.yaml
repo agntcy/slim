@@ -82,7 +82,7 @@ tasks:
     vars:
       TESTS: '{{.TESTS | default ""}}'
 
-  data-plane:gw:version:
+  data-plane:slim:version:
     desc: "Get version from corresponding git tag"
     cmds:
-      - git describe --tags --match "slim-gw-v*" | cut -d 'v' -f 2
+      - git describe --tags --match "slim-v*" | cut -d 'v' -f 2

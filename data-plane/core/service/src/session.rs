@@ -61,10 +61,10 @@ impl From<SessionMessage> for Message {
 pub type AppChannelSender = tokio::sync::mpsc::Sender<Result<SessionMessage, SessionError>>;
 /// Channel used in the path app -> service
 pub type AppChannelReceiver = tokio::sync::mpsc::Receiver<Result<SessionMessage, SessionError>>;
-/// Channel used in the path service -> gw
-pub type GwChannelSender = tokio::sync::mpsc::Sender<Result<Message, Status>>;
-/// Channel used in the path gw -> service
-pub type GwChannelReceiver = tokio::sync::mpsc::Receiver<Result<Message, Status>>;
+/// Channel used in the path service -> slim
+pub type SlimChannelSender = tokio::sync::mpsc::Sender<Result<Message, Status>>;
+/// Channel used in the path slim -> service
+pub type SlimChannelReceiver = tokio::sync::mpsc::Receiver<Result<Message, Status>>;
 
 /// Session Info
 #[derive(Clone, PartialEq, Debug)]
@@ -258,8 +258,8 @@ pub(crate) struct Common {
     /// Source agent
     source: Agent,
 
-    /// Sender for messages to gw
-    tx_gw: GwChannelSender,
+    /// Sender for messages to slim
+    tx_slim: SlimChannelSender,
 
     /// Sender for messages to app
     tx_app: AppChannelSender,
@@ -306,7 +306,7 @@ impl Common {
         session_direction: SessionDirection,
         session_config: SessionConfig,
         source: Agent,
-        tx_gw: GwChannelSender,
+        tx_slim: SlimChannelSender,
         tx_app: AppChannelSender,
     ) -> Common {
         Common {
@@ -315,18 +315,18 @@ impl Common {
             session_direction,
             session_config: RwLock::new(session_config),
             source,
-            tx_gw,
+            tx_slim,
             tx_app,
         }
     }
 
     #[allow(dead_code)]
-    pub(crate) fn tx_gw(&self) -> GwChannelSender {
-        self.tx_gw.clone()
+    pub(crate) fn tx_slim(&self) -> SlimChannelSender {
+        self.tx_slim.clone()
     }
 
-    pub(crate) fn tx_gw_ref(&self) -> &GwChannelSender {
-        &self.tx_gw
+    pub(crate) fn tx_slim_ref(&self) -> &SlimChannelSender {
+        &self.tx_slim
     }
 
     #[allow(dead_code)]

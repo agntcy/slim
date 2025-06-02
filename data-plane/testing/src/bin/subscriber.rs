@@ -8,7 +8,7 @@ use std::io::prelude::*;
 use std::time::Duration;
 use testing::parse_line;
 
-use slim_gw::config;
+use slim::config;
 use clap::Parser;
 use indicatif::ProgressBar;
 use tracing::{debug, error, info};

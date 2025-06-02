@@ -70,13 +70,13 @@ instructions in the golang website.
 See https://crates.io/users/artifacts-agntcy
 
 ```bash
-cargo install slim-gw
+cargo install slim
 ```
 
 ### [Container images](./data-plane/Dockerfile)
 
 ```bash
-docker pull ghcr.io/agntcy/slim/gw:latest
+docker pull ghcr.io/agntcy/slim:latest
 ```
 
 ### [Helm charts](./deploy/charts/slim)

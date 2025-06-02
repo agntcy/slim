@@ -22,7 +22,7 @@ release = true
 changelog_update = true
 
 [[package]]
-name = "slim-gw"
+name = "slim"
 publish = true
 release = true
 changelog_update = true

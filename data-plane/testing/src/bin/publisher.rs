@@ -14,7 +14,7 @@ use tokio_util::sync::CancellationToken;
 
 use slim_service::streaming::StreamingConfiguration;
 
-use slim_gw::config;
+use slim::config;
 use clap::Parser;
 use indicatif::ProgressBar;
 use tracing::{debug, error, info};
@@ -480,7 +480,7 @@ async fn main() {
 
         // send message
         // at the moment we have only one connection so we can use it to send all messages there
-        // the match will be performed by the remote GW.
+        // the match will be performed by the remote SLIM.
         let agent_id = p.1.agent_id();
         let name_id = if agent_id == 0 { None } else { Some(agent_id) };
 

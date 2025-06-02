@@ -37,7 +37,7 @@ pub struct ControllerService {
     message_processor: Arc<MessageProcessor>,
 
     /// channel to send messages into the datapath
-    tx_gw: OnceLock<mpsc::Sender<Result<PubsubMessage, Status>>>,
+    tx_slim: OnceLock<mpsc::Sender<Result<PubsubMessage, Status>>>,
 
     /// map of connection IDs to their configuration
     connections: Arc<parking_lot::RwLock<HashMap<String, u64>>>,
@@ -47,7 +47,7 @@ impl ControllerService {
     pub fn new(message_processor: Arc<MessageProcessor>) -> Self {
         ControllerService {
             message_processor,
-            tx_gw: OnceLock::new(),
+            tx_slim: OnceLock::new(),
             connections: Arc::new(parking_lot::RwLock::new(HashMap::new())),
         }
     }
@@ -338,9 +338,9 @@ impl ControllerService {
     }
 
     async fn send_control_message(&self, msg: PubsubMessage) -> Result<(), ControllerError> {
-        let sender = self.tx_gw.get_or_init(|| {
-            let (_, tx_gw, _) = self.message_processor.register_local_connection();
-            tx_gw
+        let sender = self.tx_slim.get_or_init(|| {
+            let (_, tx_slim, _) = self.message_processor.register_local_connection();
+            tx_slim
         });
 
         sender.send(Ok(msg)).await.map_err(|e| {

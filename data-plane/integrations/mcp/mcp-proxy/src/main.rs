@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use slim_datapath::messages::AgentType;
-use slim_gw::config;
+use slim::config;
 use clap::Parser;
 use tracing::{error, info};
 

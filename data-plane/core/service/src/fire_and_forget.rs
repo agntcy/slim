@@ -14,7 +14,7 @@ use tracing::{debug, error};
 
 use crate::errors::SessionError;
 use crate::session::{
-    AppChannelSender, Common, CommonSession, GwChannelSender, Id, MessageDirection, Session,
+    AppChannelSender, Common, CommonSession, SlimChannelSender, Id, MessageDirection, Session,
     SessionConfig, SessionConfigTrait, SessionDirection, SessionMessage, State,
 };
 use crate::timer;
@@ -88,7 +88,7 @@ struct FireAndForgetState {
     session_id: u32,
     source: Agent,
     tx_app: AppChannelSender,
-    tx_gw: GwChannelSender,
+    tx_slim: SlimChannelSender,
     config: FireAndForgetConfiguration,
     timers: HashMap<u32, (timer::Timer, Message)>,
     sticky_name: Option<Agent>,
@@ -163,7 +163,7 @@ impl FireAndForgetProcessor {
                             InternalMessage::OnMessage { message, direction } => {
                                 let result = match direction {
                                     MessageDirection::North => self.handle_message_to_app(message).await,
-                                    MessageDirection::South => self.handle_message_to_gw(message).await,
+                                    MessageDirection::South => self.handle_message_to_slim(message).await,
                                 };
 
                                 if let Err(e) = result {
@@ -217,7 +217,7 @@ impl FireAndForgetProcessor {
 
             let _ = self
                 .state
-                .tx_gw
+                .tx_slim
                 .send(Ok(msg))
                 .await
                 .map_err(|e| SessionError::AppTransmission(e.to_string()));
@@ -264,7 +264,7 @@ impl FireAndForgetProcessor {
 
         // Send the probe message to slim
         self.state
-            .tx_gw
+            .tx_slim
             .send(Ok(probe_message))
             .await
             .map_err(|e| SessionError::SlimTransmission(e.to_string()))
@@ -411,13 +411,13 @@ impl FireAndForgetProcessor {
 
         // Send message
         self.state
-            .tx_gw
+            .tx_slim
             .send(Ok(message))
             .await
             .map_err(|e| SessionError::SlimTransmission(e.to_string()))
     }
 
-    pub(crate) async fn handle_message_to_gw(
+    pub(crate) async fn handle_message_to_slim(
         &mut self,
         mut message: SessionMessage,
     ) -> Result<(), SessionError> {
@@ -528,7 +528,7 @@ impl FireAndForgetProcessor {
 
                 // Send the ack
                 self.state
-                    .tx_gw
+                    .tx_slim
                     .send(Ok(ack))
                     .await
                     .map_err(|e| SessionError::SlimTransmission(e.to_string()))?;
@@ -598,7 +598,7 @@ impl FireAndForget {
         session_config: FireAndForgetConfiguration,
         session_direction: SessionDirection,
         agent: Agent,
-        tx_gw: GwChannelSender,
+        tx_slim: SlimChannelSender,
         tx_app: AppChannelSender,
     ) -> FireAndForget {
         let (tx, rx) = mpsc::channel(32);
@@ -609,7 +609,7 @@ impl FireAndForget {
             session_direction,
             SessionConfig::FireAndForget(session_config.clone()),
             agent,
-            tx_gw,
+            tx_slim,
             tx_app,
         );
 
@@ -618,7 +618,7 @@ impl FireAndForget {
             session_id: id,
             source: common.source().clone(),
             tx_app: common.tx_app(),
-            tx_gw: common.tx_gw(),
+            tx_slim: common.tx_slim(),
             config: session_config,
             timers: HashMap::new(),
             sticky_name: None,
@@ -722,7 +722,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_fire_and_forget_create() {
-        let (tx_gw, _) = tokio::sync::mpsc::channel(1);
+        let (tx_slim, _) = tokio::sync::mpsc::channel(1);
         let (tx_app, _) = tokio::sync::mpsc::channel(1);
 
         let source = Agent::from_strings("cisco", "default", "local_agent", 0);
@@ -732,7 +732,7 @@ mod tests {
             FireAndForgetConfiguration::default(),
             SessionDirection::Bidirectional,
             source,
-            tx_gw,
+            tx_slim,
             tx_app,
         );
 
@@ -746,7 +746,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_fire_and_forget_on_message() {
-        let (tx_gw, _rx_gw) = tokio::sync::mpsc::channel(1);
+        let (tx_slim, _rx_slim) = tokio::sync::mpsc::channel(1);
         let (tx_app, mut rx_app) = tokio::sync::mpsc::channel(1);
 
         let source = Agent::from_strings("cisco", "default", "local_agent", 0);
@@ -756,7 +756,7 @@ mod tests {
             FireAndForgetConfiguration::default(),
             SessionDirection::Bidirectional,
             source,
-            tx_gw,
+            tx_slim,
             tx_app,
         );
 
@@ -793,7 +793,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_fire_and_forget_on_message_with_ack() {
-        let (tx_gw, mut rx_gw) = tokio::sync::mpsc::channel(1);
+        let (tx_slim, mut rx_slim) = tokio::sync::mpsc::channel(1);
         let (tx_app, mut rx_app) = tokio::sync::mpsc::channel(1);
 
         let source = Agent::from_strings("cisco", "default", "local_agent", 0);
@@ -803,7 +803,7 @@ mod tests {
             FireAndForgetConfiguration::default(),
             SessionDirection::Bidirectional,
             source,
-            tx_gw,
+            tx_slim,
             tx_app,
         );
 
@@ -839,7 +839,7 @@ mod tests {
         assert_eq!(msg.info.id, 0);
         print!("{:?}", message);
 
-        let msg = rx_gw
+        let msg = rx_slim
             .recv()
             .await
             .expect("no message received")
@@ -852,7 +852,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_fire_and_forget_timers_until_error() {
-        let (tx_gw, mut rx_gw) = tokio::sync::mpsc::channel(1);
+        let (tx_slim, mut rx_slim) = tokio::sync::mpsc::channel(1);
         let (tx_app, mut rx_app) = tokio::sync::mpsc::channel(1);
 
         let source = Agent::from_strings("cisco", "default", "local_agent", 0);
@@ -866,7 +866,7 @@ mod tests {
             },
             SessionDirection::Bidirectional,
             source,
-            tx_gw,
+            tx_slim,
             tx_app,
         );
 
@@ -893,7 +893,7 @@ mod tests {
         header.header_type = i32::from(SessionHeaderType::FnfReliable);
 
         for _i in 0..6 {
-            let mut msg = rx_gw
+            let mut msg = rx_slim
                 .recv()
                 .await
                 .expect("no message received")
@@ -910,10 +910,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_fire_and_forget_timers_and_ack() {
-        let (tx_gw_sender, mut rx_gw_sender) = tokio::sync::mpsc::channel(1);
+        let (tx_slim_sender, mut rx_slim_sender) = tokio::sync::mpsc::channel(1);
         let (tx_app_sender, _rx_app_sender) = tokio::sync::mpsc::channel(1);
 
-        let (tx_gw_receiver, mut rx_gw_receiver) = tokio::sync::mpsc::channel(1);
+        let (tx_slim_receiver, mut rx_slim_receiver) = tokio::sync::mpsc::channel(1);
         let (tx_app_receiver, mut rx_app_receiver) = tokio::sync::mpsc::channel(1);
 
         let session_sender = FireAndForget::new(
@@ -925,7 +925,7 @@ mod tests {
             },
             SessionDirection::Bidirectional,
             Agent::from_strings("cisco", "default", "local_agent", 0),
-            tx_gw_sender,
+            tx_slim_sender,
             tx_app_sender,
         );
 
@@ -935,7 +935,7 @@ mod tests {
             FireAndForgetConfiguration::default(),
             SessionDirection::Bidirectional,
             Agent::from_strings("cisco", "default", "remote_agent", 0),
-            tx_gw_receiver,
+            tx_slim_receiver,
             tx_app_receiver,
         );
 
@@ -962,7 +962,7 @@ mod tests {
         assert!(res.is_ok());
 
         // get one message and drop it to kick in the timers
-        let mut msg = rx_gw_sender
+        let mut msg = rx_slim_sender
             .recv()
             .await
             .expect("no message received")
@@ -973,7 +973,7 @@ mod tests {
         assert_eq!(msg, message);
 
         // this is the first RTX
-        let msg = rx_gw_sender
+        let msg = rx_slim_sender
             .recv()
             .await
             .expect("no message received")
@@ -997,7 +997,7 @@ mod tests {
         assert_eq!(msg.message, message);
 
         // the session layer should generate an ack
-        let ack = rx_gw_receiver
+        let ack = rx_slim_receiver
             .recv()
             .await
             .expect("no message received")
@@ -1018,7 +1018,7 @@ mod tests {
     #[tokio::test]
     #[traced_test]
     async fn test_session_delete() {
-        let (tx_gw, _) = tokio::sync::mpsc::channel(1);
+        let (tx_slim, _) = tokio::sync::mpsc::channel(1);
         let (tx_app, _) = tokio::sync::mpsc::channel(1);
 
         let source = Agent::from_strings("cisco", "default", "local_agent", 0);
@@ -1029,7 +1029,7 @@ mod tests {
                 FireAndForgetConfiguration::default(),
                 SessionDirection::Bidirectional,
                 source,
-                tx_gw,
+                tx_slim,
                 tx_app,
             );
         }
@@ -1045,10 +1045,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_fire_and_forget_sticky_session() {
-        let (sender_tx_gw, mut sender_rx_gw) = tokio::sync::mpsc::channel(1);
+        let (sender_tx_slim, mut sender_rx_slim) = tokio::sync::mpsc::channel(1);
         let (sender_tx_app, _sender_rx_app) = tokio::sync::mpsc::channel(1);
 
-        let (receiver_tx_gw, mut receiver_rx_gw) = tokio::sync::mpsc::channel(1);
+        let (receiver_tx_slim, mut receiver_rx_slim) = tokio::sync::mpsc::channel(1);
         let (receiver_tx_app, mut _receiver_rx_app) = tokio::sync::mpsc::channel(1);
 
         let source = Agent::from_strings("cisco", "default", "local_agent", 0);
@@ -1062,7 +1062,7 @@ mod tests {
             },
             SessionDirection::Bidirectional,
             source,
-            sender_tx_gw,
+            sender_tx_slim,
             sender_tx_app,
         );
 
@@ -1071,7 +1071,7 @@ mod tests {
             FireAndForgetConfiguration::default(),
             SessionDirection::Bidirectional,
             Agent::from_strings("cisco", "default", "remote_agent", 0),
-            receiver_tx_gw,
+            receiver_tx_slim,
             receiver_tx_app,
         );
 
@@ -1104,7 +1104,7 @@ mod tests {
         assert!(res.is_ok());
 
         // We should now get a sticky session discovery message
-        let mut msg = sender_rx_gw
+        let mut msg = sender_rx_slim
             .recv()
             .await
             .expect("no message received")
@@ -1123,7 +1123,7 @@ mod tests {
         assert!(res.is_ok());
 
         // The receiver session should now send a sticky session discovery reply
-        let mut msg = receiver_rx_gw
+        let mut msg = receiver_rx_slim
             .recv()
             .await
             .expect("no message received")
@@ -1146,7 +1146,7 @@ mod tests {
         assert!(res.is_ok());
 
         // The sender session should now send the original message to the receiver
-        let msg = sender_rx_gw
+        let msg = sender_rx_slim
             .recv()
             .await
             .expect("no message received")

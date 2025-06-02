@@ -9,7 +9,7 @@ use parking_lot::RwLock;
 use tracing::debug;
 
 use crate::errors::SessionError;
-use crate::session::{AppChannelSender, GwChannelSender, SessionConfig};
+use crate::session::{AppChannelSender, SlimChannelSender, SessionConfig};
 use crate::session::{
     Common, CommonSession, Id, MessageDirection, Session, SessionConfigTrait, SessionDirection,
     State,
@@ -108,7 +108,7 @@ impl RequestResponse {
         session_config: RequestResponseConfiguration,
         session_direction: SessionDirection,
         source: Agent,
-        tx_gw: GwChannelSender,
+        tx_slim: SlimChannelSender,
         tx_app: AppChannelSender,
     ) -> RequestResponse {
         let internal = RequestResponseInternal {
@@ -117,7 +117,7 @@ impl RequestResponse {
                 session_direction,
                 SessionConfig::RequestResponse(session_config),
                 source,
-                tx_gw,
+                tx_slim,
                 tx_app,
             ),
             timers: RwLock::new(HashMap::new()),
@@ -160,7 +160,7 @@ impl RequestResponse {
         // send message
         self.internal
             .common
-            .tx_gw_ref()
+            .tx_slim_ref()
             .send(Ok(message.message.clone()))
             .await
             .map_err(|e| SessionError::SlimTransmission(e.to_string()))?;
@@ -243,7 +243,7 @@ impl Session for RequestResponse {
 
                                 self.internal
                                     .common
-                                    .tx_gw_ref()
+                                    .tx_slim_ref()
                                     .send(Ok(message.message.clone()))
                                     .await
                                     .map_err(|e| SessionError::SlimTransmission(e.to_string()))
@@ -283,7 +283,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_rr_create() {
-        let (tx_gw, _) = tokio::sync::mpsc::channel(1);
+        let (tx_slim, _) = tokio::sync::mpsc::channel(1);
         let (tx_app, _) = tokio::sync::mpsc::channel(1);
 
         let session_config = RequestResponseConfiguration {
@@ -297,7 +297,7 @@ mod tests {
             session_config.clone(),
             SessionDirection::Bidirectional,
             source,
-            tx_gw,
+            tx_slim,
             tx_app,
         );
 
@@ -311,7 +311,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_request_response_on_message() {
-        let (tx_gw, _rx_gw) = tokio::sync::mpsc::channel(1);
+        let (tx_slim, _rx_slim) = tokio::sync::mpsc::channel(1);
         let (tx_app, mut rx_app) = tokio::sync::mpsc::channel(1);
 
         let session_config = RequestResponseConfiguration {
@@ -325,7 +325,7 @@ mod tests {
             session_config,
             SessionDirection::Bidirectional,
             source,
-            tx_gw,
+            tx_slim,
             tx_app,
         );
 
@@ -383,7 +383,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_session_delete() {
-        let (tx_gw, _) = tokio::sync::mpsc::channel(1);
+        let (tx_slim, _) = tokio::sync::mpsc::channel(1);
         let (tx_app, _) = tokio::sync::mpsc::channel(1);
 
         let session_config = RequestResponseConfiguration {
@@ -398,7 +398,7 @@ mod tests {
                 session_config,
                 SessionDirection::Bidirectional,
                 source,
-                tx_gw,
+                tx_slim,
                 tx_app,
             );
         }

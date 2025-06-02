@@ -24,7 +24,7 @@ runs:
       run: |
 
         CHART_TAG=$(git tag --sort=-creatordate --list 'slim-helm-*' | head -1 | sed 's/slim-helm-//')
-        IMAGE_TAG=$(git tag --sort=-creatordate --list 'slim-gw-v*' | head -1 | sed 's/slim-gw-v//')
+        IMAGE_TAG=$(git tag --sort=-creatordate --list 'slim-v*' | head -1 | sed 's/slim-v//')
 
         echo "CHART_TAG=$CHART_TAG" >> $GITHUB_OUTPUT
         echo "IMAGE_TAG=$IMAGE_TAG" >> $GITHUB_OUTPUT

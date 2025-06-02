@@ -9,7 +9,7 @@ use crate::{
     errors::SessionError,
     producer_buffer, receiver_buffer,
     session::{
-        AppChannelSender, Common, CommonSession, GwChannelSender, Id, Info, Session, SessionConfig,
+        AppChannelSender, Common, CommonSession, SlimChannelSender, Id, Info, Session, SessionConfig,
         SessionConfigTrait, SessionDirection, State,
     },
     timer,
@@ -210,7 +210,7 @@ impl Streaming {
         session_config: StreamingConfiguration,
         session_direction: SessionDirection,
         agent: Agent,
-        tx_gw: GwChannelSender,
+        tx_slim: SlimChannelSender,
         tx_app: AppChannelSender,
     ) -> Streaming {
         let (tx, rx) = mpsc::channel(128);
@@ -220,7 +220,7 @@ impl Streaming {
                 session_direction.clone(),
                 SessionConfig::Streaming(session_config.clone()),
                 agent,
-                tx_gw,
+                tx_slim,
                 tx_app,
             ),
             tx,
@@ -235,7 +235,7 @@ impl Streaming {
         session_direction: SessionDirection,
     ) {
         let session_id = self.common.id();
-        let send_gw = self.common.tx_gw();
+        let send_slim = self.common.tx_slim();
         let send_app = self.common.tx_app();
         let source = self.common.source().clone();
 
@@ -324,7 +324,7 @@ impl Streaming {
                                         match direction {
                                             MessageDirection::North => {
                                                 trace!("received message from the gataway on producer session {}", session_id);
-                                                // received a message from the GW
+                                                // received a message from the SLIM
                                                 // this must be an RTX message otherwise drop it
                                                 match msg.get_session_header().header_type() {
                                                     SessionHeaderType::RtxRequest => {}
@@ -334,17 +334,17 @@ impl Streaming {
                                                     }
                                                 };
 
-                                                process_incoming_rtx_request(msg, session_id, producer, &source, &send_gw).await;
+                                                process_incoming_rtx_request(msg, session_id, producer, &source, &send_slim).await;
                                             }
                                             MessageDirection::South => {
                                                 // received a message from the APP
-                                                process_message_from_app(msg, session_id, producer, false, &send_gw, &send_app).await;
+                                                process_message_from_app(msg, session_id, producer, false, &send_slim, &send_app).await;
                                             }
                                         }
                                     }
                                     Endpoint::Receiver(receiver) => {
                                         trace!("received message from the gataway on receiver session {}", session_id);
-                                        process_message_from_gw(msg, session_id, receiver, &source, max_retries, timeout, &rtx_timer_tx, &send_gw, &send_app).await;
+                                        process_message_from_slim(msg, session_id, receiver, &source, max_retries, timeout, &rtx_timer_tx, &send_slim, &send_app).await;
                                     }
                                     Endpoint::Bidirectional(state) => {
                                         match direction {
@@ -354,16 +354,16 @@ impl Streaming {
                                                 match msg.get_session_header().header_type() {
                                                     SessionHeaderType::RtxRequest => {
                                                         // handle RTX request
-                                                        process_incoming_rtx_request(msg, session_id, &state.producer, &source, &send_gw).await;
+                                                        process_incoming_rtx_request(msg, session_id, &state.producer, &source, &send_slim).await;
                                                     }
                                                     _ => {
-                                                        process_message_from_gw(msg, session_id, &mut state.receiver, &source, max_retries, timeout, &rtx_timer_tx, &send_gw, &send_app).await;
+                                                        process_message_from_slim(msg, session_id, &mut state.receiver, &source, max_retries, timeout, &rtx_timer_tx, &send_slim, &send_app).await;
                                                     }
                                                 }
                                             }
                                             MessageDirection::South => {
                                                 // received a message from the APP
-                                                process_message_from_app(msg, session_id, &mut state.producer, true, &send_gw, &send_app).await;
+                                                process_message_from_app(msg, session_id, &mut state.producer, true, &send_slim, &send_app).await;
                                             }
                                         };
                                     }
@@ -388,7 +388,7 @@ impl Streaming {
                                 match &mut endpoint {
                                     Endpoint::Receiver(receiver) => {
                                         if retry {
-                                            handle_rtx_timeout(receiver, &producer_name, msg_id, session_id, &send_gw).await;
+                                            handle_rtx_timeout(receiver, &producer_name, msg_id, session_id, &send_slim).await;
                                         } else {
                                             handle_rtx_failure(receiver, &producer_name, msg_id, session_id, &send_app).await;
                                         }
@@ -399,7 +399,7 @@ impl Streaming {
                                     }
                                     Endpoint::Bidirectional(state) => {
                                         if retry {
-                                            handle_rtx_timeout(&mut state.receiver, &producer_name, msg_id, session_id, &send_gw).await;
+                                            handle_rtx_timeout(&mut state.receiver, &producer_name, msg_id, session_id, &send_slim).await;
                                         } else {
                                             handle_rtx_failure(&mut state.receiver, &producer_name, msg_id, session_id, &send_app).await;
                                         }
@@ -422,13 +422,13 @@ impl Streaming {
                                             let last_msg_id = producer.next_id - 1;
                                             debug!("received producer timer, last packet = {}", last_msg_id);
 
-                                            send_beacon_msg(&source, producer.buffer.get_destination_name(), SessionHeaderType::BeaconStream, last_msg_id, session_id, &send_gw).await;
+                                            send_beacon_msg(&source, producer.buffer.get_destination_name(), SessionHeaderType::BeaconStream, last_msg_id, session_id, &send_slim).await;
                                         }
                                         Endpoint::Bidirectional(state) => {
                                             let last_msg_id = state.producer.next_id - 1;
                                             debug!("received producer timer, last packet = {}", last_msg_id);
 
-                                            send_beacon_msg(&source, state.producer.buffer.get_destination_name(), SessionHeaderType::BeaconPubSub, last_msg_id, session_id, &send_gw).await;
+                                            send_beacon_msg(&source, state.producer.buffer.get_destination_name(), SessionHeaderType::BeaconPubSub, last_msg_id, session_id, &send_slim).await;
                                         }
                                         _ => {
                                             error!("received producer timer on a non producer buffer");
@@ -459,7 +459,7 @@ async fn process_incoming_rtx_request(
     session_id: u32,
     producer: &ProducerState,
     source: &Agent,
-    send_gw: &mpsc::Sender<Result<Message, Status>>,
+    send_slim: &mpsc::Sender<Result<Message, Status>>,
 ) {
     let msg_rtx_id = msg.get_id();
 
@@ -535,7 +535,7 @@ async fn process_incoming_rtx_request(
     };
 
     trace!("send rtx reply for message {}", msg_rtx_id);
-    if send_gw.send(Ok(rtx_pub)).await.is_err() {
+    if send_slim.send(Ok(rtx_pub)).await.is_err() {
         error!(
             "error sending RTX packet to slim on session {}",
             session_id
@@ -548,7 +548,7 @@ async fn process_message_from_app(
     session_id: u32,
     producer: &mut ProducerState,
     is_bidirectional: bool,
-    send_gw: &mpsc::Sender<Result<Message, Status>>,
+    send_slim: &mpsc::Sender<Result<Message, Status>>,
     send_app: &mpsc::Sender<Result<SessionMessage, SessionError>>,
 ) {
     // set the session header, add the message to the buffer and send it
@@ -576,7 +576,7 @@ async fn process_message_from_app(
     );
     producer.next_id += 1;
 
-    if send_gw.send(Ok(msg)).await.is_err() {
+    if send_slim.send(Ok(msg)).await.is_err() {
         error!(
             "error sending publication packet to slim on session {}",
             session_id
@@ -594,7 +594,7 @@ async fn process_message_from_app(
 }
 
 #[allow(clippy::too_many_arguments)]
-async fn process_message_from_gw(
+async fn process_message_from_slim(
     msg: Message,
     session_id: u32,
     receiver_state: &mut ReceiverState,
@@ -602,7 +602,7 @@ async fn process_message_from_gw(
     max_retries: u32,
     timeout: Duration,
     rtx_timer_tx: &mpsc::Sender<Result<(u32, bool, Agent), Status>>,
-    send_gw: &mpsc::Sender<Result<Message, Status>>,
+    send_slim: &mpsc::Sender<Result<Message, Status>>,
     send_app: &mpsc::Sender<Result<SessionMessage, SessionError>>,
 ) {
     let producer_name = msg.get_source();
@@ -721,7 +721,7 @@ async fn process_message_from_gw(
         receiver.rtx_map.insert(r, rtx.clone());
         receiver.timers_map.insert(r, timer);
 
-        if send_gw.send(Ok(rtx)).await.is_err() {
+        if send_slim.send(Ok(rtx)).await.is_err() {
             error!("error sending RTX for id {} on session {}", r, session_id);
         }
     }
@@ -732,7 +732,7 @@ async fn handle_rtx_timeout(
     producer_name: &Agent,
     msg_id: u32,
     session_id: u32,
-    send_gw: &mpsc::Sender<Result<Message, Status>>,
+    send_slim: &mpsc::Sender<Result<Message, Status>>,
 ) {
     trace!(
         "try to send rtx for packet {} on receiver session {}",
@@ -766,7 +766,7 @@ async fn handle_rtx_timeout(
         }
     };
 
-    if send_gw.send(Ok(rtx.clone())).await.is_err() {
+    if send_slim.send(Ok(rtx.clone())).await.is_err() {
         error!(
             "error sending RTX for id {} on session {}",
             msg_id, session_id
@@ -808,7 +808,7 @@ async fn send_beacon_msg(
     beacon_type: SessionHeaderType,
     last_msg_id: u32,
     session_id: u32,
-    send_gw: &mpsc::Sender<Result<Message, Status>>,
+    send_slim: &mpsc::Sender<Result<Message, Status>>,
 ) {
     let slim_header = Some(SlimHeader::new(
         source,
@@ -827,7 +827,7 @@ async fn send_beacon_msg(
 
     trace!("beacon to send {:?}", msg);
 
-    if send_gw.send(Ok(msg)).await.is_err() {
+    if send_slim.send(Ok(msg)).await.is_err() {
         error!(
             "error sending beacon msg to slim on session {}",
             session_id
@@ -892,7 +892,7 @@ mod tests {
     #[tokio::test]
     #[traced_test]
     async fn test_stream_create() {
-        let (tx_gw, _) = tokio::sync::mpsc::channel(1);
+        let (tx_slim, _) = tokio::sync::mpsc::channel(1);
         let (tx_app, _) = tokio::sync::mpsc::channel(1);
 
         let source = Agent::from_strings("cisco", "default", "local_agent", 0);
@@ -905,7 +905,7 @@ mod tests {
             session_config.clone(),
             SessionDirection::Sender,
             source.clone(),
-            tx_gw.clone(),
+            tx_slim.clone(),
             tx_app.clone(),
         );
 
@@ -928,7 +928,7 @@ mod tests {
             session_config.clone(),
             SessionDirection::Receiver,
             source.clone(),
-            tx_gw,
+            tx_slim,
             tx_app,
         );
 
@@ -943,10 +943,10 @@ mod tests {
     #[tokio::test]
     #[traced_test]
     async fn test_stream_sender_and_receiver() {
-        let (tx_gw_sender, mut rx_gw_sender) = tokio::sync::mpsc::channel(1);
+        let (tx_slim_sender, mut rx_slim_sender) = tokio::sync::mpsc::channel(1);
         let (tx_app_sender, _rx_app_sender) = tokio::sync::mpsc::channel(1);
 
-        let (tx_gw_receiver, _rx_gw_receiver) = tokio::sync::mpsc::channel(1);
+        let (tx_slim_receiver, _rx_slim_receiver) = tokio::sync::mpsc::channel(1);
         let (tx_app_receiver, mut rx_app_receiver) = tokio::sync::mpsc::channel(1);
 
         let session_config_sender: StreamingConfiguration =
@@ -963,7 +963,7 @@ mod tests {
             session_config_sender,
             SessionDirection::Sender,
             Agent::from_strings("cisco", "default", "sender", 0),
-            tx_gw_sender,
+            tx_slim_sender,
             tx_app_sender,
         );
         let receiver = Streaming::new(
@@ -971,7 +971,7 @@ mod tests {
             session_config_receiver,
             SessionDirection::Receiver,
             Agent::from_strings("cisco", "default", "receiver", 0),
-            tx_gw_receiver,
+            tx_slim_receiver,
             tx_app_receiver,
         );
 
@@ -995,13 +995,13 @@ mod tests {
 
         let session_msg = SessionMessage::new(message.clone(), Info::new(0));
 
-        // send a message from the sender app to the gw
+        // send a message from the sender app to the slim
         let res = sender
             .on_message(session_msg.clone(), MessageDirection::South)
             .await;
         assert!(res.is_ok());
 
-        let msg = rx_gw_sender.recv().await.unwrap().unwrap();
+        let msg = rx_slim_sender.recv().await.unwrap().unwrap();
         assert_eq!(msg, expected_msg);
 
         let session_msg = SessionMessage::new(msg, Info::new(0));
@@ -1019,7 +1019,7 @@ mod tests {
     #[tokio::test]
     #[traced_test]
     async fn test_stream_rtx_timeouts() {
-        let (tx_gw, mut rx_gw) = tokio::sync::mpsc::channel(1);
+        let (tx_slim, mut rx_slim) = tokio::sync::mpsc::channel(1);
         let (tx_app, mut rx_app) = tokio::sync::mpsc::channel(1);
 
         let session_config: StreamingConfiguration = StreamingConfiguration::new(
@@ -1034,7 +1034,7 @@ mod tests {
             session_config,
             SessionDirection::Receiver,
             Agent::from_strings("cisco", "default", "sender", 0),
-            tx_gw,
+            tx_slim,
             tx_app,
         );
 
@@ -1072,9 +1072,9 @@ mod tests {
             .await;
         assert!(res.is_ok());
 
-        // read rtxs from the gw channel, the original one + 5 retries
+        // read rtxs from the slim channel, the original one + 5 retries
         for _ in 0..6 {
-            let rtx_msg = rx_gw.recv().await.unwrap().unwrap();
+            let rtx_msg = rx_slim.recv().await.unwrap().unwrap();
             let rtx_header = rtx_msg.get_session_header();
             assert_eq!(rtx_header.session_id, 0);
             assert_eq!(rtx_header.message_id, 1);
@@ -1095,7 +1095,7 @@ mod tests {
     #[tokio::test]
     #[traced_test]
     async fn test_stream_rtx_reception() {
-        let (tx_gw, mut rx_gw) = tokio::sync::mpsc::channel(8);
+        let (tx_slim, mut rx_slim) = tokio::sync::mpsc::channel(8);
         let (tx_app, _rx_app) = tokio::sync::mpsc::channel(8);
 
         let session_config: StreamingConfiguration = StreamingConfiguration::new(
@@ -1110,7 +1110,7 @@ mod tests {
             session_config,
             SessionDirection::Sender,
             Agent::from_strings("cisco", "default", "receiver", 0),
-            tx_gw,
+            tx_slim,
             tx_app,
         );
 
@@ -1137,9 +1137,9 @@ mod tests {
             assert!(res.is_ok());
         }
 
-        // read the 3 messages from the gw channel
+        // read the 3 messages from the slim channel
         for i in 0..3 {
-            let msg = rx_gw.recv().await.unwrap().unwrap();
+            let msg = rx_slim.recv().await.unwrap().unwrap();
             let msg_header = msg.get_session_header();
             assert_eq!(msg_header.session_id, 120);
             assert_eq!(msg_header.message_id, i);
@@ -1168,14 +1168,14 @@ mod tests {
 
         let session_msg: SessionMessage = SessionMessage::new(rtx.clone(), Info::new(120));
 
-        // send the RTX from the gw
+        // send the RTX from the slim
         let res = session
             .on_message(session_msg.clone(), MessageDirection::North)
             .await;
         assert!(res.is_ok());
 
-        // get rtx reply message from gw
-        let msg = rx_gw.recv().await.unwrap().unwrap();
+        // get rtx reply message from slim
+        let msg = rx_slim.recv().await.unwrap().unwrap();
         let msg_header = msg.get_session_header();
         assert_eq!(msg_header.session_id, 120);
         assert_eq!(msg_header.message_id, 2);
@@ -1189,10 +1189,10 @@ mod tests {
     #[tokio::test]
     #[traced_test]
     async fn test_stream_e2e_with_losses() {
-        let (tx_gw_sender, mut rx_gw_sender) = tokio::sync::mpsc::channel(1);
+        let (tx_slim_sender, mut rx_slim_sender) = tokio::sync::mpsc::channel(1);
         let (tx_app_sender, _rx_app_sender) = tokio::sync::mpsc::channel(1);
 
-        let (tx_gw_receiver, mut rx_gw_receiver) = tokio::sync::mpsc::channel(1);
+        let (tx_slim_receiver, mut rx_slim_receiver) = tokio::sync::mpsc::channel(1);
         let (tx_app_receiver, mut rx_app_receiver) = tokio::sync::mpsc::channel(1);
 
         let session_config_sender: StreamingConfiguration =
@@ -1210,7 +1210,7 @@ mod tests {
             session_config_sender,
             SessionDirection::Sender,
             Agent::from_strings("cisco", "default", "sender", 0),
-            tx_gw_sender,
+            tx_slim_sender,
             tx_app_sender,
         );
         let receiver = Streaming::new(
@@ -1218,7 +1218,7 @@ mod tests {
             session_config_receiver,
             SessionDirection::Receiver,
             Agent::from_strings("cisco", "default", "receiver", 0),
-            tx_gw_receiver,
+            tx_slim_receiver,
             tx_app_receiver,
         );
 
@@ -1242,10 +1242,10 @@ mod tests {
             assert!(res.is_ok());
         }
 
-        // read the 3 messages from the sender gw channel
+        // read the 3 messages from the sender slim channel
         // forward message 1 and 3 to the receiver
         for i in 0..3 {
-            let mut msg = rx_gw_sender.recv().await.unwrap().unwrap();
+            let mut msg = rx_slim_sender.recv().await.unwrap().unwrap();
             let msg_header = msg.get_session_header();
             assert_eq!(msg_header.session_id, 0);
             assert_eq!(msg_header.message_id, i);
@@ -1282,7 +1282,7 @@ mod tests {
         );
 
         // get the RTX from packet 1 and drop the first one before send it to sender
-        let msg = rx_gw_receiver.recv().await.unwrap().unwrap();
+        let msg = rx_slim_receiver.recv().await.unwrap().unwrap();
         let msg_header = msg.get_session_header();
         assert_eq!(msg_header.session_id, 0);
         assert_eq!(msg_header.message_id, 1);
@@ -1302,7 +1302,7 @@ mod tests {
             )
         );
 
-        let msg = rx_gw_receiver.recv().await.unwrap().unwrap();
+        let msg = rx_slim_receiver.recv().await.unwrap().unwrap();
         let msg_header = msg.get_session_header();
         assert_eq!(msg_header.session_id, 0);
         assert_eq!(msg_header.message_id, 1);
@@ -1332,7 +1332,7 @@ mod tests {
         assert!(res.is_ok());
 
         // this should generate an RTX reply
-        let msg = rx_gw_sender.recv().await.unwrap().unwrap();
+        let msg = rx_slim_sender.recv().await.unwrap().unwrap();
         let msg_header = msg.get_session_header();
         assert_eq!(msg_header.session_id, 0);
         assert_eq!(msg_header.message_id, 1);
@@ -1402,7 +1402,7 @@ mod tests {
     #[tokio::test]
     #[traced_test]
     async fn test_session_delete() {
-        let (tx_gw, _) = tokio::sync::mpsc::channel(1);
+        let (tx_slim, _) = tokio::sync::mpsc::channel(1);
         let (tx_app, _) = tokio::sync::mpsc::channel(1);
 
         let source = Agent::from_strings("cisco", "default", "local_agent", 0);
@@ -1416,7 +1416,7 @@ mod tests {
                 session_config.clone(),
                 SessionDirection::Sender,
                 source.clone(),
-                tx_gw.clone(),
+                tx_slim.clone(),
                 tx_app.clone(),
             );
         }

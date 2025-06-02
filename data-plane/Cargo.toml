@@ -39,7 +39,7 @@ edition = "2024"
 slim-config = { path = "core/config", version = "0.1.8" }
 slim-controller = { path = "core/controller", version = "0.1.1" }
 slim-datapath = { path = "core/datapath", version = "0.7.0" }
-slim-gw = { path = "core/slim", version = "0.3.15" }
+slim = { path = "core/slim", version = "0.3.15" }
 slim-service = { path = "core/service", version = "0.4.2" }
 slim-signal = { path = "core/signal", version = "0.1.2" }
 slim-tracing = { path = "core/tracing", version = "0.2.1" }

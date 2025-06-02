@@ -6,7 +6,7 @@ use clap::Parser;
 use tokio::time;
 use tracing::info;
 
-use slim_gw::config;
+use slim::config;
 use slim_service::{
     FireAndForgetConfiguration,
     session::{self, SessionConfig},
