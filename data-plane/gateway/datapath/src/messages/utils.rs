@@ -953,9 +953,18 @@ mod tests {
 
         // ProtoAgent to Agent
         let agent_from_proto = Agent::from(&proto_agent);
-        assert_eq!(agent_from_proto.agent_type().organization(), proto_agent.organization);
-        assert_eq!(agent_from_proto.agent_type().namespace(), proto_agent.namespace);
-        assert_eq!(agent_from_proto.agent_type().agent_type(), proto_agent.agent_type);
+        assert_eq!(
+            agent_from_proto.agent_type().organization(),
+            proto_agent.organization
+        );
+        assert_eq!(
+            agent_from_proto.agent_type().namespace(),
+            proto_agent.namespace
+        );
+        assert_eq!(
+            agent_from_proto.agent_type().agent_type(),
+            proto_agent.agent_type
+        );
         assert_eq!(agent_from_proto.agent_id(), proto_agent.agent_id.unwrap());
 
         // AgentType to ProtoAgent

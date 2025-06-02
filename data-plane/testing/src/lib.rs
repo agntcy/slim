@@ -59,22 +59,24 @@ pub fn parse_sub(mut iter: SplitWhitespace<'_>) -> Result<ParsedMessage, Parsing
 
     let org = iter
         .next()
-        .ok_or(ParsingError::ParsingError(format!("missing organization")))?
+        .ok_or(ParsingError::ParsingError(
+            "missing organization".to_string(),
+        ))?
         .parse::<String>()
         .map_err(|e| ParsingError::ParsingError(format!("failed to parse organization: {}", e)))?;
     let namespace = iter
         .next()
-        .ok_or(ParsingError::ParsingError(format!("missing namespace")))?
+        .ok_or(ParsingError::ParsingError("missing namespace".to_string()))?
         .parse::<String>()
         .map_err(|e| ParsingError::ParsingError(format!("failed to parse namespace: {}", e)))?;
     let agent_type_val = iter
         .next()
-        .ok_or(ParsingError::ParsingError(format!("missing agent_type")))?
+        .ok_or(ParsingError::ParsingError("missing agent_type".to_string()))?
         .parse::<String>()
         .map_err(|e| ParsingError::ParsingError(format!("failed to parse agent type: {}", e)))?;
     let agent_id = iter
         .next()
-        .ok_or(ParsingError::ParsingError(format!("missing agent_id")))?
+        .ok_or(ParsingError::ParsingError("missing agent_id".to_string()))?
         .parse::<u64>()
         .map_err(|e| ParsingError::ParsingError(format!("failed to parse agent id: {}", e)))?;
 
