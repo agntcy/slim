@@ -4,68 +4,9 @@ requires-python = ">=3.12, <4.0"
 
 [manifest]
 members = [
-    "slim-mcp",
     "llamaindex-time-agent",
     "mcp-server-time",
-]
-
-[[package]]
-name = "slim-bindings"
-version = "0.3.5"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/45/c0/8bc6da495632b1c4e1f52a17616dce17cce862aec0788a2c71f5ef0f3745/slim_bindings-0.3.5.tar.gz", hash = "sha256:1804f4f1bfc2709598b4961bc3a65994117a40cf5f3f70e21f460d6babc75786", size = 197615, upload_time = "2025-05-26T12:56:11.062Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/bc/ef/59bda8e0d416c0b55009ba7f3efe31b5399ff7ea65cbb8aeb9b366f1fc35/slim_bindings-0.3.5-cp312-cp312-macosx_10_12_x86_64.whl", hash = "sha256:86745d2d61a71eb0455893264db77b6041ad5153e2e81badd5750cd249b938dd", size = 5880177, upload_time = "2025-05-26T12:55:45.182Z" },
-    { url = "https://files.pythonhosted.org/packages/cc/34/c92c85163d0ed6afcc9e2299697a7cfaa895a3fc843707b746fbf01cbdfe/slim_bindings-0.3.5-cp312-cp312-macosx_11_0_arm64.whl", hash = "sha256:da596d4d31153a295de8e86385b2af65151c579aac6bd5e7d71c8f51188ffe0d", size = 5637301, upload_time = "2025-05-26T12:55:46.871Z" },
-    { url = "https://files.pythonhosted.org/packages/5b/2e/afe22f7b83e8c71a0c2eed429dedfe604a1a82c1254de3316165d11bfd2c/slim_bindings-0.3.5-cp312-cp312-manylinux_2_34_aarch64.whl", hash = "sha256:5e5476ca93d6a81998c3359088397fe4af696d1a999aa991c41cb350c0e791d4", size = 6175005, upload_time = "2025-05-26T12:55:48.706Z" },
-    { url = "https://files.pythonhosted.org/packages/f4/9b/3da46fa37a17e308a4afc5b18fa31edf3bd1520bc64bdf80142b2fa52296/slim_bindings-0.3.5-cp312-cp312-manylinux_2_34_x86_64.whl", hash = "sha256:eddcf52abf3f64d802932549537a8765d00c0d24c47ad5325f68ce13a4f0cbd2", size = 6361988, upload_time = "2025-05-26T12:55:50.971Z" },
-    { url = "https://files.pythonhosted.org/packages/33/9e/6d1aaaba7a8cea942f55f89611a755beff18734d61ba76fb2e80a90dba8f/slim_bindings-0.3.5-cp312-cp312-win_amd64.whl", hash = "sha256:d1d525ab828593293903861bd847451fe9153a6a0cd585e9f5ff2fbd96cca584", size = 4964322, upload_time = "2025-05-26T12:55:52.378Z" },
-    { url = "https://files.pythonhosted.org/packages/6b/8a/bdc3df4ef7bb94c8a3a8d448a9251fb29f1754de9a51582c0d64d33bcb8f/slim_bindings-0.3.5-cp313-cp313-macosx_10_12_x86_64.whl", hash = "sha256:7098233d61a875c0cbf5b73a556bf85311d6dfc501749ce158ba8233a0f2efb3", size = 5878225, upload_time = "2025-05-26T12:55:54.87Z" },
-    { url = "https://files.pythonhosted.org/packages/8a/6a/8c61d859e93860eb26683800a39a197f7d75a9dbaef57115d0f10c60d9b9/slim_bindings-0.3.5-cp313-cp313-macosx_11_0_arm64.whl", hash = "sha256:8ac5f55f5cece61722a8ab6b6aee7d12d3b6c528587fd9ccd24a13a521d87aab", size = 5635867, upload_time = "2025-05-26T12:55:56.332Z" },
-    { url = "https://files.pythonhosted.org/packages/eb/f0/c548c9ba9faa74a1d5de531bb9063a4785b2ae7e877a2587435cd277e5a6/slim_bindings-0.3.5-cp313-cp313-manylinux_2_34_aarch64.whl", hash = "sha256:52151ed14efe020977865881a40f6c2ec9bf3e07b14edb2b67560e1540fbf985", size = 6173369, upload_time = "2025-05-26T12:55:58.171Z" },
-    { url = "https://files.pythonhosted.org/packages/c5/a3/714f2cc000112ccae9c5e0ca895a6d405ec7c261d9df31ee52400417dff2/slim_bindings-0.3.5-cp313-cp313-manylinux_2_34_x86_64.whl", hash = "sha256:8b1fc112af12fe8de2eac0485a2e0b4cd4a7b32546fe83e25211b1d809e0d6b4", size = 6360437, upload_time = "2025-05-26T12:56:00.264Z" },
-    { url = "https://files.pythonhosted.org/packages/ef/89/a28a54c3834a94a20442658f8fa1a2af1d126d01b7f1c60e7c8cd0550be2/slim_bindings-0.3.5-cp313-cp313-win_amd64.whl", hash = "sha256:39ef4ecdcafb70ec8bc1c5107ea3fcbc6f8b1fbf3dc1764be68ed7bcd5575512", size = 4962975, upload_time = "2025-05-26T12:56:01.713Z" },
-]
-
-[[package]]
-name = "slim-mcp"
-version = "0.1.4"
-source = { editable = "packages/slim-mcp" }
-dependencies = [
-    { name = "slim-bindings" },
-    { name = "anyio" },
-    { name = "mcp" },
-]
-
-[package.dev-dependencies]
-linting = [
-    { name = "griffe" },
-    { name = "mypy" },
-    { name = "pyright" },
-    { name = "ruff" },
-]
-testing = [
-    { name = "pytest" },
-    { name = "pytest-asyncio" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "slim-bindings", specifier = ">=0.3.5" },
-    { name = "anyio", specifier = ">=4.5" },
-    { name = "mcp", specifier = "==1.6.0" },
-]
-
-[package.metadata.requires-dev]
-linting = [
-    { name = "griffe", specifier = ">=1.7.2" },
-    { name = "mypy", specifier = ">=1.15" },
-    { name = "pyright", specifier = ">=1.1.399" },
-    { name = "ruff", specifier = ">=0.11.6" },
-]
-testing = [
-    { name = "pytest", specifier = ">=8.3.5" },
-    { name = "pytest-asyncio", specifier = ">=0.26.0" },
+    "slim-mcp",
 ]
 
 [[package]]
@@ -986,7 +927,6 @@ name = "llamaindex-time-agent"
 version = "0.1.0"
 source = { editable = "examples/llamaindex-time-agent" }
 dependencies = [
-    { name = "slim-mcp" },
     { name = "click" },
     { name = "llama-index" },
     { name = "llama-index-llms-azure-openai" },
@@ -994,6 +934,7 @@ dependencies = [
     { name = "llama-index-llms-openai-like" },
     { name = "llama-index-tools-mcp" },
     { name = "mcp" },
+    { name = "slim-mcp" },
 ]
 
 [package.dev-dependencies]
@@ -1006,7 +947,6 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "slim-mcp", editable = "packages/slim-mcp" },
     { name = "click", specifier = ">=8.1.8" },
     { name = "llama-index", specifier = ">=0.12.29" },
     { name = "llama-index-llms-azure-openai", specifier = ">=0.3.2" },
@@ -1014,6 +954,7 @@ requires-dist = [
     { name = "llama-index-llms-openai-like", specifier = ">=0.3.4" },
     { name = "llama-index-tools-mcp", specifier = ">=0.1.2" },
     { name = "mcp", specifier = ">=1.0.0" },
+    { name = "slim-mcp", editable = "packages/slim-mcp" },
 ]
 
 [package.metadata.requires-dev]
@@ -1098,9 +1039,9 @@ name = "mcp-server-time"
 version = "0.6.2"
 source = { editable = "examples/mcp-server-time" }
 dependencies = [
-    { name = "slim-mcp" },
     { name = "click" },
     { name = "mcp" },
+    { name = "slim-mcp" },
 ]
 
 [package.dev-dependencies]
@@ -1113,9 +1054,9 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "slim-mcp", editable = "packages/slim-mcp" },
     { name = "click", specifier = ">=8.1.8" },
     { name = "mcp", specifier = ">=1.6.0" },
+    { name = "slim-mcp", editable = "packages/slim-mcp" },
 ]
 
 [package.metadata.requires-dev]
@@ -1823,6 +1764,70 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/94/e7/b2c673351809dca68a0e064b6af791aa332cf192da575fd474ed7d6f16a2/six-1.17.0.tar.gz", hash = "sha256:ff70335d468e7eb6ec65b95b99d3a2836546063f63acc5171de367e834932a81", size = 34031, upload_time = "2024-12-04T17:35:28.174Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/b7/ce/149a00dd41f10bc29e5921b496af8b574d8413afcd5e30dfa0ed46c2cc5e/six-1.17.0-py2.py3-none-any.whl", hash = "sha256:4721f391ed90541fddacab5acf947aa0d3dc7d27b2e1e8eda2be8970586c3274", size = 11050, upload_time = "2024-12-04T17:35:26.475Z" },
+]
+
+[[package]]
+name = "slim-bindings"
+version = "0.3.5"
+source = { directory = "../../../python-bindings" }
+
+[package.metadata]
+
+[package.metadata.requires-dev]
+building = [
+    { name = "maturin", specifier = ">=1.8.2" },
+    { name = "maturin", extras = ["patchelf"], marker = "sys_platform == 'linux'", specifier = ">=1.8.2" },
+]
+linting = [
+    { name = "griffe", specifier = ">=1.5.5" },
+    { name = "mypy", specifier = ">=1.14.1" },
+    { name = "pyright", specifier = ">=1.1.0" },
+    { name = "ruff", specifier = ">=0.9.3" },
+]
+testing = [
+    { name = "pytest", specifier = ">=8.3.4" },
+    { name = "pytest-asyncio", specifier = ">=0.25.3" },
+]
+
+[[package]]
+name = "slim-mcp"
+version = "0.1.5"
+source = { editable = "packages/slim-mcp" }
+dependencies = [
+    { name = "anyio" },
+    { name = "mcp" },
+    { name = "slim-bindings" },
+]
+
+[package.dev-dependencies]
+linting = [
+    { name = "griffe" },
+    { name = "mypy" },
+    { name = "pyright" },
+    { name = "ruff" },
+]
+testing = [
+    { name = "pytest" },
+    { name = "pytest-asyncio" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "anyio", specifier = ">=4.5" },
+    { name = "mcp", specifier = "==1.6.0" },
+    { name = "slim-bindings", directory = "../../../python-bindings" },
+]
+
+[package.metadata.requires-dev]
+linting = [
+    { name = "griffe", specifier = ">=1.7.2" },
+    { name = "mypy", specifier = ">=1.15" },
+    { name = "pyright", specifier = ">=1.1.399" },
+    { name = "ruff", specifier = ">=0.11.6" },
+]
+testing = [
+    { name = "pytest", specifier = ">=8.3.5" },
+    { name = "pytest-asyncio", specifier = ">=0.26.0" },
 ]
 
 [[package]]
