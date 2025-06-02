@@ -5,5 +5,5 @@
     "control-plane/agpctl": "0.1.4",
     "data-plane/integrations/mcp/agp-mcp/examples/llamaindex-time-agent": "0.1.1",
     "data-plane/integrations/mcp/agp-mcp/examples/mcp-server-time": "0.1.1",
-    "data-plane/testing": "0.1.0"
+    "data-plane/testing": "1.0.0"
 }
