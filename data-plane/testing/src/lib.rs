@@ -31,12 +31,12 @@ pub struct ParsedMessage {
     pub receivers: Vec<u64>,
 }
 
-fn parse_ids(
-    iter: &mut SplitWhitespace<'_>,
-) -> Result<Agent, ParsingError> {
+fn parse_ids(iter: &mut SplitWhitespace<'_>) -> Result<Agent, ParsingError> {
     let org = iter
         .next()
-        .ok_or(ParsingError::ParsingError("missing organization".to_string()))?
+        .ok_or(ParsingError::ParsingError(
+            "missing organization".to_string(),
+        ))?
         .parse::<u64>()
         .map_err(|e| ParsingError::ParsingError(format!("failed to parse organization: {}", e)))?;
     let namespace = iter
