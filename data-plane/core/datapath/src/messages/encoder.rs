@@ -64,16 +64,6 @@ impl From<&ProtoAgent> for AgentType {
 }
 
 impl AgentType {
-    /// Create a new AgentType
-    pub fn new(organization: u64, namespace: u64, agent_type: u64) -> Self {
-        Self {
-            organization,
-            namespace,
-            agent_type,
-            strings: None,
-        }
-    }
-
     pub fn from_strings(organization: &str, namespace: &str, agent_type: &str) -> Self {
         Self {
             organization: calculate_hash(organization),
@@ -85,21 +75,6 @@ impl AgentType {
                 agent_type.to_string(),
             ))),
         }
-    }
-
-    pub fn with_organization(self, organization: u64) -> Self {
-        Self {
-            organization,
-            ..self
-        }
-    }
-
-    pub fn with_namespace(self, namespace: u64) -> Self {
-        Self { namespace, ..self }
-    }
-
-    pub fn with_agent_type(self, agent_type: u64) -> Self {
-        Self { agent_type, ..self }
     }
 
     pub fn organization(&self) -> u64 {

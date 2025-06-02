@@ -157,7 +157,25 @@ fn main() {
     let bar = ProgressBar::new(max_subscriptions as u64);
     while subscriptions < max_subscriptions {
         // create a new type
-        let agent_type = AgentType::new(rng.random(), rng.random(), rng.random());
+        let org = rand::rng()
+            .sample_iter(&rand::distr::Alphanumeric)
+            .take(7)
+            .map(char::from)
+            .collect::<String>();
+
+        let ns = rand::rng()
+            .sample_iter(&rand::distr::Alphanumeric)
+            .take(7)
+            .map(char::from)
+            .collect::<String>();
+
+        let atype = rand::rng()
+            .sample_iter(&rand::distr::Alphanumeric)
+            .take(7)
+            .map(char::from)
+            .collect::<String>();
+
+        let agent_type = AgentType::from_strings(&org, &ns, &atype);
 
         let mut type_state = TypeState::default();
 

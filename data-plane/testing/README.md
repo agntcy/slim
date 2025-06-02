@@ -22,7 +22,7 @@ Options:
 #### Workload file structure
 The names used by SLIM are in the form
 ```
-organinzation/namespace/agent_class/agent_id
+organization/namespace/agent_class/agent_id
 ```
 These four components are strings decided by the application. For performance reason SLIM internally encodes these strings in u64 values. The workload generator application ignores the strings and creates random names by generating four random u64.
 
