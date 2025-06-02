@@ -33,10 +33,18 @@ jobs:
           # slim-<component1>-<component2>-v<version>
 
           # strip slim- prefix from the tag
-          _target=${GITHUB_REF_NAME#slim-}
+          _target=${GITHUB_REF_NAME#slim}
 
           # remove version to only get the component
           target=${_target%-v*}
+
+          # If component is empty, set it to 'slim'
+          if [[ -z "$target" ]]; then
+            target="slim"
+          else
+            # remove the - from the beginning of the target if it exists
+            target=${target#-}
+          fi
 
           # get version only
           version=${_target##*-v}
