@@ -942,7 +942,7 @@ mod tests {
 
     #[test]
     fn test_conversions() {
-        // ProtoAgent to Agent
+        // Agent to ProtoAgent
         let agent = Agent::from_strings("org", "ns", "type", 1);
         let proto_agent = ProtoAgent::from(&agent);
 
@@ -950,6 +950,13 @@ mod tests {
         assert_eq!(proto_agent.namespace, agent.agent_type().namespace());
         assert_eq!(proto_agent.agent_type, agent.agent_type().agent_type());
         assert_eq!(proto_agent.agent_id.unwrap(), agent.agent_id());
+
+        // ProtoAgent to Agent
+        let agent_from_proto = Agent::from(&proto_agent);
+        assert_eq!(agent_from_proto.agent_type().organization(), proto_agent.organization);
+        assert_eq!(agent_from_proto.agent_type().namespace(), proto_agent.namespace);
+        assert_eq!(agent_from_proto.agent_type().agent_type(), proto_agent.agent_type);
+        assert_eq!(agent_from_proto.agent_id(), proto_agent.agent_id.unwrap());
 
         // AgentType to ProtoAgent
         let agent_type = AgentType::from_strings("org", "ns", "type");

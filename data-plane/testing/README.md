@@ -22,7 +22,7 @@ Options:
 #### Workload file structure
 The names used by the gateway are in the form
 ```
-organinzation/namespace/agent_class/agent_id
+organization/namespace/agent_class/agent_id
 ```
 These four components are strings decided by the application. For performance reason the gateway internally encodes these strings in u64 values. The workload generator application ignores the strings and creates random names by generating four random u64.
 
@@ -30,7 +30,7 @@ A subscription is represented as follow
 ```
 SUB 24 7 9025227877545173655 4093485893050047688 12129358409937561971 3376091243880048110
 ```
-- ```SUB``` indicates that the line is a subscription 
+- ```SUB``` indicates that the line is a subscription
 - ```24``` is the index of the subscription
 - ```7``` is the ID of the subscriber that will generate the subscription. This is randomly generated and is a value between 0 and ```AGENTS``` that is provided as input. Be sure to spawn enough subscriber apps (see below) to cover all the IDs
 - the last for numbers are random generated and are the subscription name in the form ```organization/namespace/agent_class/agent_id```
