@@ -31,6 +31,35 @@ pub struct ParsedMessage {
     pub receivers: Vec<u64>,
 }
 
+fn parse_ids(
+    iter: &mut SplitWhitespace<'_>,
+) -> Result<Agent, ParsingError> {
+    let org = iter
+        .next()
+        .ok_or(ParsingError::ParsingError("missing organization".to_string()))?
+        .parse::<u64>()
+        .map_err(|e| ParsingError::ParsingError(format!("failed to parse organization: {}", e)))?;
+    let namespace = iter
+        .next()
+        .ok_or(ParsingError::ParsingError("missing namespace".to_string()))?
+        .parse::<String>()
+        .map_err(|e| ParsingError::ParsingError(format!("failed to parse namespace: {}", e)))?;
+    let agent_type_val = iter
+        .next()
+        .ok_or(ParsingError::ParsingError("missing agent_type".to_string()))?
+        .parse::<String>()
+        .map_err(|e| ParsingError::ParsingError(format!("failed to parse agent type: {}", e)))?;
+    let agent_id = iter
+        .next()
+        .ok_or(ParsingError::ParsingError("missing agent_id".to_string()))?
+        .parse::<u64>()
+        .map_err(|e| ParsingError::ParsingError(format!("failed to parse agent id: {}", e)))?;
+
+    let a_type = AgentType::from_strings(&org.to_string(), &namespace, &agent_type_val);
+
+    Ok(Agent::new(a_type, agent_id))
+}
+
 pub fn parse_sub(mut iter: SplitWhitespace<'_>) -> Result<ParsedMessage, ParsingError> {
     let mut subscription = ParsedMessage {
         msg_type: "SUB".to_string(),
@@ -57,31 +86,7 @@ pub fn parse_sub(mut iter: SplitWhitespace<'_>) -> Result<ParsedMessage, Parsing
         },
     }
 
-    let org = iter
-        .next()
-        .ok_or(ParsingError::ParsingError(
-            "missing organization".to_string(),
-        ))?
-        .parse::<String>()
-        .map_err(|e| ParsingError::ParsingError(format!("failed to parse organization: {}", e)))?;
-    let namespace = iter
-        .next()
-        .ok_or(ParsingError::ParsingError("missing namespace".to_string()))?
-        .parse::<String>()
-        .map_err(|e| ParsingError::ParsingError(format!("failed to parse namespace: {}", e)))?;
-    let agent_type_val = iter
-        .next()
-        .ok_or(ParsingError::ParsingError("missing agent_type".to_string()))?
-        .parse::<String>()
-        .map_err(|e| ParsingError::ParsingError(format!("failed to parse agent type: {}", e)))?;
-    let agent_id = iter
-        .next()
-        .ok_or(ParsingError::ParsingError("missing agent_id".to_string()))?
-        .parse::<u64>()
-        .map_err(|e| ParsingError::ParsingError(format!("failed to parse agent id: {}", e)))?;
-
-    let a_type = AgentType::from_strings(&org, &namespace, &agent_type_val);
-    let sub = Agent::new(a_type, agent_id);
+    let sub = parse_ids(&mut iter)?;
 
     subscription.name = sub;
     Ok(subscription)
@@ -110,17 +115,7 @@ pub fn parse_pub(mut iter: SplitWhitespace<'_>) -> Result<ParsedMessage, Parsing
     }
 
     // get the publication name
-    let org = iter.next().unwrap().parse::<u64>().unwrap();
-    let namespace = iter.next().unwrap().parse::<u64>().unwrap();
-    let agent_type_val = iter.next().unwrap().parse::<u64>().unwrap();
-    let agent_id = iter.next().unwrap().parse::<u64>().unwrap();
-
-    let a_type = AgentType::from_strings(
-        &org.to_string(),
-        &namespace.to_string(),
-        &agent_type_val.to_string(),
-    );
-    let pub_name = Agent::new(a_type, agent_id);
+    let pub_name = parse_ids(&mut iter)?;
 
     // get the len of the possible receivers
     let size = match iter.next().unwrap().parse::<u64>() {
