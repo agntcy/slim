@@ -62,7 +62,11 @@ pub fn parse_sub(mut iter: SplitWhitespace<'_>) -> Result<ParsedMessage, Parsing
     let agent_type_val = iter.next().unwrap().parse::<u64>().unwrap();
     let agent_id = iter.next().unwrap().parse::<u64>().unwrap();
 
-    let a_type = AgentType::from_strings(&org.to_string(), &namespace.to_string(), &agent_type_val.to_string());
+    let a_type = AgentType::from_strings(
+        &org.to_string(),
+        &namespace.to_string(),
+        &agent_type_val.to_string(),
+    );
     let sub = Agent::new(a_type, agent_id);
 
     subscription.name = sub;
@@ -97,7 +101,11 @@ pub fn parse_pub(mut iter: SplitWhitespace<'_>) -> Result<ParsedMessage, Parsing
     let agent_type_val = iter.next().unwrap().parse::<u64>().unwrap();
     let agent_id = iter.next().unwrap().parse::<u64>().unwrap();
 
-    let a_type = AgentType::from_strings(&org.to_string(), &namespace.to_string(), &agent_type_val.to_string());
+    let a_type = AgentType::from_strings(
+        &org.to_string(),
+        &namespace.to_string(),
+        &agent_type_val.to_string(),
+    );
     let pub_name = Agent::new(a_type, agent_id);
 
     // get the len of the possible receivers
@@ -140,6 +148,9 @@ pub fn parse_line(line: &str) -> Result<ParsedMessage, ParsingError> {
     match msg_type.as_str() {
         "SUB" => parse_sub(iter),
         "PUB" => parse_pub(iter),
-        _ => Err(ParsingError::ParsingError(format!("unknown type: {}", msg_type))),
+        _ => Err(ParsingError::ParsingError(format!(
+            "unknown type: {}",
+            msg_type
+        ))),
     }
 }
