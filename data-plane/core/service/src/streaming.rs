@@ -20,7 +20,7 @@ use receiver_buffer::ReceiverBuffer;
 use slim_datapath::messages::{AgentType, utils::SlimHeaderFlags};
 use slim_datapath::{
     messages::Agent,
-    pubsub::proto::pubsub::v1::{Message, SessionHeader, SessionHeaderType, SlimHeader},
+    api::proto::pubsub::v1::{Message, SessionHeader, SessionHeaderType, SlimHeader},
 };
 
 use tonic::{Status, async_trait};

@@ -224,7 +224,7 @@ impl PyService {
                 // extract agent and payload
                 let content = match msg.message.message_type {
                     Some(ref msg_type) => match msg_type {
-                        slim_datapath::pubsub::ProtoPublishType(publish) => &publish.get_payload().blob,
+                        slim_datapath::api::ProtoPublishType(publish) => &publish.get_payload().blob,
                         _ => Err(ServiceError::ReceiveError(
                             "receive publish message type".to_string(),
                         ))?,

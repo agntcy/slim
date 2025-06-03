@@ -425,7 +425,7 @@ async fn main() {
                             }
 
                             match &msg.message_type.unwrap() {
-                                slim_datapath::pubsub::ProtoPublishType(msg) => {
+                                slim_datapath::api::ProtoPublishType(msg) => {
                                     // parse payload and add info to the result list
                                     let payload = &msg.get_payload().blob;
                                     // the payload needs to start with the publication id and the received id

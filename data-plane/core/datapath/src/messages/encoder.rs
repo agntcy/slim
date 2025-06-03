@@ -3,7 +3,7 @@
 
 use std::hash::{DefaultHasher, Hash, Hasher};
 
-use crate::pubsub::ProtoAgent;
+use crate::api::ProtoAgent;
 
 pub const DEFAULT_AGENT_ID: u64 = u64::MAX;
 

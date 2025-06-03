@@ -3,7 +3,7 @@
 
 use std::collections::HashSet;
 
-use slim_datapath::pubsub::proto::pubsub::v1::Message;
+use slim_datapath::api::proto::pubsub::v1::Message;
 
 use tracing::{debug, info, trace};
 
@@ -261,8 +261,8 @@ impl ReceiverBuffer {
 #[cfg(test)]
 mod tests {
     use slim_datapath::messages::encoder::{Agent, AgentType};
-    use slim_datapath::pubsub::proto::pubsub::v1::SessionHeaderType;
-    use slim_datapath::pubsub::{SessionHeader, SlimHeader};
+    use slim_datapath::api::proto::pubsub::v1::SessionHeaderType;
+    use slim_datapath::api::{SessionHeader, SlimHeader};
     use tracing_test::traced_test;
 
     use super::*;

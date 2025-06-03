@@ -11,7 +11,7 @@ mod tests {
 
     use slim_config::grpc::{client::ClientConfig, server::ServerConfig};
     use slim_datapath::message_processing::MessageProcessor;
-    use slim_datapath::pubsub::proto::pubsub::v1::{
+    use slim_datapath::api::proto::pubsub::v1::{
         Message, pub_sub_service_server::PubSubServiceServer,
     };
 

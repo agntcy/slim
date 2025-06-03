@@ -7,7 +7,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use rand::Rng;
 use slim_datapath::messages::AgentType;
-use slim_datapath::pubsub::{SessionHeader, SlimHeader};
+use slim_datapath::api::{SessionHeader, SlimHeader};
 use tokio::sync::mpsc::{self, Receiver, Sender};
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, error};
@@ -20,7 +20,7 @@ use crate::session::{
 use crate::timer;
 use slim_datapath::messages::encoder::Agent;
 use slim_datapath::messages::utils::SlimHeaderFlags;
-use slim_datapath::pubsub::proto::pubsub::v1::{Message, SessionHeaderType};
+use slim_datapath::api::proto::pubsub::v1::{Message, SessionHeaderType};
 
 /// Configuration for the Fire and Forget session
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -718,7 +718,7 @@ mod tests {
     use super::*;
     use slim_datapath::{
         messages::{Agent, AgentType},
-        pubsub::ProtoMessage,
+        api::ProtoMessage,
     };
 
     #[tokio::test]

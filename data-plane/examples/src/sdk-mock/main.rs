@@ -124,7 +124,7 @@ async fn main() {
                 let session_msg = next.unwrap().expect("error");
 
                 match &session_msg.message.message_type.unwrap() {
-                    slim_datapath::pubsub::ProtoPublishType(msg) => {
+                    slim_datapath::api::ProtoPublishType(msg) => {
                         let payload = msg.get_payload();
                         info!(
                             "received message: {}",

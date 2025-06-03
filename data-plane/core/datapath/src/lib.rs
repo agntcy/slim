@@ -3,7 +3,7 @@
 
 pub mod message_processing;
 pub mod messages;
-pub mod pubsub;
+pub mod api;
 pub mod tables;
 
 mod errors;

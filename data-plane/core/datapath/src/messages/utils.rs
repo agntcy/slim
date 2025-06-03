@@ -7,7 +7,7 @@ use std::fmt::Display;
 use tracing::debug;
 
 use super::encoder::{Agent, AgentType, DEFAULT_AGENT_ID};
-use crate::pubsub::{
+use crate::api::{
     Content, MessageType, ProtoAgent, ProtoMessage, ProtoPublish, ProtoPublishType, ProtoSubscribe,
     ProtoSubscribeType, ProtoUnsubscribe, ProtoUnsubscribeType, SessionHeader, SlimHeader,
     proto::pubsub::v1::SessionHeaderType,
@@ -762,7 +762,7 @@ impl AsRef<ProtoPublish> for ProtoMessage {
 mod tests {
     use crate::{
         messages::encoder::{Agent, AgentType},
-        pubsub::proto::pubsub::v1::SessionHeaderType,
+        api::proto::pubsub::v1::SessionHeaderType,
     };
 
     use super::*;

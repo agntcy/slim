@@ -18,7 +18,7 @@ use crate::session::{
 use crate::streaming::{self, StreamingConfiguration};
 use crate::{fire_and_forget, session};
 use slim_datapath::messages::encoder::Agent;
-use slim_datapath::pubsub::proto::pubsub::v1::SessionHeaderType;
+use slim_datapath::api::proto::pubsub::v1::SessionHeaderType;
 
 /// SessionLayer
 pub(crate) struct SessionLayer {
@@ -387,7 +387,7 @@ mod tests {
 
     use slim_datapath::{
         messages::{Agent, AgentType},
-        pubsub::ProtoMessage,
+        api::ProtoMessage,
     };
 
     fn create_session_layer() -> SessionLayer {

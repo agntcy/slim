@@ -230,7 +230,7 @@ async fn main() {
                 panic!("message type is missing");
             }
             Some(msg_type) => match msg_type {
-                slim_datapath::pubsub::ProtoPublishType(msg) => {
+                slim_datapath::api::ProtoPublishType(msg) => {
                     let payload = &msg.get_payload().blob;
                     // the payload needs to start with the publication id, so it has to contain
                     // at least 8 bytes

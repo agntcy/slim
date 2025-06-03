@@ -6,7 +6,7 @@ use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 use tonic::Status;
 
-use crate::pubsub::proto::pubsub::v1::Message;
+use crate::api::proto::pubsub::v1::Message;
 
 #[derive(Debug, Clone, Default)]
 pub(crate) enum Channel {
