@@ -18,11 +18,11 @@ PROFILE=release
 task data-plane:build PROFILE=${PROFILE}
 ```
 
-This will build a local binary of slim.
+This will build a local binary of SLIM.
 
 ### Container image
 
-To run a multiarch image of slim (linux/arm64 & linux/amd64):
+To run a multiarch image of SLIM (linux/arm64 & linux/amd64):
 
 ```bash
 REPO_ROOT="$(git rev-parse --show-toplevel)"
@@ -98,7 +98,7 @@ SLIM can be run in 3 main ways:
 - via the [python bindings](./python-bindings)
 
 SLIM can run in server mode, in client mode or both (i.e. spawning a
-server and connecting to another slim instance at the same time).
+server and connecting to another SLIM instance at the same time).
 
 ### Server
 
@@ -180,9 +180,9 @@ This makes `PASSWORD` available across all PowerShell sessions.
 
 ### Client
 
-To run the slim binary as client, you will need to configure it to start one
+To run the SLIM binary as client, you will need to configure it to start one
 (or more) clients at startup, and you will need to provide the address of a
-remote slim server. As usually, some configuration examples are available in
+remote SLIM server. As usually, some configuration examples are available in
 the [config](./config/) folder:
 
 - [reference](./config/reference/config.yaml) is a reference configuration, with
