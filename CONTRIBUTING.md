@@ -131,7 +131,7 @@ git commit --amend --signoff
 
 ### Performing spellcheck on SLIM codebase
 
-You can perform spell-check on slim codebase. For details of how to use the
+You can perform spell-check on SLIM codebase. For details of how to use the
 spellcheck tool, feel free to visit
 
 https://github.com/drahnr/cargo-spellcheck
