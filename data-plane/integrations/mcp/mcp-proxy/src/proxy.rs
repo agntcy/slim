@@ -12,8 +12,8 @@ use rmcp::{
 };
 use slim::config::ConfigResult;
 use slim_datapath::{
+    api::proto::pubsub::v1::Message,
     messages::{Agent, AgentType},
-    pubsub::proto::pubsub::v1::Message,
 };
 use slim_service::{
     FireAndForgetConfiguration,
