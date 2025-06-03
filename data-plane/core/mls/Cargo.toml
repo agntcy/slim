@@ -1,0 +1,19 @@
+[package]
+name = "agntcy-slim-mls"
+edition = { workspace = true }
+license = { workspace = true }
+version = "0.1.0"
+description = "Messaging Layer Security for SLIM data plane."
+
+[lib]
+name = "slim_mls"
+
+[dependencies]
+mls-rs = { version = "0.47.0" }
+mls-rs-crypto-awslc = { version = "0.17.0" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1.0"
+thiserror = { workspace = true }
+
+[dev-dependencies]
+tempfile = "3.3"
