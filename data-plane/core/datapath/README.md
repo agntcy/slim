@@ -1,80 +1,116 @@
-# Datapath Module
+# SLIM Datapath Module
 
-This module provides the core functionalities for the SLIM data path.
-It includes various components for handling messages, connections,
-and pub/sub mechanisms.
+[![Version](https://img.shields.io/badge/version-0.7.0-blue.svg)](https://github.com/agntcy/slim/tree/main/data-plane/core/datapath)
+[![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 
-## Files
+The `agntcy-slim-datapath` module serves as the foundation of the SLIM
+communication system, providing the core networking infrastructure for message
+routing, connection management, and multiple communication patterns.
 
-### `connection.rs`
+## Overview
 
-This file contains the logic for managing connections.
+The datapath module manages the flow of messages between SLIM instances,
+handling the low-level transport and routing mechanisms. It implements several
+key features:
 
-### `errors.rs`
+- Message routing based on organization, namespace, and agent identifiers
+- Connection management for reliable communication
+- Flexible subscription model for dynamic service discovery
+- Protocol buffer-based message serialization
+- Multiple session patterns (request/reply, streaming, fire-and-forget, pubsub)
+- Support for message retransmission and reliability mechanisms
+- Connection pooling and resource management
 
-This file defines error handling for the data path.
+## Module Structure
 
-### `forwarder.rs`
+### Core Components
 
-This file implements the forwarding logic for messages.
+- **Message Processor**: Central component that handles message flow between
+  instances
+- **Forwarder**: Routes messages to appropriate connections
+- **Connection Table**: Manages active connections
+- **Subscription Table**: Tracks subscriptions for routing
 
-### `lib.rs`
+### Communication Patterns
 
-This file contains the main entry point for the data path module.
+The datapath module supports multiple communication patterns implemented through
+session types:
 
-### `message_processing.rs`
+- **Request/Reply**: Synchronous request/response pattern with timeout
+  management
+- **Streaming**: Ordered message delivery with retransmission for reliable
+  streaming
+- **Fire and Forget**: Simple message delivery with optional reliability
+- **Pub/Sub**: Many-to-many communication pattern for event distribution
 
-This file provides utilities for processing messages.
+### Protocol Implementation
 
-### `messages.rs`
+- **Protocol Buffers**: Defines the wire format for all messages
+- **Session Headers**: Manages session types, IDs, and message metadata
+- **SLIM Headers**: Handles routing information and connection details
 
-This file defines the structures and logic for handling messages.
+## Key Features
 
-### `messages/encoder.rs`
+### Flexible Routing and Subscription
 
-This file provides encoding utilities for messages.
+The datapath supports dynamic routing based on agent identifiers:
 
-### `messages/utils.rs`
+- Dynamic subscription table for efficient message routing
+- Connection pooling for optimized resource utilization
+- Reference counting for connection management
+- Organization and namespace-based routing
+- Hierarchical addressing for flexible message delivery
 
-This file contains utility functions for message handling.
+### OpenTelemetry Integration
 
-### `pubsub.rs`
+The module includes built-in OpenTelemetry tracing support:
 
-This file implements the publish-subscribe mechanism.
+- Automatic propagation of tracing context across service boundaries
+- Metadata extraction from incoming messages
+- Span creation and management for message processing
+- Distributed tracing across multiple SLIM instances
+- Integration with OpenTelemetry exporters
 
-### `pubsub/proto.rs`
+### Message Processing Pipeline
 
-This file defines the protocol buffer for the pub/sub mechanism.
+The module implements a sophisticated message processing pipeline:
 
-### `tables.rs`
+- Type-based message dispatching
+- Support for multiple message patterns (publish/subscribe, request/response)
+- Error handling and status reporting
+- Asynchronous message processing
+- Graceful handling of routing edge cases
+- Detailed logging and diagnostics
 
-This file contains the logic for managing various tables used in the data path.
+### Connection Management
 
-### `tables/connection_table.rs`
+The module provides robust connection management:
 
-This file defines the connection table management logic.
+- Connection type classification (remote, local)
+- Address tracking for both local and remote endpoints
+- Channel management for bidirectional communication
+- Cancellation token support for graceful shutdown
+- Connection establishment and teardown handling
+- Connection indexing for quick lookups
 
-### `tables/errors.rs`
+## Integration with SLIM
 
-This file provides error handling for table operations.
+The datapath module integrates with other SLIM components:
 
-### `tables/subscription_table.rs`
+- Used by the `service` module to provide higher-level session abstractions
+- Configured through the `config` module for secure communication settings
+- Connected to the control plane through the `controller` module
+- Provides tracing integration with the `tracing` module
 
-This file implements the subscription table logic.
+## Performance Considerations
 
-### `tables/pool.rs`
+The module is designed for high performance with features like:
 
-This file contains the logic for managing object pools.
+- Connection pooling for efficient resource usage
+- Non-blocking asynchronous I/O with Tokio
+- Optimized message serialization with Protocol Buffers
+- Efficient routing tables for quick message delivery
 
-### `pubsub/gen/pubsub.proto.v1.rs`
+## License
 
-This file contains the generated code for the pub/sub protocol buffer.
-
-## Usage
-
-To use this module, include it in your `Cargo.toml`:
-
-```toml
-[dependencies]
-slim-datapath = "0.1.0"
-```
+This module is licensed under the Apache License, Version 2.0.

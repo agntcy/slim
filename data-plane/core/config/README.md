@@ -1,99 +1,90 @@
-# Configuration Module
+# SLIM Configuration Module
 
-This module provides configuration utilities for SLIM. It includes
-various components for authentication, gRPC, and TLS settings.
+[![Version](https://img.shields.io/badge/version-0.1.8-blue.svg)](https://github.com/agntcy/slim/tree/main/data-plane/core/config)
+[![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 
-## Files
+The `agntcy-slim-config` module provides comprehensive configuration utilities
+for the SLIM (Scalable Language Interface Manager) data plane. It offers a
+flexible and extensible configuration system that supports various
+authentication mechanisms, gRPC communication settings, and TLS security
+options.
 
-### `auth.rs`
+## Overview
 
-This file contains the main authentication logic and structures.
+This module is a core component of the SLIM architecture, providing the
+configuration infrastructure used throughout the system. It enables:
 
-### `auth/basic.rs`
+- Loading configurations from files or environment variables
+- Setting up authentication for server and client components
+- Configuring gRPC servers and clients with various middleware options
+- Managing TLS certificates and security settings
+- Defining and validating component configurations
 
-This file provides basic authentication mechanisms.
+## Module Structure
 
-### `auth/bearer.rs`
+### Authentication
 
-This file implements bearer token authentication.
+Authentication mechanisms for SLIM communications:
 
-### `component.rs`
+- **`auth.rs`** - Core authentication interfaces and utilities
+- **`auth/basic.rs`** - Username/password authentication implementation
+- **`auth/bearer.rs`** - Bearer token-based authentication
 
-This file defines the main components used in the configuration.
+### Component Management
 
-### `component/configuration.rs`
+Component system used throughout SLIM:
 
-This file contains the configuration structures and logic for components.
+- **`component.rs`** - Base component traits and interfaces
+- **`component/configuration.rs`** - Configuration structures and validation
+- **`component/id.rs`** - Component identification and namespacing
 
-### `component/id.rs`
+### gRPC Communication
 
-This file provides utilities for handling component IDs.
+Configuration for gRPC channels:
 
-### `grpc.rs`
+- **`grpc.rs`** - Core gRPC configuration interfaces
+- **`grpc/client.rs`** - Client-side gRPC configuration
+- **`grpc/compression.rs`** - Message compression settings
+- **`grpc/errors.rs`** - Error handling for gRPC operations
+- **`grpc/headers_middleware.rs`** - Middleware for gRPC header manipulation
+- **`grpc/server.rs`** - Server-side gRPC configuration
 
-This file contains the main gRPC configuration logic.
+### Configuration Providers
 
-### `grpc/client.rs`
+Sources for configuration data:
 
-This file provides client-side gRPC configuration.
+- **`provider.rs`** - Provider interfaces and resolver utilities
+- **`provider/env.rs`** - Environment variable-based configuration provider
+- **`provider/file.rs`** - YAML file-based configuration provider
 
-### `grpc/compression.rs`
+### TLS Security
 
-This file implements gRPC compression settings.
+TLS certificate and security settings:
 
-### `grpc/errors.rs`
+- **`tls.rs`** - Core TLS configuration interfaces
+- **`tls/client.rs`** - Client-side TLS configuration and certificate handling
+- **`tls/common.rs`** - Shared TLS functionality and utilities
+- **`tls/server.rs`** - Server-side TLS certificate management
 
-This file defines error handling for gRPC.
+### Utilities
 
-### `grpc/headers_middleware.rs`
+- **`testutils.rs`** - Utilities for testing configurations
+- **`build.rs`** - Build script for the configuration module
 
-This file provides middleware for handling gRPC headers.
+## Integration with SLIM
 
-### `grpc/server.rs`
+The configuration module is used extensively throughout the SLIM system:
 
-This file contains server-side gRPC configuration.
+- The SLIM binary uses it to parse command-line configuration files
+- The service module uses it for server and client connection setup
+- Component configurations are validated using its utilities
+- Python bindings leverage it for configuration management
 
-### `provider.rs`
+## Dependency
 
-This file defines the main configuration providers.
-
-### `provider/env.rs`
-
-This file provides environment variable-based configuration.
-
-### `provider/file.rs`
-
-This file provides file-based configuration.
-
-### `testutils.rs`
-
-This file contains utilities for testing configurations.
-
-### `tls.rs`
-
-This file contains the main TLS configuration logic.
-
-### `tls/client.rs`
-
-This file provides client-side TLS configuration.
-
-### `tls/common.rs`
-
-This file contains common TLS utilities.
-
-### `tls/server.rs`
-
-This file provides server-side TLS configuration.
-
-### `build.rs`
-
-This file contains the build script for the configuration module.
-
-## Usage
-
-To use this module, include it in your `Cargo.toml`:
+To use this module in your Rust project, add it to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-slim-config = "0.1.0"
+agntcy-slim-config = "0.1.8"
 ```
