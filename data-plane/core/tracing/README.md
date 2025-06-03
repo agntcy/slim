@@ -17,7 +17,7 @@ To use this module, include it in your `Cargo.toml`:
 
 ```toml
 [dependencies]
-slim-tracing = "0.1.0"
+agntcy-slim-tracing = "0.1.0"
 ```
 
 ## Configuration
