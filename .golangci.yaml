@@ -65,7 +65,7 @@ linters-settings:
   goimports:
     # put imports beginning with prefix after 3rd-party packages;
     # it's a comma-separated list of prefixes
-    local-prefixes: github.com/agntcy/agp
+    local-prefixes: github.com/agntcy/slim
   misspell:
     # US locale
     locale: US

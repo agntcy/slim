@@ -5,23 +5,28 @@
 # Documentation available at: https://docs.docker.com/build/bake/
 
 # Docker build args
-variable "IMAGE_REPO" {default = ""}
-variable "IMAGE_TAG" {default = "v0.0.0-dev"}
+variable "IMAGE_REPO" { default = "" }
+variable "IMAGE_TAG" { default = "v0.0.0-dev" }
 
 function "get_tag" {
   params = [tags, name]
-  result = [for tag in tags: "${IMAGE_REPO}/${name}:${tag}"]
+  // Check if IMAGE_REPO ends with name to avoid repetition
+  result = [for tag in tags:
+    can(regex("${name}$", IMAGE_REPO)) ?
+      "${IMAGE_REPO}:${tag}" :
+      "${IMAGE_REPO}/${name}:${tag}"
+  ]
 }
 
 group "default" {
   targets = [
-    "gw",
+    "slim",
   ]
 }
 
 group "data-plane" {
   targets = [
-    "gw",
+    "slim",
   ]
 }
 
@@ -39,26 +44,26 @@ target "docker-metadata-action" {
   tags = []
 }
 
-target "gw" {
+target "slim" {
   context = "."
   dockerfile = "./data-plane/Dockerfile"
-  target = "gateway-release"
+  target = "slim-release"
   inherits = [
     "_common",
     "docker-metadata-action",
   ]
-  tags = get_tag(target.docker-metadata-action.tags, "${target.gw.name}")
+  tags = get_tag(target.docker-metadata-action.tags, "${target.slim.name}")
 }
 
-target "gw-debug" {
+target "slim-debug" {
   context = "."
   dockerfile = "./data-plane/Dockerfile"
-  target = "gateway-debug"
+  target = "slim-debug"
   inherits = [
     "_common",
     "docker-metadata-action",
   ]
-  tags = get_tag(target.docker-metadata-action.tags, "${target.gw-debug.name}")
+  tags = get_tag(target.docker-metadata-action.tags, "${target.slim-debug.name}")
 }
 
 target "mcp-proxy" {
@@ -84,7 +89,7 @@ target "mcp-proxy-debug" {
 }
 
 target "mcp-server-time" {
-  context = "./data-plane/integrations/mcp/agp-mcp"
+  context = "./data-plane/integrations/mcp/slim-mcp"
   dockerfile = "./examples/mcp-server-time/Dockerfile"
   target = "mcp-server-time"
   inherits = [
@@ -95,7 +100,7 @@ target "mcp-server-time" {
 }
 
 target "llamaindex-time-agent" {
-  context = "./data-plane/integrations/mcp/agp-mcp"
+  context = "./data-plane/integrations/mcp/slim-mcp"
   dockerfile = "./examples/llamaindex-time-agent/Dockerfile"
   target = "llamaindex-time-agent"
   inherits = [

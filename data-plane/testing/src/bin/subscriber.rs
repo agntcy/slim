@@ -1,16 +1,16 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
-use agp_datapath::messages::Agent;
-use agp_service::streaming::StreamingConfiguration;
+use slim_datapath::messages::Agent;
+use slim_service::streaming::StreamingConfiguration;
 use std::fs::File;
 use std::io::prelude::*;
 use std::time::Duration;
 use testing::parse_line;
 
-use agp_gw::config;
 use clap::Parser;
 use indicatif::ProgressBar;
+use slim::config;
 use tracing::{debug, error, info};
 
 #[derive(Parser, Debug)]
@@ -30,7 +30,7 @@ pub struct Args {
     )]
     streaming: bool,
 
-    /// Agp configuration file
+    /// Slim configuration file
     #[arg(short, long, value_name = "CONFIGURATION", required = true)]
     config: String,
 
@@ -84,7 +84,7 @@ async fn main() {
 
     // start local agent
     // get service
-    let svc_id = agp_config::component::id::ID::new_with_str("gateway/0").unwrap();
+    let svc_id = slim_config::component::id::ID::new_with_str("slim/0").unwrap();
     let svc = config.services.get_mut(&svc_id).unwrap();
 
     // create local agent
@@ -181,8 +181,8 @@ async fn main() {
     let res = svc
         .create_session(
             &agent_name,
-            agp_service::session::SessionConfig::Streaming(StreamingConfiguration::new(
-                agp_service::session::SessionDirection::Receiver,
+            slim_service::session::SessionConfig::Streaming(StreamingConfiguration::new(
+                slim_service::session::SessionDirection::Receiver,
                 None,
                 Some(10),
                 Some(Duration::from_millis(1000)),
@@ -230,7 +230,7 @@ async fn main() {
                 panic!("message type is missing");
             }
             Some(msg_type) => match msg_type {
-                agp_datapath::pubsub::ProtoPublishType(msg) => {
+                slim_datapath::api::ProtoPublishType(msg) => {
                     let payload = &msg.get_payload().blob;
                     // the payload needs to start with the publication id, so it has to contain
                     // at least 8 bytes

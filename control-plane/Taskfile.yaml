@@ -20,7 +20,7 @@ vars:
 
   CONTROL_PLANE_DIR: control-plane
 
-  MAIN_MODULE: github.com/agntcy/agp
+  MAIN_MODULE: github.com/agntcy/slim
 
   MODULES:
     sh: |
@@ -66,7 +66,7 @@ tasks:
         vars:
           CMD: |
             {{.TOOLS_INSTALL_DIR}}/impi \
-              --local github.com/agntcy/agp \
+              --local github.com/agntcy/slim \
               --ignore-generated=true \
               --scheme stdThirdPartyLocal \
               ./...
@@ -122,26 +122,26 @@ tasks:
     cmds:
       - >
         {{.REPO_ROOT}}/.tools/protoc --proto_path=../proto \
-          --go_out=paths=source_relative:./agpctl/internal/proto \
-          --go-grpc_out=paths=source_relative:./agpctl/internal/proto \
+          --go_out=paths=source_relative:./slimctl/internal/proto \
+          --go-grpc_out=paths=source_relative:./slimctl/internal/proto \
           --plugin={{.REPO_ROOT}}/.tools/protoc-gen-go \
           --plugin={{.REPO_ROOT}}/.tools/protoc-gen-go-grpc \
           controller/v1/controller.proto
 
-  control-plane:agpctl:build:
-    desc: Build agpctl
+  control-plane:slimctl:build:
+    desc: Build slimctl
     deps:
       - control-plane:proto:generate
-    dir: agpctl/cmd
+    dir: slimctl/cmd
     cmds:
       - |
         go build -o \
-          {{.OUTPUT_DIR}}/bin/agpctl \
+          {{.OUTPUT_DIR}}/bin/slimctl \
           -ldflags \
           " \
-            -X '{{.MAIN_MODULE}}/control-plane/agpctl/internal/cmd/version.semVersion={{.VERSION}}'
-            -X '{{.MAIN_MODULE}}/control-plane/agpctl/internal/cmd/version.gitCommit={{.GIT_COMMIT}}'
-            -X '{{.MAIN_MODULE}}/control-plane/agpctl/internal/cmd/version.buildDate={{.BUILD_DATE}}'
+            -X '{{.MAIN_MODULE}}/control-plane/slimctl/internal/cmd/version.semVersion={{.VERSION}}'
+            -X '{{.MAIN_MODULE}}/control-plane/slimctl/internal/cmd/version.gitCommit={{.GIT_COMMIT}}'
+            -X '{{.MAIN_MODULE}}/control-plane/slimctl/internal/cmd/version.buildDate={{.BUILD_DATE}}'
             {{.FLAGS}} \
           "
     vars:
@@ -158,7 +158,7 @@ tasks:
     cmds:
       - |
         go build -o \
-          {{.OUTPUT_DIR}}/bin/gateway-tks \
+          {{.OUTPUT_DIR}}/bin/slim-tks \
           -ldflags \
           " \
             -X '{{.MAIN_MODULE}}/control-plane/internal/cmd/version.semVersion={{.VERSION}}'
@@ -178,4 +178,4 @@ tasks:
     desc: Build go binaries
     cmds:
       - task: control-plane:token-service:build
-      - task: control-plane:agpctl:build
+      - task: control-plane:slimctl:build

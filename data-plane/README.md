@@ -18,21 +18,21 @@ PROFILE=release
 task data-plane:build PROFILE=${PROFILE}
 ```
 
-This will build a local binary of the gateway.
+This will build a local binary of SLIM.
 
 ### Container image
 
-To run a multiarch image of the gateway (linux/arm64 & linux/amd64):
+To run a multiarch image of SLIM (linux/arm64 & linux/amd64):
 
 ```bash
 REPO_ROOT="$(git rev-parse --show-toplevel)"
-docker build -t gateway -f "${REPO_ROOT}/data-plane/Dockerfile" --platform linux/amd64,linux/arm64 "${REPO_ROOT}"
+docker build -t slim -f "${REPO_ROOT}/data-plane/Dockerfile" --platform linux/amd64,linux/arm64 "${REPO_ROOT}"
 ```
 
 Or alternatively, with docker buildx bake:
 
 ```bash
-pushd $(git rev-parse --show-toplevel) && IMAGE_REPO=gateway IMAGE_TAG=latest docker buildx bake gateway && popd
+pushd $(git rev-parse --show-toplevel) && IMAGE_REPO=slim IMAGE_TAG=latest docker buildx bake slim && popd
 ```
 
 ---
@@ -55,7 +55,7 @@ $env:REPO_ROOT = "<path-to-repo>"
 Example:
 
 ```Powershell
-$env:REPO_ROOT = "C:\Users\<dummy>\agp"
+$env:REPO_ROOT = "C:\Users\<dummy>\slim"
 ```
 
 #### Convert Line endings
@@ -75,7 +75,7 @@ Notice that there is no arm64 on the command below, otherwise it will fail even 
 
 ```Powershell
 docker buildx build `
-    -t gateway `
+    -t slim `
     -f "$env:REPO_ROOT\data-plane\Dockerfile" `
     --platform linux/amd64 `
     "$env:REPO_ROOT"
@@ -85,24 +85,24 @@ If everything goes well you should see an output similar to:
 
 ```bash
 ...
- => => naming to docker.io/library/gateway:latest                                                             0.0s
- => => unpacking to docker.io/library/gateway:latest
+ => => naming to docker.io/library/slim:latest                                                             0.0s
+ => => unpacking to docker.io/library/slim:latest
  ```
 
-## Run gateway
+## Run SLIM
 
-The gateway can be run in 3 main ways:
+SLIM can be run in 3 main ways:
 
 - directly as binary (preferred way when deployed as workload in k8s)
 - via the rust APIs (check the [sdk-mock example](./examples/src/sdk-mock))
 - via the [python bindings](./python-bindings)
 
-The gateway can run in server mode, in client mode or both (i.e. spawning a
-server and connecting to another gateway at the same time).
+SLIM can run in server mode, in client mode or both (i.e. spawning a
+server and connecting to another SLIM instance at the same time).
 
 ### Server
 
-To run the gateway binary as server, a configuration file is needed to setup the
+To run SLIM binary as server, a configuration file is needed to setup the
 basic runtime options. Some basic examples are provided in the
 [config](./config/) folder:
 
@@ -117,7 +117,7 @@ basic runtime options. Some basic examples are provided in the
 - [mtls](./config/mtls/server-config.yaml) is a configuration for a server
   expecting clients to authenticate with a trusted certificate.
 
-To run the gateway as server:
+To run SLIM as server:
 
 ```bash
 MODE=base
@@ -125,17 +125,17 @@ MODE=base
 # MODE=basic-auth; export PASSWORD=12345
 # MODE=mtls
 
-cargo run --bin gateway -- --config ./config/${MODE}/server-config.yaml
+cargo run --bin slim -- --config ./config/${MODE}/server-config.yaml
 ```
 
 Or, using the container image (assuming the image name is
-`gateway/agp`):
+`slim`):
 
 ```bash
 docker run -it \
     -e PASSWORD=${PASSWORD} \
     -v ./config/base/server-config.yaml:/config.yaml \
-    gateway/agp /gateway --config /config.yaml
+    slim /slim --config /config.yaml
 ```
 
 ---
@@ -163,7 +163,7 @@ docker run -it `
     -e PASSWORD=$env:PASSWORD `
     -v ${PWD}/config/base/server-config.yaml:/config.yaml `
     -p 46357:46357 `
-    gateway:latest /gateway --config /config.yaml
+    slim:latest /slim --config /config.yaml
 ```
 
 #### **Persistent Configuration (Optional)**
@@ -180,9 +180,9 @@ This makes `PASSWORD` available across all PowerShell sessions.
 
 ### Client
 
-To run the gateway binary as client, you will need to configure it to start one
-(or more) clients at startup. and you will need to provide the address of a
-remote gateway server. As usually, some configuration examples are available in
+To run the SLIM binary as client, you will need to configure it to start one
+(or more) clients at startup, and you will need to provide the address of a
+remote SLIM server. As usually, some configuration examples are available in
 the [config](./config/) folder:
 
 - [reference](./config/reference/config.yaml) is a reference configuration, with
@@ -196,7 +196,7 @@ the [config](./config/) folder:
 - [mtls](./config/mtls/client-config.yaml) is a configuration for a client
   connecting to a server with a trusted certificate.
 
-To run the gateway as client:
+To run SLIM as client:
 
 ```bash
 MODE=base
@@ -204,15 +204,15 @@ MODE=base
 # MODE=basic-auth; export PASSWORD=12345
 # MODE=mtls
 
-cargo run --bin gateway -- --config ./config/${MODE}/client-config.yaml
+cargo run --bin slim -- --config ./config/${MODE}/client-config.yaml
 ```
 
 Or, using the container image (assuming the image name is
-`gateway/agp`):
+`slim`):
 
 ```bash
 docker run -it \
     -e PASSWORD=${PASSWORD} \
     -v ./config/base/client-config.yaml:/config.yaml \
-    gateway/agp /gateway --config /config.yaml
+    slim /slim --config /config.yaml
 ```

@@ -401,7 +401,7 @@ tasks:
     cmds:
       - "cargo run {{.RELEASE}} --bin {{.BIN}} {{.ARGS}} -- {{.BIN_ARGS}}"
     vars:
-      BIN: '{{.BIN | default "gateway"}}'
+      BIN: '{{.BIN | default "slim"}}'
       ARGS: '{{ .ARGS | default "" }}'
       BIN_ARGS: '{{ .BIN_ARGS | default "" }}'
 

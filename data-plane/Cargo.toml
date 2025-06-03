@@ -1,28 +1,28 @@
 [workspace]
 
 members = [
+    "core/config",
+    "core/controller",
+    "core/datapath",
+    "core/nop_component",
+    "core/service",
+    "core/signal",
+    "core/slim",
+    "core/tracing",
     "examples",
-    "gateway/config",
-    "gateway/controller",
-    "gateway/datapath",
-    "gateway/gateway",
-    "gateway/nop_component",
-    "gateway/service",
-    "gateway/signal",
-    "gateway/tracing",
     "python-bindings",
     "testing",
 ]
 
 default-members = [
+    "core/config",
+    "core/datapath",
+    "core/slim",
+    "core/nop_component",
+    "core/service",
+    "core/signal",
+    "core/tracing",
     "examples",
-    "gateway/config",
-    "gateway/datapath",
-    "gateway/gateway",
-    "gateway/nop_component",
-    "gateway/service",
-    "gateway/signal",
-    "gateway/tracing",
     "testing",
 ]
 
@@ -30,19 +30,15 @@ exclude = ["integrations/mcp/mcp-proxy"]
 
 resolver = "2"
 
-[workspace.package]
-license = "Apache-2.0"
-edition = "2024"
-
 [workspace.dependencies]
 # Local dependencies
-agp-config = { path = "gateway/config", version = "0.1.8" }
-agp-controller = { path = "gateway/controller", version = "0.1.1" }
-agp-datapath = { path = "gateway/datapath", version = "0.7.0" }
-agp-gw = { path = "gateway/gateway", version = "0.3.15" }
-agp-service = { path = "gateway/service", version = "0.4.2" }
-agp-signal = { path = "gateway/signal", version = "0.1.2" }
-agp-tracing = { path = "gateway/tracing", version = "0.2.1" }
+agntcy-slim = { path = "core/slim", version = "0.3.15" }
+agntcy-slim-config = { path = "core/config", version = "0.1.8" }
+agntcy-slim-controller = { path = "core/controller", version = "0.1.1" }
+agntcy-slim-datapath = { path = "core/datapath", version = "0.7.0" }
+agntcy-slim-service = { path = "core/service", version = "0.4.2" }
+agntcy-slim-signal = { path = "core/signal", version = "0.1.2" }
+agntcy-slim-tracing = { path = "core/tracing", version = "0.2.1" }
 
 # Core dependencies
 async-trait = "0.1.88"
@@ -95,6 +91,7 @@ serde = "1.0.217"
 serde-pyobject = "0.6.1"
 serde_json = "1.0"
 serde_yaml = "0.9.34"
+
 thiserror = "2.0.9"
 tokio = "1.42.0"
 tokio-stream = "0.1"
@@ -112,3 +109,18 @@ tracing-opentelemetry = "0.30.0"
 tracing-subscriber = "0.3.19"
 tracing-test = { version = "0.2.5", features = ["no-env-filter"] }
 uuid = { version = "1.15.1", features = ["v4"] }
+
+[workspace.package]
+license = "Apache-2.0"
+edition = "2024"
+
+[workspace.metadata.cargo-machete]
+ignored = [
+    "agntcy-slim",
+    "agntcy-slim-config",
+    "agntcy-slim-controller",
+    "agntcy-slim-datapath",
+    "agntcy-slim-service",
+    "agntcy-slim-signal",
+    "agntcy-slim-tracing",
+]

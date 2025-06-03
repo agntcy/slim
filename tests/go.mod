@@ -1,4 +1,4 @@
-module github.com/agntcy/agp/tests
+module github.com/agntcy/slim/tests
 
 go 1.23.0
 

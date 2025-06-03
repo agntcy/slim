@@ -27,8 +27,8 @@ jobs:
       task-prefix: mcp-proxy
 
   data-plane-python:
-    name: AGP-MCP - Python tests
+    name: SLIM-MCP - Python tests
     uses: ./.github/workflows/reusable-python-build-and-test.yaml
     with:
-      working-directory: ./data-plane/integrations/mcp/agp-mcp
+      working-directory: ./data-plane/integrations/mcp/slim-mcp
       prefix: integrations

@@ -1,5 +1,5 @@
 [package]
-name = "agp-bindings"
+name = "slim-bindings"
 edition = { workspace = true }
 license = { workspace = true }
 publish = false
@@ -9,14 +9,14 @@ version = "0.1.0"
 name = "pydantic_core._pydantic_core"
 
 [lib]
-name = "_agp_bindings"
+name = "_slim_bindings"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-agp-config = { workspace = true }
-agp-datapath = { workspace = true }
-agp-service = { workspace = true }
-agp-tracing = { workspace = true }
+agntcy-slim-config = { workspace = true }
+agntcy-slim-datapath = { workspace = true }
+agntcy-slim-service = { workspace = true }
+agntcy-slim-tracing = { workspace = true }
 pyo3 = { workspace = true }
 pyo3-async-runtimes = { workspace = true }
 pyo3-stub-gen = { workspace = true }

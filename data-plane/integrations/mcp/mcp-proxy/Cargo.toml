@@ -1,16 +1,31 @@
 [package]
-name = "agp-mcp-proxy"
+name = "agntcy-slim-mcp-proxy"
 version = "0.1.4"
 edition = "2024"
 license = "Apache-2.0"
-description = "Proxy for exposing a native MCP server over AGP"
+description = "Proxy for exposing a native MCP server over SLIM"
+
+[package.metadata.cargo-machete]
+ignored = [
+    "agntcy-slim",
+    "agntcy-slim-config",
+    "agntcy-slim-controller",
+    "agntcy-slim-datapath",
+    "agntcy-slim-service",
+    "agntcy-slim-signal",
+    "agntcy-slim-tracing",
+]
+
+[[bin]]
+name = "slim-mcp-proxy"
+path = "src/main.rs"
 
 [dependencies]
-agp-config = { path = "../../../gateway/config", version = "0.1.8" }
-agp-datapath = { path = "../../../gateway/datapath", version = "0.7.0" }
-agp-gw = { path = "../../../gateway/gateway", version = "0.3.14" }
-agp-service = { path = "../../../gateway/service", version = "0.4.2" }
-agp-signal = { path = "../../../gateway/signal", version = "0.1.2" }
+agntcy-slim = { path = "../../../core/slim", version = "0.3.14" }
+agntcy-slim-config = { path = "../../../core/config", version = "0.1.8" }
+agntcy-slim-datapath = { path = "../../../core/datapath", version = "0.7.0" }
+agntcy-slim-service = { path = "../../../core/service", version = "0.4.2" }
+agntcy-slim-signal = { path = "../../../core/signal", version = "0.1.2" }
 async-trait = "0.1"
 clap = "4.5.37"
 futures-util = "0.3.31"

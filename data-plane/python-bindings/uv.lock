@@ -7,7 +7,7 @@ resolution-markers = [
 ]
 
 [[package]]
-name = "agp-bindings"
+name = "slim-bindings"
 version = "0.3.5"
 source = { editable = "." }
 

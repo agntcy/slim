@@ -10,10 +10,10 @@ import (
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 
-	"github.com/agntcy/agp/control-plane/token-service/cmd/common"
-	"github.com/agntcy/agp/control-plane/token-service/internal/cmd/version"
-	"github.com/agntcy/agp/control-plane/token-service/internal/logging"
-	"github.com/agntcy/agp/control-plane/token-service/internal/options"
+	"github.com/agntcy/slim/control-plane/token-service/cmd/common"
+	"github.com/agntcy/slim/control-plane/token-service/internal/cmd/version"
+	"github.com/agntcy/slim/control-plane/token-service/internal/logging"
+	"github.com/agntcy/slim/control-plane/token-service/internal/options"
 )
 
 // New instantiates the root command and initializes the tree of commands.
@@ -24,7 +24,7 @@ func New(opts *options.CommonOptions) (*cobra.Command, error) {
 
 	rootCmd := &cobra.Command{
 		Use:               "token-service",
-		Short:             "AGP token service",
+		Short:             "SLIM token service",
 		DisableAutoGenTag: true,
 		PersistentPreRunE: func(cmd *cobra.Command, _ []string) error {
 			// Setup logging config

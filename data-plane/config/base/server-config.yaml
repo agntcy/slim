@@ -8,11 +8,11 @@ tracing:
 
 runtime:
   n_cores: 0
-  thread_name: "data-plane-gateway"
+  thread_name: "slim-data-plane"
   drain_timeout: 10s
 
 services:
-  gateway/0:
+  slim/0:
     pubsub:
       servers:
         - endpoint: "0.0.0.0:46357"

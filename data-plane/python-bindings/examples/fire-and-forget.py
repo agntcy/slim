@@ -7,7 +7,7 @@ import os
 
 from common import format_message, split_id
 
-import agp_bindings
+import slim_bindings
 
 
 async def run_client(
@@ -19,7 +19,7 @@ async def run_client(
     enable_opentelemetry: bool,
 ):
     # init tracing
-    agp_bindings.init_tracing(
+    slim_bindings.init_tracing(
         {
             "log_level": "info",
             "opentelemetry": {
@@ -33,35 +33,35 @@ async def run_client(
 
     local_organization, local_namespace, local_agent = split_id(local_id)
 
-    # create new gateway object
-    gateway = await agp_bindings.Gateway.new(
+    # create new slim object
+    slim = await slim_bindings.Slim.new(
         local_organization, local_namespace, local_agent
     )
 
-    # Connect to remote gateway server
+    # Connect to remote SLIM server
     print(format_message(f"connecting to: {address}"))
-    _ = await gateway.connect({"endpoint": address, "tls": {"insecure": True}})
+    _ = await slim.connect({"endpoint": address, "tls": {"insecure": True}})
 
     # Get the local agent instance from env
-    instance = os.getenv("AGP_INSTANCE_ID", local_agent)
+    instance = os.getenv("SLIM_INSTANCE_ID", local_agent)
 
-    async with gateway:
+    async with slim:
         if message:
             # Split the IDs into their respective components
             remote_organization, remote_namespace, remote_agent = split_id(remote_id)
 
             # Create a route to the remote ID
-            await gateway.set_route(remote_organization, remote_namespace, remote_agent)
+            await slim.set_route(remote_organization, remote_namespace, remote_agent)
 
             # create a session
-            session = await gateway.create_session(
-                agp_bindings.PySessionConfiguration.FireAndForget()
+            session = await slim.create_session(
+                slim_bindings.PySessionConfiguration.FireAndForget()
             )
 
             for i in range(0, iterations):
                 try:
                     # Send the message
-                    await gateway.publish(
+                    await slim.publish(
                         session,
                         message.encode(),
                         remote_organization,
@@ -71,7 +71,7 @@ async def run_client(
                     print(format_message(f"{instance} sent:", message))
 
                     # Wait for a reply
-                    session_info, msg = await gateway.receive(session=session.id)
+                    session_info, msg = await slim.receive(session=session.id)
                     print(
                         format_message(
                             f"{instance.capitalize()} received (from session {session_info.id}):",
@@ -85,7 +85,7 @@ async def run_client(
         else:
             # Wait for a message and reply in a loop
             while True:
-                session_info, _ = await gateway.receive()
+                session_info, _ = await slim.receive()
                 print(
                     format_message(
                         f"{instance.capitalize()} received a new session:",
@@ -96,7 +96,7 @@ async def run_client(
                 async def background_task(session_id):
                     while True:
                         # Receive the message from the session
-                        session, msg = await gateway.receive(session=session_id)
+                        session, msg = await slim.receive(session=session_id)
                         print(
                             format_message(
                                 f"{instance.capitalize()} received (from session {session_id}):",
@@ -106,7 +106,7 @@ async def run_client(
 
                         ret = f"{msg.decode()} from {instance}"
 
-                        await gateway.publish_to(session, ret.encode())
+                        await slim.publish_to(session, ret.encode())
                         print(format_message(f"{instance.capitalize()} replies:", ret))
 
                 asyncio.create_task(background_task(session_info.id))
@@ -130,10 +130,10 @@ async def main():
     )
     parser.add_argument("-m", "--message", type=str, help="Message to send.")
     parser.add_argument(
-        "-g",
-        "--gateway",
+        "-s",
+        "--slim",
         type=str,
-        help="Gateway address.",
+        help="Slim address.",
         default="http://127.0.0.1:46357",
     )
     parser.add_argument(
@@ -157,7 +157,7 @@ async def main():
         args.local,
         args.remote,
         args.message,
-        args.gateway,
+        args.slim,
         args.iterations,
         args.enable_opentelemetry,
     )

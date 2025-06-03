@@ -49,7 +49,7 @@ jobs:
 
       - name: Helm lint
         shell: bash
-        run: helm lint charts/agp --with-subcharts
+        run: helm lint charts/slim --with-subcharts
 
       - name: Set chart name
         id: chart-name
@@ -60,7 +60,7 @@ jobs:
         id: build
         shell: bash
         run: |
-          helm package charts/agp --dependency-update --version ${{ inputs.release_tag }}
+          helm package charts/slim --dependency-update --version ${{ inputs.release_tag }}
           echo "package=${{ steps.chart-name.outputs.value }}-${{ inputs.release_tag }}.tgz" >> "$GITHUB_OUTPUT"
 
       - name: Helm push to GHCR OCI registry

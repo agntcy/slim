@@ -7,11 +7,11 @@ use pyo3_stub_gen::derive::gen_stub_pyclass_enum;
 use pyo3_stub_gen::derive::gen_stub_pymethods;
 
 use crate::utils::PyAgentType;
-use agp_service::FireAndForgetConfiguration;
-use agp_service::RequestResponseConfiguration;
-use agp_service::StreamingConfiguration;
-use agp_service::session;
-pub use agp_service::session::SESSION_UNSPECIFIED;
+use slim_service::FireAndForgetConfiguration;
+use slim_service::RequestResponseConfiguration;
+use slim_service::StreamingConfiguration;
+use slim_service::session;
+pub use slim_service::session::SESSION_UNSPECIFIED;
 
 #[gen_stub_pyclass]
 #[pyclass]
@@ -103,17 +103,17 @@ impl From<PySessionType> for session::SessionType {
 #[pyclass(eq)]
 #[derive(Clone, Default, PartialEq)]
 pub(crate) struct PyRequestResponseConfiguration {
-    pub request_response_configuration: agp_service::RequestResponseConfiguration,
+    pub request_response_configuration: slim_service::RequestResponseConfiguration,
 }
 
-impl From<PyRequestResponseConfiguration> for agp_service::RequestResponseConfiguration {
-    fn from(value: PyRequestResponseConfiguration) -> agp_service::RequestResponseConfiguration {
+impl From<PyRequestResponseConfiguration> for slim_service::RequestResponseConfiguration {
+    fn from(value: PyRequestResponseConfiguration) -> slim_service::RequestResponseConfiguration {
         value.request_response_configuration
     }
 }
 
-impl From<agp_service::RequestResponseConfiguration> for PyRequestResponseConfiguration {
-    fn from(request_response_configuration: agp_service::RequestResponseConfiguration) -> Self {
+impl From<slim_service::RequestResponseConfiguration> for PyRequestResponseConfiguration {
+    fn from(request_response_configuration: slim_service::RequestResponseConfiguration) -> Self {
         PyRequestResponseConfiguration {
             request_response_configuration,
         }

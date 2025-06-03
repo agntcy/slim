@@ -18,10 +18,10 @@ name = "publisher"
 path = "src/bin/publisher.rs"
 
 [dependencies]
-agp-config = { workspace = true }
-agp-datapath = { workspace = true }
-agp-gw = { workspace = true }
-agp-service = { workspace = true }
+agntcy-slim = { workspace = true }
+agntcy-slim-config = { workspace = true }
+agntcy-slim-datapath = { workspace = true }
+agntcy-slim-service = { workspace = true }
 clap = { workspace = true }
 indicatif = { workspace = true }
 parking_lot = { workspace = true }

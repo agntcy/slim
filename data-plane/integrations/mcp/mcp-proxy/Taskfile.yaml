@@ -37,55 +37,55 @@ tasks:
   mcp-proxy:run-mcp-proxy:
     desc: run mcp proxy
     cmds:
-      - cargo run -- --config config/mcp-proxy-config.yaml --svc-name gateway/0 --name org/mcp/proxy --mcp-server http://localhost:8000/sse
+      - cargo run -- --config config/mcp-proxy-config.yaml --svc-name slim/0 --name org/mcp/proxy --mcp-server http://localhost:8000/sse
 
   mcp-proxy:test:run-mcp-client:
-    desc: run a simple MCP client that use AGP as transport protocol
+    desc: run a simple MCP client that use SLIM as transport protocol
     cmds:
       - |
-        cd examples/mcp-agp-client
+        cd examples/mcp-slim-client
         uv run main.py
-  
+
   mcp-proxy:test:reinstall-and-run-mcp-client:
-    desc: run a simple MCP client that use AGP as transport protocol
+    desc: run a simple MCP client that use SLIM as transport protocol
     cmds:
       - |
-        cd examples/mcp-agp-client
+        cd examples/mcp-slim-client
         uv run --reinstall main.py
 
-  mcp-proxy:run-agp:
-    desc: run an AGP node
+  mcp-proxy:run-slim:
+    desc: run an SLIM node
     cmds:
       - |
         cd ../../../
-        cargo run --bin gateway -- --config config/base/server-config.yaml
-  
+        cargo run --bin slim -- --config config/base/server-config.yaml
+
   mcp-proxy:example:run-mcp-server-time-sse:
     desc: run mcp server time using SSE transport using New York time
     cmds:
       - |
-        cd ../agp-mcp/examples/mcp-server-time/
+        cd ../slim-mcp/examples/mcp-server-time/
         uv run --package mcp-server-time mcp-server-time --local-timezone "America/New_York" --transport sse
 
-  mcp-proxy:example:run-mcp-server-time-agp:
+  mcp-proxy:example:run-mcp-server-time-slim:
     desc: run mcp server time using SSE transport using New York time
     cmds:
       - |
-        cd ../agp-mcp/examples/mcp-server-time/
-        uv run --package mcp-server-time mcp-server-time --local-timezone "America/New_York" --transport agp
+        cd ../slim-mcp/examples/mcp-server-time/
+        uv run --package mcp-server-time mcp-server-time --local-timezone "America/New_York" --transport slim
 
   mcp-proxy:example:run-llamaindex-time-agent-proxy:
     desc: run llama index time agent
     cmds:
       - |
-        cd ../agp-mcp/examples/llamaindex-time-agent
+        cd ../slim-mcp/examples/llamaindex-time-agent
         uv run --package llamaindex-time-agent llamaindex-time-agent --city "New York" --mcp-server-organization "org" --mcp-server-namespace "mcp" --mcp-server-name "proxy"
 
   mcp-proxy:example:run-llamaindex-time-agent:
     desc: run llama index time agent
     cmds:
       - |
-        cd ../agp-mcp/examples/llamaindex-time-agent
+        cd ../slim-mcp/examples/llamaindex-time-agent
         uv run --package llamaindex-time-agent llamaindex-time-agent --city "New York"
 
   mcp-proxy:build:strip:
@@ -94,4 +94,4 @@ tasks:
       - task: mcp-proxy:build
       - task: mcp-proxy:toolchain:strip
         vars:
-          TARGET_BIN: "target/{{.TARGET}}/{{.PROFILE}}/agp-mcp-proxy"
+          TARGET_BIN: "target/{{.TARGET}}/{{.PROFILE}}/slim-mcp-proxy"

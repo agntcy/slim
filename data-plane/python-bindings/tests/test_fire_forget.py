@@ -6,7 +6,7 @@ import datetime
 
 import pytest
 
-import agp_bindings
+import slim_bindings
 
 
 @pytest.mark.asyncio
@@ -16,8 +16,8 @@ async def test_sticky_session(server):
     ns = "default"
     sender = "sender"
 
-    # create new gateway object
-    sender = await agp_bindings.Gateway.new(org, ns, sender)
+    # create new slim object
+    sender = await slim_bindings.Slim.new(org, ns, sender)
 
     # Connect to the service and subscribe for the local name
     _ = await sender.connect(
@@ -32,7 +32,7 @@ async def test_sticky_session(server):
     # run 10 receivers concurrently
     async def run_receiver(i: int):
         # create new receiver object
-        receiver = await agp_bindings.Gateway.new(org, ns, "receiver")
+        receiver = await slim_bindings.Slim.new(org, ns, "receiver")
 
         # Connect to the service and subscribe for the local name
         _ = await receiver.connect(
@@ -61,7 +61,7 @@ async def test_sticky_session(server):
 
     # create a new session
     session_info = await sender.create_session(
-        agp_bindings.PySessionConfiguration.FireAndForget(
+        slim_bindings.PySessionConfiguration.FireAndForget(
             max_retries=5,
             timeout=datetime.timedelta(seconds=5),
             sticky=True,

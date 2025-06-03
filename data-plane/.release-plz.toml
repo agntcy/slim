@@ -4,60 +4,54 @@ release_always = true
 release = false
 
 [[package]]
-name = "agp-examples"
-publish = false
-release = true
-changelog_update = true
-
-[[package]]
-name = "agp-config"
+name = "agntcy-slim-config"
 publish = true
 release = true
 changelog_update = true
 
 [[package]]
-name = "agp-datapath"
+name = "agntcy-slim-datapath"
 publish = true
 release = true
 changelog_update = true
 
 [[package]]
-name = "agp-gw"
+name = "agntcy-slim"
 publish = true
 release = true
 changelog_update = true
 
 [[package]]
-name = "agp-nop-component"
+name = "agntcy-slim-nop-component"
 publish = false
 changelog_update = false
 
 [[package]]
-name = "agp-service"
+name = "agntcy-slim-service"
 publish = true
 release = true
 changelog_update = true
 
 [[package]]
-name = "agp-signal"
+name = "agntcy-slim-signal"
 publish = true
 release = true
 changelog_update = true
 
 [[package]]
-name = "agp-tracing"
+name = "agntcy-slim-tracing"
 publish = true
 release = true
 changelog_update = true
 
 [[package]]
-name = "agp-bindings"
+name = "agntcy-slim-bindings"
 publish = false
 release = true
 changelog_update = true
 
 [[package]]
-name = "agp-controller"
+name = "agntcy-slim-controller"
 publish = true
 release = true
 changelog_update = true

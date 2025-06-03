@@ -7,16 +7,16 @@ tracing:
   display_thread_ids: true
   opentelemetry:
     enabled: true
-    service_name: "data-plane-gateway"
+    service_name: "slim-data-plane"
     service_version: "v0.1.0"
 
 runtime:
   n_cores: 0
-  thread_name: "data-plane-gateway"
+  thread_name: "slim-data-plane"
   drain_timeout: 10s
 
 services:
-  gateway/0:
+  slim/0:
     pubsub:
       servers:
         - endpoint: "0.0.0.0:46357"

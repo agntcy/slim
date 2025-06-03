@@ -24,11 +24,11 @@ tasks:
     cmds:
       - cargo run --release --bin workload-gen -- -s $SUB -p $PUB -i $SUB_AGENTS -a $SUB_AGENTS
 
-  run:agp:
-    desc: "Run the AGP server"
+  run:slim:
+    desc: "Run the SLIM server"
     dir: ".."
     cmds:
-      - cargo run --release --bin gateway -- --config $CONFIG_SERVER
+      - cargo run --release --bin slim -- --config $CONFIG_SERVER
 
   run:subscribers:
     desc: "Run subscriber applications"
@@ -52,7 +52,7 @@ tasks:
         killall subscriber || true
         echo "stop all publishers"
         killall publisher || true
-        echo "stop gateway"
-        killall gateway || true
+        echo "stop slim"
+        killall slim || true
 
 

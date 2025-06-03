@@ -2,7 +2,7 @@ receivers:
   otlp:
     protocols:
       grpc:
-        endpoint: "0.0.0.0:4317" 
+        endpoint: "0.0.0.0:4317"
       http:
         endpoint: "0.0.0.0:4318"
 
@@ -16,14 +16,14 @@ exporters:
     endpoint: "jaeger:14317"
     tls:
       insecure: true
-  
+
   prometheus:
     endpoint: "0.0.0.0:9091"
-    namespace: "agp_gateway" 
+    namespace: "slim"
     const_labels:
-      service: "agp-data-plane"
+      service: "slim-data-plane"
       source: "otel_collector"
-  
+
   debug:
     verbosity: detailed
 
@@ -33,7 +33,7 @@ service:
       receivers: [otlp]
       processors: [batch]
       exporters: [otlp]
-    
+
     metrics:
       receivers: [otlp]
       processors: [batch]

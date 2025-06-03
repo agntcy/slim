@@ -33,7 +33,7 @@ pub fn main() {
             "--tags",
             "--always",
             "--match",
-            "agp-bindings-v*",
+            "slim-bindings-v*",
         ]),
     );
 

@@ -1,0 +1,10 @@
+# Copyright AGNTCY Contributors (https://github.com/agntcy)
+# SPDX-License-Identifier: Apache-2.0
+
+tracing:
+  log_level: debug
+
+services:
+  slim/0:
+    server:
+      endpoint: "1.2.3.4:54321"

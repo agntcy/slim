@@ -1,16 +1,6 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
-use agp_datapath::{
-    messages::{Agent, AgentType},
-    pubsub::proto::pubsub::v1::Message,
-};
-use agp_gw::config::ConfigResult;
-use agp_service::{
-    FireAndForgetConfiguration,
-    session::{self, SessionConfig},
-    timer::{self, Timer},
-};
 use rmcp::model::ClientResult::EmptyResult;
 use rmcp::{
     RoleClient,
@@ -19,6 +9,16 @@ use rmcp::{
         PingRequest, PingRequestMethod, ServerJsonRpcMessage,
     },
     transport::{IntoTransport, SseTransport, sse::SseTransportError},
+};
+use slim::config::ConfigResult;
+use slim_datapath::{
+    api::proto::pubsub::v1::Message,
+    messages::{Agent, AgentType},
+};
+use slim_service::{
+    FireAndForgetConfiguration,
+    session::{self, SessionConfig},
+    timer::{self, Timer},
 };
 
 use futures_util::{StreamExt, sink::SinkExt};
@@ -59,18 +59,18 @@ impl timer::TimerObserver for PingTimerObserver {
 
 struct ProxySession {
     // name of the agent connect to this session
-    agw_session: session::Info,
+    slim_session: session::Info,
     // send messages to proxy
     tx_proxy: mpsc::Sender<Result<(session::Info, Vec<u8>), session::Info>>,
 }
 
 impl ProxySession {
     fn new(
-        agw_session: session::Info,
+        slim_session: session::Info,
         tx_proxy: mpsc::Sender<Result<(session::Info, Vec<u8>), session::Info>>,
     ) -> Self {
         ProxySession {
-            agw_session,
+            slim_session,
             tx_proxy,
         }
     }
@@ -78,7 +78,7 @@ impl ProxySession {
     async fn run_session(&self, mcp_server: String) -> mpsc::Sender<Message> {
         let (tx_session, mut rx_session) = mpsc::channel::<Message>(128);
         let tx_channel = self.tx_proxy.clone();
-        let agw_session = self.agw_session.clone();
+        let slim_session = self.slim_session.clone();
 
         tokio::spawn(async move {
             // connect to the MCP server
@@ -113,18 +113,18 @@ impl ProxySession {
 
             loop {
                 tokio::select! {
-                    next_from_gw = rx_session.recv() => {
-                        match next_from_gw {
+                    next_from_slim = rx_session.recv() => {
+                        match next_from_slim {
                             None => {
-                                debug!("end of the stream from GW, stop receiving loop");
+                                debug!("end of the stream from SLIM, stop receiving loop");
                                 ping_timer.stop();
                                 let _ = sink.close().await;
-                                let _ = tx_channel.send(Err(agw_session.clone())).await;
+                                let _ = tx_channel.send(Err(slim_session.clone())).await;
                                 break;
                             }
                             Some(msg) => {
-                                debug!("received message from GW");
-                                // received a message from the GW, send it to the MCP server
+                                debug!("received message from SLIM");
+                                // received a message from the SLIM, send it to the MCP server
                                 let payload = msg.get_payload().unwrap().blob.to_vec();
                                 let jsonrpcmsg: JsonRpcMessage<ClientRequest, ClientResult, ClientNotification> =
                                     match serde_json::from_slice(&payload) {
@@ -191,13 +191,13 @@ impl ProxySession {
                                 info!("end of the stream from MCP, stop receiving loop");
                                 ping_timer.stop();
                                 let _ = sink.close().await;
-                                let _ = tx_channel.send(Err(agw_session.clone())).await;
+                                let _ = tx_channel.send(Err(slim_session.clone())).await;
                                 break;
                             }
                             Some(msg) => {
-                                // received a message from the MCP server, send it to the GW
+                                // received a message from the MCP server, send it to SLIM
                                 let vec = serde_json::to_vec(&msg).unwrap();
-                                let _ = tx_channel.send(Ok((agw_session.clone(), vec))).await;
+                                let _ = tx_channel.send(Ok((slim_session.clone(), vec))).await;
                             }
                         }
                     }
@@ -207,7 +207,7 @@ impl ProxySession {
                                 debug!("end of stream from timer, stop receivieng loop");
                                 ping_timer.stop();
                                 let _ = sink.close().await;
-                                let _ = tx_channel.send(Err(agw_session.clone())).await;
+                                let _ = tx_channel.send(Err(slim_session.clone())).await;
                                 break;
                             }
                             Some(_) => {
@@ -216,7 +216,7 @@ impl ProxySession {
                                     debug!("the client is not replying to the ping anymore, drop the connection");
                                     ping_timer.stop();
                                     let _ = sink.close().await;
-                                    let _ = tx_channel.send(Err(agw_session.clone())).await;
+                                    let _ = tx_channel.send(Err(slim_session.clone())).await;
                                     break;
                                 }
 
@@ -234,7 +234,7 @@ impl ProxySession {
                                 });
 
                                 let vec = serde_json::to_vec(&req).unwrap();
-                                let _ = tx_channel.send(Ok((agw_session.clone(), vec))).await;
+                                let _ = tx_channel.send(Ok((slim_session.clone(), vec))).await;
 
                             }
                         }
@@ -252,14 +252,14 @@ impl ProxySession {
 struct SessionId {
     /// name of the source of the packet
     source: Agent,
-    /// AGP session id
+    /// SLIM session id
     id: u32,
 }
 
 pub struct Proxy {
     name: Agent,
     config: ConfigResult,
-    svc_id: agp_config::component::id::ID,
+    svc_id: slim_config::component::id::ID,
     mcp_server: String,
     connections: HashMap<SessionId, mpsc::Sender<Message>>,
 }
@@ -269,7 +269,7 @@ impl Proxy {
         name: AgentType,
         id: Option<u64>,
         config: ConfigResult,
-        svc_id: agp_config::component::id::ID,
+        svc_id: slim_config::component::id::ID,
         mcp_server: String,
     ) -> Self {
         let agent_id = match id {
@@ -292,7 +292,7 @@ impl Proxy {
         // create service from config
         let mut svc = self.config.services.remove(&self.svc_id).unwrap();
 
-        let mut gw_rx = svc
+        let mut slim_rx = svc
             .create_agent(&self.name)
             .await
             .expect("failed to create agent");
@@ -336,10 +336,10 @@ impl Proxy {
         info!("waiting for incoming messages");
         loop {
             tokio::select! {
-                next_from_gw = gw_rx.recv() => {
-                    match next_from_gw {
+                next_from_slim = slim_rx.recv() => {
+                    match next_from_slim {
                         None => {
-                            info!("end of the stream from the gateway, stop the MCP prefix");
+                            info!("end of the stream, stop the MCP prefix");
                             break;
                         }
                         Some(result) => match result {
@@ -453,7 +453,7 @@ impl Proxy {
                         }
                     }
                 }
-                _ = agp_signal::shutdown() => {
+                _ = slim_signal::shutdown() => {
                     info!("Received shutdown signal, stop mcp-proxy");
                     break;
                 }

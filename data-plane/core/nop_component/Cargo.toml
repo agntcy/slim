@@ -1,0 +1,16 @@
+[package]
+name = "agntcy-slim-nop-component"
+version = "0.1.0"
+publish = false
+edition = { workspace = true }
+license = { workspace = true }
+
+[lib]
+name = "slim_nop_component"
+
+[dependencies]
+agntcy-slim-config = { workspace = true }
+serde = { workspace = true }
+
+[dev-dependencies]
+serde_yaml = { workspace = true }

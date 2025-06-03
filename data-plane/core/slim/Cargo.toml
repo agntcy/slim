@@ -1,0 +1,38 @@
+[package]
+name = "agntcy-slim"
+version = "0.3.15"
+edition = { workspace = true }
+license = { workspace = true }
+description = "The main SLIM executable."
+
+[lib]
+name = "slim"
+
+[[bin]]
+name = "slim"
+path = "src/bin/main.rs"
+
+[features]
+default = ["multicore"]
+multicore = ["tokio/rt-multi-thread", "num_cpus"]
+
+[dependencies]
+agntcy-slim-config = { workspace = true }
+agntcy-slim-service = { workspace = true }
+agntcy-slim-signal = { workspace = true }
+agntcy-slim-tracing = { workspace = true }
+clap = { workspace = true }
+duration-str = { workspace = true }
+lazy_static = { workspace = true }
+num_cpus = { version = "1.16.0", optional = true }
+serde = { workspace = true }
+serde_yaml = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+
+[target.x86_64-unknown-linux-gnu.dependencies]
+jemallocator = { workspace = true }
+
+[dev-dependencies]
+tracing-test = { workspace = true }

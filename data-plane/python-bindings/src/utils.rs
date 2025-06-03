@@ -1,7 +1,6 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
-use agp_tracing::TracingConfiguration;
 use pyo3::exceptions::PyException;
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
@@ -9,9 +8,10 @@ use pyo3_stub_gen::derive::gen_stub_pyclass;
 use pyo3_stub_gen::derive::gen_stub_pyfunction;
 use pyo3_stub_gen::derive::gen_stub_pymethods;
 use serde_pyobject::from_pyobject;
+use slim_tracing::TracingConfiguration;
 use tokio::sync::OnceCell;
 
-use agp_datapath::messages::encoder::AgentType;
+use slim_datapath::messages::encoder::AgentType;
 
 /// agent class
 #[gen_stub_pyclass]
@@ -53,8 +53,8 @@ impl PyAgentType {
     }
 }
 
-async fn init_tracing_impl(config: TracingConfiguration) -> Result<(), agp_tracing::ConfigError> {
-    static TRACING_GUARD: OnceCell<agp_tracing::OtelGuard> = OnceCell::const_new();
+async fn init_tracing_impl(config: TracingConfiguration) -> Result<(), slim_tracing::ConfigError> {
+    static TRACING_GUARD: OnceCell<slim_tracing::OtelGuard> = OnceCell::const_new();
 
     let _ = TRACING_GUARD
         .get_or_init(|| async { config.setup_tracing_subscriber().unwrap() })

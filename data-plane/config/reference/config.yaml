@@ -26,8 +26,8 @@ tracing:
     enabled: true
 
     # Service name used for the tracing.
-    # Default: agp-data-plane
-    service_name: "agp-data-plane"
+    # Default: slim-data-plane
+    service_name: "slim-data-plane"
 
     # Service version used for the tracing.
     # Default: v0.1.0
@@ -39,8 +39,8 @@ runtime:
   n_cores: 0
 
   # The name of the thread(s) that will run the runtime.
-  # Default: "gateway"
-  thread_name: "data-plane-gateway"
+  # Default: "slim"
+  thread_name: "slim-data-plane"
 
   # The timeout for the runtime to wait for the tasks to finish before shutting down.
   # Default: 10s
@@ -48,9 +48,9 @@ runtime:
 
 # Configuration for the services
 services:
-  # Configuration for the gateway service.
+  # Configuration for the slim service.
   # This is the main service that will handle the incoming requests.
-  gateway/0:
+  slim/0:
     # pubsub API configuration
     pubsub:
       # GRPC Server configuration

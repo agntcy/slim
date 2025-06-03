@@ -1,9 +1,5 @@
 use std::sync::Arc;
 
-use agp_datapath::messages::encoder::{Agent, AgentType};
-use agp_datapath::messages::utils::AgpHeaderFlags;
-use agp_service::session;
-use agp_service::{Service, ServiceError};
 use pyo3::exceptions::PyException;
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
@@ -12,16 +8,17 @@ use pyo3_stub_gen::derive::gen_stub_pyfunction;
 use pyo3_stub_gen::derive::gen_stub_pymethods;
 use rand::Rng;
 use serde_pyobject::from_pyobject;
+use slim_datapath::messages::encoder::{Agent, AgentType};
+use slim_datapath::messages::utils::SlimHeaderFlags;
+use slim_service::session;
+use slim_service::{Service, ServiceError};
 use tokio::sync::RwLock;
 
 use crate::pysession::PySessionType;
 use crate::pysession::{PySessionConfiguration, PySessionInfo};
 use crate::utils::PyAgentType;
-use agp_config::grpc::client::ClientConfig as PyGrpcClientConfig;
-use agp_config::grpc::server::ServerConfig as PyGrpcServerConfig;
-
-// TODO(msardara): most of the structs here shouhld be generated with a macro
-// to reflect any change that may occur in the gateway code
+use slim_config::grpc::client::ClientConfig as PyGrpcClientConfig;
+use slim_config::grpc::server::ServerConfig as PyGrpcServerConfig;
 
 #[gen_stub_pyclass]
 #[pyclass]
@@ -64,7 +61,7 @@ impl PyService {
         let agent = Agent::from_strings(&organization, &namespace, &agent_type, id);
 
         // create service ID
-        let svc_id = agp_config::component::id::ID::new_with_str("service/0").unwrap();
+        let svc_id = slim_config::component::id::ID::new_with_str("service/0").unwrap();
 
         // create local service
         let svc = Service::new(svc_id);
@@ -197,7 +194,7 @@ impl PyService {
         };
 
         // set flags
-        let flags = AgpHeaderFlags::new(fanout, None, conn_out, None, None);
+        let flags = SlimHeaderFlags::new(fanout, None, conn_out, None, None);
 
         self.sdk
             .service
@@ -227,7 +224,7 @@ impl PyService {
                 // extract agent and payload
                 let content = match msg.message.message_type {
                     Some(ref msg_type) => match msg_type {
-                        agp_datapath::pubsub::ProtoPublishType(publish) => &publish.get_payload().blob,
+                        slim_datapath::api::ProtoPublishType(publish) => &publish.get_payload().blob,
                         _ => Err(ServiceError::ReceiveError(
                             "receive publish message type".to_string(),
                         ))?,

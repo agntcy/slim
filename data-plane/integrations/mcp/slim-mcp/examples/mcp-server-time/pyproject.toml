@@ -1,0 +1,27 @@
+# Copyright AGNTCY Contributors (https://github.com/agntcy)
+# SPDX-License-Identifier: Apache-2.0
+
+[project]
+name = "mcp-server-time"
+version = "0.6.2"
+description = "A Model Context Protocol server providing tools for time queries and timezone conversions for LLMs"
+readme = "README.md"
+requires-python = ">=3.10"
+keywords = ["time", "timezone", "mcp", "llm"]
+license = "Apache-2.0"
+dependencies = ["mcp==1.6.0", "slim-mcp>=0.1.0", "click>=8.1.8"]
+
+[project.scripts]
+mcp-server-time = "mcp_server_time:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.uv]
+dev-dependencies = [
+    "freezegun>=1.5.1",
+    "pyright>=1.1.389",
+    "pytest>=8.3.3",
+    "ruff>=0.8.1",
+]

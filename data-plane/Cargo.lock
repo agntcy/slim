@@ -18,23 +18,28 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "512761e0bb2578dd7380c6baaa0f4ce03e84f95e960231d1dec8bf4d7d6e2627"
 
 [[package]]
-name = "agp-bindings"
-version = "0.1.0"
+name = "agntcy-slim"
+version = "0.3.15"
 dependencies = [
- "agp-config",
- "agp-datapath",
- "agp-service",
- "agp-tracing",
- "pyo3",
- "pyo3-async-runtimes",
- "pyo3-stub-gen",
- "rand 0.9.1",
- "serde-pyobject",
+ "agntcy-slim-config",
+ "agntcy-slim-service",
+ "agntcy-slim-signal",
+ "agntcy-slim-tracing",
+ "clap",
+ "duration-str",
+ "jemallocator",
+ "lazy_static",
+ "num_cpus",
+ "serde",
+ "serde_yaml",
+ "thiserror",
  "tokio",
+ "tracing",
+ "tracing-test",
 ]
 
 [[package]]
-name = "agp-config"
+name = "agntcy-slim-config"
 version = "0.1.8"
 dependencies = [
  "duration-str",
@@ -67,11 +72,11 @@ dependencies = [
 ]
 
 [[package]]
-name = "agp-controller"
+name = "agntcy-slim-controller"
 version = "0.1.1"
 dependencies = [
- "agp-config",
- "agp-datapath",
+ "agntcy-slim-config",
+ "agntcy-slim-datapath",
  "bytes",
  "h2",
  "parking_lot",
@@ -88,11 +93,11 @@ dependencies = [
 ]
 
 [[package]]
-name = "agp-datapath"
+name = "agntcy-slim-datapath"
 version = "0.7.0"
 dependencies = [
- "agp-config",
- "agp-tracing",
+ "agntcy-slim-config",
+ "agntcy-slim-tracing",
  "bit-vec",
  "bytes",
  "criterion",
@@ -115,56 +120,21 @@ dependencies = [
 ]
 
 [[package]]
-name = "agp-examples"
+name = "agntcy-slim-nop-component"
 version = "0.1.0"
 dependencies = [
- "agp-config",
- "agp-datapath",
- "agp-gw",
- "agp-service",
- "agp-signal",
- "clap",
- "tokio",
- "tracing",
-]
-
-[[package]]
-name = "agp-gw"
-version = "0.3.15"
-dependencies = [
- "agp-config",
- "agp-service",
- "agp-signal",
- "agp-tracing",
- "clap",
- "duration-str",
- "jemallocator",
- "lazy_static",
- "num_cpus",
- "serde",
- "serde_yaml",
- "thiserror",
- "tokio",
- "tracing",
- "tracing-test",
-]
-
-[[package]]
-name = "agp-nop-component"
-version = "0.1.0"
-dependencies = [
- "agp-config",
+ "agntcy-slim-config",
  "serde",
  "serde_yaml",
 ]
 
 [[package]]
-name = "agp-service"
+name = "agntcy-slim-service"
 version = "0.4.2"
 dependencies = [
- "agp-config",
- "agp-controller",
- "agp-datapath",
+ "agntcy-slim-config",
+ "agntcy-slim-controller",
+ "agntcy-slim-datapath",
  "async-trait",
  "drain",
  "parking_lot",
@@ -179,7 +149,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "agp-signal"
+name = "agntcy-slim-signal"
 version = "0.1.2"
 dependencies = [
  "tokio",
@@ -187,10 +157,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "agp-tracing"
+name = "agntcy-slim-tracing"
 version = "0.2.1"
 dependencies = [
- "agp-config",
+ "agntcy-slim-config",
  "once_cell",
  "opentelemetry",
  "opentelemetry-otlp",
@@ -2720,6 +2690,36 @@ dependencies = [
 ]
 
 [[package]]
+name = "slim-bindings"
+version = "0.1.0"
+dependencies = [
+ "agntcy-slim-config",
+ "agntcy-slim-datapath",
+ "agntcy-slim-service",
+ "agntcy-slim-tracing",
+ "pyo3",
+ "pyo3-async-runtimes",
+ "pyo3-stub-gen",
+ "rand 0.9.1",
+ "serde-pyobject",
+ "tokio",
+]
+
+[[package]]
+name = "slim-examples"
+version = "0.1.0"
+dependencies = [
+ "agntcy-slim",
+ "agntcy-slim-config",
+ "agntcy-slim-datapath",
+ "agntcy-slim-service",
+ "agntcy-slim-signal",
+ "clap",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "smallvec"
 version = "1.15.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2807,10 +2807,10 @@ dependencies = [
 name = "testing"
 version = "0.1.0"
 dependencies = [
- "agp-config",
- "agp-datapath",
- "agp-gw",
- "agp-service",
+ "agntcy-slim",
+ "agntcy-slim-config",
+ "agntcy-slim-datapath",
+ "agntcy-slim-service",
  "clap",
  "indicatif",
  "parking_lot",

@@ -1,6 +1,6 @@
 # Run this example
 
-Open 3 terminal tabs. In the first one run the gateway service:
+Open 3 terminal tabs. In the first one run the slim service:
 
 ```
 task run:server

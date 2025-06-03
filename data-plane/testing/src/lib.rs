@@ -3,7 +3,7 @@
 
 use std::str::SplitWhitespace;
 
-use agp_datapath::messages::{Agent, AgentType};
+use slim_datapath::messages::{Agent, AgentType};
 use thiserror::Error;
 
 #[derive(Error, Debug, PartialEq)]

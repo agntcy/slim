@@ -2,12 +2,12 @@
 # SPDX-License-Identifier: Apache-2.0
 
 ---
-name: ci-release-agpctl
+name: ci-release-slimctl
 
 on:
   push:
     tags:
-      - 'agpctl-*'
+      - 'slimctl-*'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -45,13 +45,13 @@ jobs:
         uses: ./.github/actions/setup-go
 
       - name: Build
-        run: CGO_ENABLED=0 task control-plane:agpctl:build
+        run: CGO_ENABLED=0 task control-plane:slimctl:build
 
       - name: Authenticate
         run: gh auth login --with-token <<< "${{ secrets.GITHUB_TOKEN }}"
 
       - name: Upload to existing release
         run: |
-          mv .dist/bin/agpctl .dist/bin/agpctl-${{ matrix.os }}-${{ matrix.arch }}
+          mv .dist/bin/slimctl .dist/bin/slimctl-${{ matrix.os }}-${{ matrix.arch }}
           TAG=${GITHUB_REF#refs/tags/}
-          gh release upload "$TAG" .dist/bin/agpctl-${{ matrix.os }}-${{ matrix.arch }} --clobber
+          gh release upload "$TAG" .dist/bin/slimctl-${{ matrix.os }}-${{ matrix.arch }} --clobber

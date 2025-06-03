@@ -1,0 +1,36 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "slim-mcp"
+description = "Model Context Protocol with SLIM as transport"
+readme = "README.md"
+version = "0.1.5"
+requires-python = ">=3.10, <4.0"
+license = "Apache-2.0"
+classifiers = [
+    "Development Status :: 3 - Alpha",
+
+    # Indicate who your project is intended for
+    "Intended Audience :: Developers",
+    "Topic :: Software Development :: Libraries",
+
+    # Specify the Python versions you support here.
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+]
+
+dependencies = ["slim-bindings>=0.3.5", "mcp==1.6.0", "anyio>=4.5"]
+
+[tool.uv.sources]
+slim-bindings = { path = "../../../../../python-bindings" }
+
+[dependency-groups]
+testing = ["pytest>=8.3.5", "pytest-asyncio>=0.26.0"]
+linting = ["griffe>=1.7.2", "pyright>=1.1.399", "ruff>=0.11.6", "mypy>=1.15"]
+
+[tool.uv]
+default-groups = ["testing", "linting"]

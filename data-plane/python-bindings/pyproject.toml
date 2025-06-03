@@ -3,9 +3,9 @@ requires = ["maturin>=1,<2"]
 build-backend = "maturin"
 
 [project]
-name = "agp-bindings"
+name = "slim-bindings"
 version = "0.3.5"
-description = "AGP Rust bindings for Python"
+description = "SLIM Rust bindings for Python"
 requires-python = ">=3.9, <4.0"
 readme = "README.md"
 license = "Apache-2.0"
@@ -25,9 +25,9 @@ classifiers = [
 ]
 
 [project.urls]
-Repository = "https://github.com/agntcy/agp"
-Issues = "https://github.com/agntcy/agp/issues"
-Changelog = "https://github.com/agntcy/agp/blob/main/data-plane/python-bindings/CHANGELOG.md"
+Repository = "https://github.com/agntcy/slim"
+Issues = "https://github.com/agntcy/slim/issues"
+Changelog = "https://github.com/agntcy/slim/blob/main/data-plane/python-bindings/CHANGELOG.md"
 
 [dependency-groups]
 building = [
@@ -53,7 +53,7 @@ default-groups = ["building", "testing", "linting"]
 [tool.maturin]
 bindings = "pyo3"
 features = ["pyo3/extension-module"]
-module-name = "agp_bindings._agp_bindings"
+module-name = "slim_bindings._slim_bindings"
 
 [tool.ruff.format]
 quote-style = "double"
@@ -62,7 +62,7 @@ quote-style = "double"
 testpaths = "tests"
 
 [tool.ruff]
-extend-exclude = ["agp_bindings/_agp_bindings.pyi"]
+extend-exclude = ["slim_bindings/_slim_bindings.pyi"]
 
 [tool.ruff.lint]
 extend-select = ["Q", "RUF100", "C90", "I", "UP"]
@@ -71,4 +71,4 @@ extend-ignore = [
 ]
 flake8-quotes = { inline-quotes = "double", multiline-quotes = "double" }
 mccabe = { max-complexity = 13 }
-isort = { known-first-party = ["agp_bindings", "tests"] }
+isort = { known-first-party = ["slim_bindings", "tests"] }

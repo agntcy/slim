@@ -14,7 +14,7 @@ on:
 jobs:
   # Release unpublished packages.
   release-crates:
-    name: Release agp crates
+    name: Release slim crates
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -48,7 +48,7 @@ jobs:
 
   # Create a PR with the new versions and changelog, preparing the next release.
   release-crates-pr:
-    name: Release agp crates - PR
+    name: Release slim crates - PR
     runs-on: ubuntu-latest
     permissions:
       contents: write

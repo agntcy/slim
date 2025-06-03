@@ -1,0 +1,96 @@
+// Copyright AGNTCY Contributors (https://github.com/agntcy)
+// SPDX-License-Identifier: Apache-2.0
+
+syntax = "proto3";
+package pubsub.proto.v1;
+
+service PubSubService {
+  rpc OpenChannel(stream Message) returns (stream Message) {}
+}
+
+message Subscribe {
+  SLIMHeader header = 1;
+  string organization = 2;
+  string namespace = 3;
+  string agent_type = 4;
+}
+
+message Unsubscribe { SLIMHeader header = 1; }
+
+message Publish {
+  SLIMHeader header = 1;
+  SessionHeader session = 2;
+  Content msg = 4;
+}
+
+// recvFrom = connection from where the sub/unsub is supposed to be received
+// forwardTo = connection where to forward the message
+// incomingConn = connection from where the packet was received
+// error = if true the publication contains an error notification
+message SLIMHeader {
+  Agent source = 1;
+  Agent destination = 2;
+  uint32 fanout = 3;
+  optional uint64 recvFrom = 4;
+  optional uint64 forwardTo = 5;
+  optional uint64 incomingConn = 6;
+  optional bool error = 7;
+}
+
+message Agent {
+  uint64 organization = 1;
+  uint64 namespace = 2;
+  uint64 agent_type = 3;
+  optional uint64 agent_id = 4;
+}
+
+enum SessionHeaderType {
+  UNSPECIFIED = 0;
+  FNF = 1;
+  FNF_RELIABLE = 2;
+  FNF_ACK = 3;
+  FNF_DISCOVERY = 4;
+  FNF_DISCOVERY_REPLY = 5;
+  REQUEST = 6;
+  REPLY = 7;
+  STREAM = 8;
+  PUB_SUB = 9;
+  RTX_REQUEST = 10;
+  RTX_REPLY = 11;
+  BEACON_STREAM = 12;
+  BEACON_PUB_SUB = 13;
+}
+// Session.session_id is the ID of the session
+
+// Session.message_id meaning according to the SessionHeaderType
+// FNF = nonce
+// FNF_RELIABLE = nonce
+// FNF_ACK = nonce of the received FNF_RELIABLE message
+// REQUEST = nonce
+// REPLY = nonce of the associated REQUEST
+// STREAM = sequential incremental ID
+// PUBSUB = sequential incremental ID
+// RTX_REQUEST = ID of the lost packet
+// RTX_REPLY = ID of the retransmitted packet
+// BEACON_STREAM = ID of the last message sent by the producer
+// BEACON_PUB_SUB = ID of the last message sent by the producer
+
+message SessionHeader {
+  SessionHeaderType header_type = 1;
+  uint32 session_id = 2;
+  uint32 message_id = 3;
+}
+
+message Content {
+  string content_type = 1;
+  bytes blob = 2;
+}
+
+message Message {
+  oneof messageType {
+    Subscribe subscribe = 1;
+    Unsubscribe unsubscribe = 2;
+    Publish publish = 3;
+  }
+  map<string, string> metadata = 4;
+}

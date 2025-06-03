@@ -75,31 +75,31 @@ popd
 EOF
 
 # runtime images  - debug executable, debug symbols and, most importantly, a shell :)
-FROM debian:bookworm-slim AS gateway-debug
+FROM debian:bookworm-slim AS slim-debug
 
 ARG TARGETARCH
 
 # copy the build artifacts from the build stage
-COPY --from=rust /app/data-plane/target/${TARGETARCH}-unknown-linux-gnu/release/gateway /gateway
-COPY --from=rust /app/data-plane/target/${TARGETARCH}-unknown-linux-gnu/release/gateway.dbg /gateway.dbg
+COPY --from=rust /app/data-plane/target/${TARGETARCH}-unknown-linux-gnu/release/slim /slim
+COPY --from=rust /app/data-plane/target/${TARGETARCH}-unknown-linux-gnu/release/slim.dbg /slim.dbg
 
 # runtime images  - release executable
-FROM gcr.io/distroless/cc-debian12:nonroot AS gateway-release
+FROM gcr.io/distroless/cc-debian12:nonroot AS slim-release
 
 ARG TARGETARCH
 
 # copy the artifacts from the build stage
-COPY --from=rust /app/data-plane/target/${TARGETARCH}-unknown-linux-gnu/release/gateway /gateway
+COPY --from=rust /app/data-plane/target/${TARGETARCH}-unknown-linux-gnu/release/slim /slim
 
 FROM ghcr.io/distroless/cc-debian12:nonroot AS mcp-proxy-debug
 ARG TARGETARCH
 
 # copy the artifacts from the build stage
-COPY --from=rust /app/data-plane/integrations/mcp/mcp-proxy/target/${TARGETARCH}-unknown-linux-gnu/release/agp-mcp-proxy /agp-mcp-proxy
-COPY --from=rust /app/data-plane/integrations/mcp/mcp-proxy/target/${TARGETARCH}-unknown-linux-gnu/release/agp-mcp-proxy.dbg /agp-mcp-proxy.dbg
+COPY --from=rust /app/data-plane/integrations/mcp/mcp-proxy/target/${TARGETARCH}-unknown-linux-gnu/release/slim-mcp-proxy /slim-mcp-proxy
+COPY --from=rust /app/data-plane/integrations/mcp/mcp-proxy/target/${TARGETARCH}-unknown-linux-gnu/release/slim-mcp-proxy.dbg /slim-mcp-proxy.dbg
 
 FROM gcr.io/distroless/cc-debian12:nonroot AS mcp-proxy-release
 ARG TARGETARCH
 
 # copy the artifacts from the build stage
-COPY --from=rust /app/data-plane/integrations/mcp/mcp-proxy/target/${TARGETARCH}-unknown-linux-gnu/release/agp-mcp-proxy /agp-mcp-proxy
+COPY --from=rust /app/data-plane/integrations/mcp/mcp-proxy/target/${TARGETARCH}-unknown-linux-gnu/release/slim-mcp-proxy /slim-mcp-proxy

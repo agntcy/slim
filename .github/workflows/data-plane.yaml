@@ -32,8 +32,8 @@ jobs:
     uses: ./.github/workflows/reusable-python-build-wheels.yaml
 
   data-plane-docker-build:
-    name: Build gateway docker image
+    name: Build SLIM docker image
     uses: ./.github/workflows/reusable-docker-build-push.yaml
     with:
-      bake-targets: gw,mcp-proxy
+      bake-targets: slim,mcp-proxy
       image-tag: ${{ github.sha }}

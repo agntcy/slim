@@ -1,0 +1,18 @@
+# Copyright AGNTCY Contributors (https://github.com/agntcy)
+# SPDX-License-Identifier: Apache-2.0
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "slim.fullname" . }}
+  labels:
+    {{- include "slim.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.slim.service.type }}
+  ports:
+    - port: {{ .Values.slim.service.port }}
+      targetPort: messenger
+      protocol: TCP
+      name: messenger
+  selector:
+    {{- include "slim.selectorLabels" . | nindent 4 }}

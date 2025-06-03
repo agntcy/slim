@@ -7,5 +7,5 @@ requires-python = ">=3.13"
 dependencies = [
     "click>=8.1.8",
     "httpx>=0.28.1",
-    "mcp>=1.7.1",
+    "mcp==1.6.0",
 ]

@@ -1,0 +1,27 @@
+[package]
+name = "agntcy-slim-service"
+edition = { workspace = true }
+license = { workspace = true }
+version = "0.4.2"
+description = "Main service and public API to interact with SLIM data plane."
+
+[lib]
+name = "slim_service"
+
+[dependencies]
+agntcy-slim-config = { workspace = true }
+agntcy-slim-controller = { workspace = true }
+agntcy-slim-datapath = { workspace = true }
+async-trait = { workspace = true }
+drain = { workspace = true }
+parking_lot = { workspace = true }
+rand = { workspace = true }
+serde = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+tokio-util = { workspace = true }
+tonic = { workspace = true }
+tracing = { workspace = true }
+
+[dev-dependencies]
+tracing-test = { workspace = true }
