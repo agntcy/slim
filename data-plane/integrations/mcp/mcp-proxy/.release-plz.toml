@@ -5,7 +5,7 @@ git_tag_name = "{{ package }}-v{{ version }}"
 git_release_name = "{{ package }}-v{{ version }}"
 
 [[package]]
-name = "slim-mcp-proxy"
+name = "agntcy-slim-mcp-proxy"
 publish = true
 release = true
 changelog_update = true
