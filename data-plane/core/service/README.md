@@ -15,5 +15,5 @@ To use this module, include it in your `Cargo.toml`:
 
 ```toml
 [dependencies]
-slim-service = "0.1.0"
+agntcy-slim-service = "0.1.0"
 ```
