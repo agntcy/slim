@@ -5,9 +5,6 @@ edition = "2024"
 license = "Apache-2.0"
 description = "Proxy for exposing a native MCP server over SLIM"
 
-[lib]
-name = "slim_mcp_proxy"
-
 [dependencies]
 agntcy-slim = { path = "../../../core/slim", version = "0.3.14" }
 agntcy-slim-config = { path = "../../../core/config", version = "0.1.8" }
