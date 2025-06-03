@@ -4,8 +4,8 @@ release_always = true
 release = false
 
 # Remove agntcy- from git tag and release names
-git_tag_name = "{{ package | replace('agntcy-', '') }}-v{{ version }}"
-git_release_name = "{{ package | replace('agntcy-', '') }} v{{ version }}"
+git_tag_name = "{{ package | replace(from='agntcy-', to='') }}-v{{ version }}"
+git_release_name = "{{ package | replace(from='agntcy-', to='') }} v{{ version }}"
 
 [[package]]
 name = "agntcy-slim-config"
