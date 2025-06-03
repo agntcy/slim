@@ -9,7 +9,7 @@ requires-python = ">=3.12"
 keywords = ["time", "timezone", "mcp", "llm"]
 license = "Apache-2.0"
 dependencies = [
-    "mcp>=1.0.0",
+    "mcp==1.6.0",
     "slim-mcp>=0.6.2",
     "click>=8.1.8",
     "llama-index>=0.12.29",
