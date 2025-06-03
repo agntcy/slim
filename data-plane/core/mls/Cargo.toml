@@ -9,11 +9,17 @@ description = "Messaging Layer Security for SLIM data plane."
 name = "slim_mls"
 
 [dependencies]
+agntcy-slim-datapath = { workspace = true }
+agntcy-slim-service = { workspace = true }
 mls-rs = { version = "0.47.0" }
 mls-rs-crypto-awslc = { version = "0.17.0" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1.0"
 thiserror = { workspace = true }
+tokio.workspace = true
+tokio-stream.workspace = true
+tonic.workspace = true
+tower.workspace = true
 
 [dev-dependencies]
 tempfile = "3.3"

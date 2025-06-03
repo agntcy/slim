@@ -139,12 +139,18 @@ dependencies = [
 name = "agntcy-slim-mls"
 version = "0.1.0"
 dependencies = [
+ "agntcy-slim-datapath",
+ "agntcy-slim-service",
  "mls-rs",
  "mls-rs-crypto-awslc",
  "serde",
  "serde_json",
  "tempfile",
  "thiserror 2.0.12",
+ "tokio",
+ "tokio-stream",
+ "tonic 0.13.0",
+ "tower 0.5.2",
 ]
 
 [[package]]
