@@ -9,11 +9,11 @@ name = "sdk-mock"
 path = "src/sdk-mock/main.rs"
 
 [dependencies]
+agntcy-slim = { workspace = true }
+agntcy-slim-config = { workspace = true }
+agntcy-slim-datapath = { workspace = true }
+agntcy-slim-service = { workspace = true }
+agntcy-slim-signal = { workspace = true }
 clap = { workspace = true }
-slim = { workspace = true }
-slim-config = { workspace = true }
-slim-datapath = { workspace = true }
-slim-service = { workspace = true }
-slim-signal = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }

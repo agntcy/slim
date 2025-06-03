@@ -1,9 +1,12 @@
 [package]
-name = "slim-config"
+name = "agntcy-slim-config"
 version = "0.1.8"
 edition = { workspace = true }
 license = { workspace = true }
 description = "Configuration utilities"
+
+[lib]
+name = "slim_config"
 
 [dependencies]
 duration-str = { workspace = true }

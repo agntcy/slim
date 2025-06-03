@@ -1,11 +1,15 @@
 [package]
-name = "slim-tracing"
+name = "agntcy-slim-tracing"
 edition = { workspace = true }
 license = { workspace = true }
 version = "0.2.1"
 description = "Observability for SLIM data plane: logs, traces and metrics infrastructure."
 
+[lib]
+name = "slim_tracing"
+
 [dependencies]
+agntcy-slim-config = { workspace = true }
 once_cell = { workspace = true }
 opentelemetry = { workspace = true }
 opentelemetry-otlp = { workspace = true }
@@ -13,7 +17,6 @@ opentelemetry-semantic-conventions = { workspace = true }
 opentelemetry-stdout = { workspace = true }
 opentelemetry_sdk = { workspace = true }
 serde = { workspace = true }
-slim-config = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
 tracing-opentelemetry = { workspace = true }
