@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.5](https://github.com/agntcy/slim/compare/slim-helm-v0.1.4...slim-helm-v0.1.5) (2025-06-03)
+
+
+### Features
+
+* **helm:** upgrade to SLIM 0.3.15 ([#299](https://github.com/agntcy/slim/issues/299)) ([381e2f9](https://github.com/agntcy/slim/commit/381e2f9376c86c06233112982c9a9867972c19f3))
+
 ## [0.1.4](https://github.com/agntcy/slim/compare/slim-helm-v0.1.3...slim-helm-v0.1.4) (2025-05-14)
 
 
