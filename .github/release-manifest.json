@@ -1,6 +1,6 @@
 {
     "data-plane/python-bindings": "0.3.6",
-    "charts/slim": "0.1.5",
+    "charts/slim": "0.1.4",
     "data-plane/integrations/mcp/slim-mcp/packages/slim-mcp": "0.1.5",
     "control-plane/slimctl": "0.1.4",
     "data-plane/integrations/mcp/slim-mcp/examples/llamaindex-time-agent": "0.1.1",
