@@ -761,8 +761,8 @@ impl AsRef<ProtoPublish> for ProtoMessage {
 #[cfg(test)]
 mod tests {
     use crate::{
-        messages::encoder::{Agent, AgentType},
         api::proto::pubsub::v1::SessionHeaderType,
+        messages::encoder::{Agent, AgentType},
     };
 
     use super::*;

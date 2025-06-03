@@ -15,8 +15,8 @@ use crate::session::{
     State,
 };
 use crate::{SessionMessage, timer};
-use slim_datapath::messages::encoder::Agent;
 use slim_datapath::api::proto::pubsub::v1::SessionHeaderType;
+use slim_datapath::messages::encoder::Agent;
 
 /// Configuration for the Request Response session
 /// This configuration is used to set the maximum number of retries and the timeout
@@ -277,8 +277,8 @@ delegate_common_behavior!(RequestResponse, internal, common);
 mod tests {
     use super::*;
     use slim_datapath::{
-        messages::{Agent, AgentType},
         api::{ProtoMessage, ProtoPublish},
+        messages::{Agent, AgentType},
     };
 
     #[tokio::test]

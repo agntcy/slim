@@ -9,8 +9,8 @@ use crate::errors::SessionError;
 use crate::fire_and_forget::FireAndForgetConfiguration;
 use crate::request_response::RequestResponseConfiguration;
 use crate::streaming::StreamingConfiguration;
-use slim_datapath::messages::encoder::Agent;
 use slim_datapath::api::proto::pubsub::v1::{Message, SessionHeaderType};
+use slim_datapath::messages::encoder::Agent;
 
 /// Session ID
 pub type Id = u32;

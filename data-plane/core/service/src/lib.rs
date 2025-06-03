@@ -22,8 +22,8 @@ pub use streaming::StreamingConfiguration;
 use serde::Deserialize;
 use session::{AppChannelReceiver, MessageDirection};
 use session_layer::SessionLayer;
-use slim_datapath::messages::{Agent, AgentType};
 use slim_datapath::api::MessageType;
+use slim_datapath::messages::{Agent, AgentType};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -40,9 +40,9 @@ use slim_config::grpc::client::ClientConfig;
 use slim_config::grpc::server::ServerConfig;
 use slim_controller::api::proto::api::v1::controller_service_server::ControllerServiceServer;
 use slim_controller::service::ControllerService;
-use slim_datapath::message_processing::MessageProcessor;
 use slim_datapath::api::proto::pubsub::v1::Message;
 use slim_datapath::api::proto::pubsub::v1::pub_sub_service_server::PubSubServiceServer;
+use slim_datapath::message_processing::MessageProcessor;
 
 // Define the kind of the component as static string
 pub const KIND: &str = "slim";

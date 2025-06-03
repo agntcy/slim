@@ -3,7 +3,7 @@
 
 use std::collections::HashMap;
 
-use slim_datapath::{messages::AgentType, api::proto::pubsub::v1::Message};
+use slim_datapath::{api::proto::pubsub::v1::Message, messages::AgentType};
 
 pub struct ProducerBuffer {
     capacity: usize,
@@ -91,9 +91,9 @@ impl ProducerBuffer {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use slim_datapath::messages::encoder::{Agent, AgentType};
     use slim_datapath::api::proto::pubsub::v1::SessionHeaderType;
     use slim_datapath::api::{SessionHeader, SlimHeader};
+    use slim_datapath::messages::encoder::{Agent, AgentType};
 
     #[test]
     fn test_producer_buffer() {

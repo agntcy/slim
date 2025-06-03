@@ -10,10 +10,10 @@ mod tests {
     use tracing_test::traced_test;
 
     use slim_config::grpc::{client::ClientConfig, server::ServerConfig};
-    use slim_datapath::message_processing::MessageProcessor;
     use slim_datapath::api::proto::pubsub::v1::{
         Message, pub_sub_service_server::PubSubServiceServer,
     };
+    use slim_datapath::message_processing::MessageProcessor;
 
     #[tokio::test]
     #[traced_test]
