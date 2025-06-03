@@ -39,6 +39,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "agntcy-slim-bindings"
+version = "0.1.0"
+dependencies = [
+ "agntcy-slim-config",
+ "agntcy-slim-datapath",
+ "agntcy-slim-service",
+ "agntcy-slim-tracing",
+ "pyo3",
+ "pyo3-async-runtimes",
+ "pyo3-stub-gen",
+ "rand 0.9.1",
+ "serde-pyobject",
+ "tokio",
+]
+
+[[package]]
 name = "agntcy-slim-config"
 version = "0.1.8"
 dependencies = [
@@ -2687,22 +2703,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8f92a496fb766b417c996b9c5e57daf2f7ad3b0bebe1ccfca4856390e3d3bb67"
 dependencies = [
  "autocfg",
-]
-
-[[package]]
-name = "slim-bindings"
-version = "0.1.0"
-dependencies = [
- "agntcy-slim-config",
- "agntcy-slim-datapath",
- "agntcy-slim-service",
- "agntcy-slim-tracing",
- "pyo3",
- "pyo3-async-runtimes",
- "pyo3-stub-gen",
- "rand 0.9.1",
- "serde-pyobject",
- "tokio",
 ]
 
 [[package]]

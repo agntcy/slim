@@ -1,5 +1,5 @@
 [package]
-name = "slim-bindings"
+name = "agntcy-slim-bindings"
 edition = { workspace = true }
 license = { workspace = true }
 publish = false
