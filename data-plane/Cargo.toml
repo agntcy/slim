@@ -113,3 +113,14 @@ uuid = { version = "1.15.1", features = ["v4"] }
 [workspace.package]
 license = "Apache-2.0"
 edition = "2024"
+
+[workspace.metadata.cargo-machete]
+ignored = [
+    "agntcy-slim",
+    "agntcy-slim-config",
+    "agntcy-slim-controller",
+    "agntcy-slim-datapath",
+    "agntcy-slim-service",
+    "agntcy-slim-signal",
+    "agntcy-slim-tracing",
+]
