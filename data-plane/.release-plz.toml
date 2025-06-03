@@ -4,60 +4,54 @@ release_always = true
 release = false
 
 [[package]]
-name = "slim-examples"
-publish = false
-release = true
-changelog_update = true
-
-[[package]]
-name = "slim-config"
+name = "agntcy-slim-config"
 publish = true
 release = true
 changelog_update = true
 
 [[package]]
-name = "slim-datapath"
+name = "agntcy-slim-datapath"
 publish = true
 release = true
 changelog_update = true
 
 [[package]]
-name = "slim"
+name = "agntcy-slim"
 publish = true
 release = true
 changelog_update = true
 
 [[package]]
-name = "slim-nop-component"
+name = "agntcy-slim-nop-component"
 publish = false
 changelog_update = false
 
 [[package]]
-name = "slim-service"
+name = "agntcy-slim-service"
 publish = true
 release = true
 changelog_update = true
 
 [[package]]
-name = "slim-signal"
+name = "agntcy-slim-signal"
 publish = true
 release = true
 changelog_update = true
 
 [[package]]
-name = "slim-tracing"
+name = "agntcy-slim-tracing"
 publish = true
 release = true
 changelog_update = true
 
 [[package]]
-name = "slim-bindings"
+name = "agntcy-slim-bindings"
 publish = false
 release = true
 changelog_update = true
 
 [[package]]
-name = "slim-controller"
+name = "agntcy-slim-controller"
 publish = true
 release = true
 changelog_update = true
