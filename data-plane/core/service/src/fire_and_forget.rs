@@ -1111,7 +1111,10 @@ mod tests {
             .expect("no message received")
             .expect("error");
         let header = msg.get_session_header();
-        assert_eq!(header.header_type, i32::from(SessionHeaderType::FnfDiscovery));
+        assert_eq!(
+            header.header_type,
+            i32::from(SessionHeaderType::FnfDiscovery)
+        );
 
         // set a fake incoming connection id
         let slim_header = msg.get_slim_header_mut();
@@ -1153,7 +1156,10 @@ mod tests {
             .expect("no message received")
             .expect("error");
         let header = msg.get_session_header();
-        assert_eq!(header.header_type, i32::from(SessionHeaderType::FnfReliable));
+        assert_eq!(
+            header.header_type,
+            i32::from(SessionHeaderType::FnfReliable)
+        );
 
         // Check the payload
         let payload = msg.get_payload();
