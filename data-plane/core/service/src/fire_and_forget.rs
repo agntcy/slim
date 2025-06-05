@@ -847,7 +847,7 @@ mod tests {
             .expect("error");
 
         let header = msg.get_session_header();
-        assert_eq!(header.header_type, SessionHeaderType::FnfAck.into());
+        assert_eq!(header.header_type, i32::from(SessionHeaderType::FnfAck));
         assert_eq!(header.get_message_id(), 12345);
     }
 
@@ -1004,7 +1004,7 @@ mod tests {
             .expect("no message received")
             .expect("error");
         let header = ack.get_session_header();
-        assert_eq!(header.header_type, SessionHeaderType::FnfAck.into());
+        assert_eq!(header.header_type, i32::from(SessionHeaderType::FnfAck));
 
         // Check that the ack is sent back to the sender
         assert_eq!(message.get_source(), ack.get_name_as_agent());
@@ -1111,7 +1111,10 @@ mod tests {
             .expect("no message received")
             .expect("error");
         let header = msg.get_session_header();
-        assert_eq!(header.header_type, SessionHeaderType::FnfDiscovery.into());
+        assert_eq!(
+            header.header_type,
+            i32::from(SessionHeaderType::FnfDiscovery)
+        );
 
         // set a fake incoming connection id
         let slim_header = msg.get_slim_header_mut();
@@ -1133,7 +1136,7 @@ mod tests {
         let header = msg.get_session_header();
         assert_eq!(
             header.header_type,
-            SessionHeaderType::FnfDiscoveryReply.into()
+            i32::from(SessionHeaderType::FnfDiscoveryReply)
         );
 
         // set a fake incoming connection id
@@ -1153,7 +1156,10 @@ mod tests {
             .expect("no message received")
             .expect("error");
         let header = msg.get_session_header();
-        assert_eq!(header.header_type, SessionHeaderType::FnfReliable.into());
+        assert_eq!(
+            header.header_type,
+            i32::from(SessionHeaderType::FnfReliable)
+        );
 
         // Check the payload
         let payload = msg.get_payload();

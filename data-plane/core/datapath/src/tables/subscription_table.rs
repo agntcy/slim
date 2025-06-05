@@ -887,11 +887,11 @@ mod tests {
 
         assert_eq!(h.len(), 2);
         assert_eq!(h[&agent_type1].0, DEFAULT_AGENT_ID);
-        assert_eq!(h[&agent_type1].1, vec![]);
+        assert_eq!(h[&agent_type1].1, vec![] as Vec<u64>);
         assert_eq!(h[&agent_type1].2, vec![1, 2]);
 
         assert_eq!(h[&agent_type2].0, DEFAULT_AGENT_ID);
         assert_eq!(h[&agent_type2].1, vec![3]);
-        assert_eq!(h[&agent_type2].2, vec![]);
+        assert_eq!(h[&agent_type2].2, vec![] as Vec<u64>);
     }
 }
