@@ -6,7 +6,7 @@ build-backend = "hatchling.build"
 name = "slim-mcp"
 description = "Model Context Protocol with SLIM as transport"
 readme = "README.md"
-version = "0.1.5"
+version = "0.1.6"
 requires-python = ">=3.10, <4.0"
 license = "Apache-2.0"
 classifiers = [
