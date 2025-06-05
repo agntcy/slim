@@ -98,6 +98,8 @@ async with SLIMClient(
 
         # List available tools
         tools = await mcp_session.list_tools()
+
+        # Print the available tools
         print(f"Available tools: {tools}")
 ```
 
