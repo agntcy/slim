@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.6](https://github.com/agntcy/slim/compare/slim-mcp-v0.1.5...slim-mcp-v0.1.6) (2025-06-05)
+
+
+### Bug Fixes
+
+* **release:** trigger slim-mcp release ([#314](https://github.com/agntcy/slim/issues/314)) ([aade1ec](https://github.com/agntcy/slim/commit/aade1ec4bac984b236c586461596f06e987bc009))
+
 ## [0.1.5](https://github.com/agntcy/slim/compare/slim-mcp-v0.1.4...slim-mcp-v0.1.5) (2025-05-26)
 
 
