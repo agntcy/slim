@@ -26,7 +26,6 @@ WORKDIR /src
 RUN --mount=type=cache,target=/root/.cache/uv \
   uv sync --frozen --no-sources --no-dev --no-editable --package mcp-server-time
 
-
 FROM python:3.13-bookworm AS mcp-server-time
 
 # Copy venv from builder with just the dependencies we need + our package

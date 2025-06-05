@@ -26,7 +26,6 @@ WORKDIR /src
 RUN --mount=type=cache,target=/root/.cache/uv \
   uv sync --frozen --no-sources --no-dev --no-editable --package llamaindex-time-agent
 
-
 FROM python:3.13-bookworm AS llamaindex-time-agent
 
 # Copy venv from builder with just the dependencies we need + our package
