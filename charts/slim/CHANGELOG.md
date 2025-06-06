@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.6](https://github.com/agntcy/slim/compare/slim-helm-v0.1.5...slim-helm-v0.1.6) (2025-06-06)
+
+
+### Features
+
+* **chart:** add extra Volumes and Volumemounts to the slim deployment ([#320](https://github.com/agntcy/slim/issues/320)) ([88a57c7](https://github.com/agntcy/slim/commit/88a57c748b62e1e454eeb57c256a8e5b669317d4))
+
 ## [0.1.5](https://github.com/agntcy/slim/compare/slim-helm-v0.1.4...slim-helm-v0.1.5) (2025-06-03)
 
 
