@@ -55,14 +55,14 @@ spec:
               mountPath: /config.yaml
               subPath: config.yaml
             {{- with .Values.slim.extraVolumeMounts }}
-            {{ toYaml . | indent 12 }}
+            {{ toYaml . | nindent 12 }}
             {{- end }}
       volumes:
         - name: config-volume
           configMap:
             name: {{ include "slim.fullname" . }}
         {{- with .Values.slim.extraVolumes }}
-        {{ toYaml . | indent 8 }}
+        {{ toYaml . | nindent 8 }}
         {{- end }}
       {{- with .Values.nodeSelector }}
       nodeSelector:
