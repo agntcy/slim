@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.7](https://github.com/agntcy/slim/compare/slim-helm-v0.1.6...slim-helm-v0.1.7) (2025-06-06)
+
+
+### Bug Fixes
+
+* **chart:** extraVolumes and mount intentation ([#323](https://github.com/agntcy/slim/issues/323)) ([0eea40d](https://github.com/agntcy/slim/commit/0eea40dac4ffe165908de55b69f6d38b1bca75d3))
+
 ## [0.1.6](https://github.com/agntcy/slim/compare/slim-helm-v0.1.5...slim-helm-v0.1.6) (2025-06-06)
 
 
