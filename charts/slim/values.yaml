@@ -79,6 +79,17 @@ slim:
     #   cpu: 100m
     #   memory: 128Mi
 
+  extraVolumes: []
+    # Example:
+    # - name: datastore
+    #   configMap:
+    #     name: my-configmap
+
+  extraVolumeMounts: []
+    # Example:
+    # - name: datastore
+    #   mountPath: /etc/datastore
+
 mcpProxy:
   enabled: false
   # This will set the replicaset count more information can be found here: https://kubernetes.io/docs/concepts/workloads/controllers/replicaset/
