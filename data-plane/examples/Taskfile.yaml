@@ -32,3 +32,27 @@ tasks:
     dir: src/sdk-mock
     cmds:
       - cargo run -- --config ../../../config/base/client-config.yaml --local-agent client --remote-agent server --message "hey there!"
+
+  docker:build-all:
+    desc: "Build all Docker images"
+    dir: "../.."
+    cmds:
+      - docker build -t slim-server -f data-plane/examples/src/docker/Dockerfile.slim .
+      - docker build -t mock-agent-server -f data-plane/examples/src/docker/Dockerfile.mock-agent-server .
+      - docker build -t mock-agent-client -f data-plane/examples/src/docker/Dockerfile.mock-agent-client .
+
+  docker:compose-up:
+    desc: "Start all services with Docker Compose"
+    dir: "src/docker"
+    cmds:
+      - |
+        # Ensure config directory exists
+        mkdir -p config
+        # Start the Docker Compose services
+        docker compose up --build
+
+  docker:compose-down:
+    desc: "Stop all services with Docker Compose"
+    dir: "src/docker"
+    cmds:
+      - docker compose down
