@@ -32,6 +32,9 @@ pub enum MessageError {
     IncomingConnectionNotFound,
 }
 
+// Metadata Keys
+pub const SLIM_IDENTITY: &str = "SLIM_IDENTITY";
+
 /// ProtoAgent from Agent
 impl From<&Agent> for ProtoAgent {
     fn from(agent: &Agent) -> Self {
@@ -549,6 +552,12 @@ impl ProtoMessage {
         }
 
         Ok(())
+    }
+
+    // add metadata key in the map assigning the value val
+    // if the key existis the value is replaced by val
+    pub fn insert_metadata(&mut self, key: String, val: String) {
+        self.metadata.insert(key, val);
     }
 
     pub fn get_slim_header(&self) -> &SlimHeader {

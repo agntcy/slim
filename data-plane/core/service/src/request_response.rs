@@ -108,6 +108,7 @@ impl RequestResponse {
         session_config: RequestResponseConfiguration,
         session_direction: SessionDirection,
         source: Agent,
+        identity: Option<String>,
         tx_slim: SlimChannelSender,
         tx_app: AppChannelSender,
     ) -> RequestResponse {
@@ -117,6 +118,7 @@ impl RequestResponse {
                 session_direction,
                 SessionConfig::RequestResponse(session_config),
                 source,
+                identity,
                 tx_slim,
                 tx_app,
             ),
@@ -296,7 +298,8 @@ mod tests {
             0,
             session_config.clone(),
             SessionDirection::Bidirectional,
-            source,
+            source.clone(),
+            Some(source.to_string()),
             tx_slim,
             tx_app,
         );
@@ -324,7 +327,8 @@ mod tests {
             0,
             session_config,
             SessionDirection::Bidirectional,
-            source,
+            source.clone(),
+            Some(source.to_string()),
             tx_slim,
             tx_app,
         );
@@ -397,7 +401,8 @@ mod tests {
                 0,
                 session_config,
                 SessionDirection::Bidirectional,
-                source,
+                source.clone(),
+                Some(source.to_string()),
                 tx_slim,
                 tx_app,
             );

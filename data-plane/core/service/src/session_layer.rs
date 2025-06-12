@@ -28,6 +28,9 @@ pub(crate) struct SessionLayer {
     /// Name of the local agent
     agent_name: Agent,
 
+    /// Identity of the local agent
+    identity: Option<String>,
+
     /// ID of the local connection
     conn_id: u64,
 
@@ -51,6 +54,7 @@ impl SessionLayer {
     /// Create a new session pool
     pub(crate) fn new(
         agent_name: &Agent,
+        identity: Option<String>,
         conn_id: u64,
         tx_slim: SlimChannelSender,
         tx_app: AppChannelSender,
@@ -58,6 +62,7 @@ impl SessionLayer {
         SessionLayer {
             pool: AsyncRwLock::new(HashMap::new()),
             agent_name: agent_name.clone(),
+            identity,
             conn_id,
             tx_slim,
             tx_app,
@@ -127,6 +132,7 @@ impl SessionLayer {
                 conf,
                 SessionDirection::Bidirectional,
                 self.agent_name().clone(),
+                self.identity.clone(),
                 self.tx_slim.clone(),
                 self.tx_app.clone(),
             )),
@@ -135,6 +141,7 @@ impl SessionLayer {
                 conf,
                 SessionDirection::Bidirectional,
                 self.agent_name().clone(),
+                self.identity.clone(),
                 self.tx_slim.clone(),
                 self.tx_app.clone(),
             )),
@@ -153,6 +160,7 @@ impl SessionLayer {
                     conf,
                     direction,
                     self.agent_name().clone(),
+                    self.identity.clone(),
                     self.tx_slim.clone(),
                     self.tx_app.clone(),
                 ))
@@ -216,6 +224,7 @@ impl SessionLayer {
             let header = message.message.get_session_header_mut();
             header.session_id = message.info.id;
 
+            session.on_message_from_app_interceptors(&mut message.message);
             // pass the message to the session
             return session.on_message(message, direction).await;
         }
@@ -228,7 +237,7 @@ impl SessionLayer {
     /// corresponding session
     async fn handle_message_from_slim(
         &self,
-        message: SessionMessage,
+        mut message: SessionMessage,
         direction: MessageDirection,
     ) -> Result<(), SessionError> {
         let (id, session_type) = {
@@ -255,6 +264,7 @@ impl SessionLayer {
         // check if pool contains the session
         if let Some(session) = self.pool.read().await.get(&id) {
             // pass the message to the session
+            session.on_message_from_slim_interceptors(&mut message.message);
             let ret = session.on_message(message, direction).await;
             return ret;
         }
@@ -301,6 +311,7 @@ impl SessionLayer {
         // retry the match
         if let Some(session) = self.pool.read().await.get(&new_session_id.id) {
             // pass the message
+            session.on_message_from_slim_interceptors(&mut message.message);
             return session.on_message(message, direction).await;
         }
 
@@ -387,7 +398,7 @@ mod tests {
 
     use slim_datapath::{
         api::ProtoMessage,
-        messages::{Agent, AgentType},
+        messages::{Agent, AgentType, utils::SLIM_IDENTITY},
     };
 
     fn create_session_layer() -> SessionLayer {
@@ -395,7 +406,7 @@ mod tests {
         let (tx_app, _) = tokio::sync::mpsc::channel(128);
         let agent = Agent::from_strings("org", "ns", "type", 0);
 
-        SessionLayer::new(&agent, 0, tx_slim, tx_app)
+        SessionLayer::new(&agent, Some(agent.to_string()), 0, tx_slim, tx_app)
     }
 
     #[tokio::test]
@@ -411,7 +422,13 @@ mod tests {
         let (tx_app, _) = tokio::sync::mpsc::channel(1);
         let agent = Agent::from_strings("org", "ns", "type", 0);
 
-        let session_layer = SessionLayer::new(&agent, 0, tx_slim.clone(), tx_app.clone());
+        let session_layer = SessionLayer::new(
+            &agent,
+            Some(agent.to_string()),
+            0,
+            tx_slim.clone(),
+            tx_app.clone(),
+        );
         let session_config = FireAndForgetConfiguration::default();
 
         let ret = session_layer
@@ -430,7 +447,13 @@ mod tests {
         let (tx_app, _) = tokio::sync::mpsc::channel(1);
         let agent = Agent::from_strings("org", "ns", "type", 0);
 
-        let session_layer = SessionLayer::new(&agent, 0, tx_slim.clone(), tx_app.clone());
+        let session_layer = SessionLayer::new(
+            &agent,
+            Some(agent.to_string()),
+            0,
+            tx_slim.clone(),
+            tx_app.clone(),
+        );
 
         let res = session_layer
             .create_session(
@@ -447,7 +470,13 @@ mod tests {
         let (tx_app, _) = tokio::sync::mpsc::channel(1);
         let agent = Agent::from_strings("org", "ns", "type", 0);
 
-        let session_layer = SessionLayer::new(&agent, 0, tx_slim.clone(), tx_app.clone());
+        let session_layer = SessionLayer::new(
+            &agent,
+            Some(agent.to_string()),
+            0,
+            tx_slim.clone(),
+            tx_app.clone(),
+        );
 
         let res = session_layer
             .create_session(
@@ -466,12 +495,18 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_handle_message() {
+    async fn test_handle_message_from_slim() {
         let (tx_slim, _) = tokio::sync::mpsc::channel(1);
         let (tx_app, mut rx_app) = tokio::sync::mpsc::channel(1);
         let agent = Agent::from_strings("org", "ns", "type", 0);
 
-        let session_layer = SessionLayer::new(&agent, 0, tx_slim.clone(), tx_app.clone());
+        let session_layer = SessionLayer::new(
+            &agent,
+            Some(agent.to_string()),
+            0,
+            tx_slim.clone(),
+            tx_app.clone(),
+        );
 
         let session_config = FireAndForgetConfiguration::default();
 
@@ -512,5 +547,65 @@ mod tests {
             .expect("error");
         assert_eq!(msg.message, message);
         assert_eq!(msg.info.id, 1);
+    }
+
+    #[tokio::test]
+    async fn test_handle_message_form_app() {
+        let (tx_slim, mut rx_slim) = tokio::sync::mpsc::channel(1);
+        let (tx_app, _) = tokio::sync::mpsc::channel(1);
+        let agent = Agent::from_strings("org", "ns", "type", 0);
+
+        let session_layer = SessionLayer::new(
+            &agent,
+            Some(agent.to_string()),
+            0,
+            tx_slim.clone(),
+            tx_app.clone(),
+        );
+
+        let session_config = FireAndForgetConfiguration::default();
+
+        // create a new session
+        let res = session_layer
+            .create_session(SessionConfig::FireAndForget(session_config), Some(1))
+            .await;
+        assert!(res.is_ok());
+
+        let source = Agent::from_strings("cisco", "default", "local_agent", 0);
+
+        let mut message = ProtoMessage::new_publish(
+            &source.clone(),
+            &AgentType::from_strings("cisco", "default", "remote_agent"),
+            Some(0),
+            None,
+            "msg",
+            vec![0x1, 0x2, 0x3, 0x4],
+        );
+
+        // set the session id in the message
+        let header = message.get_session_header_mut();
+        header.session_id = 1;
+        header.header_type = i32::from(SessionHeaderType::Fnf);
+
+        let res = session_layer
+            .handle_message(
+                SessionMessage::from(message.clone()),
+                MessageDirection::South,
+            )
+            .await;
+
+        assert!(res.is_ok());
+
+        // message should have been delivered to the app
+        let mut msg = rx_slim
+            .recv()
+            .await
+            .expect("no message received")
+            .expect("error");
+
+        // add identity to message and reset the msg id msg to allow the comparison
+        message.insert_metadata(SLIM_IDENTITY.to_owned(), agent.to_string());
+        msg.set_message_id(0);
+        assert_eq!(msg, message);
     }
 }

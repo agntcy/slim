@@ -3,6 +3,7 @@
 
 use async_trait::async_trait;
 use parking_lot::RwLock;
+use slim_datapath::messages::utils::SLIM_IDENTITY;
 use tonic::Status;
 
 use crate::errors::SessionError;
@@ -221,11 +222,39 @@ pub(crate) trait CommonSession {
 
     fn source(&self) -> &Agent;
 
+    #[allow(dead_code)]
+    fn identity(&self) -> &Option<String>;
+
     // get the session config
     fn session_config(&self) -> SessionConfig;
 
     // set the session config
     fn set_session_config(&self, session_config: &SessionConfig) -> Result<(), SessionError>;
+
+    fn on_message_from_app_interceptors(&self, msg: &mut Message);
+
+    fn on_message_from_slim_interceptors(&self, msg: &mut Message);
+}
+
+pub(crate) trait SessionInterceptor {
+    // interceptor to be executed when a message is received from the app
+    fn on_msg_from_app(&self, msg: &mut Message);
+    // interceptor to be executed when a message is received from slim
+    fn on_msg_from_slim(&self, msg: &mut Message);
+}
+
+struct IdentitySessionInterceptor {
+    identity: Option<String>,
+}
+
+impl SessionInterceptor for IdentitySessionInterceptor {
+    fn on_msg_from_app(&self, msg: &mut Message) {
+        if let Some(i) = &self.identity {
+            msg.insert_metadata(SLIM_IDENTITY.to_owned(), i.to_string())
+        }
+    }
+
+    fn on_msg_from_slim(&self, _msg: &mut Message) {}
 }
 
 #[async_trait]
@@ -258,11 +287,18 @@ pub(crate) struct Common {
     /// Source agent
     source: Agent,
 
+    /// Identity
+    #[allow(dead_code)]
+    identity: Option<String>,
+
     /// Sender for messages to slim
     tx_slim: SlimChannelSender,
 
     /// Sender for messages to app
     tx_app: AppChannelSender,
+
+    // Interceptors to be called on message reception/send
+    interceptors: Vec<Box<dyn SessionInterceptor + Send + Sync>>,
 }
 
 impl CommonSession for Common {
@@ -276,6 +312,10 @@ impl CommonSession for Common {
 
     fn source(&self) -> &Agent {
         &self.source
+    }
+
+    fn identity(&self) -> &Option<String> {
+        &self.identity
     }
 
     fn session_config(&self) -> SessionConfig {
@@ -298,6 +338,25 @@ impl CommonSession for Common {
         }
         Ok(())
     }
+
+    fn on_message_from_app_interceptors(&self, msg: &mut Message) {
+        for i in &self.interceptors {
+            i.on_msg_from_app(msg);
+        }
+    }
+
+    fn on_message_from_slim_interceptors(&self, msg: &mut Message) {
+        for i in &self.interceptors {
+            i.on_msg_from_slim(msg);
+        }
+    }
+}
+
+impl Common {
+    #[allow(dead_code)]
+    fn add_interceptor<I: SessionInterceptor + Send + Sync + 'static>(&mut self, interceptor: I) {
+        self.interceptors.push(Box::new(interceptor));
+    }
 }
 
 impl Common {
@@ -306,17 +365,23 @@ impl Common {
         session_direction: SessionDirection,
         session_config: SessionConfig,
         source: Agent,
+        identity: Option<String>,
         tx_slim: SlimChannelSender,
         tx_app: AppChannelSender,
     ) -> Common {
+        let interceptor = IdentitySessionInterceptor {
+            identity: identity.clone(),
+        };
         Common {
             id,
             state: State::Active,
             session_direction,
             session_config: RwLock::new(session_config),
             source,
+            identity,
             tx_slim,
             tx_app,
+            interceptors: vec![Box::new(interceptor)],
         }
     }
 
@@ -362,6 +427,18 @@ macro_rules! delegate_common_behavior {
 
             fn source(&self) -> &Agent {
                 self.$($tokens).+.source()
+            }
+
+            fn identity(&self) -> &Option<String> {
+                self.$($tokens).+.identity()
+            }
+
+            fn on_message_from_app_interceptors(&self, msg: &mut slim_datapath::api::proto::pubsub::v1::Message) {
+                self.$($tokens).+.on_message_from_app_interceptors(msg)
+            }
+
+            fn on_message_from_slim_interceptors(&self, msg: &mut slim_datapath::api::proto::pubsub::v1::Message) {
+                self.$($tokens).+.on_message_from_slim_interceptors(msg)
             }
         }
     };
