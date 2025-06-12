@@ -77,6 +77,7 @@ async fn main() {
 
     let mut proxy = proxy::Proxy::new(
         AgentType::from_strings(v_name[0], v_name[1], v_name[2]),
+        None,
         id.copied(),
         config,
         svc_id,

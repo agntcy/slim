@@ -47,14 +47,18 @@ impl PyService {
         organization: String,
         namespace: String,
         agent_type: String,
+        identity: Option<String>,
         id: Option<u64>,
     ) -> Result<Self, ServiceError> {
-        let id = match id {
-            Some(v) => v,
-            None => {
-                let mut rng = rand::rng();
-                rng.random()
-            }
+        let id = match identity {
+            Some(i) => Agent::agent_id_from_identity(&i),
+            None => match id {
+                Some(v) => v,
+                None => {
+                    let mut rng = rand::rng();
+                    rng.random()
+                }
+            },
         };
 
         // create local agent
@@ -534,7 +538,8 @@ pub fn create_pyservice(
     id: Option<u64>,
 ) -> PyResult<Bound<PyAny>> {
     pyo3_async_runtimes::tokio::future_into_py(py, async move {
-        PyService::create_pyservice(organization, namespace, agent_type, id)
+        // TODO (micpapal/msadara): add the identity here to derive the right id
+        PyService::create_pyservice(organization, namespace, agent_type, None, id)
             .await
             .map_err(|e| PyErr::new::<PyException, _>(e.to_string()))
     })
