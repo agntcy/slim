@@ -296,17 +296,7 @@ mod tests {
     // Helper to create a test resolver with a client that can talk to the mock server
     async fn create_test_resolver() -> (KeyResolver, MockServer) {
         let server = MockServer::start().await;
-        let client = ReqwestClient::builder()
-            .user_agent("AGNTCY Slim Auth Test")
-            .build()
-            .expect("Failed to create test reqwest client");
-
-        let resolver = KeyResolver {
-            client,
-            jwks_cache: HashMap::new(),
-            default_jwks_ttl: Duration::from_secs(3600),
-        };
-
+        let resolver = KeyResolver::new();
         (resolver, server)
     }
 

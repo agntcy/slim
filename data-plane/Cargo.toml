@@ -80,7 +80,7 @@ pyo3-stub-gen = "0.7.0"
 rand = "0.9.0"
 regex = "1.11.1"
 
-reqwest = { version = "0.12", features = ["json", "rustls-tls"] }
+reqwest = { version = "0.12", features = ["rustls-tls-no-provider"] }
 rmcp = { version = "0.1.5", features = [
     "client",
     "transport-sse",

@@ -198,7 +198,12 @@ impl Verifier for Jwt {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use base64::Engine;
+    use base64::engine::general_purpose::URL_SAFE_NO_PAD;
     use jsonwebtoken_aws_lc::Algorithm;
+    use serde_json::json;
+    use wiremock::matchers::{method, path};
+    use wiremock::{Mock, MockServer, ResponseTemplate};
 
     #[tokio::test]
     async fn test_jwt_sign_and_verify() {
@@ -268,5 +273,258 @@ mod tests {
                 serde_json::Value::String("write".to_string())
             ])
         );
+    } // Enum to represent different types of test keys
+    enum TestKey {
+        Rsa(openssl::rsa::Rsa<openssl::pkey::Private>),
+        Ec(openssl::ec::EcKey<openssl::pkey::Private>),
+        Ed25519(openssl::pkey::PKey<openssl::pkey::Private>),
+    }
+
+    impl TestKey {
+        fn to_encoding_key(&self) -> EncodingKey {
+            match self {
+                TestKey::Rsa(rsa) => {
+                    EncodingKey::from_rsa_der(rsa.private_key_to_der().unwrap().as_ref())
+                }
+                TestKey::Ec(ec) => {
+                    let pkey =
+                        openssl::pkey::PKey::<openssl::pkey::Private>::from_ec_key(ec.clone())
+                            .unwrap();
+
+                    EncodingKey::from_ec_der(pkey.private_key_to_pkcs8().unwrap().as_ref())
+                }
+                TestKey::Ed25519(ed) => {
+                    EncodingKey::from_ed_der(ed.private_key_to_der().unwrap().as_ref())
+                }
+            }
+        }
+    }
+
+    async fn setup_test_jwt_resolver(algorithm: Algorithm) -> (TestKey, MockServer, String) {
+        // Set up the mock server for JWKS
+        let mock_server = MockServer::start().await;
+
+        // Get the algorithm name as a string and prepare the key
+        let (test_key, jwks_key_json, alg_str) = match algorithm {
+            Algorithm::RS256
+            | Algorithm::RS384
+            | Algorithm::RS512
+            | Algorithm::PS256
+            | Algorithm::PS384
+            | Algorithm::PS512 => {
+                // Create an RSA keypair for testing
+                let keypair = openssl::rsa::Rsa::generate(2048).unwrap();
+
+                // Get modulus and exponent
+                let modulus = keypair.n();
+                let exponent = keypair.e();
+
+                // Create key ID and parameters
+                let key_id = URL_SAFE_NO_PAD.encode(keypair.public_key_to_der().unwrap());
+                let modulus_encoded = URL_SAFE_NO_PAD.encode(modulus.to_vec());
+                let exponent_encoded = URL_SAFE_NO_PAD.encode(exponent.to_vec());
+
+                let alg_str = match algorithm {
+                    Algorithm::RS256 => "RS256",
+                    Algorithm::RS384 => "RS384",
+                    Algorithm::RS512 => "RS512",
+                    Algorithm::PS256 => "PS256",
+                    Algorithm::PS384 => "PS384",
+                    Algorithm::PS512 => "PS512",
+                    _ => unreachable!(),
+                };
+
+                let jwks_key = json!({
+                    "kty": "RSA",
+                    "alg": alg_str,
+                    "use": "sig",
+                    "kid": key_id,
+                    "n": modulus_encoded,
+                    "e": exponent_encoded,
+                });
+
+                (TestKey::Rsa(keypair), jwks_key, alg_str)
+            }
+            Algorithm::ES256 | Algorithm::ES384 => {
+                // Choose the right curve for the algorithm
+                let nid = match algorithm {
+                    Algorithm::ES256 => openssl::nid::Nid::X9_62_PRIME256V1, // P-256
+                    Algorithm::ES384 => openssl::nid::Nid::SECP384R1,        // P-384
+                    _ => unreachable!(),
+                };
+
+                // Create EC key with appropriate curve
+                let ecgroup = openssl::ec::EcGroup::from_curve_name(nid).unwrap();
+                let keypair = openssl::ec::EcKey::generate(&ecgroup).unwrap();
+
+                // Get the EC public key in DER format
+                let public_key_der = keypair.public_key_to_der().unwrap();
+                let key_id = URL_SAFE_NO_PAD.encode(&public_key_der);
+
+                // Extract x and y coordinates for JWKS using the BigNum API
+                let ec_point = keypair.public_key();
+                let mut bn_ctx = openssl::bn::BigNumContext::new().unwrap();
+                let mut x = openssl::bn::BigNum::new().unwrap();
+                let mut y = openssl::bn::BigNum::new().unwrap();
+
+                // Get the affine coordinates
+                ec_point
+                    .affine_coordinates(&ecgroup, &mut x, &mut y, &mut bn_ctx)
+                    .unwrap();
+
+                // Convert coordinates to base64url
+                let x_encoded = URL_SAFE_NO_PAD.encode(x.to_vec());
+                let y_encoded = URL_SAFE_NO_PAD.encode(y.to_vec());
+
+                // These variables are now defined above using the raw public key bytes
+
+                let alg_str = match algorithm {
+                    Algorithm::ES256 => "ES256",
+                    Algorithm::ES384 => "ES384",
+                    _ => unreachable!(),
+                };
+
+                let curve_name = match algorithm {
+                    Algorithm::ES256 => "P-256",
+                    Algorithm::ES384 => "P-384",
+                    _ => unreachable!(),
+                };
+
+                let jwks_key = json!({
+                    "kty": "EC",
+                    "alg": alg_str,
+                    "use": "sig",
+                    "kid": key_id,
+                    "crv": curve_name,
+                    "x": x_encoded,
+                    "y": y_encoded
+                });
+
+                (TestKey::Ec(keypair), jwks_key, alg_str)
+            }
+            Algorithm::EdDSA => {
+                // Generate Ed25519 key
+                let keypair = openssl::pkey::PKey::generate_ed25519().unwrap();
+
+                // For EdDSA, let's use the public key in DER format
+                let public_key_der = keypair.public_key_to_der().unwrap();
+                let key_id = URL_SAFE_NO_PAD.encode(&public_key_der);
+
+                // Extract the raw key bytes from DER format - the actual key is after the header
+                // For simplicity, we'll use a fixed offset that works for Ed25519
+                let x_encoded = URL_SAFE_NO_PAD.encode(&public_key_der[12..]);
+
+                let jwks_key = json!({
+                    "kty": "OKP",
+                    "alg": "EdDSA",
+                    "use": "sig",
+                    "kid": key_id,
+                    "crv": "Ed25519",
+                    "x": x_encoded
+                });
+
+                (TestKey::Ed25519(keypair), jwks_key, "EdDSA")
+            }
+            _ => panic!("Unsupported algorithm for this test: {:?}", algorithm),
+        };
+
+        // Setup mock for OpenID discovery endpoint
+        let jwks_uri = format!("{}/custom/path/to/jwks.json", mock_server.uri());
+        Mock::given(method("GET"))
+            .and(path("/.well-known/openid-configuration"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "issuer": mock_server.uri(),
+                "jwks_uri": jwks_uri
+            })))
+            .mount(&mock_server)
+            .await;
+
+        // Setup mock for JWKS
+        Mock::given(method("GET"))
+            .and(path("/custom/path/to/jwks.json"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "keys": [jwks_key_json]
+            })))
+            .mount(&mock_server)
+            .await;
+
+        (test_key, mock_server, alg_str.to_string())
+    }
+
+    async fn test_jwt_resolve_with_algorithm(algorithm: Algorithm) {
+        let (test_key, mock_server, alg_str) = setup_test_jwt_resolver(algorithm).await;
+
+        println!("Testing JWT key resolution with algorithm: {}", alg_str);
+
+        // Build the JWT with auto key resolution
+        let mut jwt = Jwt::builder()
+            .issuer(mock_server.uri())
+            .audience("test-audience")
+            .subject("test-subject")
+            .with_required_info()
+            .unwrap()
+            .auto_resolve_keys(true)
+            .build()
+            .unwrap();
+
+        // Setup the JWT for signing (normally this would be a different instance)
+        jwt.encoding_key = Some(test_key.to_encoding_key());
+        jwt.validation = Validation::new(algorithm);
+        jwt.validation.set_audience(&[&jwt.audience]);
+        jwt.validation.set_issuer(&[&jwt.issuer]);
+
+        // Sign and verify the token
+        let token = jwt.sign(&jwt.create_standard_claims(None)).unwrap();
+        let claims: StandardClaims = jwt.verify(&token).await.unwrap();
+
+        // Validate the claims
+        assert_eq!(claims.iss, jwt.issuer);
+        assert_eq!(claims.aud, jwt.audience);
+        assert_eq!(claims.sub, jwt.subject);
+    }
+
+    #[tokio::test]
+    async fn test_jwt_resolve_decoding_key_rs256() {
+        test_jwt_resolve_with_algorithm(Algorithm::RS256).await;
+    }
+
+    #[tokio::test]
+    async fn test_jwt_resolve_decoding_key_rs384() {
+        test_jwt_resolve_with_algorithm(Algorithm::RS384).await;
+    }
+
+    #[tokio::test]
+    async fn test_jwt_resolve_decoding_key_rs512() {
+        test_jwt_resolve_with_algorithm(Algorithm::RS512).await;
+    }
+
+    #[tokio::test]
+    async fn test_jwt_resolve_decoding_key_ps256() {
+        test_jwt_resolve_with_algorithm(Algorithm::PS256).await;
+    }
+
+    #[tokio::test]
+    async fn test_jwt_resolve_decoding_key_ps384() {
+        test_jwt_resolve_with_algorithm(Algorithm::PS384).await;
+    }
+
+    #[tokio::test]
+    async fn test_jwt_resolve_decoding_key_ps512() {
+        test_jwt_resolve_with_algorithm(Algorithm::PS512).await;
+    }
+
+    #[tokio::test]
+    async fn test_jwt_resolve_decoding_key_es256() {
+        test_jwt_resolve_with_algorithm(Algorithm::ES256).await;
+    }
+
+    #[tokio::test]
+    async fn test_jwt_resolve_decoding_key_es384() {
+        test_jwt_resolve_with_algorithm(Algorithm::ES384).await;
+    }
+
+    #[tokio::test]
+    async fn test_jwt_resolve_decoding_key_eddsa() {
+        test_jwt_resolve_with_algorithm(Algorithm::EdDSA).await;
     }
 }

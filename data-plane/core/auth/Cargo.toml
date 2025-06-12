@@ -8,7 +8,7 @@ edition.workspace = true
 agntcy-slim-config = { workspace = true }
 async-trait = { workspace = true }
 jsonwebtoken-aws-lc = { workspace = true }
-reqwest = { workspace = true }
+reqwest = { workspace = true, features = ["json"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
@@ -16,4 +16,6 @@ tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
 url = { workspace = true }
 
 [dev-dependencies]
+base64 = "0.22.1"
+openssl = "0.10.73"
 wiremock = "0.5"
