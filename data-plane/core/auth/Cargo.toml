@@ -1,0 +1,19 @@
+[package]
+name = "agntcy-slim-auth"
+version = "0.1.0"
+license.workspace = true
+edition.workspace = true
+
+[dependencies]
+agntcy-slim-config = { workspace = true }
+async-trait = { workspace = true }
+jsonwebtoken-aws-lc = { workspace = true }
+reqwest = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
+url = { workspace = true }
+
+[dev-dependencies]
+wiremock = "0.5"

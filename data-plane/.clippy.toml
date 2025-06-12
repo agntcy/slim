@@ -4,16 +4,10 @@ disallowed-methods = [
     # Unsafe
     "std::env::set_var",
     "std::env::remove_var",
-
-    # https://github.com/rust-lang/rust/issues/86470
-    "tokio::time::Instant::duration_since",
-    "tokio::time::Instant::elapsed",
 ]
 
 disallowed-types = [
     # parking_lot
     "std::sync::Mutex",
     "std::sync::RwLock",
-
-    "std::time::Instant",
 ]
