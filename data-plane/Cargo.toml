@@ -54,7 +54,6 @@ futures = "0.3.31"
 futures-util = "0.3.31"
 h2 = "0.4.7"
 http = "1.2.0"
-hyper = "1.2.0"
 hyper-rustls = { version = "0.27", features = [
     "http2",
     "aws-lc-rs",
