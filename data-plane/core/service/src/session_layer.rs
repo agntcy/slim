@@ -550,7 +550,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_handle_message_form_app() {
+    async fn test_handle_message_from_app() {
         let (tx_slim, mut rx_slim) = tokio::sync::mpsc::channel(1);
         let (tx_app, _) = tokio::sync::mpsc::channel(1);
         let agent = Agent::from_strings("org", "ns", "type", 0);

@@ -555,7 +555,7 @@ impl ProtoMessage {
     }
 
     // add metadata key in the map assigning the value val
-    // if the key existis the value is replaced by val
+    // if the key exists the value is replaced by val
     pub fn insert_metadata(&mut self, key: String, val: String) {
         self.metadata.insert(key, val);
     }
