@@ -26,6 +26,7 @@ tokio-util = { workspace = true }
 tonic = { workspace = true }
 tracing = { workspace = true }
 tracing-opentelemetry = { workspace = true }
+twox-hash = { workspace = true }
 
 [build-dependencies]
 protoc-bin-vendored = { workspace = true }
