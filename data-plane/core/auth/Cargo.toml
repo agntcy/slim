@@ -3,6 +3,10 @@ name = "agntcy-slim-auth"
 version = "0.1.0"
 license.workspace = true
 edition.workspace = true
+description = "Authentication utilities for the Agntcy Slim framework"
+
+[lib]
+name = "slim_auth"
 
 [dependencies]
 agntcy-slim-config = { workspace = true }
