@@ -20,7 +20,9 @@ use crate::traits::{Signer, Verifier};
 /// sequence of method calls at compile time.
 ///
 /// The state transitions are as follows:
-/// `Initial` -> `RequiredInfo` -> `KeyConfig` -> `Final` -> `Jwt`
+/// `Initial` -> `WithPrivateKey` -> -> `Final` -> `Jwt`
+/// Or
+/// `Initial` -> `WithPublicKey` -> `Final` -> `Jwt`
 pub mod state {
     /// Initial state for the JWT builder.
     ///
