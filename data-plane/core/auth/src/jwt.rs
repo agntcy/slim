@@ -3,55 +3,22 @@
 
 use async_trait::async_trait;
 use jsonwebtoken_aws_lc::{
-    Algorithm, DecodingKey, EncodingKey, Header as JwtHeader, TokenData, Validation, decode,
-    decode_header, encode, errors::ErrorKind,
+    DecodingKey, EncodingKey, Header as JwtHeader, TokenData, Validation, decode, decode_header,
+    encode, errors::ErrorKind,
 };
-use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use serde::Serialize;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use crate::builder::JwtBuilder;
 use crate::errors::AuthError;
 use crate::resolver::KeyResolver;
-use crate::traits::{Signer, Verifier};
-
-/// Standard JWT Claims structure that includes the registered claims
-/// as specified in RFC 7519.
-#[derive(Debug, Serialize, Deserialize)]
-pub struct StandardClaims {
-    /// Issuer (who issued the JWT)
-    pub iss: String,
-
-    /// Subject (whom the JWT is about)
-    pub sub: String,
-
-    /// Audience (who the JWT is intended for)
-    pub aud: String,
-
-    /// Expiration time (when the JWT expires)
-    pub exp: u64,
-
-    /// Issued at (when the JWT was issued)
-    pub iat: u64,
-
-    /// JWT ID (unique identifier for this JWT)
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub jti: Option<String>,
-
-    /// Not before (when the JWT starts being valid)
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub nbf: Option<u64>,
-
-    // Additional custom claims can be added by the user
-    #[serde(flatten)]
-    pub custom_claims: HashMap<String, serde_json::Value>,
-}
+use crate::traits::{Claimer, Signer, StandardClaims, Verifier};
 
 /// JWT implementation that uses the jsonwebtoken crate.
 pub struct Jwt {
-    issuer: String,
-    audience: String,
-    subject: String,
+    issuer: Option<String>,
+    audience: Option<String>,
+    subject: Option<String>,
     token_duration: Duration,
     validation: Validation,
     encoding_key: Option<EncodingKey>,
@@ -78,9 +45,9 @@ impl Jwt {
     /// ```
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn new(
-        issuer: String,
-        audience: String,
-        subject: String,
+        issuer: Option<String>,
+        audience: Option<String>,
+        subject: Option<String>,
         token_duration: Duration,
         validation: Validation,
         encoding_key: Option<EncodingKey>,
@@ -116,7 +83,7 @@ impl Jwt {
             sub: self.subject.clone(),
             aud: self.audience.clone(),
             exp: expiration,
-            iat: now,
+            iat: Some(now),
             jti: None,
             nbf: Some(now),
             custom_claims: custom_claims.unwrap_or_default(),
@@ -141,24 +108,25 @@ impl Jwt {
             AuthError::TokenInvalid(format!("Failed to decode token header: {}", e))
         })?;
 
-        // Get the algorithm from the validation
-        let algorithm = if !self.validation.algorithms.is_empty() {
-            self.validation.algorithms[0]
-        } else {
-            // Default to RS256 if not specified
-            Algorithm::RS256
-        };
+        // Issuer should be set, if it's not we can't proceed.
+        let issuer = self.issuer.as_ref().ok_or_else(|| {
+            AuthError::ConfigError("Issuer not configured for JWT verification".to_string())
+        })?;
+
+        // Validation should accept the algorithm from the token header
+        self.validation.algorithms[0] = token_header.alg;
 
         // Resolve the key
-        resolver
-            .resolve_key(
-                self.decoding_key.clone(),
-                &self.issuer,
-                algorithm,
-                Some(&token_header),
-                token,
-            )
-            .await
+        resolver.resolve_key(issuer, &token_header).await
+    }
+}
+
+impl Claimer for Jwt {
+    fn create_standard_claims(
+        &self,
+        custom_claims: Option<std::collections::HashMap<String, serde_json::Value>>,
+    ) -> StandardClaims {
+        self.create_standard_claims(custom_claims)
     }
 }
 
@@ -197,6 +165,8 @@ impl Verifier for Jwt {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
+
     use super::*;
     use base64::Engine;
     use base64::engine::general_purpose::URL_SAFE_NO_PAD;
@@ -207,24 +177,30 @@ mod tests {
 
     #[tokio::test]
     async fn test_jwt_sign_and_verify() {
-        let jwt = Jwt::builder()
+        let signer = Jwt::builder()
             .issuer("test-issuer")
             .audience("test-audience")
             .subject("test-subject")
             .private_key(Algorithm::HS512, "secret-key")
-            .unwrap()
             .build()
             .unwrap();
 
-        let claims = jwt.create_standard_claims(None);
-        let token = jwt.sign(&claims).unwrap();
+        let mut verifier = Jwt::builder()
+            .issuer("test-issuer")
+            .audience("test-audience")
+            .subject("test-subject")
+            .public_key(Algorithm::HS512, "secret-key")
+            .build()
+            .unwrap();
 
-        let mut verifier = jwt;
+        let claims = signer.create_standard_claims(None);
+        let token = signer.sign(&claims).unwrap();
+
         let verified_claims: StandardClaims = verifier.verify(&token).await.unwrap();
 
-        assert_eq!(verified_claims.iss, "test-issuer");
-        assert_eq!(verified_claims.aud, "test-audience");
-        assert_eq!(verified_claims.sub, "test-subject");
+        assert_eq!(verified_claims.iss.unwrap(), "test-issuer");
+        assert_eq!(verified_claims.aud.unwrap(), "test-audience");
+        assert_eq!(verified_claims.sub.unwrap(), "test-subject");
 
         // Try to verify with an invalid token
         let invalid_token = "invalid.token.string";
@@ -233,16 +209,37 @@ mod tests {
             result.is_err(),
             "Expected verification to fail for invalid token"
         );
+
+        // Create a verifier with the wrong key
+        let mut wrong_verifier = Jwt::builder()
+            .issuer("test-issuer")
+            .audience("test-audience")
+            .subject("test-subject")
+            .public_key(Algorithm::HS512, "wrong-key")
+            .build()
+            .unwrap();
+        let wrong_result: Result<StandardClaims, AuthError> = wrong_verifier.verify(&token).await;
+        assert!(
+            wrong_result.is_err(),
+            "Expected verification to fail with wrong key"
+        );
     }
 
     #[tokio::test]
     async fn test_jwt_sign_and_verify_custom_claims() {
-        let jwt = Jwt::builder()
+        let signer = Jwt::builder()
             .issuer("test-issuer")
             .audience("test-audience")
             .subject("test-subject")
             .private_key(Algorithm::HS512, "secret-key")
-            .unwrap()
+            .build()
+            .unwrap();
+
+        let mut verifier = Jwt::builder()
+            .issuer("test-issuer")
+            .audience("test-audience")
+            .subject("test-subject")
+            .public_key(Algorithm::HS512, "secret-key")
             .build()
             .unwrap();
 
@@ -259,10 +256,9 @@ mod tests {
             ]),
         );
 
-        let claims = jwt.create_standard_claims(Some(custom_claims));
-        let token = jwt.sign(&claims).unwrap();
+        let claims = signer.create_standard_claims(Some(custom_claims));
+        let token = signer.sign(&claims).unwrap();
 
-        let mut verifier = jwt;
         let verified_claims: StandardClaims = verifier.verify(&token).await.unwrap();
 
         assert_eq!(verified_claims.custom_claims.get("role").unwrap(), "admin");
@@ -273,34 +269,12 @@ mod tests {
                 serde_json::Value::String("write".to_string())
             ])
         );
-    } // Enum to represent different types of test keys
-    enum TestKey {
-        Rsa(openssl::rsa::Rsa<openssl::pkey::Private>),
-        Ec(openssl::ec::EcKey<openssl::pkey::Private>),
-        Ed25519(openssl::pkey::PKey<openssl::pkey::Private>),
     }
 
-    impl TestKey {
-        fn to_encoding_key(&self) -> EncodingKey {
-            match self {
-                TestKey::Rsa(rsa) => {
-                    EncodingKey::from_rsa_der(rsa.private_key_to_der().unwrap().as_ref())
-                }
-                TestKey::Ec(ec) => {
-                    let pkey =
-                        openssl::pkey::PKey::<openssl::pkey::Private>::from_ec_key(ec.clone())
-                            .unwrap();
+    #[tokio::test]
+    async fn test_validate_jwt_with_provided_key() {}
 
-                    EncodingKey::from_ec_der(pkey.private_key_to_pkcs8().unwrap().as_ref())
-                }
-                TestKey::Ed25519(ed) => {
-                    EncodingKey::from_ed_der(ed.private_key_to_der().unwrap().as_ref())
-                }
-            }
-        }
-    }
-
-    async fn setup_test_jwt_resolver(algorithm: Algorithm) -> (TestKey, MockServer, String) {
+    async fn setup_test_jwt_resolver(algorithm: Algorithm) -> (String, MockServer, String) {
         // Set up the mock server for JWKS
         let mock_server = MockServer::start().await;
 
@@ -343,7 +317,11 @@ mod tests {
                     "e": exponent_encoded,
                 });
 
-                (TestKey::Rsa(keypair), jwks_key, alg_str)
+                (
+                    String::from_utf8(keypair.private_key_to_pem().unwrap()),
+                    jwks_key,
+                    alg_str,
+                )
             }
             Algorithm::ES256 | Algorithm::ES384 => {
                 // Choose the right curve for the algorithm
@@ -400,7 +378,17 @@ mod tests {
                     "y": y_encoded
                 });
 
-                (TestKey::Ec(keypair), jwks_key, alg_str)
+                // Convert keypair to PKey
+                // NOTE(msardara): it seems ECDSA keys shohuld be in the PKCS#8 format,
+                // otherwise jsonwebtoken will fail to decode them.
+                let pkey =
+                    openssl::pkey::PKey::<openssl::pkey::Private>::from_ec_key(keypair).unwrap();
+
+                (
+                    String::from_utf8(pkey.private_key_to_pem_pkcs8().unwrap()),
+                    jwks_key,
+                    alg_str,
+                )
             }
             Algorithm::EdDSA => {
                 // Generate Ed25519 key
@@ -423,7 +411,11 @@ mod tests {
                     "x": x_encoded
                 });
 
-                (TestKey::Ed25519(keypair), jwks_key, "EdDSA")
+                (
+                    String::from_utf8(keypair.private_key_to_pem_pkcs8().unwrap()),
+                    jwks_key,
+                    "EdDSA",
+                )
             }
             _ => panic!("Unsupported algorithm for this test: {:?}", algorithm),
         };
@@ -448,7 +440,7 @@ mod tests {
             .mount(&mock_server)
             .await;
 
-        (test_key, mock_server, alg_str.to_string())
+        (test_key.unwrap(), mock_server, alg_str.to_string())
     }
 
     async fn test_jwt_resolve_with_algorithm(algorithm: Algorithm) {
@@ -457,30 +449,30 @@ mod tests {
         println!("Testing JWT key resolution with algorithm: {}", alg_str);
 
         // Build the JWT with auto key resolution
-        let mut jwt = Jwt::builder()
+        let signer = Jwt::builder()
             .issuer(mock_server.uri())
             .audience("test-audience")
             .subject("test-subject")
-            .with_required_info()
-            .unwrap()
+            .private_key(algorithm, test_key)
+            .build()
+            .unwrap();
+
+        let mut verifier = Jwt::builder()
+            .issuer(mock_server.uri())
+            .audience("test-audience")
+            .subject("test-subject")
             .auto_resolve_keys(true)
             .build()
             .unwrap();
 
-        // Setup the JWT for signing (normally this would be a different instance)
-        jwt.encoding_key = Some(test_key.to_encoding_key());
-        jwt.validation = Validation::new(algorithm);
-        jwt.validation.set_audience(&[&jwt.audience]);
-        jwt.validation.set_issuer(&[&jwt.issuer]);
-
         // Sign and verify the token
-        let token = jwt.sign(&jwt.create_standard_claims(None)).unwrap();
-        let claims: StandardClaims = jwt.verify(&token).await.unwrap();
+        let token = signer.sign(&signer.create_standard_claims(None)).unwrap();
+        let claims: StandardClaims = verifier.verify(&token).await.unwrap();
 
         // Validate the claims
-        assert_eq!(claims.iss, jwt.issuer);
-        assert_eq!(claims.aud, jwt.audience);
-        assert_eq!(claims.sub, jwt.subject);
+        assert_eq!(claims.iss.unwrap(), mock_server.uri());
+        assert_eq!(claims.aud.unwrap(), "test-audience");
+        assert_eq!(claims.sub.unwrap(), "test-subject");
     }
 
     #[tokio::test]

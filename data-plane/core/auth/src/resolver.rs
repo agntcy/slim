@@ -4,6 +4,7 @@
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
+use jsonwebtoken_aws_lc::jwk::KeyAlgorithm;
 use jsonwebtoken_aws_lc::{
     Algorithm, DecodingKey, Header,
     jwk::{Jwk, JwkSet},
@@ -101,28 +102,22 @@ impl KeyResolver {
     /// 3. If no kid is specified, use the first suitable key from the JWKS endpoint
     ///
     /// # Arguments
-    /// * `decoding_key` - An optional existing decoding key
     /// * `issuer` - The token issuer URL
-    /// * `token_header` - The parsed JWT header containing information like algorithm and key ID
-    /// * `token` - The raw JWT token
+    /// * `token_header` - The JWT header containing the algorithm and key ID (if available)
     pub async fn resolve_key(
         &mut self,
-        decoding_key: Option<DecodingKey>,
         issuer: &str,
-        algorithm: Algorithm,
-        token_header: Option<&Header>,
-        _token: &str, // Prefixed with underscore to indicate it's intentionally unused
+        token_header: &Header,
     ) -> Result<DecodingKey, AuthError> {
-        // If a decoding key is already provided, use it
-        if let Some(key) = decoding_key {
-            return Ok(key);
-        }
-
         // Get the key ID from the token header
-        let key_id = token_header.and_then(|h| h.kid.clone());
+        let key_id = token_header.kid.clone();
 
         // Try to fetch the keys from the well-known JWKS endpoint
         let jwks = self.fetch_jwks(issuer).await?;
+
+        if jwks.keys.is_empty() {
+            return Err(AuthError::ConfigError("No keys found in JWKS".to_string()));
+        }
 
         // Find a matching key in the JWKS
         if let Some(kid) = key_id {
@@ -130,7 +125,7 @@ impl KeyResolver {
             for key in &jwks.keys {
                 if let Some(id) = &key.common.key_id {
                     if id == &kid {
-                        return self.jwk_to_decoding_key(key, algorithm);
+                        return self.jwk_to_decoding_key(key);
                     }
                 }
             }
@@ -139,49 +134,54 @@ impl KeyResolver {
                 "Key with ID {} not found in JWKS",
                 kid
             )));
-        } else {
-            // No key ID specified, try to find a suitable key based on algorithm
-            for key in &jwks.keys {
-                // Try to convert the key
-                if let Ok(dk) = self.jwk_to_decoding_key(key, algorithm) {
-                    return Ok(dk);
+        }
+
+        // If no key ID is specified, use the first suitable key
+        for key in &jwks.keys {
+            if let Some(alg) = &key.common.key_algorithm {
+                if let Ok(algorithm) = self.key_alg_to_algorithm(alg) {
+                    // Check if the algorithm matches the token's algorithm
+                    if algorithm == token_header.alg {
+                        return self.jwk_to_decoding_key(key);
+                    }
                 }
             }
         }
 
+        // If no suitable key is found, return an error
         Err(AuthError::ConfigError(
             "No suitable key found in JWKS".to_string(),
         ))
     }
 
     /// Convert a JWK to a DecodingKey
-    fn jwk_to_decoding_key(
-        &self,
-        jwk: &Jwk,
-        algorithm: Algorithm,
-    ) -> Result<DecodingKey, AuthError> {
-        // Match the algorithm to determine how to create the decoding key
-        match algorithm {
-            Algorithm::RS256
-            | Algorithm::RS384
-            | Algorithm::RS512
-            | Algorithm::PS256
-            | Algorithm::PS384
-            | Algorithm::PS512 => DecodingKey::from_jwk(jwk).map_err(|e| {
-                AuthError::ConfigError(format!("Failed to create RSA decoding key from JWK: {}", e))
-            }),
-            Algorithm::ES256 | Algorithm::ES384 => DecodingKey::from_jwk(jwk).map_err(|e| {
-                AuthError::ConfigError(format!("Failed to create EC decoding key from JWK: {}", e))
-            }),
-            Algorithm::EdDSA => DecodingKey::from_jwk(jwk).map_err(|e| {
-                AuthError::ConfigError(format!(
-                    "Failed to create EdDSA decoding key from JWK: {}",
-                    e
-                ))
-            }),
-            Algorithm::HS256 | Algorithm::HS384 | Algorithm::HS512 => Err(AuthError::ConfigError(
-                "HMAC algorithms not supported with JWKS".to_string(),
-            )),
+    fn jwk_to_decoding_key(&self, jwk: &Jwk) -> Result<DecodingKey, AuthError> {
+        DecodingKey::from_jwk(jwk).map_err(|e| {
+            AuthError::ConfigError(format!(
+                "Failed to create {:?} decoding key from JWK: {}",
+                jwk.common.key_algorithm, e
+            ))
+        })
+    }
+
+    fn key_alg_to_algorithm(&self, alg: &KeyAlgorithm) -> Result<Algorithm, AuthError> {
+        match alg {
+            KeyAlgorithm::HS256 => Ok(Algorithm::HS256),
+            KeyAlgorithm::HS384 => Ok(Algorithm::HS384),
+            KeyAlgorithm::HS512 => Ok(Algorithm::HS512),
+            KeyAlgorithm::ES256 => Ok(Algorithm::ES256),
+            KeyAlgorithm::ES384 => Ok(Algorithm::ES384),
+            KeyAlgorithm::RS256 => Ok(Algorithm::RS256),
+            KeyAlgorithm::RS384 => Ok(Algorithm::RS384),
+            KeyAlgorithm::RS512 => Ok(Algorithm::RS512),
+            KeyAlgorithm::PS256 => Ok(Algorithm::PS256),
+            KeyAlgorithm::PS384 => Ok(Algorithm::PS384),
+            KeyAlgorithm::PS512 => Ok(Algorithm::PS512),
+            KeyAlgorithm::EdDSA => Ok(Algorithm::EdDSA),
+            _ => Err(AuthError::ConfigError(format!(
+                "Unsupported key algorithm: {:?}",
+                alg
+            ))),
         }
     }
 
