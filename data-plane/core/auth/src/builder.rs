@@ -156,7 +156,7 @@ impl JwtBuilder<state::Initial> {
         }
     }
 
-    /// Require nbf (nor before) in the JWT.
+    /// Require nbf (not before) in the JWT.
     pub fn require_nbf(self) -> Self {
         let mut required_claims = self.required_claims.clone();
         required_claims.push("nbf".to_string());
