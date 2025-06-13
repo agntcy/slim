@@ -49,8 +49,8 @@ pub mod state {
 /// The state transitions are:
 ///
 /// 1. `Initial`: The starting state with no configuration
-/// 2. `RequiredInfo`: After setting issuer, audience, and subject
-/// 3. `KeyConfig`: After setting key configuration (private key, public key, or auto-resolve)
+/// 2. `WithPrivateKey`: After setting a private key
+/// 3. `WithPublicKey`: After setting a public key or enabling auto-resolve
 /// 4. `Final`: Ready to build the JWT
 ///
 /// Each method transitions the builder to the appropriate state, ensuring at
