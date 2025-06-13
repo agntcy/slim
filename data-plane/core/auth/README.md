@@ -16,8 +16,8 @@ Slim platform, with a focus on JWT (JSON Web Token) authentication.
 
 The JWT implementation provides a convenient way to create and verify JWTs with
 support for automatic key resolution from OpenID Connect providers. The
-implementation uses a state machine pattern to enforce the correct sequence of
-method calls at compile time.
+implementation uses a fluent builder pattern to configure and construct JWT
+instances.
 
 ### Basic Usage
 
@@ -28,12 +28,11 @@ use jsonwebtoken_aws_lc::Algorithm;
 use std::collections::HashMap;
 use std::time::Duration;
 
-// Create a JWT instance using the builder pattern with type state
-let jwt = Jwt::builder()
+// Create a signer with the private key
+let signer = Jwt::builder()
     .issuer("https://mycompany.com")
     .audience("api-users")
     .subject("auth")
-    .with_required_info().unwrap()    // Transition to RequiredInfo state
     .private_key(Algorithm::HS256, "your-secret-key")
     .build()
     .unwrap();
@@ -41,33 +40,49 @@ let jwt = Jwt::builder()
 // Create claims
 let mut custom_claims = HashMap::new();
 custom_claims.insert("role".to_string(), serde_json::Value::String("admin".to_string()));
-let claims = jwt.create_standard_claims(Some(custom_claims));
+let claims = signer.create_standard_claims(Some(custom_claims));
 
 // Sign the claims
-let token = jwt.sign(&claims).unwrap();
+let token = signer.sign(&claims).unwrap();
+
+// Create a separate verifier with the public key
+let mut verifier = Jwt::builder()
+    .issuer("https://mycompany.com")
+    .audience("api-users")
+    .subject("auth")
+    .public_key(Algorithm::HS256, "your-secret-key")
+    .build()
+    .unwrap();
 
 // Verify the token
-let mut verifier = jwt;
-let verified_claims: StandardClaims = verifier.verify(&token).unwrap();
-println!("Token verified: {}", verified_claims.sub);
+let verified_claims: StandardClaims = verifier.verify(&token).await.unwrap();
+println!("Token verified: {}", verified_claims.iss.unwrap());
 ```
 
-### Direct Transition Methods
+### Creating a Signer and Verifier
 
-The builder provides convenient direct transition methods that validate and
-transition states internally:
+The builder provides separate methods for creating signers and verifiers:
 
 ```rust
 use agntcy_slim_auth::jwt::Jwt;
 use agntcy_slim_auth::traits::{Signer, Verifier};
 use jsonwebtoken_aws_lc::Algorithm;
 
-// Using direct transition methods
-let jwt = Jwt::builder()
+// Create a signer using the private key
+let signer = Jwt::builder()
     .issuer("https://mycompany.com")
     .audience("api-users")
     .subject("auth")
-    .private_key(Algorithm::HS256, "your-secret-key").unwrap()  // Direct transition
+    .private_key(Algorithm::HS256, "your-secret-key")
+    .build()
+    .unwrap();
+
+// Create a verifier using the public key
+let verifier = Jwt::builder()
+    .issuer("https://mycompany.com")
+    .audience("api-users")
+    .subject("auth")
+    .public_key(Algorithm::HS256, "your-secret-key")
     .build()
     .unwrap();
 ```
@@ -80,22 +95,21 @@ AD, or Okta.
 
 ```rust
 use agntcy_slim_auth::jwt::{Jwt, StandardClaims};
-use agntcy_slim_auth::traits::{AsyncVerifier, Verifier};
+use agntcy_slim_auth::traits::{Signer, Verifier};
 use std::time::Duration;
 
 // Create a JWT instance with auto key resolution
-let jwt = Jwt::builder()
+let mut verifier = Jwt::builder()
     .issuer("https://your-tenant.auth0.com/")
     .audience("your-api")
     .subject("auth")
-    .auto_resolve_keys(true).unwrap() // Enable automatic key resolution with direct transition
+    .auto_resolve_keys(true)
     .build()
     .unwrap();
 
 // Verify a token asynchronously
 let token = "..."; // Token received from the client
-let mut verifier = jwt;
-let claims: StandardClaims = verifier.verify_async(token).await.unwrap();
+let claims: StandardClaims = verifier.verify(&token).await.unwrap();
 ```
 
 ### OpenID Connect Discovery
@@ -104,55 +118,33 @@ The key resolver will first attempt to discover the JWKS URI using the standard
 OpenID Connect discovery endpoint (`/.well-known/openid-configuration`) and will
 fall back to the standard JWKS location (`/.well-known/jwks.json`) if needed.
 
-### Custom Key Resolver
+### Simplified Builder Pattern
 
-You can create a custom key resolver with specific settings:
+The builder uses a more straightforward approach to configuration:
 
-```rust
-use agntcy_slim_auth::jwt::Jwt;
-use agntcy_slim_auth::resolver::KeyResolver;
-use std::time::Duration;
+1. Set properties like issuer, audience, and subject
+2. Configure key information or auto-resolution
+3. Call build() to create the JWT instance
 
-// Create a custom key resolver
-let resolver = KeyResolver::new()
-    .with_ttl(Duration::from_secs(3600)); // 1 hour cache TTL
-
-// Use it in a JWT instance
-let jwt = Jwt::builder()
-    .issuer("https://identity.mycompany.com")
-    .audience("api")
-    .subject("auth")
-    .with_required_info().unwrap()
-    .key_resolver(resolver)
-    .build()
-    .unwrap();
-```
-
-### Type-Safe State Machine Pattern
-
-The builder uses a type state pattern to enforce the correct sequence of method
-calls:
-
-1. **Initial State**: Set basic properties (issuer, audience, subject)
-2. **RequiredInfo State**: Transition after setting all required fields
-3. **KeyConfig State**: Configure keys or auto-resolution
-4. **Final State**: Ready to build the JWT
-
-This ensures at compile-time that all required configuration is provided before
-building the JWT object.
+This provides a clean and intuitive API while still ensuring appropriate
+validation during construction.
 
 ```rust
-// Explicit state transitions
+// Simple, readable configuration
 let jwt = Jwt::builder()
     .issuer("https://mycompany.com")
     .audience("api-users")
     .subject("auth")
-    .with_required_info().unwrap()    // Transition to RequiredInfo state
-    .private_key(Algorithm::HS256, "your-secret-key") // Transition to KeyConfig state
-    .to_final_state().unwrap()        // Transition to Final state
-    .build()                          // Build the JWT
+    .private_key(Algorithm::HS256, "your-secret-key")
+    .build()
     .unwrap();
 ```
+
+The builder pattern returns specific types based on the configuration provided:
+
+- When using `private_key()`, it returns a `Signer` trait object
+- When using `public_key()` or `auto_resolve_keys()`, it returns a `Verifier`
+  trait object
 
 ## License
 
