@@ -15,6 +15,6 @@ services:
   slim/0:
     pubsub:
       clients:
-        - endpoint: "http://slim-server:50051"
+        - endpoint: "http://slim-server:46357"
           tls:
             insecure: true

@@ -37,13 +37,13 @@ tasks:
     desc: "Build all Docker images"
     dir: "../.."
     cmds:
-      - docker build -t slim-server -f data-plane/examples/src/docker/Dockerfile.slim .
-      - docker build -t mock-agent-server -f data-plane/examples/src/docker/Dockerfile.mock-agent-server .
-      - docker build -t mock-agent-client -f data-plane/examples/src/docker/Dockerfile.mock-agent-client .
+      - docker build -t slim-server -f data-plane/Dockerfile .
+      - docker build -t mock-agent-server -f data-plane/examples/Dockerfile.mock-agent --target=mock-agent-server .
+      - docker build -t mock-agent-client -f data-plane/examples/Dockerfile.mock-agent --target=mock-agent-client .
 
   docker:compose-up:
     desc: "Start all services with Docker Compose"
-    dir: "src/docker"
+    dir: "."
     cmds:
       - |
         # Ensure config directory exists
@@ -53,6 +53,6 @@ tasks:
 
   docker:compose-down:
     desc: "Stop all services with Docker Compose"
-    dir: "src/docker"
+    dir: "."
     cmds:
       - docker compose down
