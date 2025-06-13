@@ -287,7 +287,15 @@ impl Service {
         let (tx_app, rx_app) = mpsc::channel(128);
 
         // create session layer
-        let session_layer = Arc::new(SessionLayer::new(agent_name, conn_id, tx_slim, tx_app));
+        // TODO(micpapal/msardara): here the identity is set as the agent_name itself
+        // we need to load the right identifier and pass it here to the session layer
+        let session_layer = Arc::new(SessionLayer::new(
+            agent_name,
+            Some(agent_name.to_string()),
+            conn_id,
+            tx_slim,
+            tx_app,
+        ));
 
         // register agent within session layers
         session_layers.insert(agent_name.clone(), session_layer.clone());

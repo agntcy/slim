@@ -210,6 +210,7 @@ impl Streaming {
         session_config: StreamingConfiguration,
         session_direction: SessionDirection,
         agent: Agent,
+        identity: Option<String>,
         tx_slim: SlimChannelSender,
         tx_app: AppChannelSender,
     ) -> Streaming {
@@ -220,6 +221,7 @@ impl Streaming {
                 session_direction.clone(),
                 SessionConfig::Streaming(session_config.clone()),
                 agent,
+                identity,
                 tx_slim,
                 tx_app,
             ),
@@ -901,6 +903,7 @@ mod tests {
             session_config.clone(),
             SessionDirection::Sender,
             source.clone(),
+            Some(source.to_string()),
             tx_slim.clone(),
             tx_app.clone(),
         );
@@ -924,6 +927,7 @@ mod tests {
             session_config.clone(),
             SessionDirection::Receiver,
             source.clone(),
+            Some(source.to_string()),
             tx_slim,
             tx_app,
         );
@@ -954,11 +958,15 @@ mod tests {
             Some(Duration::from_millis(500)),
         );
 
+        let send = Agent::from_strings("cisco", "default", "sender", 0);
+        let recv = Agent::from_strings("cisco", "default", "receiver", 0);
+
         let sender = Streaming::new(
             0,
             session_config_sender,
             SessionDirection::Sender,
-            Agent::from_strings("cisco", "default", "sender", 0),
+            send.clone(),
+            Some(send.to_string()),
             tx_slim_sender,
             tx_app_sender,
         );
@@ -966,13 +974,14 @@ mod tests {
             0,
             session_config_receiver,
             SessionDirection::Receiver,
-            Agent::from_strings("cisco", "default", "receiver", 0),
+            recv.clone(),
+            Some(recv.to_string()),
             tx_slim_receiver,
             tx_app_receiver,
         );
 
         let mut message = Message::new_publish(
-            &Agent::from_strings("cisco", "default", "sender", 0),
+            &send,
             &AgentType::from_strings("cisco", "default", "receiver"),
             Some(0),
             Some(SlimHeaderFlags::default().with_incoming_conn(123)), // set a fake incoming conn, as it is required for the rtx
@@ -1025,17 +1034,20 @@ mod tests {
             Some(Duration::from_millis(500)),
         );
 
+        let agent = Agent::from_strings("cisco", "default", "sender", 0);
+
         let session = Streaming::new(
             0,
             session_config,
             SessionDirection::Receiver,
-            Agent::from_strings("cisco", "default", "sender", 0),
+            agent.clone(),
+            Some(agent.to_string()),
             tx_slim,
             tx_app,
         );
 
         let mut message = Message::new_publish(
-            &Agent::from_strings("cisco", "default", "sender", 0),
+            &agent,
             &AgentType::from_strings("cisco", "default", "receiver"),
             Some(0),
             Some(SlimHeaderFlags::default().with_incoming_conn(123)), // set a fake incoming conn, as it is required for the rtx
@@ -1101,11 +1113,14 @@ mod tests {
             Some(Duration::from_millis(500)),
         );
 
+        let agent = Agent::from_strings("cisco", "default", "receiver", 0);
+
         let session = Streaming::new(
             120,
             session_config,
             SessionDirection::Sender,
-            Agent::from_strings("cisco", "default", "receiver", 0),
+            agent.clone(),
+            Some(agent.to_string()),
             tx_slim,
             tx_app,
         );
@@ -1201,11 +1216,15 @@ mod tests {
                                               // otherwise we don't know which message will be received first
         );
 
+        let send = Agent::from_strings("cisco", "default", "sender", 0);
+        let recv = Agent::from_strings("cisco", "default", "receiver", 0);
+
         let sender = Streaming::new(
             0,
             session_config_sender,
             SessionDirection::Sender,
-            Agent::from_strings("cisco", "default", "sender", 0),
+            send.clone(),
+            Some(send.to_string()),
             tx_slim_sender,
             tx_app_sender,
         );
@@ -1213,7 +1232,8 @@ mod tests {
             0,
             session_config_receiver,
             SessionDirection::Receiver,
-            Agent::from_strings("cisco", "default", "receiver", 0),
+            recv.clone(),
+            Some(recv.to_string()),
             tx_slim_receiver,
             tx_app_receiver,
         );
@@ -1412,6 +1432,7 @@ mod tests {
                 session_config.clone(),
                 SessionDirection::Sender,
                 source.clone(),
+                Some(source.to_string()),
                 tx_slim.clone(),
                 tx_app.clone(),
             );
