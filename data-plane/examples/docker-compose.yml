@@ -1,0 +1,46 @@
+services:
+  # Slim server
+  slim-server:
+    build:
+      context: ../..
+      dockerfile: ./data-plane/Dockerfile
+      target: slim-release
+    entrypoint: ["/slim"]
+    command: ["--config", "/config/server-config.yaml"]
+    ports:
+      - "50001:50001"
+    networks:
+      - slim-network
+    volumes:
+      - ../config/base/server-config.yaml:/config/server-config.yaml
+
+  # Mock agent server
+  mock-agent-server:
+    build:
+      context: ../..
+      dockerfile: ./data-plane/examples/Dockerfile.mock-agent
+      target: mock-agent-server
+    depends_on:
+      - slim-server
+    networks:
+      - slim-network
+    volumes:
+      - ./config/docker-client-config.yaml:/config/client-config.yaml
+
+  # Mock agent client
+  mock-agent-client:
+    build:
+      context: ../..
+      dockerfile: ./data-plane/examples/Dockerfile.mock-agent
+      target: mock-agent-client
+    depends_on:
+      - slim-server
+      - mock-agent-server
+    networks:
+      - slim-network
+    volumes:
+      - ./config/docker-client-config.yaml:/config/client-config.yaml
+
+networks:
+  slim-network:
+    driver: bridge
