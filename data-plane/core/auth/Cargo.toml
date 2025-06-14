@@ -9,7 +9,6 @@ description = "Authentication utilities for the Agntcy Slim framework"
 name = "slim_auth"
 
 [dependencies]
-agntcy-slim-config = { workspace = true }
 async-trait = { workspace = true }
 jsonwebtoken-aws-lc = { workspace = true }
 reqwest = { workspace = true, features = ["json"] }

@@ -1,21 +1,37 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
+pub use jsonwebtoken_aws_lc::Algorithm;
+
 use async_trait::async_trait;
 use jsonwebtoken_aws_lc::{
     DecodingKey, EncodingKey, Header as JwtHeader, TokenData, Validation, decode, decode_header,
     encode, errors::ErrorKind,
 };
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use crate::builder::JwtBuilder;
 use crate::errors::AuthError;
 use crate::resolver::KeyResolver;
-use crate::traits::{Claimer, Signer, StandardClaims, Verifier};
+use crate::traits::{Claimer, Signer, StandardClaims, SyncVerifier, Verifier};
+
+/// Represents a key
+#[derive(Debug, Deserialize, Clone, PartialEq)]
+pub struct Key {
+    /// Algorithm used for signing the JWT
+    pub algorithm: Algorithm,
+
+    /// Key used for signing or validating the JWT
+    pub key: String,
+}
+
+pub type SignerJwt = Jwt<S>;
+pub type VerifierJwt = Jwt<V>;
 
 /// JWT implementation that uses the jsonwebtoken crate.
-pub struct Jwt {
+#[derive(Clone)]
+pub struct Jwt<T> {
     issuer: Option<String>,
     audience: Option<String>,
     subject: Option<String>,
@@ -24,14 +40,11 @@ pub struct Jwt {
     encoding_key: Option<EncodingKey>,
     decoding_key: Option<DecodingKey>,
     key_resolver: Option<KeyResolver>,
+
+    _phantom: std::marker::PhantomData<T>,
 }
 
-impl Jwt {
-    /// Creates a new JwtBuilder to build a Jwt instance.
-    pub fn builder() -> JwtBuilder<crate::builder::state::Initial> {
-        JwtBuilder::new()
-    }
-
+impl<T> Jwt<T> {
     /// Internal constructor used by the builder.
     ///
     /// This should not be called directly. Use the builder pattern instead:
@@ -43,8 +56,7 @@ impl Jwt {
     ///     .private_key("secret-key")
     ///     .build()?;
     /// ```
-    #[allow(clippy::too_many_arguments)]
-    pub(crate) fn new(
+    pub fn new(
         issuer: Option<String>,
         audience: Option<String>,
         subject: Option<String>,
@@ -63,9 +75,15 @@ impl Jwt {
             encoding_key,
             decoding_key,
             key_resolver,
+            _phantom: std::marker::PhantomData,
         }
     }
+}
 
+#[derive(Clone)]
+pub struct S {}
+
+impl<S> Jwt<S> {
     /// Creates a StandardClaims object with the default values.
     pub fn create_standard_claims(
         &self,
@@ -89,6 +107,39 @@ impl Jwt {
             custom_claims: custom_claims.unwrap_or_default(),
         }
     }
+}
+
+#[derive(Clone)]
+pub struct V {}
+
+impl<V> Jwt<V> {
+    /// Get deconding key for verification
+    fn decoding_key(&self, token: &str) -> Result<DecodingKey, AuthError> {
+        // If the decoding key is available, return it
+        if let Some(key) = &self.decoding_key {
+            return Ok(key.clone());
+        }
+
+        // Try to get a cached decoding key
+        if let Some(resolver) = &self.key_resolver {
+            // Parse the token header to get the key ID and algorithm
+            let token_header = decode_header(token).map_err(|e| {
+                AuthError::TokenInvalid(format!("Failed to decode token header: {}", e))
+            })?;
+
+            // get the issuer
+            let issuer = self.issuer.as_ref().ok_or_else(|| {
+                AuthError::ConfigError("Issuer not configured for JWT verification".to_string())
+            })?;
+
+            return resolver.get_cached_key(issuer, &token_header);
+        }
+
+        // If we don't have a decoding key and no resolver, we can't proceed
+        Err(AuthError::ConfigError(
+            "Decoding key not configured for JWT verification".to_string(),
+        ))
+    }
 
     /// Resolve a decoding key for token verification
     async fn resolve_decoding_key(&mut self, token: &str) -> Result<DecodingKey, AuthError> {
@@ -98,7 +149,7 @@ impl Jwt {
         }
 
         // As we don't have a decoding key, we need to resolve it. The resolver
-        // should be set, if it's not we can't proceed.
+        // should be set, otherwise we can't proceed.
         let resolver = self.key_resolver.as_mut().ok_or_else(|| {
             AuthError::ConfigError("Key resolver not configured for JWT verification".to_string())
         })?;
@@ -121,7 +172,7 @@ impl Jwt {
     }
 }
 
-impl Claimer for Jwt {
+impl<T> Claimer for Jwt<T> {
     fn create_standard_claims(
         &self,
         custom_claims: Option<std::collections::HashMap<String, serde_json::Value>>,
@@ -130,7 +181,7 @@ impl Claimer for Jwt {
     }
 }
 
-impl Signer for Jwt {
+impl Signer for SignerJwt {
     fn sign<Claims>(&self, claims: &Claims) -> Result<String, AuthError>
     where
         Claims: Serialize,
@@ -146,12 +197,29 @@ impl Signer for Jwt {
 }
 
 #[async_trait]
-impl Verifier for Jwt {
+impl Verifier for VerifierJwt {
     async fn verify<Claims>(&mut self, token: &str) -> Result<Claims, AuthError>
     where
         Claims: serde::de::DeserializeOwned + Send,
     {
         let decoding_key = self.resolve_decoding_key(token).await?;
+
+        let token_data: TokenData<Claims> = decode(token, &decoding_key, &self.validation)
+            .map_err(|e| match e.kind() {
+                ErrorKind::ExpiredSignature => AuthError::TokenExpired,
+                _ => AuthError::VerificationError(format!("{}", e)),
+            })?;
+
+        Ok(token_data.claims)
+    }
+}
+
+impl SyncVerifier for VerifierJwt {
+    fn try_verify<Claims>(&mut self, token: &str) -> Result<Claims, AuthError>
+    where
+        Claims: serde::de::DeserializeOwned + Send,
+    {
+        let decoding_key = self.decoding_key(token)?;
 
         let token_data: TokenData<Claims> = decode(token, &decoding_key, &self.validation)
             .map_err(|e| match e.kind() {
@@ -177,7 +245,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_jwt_sign_and_verify() {
-        let signer = Jwt::builder()
+        let signer = JwtBuilder::new()
             .issuer("test-issuer")
             .audience("test-audience")
             .subject("test-subject")
@@ -185,7 +253,7 @@ mod tests {
             .build()
             .unwrap();
 
-        let mut verifier = Jwt::builder()
+        let mut verifier = JwtBuilder::new()
             .issuer("test-issuer")
             .audience("test-audience")
             .subject("test-subject")
@@ -211,7 +279,7 @@ mod tests {
         );
 
         // Create a verifier with the wrong key
-        let mut wrong_verifier = Jwt::builder()
+        let mut wrong_verifier = JwtBuilder::new()
             .issuer("test-issuer")
             .audience("test-audience")
             .subject("test-subject")
@@ -227,7 +295,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_jwt_sign_and_verify_custom_claims() {
-        let signer = Jwt::builder()
+        let signer = JwtBuilder::new()
             .issuer("test-issuer")
             .audience("test-audience")
             .subject("test-subject")
@@ -235,7 +303,7 @@ mod tests {
             .build()
             .unwrap();
 
-        let mut verifier = Jwt::builder()
+        let mut verifier = JwtBuilder::new()
             .issuer("test-issuer")
             .audience("test-audience")
             .subject("test-subject")
@@ -449,7 +517,7 @@ mod tests {
         println!("Testing JWT key resolution with algorithm: {}", alg_str);
 
         // Build the JWT with auto key resolution
-        let signer = Jwt::builder()
+        let signer = JwtBuilder::new()
             .issuer(mock_server.uri())
             .audience("test-audience")
             .subject("test-subject")
@@ -457,7 +525,7 @@ mod tests {
             .build()
             .unwrap();
 
-        let mut verifier = Jwt::builder()
+        let mut verifier = JwtBuilder::new()
             .issuer(mock_server.uri())
             .audience("test-audience")
             .subject("test-subject")

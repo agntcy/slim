@@ -13,7 +13,7 @@ use crate::errors::AuthError;
 
 /// Standard JWT Claims structure that includes the registered claims
 /// as specified in RFC 7519.
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct StandardClaims {
     /// Issuer (who issued the JWT)
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -61,6 +61,14 @@ pub trait Verifier: Claimer {
     ///
     /// The `Claims` type parameter represents the expected structure of the JWT claims.
     async fn verify<Claims>(&mut self, token: &str) -> Result<Claims, AuthError>
+    where
+        Claims: DeserializeOwned + Send;
+}
+
+pub trait SyncVerifier: Claimer {
+    /// Try to verify the JWT token without async context and return the claims if valid.
+    /// If an async operation is needed, an error is returned.
+    fn try_verify<Claims>(&mut self, token: &str) -> Result<Claims, AuthError>
     where
         Claims: DeserializeOwned + Send;
 }

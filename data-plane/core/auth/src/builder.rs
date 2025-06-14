@@ -9,7 +9,7 @@ use std::marker::PhantomData;
 use std::time::Duration;
 
 use crate::errors::AuthError;
-use crate::jwt::Jwt;
+use crate::jwt::{SignerJwt, VerifierJwt};
 use crate::resolver::KeyResolver;
 use crate::traits::{Signer, Verifier};
 
@@ -264,7 +264,7 @@ impl JwtBuilder<state::WithPrivateKey> {
     }
 
     /// Transition to the final state after setting required information.
-    pub fn build(self) -> Result<impl Signer, AuthError> {
+    pub fn build(self) -> Result<SignerJwt, AuthError> {
         // Set up validation
         let validation = self.build_validation();
 
@@ -308,7 +308,7 @@ impl JwtBuilder<state::WithPrivateKey> {
         };
 
         // Create new Jwt instance
-        Ok(Jwt::new(
+        Ok(SignerJwt::new(
             self.issuer,
             self.audience,
             self.subject,
@@ -324,7 +324,7 @@ impl JwtBuilder<state::WithPrivateKey> {
 // Implementation for the WithPublicKey state
 impl JwtBuilder<state::WithPublicKey> {
     /// Transition to the final state after setting required information.
-    pub fn build(self) -> Result<impl Verifier, AuthError> {
+    pub fn build(self) -> Result<VerifierJwt, AuthError> {
         // Set up validation
         let validation = self.build_validation();
 
@@ -385,7 +385,7 @@ impl JwtBuilder<state::WithPublicKey> {
         };
 
         // Create new Jwt instance
-        Ok(Jwt::new(
+        Ok(VerifierJwt::new(
             self.issuer,
             self.audience,
             self.subject,
@@ -401,7 +401,6 @@ impl JwtBuilder<state::WithPublicKey> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::traits::Claimer;
     use crate::traits::{Signer, Verifier};
     use serde::{Deserialize, Serialize};
     use std::time::SystemTime;

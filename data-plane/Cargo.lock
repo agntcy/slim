@@ -42,7 +42,6 @@ dependencies = [
 name = "agntcy-slim-auth"
 version = "0.1.0"
 dependencies = [
- "agntcy-slim-config",
  "async-trait",
  "base64 0.22.1",
  "jsonwebtoken-aws-lc",
@@ -76,6 +75,7 @@ dependencies = [
 name = "agntcy-slim-config"
 version = "0.1.8"
 dependencies = [
+ "agntcy-slim-auth",
  "duration-str",
  "futures",
  "http 1.3.1",
