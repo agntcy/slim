@@ -1768,30 +1768,25 @@ wheels = [
 
 [[package]]
 name = "slim-bindings"
-version = "0.3.5"
-source = { directory = "../../../python-bindings" }
-
-[package.metadata]
-
-[package.metadata.requires-dev]
-building = [
-    { name = "maturin", specifier = ">=1.8.2" },
-    { name = "maturin", extras = ["patchelf"], marker = "sys_platform == 'linux'", specifier = ">=1.8.2" },
-]
-linting = [
-    { name = "griffe", specifier = ">=1.5.5" },
-    { name = "mypy", specifier = ">=1.14.1" },
-    { name = "pyright", specifier = ">=1.1.0" },
-    { name = "ruff", specifier = ">=0.9.3" },
-]
-testing = [
-    { name = "pytest", specifier = ">=8.3.4" },
-    { name = "pytest-asyncio", specifier = ">=0.25.3" },
+version = "0.3.6"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/76/c1/bd0e74f5bae0d5f691f567888f74673996dc4686201ddb2230f23bb032d3/slim_bindings-0.3.6.tar.gz", hash = "sha256:f0e0f5167f675eeb0c866c6dd11258a082afeb3944543b34fa75a546cc9e4682", size = 202363 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/57/48/104f15a66996af2675fc383c112558cd92e40c109429443e772333d5e6e5/slim_bindings-0.3.6-cp312-cp312-macosx_10_12_x86_64.whl", hash = "sha256:16f6861b531067bf542891d072aabdc9ddba9cf6537f2ef260466c324818dbbb", size = 5888975 },
+    { url = "https://files.pythonhosted.org/packages/12/ab/c810884aa03728006320e3948c8ff01dd005649afd8951af5d2dd587f43d/slim_bindings-0.3.6-cp312-cp312-macosx_11_0_arm64.whl", hash = "sha256:94fed05db7fb7ed78445267e894a6336d301323c13ee17b3f0e0568ff562ec45", size = 5651458 },
+    { url = "https://files.pythonhosted.org/packages/a4/96/d074b11b0612cdd559122274c6b7e0f0be82336b50c4f46a5a7db6985187/slim_bindings-0.3.6-cp312-cp312-manylinux_2_34_aarch64.whl", hash = "sha256:1221acc781052ea24c9459abeea85a4a2701e92a7a3f69dffb320bd4cc983307", size = 6186621 },
+    { url = "https://files.pythonhosted.org/packages/96/11/14ddc5d7ee20294a2d195ce39963ceaef2066fc48e29635bee310f470b4e/slim_bindings-0.3.6-cp312-cp312-manylinux_2_34_x86_64.whl", hash = "sha256:74ff3aeb22715bd637ca0d3457c632dd9482a1974126fb4c5554bc1b6d4b48c9", size = 6382219 },
+    { url = "https://files.pythonhosted.org/packages/62/59/94fa67dd2b5830828a36f3a61def40f0215e981c15ff799463aa6ed5e484/slim_bindings-0.3.6-cp312-cp312-win_amd64.whl", hash = "sha256:1d8974ab32321b387f693744f46c33802e238f9743b01ceb861e6e132c68eef7", size = 4967901 },
+    { url = "https://files.pythonhosted.org/packages/3c/22/7bff0ba82e3f54fee363d76a606a51cb436cb5281175ec9765e620e1d418/slim_bindings-0.3.6-cp313-cp313-macosx_10_12_x86_64.whl", hash = "sha256:d113b6e969a054941784b10772deec027ffa336bec9e5e3a143a4929197a01ad", size = 5888239 },
+    { url = "https://files.pythonhosted.org/packages/47/e3/0c35da99f249995de87a6a27e139f2698cb9e0c54b966b41ca7152d4bb3b/slim_bindings-0.3.6-cp313-cp313-macosx_11_0_arm64.whl", hash = "sha256:096f1b6ac8943c472439d6518a4e2559c003b94212f86d9f10238c587f9e2981", size = 5650963 },
+    { url = "https://files.pythonhosted.org/packages/35/5a/d32dbe9ffc24b450a8659548b14878bb662494617e35ee16b7c088eedbd2/slim_bindings-0.3.6-cp313-cp313-manylinux_2_34_aarch64.whl", hash = "sha256:23df7bc4fb386248a7529d279ca3d3ab0078e5512c89d3f526a739af209ae44d", size = 6185359 },
+    { url = "https://files.pythonhosted.org/packages/23/d8/47690138392230b3c3a4fcfccce217194ed88474889a7ac0d9943c7fb39a/slim_bindings-0.3.6-cp313-cp313-manylinux_2_34_x86_64.whl", hash = "sha256:63ec98167c5c7a773f88bea749443ffde57782627ea605c021b8ccf74b84de8c", size = 6380723 },
+    { url = "https://files.pythonhosted.org/packages/e4/37/125096cb6a973e5ea011025308fd1225fe676a1fd6f3eb3e07e35d248239/slim_bindings-0.3.6-cp313-cp313-win_amd64.whl", hash = "sha256:d81aa49eba4de9c0e6073585f08a26e92ef1a7c968ab56e7990c29f50584f537", size = 4967056 },
 ]
 
 [[package]]
 name = "slim-mcp"
-version = "0.1.5"
+version = "0.1.6"
 source = { editable = "packages/slim-mcp" }
 dependencies = [
     { name = "anyio" },
@@ -1815,7 +1810,7 @@ testing = [
 requires-dist = [
     { name = "anyio", specifier = ">=4.5" },
     { name = "mcp", specifier = "==1.6.0" },
-    { name = "slim-bindings", directory = "../../../python-bindings" },
+    { name = "slim-bindings", specifier = ">=0.3.5" },
 ]
 
 [package.metadata.requires-dev]

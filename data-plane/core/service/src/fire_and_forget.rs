@@ -599,6 +599,7 @@ impl FireAndForget {
         session_config: FireAndForgetConfiguration,
         session_direction: SessionDirection,
         agent: Agent,
+        identity: Option<String>,
         tx_slim: SlimChannelSender,
         tx_app: AppChannelSender,
     ) -> FireAndForget {
@@ -610,6 +611,7 @@ impl FireAndForget {
             session_direction,
             SessionConfig::FireAndForget(session_config.clone()),
             agent,
+            identity,
             tx_slim,
             tx_app,
         );
@@ -687,6 +689,18 @@ impl CommonSession for FireAndForget {
     fn source(&self) -> &Agent {
         self.common.source()
     }
+
+    fn identity(&self) -> &Option<String> {
+        self.common.identity()
+    }
+
+    fn on_message_from_app_interceptors(&self, msg: &mut Message) {
+        self.common.on_message_from_app_interceptors(msg);
+    }
+
+    fn on_message_from_slim_interceptors(&self, msg: &mut Message) {
+        self.common.on_message_from_slim_interceptors(msg);
+    }
 }
 
 impl Drop for FireAndForget {
@@ -732,7 +746,8 @@ mod tests {
             0,
             FireAndForgetConfiguration::default(),
             SessionDirection::Bidirectional,
-            source,
+            source.clone(),
+            Some(source.to_string()),
             tx_slim,
             tx_app,
         );
@@ -756,7 +771,8 @@ mod tests {
             0,
             FireAndForgetConfiguration::default(),
             SessionDirection::Bidirectional,
-            source,
+            source.clone(),
+            Some(source.to_string()),
             tx_slim,
             tx_app,
         );
@@ -803,7 +819,8 @@ mod tests {
             0,
             FireAndForgetConfiguration::default(),
             SessionDirection::Bidirectional,
-            source,
+            source.clone(),
+            Some(source.to_string()),
             tx_slim,
             tx_app,
         );
@@ -847,7 +864,7 @@ mod tests {
             .expect("error");
 
         let header = msg.get_session_header();
-        assert_eq!(header.header_type, SessionHeaderType::FnfAck.into());
+        assert_eq!(header.header_type, i32::from(SessionHeaderType::FnfAck));
         assert_eq!(header.get_message_id(), 12345);
     }
 
@@ -866,7 +883,8 @@ mod tests {
                 sticky: false,
             },
             SessionDirection::Bidirectional,
-            source,
+            source.clone(),
+            Some(source.to_string()),
             tx_slim,
             tx_app,
         );
@@ -916,6 +934,8 @@ mod tests {
 
         let (tx_slim_receiver, mut rx_slim_receiver) = tokio::sync::mpsc::channel(1);
         let (tx_app_receiver, mut rx_app_receiver) = tokio::sync::mpsc::channel(1);
+        let local = Agent::from_strings("cisco", "default", "local_agent", 0);
+        let remote = Agent::from_strings("cisco", "default", "remote_agent", 0);
 
         let session_sender = FireAndForget::new(
             0,
@@ -925,7 +945,8 @@ mod tests {
                 sticky: false,
             },
             SessionDirection::Bidirectional,
-            Agent::from_strings("cisco", "default", "local_agent", 0),
+            local.clone(),
+            Some(local.to_string()),
             tx_slim_sender,
             tx_app_sender,
         );
@@ -935,13 +956,14 @@ mod tests {
             0,
             FireAndForgetConfiguration::default(),
             SessionDirection::Bidirectional,
-            Agent::from_strings("cisco", "default", "remote_agent", 0),
+            remote.clone(),
+            Some(remote.to_string()),
             tx_slim_receiver,
             tx_app_receiver,
         );
 
         let mut message = ProtoMessage::new_publish(
-            &Agent::from_strings("cisco", "default", "local_agent", 0),
+            &local,
             &AgentType::from_strings("cisco", "default", "remote_agent"),
             Some(0),
             Some(SlimHeaderFlags::default().with_incoming_conn(0)),
@@ -1004,7 +1026,7 @@ mod tests {
             .expect("no message received")
             .expect("error");
         let header = ack.get_session_header();
-        assert_eq!(header.header_type, SessionHeaderType::FnfAck.into());
+        assert_eq!(header.header_type, i32::from(SessionHeaderType::FnfAck));
 
         // Check that the ack is sent back to the sender
         assert_eq!(message.get_source(), ack.get_name_as_agent());
@@ -1029,7 +1051,8 @@ mod tests {
                 0,
                 FireAndForgetConfiguration::default(),
                 SessionDirection::Bidirectional,
-                source,
+                source.clone(),
+                Some(source.to_string()),
                 tx_slim,
                 tx_app,
             );
@@ -1052,7 +1075,8 @@ mod tests {
         let (receiver_tx_slim, mut receiver_rx_slim) = tokio::sync::mpsc::channel(1);
         let (receiver_tx_app, mut _receiver_rx_app) = tokio::sync::mpsc::channel(1);
 
-        let source = Agent::from_strings("cisco", "default", "local_agent", 0);
+        let local = Agent::from_strings("cisco", "default", "local_agent", 0);
+        let remote = Agent::from_strings("cisco", "default", "remote_agent", 0);
 
         let sender_session = FireAndForget::new(
             0,
@@ -1062,7 +1086,8 @@ mod tests {
                 sticky: true,
             },
             SessionDirection::Bidirectional,
-            source,
+            local.clone(),
+            Some(local.to_string()),
             sender_tx_slim,
             sender_tx_app,
         );
@@ -1071,14 +1096,15 @@ mod tests {
             0,
             FireAndForgetConfiguration::default(),
             SessionDirection::Bidirectional,
-            Agent::from_strings("cisco", "default", "remote_agent", 0),
+            remote.clone(),
+            Some(remote.to_string()),
             receiver_tx_slim,
             receiver_tx_app,
         );
 
         // Create a message to send
         let mut message = ProtoMessage::new_publish(
-            &Agent::from_strings("cisco", "default", "local_agent", 0),
+            &local,
             &AgentType::from_strings("cisco", "default", "remote_agent"),
             Some(0),
             None,
@@ -1111,7 +1137,10 @@ mod tests {
             .expect("no message received")
             .expect("error");
         let header = msg.get_session_header();
-        assert_eq!(header.header_type, SessionHeaderType::FnfDiscovery.into());
+        assert_eq!(
+            header.header_type,
+            i32::from(SessionHeaderType::FnfDiscovery)
+        );
 
         // set a fake incoming connection id
         let slim_header = msg.get_slim_header_mut();
@@ -1133,7 +1162,7 @@ mod tests {
         let header = msg.get_session_header();
         assert_eq!(
             header.header_type,
-            SessionHeaderType::FnfDiscoveryReply.into()
+            i32::from(SessionHeaderType::FnfDiscoveryReply)
         );
 
         // set a fake incoming connection id
@@ -1153,7 +1182,10 @@ mod tests {
             .expect("no message received")
             .expect("error");
         let header = msg.get_session_header();
-        assert_eq!(header.header_type, SessionHeaderType::FnfReliable.into());
+        assert_eq!(
+            header.header_type,
+            i32::from(SessionHeaderType::FnfReliable)
+        );
 
         // Check the payload
         let payload = msg.get_payload();

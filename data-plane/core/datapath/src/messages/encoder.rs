@@ -1,7 +1,8 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
-use std::hash::{DefaultHasher, Hash, Hasher};
+use std::hash::{Hash, Hasher};
+use twox_hash::XxHash64;
 
 use crate::api::ProtoAgent;
 
@@ -151,6 +152,22 @@ impl Agent {
         }
     }
 
+    pub fn from_strings_and_identity(
+        organization: &str,
+        namespace: &str,
+        agent_type: &str,
+        identity: &str,
+    ) -> Self {
+        Self {
+            agent_type: AgentType::from_strings(organization, namespace, agent_type),
+            agent_id: Self::agent_id_from_identity(identity),
+        }
+    }
+
+    pub fn agent_id_from_identity(identity: &str) -> u64 {
+        calculate_hash(identity)
+    }
+
     pub fn with_agent_id(self, agent_id: u64) -> Self {
         Self { agent_id, ..self }
     }
@@ -177,9 +194,9 @@ impl Agent {
 }
 
 pub fn calculate_hash<T: Hash + ?Sized>(t: &T) -> u64 {
-    let mut s = DefaultHasher::new();
-    t.hash(&mut s);
-    s.finish()
+    let mut hasher = XxHash64::default();
+    t.hash(&mut hasher);
+    hasher.finish()
 }
 
 #[cfg(test)]
@@ -189,18 +206,30 @@ mod tests {
     #[test]
     fn test_name_encoder() {
         // test encode class
-        let encode1 = AgentType::from_strings("Cisco", "Default", "Agent_ONE");
-        let encode2 = AgentType::from_strings("Cisco", "Default", "Agent_ONE");
+        let encode1 = AgentType::from_strings("Org", "Default", "Agent_ONE");
+        let encode2 = AgentType::from_strings("Org", "Default", "Agent_ONE");
         assert_eq!(encode1, encode2);
-        let encode3 = AgentType::from_strings("not_Cisco", "not_Default", "not_Agent_ONE");
+        let encode3 = AgentType::from_strings("Another_Org", "Not_Default", "not_Agent_ONE");
         assert_ne!(encode1, encode3);
 
-        let encode4 = AgentType::from_strings("Cisco", "Cisco", "Agent_ONE");
+        let encode4 = AgentType::from_strings("Org", "Org", "Agent_ONE");
         assert_eq!(encode4.organization(), encode4.namespace());
 
         // test encode agent
-        let agent_type = AgentType::from_strings("Cisco", "Default", "Agent_ONE");
-        let agent_id = Agent::from_strings("Cisco", "Default", "Agent_ONE", 1);
+        let agent_type = AgentType::from_strings("Org", "Default", "Agent_ONE");
+        let agent_id = Agent::from_strings("Org", "Default", "Agent_ONE", 1);
         assert_eq!(agent_type, *agent_id.agent_type());
+
+        // test encode agent using identity
+        let identity = "this is me";
+        let agent_one = Agent::from_strings_and_identity("Org", "Default", "Agent_ONE", identity);
+        let agent_two = Agent::from_strings(
+            "Org",
+            "Default",
+            "Agent_ONE",
+            Agent::agent_id_from_identity(identity),
+        );
+        assert_eq!(agent_one, agent_two);
+        assert_eq!(*agent_one.agent_type(), agent_type);
     }
 }

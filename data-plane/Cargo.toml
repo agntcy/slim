@@ -1,6 +1,7 @@
 [workspace]
 
 members = [
+    "core/auth",
     "core/config",
     "core/controller",
     "core/datapath",
@@ -34,6 +35,7 @@ resolver = "2"
 [workspace.dependencies]
 # Local dependencies
 agntcy-slim = { path = "core/slim", version = "0.3.15" }
+agntcy-slim-auth = { path = "core/auth", version = "0.1.0" }
 agntcy-slim-config = { path = "core/config", version = "0.1.8" }
 agntcy-slim-controller = { path = "core/controller", version = "0.1.1" }
 agntcy-slim-datapath = { path = "core/datapath", version = "0.7.0" }
@@ -42,13 +44,11 @@ agntcy-slim-service = { path = "core/service", version = "0.4.2" }
 agntcy-slim-signal = { path = "core/signal", version = "0.1.2" }
 agntcy-slim-tracing = { path = "core/tracing", version = "0.2.1" }
 
-# Core dependencies
 async-trait = "0.1.88"
 bit-vec = "0.8"
 bytes = "1.9.0"
 clap = { version = "4.5.23", features = ["derive", "env"] }
 
-# Dev dependencies
 criterion = { version = "0.5", features = ["html_reports"] }
 drain = { version = "0.1", features = ["retain"] }
 duration-str = "0.12.0"
@@ -63,8 +63,8 @@ hyper-rustls = { version = "0.27", features = [
 hyper-util = "0.1.10"
 indicatif = "0.17.11"
 
-# Platform specific
 jemallocator = { version = "0.5" }
+jsonwebtoken-aws-lc = "9.3.0"
 lazy_static = "1.5.0"
 once_cell = "1.21.0"
 opentelemetry = { version = "0.29.0", features = ["trace", "metrics"] }
@@ -75,13 +75,14 @@ opentelemetry_sdk = { version = "0.29.0", default-features = false, features = [
 parking_lot = "0.12.3"
 prost = "0.13"
 
-# Build dependencies
 protoc-bin-vendored = "3.1.0"
 pyo3 = "0.24.1"
 pyo3-async-runtimes = { version = "0.24", features = ["tokio-runtime"] }
 pyo3-stub-gen = "0.7.0"
 rand = "0.9.0"
 regex = "1.11.1"
+
+reqwest = { version = "0.12", features = ["rustls-tls-no-provider"] }
 rmcp = { version = "0.1.5", features = [
     "client",
     "transport-sse",
@@ -93,9 +94,8 @@ serde = "1.0.217"
 serde-pyobject = "0.6.1"
 serde_json = "1.0"
 serde_yaml = "0.9.34"
-
 thiserror = "2.0.9"
-tokio = "1.42.0"
+tokio = "1.45"
 tokio-stream = "0.1"
 tokio-util = "0.7.14"
 tonic = "0.13"
@@ -110,6 +110,9 @@ tracing = "0.1.41"
 tracing-opentelemetry = "0.30.0"
 tracing-subscriber = "0.3.19"
 tracing-test = { version = "0.2.5", features = ["no-env-filter"] }
+twox-hash = "2.1.1"
+
+url = "2.5.0"
 uuid = { version = "1.15.1", features = ["v4"] }
 
 [workspace.package]
@@ -119,6 +122,7 @@ edition = "2024"
 [workspace.metadata.cargo-machete]
 ignored = [
     "agntcy-slim",
+    "agntcy-slim-auth",
     "agntcy-slim-config",
     "agntcy-slim-controller",
     "agntcy-slim-datapath",

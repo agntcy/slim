@@ -86,19 +86,16 @@ fn create_span(function: &str, out_conn: u64, msg: &Message) -> Span {
         telemetry = true
     );
 
-    match msg.get_type() {
-        PublishType(_) => {
-            span.set_attribute("session_type", msg.get_header_type().as_str_name());
-            span.set_attribute(
-                "session_id",
-                msg.get_session_header().get_session_id().to_string(),
-            );
-            span.set_attribute(
-                "message_id",
-                msg.get_session_header().get_message_id().to_string(),
-            );
-        }
-        _ => {} // the session header is not present do nothing
+    if let PublishType(_) = msg.get_type() {
+        span.set_attribute("session_type", msg.get_header_type().as_str_name());
+        span.set_attribute(
+            "session_id",
+            msg.get_session_header().get_session_id().to_string(),
+        );
+        span.set_attribute(
+            "message_id",
+            msg.get_session_header().get_message_id().to_string(),
+        );
     }
 
     span
@@ -694,7 +691,8 @@ impl MessageProcessor {
         let self_clone = self.clone();
         let token_clone = cancellation_token.clone();
         let client_conf_clone = client_config.clone();
-        let handle = tokio::spawn(async move {
+
+        tokio::spawn(async move {
             let mut try_to_reconnect = true;
             loop {
                 tokio::select! {
@@ -766,9 +764,7 @@ impl MessageProcessor {
 
                 info!(telemetry = true, counter.num_active_connections = -1);
             }
-        });
-
-        handle
+        })
     }
 
     fn match_for_io_error(err_status: &Status) -> Option<&std::io::Error> {

@@ -67,11 +67,6 @@ esac
 # Build application
 task -v data-plane:build:strip TARGET=${RUSTARCH}-unknown-linux-gnu PROFILE=release
 mv target/${RUSTARCH}-unknown-linux-gnu target/${TARGETARCH}-unknown-linux-gnu
-
-pushd integrations/mcp/mcp-proxy
-task -v mcp-proxy:build:strip TARGET=${RUSTARCH}-unknown-linux-gnu PROFILE=release
-mv target/${RUSTARCH}-unknown-linux-gnu target/${TARGETARCH}-unknown-linux-gnu
-popd
 EOF
 
 # runtime images  - debug executable, debug symbols and, most importantly, a shell :)
@@ -83,23 +78,24 @@ ARG TARGETARCH
 COPY --from=rust /app/data-plane/target/${TARGETARCH}-unknown-linux-gnu/release/slim /slim
 COPY --from=rust /app/data-plane/target/${TARGETARCH}-unknown-linux-gnu/release/slim.dbg /slim.dbg
 
-# runtime images  - release executable
-FROM gcr.io/distroless/cc-debian12:nonroot AS slim-release
+FROM debian:bookworm-slim AS mock-agent-client
 
 ARG TARGETARCH
 
 # copy the artifacts from the build stage
-COPY --from=rust /app/data-plane/target/${TARGETARCH}-unknown-linux-gnu/release/slim /slim
+COPY --from=rust /app/data-plane/target/${TARGETARCH}-unknown-linux-gnu/release/sdk-mock /usr/local/bin/
 
-FROM ghcr.io/distroless/cc-debian12:nonroot AS mcp-proxy-debug
+# Run the mock agent client
+ENTRYPOINT ["/usr/local/bin/sdk-mock"]
+CMD ["--config", "/config/client-config.yaml", "--local-agent", "client", "--remote-agent", "server", "--message", "hello from Docker!"]
+
+FROM debian:bookworm-slim AS mock-agent-server
+
 ARG TARGETARCH
 
 # copy the artifacts from the build stage
-COPY --from=rust /app/data-plane/integrations/mcp/mcp-proxy/target/${TARGETARCH}-unknown-linux-gnu/release/slim-mcp-proxy /slim-mcp-proxy
-COPY --from=rust /app/data-plane/integrations/mcp/mcp-proxy/target/${TARGETARCH}-unknown-linux-gnu/release/slim-mcp-proxy.dbg /slim-mcp-proxy.dbg
+COPY --from=rust /app/data-plane/target/${TARGETARCH}-unknown-linux-gnu/release/sdk-mock /usr/local/bin/
 
-FROM gcr.io/distroless/cc-debian12:nonroot AS mcp-proxy-release
-ARG TARGETARCH
-
-# copy the artifacts from the build stage
-COPY --from=rust /app/data-plane/integrations/mcp/mcp-proxy/target/${TARGETARCH}-unknown-linux-gnu/release/slim-mcp-proxy /slim-mcp-proxy
+# Run the mock agent server
+ENTRYPOINT ["/usr/local/bin/sdk-mock"]
+CMD ["--config", "/config/client-config.yaml", "--local-agent", "server", "--remote-agent", "client"]

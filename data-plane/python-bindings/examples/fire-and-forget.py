@@ -3,6 +3,7 @@
 
 import argparse
 import asyncio
+import datetime
 import os
 
 from common import format_message, split_id
@@ -17,6 +18,7 @@ async def run_client(
     address: str,
     iterations: int,
     enable_opentelemetry: bool,
+    sticky: bool,
 ):
     # init tracing
     slim_bindings.init_tracing(
@@ -54,9 +56,18 @@ async def run_client(
             await slim.set_route(remote_organization, remote_namespace, remote_agent)
 
             # create a session
-            session = await slim.create_session(
-                slim_bindings.PySessionConfiguration.FireAndForget()
-            )
+            if sticky:
+                session = await slim.create_session(
+                    slim_bindings.PySessionConfiguration.FireAndForget(
+                        max_retries=5,
+                        timeout=datetime.timedelta(seconds=5),
+                        sticky=True,
+                    )
+                )
+            else:
+                session = await slim.create_session(
+                    slim_bindings.PySessionConfiguration.FireAndForget()
+                )
 
             for i in range(0, iterations):
                 try:
@@ -149,6 +160,13 @@ async def main():
         default=False,
         help="Enable OpenTelemetry tracing.",
     )
+    parser.add_argument(
+        "-c",
+        "--constant-endpoint",
+        default=False,
+        action="store_true",
+        help="Enable FF sessions to connect always to the same endpoint.",
+    )
 
     args = parser.parse_args()
 
@@ -160,6 +178,7 @@ async def main():
         args.slim,
         args.iterations,
         args.enable_opentelemetry,
+        args.constant_endpoint,
     )
 
 

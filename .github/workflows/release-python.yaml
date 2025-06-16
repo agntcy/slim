@@ -7,8 +7,8 @@ name: ci-release-python
 on:
   push:
     tags:
-      - 'slim-bindings-*'
-      - 'slim-mcp-*'
+      - 'slim-bindings-v*'
+      - 'slim-mcp-v*'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}

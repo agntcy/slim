@@ -267,14 +267,18 @@ pub struct Proxy {
 impl Proxy {
     pub fn new(
         name: AgentType,
+        identity: Option<String>,
         id: Option<u64>,
         config: ConfigResult,
         svc_id: slim_config::component::id::ID,
         mcp_server: String,
     ) -> Self {
-        let agent_id = match id {
-            None => rand::random::<u64>(),
-            Some(id) => id,
+        let agent_id = match identity {
+            None => match id {
+                None => rand::random::<u64>(),
+                Some(id) => id,
+            },
+            Some(i) => Agent::agent_id_from_identity(&i),
         };
 
         let agent_name = Agent::new(name, agent_id);
