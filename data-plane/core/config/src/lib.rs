@@ -3,6 +3,7 @@
 
 pub mod auth;
 pub mod component;
+pub mod file_watcher;
 pub mod grpc;
 pub mod provider;
 pub mod testutils;
