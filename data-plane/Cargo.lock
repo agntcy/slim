@@ -160,6 +160,7 @@ version = "0.1.0"
 dependencies = [
  "agntcy-slim-datapath",
  "agntcy-slim-service",
+ "async-trait",
  "mls-rs",
  "mls-rs-crypto-awslc",
  "serde",
@@ -167,9 +168,6 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.12",
  "tokio",
- "tokio-stream",
- "tonic 0.13.1",
- "tower 0.5.2",
 ]
 
 [[package]]
