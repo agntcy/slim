@@ -13,7 +13,7 @@ use slim_auth::jwt_middleware::{SignJwtLayer, ValidateJwtLayer};
 use super::{AuthError, ClientAuthenticator, ServerAuthenticator};
 use slim_auth::jwt::{Key, SignerJwt, VerifierJwt};
 
-#[derive(Debug, Deserialize, Clone, PartialEq)]
+#[derive(Debug, Default, Deserialize, Clone, PartialEq)]
 pub struct Claims {
     /// JWT audience
     audience: Option<String>,
@@ -23,13 +23,6 @@ pub struct Claims {
 
     /// JWT Subject
     subject: Option<String>,
-
-    /// JWT Duration (will becomde exp: now() + duration)
-    #[serde(
-        default = "default_duration",
-        deserialize_with = "deserialize_duration"
-    )]
-    duration: Duration,
 
     // Other claims
     custom_claims: Option<std::collections::HashMap<String, serde_yaml::Value>>,
@@ -41,14 +34,12 @@ impl Claims {
         audience: Option<String>,
         issuer: Option<String>,
         subject: Option<String>,
-        duration: Duration,
         custom_claims: Option<std::collections::HashMap<String, serde_yaml::Value>>,
     ) -> Self {
         Claims {
             audience,
             issuer,
             subject,
-            duration,
             custom_claims,
         }
     }
@@ -72,10 +63,6 @@ impl Claims {
             subject: Some(subject.into()),
             ..self
         }
-    }
-
-    pub fn with_duration(self, duration: Duration) -> Self {
-        Claims { duration, ..self }
     }
 
     pub fn with_custom_claims(
@@ -102,23 +89,6 @@ impl Claims {
     pub fn subject(&self) -> &Option<String> {
         &self.subject
     }
-
-    /// Get the duration
-    pub fn duration(&self) -> Duration {
-        self.duration
-    }
-}
-
-impl Default for Claims {
-    fn default() -> Self {
-        Claims {
-            audience: None,
-            issuer: None,
-            subject: None,
-            duration: default_duration(),
-            custom_claims: None,
-        }
-    }
 }
 
 #[derive(Debug, Deserialize, Clone, PartialEq)]
@@ -135,6 +105,13 @@ pub struct Config {
     #[serde(default)]
     claims: Claims,
 
+    /// JWT Duration (will become exp: now() + duration)
+    #[serde(
+        default = "default_duration",
+        deserialize_with = "deserialize_duration"
+    )]
+    duration: Duration,
+
     /// One of: `encoding`, `decoding`, or `autoresolve`
     /// Encoding key is used for signing JWTs (client-side).
     /// Decoding key is used for verifying JWTs (server-side).
@@ -149,8 +126,12 @@ fn default_duration() -> Duration {
 
 impl Config {
     /// Create a new Config
-    pub fn new(claims: Claims, key: JwtKey) -> Self {
-        Config { claims, key }
+    pub fn new(claims: Claims, duration: Duration, key: JwtKey) -> Self {
+        Config {
+            claims,
+            duration,
+            key,
+        }
     }
 
     /// Set claims
@@ -224,7 +205,7 @@ impl ClientAuthenticator for Config {
         let custom_claims = self.custom_claims();
 
         // Create token duration in seconds
-        let duration = self.claims.duration.as_secs();
+        let duration = self.duration.as_secs();
 
         Ok(SignJwtLayer::new(signer, custom_claims, duration))
     }
@@ -279,53 +260,13 @@ where
 // tests
 #[cfg(test)]
 mod tests {
-    use futures::future::{self, Ready};
-    use futures::task::Poll;
-    use http::{Request, Response, StatusCode};
+    use crate::testutils::tower_service::{Body, HeaderCheckService};
+    use http::Response;
     use slim_auth::jwt::Algorithm;
     use slim_auth::jwt::KeyData;
-    use std::task::Context;
-    use tower::Service;
     use tower::ServiceBuilder;
 
     use super::*;
-
-    // Define a Body type for testing
-    type Body = Vec<u8>;
-
-    // A simple test service that returns a 200 OK response
-    #[derive(Clone)]
-    struct HeaderCheckService;
-    impl Service<Request<Body>> for HeaderCheckService {
-        type Response = Response<Body>;
-        type Error = std::convert::Infallible;
-        type Future = Ready<Result<Self::Response, Self::Error>>;
-
-        fn poll_ready(&mut self, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-            Poll::Ready(Ok(()))
-        }
-
-        fn call(&mut self, req: Request<Body>) -> Self::Future {
-            // Check if the Authorization header exists and starts with "Bearer "
-            let auth_header = req.headers().get(http::header::AUTHORIZATION);
-            let has_bearer = auth_header
-                .and_then(|h| h.to_str().ok())
-                .map(|s| s.starts_with("Bearer "))
-                .unwrap_or(false);
-
-            if has_bearer {
-                future::ready(Ok(Response::builder()
-                    .status(StatusCode::OK)
-                    .body(Body::from("Authorization header is present and correct"))
-                    .unwrap()))
-            } else {
-                future::ready(Ok(Response::builder()
-                    .status(StatusCode::BAD_REQUEST)
-                    .body(Body::from("Missing or invalid Authorization header"))
-                    .unwrap()))
-            }
-        }
-    }
 
     #[test]
     fn test_config() {
@@ -333,7 +274,6 @@ mod tests {
             audience: Some("audience".to_string()),
             issuer: Some("issuer".to_string()),
             subject: Some("subject".to_string()),
-            duration: Duration::from_secs(3600),
             custom_claims: None,
         };
 
@@ -342,10 +282,10 @@ mod tests {
             key: KeyData::Pem("test-key".to_string()),
         });
 
-        let config = Config::new(claims.clone(), key);
+        let config = Config::new(claims.clone(), Duration::from_secs(3600), key);
 
         assert_eq!(config.claims(), &claims);
-        assert_eq!(config.claims().duration, Duration::from_secs(3600));
+        assert_eq!(config.duration, Duration::from_secs(3600));
     }
 
     #[tokio::test]
@@ -354,7 +294,6 @@ mod tests {
             audience: Some("audience".to_string()),
             issuer: Some("issuer".to_string()),
             subject: Some("subject".to_string()),
-            duration: Duration::from_secs(3600),
             custom_claims: None,
         };
 
@@ -368,8 +307,8 @@ mod tests {
             key: KeyData::Pem("test-key".to_string()),
         });
 
-        let client_config = Config::new(claims.clone(), encoding_key);
-        let server_config = Config::new(claims.clone(), decoding_key);
+        let client_config = Config::new(claims.clone(), Duration::from_secs(3600), encoding_key);
+        let server_config = Config::new(claims.clone(), Duration::from_secs(3600), decoding_key);
 
         // Construct a client service that adds a JWT token
         let _client = ServiceBuilder::new()

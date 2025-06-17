@@ -183,9 +183,8 @@ fn test_load_rustls_client() {
             "test-ca-pem",
             Box::new(|| {
                 // read ca pem from file and set it as ca pem
-                let ca_pem =
-                    std::fs::read_to_string(format!("{}/{}", TEST_PATH, "ca-2.crt"))
-                        .expect("Unable to read file");
+                let ca_pem = std::fs::read_to_string(format!("{}/{}", TEST_PATH, "ca-2.crt"))
+                    .expect("Unable to read file");
 
                 TlsClientConfig {
                     config: Config {
@@ -221,13 +220,11 @@ fn test_load_rustls_client() {
             "test-client-certificate-pem",
             Box::new(|| {
                 // read ca pem from file and set it as ca pem
-                let cert_pem =
-                    std::fs::read_to_string(format!("{}/{}", TEST_PATH, "client-1.crt"))
-                        .expect("Unable to read cert file");
+                let cert_pem = std::fs::read_to_string(format!("{}/{}", TEST_PATH, "client-1.crt"))
+                    .expect("Unable to read cert file");
 
-                let key_pem =
-                    std::fs::read_to_string(format!("{}/{}", TEST_PATH, "client-1.key"))
-                        .expect("Unable to read key file");
+                let key_pem = std::fs::read_to_string(format!("{}/{}", TEST_PATH, "client-1.key"))
+                    .expect("Unable to read key file");
 
                 TlsClientConfig {
                     config: Config {
@@ -411,9 +408,8 @@ fn test_load_rustls_server() {
             "test-client-ca-pem",
             Box::new(|| {
                 // read ca pem from file and set it as ca pem
-                let ca_pem =
-                    std::fs::read_to_string(format!("{}/{}", TEST_PATH, "ca-2.crt"))
-                        .expect("Unable to read file");
+                let ca_pem = std::fs::read_to_string(format!("{}/{}", TEST_PATH, "ca-2.crt"))
+                    .expect("Unable to read file");
 
                 TlsServerConfig {
                     config: Config {

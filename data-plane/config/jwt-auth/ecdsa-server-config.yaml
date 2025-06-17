@@ -1,0 +1,38 @@
+# Copyright AGNTCY Contributors (https://github.com/agntcy)
+# SPDX-License-Identifier: Apache-2.0
+
+tracing:
+  log_level: debug
+  display_thread_names: true
+  display_thread_ids: true
+
+runtime:
+  n_cores: 0
+  thread_name: "slim-data-plane"
+  drain_timeout: 10s
+
+services:
+  slim/0:
+    pubsub:
+      servers:
+      - endpoint: "0.0.0.0:46357"
+        tls:
+          cert_file: "./config/crypto/server-cert.pem"
+          key_file: "./config/crypto/server-key.pem"
+        auth:
+          jwt:
+            claims:
+              audience: "slim"
+              issuer: "slim"
+              subject: "slim"
+            duration: 1h
+            key:
+              decoding:
+                algorithm: "ES256"
+                pem: |
+                  -----BEGIN PUBLIC KEY-----
+                  MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE3AOXRAbY5xP09w79HcbI6Fwz3jHE
+                  UukerJKoy4HHeI7YjEu/WXSm69C7ve8IdyLgFnX+KRUkWfj0R2wTRU4VYQ==
+                  -----END PUBLIC KEY-----
+
+      clients: []

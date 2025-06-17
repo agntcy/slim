@@ -289,21 +289,23 @@ mod tests {
         let claims = slim_config::auth::jwt::Claims::default()
             .with_issuer("test-issuer")
             .with_subject("test-subject")
-            .with_audience("test-audience")
-            .with_duration(Duration::from_secs(3600));
+            .with_audience("test-audience");
 
         let client_config = ClientAuthenticationConfig::Jwt(JwtAuthConfig::new(
             claims.clone(),
+            Duration::from_secs(3600),
             JwtKey::Encoding(key_client.clone()),
         ));
 
         let server_config = ServerAuthenticationConfig::Jwt(JwtAuthConfig::new(
             claims.clone(),
+            Duration::from_secs(3600),
             JwtKey::Decoding(key_server.clone()),
         ));
 
         let wring_client_config = ClientAuthenticationConfig::Jwt(JwtAuthConfig::new(
             claims,
+            Duration::from_secs(3600),
             JwtKey::Encoding(key_client_wrong.clone()),
         ));
 

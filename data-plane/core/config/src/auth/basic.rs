@@ -80,8 +80,8 @@ where
 // tests
 #[cfg(test)]
 mod tests {
+    use crate::testutils::tower_service::HeaderCheckService;
     use tower::ServiceBuilder;
-    use tower_reqwest::HttpClientLayer;
 
     use super::*;
 
@@ -109,7 +109,7 @@ mod tests {
         let _ = ServiceBuilder::new().layer(server_layer);
 
         let _ = ServiceBuilder::new()
-            .layer(HttpClientLayer)
+            .layer(HeaderCheckService)
             .layer(client_layer);
     }
 }
