@@ -228,8 +228,6 @@ where
                     .body(Default::default())
                     .unwrap();
 
-                println!("JWT verification failed: {:?}", response.status());
-
                 Poll::Ready(Ok(response))
             }
             JwtFutureProj::WaitForFuture { future } => future.poll(cx),
@@ -242,8 +240,6 @@ where
                         .status(http::StatusCode::UNAUTHORIZED)
                         .body(Default::default())
                         .unwrap();
-
-                    println!("JWT verification failed: {:?}", response.status());
 
                     Poll::Ready(Ok(response))
                 }
@@ -636,12 +632,6 @@ mod tests {
 
         // Service should reject the expired token
         let response3 = service.call(req3).await.unwrap();
-
-        println!(
-            "Response status for expired token: {:?}",
-            response3.status()
-        );
-
         assert_eq!(response3.status(), StatusCode::UNAUTHORIZED);
     }
 
