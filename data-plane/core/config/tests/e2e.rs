@@ -80,6 +80,7 @@ mod tests {
 
     // use slim_config_grpc::headers_middleware::SetRequestHeader;
     use slim_auth::jwt::{Key, KeyData};
+    use slim_auth::testutils::setup_test_jwt_resolver;
     use slim_config::grpc::{client::ClientConfig, server::ServerConfig};
     use slim_config::testutils::helloworld::HelloRequest;
     use slim_config::testutils::helloworld::greeter_client::GreeterClient;
@@ -531,5 +532,118 @@ mod tests {
             50066,
         )
         .await;
+    }
+
+    async fn test_tls_jwt_resolver_grpc_configuration(algorithm: Algorithm, port: u16) {
+        let (test_key, mock_server, _alg_str) = setup_test_jwt_resolver(algorithm).await;
+
+        // Create JWT claims
+        let claims = slim_config::auth::jwt::Claims::default()
+            .with_issuer(mock_server.uri())
+            .with_subject("test-subject")
+            .with_audience("test-audience");
+
+        let client_config = ClientAuthenticationConfig::Jwt(JwtAuthConfig::new(
+            claims.clone(),
+            Duration::from_secs(3600),
+            JwtKey::Encoding(Key {
+                algorithm,
+                key: KeyData::Pem(test_key.clone()),
+            }),
+        ));
+
+        let server_config = ServerAuthenticationConfig::Jwt(JwtAuthConfig::new(
+            claims.clone(),
+            Duration::from_secs(3600),
+            JwtKey::Autoresolve(true),
+        ));
+
+        let key_path = match algorithm {
+            Algorithm::ES256 => TEST_DATA_PATH.to_string() + "/jwt/ec256-wrong.pem",
+            Algorithm::ES384 => TEST_DATA_PATH.to_string() + "/jwt/ec384-wrong.pem",
+            Algorithm::RS256
+            | Algorithm::RS384
+            | Algorithm::RS512
+            | Algorithm::PS256
+            | Algorithm::PS384
+            | Algorithm::PS512 => TEST_DATA_PATH.to_string() + "/jwt/rsa-wrong.pem",
+            Algorithm::EdDSA => TEST_DATA_PATH.to_string() + "/jwt/eddsa-wrong.pem",
+            _ => panic!("Unsupported algorithm for test"),
+        };
+
+        let wring_client_config = ClientAuthenticationConfig::Jwt(JwtAuthConfig::new(
+            claims,
+            Duration::from_secs(3600),
+            JwtKey::Encoding(Key {
+                algorithm,
+                key: KeyData::File(key_path),
+            }),
+        ));
+
+        // run grpc server and client
+        test_grpc_auth(client_config, server_config, wring_client_config, port).await;
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_tls_jwt_ecdsa256_autoresolve_grpc_configuration() {
+        // Test RSA JWT configuration
+        test_tls_jwt_resolver_grpc_configuration(Algorithm::ES256, 51111).await;
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_tls_jwt_ecdsa384_autoresolve_grpc_configuration() {
+        // Test RSA JWT configuration
+        test_tls_jwt_resolver_grpc_configuration(Algorithm::ES384, 51112).await;
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_tls_jwt_rsa256_autoresolve_grpc_configuration() {
+        // Test RSA JWT configuration
+        test_tls_jwt_resolver_grpc_configuration(Algorithm::RS256, 51113).await;
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_tls_jwt_rsa384_autoresolve_grpc_configuration() {
+        // Test RSA JWT configuration
+        test_tls_jwt_resolver_grpc_configuration(Algorithm::RS384, 51114).await;
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_tls_jwt_rsa512_autoresolve_grpc_configuration() {
+        // Test RSA JWT configuration
+        test_tls_jwt_resolver_grpc_configuration(Algorithm::RS512, 51115).await;
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_tls_jwt_rsap256_autoresolve_grpc_configuration() {
+        // Test RSA JWT configuration
+        test_tls_jwt_resolver_grpc_configuration(Algorithm::PS256, 51116).await;
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_tls_jwt_rsap384_autoresolve_grpc_configuration() {
+        // Test RSA JWT configuration
+        test_tls_jwt_resolver_grpc_configuration(Algorithm::PS384, 51117).await;
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_tls_jwt_rsap512_autoresolve_grpc_configuration() {
+        // Test RSA JWT configuration
+        test_tls_jwt_resolver_grpc_configuration(Algorithm::PS512, 51118).await;
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_tls_jwt_eddsa_autoresolve_grpc_configuration() {
+        // Test RSA JWT configuration
+        test_tls_jwt_resolver_grpc_configuration(Algorithm::EdDSA, 51119).await;
     }
 }

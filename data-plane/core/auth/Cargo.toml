@@ -10,6 +10,8 @@ name = "slim_auth"
 
 [dependencies]
 async-trait = { workspace = true }
+aws-lc-rs = { workspace = true }
+base64 = { workspace = true }
 futures = { workspace = true }
 headers = { workspace = true }
 http = { workspace = true }
@@ -26,8 +28,4 @@ tower = { workspace = true }
 tower-layer = { workspace = true }
 tower-service = { workspace = true }
 url = { workspace = true }
-
-[dev-dependencies]
-aws-lc-rs = "1.13.1"
-base64 = "0.22.1"
-wiremock = "0.5"
+wiremock = { workspace = true }

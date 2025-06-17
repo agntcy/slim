@@ -43,6 +43,8 @@ agntcy-slim-signal = { path = "core/signal", version = "0.1.2" }
 agntcy-slim-tracing = { path = "core/tracing", version = "0.2.1" }
 
 async-trait = "0.1.88"
+aws-lc-rs = "1.13"
+base64 = "0.22"
 bit-vec = "0.8"
 bytes = "1.9.0"
 clap = { version = "4.5.23", features = ["derive", "env"] }
@@ -122,6 +124,8 @@ twox-hash = "2.1.1"
 
 url = "2.5.0"
 uuid = { version = "1.15.1", features = ["v4"] }
+
+wiremock = "0.5"
 
 [workspace.package]
 license = "Apache-2.0"
