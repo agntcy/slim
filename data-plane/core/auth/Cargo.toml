@@ -16,7 +16,7 @@ http = { workspace = true }
 jsonwebtoken-aws-lc = { workspace = true }
 parking_lot = { workspace = true }
 pin-project = { workspace = true }
-reqwest = { workspace = true, features = ["json"] }
+reqwest = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 serde_yaml.workspace = true
