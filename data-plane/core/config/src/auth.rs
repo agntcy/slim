@@ -32,7 +32,7 @@ pub trait ClientAuthenticator {
     fn get_client_layer(&self) -> Result<Self::ClientLayer, AuthError>;
 }
 
-pub trait ServerAuthenticator<Response> {
+pub trait ServerAuthenticator<Response: Default> {
     // associated types
     type ServerLayer;
 

@@ -1,8 +1,8 @@
 [package]
 name = "agntcy-slim-auth"
 version = "0.1.0"
-license.workspace = true
-edition.workspace = true
+license = { workspace = true }
+edition = { workspace = true }
 description = "Authentication utilities for the Agntcy Slim framework"
 
 [lib]
@@ -12,7 +12,7 @@ name = "slim_auth"
 async-trait = { workspace = true }
 futures = { workspace = true }
 headers = { workspace = true }
-http.workspace = true
+http = { workspace = true }
 jsonwebtoken-aws-lc = { workspace = true }
 parking_lot.workspace = true
 pin-project = { workspace = true }

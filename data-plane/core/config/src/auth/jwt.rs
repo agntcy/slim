@@ -1,6 +1,7 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
+use std::collections::HashMap;
 use std::time::Duration;
 
 use duration_str::deserialize_duration;
@@ -11,7 +12,6 @@ use slim_auth::jwt_middleware::{SignJwtLayer, ValidateJwtLayer};
 
 use super::{AuthError, ClientAuthenticator, ServerAuthenticator};
 use slim_auth::jwt::{Key, SignerJwt, VerifierJwt};
-use slim_auth::traits::StandardClaims;
 
 #[derive(Debug, Deserialize, Clone, PartialEq)]
 pub struct Claims {
@@ -61,14 +61,10 @@ pub struct Config {
     #[serde(default)]
     claims: Claims,
 
-    /// JWT Duration in seconds
-    #[serde(
-        default = "default_duration",
-        deserialize_with = "deserialize_duration"
-    )]
-    duration: Duration,
-
     /// One of: `encoding`, `decoding`, or `autoresolve`
+    /// Encoding key is used for signing JWTs (client-side).
+    /// Decoding key is used for verifying JWTs (server-side).
+    /// Autoresolve is used to automatically resolve the key based on the claims.
     #[serde(with = "serde_yaml::with::singleton_map")]
     key: JwtKey,
 }
@@ -79,12 +75,8 @@ fn default_duration() -> Duration {
 
 impl Config {
     /// Create a new Config
-    pub fn new(claims: Claims, duration: Duration, key: JwtKey) -> Self {
-        Config {
-            claims,
-            duration,
-            key,
-        }
+    pub fn new(claims: Claims, key: JwtKey) -> Self {
+        Config { claims, key }
     }
 
     /// Get the claims
@@ -92,14 +84,22 @@ impl Config {
         &self.claims
     }
 
-    /// Get the duration
-    pub fn duration(&self) -> Duration {
-        self.duration
-    }
-
     /// Get the key
     pub fn key(&self) -> &JwtKey {
         &self.key
+    }
+
+    fn custom_claims(&self) -> HashMap<String, serde_json::Value> {
+        let mut claims = std::collections::HashMap::<String, serde_json::Value>::new();
+        if let Some(custom_claims) = &self.claims().custom_claims {
+            // Convert yaml values to json values
+            claims = custom_claims
+                .iter()
+                .map(|(k, v)| (k.clone(), serde_json::to_value(v).unwrap()))
+                .collect();
+        }
+
+        claims
     }
 }
 
@@ -110,28 +110,25 @@ impl ClientAuthenticator for Config {
     type ClientLayer = SignJwtLayer<SignerJwt>;
 
     fn get_client_layer(&self) -> Result<Self::ClientLayer, AuthError> {
+        // Use the builder pattern to construct the JWT
+        let mut builder = JwtBuilder::new();
+
+        // Set optional fields
+        if let Some(issuer) = &self.claims().issuer {
+            builder = builder.issuer(issuer);
+        }
+        if let Some(audience) = &self.claims().audience {
+            builder = builder.audience(audience);
+        }
+        if let Some(subject) = &self.claims().subject {
+            builder = builder.subject(subject);
+        }
+
         let signer = match self.key() {
-            JwtKey::Encoding(key) => {
-                // Use the builder pattern to construct the JWT
-                let mut builder = JwtBuilder::new();
-
-                // Set optional fields
-                if let Some(issuer) = &self.claims().issuer {
-                    builder = builder.issuer(issuer);
-                }
-                if let Some(audience) = &self.claims().audience {
-                    builder = builder.audience(audience);
-                }
-                if let Some(subject) = &self.claims().subject {
-                    builder = builder.subject(subject);
-                }
-
-                // Set the key and build
-                builder
-                    .private_key(key.algorithm, &key.key)
-                    .build()
-                    .map_err(|e| AuthError::ConfigError(e.to_string()))?
-            }
+            JwtKey::Encoding(key) => builder
+                .private_key(key.algorithm, &key.key)
+                .build()
+                .map_err(|e| AuthError::ConfigError(e.to_string()))?,
             _ => {
                 return Err(AuthError::ConfigError(
                     "Encoding key is required for client authentication".to_string(),
@@ -140,19 +137,12 @@ impl ClientAuthenticator for Config {
         };
 
         // Add custom claims if any
-        let mut claims = std::collections::HashMap::<String, serde_json::Value>::new();
-        if let Some(custom_claims) = &self.claims().custom_claims {
-            // Convert yaml values to json values
-            claims = custom_claims
-                .iter()
-                .map(|(k, v)| (k.clone(), serde_json::to_value(v).unwrap()))
-                .collect();
-        }
+        let custom_claims = self.custom_claims();
 
         // Create token duration in seconds
-        let duration = self.duration.as_secs();
+        let duration = self.claims.duration.as_secs();
 
-        Ok(SignJwtLayer::new(signer, claims, duration))
+        Ok(SignJwtLayer::new(signer, custom_claims, duration))
     }
 }
 
@@ -161,111 +151,152 @@ where
     Response: Default + Send + 'static,
 {
     // Associated types
-    type ServerLayer = ValidateJwtLayer<StandardClaims, VerifierJwt>;
+    type ServerLayer = ValidateJwtLayer<HashMap<String, serde_json::Value>, VerifierJwt>;
 
     fn get_server_layer(&self) -> Result<Self::ServerLayer, AuthError> {
-        let jwt = match self.key() {
-            JwtKey::Decoding(key) => {
-                // Use the builder pattern to construct the JWT
-                let mut builder = JwtBuilder::new();
+        // Use the builder pattern to construct the JWT
+        let mut builder = JwtBuilder::new();
 
-                // Set optional fields
-                if let Some(issuer) = &self.claims().issuer {
-                    builder = builder.issuer(issuer);
-                }
-                if let Some(audience) = &self.claims().audience {
-                    builder = builder.audience(audience);
-                }
-                if let Some(subject) = &self.claims().subject {
-                    builder = builder.subject(subject);
-                }
+        // Set optional fields
+        if let Some(issuer) = &self.claims().issuer {
+            builder = builder.issuer(issuer);
+        }
+        if let Some(audience) = &self.claims().audience {
+            builder = builder.audience(audience);
+        }
+        if let Some(subject) = &self.claims().subject {
+            builder = builder.subject(subject);
+        }
 
-                // Set the key and build
-                builder
-                    .public_key(key.algorithm, &key.key)
-                    .build()
-                    .map_err(|e| AuthError::ConfigError(e.to_string()))?
-            }
-            JwtKey::Autoresolve(true) => {
-                return Err(AuthError::ConfigError(
-                    "Autoresolve not implemented yet".to_string(),
-                ));
-            }
+        let verifier = match self.key() {
+            JwtKey::Decoding(key) => builder
+                .public_key(key.algorithm, &key.key)
+                .build()
+                .map_err(|e| AuthError::ConfigError(e.to_string()))?,
+            JwtKey::Autoresolve(true) => builder
+                .auto_resolve_keys(true)
+                .build()
+                .map_err(|e| AuthError::ConfigError(e.to_string()))?,
             _ => {
                 return Err(AuthError::ConfigError(
-                    "Decoding key is required for server authentication".to_string(),
+                    "Decoding key or autoresolve = true is required for server authentication"
+                        .to_string(),
                 ));
             }
         };
 
         // Create standard claims for verification
-        let claims = jwt.create_standard_claims(None);
+        let custom_claims = self.custom_claims();
 
-        Ok(ValidateJwtLayer::new(jwt, claims))
+        Ok(ValidateJwtLayer::new(verifier, custom_claims))
     }
 }
 
 // tests
 #[cfg(test)]
 mod tests {
-    // use slim_auth::jwt::Algorithm;
-    // use tower::ServiceBuilder;
-    // use tower_reqwest::HttpClientLayer;
+    use futures::future::{self, Ready};
+    use futures::task::Poll;
+    use http::{Request, Response, StatusCode};
+    use slim_auth::jwt::Algorithm;
+    use std::task::Context;
+    use tower::Service;
+    use tower::ServiceBuilder;
 
-    // use super::*;
+    use super::*;
 
-    // #[test]
-    // fn test_config() {
-    //     let claims = Claims {
-    //         audience: Some("audience".to_string()),
-    //         issuer: Some("issuer".to_string()),
-    //         subject: Some("subject".to_string()),
-    //         duration: Duration::from_secs(3600),
-    //         custom_claims: None,
-    //     };
+    // Define a Body type for testing
+    type Body = Vec<u8>;
 
-    //     let key = JwtKey::Encoding(Key {
-    //         algorithm: Algorithm::HS256,
-    //         key: "test-key".to_string(),
-    //     });
+    // A simple test service that returns a 200 OK response
+    #[derive(Clone)]
+    struct HeaderCheckService;
+    impl Service<Request<Body>> for HeaderCheckService {
+        type Response = Response<Body>;
+        type Error = std::convert::Infallible;
+        type Future = Ready<Result<Self::Response, Self::Error>>;
 
-    //     let config = Config::new(claims.clone(), Duration::from_secs(3600), key);
+        fn poll_ready(&mut self, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+            Poll::Ready(Ok(()))
+        }
 
-    //     assert_eq!(config.claims(), &claims);
-    //     assert_eq!(config.duration(), Duration::from_secs(3600));
-    // }
+        fn call(&mut self, req: Request<Body>) -> Self::Future {
+            // Check if the Authorization header exists and starts with "Bearer "
+            let auth_header = req.headers().get(http::header::AUTHORIZATION);
+            let has_bearer = auth_header
+                .and_then(|h| h.to_str().ok())
+                .map(|s| s.starts_with("Bearer "))
+                .unwrap_or(false);
 
-    // #[tokio::test]
-    // async fn test_authenticator() {
-    //     let claims = Claims {
-    //         audience: Some("audience".to_string()),
-    //         issuer: Some("issuer".to_string()),
-    //         subject: Some("subject".to_string()),
-    //         duration: Duration::from_secs(3600),
-    //         custom_claims: None,
-    //     };
+            if has_bearer {
+                future::ready(Ok(Response::builder()
+                    .status(StatusCode::OK)
+                    .body(Body::from("Authorization header is present and correct"))
+                    .unwrap()))
+            } else {
+                future::ready(Ok(Response::builder()
+                    .status(StatusCode::BAD_REQUEST)
+                    .body(Body::from("Missing or invalid Authorization header"))
+                    .unwrap()))
+            }
+        }
+    }
 
-    //     let encoding_key = JwtKey::Encoding(Key {
-    //         algorithm: Algorithm::HS256,
-    //         key: "test-key".to_string(),
-    //     });
+    #[test]
+    fn test_config() {
+        let claims = Claims {
+            audience: Some("audience".to_string()),
+            issuer: Some("issuer".to_string()),
+            subject: Some("subject".to_string()),
+            duration: Duration::from_secs(3600),
+            custom_claims: None,
+        };
 
-    //     let decoding_key = JwtKey::Decoding(Key {
-    //         algorithm: Algorithm::HS256,
-    //         key: "test-key".to_string(),
-    //     });
+        let key = JwtKey::Encoding(Key {
+            algorithm: Algorithm::HS256,
+            key: "test-key".to_string(),
+        });
 
-    //     let client_config = Config::new(claims.clone(), Duration::from_secs(3600), encoding_key);
-    //     let server_config = Config::new(claims.clone(), Duration::from_secs(3600), decoding_key);
+        let config = Config::new(claims.clone(), key);
 
-    //     let client_layer = client_config.get_client_layer().unwrap();
-    //     let server_layer = server_config.get_server_layer().unwrap();
+        assert_eq!(config.claims(), &claims);
+        assert_eq!(config.claims().duration, Duration::from_secs(3600));
+    }
 
-    //     // Check that we can use the layers when building a service
-    //     let _ = ServiceBuilder::new().layer(server_layer);
+    #[tokio::test]
+    async fn test_authenticator() {
+        let claims = Claims {
+            audience: Some("audience".to_string()),
+            issuer: Some("issuer".to_string()),
+            subject: Some("subject".to_string()),
+            duration: Duration::from_secs(3600),
+            custom_claims: None,
+        };
 
-    //     let _ = ServiceBuilder::new()
-    //         .layer(HttpClientLayer)
-    //         .layer(client_layer);
-    // }
+        let encoding_key = JwtKey::Encoding(Key {
+            algorithm: Algorithm::HS256,
+            key: "test-key".to_string(),
+        });
+
+        let decoding_key = JwtKey::Decoding(Key {
+            algorithm: Algorithm::HS256,
+            key: "test-key".to_string(),
+        });
+
+        let client_config = Config::new(claims.clone(), encoding_key);
+        let server_config = Config::new(claims.clone(), decoding_key);
+
+        // Construct a client service that adds a JWT token
+        let _client = ServiceBuilder::new()
+            .layer(client_config.get_client_layer().unwrap())
+            .service(HeaderCheckService);
+
+        // Construct a server service that verifies the JWT token
+        let _server = ServiceBuilder::new()
+            .layer(
+                <Config as ServerAuthenticator<Response<Body>>>::get_server_layer(&server_config)
+                    .unwrap(),
+            )
+            .service(HeaderCheckService);
+    }
 }

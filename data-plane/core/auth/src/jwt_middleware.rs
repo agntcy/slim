@@ -19,6 +19,7 @@ use tower_service::Service;
 use crate::errors::AuthError;
 use crate::traits::{Signer, Verifier};
 
+/// Layer to sign JWT tokens with a signing key. Custom claims can be added to the token.
 #[derive(Clone)]
 pub struct SignJwtLayer<T>
 where
@@ -43,6 +44,7 @@ impl<T: Signer + Clone> SignJwtLayer<T> {
     }
 }
 
+/// Layer implementation for `SignJwtLayer` that adds JWT tokens to requests
 impl<S, T: Signer + Clone> Layer<S> for SignJwtLayer<T> {
     type Service = AddJwtToken<S, T>;
 
@@ -58,6 +60,7 @@ impl<S, T: Signer + Clone> Layer<S> for SignJwtLayer<T> {
     }
 }
 
+/// Middleware for adding a JWT token to the request headers
 #[derive(Clone)]
 pub struct AddJwtToken<S, T: Signer + Clone> {
     inner: S,
@@ -81,11 +84,6 @@ impl<S, T: Signer + Clone> AddJwtToken<S, T> {
             if let Some(valid_until) = self.valid_until {
                 // We sign a new token if the cached token is about to expire in less than 2/3 of its lifetime
                 let remaining = valid_until - now;
-                print!(
-                    "remaining: {}, 2/3duration: {}",
-                    remaining,
-                    self.duration * 2 / 3
-                );
                 if remaining > self.duration * 2 / 3 {
                     return Ok(cached_token.clone());
                 }
@@ -121,10 +119,12 @@ where
     type Error = S::Error;
     type Future = S::Future;
 
+    /// Poll the inner service to see if it is ready to accept requests
     fn poll_ready(&mut self, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         self.inner.poll_ready(cx)
     }
 
+    /// Call the inner service with the request, adding the JWT token to the headers
     fn call(&mut self, mut req: Request<ReqBody>) -> Self::Future {
         if let Ok(token) = self.get_token() {
             req.headers_mut().insert(http::header::AUTHORIZATION, token);
@@ -135,10 +135,7 @@ where
     }
 }
 
-/// Layer to validate JWT tokens with a decoding key. Valid claims are added to the request extension
-///
-/// It can also be used with tonic. See:
-/// https://github.com/hyperium/tonic/blob/master/examples/src/tower/server.rs
+/// Layer to validate JWT tokens.
 #[derive(Clone)]
 pub struct ValidateJwtLayer<Claim, V: Verifier> {
     /// Provided verifier
@@ -146,9 +143,6 @@ pub struct ValidateJwtLayer<Claim, V: Verifier> {
 
     /// Claims to validate against. Not used for now.
     _claims: Claim,
-
-    // Phantom data for the claim type
-    _phantom: PhantomData<Claim>,
 }
 
 impl<Claim: Clone, V: Verifier + Clone> ValidateJwtLayer<Claim, V> {
@@ -158,7 +152,6 @@ impl<Claim: Clone, V: Verifier + Clone> ValidateJwtLayer<Claim, V> {
         Self {
             verifier,
             _claims: claims,
-            _phantom: PhantomData,
         }
     }
 }
@@ -170,12 +163,12 @@ impl<S, Claim: Clone, V: Verifier + Clone> Layer<S> for ValidateJwtLayer<Claim, 
         ValidateJwt {
             inner,
             verifier: std::sync::Arc::new(self.verifier.clone()),
-            _phantom: PhantomData,
+            _phantom: PhantomData::<Claim>,
         }
     }
 }
 
-/// Middleware for validating a valid JWT token is present on "authorization: bearer <token>"
+/// This middleware validates JWT tokens in the request headers.
 #[derive(Clone)]
 pub struct ValidateJwt<S, Claim, V: Clone> {
     inner: S,
@@ -202,7 +195,7 @@ pub enum JwtFuture<
         future: TService::Future,
     },
 
-    // We have a token and need to run our logic.
+    // We have a token, but we need to verify it.
     WaitForKey {
         request: Request<ReqBody>,
         #[pin]
