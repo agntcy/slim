@@ -22,11 +22,11 @@ serde_json = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
 tower.workspace = true
-tower-layer.workspace = true
-tower-service.workspace = true
+tower-layer = { workspace = true }
+tower-service = { workspace = true }
 url = { workspace = true }
 
 [dev-dependencies]
+aws-lc-rs = "1.13.1"
 base64 = "0.22.1"
-openssl = "0.10.73"
 wiremock = "0.5"

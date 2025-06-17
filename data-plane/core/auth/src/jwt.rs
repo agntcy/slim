@@ -387,6 +387,9 @@ mod tests {
     use std::collections::HashMap;
 
     use super::*;
+    use aws_lc_rs::encoding::AsDer;
+    use aws_lc_rs::signature::KeyPair; // Import the KeyPair trait for public_key() method
+    use aws_lc_rs::{rand, rsa, signature};
     use base64::Engine;
     use base64::engine::general_purpose::URL_SAFE_NO_PAD;
     use jsonwebtoken_aws_lc::Algorithm;
@@ -395,6 +398,27 @@ mod tests {
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
     use crate::builder::JwtBuilder;
+
+    /// Helper function to convert key bytes to PEM format
+    fn bytes_to_pem(key_bytes: &[u8], header: &str, footer: &str) -> String {
+        // Use base64 with standard encoding (not URL safe)
+        let encoded = base64::engine::general_purpose::STANDARD.encode(key_bytes);
+
+        // Insert newlines every 64 characters as per PEM format
+        let mut pem_body = String::new();
+        for i in 0..(encoded.len().div_ceil(64)) {
+            let start = i * 64;
+            let end = std::cmp::min(start + 64, encoded.len());
+            if start < encoded.len() {
+                pem_body.push_str(&encoded[start..end]);
+                if end < encoded.len() {
+                    pem_body.push('\n');
+                }
+            }
+        }
+
+        format!("{}{}{}", header, pem_body, footer)
+    }
 
     #[tokio::test]
     async fn test_jwt_sign_and_verify() {
@@ -508,17 +532,28 @@ mod tests {
             | Algorithm::PS256
             | Algorithm::PS384
             | Algorithm::PS512 => {
-                // Create an RSA keypair for testing
-                let keypair = openssl::rsa::Rsa::generate(2048).unwrap();
+                // Create an RSA keypair for testing using AWS-LC
+                // Generate a new RSA private key
+                let private_key = signature::RsaKeyPair::generate(rsa::KeySize::Rsa2048).unwrap();
 
-                // Get modulus and exponent
-                let modulus = keypair.n();
-                let exponent = keypair.e();
+                // Get the public key
+                let public_key = private_key.public_key();
 
-                // Create key ID and parameters
-                let key_id = URL_SAFE_NO_PAD.encode(keypair.public_key_to_der().unwrap());
-                let modulus_encoded = URL_SAFE_NO_PAD.encode(modulus.to_vec());
-                let exponent_encoded = URL_SAFE_NO_PAD.encode(exponent.to_vec());
+                // Get PKCS8 DER format for the private key
+                let private_key_pkcs8 = private_key.as_der().unwrap();
+                // Get public key DER format
+                let public_key_der = public_key.as_der().unwrap();
+
+                // Derive key ID from the public key
+                let key_id = URL_SAFE_NO_PAD.encode(public_key_der.as_ref());
+
+                // Extract modulus and exponent - we'll have to compute them from the DER format
+                // For simplicity, let's just use these values directly
+                let modulus = public_key.modulus().big_endian_without_leading_zero();
+                let exponent = public_key.exponent().big_endian_without_leading_zero();
+
+                let modulus_encoded = URL_SAFE_NO_PAD.encode(modulus);
+                let exponent_encoded = URL_SAFE_NO_PAD.encode(exponent);
 
                 let alg_str = match algorithm {
                     Algorithm::RS256 => "RS256",
@@ -539,54 +574,58 @@ mod tests {
                     "e": exponent_encoded,
                 });
 
-                (
-                    String::from_utf8(keypair.private_key_to_pem().unwrap()),
-                    jwks_key,
-                    alg_str.to_string(),
-                )
+                // Convert the private key DER to PEM format
+                let private_key_pem = bytes_to_pem(
+                    private_key_pkcs8.as_ref(),
+                    "-----BEGIN PRIVATE KEY-----\n",
+                    "\n-----END PRIVATE KEY-----",
+                );
+
+                (private_key_pem, jwks_key, alg_str.to_string())
             }
             Algorithm::ES256 | Algorithm::ES384 => {
-                // Choose the right curve for the algorithm
-                let nid = match algorithm {
-                    Algorithm::ES256 => openssl::nid::Nid::X9_62_PRIME256V1, // P-256
-                    Algorithm::ES384 => openssl::nid::Nid::SECP384R1,        // P-384
+                // Choose the right signing algorithm for the algorithm
+                let (signing_alg, curve_name) = match algorithm {
+                    Algorithm::ES256 => (&signature::ECDSA_P256_SHA256_ASN1_SIGNING, "P-256"),
+                    Algorithm::ES384 => (&signature::ECDSA_P384_SHA384_ASN1_SIGNING, "P-384"),
                     _ => unreachable!(),
                 };
 
-                // Create EC key with appropriate curve
-                let ecgroup = openssl::ec::EcGroup::from_curve_name(nid).unwrap();
-                let keypair = openssl::ec::EcKey::generate(&ecgroup).unwrap();
+                // Create EC keypair
+                let rng = rand::SystemRandom::new();
+                let pkcs8_bytes =
+                    signature::EcdsaKeyPair::generate_pkcs8(signing_alg, &rng).unwrap();
 
-                // Get the EC public key in DER format
-                let public_key_der = keypair.public_key_to_der().unwrap();
-                let key_id = URL_SAFE_NO_PAD.encode(&public_key_der);
+                // Get private key in PKCS8 format (already in the right format)
+                let private_key_der = pkcs8_bytes.as_ref().to_vec();
 
-                // Extract x and y coordinates for JWKS using the BigNum API
-                let ec_point = keypair.public_key();
-                let mut bn_ctx = openssl::bn::BigNumContext::new().unwrap();
-                let mut x = openssl::bn::BigNum::new().unwrap();
-                let mut y = openssl::bn::BigNum::new().unwrap();
+                // Get the EC public key by creating a key pair from the pkcs8 document
+                let key_pair =
+                    signature::EcdsaKeyPair::from_pkcs8(signing_alg, pkcs8_bytes.as_ref()).unwrap();
+                let public_key_bytes = key_pair.public_key().as_ref();
+                let key_id = URL_SAFE_NO_PAD.encode(public_key_bytes);
 
-                // Get the affine coordinates
-                ec_point
-                    .affine_coordinates(&ecgroup, &mut x, &mut y, &mut bn_ctx)
-                    .unwrap();
+                // For ECDSA public keys, the byte format is:
+                // - First byte is 0x04 (uncompressed point format)
+                // - Next X bytes are X coordinate (32 bytes for P-256, 48 bytes for P-384)
+                // - Next X bytes are Y coordinate (32 bytes for P-256, 48 bytes for P-384)
+                let coordinate_size = match algorithm {
+                    Algorithm::ES256 => 32,
+                    Algorithm::ES384 => 48,
+                    _ => unreachable!(),
+                };
+
+                // Skip the first byte (0x04) and extract X and Y coordinates
+                let x_coordinate = &public_key_bytes[1..(1 + coordinate_size)];
+                let y_coordinate = &public_key_bytes[(1 + coordinate_size)..];
 
                 // Convert coordinates to base64url
-                let x_encoded = URL_SAFE_NO_PAD.encode(x.to_vec());
-                let y_encoded = URL_SAFE_NO_PAD.encode(y.to_vec());
-
-                // These variables are now defined above using the raw public key bytes
+                let x_encoded = URL_SAFE_NO_PAD.encode(x_coordinate);
+                let y_encoded = URL_SAFE_NO_PAD.encode(y_coordinate);
 
                 let alg_str = match algorithm {
                     Algorithm::ES256 => "ES256",
                     Algorithm::ES384 => "ES384",
-                    _ => unreachable!(),
-                };
-
-                let curve_name = match algorithm {
-                    Algorithm::ES256 => "P-256",
-                    Algorithm::ES384 => "P-384",
                     _ => unreachable!(),
                 };
 
@@ -600,29 +639,27 @@ mod tests {
                     "y": y_encoded
                 });
 
-                // Convert keypair to PKey
-                // NOTE(msardara): it seems ECDSA keys shohuld be in the PKCS#8 format,
-                // otherwise jsonwebtoken will fail to decode them.
-                let pkey =
-                    openssl::pkey::PKey::<openssl::pkey::Private>::from_ec_key(keypair).unwrap();
+                // Convert the private key bytes to PEM format
+                let private_key_pem = bytes_to_pem(
+                    &private_key_der,
+                    "-----BEGIN PRIVATE KEY-----\n",
+                    "\n-----END PRIVATE KEY-----",
+                );
 
-                (
-                    String::from_utf8(pkey.private_key_to_pem_pkcs8().unwrap()),
-                    jwks_key,
-                    alg_str.to_string(),
-                )
+                (private_key_pem, jwks_key, alg_str.to_string())
             }
             Algorithm::EdDSA => {
                 // Generate Ed25519 key
-                let keypair = openssl::pkey::PKey::generate_ed25519().unwrap();
+                let rng = rand::SystemRandom::new();
+                let pkcs8 = signature::Ed25519KeyPair::generate_pkcs8(&rng).unwrap();
+                let keypair = signature::Ed25519KeyPair::from_pkcs8(pkcs8.as_ref()).unwrap();
 
-                // For EdDSA, let's use the public key in DER format
-                let public_key_der = keypair.public_key_to_der().unwrap();
-                let key_id = URL_SAFE_NO_PAD.encode(&public_key_der);
+                // Get the public key bytes
+                let public_key_bytes = keypair.public_key().as_ref();
+                let key_id = URL_SAFE_NO_PAD.encode(public_key_bytes);
 
-                // Extract the raw key bytes from DER format - the actual key is after the header
-                // For simplicity, we'll use a fixed offset that works for Ed25519
-                let x_encoded = URL_SAFE_NO_PAD.encode(&public_key_der[12..]);
+                // Ed25519 public key is already in the correct format - just encode it
+                let x_encoded = URL_SAFE_NO_PAD.encode(public_key_bytes);
 
                 let jwks_key = json!({
                     "kty": "OKP",
@@ -633,11 +670,14 @@ mod tests {
                     "x": x_encoded
                 });
 
-                (
-                    String::from_utf8(keypair.private_key_to_pem_pkcs8().unwrap()),
-                    jwks_key,
-                    "EdDSA".to_string(),
-                )
+                // Convert the private key bytes to PEM format
+                let private_key_pem = bytes_to_pem(
+                    pkcs8.as_ref(),
+                    "-----BEGIN PRIVATE KEY-----\n",
+                    "\n-----END PRIVATE KEY-----",
+                );
+
+                (private_key_pem, jwks_key, "EdDSA".to_string())
             }
             _ => panic!("Unsupported algorithm for this test: {:?}", algorithm),
         };
@@ -662,7 +702,7 @@ mod tests {
             .mount(&mock_server)
             .await;
 
-        (test_key.unwrap(), mock_server, alg_str.to_string())
+        (test_key, mock_server, alg_str.to_string())
     }
 
     async fn test_jwt_resolve_with_algorithm(algorithm: Algorithm) {
