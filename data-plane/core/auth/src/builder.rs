@@ -10,7 +10,7 @@ use std::time::Duration;
 use jsonwebtoken_aws_lc::{Algorithm, DecodingKey, EncodingKey, Validation};
 
 use crate::errors::AuthError;
-use crate::jwt::{SignerJwt, VerifierJwt};
+use crate::jwt::{Key, KeyData, SignerJwt, VerifierJwt};
 use crate::resolver::KeyResolver;
 
 /// State markers for the JWT builder state machine.
@@ -112,6 +112,17 @@ impl<S> JwtBuilder<S> {
 
         validation
     }
+
+    fn resolve_key(&self, key: &Key) -> String {
+        // Resolve private key from Key enum
+        match &key.key {
+            KeyData::Pem(key) => key.clone(),
+            KeyData::File(path) => {
+                // TODO(msardara/micpapal): here we can use the file watcher
+                std::fs::read_to_string(path).unwrap()
+            }
+        }
+    }
 }
 
 // Implementation for the Initial state
@@ -196,18 +207,16 @@ impl JwtBuilder<state::Initial> {
     }
 
     /// Set the private key and transition to WithPrivateKey state.
-    pub fn private_key(
-        self,
-        algorithm: Algorithm,
-        private_key: impl Into<String>,
-    ) -> JwtBuilder<state::WithPrivateKey> {
+    pub fn private_key(self, key: &Key) -> JwtBuilder<state::WithPrivateKey> {
+        let private_key = self.resolve_key(key);
+
         JwtBuilder::<state::WithPrivateKey> {
             issuer: self.issuer,
             audience: self.audience,
             subject: self.subject,
-            private_key: Some(private_key.into()),
+            private_key: Some(private_key),
             public_key: None,
-            algorithm,
+            algorithm: key.algorithm,
             token_duration: self.token_duration,
             auto_resolve_keys: self.auto_resolve_keys,
             required_claims: self.required_claims,
@@ -216,18 +225,16 @@ impl JwtBuilder<state::Initial> {
     }
 
     /// Set the public key and transition to WithPublicKey state.
-    pub fn public_key(
-        self,
-        algorithm: Algorithm,
-        public_key: impl Into<String>,
-    ) -> JwtBuilder<state::WithPublicKey> {
+    pub fn public_key(self, key: &Key) -> JwtBuilder<state::WithPublicKey> {
+        let public_key = self.resolve_key(key);
+
         JwtBuilder::<state::WithPublicKey> {
             issuer: self.issuer,
             audience: self.audience,
             subject: self.subject,
             private_key: None,
-            public_key: Some(public_key.into()),
-            algorithm,
+            public_key: Some(public_key),
+            algorithm: key.algorithm,
             token_duration: self.token_duration,
             auto_resolve_keys: self.auto_resolve_keys,
             required_claims: self.required_claims,
@@ -411,7 +418,10 @@ mod tests {
             .issuer("test-issuer")
             .audience("test-audience")
             .subject("test-subject")
-            .private_key(Algorithm::HS512, "test-key")
+            .private_key(&Key {
+                algorithm: Algorithm::HS512,
+                key: KeyData::Pem("test-key".to_string()),
+            })
             .build()
             .unwrap();
 
@@ -429,7 +439,10 @@ mod tests {
             .issuer("test-issuer")
             .audience("test-audience")
             .subject("test-subject")
-            .private_key(Algorithm::HS512, "test-key")
+            .private_key(&Key {
+                algorithm: Algorithm::HS512,
+                key: KeyData::Pem("test-key".to_string()),
+            })
             .build()
             .unwrap();
 
@@ -437,7 +450,10 @@ mod tests {
             .issuer("test-issuer")
             .audience("test-audience")
             .subject("test-subject")
-            .public_key(Algorithm::HS512, "test-key")
+            .public_key(&Key {
+                algorithm: Algorithm::HS512,
+                key: KeyData::Pem("test-key".to_string()),
+            })
             .build()
             .unwrap();
 
@@ -465,7 +481,10 @@ mod tests {
             .issuer("test-issuer")
             .audience("test-audience")
             .subject("test-subject")
-            .private_key(Algorithm::HS512, "test-key")
+            .private_key(&Key {
+                algorithm: Algorithm::HS512,
+                key: KeyData::Pem("test-key".to_string()),
+            })
             .build()
             .unwrap();
 
@@ -473,7 +492,10 @@ mod tests {
             .issuer("test-issuer")
             .audience("test-audience")
             .subject("test-subject")
-            .public_key(Algorithm::HS512, "test-key")
+            .public_key(&Key {
+                algorithm: Algorithm::HS512,
+                key: KeyData::Pem("test-key".to_string()),
+            })
             .build()
             .unwrap();
 

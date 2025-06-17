@@ -90,7 +90,7 @@ pub enum AuthenticationConfig {
     /// Bearer authentication configuration.
     Bearer(BearerAuthenticationConfig),
     /// JWT authentication configuration.
-    JWT(JwtAuthenticationConfig),
+    Jwt(JwtAuthenticationConfig),
     /// None
     #[default]
     None,
@@ -439,7 +439,7 @@ impl ClientConfig {
                     .service(channel)
                     .boxed())
             }
-            AuthenticationConfig::JWT(jwt) => {
+            AuthenticationConfig::Jwt(jwt) => {
                 let auth_layer = jwt
                     .get_client_layer()
                     .map_err(|e| ConfigError::AuthConfigError(e.to_string()))?;

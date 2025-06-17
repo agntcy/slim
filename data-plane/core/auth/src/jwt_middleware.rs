@@ -322,9 +322,9 @@ where
 
 #[cfg(test)]
 mod tests {
-    use crate::builder::JwtBuilder;
     use crate::jwt::Algorithm;
     use crate::traits::StandardClaims;
+    use crate::{builder::JwtBuilder, jwt::Key, jwt::KeyData};
     use futures::future::{self, Ready};
     use http::{Request, Response, StatusCode};
     use std::collections::HashMap;
@@ -379,7 +379,10 @@ mod tests {
             .issuer("test-issuer")
             .audience("test-audience")
             .subject("test-subject")
-            .private_key(Algorithm::HS256, "test-key")
+            .private_key(&Key {
+                algorithm: Algorithm::HS256,
+                key: KeyData::Pem("test-key".to_string()),
+            })
             .build()
             .unwrap();
 
@@ -409,7 +412,10 @@ mod tests {
             .issuer("test-issuer")
             .audience("test-audience")
             .subject("test-subject")
-            .private_key(Algorithm::HS256, "test-key")
+            .private_key(&Key {
+                algorithm: Algorithm::HS256,
+                key: KeyData::Pem("test-key".to_string()),
+            })
             .build()
             .unwrap();
 
@@ -494,7 +500,10 @@ mod tests {
             .issuer("test-issuer")
             .audience("test-audience")
             .subject("test-subject")
-            .private_key(Algorithm::HS256, "shared-secret")
+            .private_key(&Key {
+                algorithm: Algorithm::HS256,
+                key: KeyData::Pem("shared-secret".to_string()),
+            })
             .build()
             .unwrap();
 
@@ -502,7 +511,10 @@ mod tests {
             .issuer("test-issuer")
             .audience("test-audience")
             .subject("test-subject")
-            .public_key(Algorithm::HS256, "shared-secret")
+            .public_key(&Key {
+                algorithm: Algorithm::HS256,
+                key: KeyData::Pem("shared-secret".to_string()),
+            })
             .build()
             .unwrap();
 
@@ -545,7 +557,10 @@ mod tests {
             .issuer("test-issuer")
             .audience("test-audience")
             .subject("test-subject")
-            .public_key(Algorithm::HS256, "test-key")
+            .public_key(&Key {
+                algorithm: Algorithm::HS256,
+                key: KeyData::Pem("test-key".to_string()),
+            })
             .build()
             .unwrap();
 
@@ -570,7 +585,10 @@ mod tests {
             .issuer("test-issuer")
             .audience("test-audience")
             .subject("test-subject")
-            .private_key(Algorithm::HS256, "test-key")
+            .private_key(&Key {
+                algorithm: Algorithm::HS256,
+                key: KeyData::Pem("test-key".to_string()),
+            })
             .build()
             .unwrap();
 
@@ -635,7 +653,10 @@ mod tests {
             .issuer("test-issuer")
             .audience("test-audience")
             .subject("test-subject")
-            .private_key(Algorithm::HS256, "shared-secret")
+            .private_key(&Key {
+                algorithm: Algorithm::HS256,
+                key: KeyData::Pem("shared-secret".to_string()),
+            })
             .build()
             .unwrap();
 
@@ -643,7 +664,10 @@ mod tests {
             .issuer("test-issuer")
             .audience("test-audience")
             .subject("test-subject")
-            .public_key(Algorithm::HS256, "shared-secret")
+            .public_key(&Key {
+                algorithm: Algorithm::HS256,
+                key: KeyData::Pem("shared-secret".to_string()),
+            })
             .build()
             .unwrap();
 

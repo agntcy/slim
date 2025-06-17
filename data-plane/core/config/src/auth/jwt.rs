@@ -35,6 +35,80 @@ pub struct Claims {
     custom_claims: Option<std::collections::HashMap<String, serde_yaml::Value>>,
 }
 
+impl Claims {
+    /// Create a new Claims
+    pub fn new(
+        audience: Option<String>,
+        issuer: Option<String>,
+        subject: Option<String>,
+        duration: Duration,
+        custom_claims: Option<std::collections::HashMap<String, serde_yaml::Value>>,
+    ) -> Self {
+        Claims {
+            audience,
+            issuer,
+            subject,
+            duration,
+            custom_claims,
+        }
+    }
+
+    pub fn with_audience(self, audience: impl Into<String>) -> Self {
+        Claims {
+            audience: Some(audience.into()),
+            ..self
+        }
+    }
+
+    pub fn with_issuer(self, issuer: impl Into<String>) -> Self {
+        Claims {
+            issuer: Some(issuer.into()),
+            ..self
+        }
+    }
+
+    pub fn with_subject(self, subject: impl Into<String>) -> Self {
+        Claims {
+            subject: Some(subject.into()),
+            ..self
+        }
+    }
+
+    pub fn with_duration(self, duration: Duration) -> Self {
+        Claims { duration, ..self }
+    }
+
+    pub fn with_custom_claims(
+        self,
+        custom_claims: std::collections::HashMap<String, serde_yaml::Value>,
+    ) -> Self {
+        Claims {
+            custom_claims: Some(custom_claims),
+            ..self
+        }
+    }
+
+    /// Get the audience
+    pub fn audience(&self) -> &Option<String> {
+        &self.audience
+    }
+
+    /// Get the issuer
+    pub fn issuer(&self) -> &Option<String> {
+        &self.issuer
+    }
+
+    /// Get the subject
+    pub fn subject(&self) -> &Option<String> {
+        &self.subject
+    }
+
+    /// Get the duration
+    pub fn duration(&self) -> Duration {
+        self.duration
+    }
+}
+
 impl Default for Claims {
     fn default() -> Self {
         Claims {
@@ -77,6 +151,16 @@ impl Config {
     /// Create a new Config
     pub fn new(claims: Claims, key: JwtKey) -> Self {
         Config { claims, key }
+    }
+
+    /// Set claims
+    pub fn with_claims(self, claims: Claims) -> Self {
+        Config { claims, ..self }
+    }
+
+    /// Set key
+    pub fn with_key(self, key: JwtKey) -> Self {
+        Config { key, ..self }
     }
 
     /// Get the claims
@@ -126,7 +210,7 @@ impl ClientAuthenticator for Config {
 
         let signer = match self.key() {
             JwtKey::Encoding(key) => builder
-                .private_key(key.algorithm, &key.key)
+                .private_key(key)
                 .build()
                 .map_err(|e| AuthError::ConfigError(e.to_string()))?,
             _ => {
@@ -170,7 +254,7 @@ where
 
         let verifier = match self.key() {
             JwtKey::Decoding(key) => builder
-                .public_key(key.algorithm, &key.key)
+                .public_key(key)
                 .build()
                 .map_err(|e| AuthError::ConfigError(e.to_string()))?,
             JwtKey::Autoresolve(true) => builder
@@ -199,6 +283,7 @@ mod tests {
     use futures::task::Poll;
     use http::{Request, Response, StatusCode};
     use slim_auth::jwt::Algorithm;
+    use slim_auth::jwt::KeyData;
     use std::task::Context;
     use tower::Service;
     use tower::ServiceBuilder;
@@ -254,7 +339,7 @@ mod tests {
 
         let key = JwtKey::Encoding(Key {
             algorithm: Algorithm::HS256,
-            key: "test-key".to_string(),
+            key: KeyData::Pem("test-key".to_string()),
         });
 
         let config = Config::new(claims.clone(), key);
@@ -275,12 +360,12 @@ mod tests {
 
         let encoding_key = JwtKey::Encoding(Key {
             algorithm: Algorithm::HS256,
-            key: "test-key".to_string(),
+            key: KeyData::Pem("test-key".to_string()),
         });
 
         let decoding_key = JwtKey::Decoding(Key {
             algorithm: Algorithm::HS256,
-            key: "test-key".to_string(),
+            key: KeyData::Pem("test-key".to_string()),
         });
 
         let client_config = Config::new(claims.clone(), encoding_key);

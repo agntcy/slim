@@ -18,14 +18,25 @@ use crate::errors::AuthError;
 use crate::resolver::KeyResolver;
 use crate::traits::{Claimer, Signer, StandardClaims, Verifier};
 
+/// Enum representing key data types
+#[derive(Debug, Deserialize, Clone, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub enum KeyData {
+    /// PEM encoded key
+    Pem(String),
+    /// File path to the key
+    File(String),
+}
+
 /// Represents a key
 #[derive(Debug, Deserialize, Clone, PartialEq)]
 pub struct Key {
     /// Algorithm used for signing the JWT
     pub algorithm: Algorithm,
 
-    /// Key used for signing or validating the JWT
-    pub key: String,
+    /// PEM encoded key or file path
+    #[serde(flatten, with = "serde_yaml::with::singleton_map")]
+    pub key: KeyData,
 }
 
 /// Cache entry for validated tokens
@@ -426,7 +437,10 @@ mod tests {
             .issuer("test-issuer")
             .audience("test-audience")
             .subject("test-subject")
-            .private_key(Algorithm::HS512, "secret-key")
+            .private_key(&Key {
+                algorithm: Algorithm::HS512,
+                key: KeyData::Pem("secret-key".to_string()),
+            })
             .build()
             .unwrap();
 
@@ -434,7 +448,10 @@ mod tests {
             .issuer("test-issuer")
             .audience("test-audience")
             .subject("test-subject")
-            .public_key(Algorithm::HS512, "secret-key")
+            .public_key(&Key {
+                algorithm: Algorithm::HS512,
+                key: KeyData::Pem("secret-key".to_string()),
+            })
             .build()
             .unwrap();
 
@@ -461,7 +478,10 @@ mod tests {
             .issuer("test-issuer")
             .audience("test-audience")
             .subject("test-subject")
-            .public_key(Algorithm::HS512, "wrong-key")
+            .public_key(&Key {
+                algorithm: Algorithm::HS512,
+                key: KeyData::Pem("wrong-secret-key".to_string()),
+            })
             .build()
             .unwrap();
         let wrong_result: Result<StandardClaims, AuthError> = wrong_verifier.verify(token).await;
@@ -477,7 +497,10 @@ mod tests {
             .issuer("test-issuer")
             .audience("test-audience")
             .subject("test-subject")
-            .private_key(Algorithm::HS512, "secret-key")
+            .private_key(&Key {
+                algorithm: Algorithm::HS512,
+                key: KeyData::Pem("secret-key".to_string()),
+            })
             .build()
             .unwrap();
 
@@ -485,7 +508,10 @@ mod tests {
             .issuer("test-issuer")
             .audience("test-audience")
             .subject("test-subject")
-            .public_key(Algorithm::HS512, "secret-key")
+            .public_key(&Key {
+                algorithm: Algorithm::HS512,
+                key: KeyData::Pem("secret-key".to_string()),
+            })
             .build()
             .unwrap();
 
@@ -713,7 +739,10 @@ mod tests {
             .issuer(mock_server.uri())
             .audience("test-audience")
             .subject("test-subject")
-            .private_key(algorithm, test_key)
+            .private_key(&Key {
+                algorithm,
+                key: KeyData::Pem(test_key),
+            })
             .build()
             .unwrap();
 
@@ -787,7 +816,10 @@ mod tests {
             .issuer("test-issuer")
             .audience("test-audience")
             .subject("test-subject")
-            .private_key(Algorithm::HS512, "secret-key")
+            .private_key(&Key {
+                algorithm: Algorithm::HS512,
+                key: KeyData::Pem("secret-key".to_string()),
+            })
             .build()
             .unwrap();
 
@@ -795,7 +827,10 @@ mod tests {
             .issuer("test-issuer")
             .audience("test-audience")
             .subject("test-subject")
-            .public_key(Algorithm::HS512, "secret-key")
+            .public_key(&Key {
+                algorithm: Algorithm::HS512,
+                key: KeyData::Pem("secret-key".to_string()),
+            })
             .build()
             .unwrap();
 
