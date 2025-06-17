@@ -51,8 +51,8 @@ criterion = { version = "0.5", features = ["html_reports"] }
 drain = { version = "0.1", features = ["retain"] }
 duration-str = "0.12.0"
 futures = "0.3.31"
-futures-util = "0.3.31"
 h2 = "0.4.7"
+headers = "0.4.1"
 http = "1.2.0"
 hyper-rustls = { version = "0.27", features = [
     "http2",
@@ -71,6 +71,7 @@ opentelemetry-semantic-conventions = { version = "0.29.0", features = ["semconv_
 opentelemetry-stdout = "0.29.0"
 opentelemetry_sdk = { version = "0.29.0", default-features = false, features = ["trace", "rt-tokio"] }
 parking_lot = "0.12.3"
+pin-project = "1.1.10"
 prost = "0.13"
 
 protoc-bin-vendored = "3.1.0"
@@ -81,10 +82,6 @@ rand = "0.9.0"
 regex = "1.11.1"
 
 reqwest = { version = "0.12", features = ["rustls-tls-no-provider"] }
-rmcp = { version = "0.1.5", features = [
-    "client",
-    "transport-sse",
-] }
 rustls = "0.23.19"
 rustls-native-certs = "0.8.1"
 rustls-pki-types = "1.10.0"

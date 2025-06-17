@@ -4,5 +4,6 @@
 pub mod builder;
 pub mod errors;
 pub mod jwt;
+pub mod jwt_middleware;
 pub mod resolver;
 pub mod traits;

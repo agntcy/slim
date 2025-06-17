@@ -10,12 +10,20 @@ name = "slim_auth"
 
 [dependencies]
 async-trait = { workspace = true }
+futures = { workspace = true }
+headers = { workspace = true }
+http.workspace = true
 jsonwebtoken-aws-lc = { workspace = true }
+parking_lot.workspace = true
+pin-project = { workspace = true }
 reqwest = { workspace = true, features = ["json"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
+tower.workspace = true
+tower-layer.workspace = true
+tower-service.workspace = true
 url = { workspace = true }
 
 [dev-dependencies]

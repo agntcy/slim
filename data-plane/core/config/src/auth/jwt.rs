@@ -4,19 +4,14 @@
 use std::time::Duration;
 
 use duration_str::deserialize_duration;
-use http::HeaderValue;
 use serde::Deserialize;
 use slim_auth::builder::JwtBuilder;
-use tower_http::auth::{AddAuthorizationLayer, require_authorization::Basic};
-use tower_http::validate_request::ValidateRequestHeaderLayer;
-use tower_layer::Layer;
 
-use crate::auth::jwt_middleware::{SignerLayer, VerifierLayer};
+use slim_auth::jwt_middleware::{SignJwtLayer, ValidateJwtLayer};
 
 use super::{AuthError, ClientAuthenticator, ServerAuthenticator};
-use crate::opaque::OpaqueString;
-use slim_auth::jwt::{Algorithm, Jwt, Key, SignerJwt, VerifierJwt};
-use slim_auth::traits::{Claimer, Signer, Verifier};
+use slim_auth::jwt::{Key, SignerJwt, VerifierJwt};
+use slim_auth::traits::StandardClaims;
 
 #[derive(Debug, Deserialize, Clone, PartialEq)]
 pub struct Claims {
@@ -54,7 +49,7 @@ impl Default for Claims {
 
 #[derive(Debug, Deserialize, Clone, PartialEq)]
 #[serde(rename_all = "lowercase")]
-enum JwtKey {
+pub enum JwtKey {
     Encoding(Key),
     Decoding(Key),
     Autoresolve(bool),
@@ -112,7 +107,7 @@ impl Config {
 
 impl ClientAuthenticator for Config {
     // Associated types
-    type ClientLayer = SignerLayer<SignerJwt>;
+    type ClientLayer = SignJwtLayer<SignerJwt>;
 
     fn get_client_layer(&self) -> Result<Self::ClientLayer, AuthError> {
         let signer = match self.key() {
@@ -157,7 +152,7 @@ impl ClientAuthenticator for Config {
         // Create token duration in seconds
         let duration = self.duration.as_secs();
 
-        Ok(SignerLayer::new(signer, claims, duration))
+        Ok(SignJwtLayer::new(signer, claims, duration))
     }
 }
 
@@ -166,7 +161,7 @@ where
     Response: Default + Send + 'static,
 {
     // Associated types
-    type ServerLayer = VerifierLayer<VerifierJwt>;
+    type ServerLayer = ValidateJwtLayer<StandardClaims, VerifierJwt>;
 
     fn get_server_layer(&self) -> Result<Self::ServerLayer, AuthError> {
         let jwt = match self.key() {
@@ -206,7 +201,7 @@ where
         // Create standard claims for verification
         let claims = jwt.create_standard_claims(None);
 
-        Ok(VerifierLayer::new(jwt, claims))
+        Ok(ValidateJwtLayer::new(jwt, claims))
     }
 }
 

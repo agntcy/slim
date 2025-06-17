@@ -9,6 +9,7 @@ use jsonwebtoken_aws_lc::{
     Algorithm, DecodingKey, Header,
     jwk::{Jwk, JwkSet},
 };
+use parking_lot::RwLock;
 use reqwest::{Client as ReqwestClient, StatusCode};
 use serde::{Deserialize, Serialize};
 use url::Url;
@@ -59,10 +60,9 @@ struct JwksCache {
 ///     .key_resolver(resolver)
 ///     .build()?;
 /// ```
-#[derive(Clone)]
 pub struct KeyResolver {
     client: ReqwestClient,
-    jwks_cache: HashMap<String, JwksCache>,
+    jwks_cache: parking_lot::RwLock<HashMap<String, JwksCache>>,
     default_jwks_ttl: Duration,
 }
 
@@ -83,7 +83,7 @@ impl KeyResolver {
 
         Self {
             client,
-            jwks_cache: HashMap::new(),
+            jwks_cache: RwLock::new(HashMap::new()),
             default_jwks_ttl: Duration::from_secs(3600), // 1 hour default TTL
         }
     }
@@ -105,7 +105,7 @@ impl KeyResolver {
     /// * `issuer` - The token issuer URL
     /// * `token_header` - The JWT header containing the algorithm and key ID (if available)
     pub async fn resolve_key(
-        &mut self,
+        &self,
         issuer: &str,
         token_header: &Header,
     ) -> Result<DecodingKey, AuthError> {
@@ -189,9 +189,15 @@ impl KeyResolver {
     }
 
     /// Check the cache for a JWKS entry
-    pub fn get_cached_key(&self, issuer: &str, token_header: &Header) -> Result<DecodingKey, AuthError> {
+    pub fn get_cached_key(
+        &self,
+        issuer: &str,
+        token_header: &Header,
+    ) -> Result<DecodingKey, AuthError> {
         // Check if we have a cached JWKS that's still valid
-        let cache_entry = self.jwks_cache.get(issuer);
+        let cache = self.jwks_cache.read();
+
+        let cache_entry = cache.get(issuer);
         if cache_entry.is_none() {
             return Err(AuthError::ConfigError(format!(
                 "No cached JWKS found for issuer: {}",
@@ -216,7 +222,7 @@ impl KeyResolver {
     ///
     /// This function will discover the JWKS URI (either via OpenID Connect Discovery
     /// or the standard well-known endpoint), fetch the JWKS, and cache it for future use.
-    async fn fetch_jwks(&mut self, issuer: &str) -> Result<JwkSet, AuthError> {
+    async fn fetch_jwks(&self, issuer: &str) -> Result<JwkSet, AuthError> {
         // Build the JWKS URI (this now handles both OpenID discovery and fallback)
         let jwks_uri = self.build_jwks_uri(issuer).await?;
 
@@ -224,7 +230,7 @@ impl KeyResolver {
         let jwks = self.fetch_jwks_from_uri(&jwks_uri).await?;
 
         // Cache the JWKS
-        self.jwks_cache.insert(
+        self.jwks_cache.write().insert(
             issuer.to_string(),
             JwksCache {
                 jwks: jwks.clone(),

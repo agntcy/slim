@@ -4,14 +4,14 @@
 //! Builder pattern implementation for auth components.
 
 use core::panic;
-use jsonwebtoken_aws_lc::{Algorithm, DecodingKey, EncodingKey, Validation};
 use std::marker::PhantomData;
 use std::time::Duration;
+
+use jsonwebtoken_aws_lc::{Algorithm, DecodingKey, EncodingKey, Validation};
 
 use crate::errors::AuthError;
 use crate::jwt::{SignerJwt, VerifierJwt};
 use crate::resolver::KeyResolver;
-use crate::traits::{Signer, Verifier};
 
 /// State markers for the JWT builder state machine.
 ///
@@ -434,7 +434,7 @@ mod tests {
             .build()
             .unwrap();
 
-        let mut verifier = JwtBuilder::new()
+        let verifier = JwtBuilder::new()
             .issuer("test-issuer")
             .audience("test-audience")
             .subject("test-subject")
@@ -470,7 +470,7 @@ mod tests {
             .build()
             .unwrap();
 
-        let mut verifier = JwtBuilder::new()
+        let verifier = JwtBuilder::new()
             .issuer("test-issuer")
             .audience("test-audience")
             .subject("test-subject")

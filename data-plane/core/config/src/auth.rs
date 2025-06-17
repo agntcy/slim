@@ -4,7 +4,6 @@
 pub mod basic;
 pub mod bearer;
 pub mod jwt;
-pub mod jwt_middleware;
 
 use thiserror::Error;
 

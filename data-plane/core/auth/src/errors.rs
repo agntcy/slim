@@ -19,4 +19,7 @@ pub enum AuthError {
 
     #[error("verification error: {0}")]
     VerificationError(String),
+
+    #[error("invalid header: {0}")]
+    InvalidHeader(String),
 }
