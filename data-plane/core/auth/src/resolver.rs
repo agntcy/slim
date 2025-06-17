@@ -62,7 +62,7 @@ struct JwksCache {
 /// ```
 pub struct KeyResolver {
     client: ReqwestClient,
-    jwks_cache: parking_lot::RwLock<HashMap<String, JwksCache>>,
+    jwks_cache: RwLock<HashMap<String, JwksCache>>,
     default_jwks_ttl: Duration,
 }
 
