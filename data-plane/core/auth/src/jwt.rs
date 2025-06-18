@@ -401,7 +401,7 @@ mod tests {
     use jsonwebtoken_aws_lc::Algorithm;
 
     use crate::builder::JwtBuilder;
-    use crate::testutils::setup_test_jwt_resolver;
+    use crate::testutils::{initialize_crypto_provider, setup_test_jwt_resolver};
 
     #[tokio::test]
     async fn test_jwt_sign_and_verify() {
@@ -519,6 +519,8 @@ mod tests {
     async fn test_validate_jwt_with_provided_key() {}
 
     async fn test_jwt_resolve_with_algorithm(algorithm: Algorithm) {
+        initialize_crypto_provider();
+
         let (test_key, mock_server, _alg_str) = setup_test_jwt_resolver(algorithm).await;
 
         // Build the JWT with auto key resolution
@@ -568,6 +570,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_jwt_resolve_decoding_key_ps256() {
+        // Set aws-lc as default crypto provider
         test_jwt_resolve_with_algorithm(Algorithm::PS256).await;
     }
 
