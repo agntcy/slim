@@ -3,6 +3,7 @@
 
 pub mod basic;
 pub mod bearer;
+pub mod jwt;
 
 use thiserror::Error;
 
@@ -10,6 +11,18 @@ use thiserror::Error;
 pub enum AuthError {
     #[error("config error: {0}")]
     ConfigError(String),
+
+    #[error("token expired")]
+    TokenExpired,
+
+    #[error("token invalid: {0}")]
+    TokenInvalid(String),
+
+    #[error("sign error: {0}")]
+    SigningError(String),
+
+    #[error("invalid header: {0}")]
+    InvalidHeader(String),
 }
 
 pub trait ClientAuthenticator {
@@ -19,7 +32,7 @@ pub trait ClientAuthenticator {
     fn get_client_layer(&self) -> Result<Self::ClientLayer, AuthError>;
 }
 
-pub trait ServerAuthenticator<Response> {
+pub trait ServerAuthenticator<Response: Default> {
     // associated types
     type ServerLayer;
 

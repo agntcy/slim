@@ -16,6 +16,7 @@ use super::errors::ConfigError;
 use crate::auth::ServerAuthenticator;
 use crate::auth::basic::Config as BasicAuthenticationConfig;
 use crate::auth::bearer::Config as BearerAuthenticationConfig;
+use crate::auth::jwt::Config as JwtAuthenticationConfig;
 use crate::component::configuration::{Configuration, ConfigurationError};
 use crate::tls::{common::RustlsConfigLoader, server::TlsServerConfig as TLSSetting};
 
@@ -59,6 +60,8 @@ pub enum AuthenticationConfig {
     Basic(BasicAuthenticationConfig),
     /// Bearer authentication configuration.
     Bearer(BearerAuthenticationConfig),
+    /// JWT authentication configuration.
+    Jwt(JwtAuthenticationConfig),
     /// None
     None,
 }
@@ -355,6 +358,29 @@ impl ServerConfig {
                 let auth_layer = bearer
                     .get_server_layer()
                     .map_err(|e| ConfigError::AuthConfigError(e.to_string()))?;
+
+                let mut builder = builder.layer(auth_layer);
+
+                let mut router = builder.add_service(svc[0].clone());
+                for s in svc.iter().skip(1) {
+                    router = builder.add_service(s.clone());
+                }
+
+                if let Some(tls_config) = tls_config {
+                    let incoming = tonic_tls::rustls::incoming(incoming, Arc::new(tls_config))
+                        .map_err(|e| ConfigError::TcpIncomingError(e.to_string()));
+
+                    // Return the server future with the TLS configuration
+                    return Ok(router.serve_with_incoming(incoming).boxed());
+                };
+
+                Ok(router.serve_with_incoming(incoming).boxed())
+            }
+            AuthenticationConfig::Jwt(jwt) => {
+                let auth_layer = <JwtAuthenticationConfig as ServerAuthenticator<
+                    http::Response<tonic::body::Body>,
+                >>::get_server_layer(jwt)
+                .map_err(|e| ConfigError::AuthConfigError(e.to_string()))?;
 
                 let mut builder = builder.layer(auth_layer);
 

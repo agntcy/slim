@@ -9,6 +9,7 @@ use jsonwebtoken_aws_lc::{
     Algorithm, DecodingKey, Header,
     jwk::{Jwk, JwkSet},
 };
+use parking_lot::RwLock;
 use reqwest::{Client as ReqwestClient, StatusCode};
 use serde::{Deserialize, Serialize};
 use url::Url;
@@ -59,10 +60,9 @@ struct JwksCache {
 ///     .key_resolver(resolver)
 ///     .build()?;
 /// ```
-#[derive(Clone)]
 pub struct KeyResolver {
     client: ReqwestClient,
-    jwks_cache: HashMap<String, JwksCache>,
+    jwks_cache: RwLock<HashMap<String, JwksCache>>,
     default_jwks_ttl: Duration,
 }
 
@@ -83,7 +83,7 @@ impl KeyResolver {
 
         Self {
             client,
-            jwks_cache: HashMap::new(),
+            jwks_cache: RwLock::new(HashMap::new()),
             default_jwks_ttl: Duration::from_secs(3600), // 1 hour default TTL
         }
     }
@@ -105,53 +105,20 @@ impl KeyResolver {
     /// * `issuer` - The token issuer URL
     /// * `token_header` - The JWT header containing the algorithm and key ID (if available)
     pub async fn resolve_key(
-        &mut self,
+        &self,
         issuer: &str,
         token_header: &Header,
     ) -> Result<DecodingKey, AuthError> {
-        // Get the key ID from the token header
-        let key_id = token_header.kid.clone();
+        // Try to get cached key if available
+        if let Ok(cached_key) = self.get_cached_key(issuer, token_header) {
+            return Ok(cached_key);
+        }
 
         // Try to fetch the keys from the well-known JWKS endpoint
         let jwks = self.fetch_jwks(issuer).await?;
 
-        if jwks.keys.is_empty() {
-            return Err(AuthError::ConfigError("No keys found in JWKS".to_string()));
-        }
-
-        // Find a matching key in the JWKS
-        if let Some(kid) = key_id {
-            // Look for a key with a matching ID
-            for key in &jwks.keys {
-                if let Some(id) = &key.common.key_id {
-                    if id == &kid {
-                        return self.jwk_to_decoding_key(key);
-                    }
-                }
-            }
-
-            return Err(AuthError::ConfigError(format!(
-                "Key with ID {} not found in JWKS",
-                kid
-            )));
-        }
-
-        // If no key ID is specified, use the first suitable key
-        for key in &jwks.keys {
-            if let Some(alg) = &key.common.key_algorithm {
-                if let Ok(algorithm) = self.key_alg_to_algorithm(alg) {
-                    // Check if the algorithm matches the token's algorithm
-                    if algorithm == token_header.alg {
-                        return self.jwk_to_decoding_key(key);
-                    }
-                }
-            }
-        }
-
-        // If no suitable key is found, return an error
-        Err(AuthError::ConfigError(
-            "No suitable key found in JWKS".to_string(),
-        ))
+        // Try to decode the key from the JWKS
+        self.get_decoded_key_from_jwks(&jwks, token_header)
     }
 
     /// Convert a JWK to a DecodingKey
@@ -185,18 +152,77 @@ impl KeyResolver {
         }
     }
 
+    fn get_decoded_key_from_jwks(
+        &self,
+        jwks: &JwkSet,
+        token_header: &Header,
+    ) -> Result<DecodingKey, AuthError> {
+        // At this point, we have a valid cache entry
+        if let Some(kid) = &token_header.kid {
+            // Look for a key with a matching ID
+            for key in &jwks.keys {
+                if let Some(id) = &key.common.key_id {
+                    if id == kid {
+                        return self.jwk_to_decoding_key(key);
+                    }
+                }
+            }
+        } else {
+            // If no key ID is specified, use the first suitable key
+            for key in &jwks.keys {
+                if let Some(alg) = &key.common.key_algorithm {
+                    if let Ok(algorithm) = self.key_alg_to_algorithm(alg) {
+                        // Check if the algorithm matches the token's algorithm
+                        if algorithm == token_header.alg {
+                            return self.jwk_to_decoding_key(key);
+                        }
+                    }
+                }
+            }
+        }
+
+        // If no suitable key is found, return an error
+        Err(AuthError::ConfigError(format!(
+            "No suitable key found in JWKS for token header: {:?}",
+            token_header
+        )))
+    }
+
+    /// Check the cache for a JWKS entry
+    pub fn get_cached_key(
+        &self,
+        issuer: &str,
+        token_header: &Header,
+    ) -> Result<DecodingKey, AuthError> {
+        // Check if we have a cached JWKS that's still valid
+        let cache = self.jwks_cache.read();
+
+        let cache_entry = cache.get(issuer);
+        if cache_entry.is_none() {
+            return Err(AuthError::ConfigError(format!(
+                "No cached JWKS found for issuer: {}",
+                issuer
+            )));
+        }
+
+        let cache_entry = cache_entry.unwrap();
+
+        if cache_entry.fetched_at.elapsed() > cache_entry.ttl {
+            return Err(AuthError::ConfigError(format!(
+                "Cached JWKS for issuer {} has expired",
+                issuer
+            )));
+        }
+
+        // If we have a valid cache entry, try to decode the key
+        self.get_decoded_key_from_jwks(&cache_entry.jwks, token_header)
+    }
+
     /// Fetch JWKS from the issuer's endpoint
     ///
     /// This function will discover the JWKS URI (either via OpenID Connect Discovery
     /// or the standard well-known endpoint), fetch the JWKS, and cache it for future use.
-    async fn fetch_jwks(&mut self, issuer: &str) -> Result<JwkSet, AuthError> {
-        // Check if we have a cached JWKS that's still valid
-        if let Some(cache_entry) = self.jwks_cache.get(issuer) {
-            if cache_entry.fetched_at.elapsed() < cache_entry.ttl {
-                return Ok(cache_entry.jwks.clone());
-            }
-        }
-
+    async fn fetch_jwks(&self, issuer: &str) -> Result<JwkSet, AuthError> {
         // Build the JWKS URI (this now handles both OpenID discovery and fallback)
         let jwks_uri = self.build_jwks_uri(issuer).await?;
 
@@ -204,7 +230,7 @@ impl KeyResolver {
         let jwks = self.fetch_jwks_from_uri(&jwks_uri).await?;
 
         // Cache the JWKS
-        self.jwks_cache.insert(
+        self.jwks_cache.write().insert(
             issuer.to_string(),
             JwksCache {
                 jwks: jwks.clone(),
