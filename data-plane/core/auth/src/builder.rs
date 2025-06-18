@@ -4,6 +4,7 @@
 //! Builder pattern implementation for auth components.
 
 use core::panic;
+use std::collections::HashMap;
 use std::marker::PhantomData;
 use std::time::Duration;
 
@@ -12,6 +13,7 @@ use jsonwebtoken_aws_lc::{Algorithm, DecodingKey, EncodingKey, Validation};
 use crate::errors::AuthError;
 use crate::jwt::{Key, KeyData, SignerJwt, VerifierJwt};
 use crate::resolver::KeyResolver;
+use crate::traits::StandardClaims;
 
 /// State markers for the JWT builder state machine.
 ///
@@ -36,6 +38,9 @@ pub mod state {
 
     /// State after setting private key
     pub struct WithPublicKey;
+
+    /// State after setting a token
+    pub struct WithToken;
 
     /// Final state, ready to build the JWT instance.
     ///
@@ -74,6 +79,12 @@ pub struct JwtBuilder<S = state::Initial> {
     // Required claims
     required_claims: Vec<String>,
 
+    // Custom claims
+    custom_claims: HashMap<String, serde_json::Value>,
+
+    // Token file
+    token_file: Option<String>,
+
     // PhantomData to track state
     _state: PhantomData<S>,
 }
@@ -90,6 +101,8 @@ impl Default for JwtBuilder<state::Initial> {
             token_duration: Duration::from_secs(3600), // Default 1 hour
             auto_resolve_keys: false,
             required_claims: Vec::new(),
+            custom_claims: HashMap::new(),
+            token_file: None,
             _state: PhantomData,
         }
     }
@@ -111,6 +124,19 @@ impl<S> JwtBuilder<S> {
         }
 
         validation
+    }
+
+    fn build_claims(&self) -> StandardClaims {
+        StandardClaims {
+            iss: self.issuer.clone(),
+            aud: self.audience.clone(),
+            sub: self.subject.clone(),
+            exp: 0,    // Will be set later
+            iat: None, // Will be set later
+            nbf: None, // Will be set later
+            jti: None, // Will be set later
+            custom_claims: self.custom_claims.clone(),
+        }
     }
 
     fn resolve_key(&self, key: &Key) -> String {
@@ -220,6 +246,8 @@ impl JwtBuilder<state::Initial> {
             token_duration: self.token_duration,
             auto_resolve_keys: self.auto_resolve_keys,
             required_claims: self.required_claims,
+            custom_claims: self.custom_claims,
+            token_file: None,
             _state: PhantomData,
         }
     }
@@ -238,6 +266,8 @@ impl JwtBuilder<state::Initial> {
             token_duration: self.token_duration,
             auto_resolve_keys: self.auto_resolve_keys,
             required_claims: self.required_claims,
+            custom_claims: self.custom_claims,
+            token_file: None,
             _state: PhantomData,
         }
     }
@@ -254,6 +284,27 @@ impl JwtBuilder<state::Initial> {
             token_duration: self.token_duration,
             auto_resolve_keys: enable,
             required_claims: self.required_claims,
+            custom_claims: self.custom_claims,
+            token_file: None,
+            _state: PhantomData,
+        }
+    }
+
+    pub fn token_file(self, token_file: impl Into<String>) -> JwtBuilder<state::WithToken> {
+        // This method is not implemented yet, but it can be used to set a token file
+        // and transition to a state that handles token files.
+        JwtBuilder::<state::WithToken> {
+            issuer: self.issuer,
+            audience: self.audience,
+            subject: self.subject,
+            private_key: self.private_key,
+            public_key: self.public_key,
+            algorithm: self.algorithm,
+            token_duration: self.token_duration,
+            auto_resolve_keys: self.auto_resolve_keys,
+            required_claims: self.required_claims,
+            custom_claims: self.custom_claims,
+            token_file: Some(token_file.into()),
             _state: PhantomData,
         }
     }
@@ -265,6 +316,14 @@ impl JwtBuilder<state::WithPrivateKey> {
     pub fn token_duration(self, duration: Duration) -> Self {
         Self {
             token_duration: duration,
+            ..self
+        }
+    }
+
+    /// Set custom claims
+    pub fn custom_claims(self, claims: HashMap<String, serde_json::Value>) -> Self {
+        Self {
+            custom_claims: claims,
             ..self
         }
     }
@@ -314,16 +373,10 @@ impl JwtBuilder<state::WithPrivateKey> {
         };
 
         // Create new Jwt instance
-        Ok(SignerJwt::new(
-            self.issuer,
-            self.audience,
-            self.subject,
-            self.token_duration,
-            validation,
-            encoding_key,
-            None,
-            None,
-        ))
+        Ok(
+            SignerJwt::new(self.build_claims(), self.token_duration, validation)
+                .with_encoding_key(encoding_key.unwrap()),
+        )
     }
 }
 
@@ -334,10 +387,12 @@ impl JwtBuilder<state::WithPublicKey> {
         // Set up validation
         let validation = self.build_validation();
 
+        let verifier = VerifierJwt::new(self.build_claims(), self.token_duration, validation);
+
         // Configure decoding key
-        let (resolver, decoding_key) = if self.auto_resolve_keys {
+        if self.auto_resolve_keys {
             // We'll auto-resolve keys, so we don't need to set it now
-            (Some(KeyResolver::new()), None)
+            Ok(verifier.with_key_resolver(KeyResolver::new()))
         } else {
             let decoding_key = match &self.public_key {
                 Some(public_key) => {
@@ -387,20 +442,22 @@ impl JwtBuilder<state::WithPublicKey> {
                 }
             };
 
-            (None, decoding_key)
-        };
+            Ok(verifier.with_decoding_key(decoding_key.unwrap()))
+        }
+    }
+}
 
+// Implementation for the WithToken state
+impl JwtBuilder<state::WithToken> {
+    /// Transition to the final state after setting required information.
+    pub fn build(self) -> Result<SignerJwt, AuthError> {
         // Create new Jwt instance
-        Ok(VerifierJwt::new(
-            self.issuer,
-            self.audience,
-            self.subject,
-            self.token_duration,
-            validation,
-            None,
-            decoding_key,
-            resolver,
-        ))
+        Ok(SignerJwt::new(
+            self.build_claims(),               // not used
+            std::time::Duration::from_secs(0), // not used
+            self.build_validation(),           // not used
+        )
+        .with_token_file(self.token_file.unwrap()))
     }
 }
 
@@ -427,7 +484,7 @@ mod tests {
             .build()
             .unwrap();
 
-        let claims = jwt.create_standard_claims(None);
+        let claims = jwt.create_claims();
 
         assert_eq!(claims.iss.unwrap(), "test-issuer");
         assert_eq!(claims.aud.unwrap(), "test-audience");
@@ -459,7 +516,7 @@ mod tests {
             .build()
             .unwrap();
 
-        let claims = signer.create_standard_claims(None);
+        let claims = signer.create_claims();
         let token = signer.sign(&claims).unwrap();
         let verified: crate::traits::StandardClaims = verifier.verify(&token).await.unwrap();
 

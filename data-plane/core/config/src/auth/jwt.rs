@@ -8,7 +8,7 @@ use duration_str::deserialize_duration;
 use serde::Deserialize;
 use slim_auth::builder::JwtBuilder;
 
-use slim_auth::jwt_middleware::{SignJwtLayer, ValidateJwtLayer};
+use slim_auth::jwt_middleware::{AddJwtLayer, ValidateJwtLayer};
 
 use super::{AuthError, ClientAuthenticator, ServerAuthenticator};
 use slim_auth::jwt::{Key, SignerJwt, VerifierJwt};
@@ -172,7 +172,7 @@ impl Config {
 
 impl ClientAuthenticator for Config {
     // Associated types
-    type ClientLayer = SignJwtLayer<SignerJwt>;
+    type ClientLayer = AddJwtLayer<SignerJwt>;
 
     fn get_client_layer(&self) -> Result<Self::ClientLayer, AuthError> {
         // Use the builder pattern to construct the JWT
@@ -190,10 +190,24 @@ impl ClientAuthenticator for Config {
         }
 
         let signer = match self.key() {
-            JwtKey::Encoding(key) => builder
-                .private_key(key)
-                .build()
-                .map_err(|e| AuthError::ConfigError(e.to_string()))?,
+            JwtKey::Encoding(key) => {
+                let custom_claims = match &self.claims().custom_claims {
+                    Some(claims) => {
+                        // Convert yaml values to json values
+                        claims
+                            .iter()
+                            .map(|(k, v)| (k.clone(), serde_json::to_value(v).unwrap()))
+                            .collect()
+                    }
+                    None => HashMap::new(),
+                };
+
+                builder
+                    .private_key(key)
+                    .custom_claims(custom_claims)
+                    .build()
+                    .map_err(|e| AuthError::ConfigError(e.to_string()))?
+            }
             _ => {
                 return Err(AuthError::ConfigError(
                     "Encoding key is required for client authentication".to_string(),
@@ -201,13 +215,10 @@ impl ClientAuthenticator for Config {
             }
         };
 
-        // Add custom claims if any
-        let custom_claims = self.custom_claims();
-
         // Create token duration in seconds
         let duration = self.duration.as_secs();
 
-        Ok(SignJwtLayer::new(signer, custom_claims, duration))
+        Ok(AddJwtLayer::new(signer, duration))
     }
 }
 
