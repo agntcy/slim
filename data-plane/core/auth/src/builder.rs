@@ -412,6 +412,8 @@ mod tests {
     use std::time::SystemTime;
     use std::time::UNIX_EPOCH;
 
+    use crate::testutils::initialize_crypto_provider;
+
     #[test]
     fn test_jwt_builder_basic() {
         let jwt = JwtBuilder::new()
@@ -520,6 +522,9 @@ mod tests {
 
     #[test]
     fn test_jwt_builder_auto_resolve_keys() {
+        // Set crypto provider
+        initialize_crypto_provider();
+
         // Using state machine with direct transition
         let jwt = JwtBuilder::new()
             .issuer("https://example.com")
