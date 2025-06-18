@@ -15,6 +15,7 @@ use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 
 use crate::errors::AuthError;
+use crate::file_watcher::FileWatcher;
 use crate::resolver::KeyResolver;
 use crate::traits::{Claimer, Signer, StandardClaims, Verifier};
 
@@ -110,6 +111,7 @@ pub struct Jwt<T> {
     decoding_key: Option<DecodingKey>,
     key_resolver: std::sync::Arc<Option<KeyResolver>>,
     token_cache: std::sync::Arc<TokenCache>,
+    watcher: std::sync::Arc<Option<FileWatcher>>,
 
     _phantom: std::marker::PhantomData<T>,
 }
@@ -136,6 +138,7 @@ impl<T> Jwt<T> {
         encoding_key: Option<EncodingKey>,
         decoding_key: Option<DecodingKey>,
         key_resolver: Option<KeyResolver>,
+        watcher: Option<FileWatcher>,
     ) -> Self {
         Self {
             issuer,
@@ -146,8 +149,15 @@ impl<T> Jwt<T> {
             encoding_key,
             decoding_key,
             key_resolver: Arc::new(key_resolver),
+            watcher: Arc::new(watcher),
             token_cache: std::sync::Arc::new(TokenCache::new()),
             _phantom: std::marker::PhantomData,
+        }
+    }
+
+    pub fn delete(&self) {
+        if let Some(w) = self.watcher.as_ref() {
+            w.stop_watcher()
         }
     }
 }

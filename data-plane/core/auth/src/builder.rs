@@ -5,11 +5,14 @@
 
 use core::panic;
 use std::marker::PhantomData;
+use std::sync::Arc;
 use std::time::Duration;
 
 use jsonwebtoken_aws_lc::{Algorithm, DecodingKey, EncodingKey, Validation};
+use parking_lot::RwLock;
 
 use crate::errors::AuthError;
+use crate::file_watcher::FileWatcher;
 use crate::jwt::{Key, KeyData, SignerJwt, VerifierJwt};
 use crate::resolver::KeyResolver;
 
@@ -61,8 +64,8 @@ pub struct JwtBuilder<S = state::Initial> {
     subject: Option<String>,
 
     // Private and public keys
-    private_key: Option<String>,
-    public_key: Option<String>,
+    private_key: Arc<RwLock<Option<String>>>,
+    public_key: Arc<RwLock<Option<String>>>,
     algorithm: Algorithm,
 
     // Token settings
@@ -74,6 +77,9 @@ pub struct JwtBuilder<S = state::Initial> {
     // Required claims
     required_claims: Vec<String>,
 
+    /// file watcher for keys
+    watcher: Option<FileWatcher>,
+
     // PhantomData to track state
     _state: PhantomData<S>,
 }
@@ -84,12 +90,13 @@ impl Default for JwtBuilder<state::Initial> {
             issuer: None,
             audience: None,
             subject: None,
-            private_key: None,
-            public_key: None,
+            private_key: Arc::new(RwLock::new(None)),
+            public_key: Arc::new(RwLock::new(None)),
             algorithm: Algorithm::HS256, // Default algorithm
             token_duration: Duration::from_secs(3600), // Default 1 hour
             auto_resolve_keys: false,
             required_claims: Vec::new(),
+            watcher: None,
             _state: PhantomData,
         }
     }
@@ -113,13 +120,31 @@ impl<S> JwtBuilder<S> {
         validation
     }
 
-    fn resolve_key(&self, key: &Key) -> String {
+    fn resolve_key(&mut self, key: &Key, key_to_update: Arc<RwLock<Option<String>>>) {
         // Resolve private key from Key enum
         match &key.key {
-            KeyData::Pem(key) => key.clone(),
+            KeyData::Pem(key) => {
+                let mut key_lock = key_to_update.write();
+                *key_lock = Some(key.clone());
+            }
             KeyData::File(path) => {
-                // TODO(msardara/micpapal): here we can use the file watcher
-                std::fs::read_to_string(path).unwrap()
+                // read the file for the first time and set the key
+                {
+                    let key = std::fs::read_to_string(path).unwrap();
+                    let mut key_lock = key_to_update.write();
+                    *key_lock = Some(key.clone());
+                }
+                // set file watcher to read it again upon modifications
+                let mut w = FileWatcher::create_watcher(move |file: &str| {
+                    let new_key = std::fs::read_to_string(file).expect("error reading file");
+                    let mut key = key_to_update.write();
+                    if key.is_some() {
+                        *key = Some(new_key);
+                    }
+                });
+
+                let _ = w.add_file(path);
+                self.watcher = Some(w);
             }
         }
     }
@@ -208,38 +233,46 @@ impl JwtBuilder<state::Initial> {
 
     /// Set the private key and transition to WithPrivateKey state.
     pub fn private_key(self, key: &Key) -> JwtBuilder<state::WithPrivateKey> {
-        let private_key = self.resolve_key(key);
-
-        JwtBuilder::<state::WithPrivateKey> {
+        let mut jwtb = JwtBuilder::<state::WithPrivateKey> {
             issuer: self.issuer,
             audience: self.audience,
             subject: self.subject,
-            private_key: Some(private_key),
-            public_key: None,
+            private_key: Arc::new(RwLock::new(None)),
+            public_key: Arc::new(RwLock::new(None)),
             algorithm: key.algorithm,
             token_duration: self.token_duration,
             auto_resolve_keys: self.auto_resolve_keys,
             required_claims: self.required_claims,
+            watcher: None,
             _state: PhantomData,
-        }
+        };
+
+        jwtb.resolve_key(key, jwtb.private_key.clone());
+
+        // return jwtb
+        jwtb
     }
 
     /// Set the public key and transition to WithPublicKey state.
     pub fn public_key(self, key: &Key) -> JwtBuilder<state::WithPublicKey> {
-        let public_key = self.resolve_key(key);
-
-        JwtBuilder::<state::WithPublicKey> {
+        let mut jwtb = JwtBuilder::<state::WithPublicKey> {
             issuer: self.issuer,
             audience: self.audience,
             subject: self.subject,
-            private_key: None,
-            public_key: Some(public_key),
+            private_key: Arc::new(RwLock::new(None)),
+            public_key: Arc::new(RwLock::new(None)),
             algorithm: key.algorithm,
             token_duration: self.token_duration,
             auto_resolve_keys: self.auto_resolve_keys,
             required_claims: self.required_claims,
+            watcher: None,
             _state: PhantomData,
-        }
+        };
+
+        jwtb.resolve_key(key, jwtb.public_key.clone());
+
+        // return jwtb
+        jwtb
     }
 
     /// Enable automatic key resolution and transition to WithPublicKey state.
@@ -248,12 +281,13 @@ impl JwtBuilder<state::Initial> {
             issuer: self.issuer,
             audience: self.audience,
             subject: self.subject,
-            private_key: None,
-            public_key: None,
+            private_key: Arc::new(RwLock::new(None)),
+            public_key: Arc::new(RwLock::new(None)),
             algorithm: self.algorithm,
             token_duration: self.token_duration,
             auto_resolve_keys: enable,
             required_claims: self.required_claims,
+            watcher: None,
             _state: PhantomData,
         }
     }
@@ -275,7 +309,9 @@ impl JwtBuilder<state::WithPrivateKey> {
         let validation = self.build_validation();
 
         // Configure encoding key
-        let encoding_key = match &self.private_key {
+        let key_lock = self.private_key.read();
+
+        let encoding_key = match &*key_lock {
             Some(key) => {
                 let key_str = key.as_str();
                 match self.algorithm {
@@ -323,6 +359,7 @@ impl JwtBuilder<state::WithPrivateKey> {
             encoding_key,
             None,
             None,
+            self.watcher,
         ))
     }
 }
@@ -339,7 +376,8 @@ impl JwtBuilder<state::WithPublicKey> {
             // We'll auto-resolve keys, so we don't need to set it now
             (Some(KeyResolver::new()), None)
         } else {
-            let decoding_key = match &self.public_key {
+            let key_lock = self.public_key.read();
+            let decoding_key = match &*key_lock {
                 Some(public_key) => {
                     // Use public key for verification
                     match self.algorithm {
@@ -400,6 +438,7 @@ impl JwtBuilder<state::WithPublicKey> {
             None,
             decoding_key,
             resolver,
+            self.watcher,
         ))
     }
 }

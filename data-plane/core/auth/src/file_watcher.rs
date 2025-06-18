@@ -16,15 +16,13 @@ pub enum FileWatcherError {
     WatchError(String),
 }
 
-#[allow(dead_code)]
-struct FileWatcher {
+pub struct FileWatcher {
     watcher: RecommendedWatcher,
     cancellation_token: CancellationToken,
 }
 
 impl FileWatcher {
-    #[allow(dead_code)]
-    fn create_watcher<F>(callback: F) -> Self
+    pub fn create_watcher<F>(callback: F) -> Self
     where
         F: Fn(&str) + Send + 'static,
     {
@@ -81,8 +79,7 @@ impl FileWatcher {
         fw
     }
 
-    #[allow(dead_code)]
-    fn add_file(&mut self, file_name: &str) -> Result<(), FileWatcherError> {
+    pub fn add_file(&mut self, file_name: &str) -> Result<(), FileWatcherError> {
         match self
             .watcher
             .watch(Path::new(file_name), RecursiveMode::NonRecursive)
@@ -95,8 +92,7 @@ impl FileWatcher {
         }
     }
 
-    #[allow(dead_code)]
-    fn stop_watcher(&self) {
+    pub fn stop_watcher(&self) {
         self.cancellation_token.cancel();
     }
 }
