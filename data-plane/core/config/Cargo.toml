@@ -9,6 +9,7 @@ description = "Configuration utilities"
 name = "slim_config"
 
 [dependencies]
+agntcy-slim-auth.workspace = true
 duration-str = { workspace = true }
 futures = { workspace = true }
 http = { workspace = true }
@@ -23,6 +24,7 @@ rustls = { workspace = true }
 rustls-native-certs = { workspace = true }
 rustls-pki-types = { workspace = true }
 serde = { workspace = true }
+serde_json.workspace = true
 serde_yaml = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true }
@@ -41,5 +43,4 @@ tonic-build = { workspace = true }
 
 [dev-dependencies]
 serde_json = { workspace = true }
-tower-reqwest = { workspace = true }
 tracing-test = { workspace = true }

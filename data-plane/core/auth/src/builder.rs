@@ -4,14 +4,14 @@
 //! Builder pattern implementation for auth components.
 
 use core::panic;
-use jsonwebtoken_aws_lc::{Algorithm, DecodingKey, EncodingKey, Validation};
 use std::marker::PhantomData;
 use std::time::Duration;
 
+use jsonwebtoken_aws_lc::{Algorithm, DecodingKey, EncodingKey, Validation};
+
 use crate::errors::AuthError;
-use crate::jwt::Jwt;
+use crate::jwt::{Key, KeyData, SignerJwt, VerifierJwt};
 use crate::resolver::KeyResolver;
-use crate::traits::{Signer, Verifier};
 
 /// State markers for the JWT builder state machine.
 ///
@@ -51,7 +51,6 @@ pub mod state {
 /// 1. `Initial`: The starting state with no configuration
 /// 2. `WithPrivateKey`: After setting a private key
 /// 3. `WithPublicKey`: After setting a public key or enabling auto-resolve
-/// 4. `Final`: Ready to build the JWT
 ///
 /// Each method transitions the builder to the appropriate state, ensuring at
 /// compile time that all required information is provided.
@@ -112,6 +111,17 @@ impl<S> JwtBuilder<S> {
         }
 
         validation
+    }
+
+    fn resolve_key(&self, key: &Key) -> String {
+        // Resolve private key from Key enum
+        match &key.key {
+            KeyData::Pem(key) => key.clone(),
+            KeyData::File(path) => {
+                // TODO(msardara/micpapal): here we can use the file watcher
+                std::fs::read_to_string(path).unwrap()
+            }
+        }
     }
 }
 
@@ -197,18 +207,16 @@ impl JwtBuilder<state::Initial> {
     }
 
     /// Set the private key and transition to WithPrivateKey state.
-    pub fn private_key(
-        self,
-        algorithm: Algorithm,
-        private_key: impl Into<String>,
-    ) -> JwtBuilder<state::WithPrivateKey> {
+    pub fn private_key(self, key: &Key) -> JwtBuilder<state::WithPrivateKey> {
+        let private_key = self.resolve_key(key);
+
         JwtBuilder::<state::WithPrivateKey> {
             issuer: self.issuer,
             audience: self.audience,
             subject: self.subject,
-            private_key: Some(private_key.into()),
+            private_key: Some(private_key),
             public_key: None,
-            algorithm,
+            algorithm: key.algorithm,
             token_duration: self.token_duration,
             auto_resolve_keys: self.auto_resolve_keys,
             required_claims: self.required_claims,
@@ -217,18 +225,16 @@ impl JwtBuilder<state::Initial> {
     }
 
     /// Set the public key and transition to WithPublicKey state.
-    pub fn public_key(
-        self,
-        algorithm: Algorithm,
-        public_key: impl Into<String>,
-    ) -> JwtBuilder<state::WithPublicKey> {
+    pub fn public_key(self, key: &Key) -> JwtBuilder<state::WithPublicKey> {
+        let public_key = self.resolve_key(key);
+
         JwtBuilder::<state::WithPublicKey> {
             issuer: self.issuer,
             audience: self.audience,
             subject: self.subject,
             private_key: None,
-            public_key: Some(public_key.into()),
-            algorithm,
+            public_key: Some(public_key),
+            algorithm: key.algorithm,
             token_duration: self.token_duration,
             auto_resolve_keys: self.auto_resolve_keys,
             required_claims: self.required_claims,
@@ -264,7 +270,7 @@ impl JwtBuilder<state::WithPrivateKey> {
     }
 
     /// Transition to the final state after setting required information.
-    pub fn build(self) -> Result<impl Signer, AuthError> {
+    pub fn build(self) -> Result<SignerJwt, AuthError> {
         // Set up validation
         let validation = self.build_validation();
 
@@ -308,7 +314,7 @@ impl JwtBuilder<state::WithPrivateKey> {
         };
 
         // Create new Jwt instance
-        Ok(Jwt::new(
+        Ok(SignerJwt::new(
             self.issuer,
             self.audience,
             self.subject,
@@ -324,7 +330,7 @@ impl JwtBuilder<state::WithPrivateKey> {
 // Implementation for the WithPublicKey state
 impl JwtBuilder<state::WithPublicKey> {
     /// Transition to the final state after setting required information.
-    pub fn build(self) -> Result<impl Verifier, AuthError> {
+    pub fn build(self) -> Result<VerifierJwt, AuthError> {
         // Set up validation
         let validation = self.build_validation();
 
@@ -385,7 +391,7 @@ impl JwtBuilder<state::WithPublicKey> {
         };
 
         // Create new Jwt instance
-        Ok(Jwt::new(
+        Ok(VerifierJwt::new(
             self.issuer,
             self.audience,
             self.subject,
@@ -401,11 +407,12 @@ impl JwtBuilder<state::WithPublicKey> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::traits::Claimer;
     use crate::traits::{Signer, Verifier};
     use serde::{Deserialize, Serialize};
     use std::time::SystemTime;
     use std::time::UNIX_EPOCH;
+
+    use crate::testutils::initialize_crypto_provider;
 
     #[test]
     fn test_jwt_builder_basic() {
@@ -413,7 +420,10 @@ mod tests {
             .issuer("test-issuer")
             .audience("test-audience")
             .subject("test-subject")
-            .private_key(Algorithm::HS512, "test-key")
+            .private_key(&Key {
+                algorithm: Algorithm::HS512,
+                key: KeyData::Pem("test-key".to_string()),
+            })
             .build()
             .unwrap();
 
@@ -431,15 +441,21 @@ mod tests {
             .issuer("test-issuer")
             .audience("test-audience")
             .subject("test-subject")
-            .private_key(Algorithm::HS512, "test-key")
+            .private_key(&Key {
+                algorithm: Algorithm::HS512,
+                key: KeyData::Pem("test-key".to_string()),
+            })
             .build()
             .unwrap();
 
-        let mut verifier = JwtBuilder::new()
+        let verifier = JwtBuilder::new()
             .issuer("test-issuer")
             .audience("test-audience")
             .subject("test-subject")
-            .public_key(Algorithm::HS512, "test-key")
+            .public_key(&Key {
+                algorithm: Algorithm::HS512,
+                key: KeyData::Pem("test-key".to_string()),
+            })
             .build()
             .unwrap();
 
@@ -467,15 +483,21 @@ mod tests {
             .issuer("test-issuer")
             .audience("test-audience")
             .subject("test-subject")
-            .private_key(Algorithm::HS512, "test-key")
+            .private_key(&Key {
+                algorithm: Algorithm::HS512,
+                key: KeyData::Pem("test-key".to_string()),
+            })
             .build()
             .unwrap();
 
-        let mut verifier = JwtBuilder::new()
+        let verifier = JwtBuilder::new()
             .issuer("test-issuer")
             .audience("test-audience")
             .subject("test-subject")
-            .public_key(Algorithm::HS512, "test-key")
+            .public_key(&Key {
+                algorithm: Algorithm::HS512,
+                key: KeyData::Pem("test-key".to_string()),
+            })
             .build()
             .unwrap();
 
@@ -500,6 +522,9 @@ mod tests {
 
     #[test]
     fn test_jwt_builder_auto_resolve_keys() {
+        // Set crypto provider
+        initialize_crypto_provider();
+
         // Using state machine with direct transition
         let jwt = JwtBuilder::new()
             .issuer("https://example.com")
