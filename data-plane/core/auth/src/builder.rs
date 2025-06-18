@@ -22,11 +22,11 @@ use crate::traits::StandardClaims;
 /// sequence of method calls at compile time.
 ///
 /// The state transitions are as follows:
-/// `Initial` -> `WithPrivateKey` -> -> `Final` -> `Jwt`
+/// `Initial` -> `WithPrivateKey` -> `Jwt`
 /// Or
-/// `Initial` -> `WithPublicKey` -> `Final` -> `Jwt`
+/// `Initial` -> `WithPublicKey` -> `Jwt`
 /// Or
-/// `Initial` -> `WithToken` -> `Final` -> `Jwt`
+/// `Initial` -> `WithToken` -> `Jwt`
 pub mod state {
     /// Initial state for the JWT builder.
     ///
@@ -43,11 +43,6 @@ pub mod state {
 
     /// State after setting a token
     pub struct WithToken;
-
-    /// Final state, ready to build the JWT instance.
-    ///
-    /// This state can only be reached after all required configuration is complete.
-    pub struct Final;
 }
 
 /// Builder for JWT Authentication configuration.
