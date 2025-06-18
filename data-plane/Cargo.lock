@@ -161,6 +161,7 @@ dependencies = [
  "agntcy-slim-datapath",
  "agntcy-slim-service",
  "async-trait",
+ "base64 0.22.1",
  "mls-rs",
  "mls-rs-crypto-awslc",
  "serde",

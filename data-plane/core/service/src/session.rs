@@ -236,7 +236,7 @@ pub(crate) trait CommonSession {
     fn on_message_from_slim_interceptors(&self, msg: &mut Message);
 }
 
-pub(crate) trait SessionInterceptor {
+pub trait SessionInterceptor {
     // interceptor to be executed when a message is received from the app
     fn on_msg_from_app(&self, msg: &mut Message);
     // interceptor to be executed when a message is received from slim
