@@ -25,6 +25,8 @@ use crate::traits::StandardClaims;
 /// `Initial` -> `WithPrivateKey` -> -> `Final` -> `Jwt`
 /// Or
 /// `Initial` -> `WithPublicKey` -> `Final` -> `Jwt`
+/// Or
+/// `Initial` -> `WithToken` -> `Final` -> `Jwt`
 pub mod state {
     /// Initial state for the JWT builder.
     ///
