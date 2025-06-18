@@ -153,7 +153,7 @@ mod tests {
 
         // create a new file
         let path = env::current_dir().expect("error reading local path");
-        let full_path = path.join("test_file.txt");
+        let full_path = path.join("test_file_watcher.txt");
         let full_test_file_name = full_path.to_str().unwrap();
         create_file(full_test_file_name, "CONFIG 1").expect("Failed to create file");
 
@@ -180,7 +180,7 @@ mod tests {
 
         // add other file to watch
         let path = env::current_dir().expect("error reading local path");
-        let full_path = path.join("test_file_2.txt");
+        let full_path = path.join("test_file_watcher_2.txt");
         let full_test_file_name_2 = full_path.to_str().unwrap();
         create_file(full_test_file_name_2, "CONFIG 1").expect("Failed to create file");
 

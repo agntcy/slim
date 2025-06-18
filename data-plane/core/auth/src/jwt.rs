@@ -11,6 +11,7 @@ use jsonwebtoken_aws_lc::{
     DecodingKey, EncodingKey, Header as JwtHeader, TokenData, Validation, decode, decode_header,
     encode, errors::ErrorKind,
 };
+
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 
@@ -107,8 +108,8 @@ pub struct Jwt<T> {
     subject: Option<String>,
     token_duration: Duration,
     validation: Validation,
-    encoding_key: Option<EncodingKey>,
-    decoding_key: Option<DecodingKey>,
+    encoding_key: Arc<RwLock<Option<EncodingKey>>>,
+    decoding_key: Arc<RwLock<Option<DecodingKey>>>,
     key_resolver: std::sync::Arc<Option<KeyResolver>>,
     token_cache: std::sync::Arc<TokenCache>,
     watcher: std::sync::Arc<Option<FileWatcher>>,
@@ -135,8 +136,8 @@ impl<T> Jwt<T> {
         subject: Option<String>,
         token_duration: Duration,
         validation: Validation,
-        encoding_key: Option<EncodingKey>,
-        decoding_key: Option<DecodingKey>,
+        encoding_key: Arc<parking_lot::RwLock<Option<EncodingKey>>>,
+        decoding_key: Arc<parking_lot::RwLock<Option<DecodingKey>>>,
         key_resolver: Option<KeyResolver>,
         watcher: Option<FileWatcher>,
     ) -> Self {
@@ -307,8 +308,11 @@ impl<V> Jwt<V> {
     /// Get decoding key for verification
     fn decoding_key(&self, token: &str) -> Result<DecodingKey, AuthError> {
         // If the decoding key is available, return it
-        if let Some(key) = &self.decoding_key {
-            return Ok(key.clone());
+        {
+            let key_lock = self.decoding_key.read();
+            if let Some(key) = &*key_lock {
+                return Ok(key.clone());
+            }
         }
 
         // Try to get a cached decoding key
@@ -335,8 +339,11 @@ impl<V> Jwt<V> {
     /// Resolve a decoding key for token verification
     async fn resolve_decoding_key(&self, token: &str) -> Result<DecodingKey, AuthError> {
         // First check if we already have a decoding key
-        if let Some(key) = &self.decoding_key {
-            return Ok(key.clone());
+        {
+            let key_lock = self.decoding_key.read();
+            if let Some(key) = &*key_lock {
+                return Ok(key.clone());
+            }
         }
 
         // As we don't have a decoding key, we need to resolve it. The resolver
@@ -376,7 +383,8 @@ impl Signer for SignerJwt {
     where
         Claims: Serialize,
     {
-        let encoding_key = self.encoding_key.as_ref().ok_or_else(|| {
+        let key_lock = self.encoding_key.read();
+        let encoding_key = key_lock.as_ref().ok_or_else(|| {
             AuthError::ConfigError("Private key not configured for signing".to_string())
         })?;
 
@@ -406,12 +414,215 @@ impl Verifier for VerifierJwt {
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
+    use std::fs::{File, OpenOptions};
+    use std::io::{Seek, SeekFrom, Write};
+    use std::{env, fs};
 
     use super::*;
-    use jsonwebtoken_aws_lc::Algorithm;
+    use jsonwebtoken_aws_lc::{Algorithm, Header};
+    use tokio::time;
+    use tracing_test::traced_test;
 
     use crate::builder::JwtBuilder;
     use crate::testutils::{initialize_crypto_provider, setup_test_jwt_resolver};
+
+    fn create_file(file_path: &str, content: &str) -> std::io::Result<()> {
+        let mut file = File::create(file_path)?;
+        file.write_all(content.as_bytes())?;
+        Ok(())
+    }
+
+    fn modify_file(file_path: &str, new_content: &str) -> std::io::Result<()> {
+        let mut file = OpenOptions::new().write(true).open(file_path)?;
+        file.seek(SeekFrom::Start(0))?;
+        file.write_all(new_content.as_bytes())?;
+        Ok(())
+    }
+
+    fn delete_file(file_path: &str) -> std::io::Result<()> {
+        fs::remove_file(file_path)?;
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_jwt_singer_update_key_from_file() {
+        // crate file
+        let path = env::current_dir().expect("error reading local path");
+        let full_path = path.join("key_file_signer.txt");
+        let file_name = full_path.to_str().unwrap();
+        let first_key = "test-key";
+        create_file(file_name, first_key).expect("failed to create file");
+
+        // create jwt builder
+        let jwt = JwtBuilder::new()
+            .issuer("test-issuer")
+            .audience("test-audience")
+            .subject("test-subject")
+            .private_key(&Key {
+                algorithm: Algorithm::HS512,
+                key: KeyData::File(file_name.to_string()),
+            })
+            .build()
+            .unwrap();
+
+        let claims = jwt.create_standard_claims(None);
+
+        assert_eq!(claims.iss.unwrap(), "test-issuer");
+        assert_eq!(claims.aud.unwrap(), "test-audience");
+        assert_eq!(claims.sub.unwrap(), "test-subject");
+
+        {
+            let dec_key = jwt.decoding_key.read();
+            assert!(dec_key.is_none());
+        }
+        {
+            let expected = EncodingKey::from_secret(first_key.as_bytes());
+            let enc_key = jwt.encoding_key.read();
+            assert!(enc_key.is_some());
+            let k = enc_key.clone().unwrap();
+
+            #[derive(Debug, Serialize, Deserialize)]
+            struct Claims {
+                sub: String,
+                company: String,
+            }
+
+            let my_claims = Claims {
+                sub: "b@b.com".to_owned(),
+                company: "ACME".to_owned(),
+            };
+
+            let token_1 = encode(&Header::default(), &my_claims, &expected).unwrap();
+            let token_2 = encode(&Header::default(), &my_claims, &k).unwrap();
+            assert_eq!(token_1, token_2);
+        }
+
+        let second_key = "another-test-key";
+        modify_file(file_name, second_key).expect("failed to create file");
+        time::sleep(Duration::from_millis(100)).await;
+
+        {
+            let dec_key = jwt.decoding_key.read();
+            assert!(dec_key.is_none());
+        }
+        {
+            let expected = EncodingKey::from_secret(second_key.as_bytes());
+            let enc_key = jwt.encoding_key.read();
+            assert!(enc_key.is_some());
+            let k = enc_key.clone().unwrap();
+
+            #[derive(Debug, Serialize, Deserialize)]
+            struct Claims {
+                sub: String,
+                company: String,
+            }
+
+            let my_claims = Claims {
+                sub: "b@b.com".to_owned(),
+                company: "ACME".to_owned(),
+            };
+
+            let token_1 = encode(&Header::default(), &my_claims, &expected).unwrap();
+            let token_2 = encode(&Header::default(), &my_claims, &k).unwrap();
+            assert_eq!(token_1, token_2);
+        }
+
+        jwt.delete();
+
+        delete_file(file_name).expect("error deleting file");
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_jwt_verifier_update_key_from_file() {
+        // crate file
+        let path = env::current_dir().expect("error reading local path");
+        let full_path = path.join("key_file_verifier.txt");
+        let file_name = full_path.to_str().unwrap();
+        let first_key = "test-key";
+        create_file(file_name, first_key).expect("failed to create file");
+
+        // create jwt builder
+        let jwt = JwtBuilder::new()
+            .issuer("test-issuer")
+            .audience("test-audience")
+            .subject("test-subject")
+            .public_key(&Key {
+                algorithm: Algorithm::HS512,
+                key: KeyData::File(file_name.to_string()),
+            })
+            .build()
+            .unwrap();
+
+        {
+            let dec_key = jwt.decoding_key.read();
+            assert!(dec_key.is_some());
+        }
+        {
+            let enc_key = jwt.encoding_key.read();
+            assert!(enc_key.is_none());
+        }
+
+        // test the verifier with the first key
+        let signer = JwtBuilder::new()
+            .issuer("test-issuer")
+            .audience("test-audience")
+            .subject("test-subject")
+            .private_key(&Key {
+                algorithm: Algorithm::HS512,
+                key: KeyData::Pem(String::from(first_key)),
+            })
+            .build()
+            .unwrap();
+
+        let claims = signer.create_standard_claims(None);
+        let token = signer.sign(&claims).unwrap();
+
+        let verified_claims: StandardClaims = jwt.verify(token.clone()).await.unwrap();
+
+        assert_eq!(verified_claims.iss.unwrap(), "test-issuer");
+        assert_eq!(verified_claims.aud.unwrap(), "test-audience");
+        assert_eq!(verified_claims.sub.unwrap(), "test-subject");
+
+        let second_key = "another-test-key";
+        modify_file(file_name, second_key).expect("failed to create file");
+        time::sleep(Duration::from_millis(100)).await;
+
+        {
+            let dec_key = jwt.decoding_key.read();
+            assert!(dec_key.is_some());
+        }
+        {
+            let enc_key = jwt.encoding_key.read();
+            assert!(enc_key.is_none());
+        }
+
+        // test the verifier with the second key
+        let signer = JwtBuilder::new()
+            .issuer("test-issuer")
+            .audience("test-audience")
+            .subject("test-subject")
+            .private_key(&Key {
+                algorithm: Algorithm::HS512,
+                key: KeyData::Pem(String::from(second_key)),
+            })
+            .build()
+            .unwrap();
+
+        let claims = signer.create_standard_claims(None);
+        let token = signer.sign(&claims).unwrap();
+
+        let verified_claims: StandardClaims = jwt.verify(token.clone()).await.unwrap();
+
+        assert_eq!(verified_claims.iss.unwrap(), "test-issuer");
+        assert_eq!(verified_claims.aud.unwrap(), "test-audience");
+        assert_eq!(verified_claims.sub.unwrap(), "test-subject");
+
+        jwt.delete();
+
+        delete_file(file_name).expect("error deleting file");
+    }
 
     #[tokio::test]
     async fn test_jwt_sign_and_verify() {
@@ -642,7 +853,7 @@ mod tests {
 
         // Alter the decoding_key to simulate a situation where signature verification would fail
         // if attempted again. Since we're using the cache, it should still work.
-        verifier.decoding_key = None;
+        verifier.decoding_key = Arc::new(RwLock::new(None));
 
         // Second verification with the same token - should use the cache
         let second_result: StandardClaims = verifier.try_verify(token.clone()).unwrap();
