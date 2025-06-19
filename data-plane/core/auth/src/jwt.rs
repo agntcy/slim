@@ -13,12 +13,13 @@ use jsonwebtoken_aws_lc::{
 };
 
 use parking_lot::RwLock;
+use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
 use crate::errors::AuthError;
 use crate::file_watcher::FileWatcher;
 use crate::resolver::KeyResolver;
-use crate::traits::{Claimer, Signer, StandardClaims, Verifier};
+use crate::traits::{Signer, StandardClaims, TokenProvider, Verifier};
 
 /// Enum representing key data types
 #[derive(Debug, Deserialize, Clone, PartialEq)]
@@ -103,9 +104,7 @@ struct ExpClaim {
 /// JWT implementation that uses the jsonwebtoken crate.
 #[derive(Clone)]
 pub struct Jwt<T> {
-    issuer: Option<String>,
-    audience: Option<String>,
-    subject: Option<String>,
+    claims: StandardClaims,
     token_duration: Duration,
     validation: Validation,
     encoding_key: Arc<RwLock<Option<EncodingKey>>>,
@@ -113,6 +112,9 @@ pub struct Jwt<T> {
     key_resolver: std::sync::Arc<Option<KeyResolver>>,
     token_cache: std::sync::Arc<TokenCache>,
     watcher: std::sync::Arc<Option<FileWatcher>>,
+
+    /// Static token from file. Unused for the moment.
+    _token_file: Option<String>,
 
     _phantom: std::marker::PhantomData<T>,
 }
@@ -130,28 +132,85 @@ impl<T> Jwt<T> {
     ///     .build()?;
     /// ```
     #[allow(clippy::too_many_arguments)]
-    pub fn new(
-        issuer: Option<String>,
-        audience: Option<String>,
-        subject: Option<String>,
-        token_duration: Duration,
-        validation: Validation,
-        encoding_key: Arc<parking_lot::RwLock<Option<EncodingKey>>>,
-        decoding_key: Arc<parking_lot::RwLock<Option<DecodingKey>>>,
-        key_resolver: Option<KeyResolver>,
-        watcher: Option<FileWatcher>,
-    ) -> Self {
+    pub fn new(claims: StandardClaims, token_duration: Duration, validation: Validation) -> Self {
         Self {
-            issuer,
-            audience,
-            subject,
+            claims,
             token_duration,
             validation,
-            encoding_key,
-            decoding_key,
-            key_resolver: Arc::new(key_resolver),
-            watcher: Arc::new(watcher),
+            encoding_key: Arc::new(RwLock::new(None)),
+            decoding_key: Arc::new(RwLock::new(None)),
+            key_resolver: Arc::new(None),
+            watcher: Arc::new(None),
+            _token_file: None,
             token_cache: std::sync::Arc::new(TokenCache::new()),
+            _phantom: std::marker::PhantomData,
+        }
+    }
+
+    pub fn with_encoding_key(
+        self,
+        encoding_key: Arc<RwLock<Option<EncodingKey>>>,
+        watcher: Option<FileWatcher>,
+    ) -> SignerJwt {
+        SignerJwt {
+            claims: self.claims,
+            token_duration: self.token_duration,
+            validation: self.validation,
+            encoding_key,
+            decoding_key: Arc::new(RwLock::new(None)),
+            key_resolver: Arc::new(None),
+            watcher: Arc::new(watcher),
+            _token_file: None,
+            token_cache: self.token_cache,
+            _phantom: std::marker::PhantomData,
+        }
+    }
+
+    pub fn with_token_file(self, token_file: impl Into<String>) -> SignerJwt {
+        SignerJwt {
+            claims: self.claims,
+            token_duration: self.token_duration,
+            validation: self.validation,
+            encoding_key: Arc::new(RwLock::new(None)),
+            decoding_key: Arc::new(RwLock::new(None)),
+            key_resolver: Arc::new(None),
+            watcher: self.watcher,
+            _token_file: Some(token_file.into()),
+            token_cache: self.token_cache,
+            _phantom: std::marker::PhantomData,
+        }
+    }
+
+    pub fn with_decoding_key(
+        self,
+        decoding_key: Arc<RwLock<Option<DecodingKey>>>,
+        watcher: Option<FileWatcher>,
+    ) -> VerifierJwt {
+        VerifierJwt {
+            claims: self.claims,
+            token_duration: self.token_duration,
+            validation: self.validation,
+            encoding_key: Arc::new(RwLock::new(None)),
+            decoding_key,
+            key_resolver: Arc::new(None),
+            watcher: Arc::new(watcher),
+            _token_file: None,
+            token_cache: self.token_cache,
+            _phantom: std::marker::PhantomData,
+        }
+    }
+
+    pub fn with_key_resolver(self, key_resolver: KeyResolver) -> VerifierJwt {
+        VerifierJwt {
+            claims: self.claims,
+            token_duration: self.token_duration,
+            validation: self.validation,
+            encoding_key: Arc::new(RwLock::new(None)),
+            decoding_key: Arc::new(RwLock::new(None)),
+            key_resolver: Arc::new(Some(key_resolver)),
+            watcher: self.watcher,
+            _token_file: None,
+            token_cache: self.token_cache,
             _phantom: std::marker::PhantomData,
         }
     }
@@ -168,10 +227,7 @@ pub struct S {}
 
 impl<S> Jwt<S> {
     /// Creates a StandardClaims object with the default values.
-    pub fn create_standard_claims(
-        &self,
-        custom_claims: Option<std::collections::HashMap<String, serde_json::Value>>,
-    ) -> StandardClaims {
+    pub fn create_claims(&self) -> StandardClaims {
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap_or(Duration::from_secs(0))
@@ -180,15 +236,30 @@ impl<S> Jwt<S> {
         let expiration = now + self.token_duration.as_secs();
 
         StandardClaims {
-            iss: self.issuer.clone(),
-            sub: self.subject.clone(),
-            aud: self.audience.clone(),
             exp: expiration,
             iat: Some(now),
-            jti: None,
             nbf: Some(now),
-            custom_claims: custom_claims.unwrap_or_default(),
+            ..self.claims.clone()
         }
+    }
+
+    fn sign_claims<Claims: Serialize>(&self, claims: &Claims) -> Result<String, AuthError> {
+        // Ensure we have an encoding key for signing
+        let key_lock = self.encoding_key.read();
+        let encoding_key = key_lock.as_ref().ok_or_else(|| {
+            AuthError::ConfigError("Private key not configured for signing".to_string())
+        })?;
+
+        // Create the JWT header
+        let header = JwtHeader::new(self.validation.algorithms[0]);
+
+        // Encode the claims into a JWT token
+        encode(&header, claims, encoding_key).map_err(|e| AuthError::SigningError(format!("{}", e)))
+    }
+
+    fn sign_internal_claims(&self) -> Result<String, AuthError> {
+        let claims = self.create_claims();
+        self.sign_claims(&claims)
     }
 }
 
@@ -305,6 +376,19 @@ impl<V> Jwt<V> {
         ret
     }
 
+    fn unsecure_get_token_data<T: DeserializeOwned>(
+        &self,
+        token: &str,
+    ) -> Result<TokenData<T>, AuthError> {
+        let mut validation = self.validation.clone();
+        validation.insecure_disable_signature_validation();
+        let decoding_key = DecodingKey::from_secret(b"unused");
+
+        // Get issuer from claims
+        decode(token, &decoding_key, &validation)
+            .map_err(|e| AuthError::VerificationError(format!("Failed to decode token: {}", e)))
+    }
+
     /// Get decoding key for verification
     fn decoding_key(&self, token: &str) -> Result<DecodingKey, AuthError> {
         // If the decoding key is available, return it
@@ -317,17 +401,21 @@ impl<V> Jwt<V> {
 
         // Try to get a cached decoding key
         if let Some(resolver) = &self.key_resolver.as_ref() {
-            // Parse the token header to get the key ID and algorithm
-            let token_header = decode_header(token).map_err(|e| {
-                AuthError::TokenInvalid(format!("Failed to decode token header: {}", e))
+            let mut validation = self.validation.clone();
+            validation.insecure_disable_signature_validation();
+            let decoding_key = DecodingKey::from_secret(b"unused");
+
+            // Get issuer from claims
+            let token_data: TokenData<StandardClaims> = decode(token, &decoding_key, &validation)
+                .map_err(|e| {
+                AuthError::VerificationError(format!("Failed to decode token: {}", e))
             })?;
 
-            // get the issuer
-            let issuer = self.issuer.as_ref().ok_or_else(|| {
-                AuthError::ConfigError("Issuer not configured for JWT verification".to_string())
+            let issuer = token_data.claims.iss.as_ref().ok_or_else(|| {
+                AuthError::ConfigError("no issuer found in JWT claims".to_string())
             })?;
 
-            return resolver.get_cached_key(issuer, &token_header);
+            return resolver.get_cached_key(issuer, &token_data.header);
         }
 
         // If we don't have a decoding key and no resolver, we can't proceed
@@ -355,26 +443,15 @@ impl<V> Jwt<V> {
             .ok_or_else(|| AuthError::ConfigError("Key resolver not configured".to_string()))?;
 
         // Parse the token header to get the key ID and algorithm
-        let token_header = decode_header(token).map_err(|e| {
-            AuthError::TokenInvalid(format!("Failed to decode token header: {}", e))
-        })?;
+        let token_data = self.unsecure_get_token_data::<StandardClaims>(token)?;
 
-        // Issuer should be set, if it's not we can't proceed.
-        let issuer = self.issuer.as_ref().ok_or_else(|| {
-            AuthError::ConfigError("Issuer not configured for JWT verification".to_string())
-        })?;
+        let issuer =
+            token_data.claims.iss.as_ref().ok_or_else(|| {
+                AuthError::ConfigError("no issuer found in JWT claims".to_string())
+            })?;
 
         // Resolve the key
-        resolver.resolve_key(issuer, &token_header).await
-    }
-}
-
-impl<T> Claimer for Jwt<T> {
-    fn create_standard_claims(
-        &self,
-        custom_claims: Option<std::collections::HashMap<String, serde_json::Value>>,
-    ) -> StandardClaims {
-        self.create_standard_claims(custom_claims)
+        resolver.resolve_key(issuer, &token_data.header).await
     }
 }
 
@@ -383,14 +460,22 @@ impl Signer for SignerJwt {
     where
         Claims: Serialize,
     {
-        let key_lock = self.encoding_key.read();
-        let encoding_key = key_lock.as_ref().ok_or_else(|| {
-            AuthError::ConfigError("Private key not configured for signing".to_string())
-        })?;
+        self.sign_claims(claims)
+    }
 
-        let header = JwtHeader::new(self.validation.algorithms[0]);
+    fn sign_standard_claims(&self) -> Result<String, AuthError> {
+        self.sign_internal_claims()
+    }
+}
 
-        encode(&header, claims, encoding_key).map_err(|e| AuthError::SigningError(format!("{}", e)))
+#[async_trait]
+impl TokenProvider for SignerJwt {
+    fn try_get_token(&self) -> Result<String, AuthError> {
+        self.sign_internal_claims()
+    }
+
+    async fn get_token(&self) -> Result<String, AuthError> {
+        panic!("signerjwt has no support for async token retrieval")
     }
 }
 
@@ -466,7 +551,7 @@ mod tests {
             .build()
             .unwrap();
 
-        let claims = jwt.create_standard_claims(None);
+        let claims = jwt.create_claims();
 
         assert_eq!(claims.iss.unwrap(), "test-issuer");
         assert_eq!(claims.aud.unwrap(), "test-audience");
@@ -576,7 +661,7 @@ mod tests {
             .build()
             .unwrap();
 
-        let claims = signer.create_standard_claims(None);
+        let claims = signer.create_claims();
         let token = signer.sign(&claims).unwrap();
 
         let verified_claims: StandardClaims = jwt.verify(token.clone()).await.unwrap();
@@ -610,7 +695,7 @@ mod tests {
             .build()
             .unwrap();
 
-        let claims = signer.create_standard_claims(None);
+        let claims = signer.create_claims();
         let token = signer.sign(&claims).unwrap();
 
         let verified_claims: StandardClaims = jwt.verify(token.clone()).await.unwrap();
@@ -648,8 +733,8 @@ mod tests {
             .build()
             .unwrap();
 
-        let claims = signer.create_standard_claims(None);
-        let token = signer.sign(&claims).unwrap();
+        let claims = signer.create_claims();
+        let token = signer.sign_claims(&claims).unwrap();
 
         let verified_claims: StandardClaims = verifier.verify(token.clone()).await.unwrap();
 
@@ -721,8 +806,9 @@ mod tests {
             ]),
         );
 
-        let claims = signer.create_standard_claims(Some(custom_claims));
-        let token = signer.sign(&claims).unwrap();
+        let mut claims = signer.create_claims();
+        claims.custom_claims = custom_claims;
+        let token = signer.sign_claims(&claims).unwrap();
 
         let verified_claims: StandardClaims = verifier.verify(token).await.unwrap();
 
@@ -765,7 +851,7 @@ mod tests {
             .unwrap();
 
         // Sign and verify the token
-        let token = signer.sign(&signer.create_standard_claims(None)).unwrap();
+        let token = signer.sign_claims(&signer.create_claims()).unwrap();
         let claims: StandardClaims = verifier.verify(token).await.unwrap();
 
         // Validate the claims
@@ -845,8 +931,8 @@ mod tests {
             .build()
             .unwrap();
 
-        let claims = signer.create_standard_claims(None);
-        let token = signer.sign(&claims).unwrap();
+        let claims = signer.create_claims();
+        let token = signer.sign_claims(&claims).unwrap();
 
         // First verification
         let first_result: StandardClaims = verifier.try_verify(token.clone()).unwrap();
@@ -871,8 +957,10 @@ mod tests {
             serde_json::Value::String("admin".to_string()),
         );
 
-        let claims2 = signer.create_standard_claims(Some(custom_claims));
-        let token2 = signer.sign(&claims2).unwrap();
+        let mut claims2 = signer.create_claims();
+        claims2.custom_claims = custom_claims;
+
+        let token2 = signer.sign_claims(&claims2).unwrap();
 
         // Verify the new token - should fail because we removed the decoding_key
         let result = verifier.try_verify::<StandardClaims>(token2);

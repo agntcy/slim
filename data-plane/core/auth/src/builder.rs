@@ -4,6 +4,7 @@
 //! Builder pattern implementation for auth components.
 
 use core::panic;
+use std::collections::HashMap;
 use std::marker::PhantomData;
 use std::sync::Arc;
 use std::time::Duration;
@@ -15,6 +16,7 @@ use crate::errors::AuthError;
 use crate::file_watcher::FileWatcher;
 use crate::jwt::{Key, KeyData, SignerJwt, VerifierJwt};
 use crate::resolver::KeyResolver;
+use crate::traits::StandardClaims;
 
 /// State markers for the JWT builder state machine.
 ///
@@ -23,9 +25,11 @@ use crate::resolver::KeyResolver;
 /// sequence of method calls at compile time.
 ///
 /// The state transitions are as follows:
-/// `Initial` -> `WithPrivateKey` -> -> `Final` -> `Jwt`
+/// `Initial` -> `WithPrivateKey` -> `Jwt`
 /// Or
-/// `Initial` -> `WithPublicKey` -> `Final` -> `Jwt`
+/// `Initial` -> `WithPublicKey` -> `Jwt`
+/// Or
+/// `Initial` -> `WithToken` -> `Jwt`
 pub mod state {
     /// Initial state for the JWT builder.
     ///
@@ -40,10 +44,8 @@ pub mod state {
     /// State after setting private key
     pub struct WithPublicKey;
 
-    /// Final state, ready to build the JWT instance.
-    ///
-    /// This state can only be reached after all required configuration is complete.
-    pub struct Final;
+    /// State after setting a token
+    pub struct WithToken;
 }
 
 /// Builder for JWT Authentication configuration.
@@ -82,6 +84,12 @@ pub struct JwtBuilder<S = state::Initial> {
     /// from where to read the string
     watcher: Option<String>,
 
+    // Custom claims
+    custom_claims: HashMap<String, serde_json::Value>,
+
+    // Token file
+    token_file: Option<String>,
+
     // PhantomData to track state
     _state: PhantomData<S>,
 }
@@ -99,6 +107,8 @@ impl Default for JwtBuilder<state::Initial> {
             auto_resolve_keys: false,
             required_claims: Vec::new(),
             watcher: None,
+            custom_claims: HashMap::new(),
+            token_file: None,
             _state: PhantomData,
         }
     }
@@ -130,6 +140,19 @@ impl<S> JwtBuilder<S> {
                 std::fs::read_to_string(path).unwrap(),
                 Some(path.to_string()),
             ),
+        }
+    }
+
+    fn build_claims(&self) -> StandardClaims {
+        StandardClaims {
+            iss: self.issuer.clone(),
+            aud: self.audience.clone(),
+            sub: self.subject.clone(),
+            exp: 0,    // Will be set later
+            iat: None, // Will be set later
+            nbf: None, // Will be set later
+            jti: None, // Will be set later
+            custom_claims: self.custom_claims.clone(),
         }
     }
 }
@@ -230,6 +253,8 @@ impl JwtBuilder<state::Initial> {
             auto_resolve_keys: self.auto_resolve_keys,
             required_claims: self.required_claims,
             watcher,
+            custom_claims: self.custom_claims,
+            token_file: None,
             _state: PhantomData,
         }
     }
@@ -249,6 +274,8 @@ impl JwtBuilder<state::Initial> {
             auto_resolve_keys: self.auto_resolve_keys,
             required_claims: self.required_claims,
             watcher,
+            custom_claims: self.custom_claims,
+            token_file: None,
             _state: PhantomData,
         }
     }
@@ -266,6 +293,28 @@ impl JwtBuilder<state::Initial> {
             auto_resolve_keys: enable,
             required_claims: self.required_claims,
             watcher: None,
+            custom_claims: self.custom_claims,
+            token_file: None,
+            _state: PhantomData,
+        }
+    }
+
+    pub fn token_file(self, token_file: impl Into<String>) -> JwtBuilder<state::WithToken> {
+        // This method is not implemented yet, but it can be used to set a token file
+        // and transition to a state that handles token files.
+        JwtBuilder::<state::WithToken> {
+            issuer: self.issuer,
+            audience: self.audience,
+            subject: self.subject,
+            private_key: self.private_key,
+            public_key: self.public_key,
+            algorithm: self.algorithm,
+            token_duration: self.token_duration,
+            auto_resolve_keys: self.auto_resolve_keys,
+            required_claims: self.required_claims,
+            watcher: None,
+            custom_claims: self.custom_claims,
+            token_file: Some(token_file.into()),
             _state: PhantomData,
         }
     }
@@ -277,6 +326,14 @@ impl JwtBuilder<state::WithPrivateKey> {
     pub fn token_duration(self, duration: Duration) -> Self {
         Self {
             token_duration: duration,
+            ..self
+        }
+    }
+
+    /// Set custom claims
+    pub fn custom_claims(self, claims: HashMap<String, serde_json::Value>) -> Self {
+        Self {
+            custom_claims: claims,
             ..self
         }
     }
@@ -336,7 +393,7 @@ impl JwtBuilder<state::WithPrivateKey> {
         let encoding_key = Arc::new(RwLock::new(key));
 
         let mut file_watcher = None;
-        if let Some(path) = self.watcher {
+        if let Some(path) = self.watcher.clone() {
             let encoding_key_clone = encoding_key.clone();
             let algorithm_clone = self.algorithm;
             let mut w = FileWatcher::create_watcher(move |file: &str| {
@@ -352,17 +409,10 @@ impl JwtBuilder<state::WithPrivateKey> {
         }
 
         // Create new Jwt instance
-        Ok(SignerJwt::new(
-            self.issuer,
-            self.audience,
-            self.subject,
-            self.token_duration,
-            validation,
-            encoding_key,
-            Arc::new(RwLock::new(None)),
-            None,
-            file_watcher,
-        ))
+        Ok(
+            SignerJwt::new(self.build_claims(), self.token_duration, validation)
+                .with_encoding_key(encoding_key, file_watcher),
+        )
     }
 }
 
@@ -425,46 +475,49 @@ impl JwtBuilder<state::WithPublicKey> {
         // Set up validation
         let validation = self.build_validation();
 
+        let verifier = VerifierJwt::new(self.build_claims(), self.token_duration, validation);
+
         // Configure decoding key
-        let (resolver, decoding_key) = if self.auto_resolve_keys {
+        if self.auto_resolve_keys {
             // We'll auto-resolve keys, so we don't need to set it now
-            (Some(KeyResolver::new()), Arc::new(RwLock::new(None)))
+            Ok(verifier.with_key_resolver(KeyResolver::new()))
         } else {
             let key = Self::build_internal(&self.public_key, &self.algorithm)?;
 
             let decoding_key = Arc::new(RwLock::new(key));
 
-            (None, decoding_key)
-        };
+            let mut file_watcher = None;
+            if let Some(path) = self.watcher {
+                let encoding_key_clone = decoding_key.clone();
+                let algorithm_clone = self.algorithm;
+                let mut w = FileWatcher::create_watcher(move |file: &str| {
+                    println!("in callback create callback");
+                    let key = std::fs::read_to_string(file).expect("error reading file");
+                    let new_key = Self::build_internal(&Some(key), &algorithm_clone)
+                        .expect("error processing new keye");
+                    let mut key_lock = encoding_key_clone.write();
+                    *key_lock = new_key;
+                });
+                w.add_file(&path).expect("error adding file to the watcher");
+                file_watcher = Some(w);
+            }
 
-        let mut file_watcher = None;
-        if let Some(path) = self.watcher {
-            let encoding_key_clone = decoding_key.clone();
-            let algorithm_clone = self.algorithm;
-            let mut w = FileWatcher::create_watcher(move |file: &str| {
-                println!("in callback create callback");
-                let key = std::fs::read_to_string(file).expect("error reading file");
-                let new_key = Self::build_internal(&Some(key), &algorithm_clone)
-                    .expect("error processing new keye");
-                let mut key_lock = encoding_key_clone.write();
-                *key_lock = new_key;
-            });
-            w.add_file(&path).expect("error adding file to the watcher");
-            file_watcher = Some(w);
+            Ok(verifier.with_decoding_key(decoding_key, file_watcher))
         }
+    }
+}
 
+// Implementation for the WithToken state
+impl JwtBuilder<state::WithToken> {
+    /// Transition to the final state after setting required information.
+    pub fn build(self) -> Result<SignerJwt, AuthError> {
         // Create new Jwt instance
-        Ok(VerifierJwt::new(
-            self.issuer,
-            self.audience,
-            self.subject,
-            self.token_duration,
-            validation,
-            Arc::new(RwLock::new(None)),
-            decoding_key,
-            resolver,
-            file_watcher,
-        ))
+        Ok(SignerJwt::new(
+            self.build_claims(),               // not used
+            std::time::Duration::from_secs(0), // not used
+            self.build_validation(),           // not used
+        )
+        .with_token_file(self.token_file.unwrap()))
     }
 }
 
@@ -506,7 +559,7 @@ mod tests {
             .build()
             .unwrap();
 
-        let claims = jwt.create_standard_claims(None);
+        let claims = jwt.create_claims();
 
         assert_eq!(claims.iss.unwrap(), "test-issuer");
         assert_eq!(claims.aud.unwrap(), "test-audience");
@@ -533,7 +586,7 @@ mod tests {
             .build()
             .unwrap();
 
-        let claims = jwt.create_standard_claims(None);
+        let claims = jwt.create_claims();
 
         assert_eq!(claims.iss.unwrap(), "test-issuer");
         assert_eq!(claims.aud.unwrap(), "test-audience");
@@ -569,7 +622,7 @@ mod tests {
             .build()
             .unwrap();
 
-        let claims = signer.create_standard_claims(None);
+        let claims = signer.create_claims();
         let token = signer.sign(&claims).unwrap();
         let verified: crate::traits::StandardClaims = verifier.verify(&token).await.unwrap();
 
