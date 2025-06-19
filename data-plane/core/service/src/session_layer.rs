@@ -399,7 +399,6 @@ impl SessionLayer {
         let mut pool = self.pool.write().await;
 
         if let Some(session) = pool.get_mut(&session_id) {
-            //TODO
             //session.add_interceptor(interceptor);
             Ok(())
         } else {

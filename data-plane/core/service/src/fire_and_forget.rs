@@ -5,6 +5,7 @@ use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use rand::rand_core::impls;
 use rand::Rng;
 use slim_datapath::api::{SessionHeader, SlimHeader};
 use slim_datapath::messages::AgentType;
@@ -15,7 +16,7 @@ use tracing::{debug, error};
 use crate::errors::SessionError;
 use crate::session::{
     AppChannelSender, Common, CommonSession, Id, MessageDirection, Session, SessionConfig,
-    SessionConfigTrait, SessionDirection, SessionMessage, SlimChannelSender, State,
+    SessionConfigTrait, SessionDirection, SessionInterceptor, SessionMessage, SlimChannelSender, State,
 };
 use crate::timer;
 use slim_datapath::api::proto::pubsub::v1::{Message, SessionHeaderType};
@@ -692,6 +693,10 @@ impl CommonSession for FireAndForget {
 
     fn identity(&self) -> &Option<String> {
         self.common.identity()
+    }
+
+    fn add_interceptor(&self, interceptor: impl SessionInterceptor + Send + 'static) {
+        self.common.add_interceptor(interceptor);
     }
 
     fn on_message_from_app_interceptors(&self, msg: &mut Message) {
