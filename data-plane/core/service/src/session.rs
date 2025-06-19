@@ -211,7 +211,7 @@ impl std::fmt::Display for SessionConfig {
     }
 }
 
-pub(crate) trait CommonSession {
+pub(crate) trait CommonSession: Interceptor {
     // Session ID
     #[allow(dead_code)]
     fn id(&self) -> Id;
@@ -231,11 +231,13 @@ pub(crate) trait CommonSession {
     // set the session config
     fn set_session_config(&self, session_config: &SessionConfig) -> Result<(), SessionError>;
 
-    fn add_interceptor(&self, interceptor: impl SessionInterceptor + Send + 'static);
-
     fn on_message_from_app_interceptors(&self, msg: &mut Message);
 
     fn on_message_from_slim_interceptors(&self, msg: &mut Message);
+}
+
+pub(crate) trait Interceptor {
+    fn add_interceptor(&self, interceptor: Box<dyn SessionInterceptor + Send + Sync + 'static>);
 }
 
 pub trait SessionInterceptor {
@@ -300,7 +302,7 @@ pub(crate) struct Common {
     tx_app: AppChannelSender,
 
     // Interceptors to be called on message reception/send
-    interceptors: RwLock<Vec<Box<dyn SessionInterceptor + Send>>>,
+    interceptors: RwLock<Vec<Box<dyn SessionInterceptor + Send + Sync>>>,
 }
 
 impl CommonSession for Common {
@@ -341,10 +343,6 @@ impl CommonSession for Common {
         Ok(())
     }
 
-    fn add_interceptor(&self, interceptor: impl SessionInterceptor + Send + 'static) {
-        self.interceptors.write().push(Box::new(interceptor));
-    }
-
     fn on_message_from_app_interceptors(&self, msg: &mut Message) {
         let interceptors = RwLockReadGuard::map(self.interceptors.read(), |x| x);
         for i in interceptors.iter() {
@@ -360,10 +358,14 @@ impl CommonSession for Common {
     }
 }
 
-/*impl Common {
-    pub (crate) fn add_interceptor<I: SessionInterceptor + Send + Sync + 'static>(&mut self, interceptor: I) {
-        self.interceptors.push(Box::new(interceptor));
+impl Interceptor for Common {
+    fn add_interceptor(&self, interceptor: Box<dyn SessionInterceptor + Send + Sync + 'static>) {
+        self.interceptors.write().push(interceptor);
     }
+}
+
+/*impl Common {
+    // This is no longer needed as we're using boxed trait objects directly
 }*/
 
 impl Common {
@@ -414,6 +416,12 @@ impl Common {
 // Define a macro to delegate trait implementation
 macro_rules! delegate_common_behavior {
     ($parent:ident, $($tokens:ident),+) => {
+        impl crate::session::Interceptor for $parent {
+            fn add_interceptor(&self, interceptor: Box<dyn crate::session::SessionInterceptor + Send + Sync +'static>) {
+                self.$($tokens).+.add_interceptor(interceptor);
+            }
+        }
+
         impl CommonSession for $parent {
             fn id(&self) -> Id {
                 // concat the token stream
@@ -438,10 +446,6 @@ macro_rules! delegate_common_behavior {
 
             fn identity(&self) -> &Option<String> {
                 self.$($tokens).+.identity()
-            }
-
-            fn add_interceptor(&self, interceptor: impl crate::session::SessionInterceptor + Send + 'static) {
-                self.$($tokens).+.add_interceptor(interceptor);
             }
 
             fn on_message_from_app_interceptors(&self, msg: &mut slim_datapath::api::proto::pubsub::v1::Message) {

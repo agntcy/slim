@@ -95,12 +95,14 @@ async fn main() {
 
         // enable mls for the session
         slim_mls::add_mls_to_session(
-            &svc, 
-            &agent_name, 
-            session.id, 
-            local_agent.to_string(), 
-            "/tmp/mls_identities"
-        ).await.unwrap();
+            &svc,
+            &agent_name,
+            session.id,
+            local_agent.to_string(),
+            "/tmp/mls_identities",
+        )
+        .await
+        .unwrap();
 
         // publish message
         svc.publish(&agent_name, session, &route, None, msg.into())

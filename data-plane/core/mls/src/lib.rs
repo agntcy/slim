@@ -23,10 +23,12 @@ pub async fn add_mls_to_session(
 
     let mut mls = Mls::new(participant_id, identity_provider);
     mls.initialize().await?;
-      
+
     let interceptor = MlsInterceptor::new(Arc::new(Mutex::new(mls)));
 
-    service.add_session_interceptor(agent, session_id, Box::new(interceptor)).await?;
+    service
+        .add_session_interceptor(agent, session_id, Box::new(interceptor))
+        .await?;
 
     Ok(())
 }
