@@ -164,6 +164,7 @@ dependencies = [
  "base64 0.22.1",
  "mls-rs",
  "mls-rs-crypto-awslc",
+ "parking_lot",
  "serde",
  "serde_json",
  "tempfile",
