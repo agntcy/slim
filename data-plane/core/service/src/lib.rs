@@ -769,6 +769,25 @@ impl Service {
         .await
     }
 
+    /// Add an interceptor to a session
+    pub async fn add_session_interceptor(
+        &self,
+        agent: &Agent,
+        session_id: session::Id,
+        interceptor: Box<dyn session::SessionInterceptor + Send + Sync>,
+    ) -> Result<(), ServiceError> {
+        self.with_session_layer(agent, async move |layer: &Arc<SessionLayer>| {
+            layer
+                .add_session_interceptor(session_id, interceptor)
+                .await
+                .map_err(|e| {
+                    error!("error adding session interceptor: {}", e);
+                    ServiceError::SessionError(e.to_string())
+                })
+        })
+        .await
+    }
+
     /// delete a session
     pub async fn delete_session(
         &self,

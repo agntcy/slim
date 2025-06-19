@@ -353,8 +353,7 @@ impl CommonSession for Common {
 }
 
 impl Common {
-    #[allow(dead_code)]
-    fn add_interceptor<I: SessionInterceptor + Send + Sync + 'static>(&mut self, interceptor: I) {
+    pub (crate) fn add_interceptor<I: SessionInterceptor + Send + Sync + 'static>(&mut self, interceptor: I) {
         self.interceptors.push(Box::new(interceptor));
     }
 }

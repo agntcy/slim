@@ -13,7 +13,7 @@ use crate::fire_and_forget::FireAndForgetConfiguration;
 use crate::request_response::{RequestResponse, RequestResponseConfiguration};
 use crate::session::{
     AppChannelSender, Id, Info, MessageDirection, SESSION_RANGE, Session, SessionConfig,
-    SessionConfigTrait, SessionDirection, SessionMessage, SessionType, SlimChannelSender,
+    SessionConfigTrait, SessionDirection, SessionInterceptor, SessionMessage, SessionType, SlimChannelSender,
 };
 use crate::streaming::{self, StreamingConfiguration};
 use crate::{fire_and_forget, session};
@@ -387,6 +387,23 @@ impl SessionLayer {
             SessionType::Streaming => Ok(SessionConfig::Streaming(
                 self.default_stream_conf.read().clone(),
             )),
+        }
+    }
+
+    /// Add an interceptor to a session
+    pub(crate) async fn add_session_interceptor(
+        &self,
+        session_id: Id,
+        interceptor: Box<dyn SessionInterceptor + Send + Sync>,
+    ) -> Result<(), SessionError> {
+        let mut pool = self.pool.write().await;
+
+        if let Some(session) = pool.get_mut(&session_id) {
+            //TODO
+            //session.add_interceptor(interceptor);
+            Ok(())
+        } else {
+            Err(SessionError::SessionNotFound(session_id.to_string()))
         }
     }
 }
