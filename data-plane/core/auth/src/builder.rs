@@ -3,15 +3,17 @@
 
 //! Builder pattern implementation for auth components.
 
-use core::panic;
 use std::collections::HashMap;
 use std::marker::PhantomData;
+use std::sync::Arc;
 use std::time::Duration;
 
 use jsonwebtoken_aws_lc::{Algorithm, DecodingKey, EncodingKey, Validation};
+use parking_lot::RwLock;
 
 use crate::errors::AuthError;
-use crate::jwt::{Key, KeyData, SignerJwt, VerifierJwt};
+use crate::file_watcher::FileWatcher;
+use crate::jwt::{Key, KeyData, SignerJwt, StaticTokenProvider, VerifierJwt};
 use crate::resolver::KeyResolver;
 use crate::traits::StandardClaims;
 
@@ -63,8 +65,8 @@ pub struct JwtBuilder<S = state::Initial> {
     subject: Option<String>,
 
     // Private and public keys
-    private_key: Option<String>,
-    public_key: Option<String>,
+    private_key: Option<Key>,
+    public_key: Option<Key>,
     algorithm: Algorithm,
 
     // Token settings
@@ -84,6 +86,14 @@ pub struct JwtBuilder<S = state::Initial> {
 
     // PhantomData to track state
     _state: PhantomData<S>,
+}
+
+fn resolve_key(key: &Key) -> String {
+    // Resolve private key from Key enum
+    match &key.key {
+        KeyData::Pem(key) => key.clone(),
+        KeyData::File(path) => std::fs::read_to_string(path).unwrap(),
+    }
 }
 
 impl Default for JwtBuilder<state::Initial> {
@@ -133,17 +143,6 @@ impl<S> JwtBuilder<S> {
             nbf: None, // Will be set later
             jti: None, // Will be set later
             custom_claims: self.custom_claims.clone(),
-        }
-    }
-
-    fn resolve_key(&self, key: &Key) -> String {
-        // Resolve private key from Key enum
-        match &key.key {
-            KeyData::Pem(key) => key.clone(),
-            KeyData::File(path) => {
-                // TODO(msardara/micpapal): here we can use the file watcher
-                std::fs::read_to_string(path).unwrap()
-            }
         }
     }
 }
@@ -231,13 +230,11 @@ impl JwtBuilder<state::Initial> {
 
     /// Set the private key and transition to WithPrivateKey state.
     pub fn private_key(self, key: &Key) -> JwtBuilder<state::WithPrivateKey> {
-        let private_key = self.resolve_key(key);
-
         JwtBuilder::<state::WithPrivateKey> {
             issuer: self.issuer,
             audience: self.audience,
             subject: self.subject,
-            private_key: Some(private_key),
+            private_key: Some(key.clone()),
             public_key: None,
             algorithm: key.algorithm,
             token_duration: self.token_duration,
@@ -251,14 +248,12 @@ impl JwtBuilder<state::Initial> {
 
     /// Set the public key and transition to WithPublicKey state.
     pub fn public_key(self, key: &Key) -> JwtBuilder<state::WithPublicKey> {
-        let public_key = self.resolve_key(key);
-
         JwtBuilder::<state::WithPublicKey> {
             issuer: self.issuer,
             audience: self.audience,
             subject: self.subject,
             private_key: None,
-            public_key: Some(public_key),
+            public_key: Some(key.clone()),
             algorithm: key.algorithm,
             token_duration: self.token_duration,
             auto_resolve_keys: self.auto_resolve_keys,
@@ -325,60 +320,107 @@ impl JwtBuilder<state::WithPrivateKey> {
         }
     }
 
+    fn build_internal(key: &Key) -> Result<EncodingKey, AuthError> {
+        let key_str = resolve_key(key);
+        match key.algorithm {
+            Algorithm::HS256 | Algorithm::HS384 | Algorithm::HS512 => {
+                Ok(EncodingKey::from_secret(key_str.as_bytes()))
+            }
+            Algorithm::RS256
+            | Algorithm::RS384
+            | Algorithm::RS512
+            | Algorithm::PS256
+            | Algorithm::PS384
+            | Algorithm::PS512 => {
+                // PEM-encoded private key
+                EncodingKey::from_rsa_pem(key_str.as_bytes())
+                    .map_err(|e| AuthError::ConfigError(format!("Invalid RSA private key: {}", e)))
+            }
+            Algorithm::ES256 | Algorithm::ES384 => {
+                // PEM-encoded EC private key
+                EncodingKey::from_ec_pem(key_str.as_bytes())
+                    .map_err(|e| AuthError::ConfigError(format!("Invalid EC private key: {}", e)))
+            }
+            Algorithm::EdDSA => {
+                // PEM-encoded EdDSA private key
+                EncodingKey::from_ed_pem(key_str.as_bytes()).map_err(|e| {
+                    AuthError::ConfigError(format!("Invalid EdDSA private key: {}", e))
+                })
+            }
+        }
+    }
+
     /// Transition to the final state after setting required information.
     pub fn build(self) -> Result<SignerJwt, AuthError> {
         // Set up validation
         let validation = self.build_validation();
 
-        // Configure encoding key
-        let encoding_key = match &self.private_key {
-            Some(key) => {
-                let key_str = key.as_str();
-                match self.algorithm {
-                    Algorithm::HS256 | Algorithm::HS384 | Algorithm::HS512 => {
-                        Some(EncodingKey::from_secret(key_str.as_bytes()))
-                    }
-                    Algorithm::RS256
-                    | Algorithm::RS384
-                    | Algorithm::RS512
-                    | Algorithm::PS256
-                    | Algorithm::PS384
-                    | Algorithm::PS512 => {
-                        // PEM-encoded private key
-                        Some(EncodingKey::from_rsa_pem(key_str.as_bytes()).map_err(|e| {
-                            AuthError::ConfigError(format!("Invalid RSA private key: {}", e))
-                        })?)
-                    }
-                    Algorithm::ES256 | Algorithm::ES384 => {
-                        // PEM-encoded EC private key
-                        Some(EncodingKey::from_ec_pem(key_str.as_bytes()).map_err(|e| {
-                            AuthError::ConfigError(format!("Invalid EC private key: {}", e))
-                        })?)
-                    }
-                    Algorithm::EdDSA => {
-                        // PEM-encoded EdDSA private key
-                        Some(EncodingKey::from_ed_pem(key_str.as_bytes()).map_err(|e| {
-                            AuthError::ConfigError(format!("Invalid EdDSA private key: {}", e))
-                        })?)
-                    }
-                }
-            }
-            None => {
-                // This should never happen because we require a private key in this state
-                panic!("Private key must be set in WithPrivateKey state");
+        // Create encoding key, either from file or from inline PEM
+        let key = Self::build_internal(self.private_key.as_ref().unwrap())?;
+
+        // Transform it to Arc
+        let encoding_key = Arc::new(RwLock::new(key));
+
+        // Create a signer
+        let signer = SignerJwt::new(self.build_claims(), self.token_duration, validation)
+            .with_encoding_key(encoding_key.clone());
+
+        // If the private key is a file, setup also a file watcher for it
+        let signer = match &self.private_key.as_ref().unwrap().key {
+            KeyData::Pem(_) => signer,
+            KeyData::File(path) => {
+                // If the key is a file, we need to set up a file watcher
+                let encoding_key_clone = encoding_key.clone();
+                let key_clone = self.private_key.clone().unwrap();
+                let mut w = FileWatcher::create_watcher(move |_file: &str| {
+                    let new_key =
+                        Self::build_internal(&key_clone).expect("error processing new key");
+                    *encoding_key_clone.as_ref().write() = new_key;
+                });
+                w.add_file(path).expect("error adding file to the watcher");
+
+                signer.with_watcher(w)
             }
         };
 
-        // Create new Jwt instance
-        Ok(
-            SignerJwt::new(self.build_claims(), self.token_duration, validation)
-                .with_encoding_key(encoding_key.unwrap()),
-        )
+        // Return the signer
+        Ok(signer)
     }
 }
 
 // Implementation for the WithPublicKey state
 impl JwtBuilder<state::WithPublicKey> {
+    fn build_internal(key: &Key) -> Result<DecodingKey, AuthError> {
+        let key_str = resolve_key(key);
+
+        // Use public key for verification
+        match key.algorithm {
+            Algorithm::HS256 | Algorithm::HS384 | Algorithm::HS512 => {
+                Ok(DecodingKey::from_secret(key_str.as_bytes()))
+            }
+            Algorithm::RS256
+            | Algorithm::RS384
+            | Algorithm::RS512
+            | Algorithm::PS256
+            | Algorithm::PS384
+            | Algorithm::PS512 => {
+                // PEM-encoded public key
+                DecodingKey::from_rsa_pem(key_str.as_bytes())
+                    .map_err(|e| AuthError::ConfigError(format!("Invalid RSA public key: {}", e)))
+            }
+            Algorithm::ES256 | Algorithm::ES384 => {
+                // PEM-encoded EC public key
+                DecodingKey::from_ec_pem(key_str.as_bytes())
+                    .map_err(|e| AuthError::ConfigError(format!("Invalid EC public key: {}", e)))
+            }
+            Algorithm::EdDSA => {
+                // PEM-encoded EdDSA public key
+                DecodingKey::from_ed_pem(key_str.as_bytes())
+                    .map_err(|e| AuthError::ConfigError(format!("Invalid EdDSA public key: {}", e)))
+            }
+        }
+    }
+
     /// Transition to the final state after setting required information.
     pub fn build(self) -> Result<VerifierJwt, AuthError> {
         // Set up validation
@@ -386,87 +428,95 @@ impl JwtBuilder<state::WithPublicKey> {
 
         let verifier = VerifierJwt::new(self.build_claims(), self.token_duration, validation);
 
-        // Configure decoding key
+        // Autoresolver is enabled
         if self.auto_resolve_keys {
-            // We'll auto-resolve keys, so we don't need to set it now
-            Ok(verifier.with_key_resolver(KeyResolver::new()))
-        } else {
-            let decoding_key = match &self.public_key {
-                Some(public_key) => {
-                    // Use public key for verification
-                    match self.algorithm {
-                        Algorithm::HS256 | Algorithm::HS384 | Algorithm::HS512 => {
-                            let key_str = public_key.as_str();
-                            Some(DecodingKey::from_secret(key_str.as_bytes()))
-                        }
-                        Algorithm::RS256
-                        | Algorithm::RS384
-                        | Algorithm::RS512
-                        | Algorithm::PS256
-                        | Algorithm::PS384
-                        | Algorithm::PS512 => {
-                            // PEM-encoded public key
-                            Some(
-                                DecodingKey::from_rsa_pem(public_key.as_bytes()).map_err(|e| {
-                                    AuthError::ConfigError(format!("Invalid RSA public key: {}", e))
-                                })?,
-                            )
-                        }
-                        Algorithm::ES256 | Algorithm::ES384 => {
-                            // PEM-encoded EC public key
-                            Some(
-                                DecodingKey::from_ec_pem(public_key.as_bytes()).map_err(|e| {
-                                    AuthError::ConfigError(format!("Invalid EC public key: {}", e))
-                                })?,
-                            )
-                        }
-                        Algorithm::EdDSA => {
-                            // PEM-encoded EdDSA public key
-                            Some(
-                                DecodingKey::from_ed_pem(public_key.as_bytes()).map_err(|e| {
-                                    AuthError::ConfigError(format!(
-                                        "Invalid EdDSA public key: {}",
-                                        e
-                                    ))
-                                })?,
-                            )
-                        }
-                    }
-                }
-                None => {
-                    // This should never happen because we require a public key in this state
-                    panic!("Public key must be set in WithPublicKey state");
-                }
-            };
-
-            Ok(verifier.with_decoding_key(decoding_key.unwrap()))
+            return Ok(verifier.with_key_resolver(KeyResolver::new()));
         }
+
+        // Create encoding key, either from file or from inline PEM
+        let key = Self::build_internal(self.public_key.as_ref().unwrap())?;
+
+        // Transform it to Arc
+        let decoding_key = Arc::new(RwLock::new(key));
+
+        // Create a verifier
+        let verifier = verifier.with_decoding_key(decoding_key.clone());
+
+        // If the public key is a file, setup also a file watcher for it
+        let verifier = match &self.public_key.as_ref().unwrap().key {
+            KeyData::Pem(_) => verifier,
+            KeyData::File(path) => {
+                // If the key is a file, we need to set up a file watcher
+                let decoding_key_clone = decoding_key.clone();
+                let key_clone = self.public_key.clone().unwrap();
+                let mut w = FileWatcher::create_watcher(move |_file: &str| {
+                    let new_key =
+                        Self::build_internal(&key_clone).expect("error processing new key");
+                    *decoding_key_clone.as_ref().write() = new_key;
+                });
+                w.add_file(path).expect("error adding file to the watcher");
+
+                verifier.with_watcher(w)
+            }
+        };
+
+        Ok(verifier)
     }
 }
 
 // Implementation for the WithToken state
 impl JwtBuilder<state::WithToken> {
     /// Transition to the final state after setting required information.
-    pub fn build(self) -> Result<SignerJwt, AuthError> {
+    pub fn build(self) -> Result<StaticTokenProvider, AuthError> {
+        // Setup file watcher
+        let static_token = std::fs::read_to_string(self.token_file.as_ref().unwrap())
+            .expect("error reading token file");
+        let static_token = Arc::new(RwLock::new(static_token));
+
+        let token_clone = static_token.clone();
+        let mut w = FileWatcher::create_watcher(move |file: &str| {
+            let token = std::fs::read_to_string(file).expect("error reading token file");
+            *token_clone.as_ref().write() = token;
+        });
+        w.add_file(self.token_file.as_ref().unwrap())
+            .map_err(|e| AuthError::ConfigError(e.to_string()))?;
+
         // Create new Jwt instance
         Ok(SignerJwt::new(
             self.build_claims(),               // not used
             std::time::Duration::from_secs(0), // not used
             self.build_validation(),           // not used
         )
-        .with_token_file(self.token_file.unwrap()))
+        .with_static_token(static_token)
+        .with_watcher(w))
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::traits::TokenProvider;
     use crate::traits::{Signer, Verifier};
     use serde::{Deserialize, Serialize};
+    use std::env;
+    use std::fs;
+    use std::fs::File;
+    use std::io::Write;
     use std::time::SystemTime;
     use std::time::UNIX_EPOCH;
 
     use crate::testutils::initialize_crypto_provider;
+
+    fn create_file(file_path: &str, content: &str) -> std::io::Result<()> {
+        let mut file = File::create(file_path)?;
+        file.write_all(content.as_bytes())?;
+        Ok(())
+    }
+
+    fn delete_file(file_path: &str) -> std::io::Result<()> {
+        fs::remove_file(file_path)?;
+        Ok(())
+    }
 
     #[test]
     fn test_jwt_builder_basic() {
@@ -486,6 +536,35 @@ mod tests {
         assert_eq!(claims.iss.unwrap(), "test-issuer");
         assert_eq!(claims.aud.unwrap(), "test-audience");
         assert_eq!(claims.sub.unwrap(), "test-subject");
+    }
+
+    #[tokio::test]
+    async fn test_jwt_builder_basic_key_from_file() {
+        // crate file
+        let path = env::current_dir().expect("error reading local path");
+        let full_path = path.join("key_file_builder.txt");
+        let file_name = full_path.to_str().unwrap();
+        create_file(file_name, "tesk-key").expect("failed to create file");
+
+        // create jwt builder
+        let jwt = JwtBuilder::new()
+            .issuer("test-issuer")
+            .audience("test-audience")
+            .subject("test-subject")
+            .private_key(&Key {
+                algorithm: Algorithm::HS512,
+                key: KeyData::File(file_name.to_string()),
+            })
+            .build()
+            .unwrap();
+
+        let claims = jwt.create_claims();
+
+        assert_eq!(claims.iss.unwrap(), "test-issuer");
+        assert_eq!(claims.aud.unwrap(), "test-audience");
+        assert_eq!(claims.sub.unwrap(), "test-subject");
+
+        delete_file(file_name).expect("error deleting file");
     }
 
     #[tokio::test]
@@ -587,5 +666,39 @@ mod tests {
             .auto_resolve_keys(true)
             .build();
         assert!(jwt.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_static_token_provider() {
+        // Set crypto provider
+        initialize_crypto_provider();
+
+        let tokenvalue = "thecontent";
+
+        create_file("/tmp/token", tokenvalue).unwrap();
+
+        let provider = JwtBuilder::new()
+            .issuer("https://example.com")
+            .audience("test-audience")
+            .subject("test-subject")
+            .token_file("/tmp/token")
+            .build()
+            .unwrap();
+
+        // check the content of the token
+        let token = provider.try_get_token().unwrap();
+        assert_eq!(token, tokenvalue);
+
+        // Modify the file
+        let new_token_value = "thenewcontent";
+        create_file("/tmp/token", new_token_value).unwrap();
+
+        // let's wait 100ms for the modification to take place and the file
+        // watcher to update the token
+        tokio::time::sleep(Duration::from_millis(100)).await;
+
+        // Let's check the token again
+        let token = provider.try_get_token().unwrap();
+        assert_eq!(token, new_token_value);
     }
 }
