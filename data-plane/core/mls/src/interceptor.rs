@@ -7,33 +7,32 @@ use slim_datapath::api::MessageType;
 use slim_datapath::api::proto::pubsub::v1::Message;
 use slim_service::session::SessionInterceptor;
 use std::sync::Arc;
+use tracing::warn;
 
 pub struct MlsInterceptor {
     mls: Arc<Mutex<Mls>>,
+    group_id: Vec<u8>,
 }
 
 impl MlsInterceptor {
-    pub fn new(mls: Arc<Mutex<Mls>>) -> Self {
-        Self { mls }
+    pub fn new(mls: Arc<Mutex<Mls>>, group_id: Vec<u8>) -> Self {
+        Self { mls, group_id }
     }
 }
 
 impl SessionInterceptor for MlsInterceptor {
     fn on_msg_from_app(&self, msg: &mut Message) {
-        let group_id: Vec<u8> = match msg.metadata.get("mls_group_id") {
-            Some(id) => {
-                use base64::{Engine as _, engine::general_purpose};
-                match general_purpose::STANDARD.decode(id) {
-                    Ok(bytes) => bytes,
-                    Err(_) => return,
-                }
-            }
-            None => return,
-        };
-
+        warn!("MLS interceptor on_msg_from_app called");
+        
         if !msg.is_publish() {
+            warn!("Message is not publish type, skipping MLS");
             return;
         }
+
+        use base64::{Engine as _, engine::general_purpose};
+        let group_id_b64 = general_purpose::STANDARD.encode(&self.group_id);
+        warn!("Added group_id metadata: {}", group_id_b64);
+        msg.metadata.insert("mls_group_id".to_string(), group_id_b64);
 
         let payload = match msg.get_payload() {
             Some(content) => content.blob.clone(),
@@ -44,9 +43,14 @@ impl SessionInterceptor for MlsInterceptor {
 
         let encrypted_result = {
             let mut mls_guard = self.mls.lock();
-            if mls_guard.is_group_member(&group_id) {
-                mls_guard.encrypt_message(&group_id, &payload)
+            let is_member = mls_guard.is_group_member(&self.group_id);
+            warn!("Is group member: {}, group_id len: {}", is_member, self.group_id.len());
+            
+            if is_member {
+                warn!("Attempting to encrypt message");
+                mls_guard.encrypt_message(&self.group_id, &payload)
             } else {
+                warn!("Not a group member, skipping encryption");
                 Ok(payload)
             }
         };
@@ -54,6 +58,12 @@ impl SessionInterceptor for MlsInterceptor {
         match encrypted_result {
             Ok(encrypted_payload) => {
                 let was_encrypted = encrypted_payload != original_payload;
+
+                if was_encrypted {
+                    warn!("MLS ENCRYPTION:");
+                    warn!("   Original: {:?}", String::from_utf8_lossy(&original_payload));
+                    warn!("   Encrypted length: {} bytes", encrypted_payload.len());
+                }
 
                 if let Some(MessageType::Publish(publish)) = &mut msg.message_type {
                     if let Some(content) = &mut publish.msg {
@@ -66,17 +76,24 @@ impl SessionInterceptor for MlsInterceptor {
                 }
             }
             Err(e) => {
-                eprintln!("Failed to encrypt message with MLS: {}", e);
+                warn!("Failed to encrypt message with MLS: {}", e);
             }
         }
     }
 
     fn on_msg_from_slim(&self, msg: &mut Message) {
+        warn!("MLS interceptor on_msg_from_slim called");
+        
         if !msg.is_publish() {
+            warn!("Message is not publish type in on_msg_from_slim");
             return;
         }
 
-        if msg.metadata.get("mls_encrypted").map(|v| v.as_str()) != Some("true") {
+        let is_encrypted = msg.metadata.get("mls_encrypted").map(|v| v.as_str()) == Some("true");
+        warn!("Message mls_encrypted metadata: {:?}", msg.metadata.get("mls_encrypted"));
+        
+        if !is_encrypted {
+            warn!("Message not marked as MLS encrypted, skipping decryption");
             return;
         }
 
@@ -84,6 +101,9 @@ impl SessionInterceptor for MlsInterceptor {
             Some(content) => content.blob.clone(),
             None => return,
         };
+
+        warn!("MLS DECRYPTION:");
+        warn!("   Encrypted length: {} bytes", payload.len());
 
         let decrypted_result = {
             let mut mls_guard = self.mls.lock();
@@ -96,6 +116,8 @@ impl SessionInterceptor for MlsInterceptor {
 
         match decrypted_result {
             Ok(decrypted_payload) => {
+                warn!("   Decrypted: {:?}", String::from_utf8_lossy(&decrypted_payload));
+                
                 if let Some(MessageType::Publish(publish)) = &mut msg.message_type {
                     if let Some(content) = &mut publish.msg {
                         content.blob = decrypted_payload;
@@ -104,7 +126,7 @@ impl SessionInterceptor for MlsInterceptor {
                 }
             }
             Err(e) => {
-                eprintln!("Failed to decrypt message with MLS: {}", e);
+                warn!("Failed to decrypt message with MLS: {}", e);
             }
         }
     }
@@ -124,7 +146,7 @@ mod tests {
         mls.initialize().await.unwrap();
 
         let mls_arc = Arc::new(Mutex::new(mls));
-        let interceptor = MlsInterceptor::new(mls_arc);
+        let interceptor = MlsInterceptor::new(mls_arc, vec![1, 2, 3]);
 
         let mut msg = Message::new_publish(
             &slim_datapath::messages::Agent::from_strings("org", "default", "test", 0),
@@ -160,8 +182,8 @@ mod tests {
         let welcome_message = alice_mls.add_member(&group_id, &bob_key_package).unwrap();
         bob_mls.join_group(&welcome_message).unwrap();
 
-        let alice_interceptor = MlsInterceptor::new(Arc::new(Mutex::new(alice_mls)));
-        let bob_interceptor = MlsInterceptor::new(Arc::new(Mutex::new(bob_mls)));
+        let alice_interceptor = MlsInterceptor::new(Arc::new(Mutex::new(alice_mls)), group_id.clone());
+        let bob_interceptor = MlsInterceptor::new(Arc::new(Mutex::new(bob_mls)), group_id.clone());
 
         use base64::{Engine as _, engine::general_purpose};
         let group_id_str = general_purpose::STANDARD.encode(&group_id);
@@ -204,7 +226,7 @@ mod tests {
         mls.create_group().unwrap();
 
         let mls_arc = Arc::new(Mutex::new(mls));
-        let interceptor = MlsInterceptor::new(mls_arc);
+        let interceptor = MlsInterceptor::new(mls_arc, vec![1, 2, 3]);
 
         let mut msg = Message::new_publish(
             &slim_datapath::messages::Agent::from_strings("org", "default", "sender", 0),

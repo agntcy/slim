@@ -170,6 +170,7 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.12",
  "tokio",
+ "tracing",
 ]
 
 [[package]]
@@ -3612,6 +3613,7 @@ dependencies = [
  "agntcy-slim-service",
  "agntcy-slim-signal",
  "clap",
+ "parking_lot",
  "tokio",
  "tracing",
 ]
