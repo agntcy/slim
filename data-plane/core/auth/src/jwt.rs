@@ -18,6 +18,7 @@ use serde::{Deserialize, Serialize};
 use crate::errors::AuthError;
 use crate::resolver::KeyResolver;
 use crate::traits::{Signer, StandardClaims, TokenProvider, Verifier};
+use crate::file_watcher::FileWatcher;
 
 /// Enum representing key data types
 #[derive(Debug, Deserialize, Clone, PartialEq)]
@@ -158,6 +159,15 @@ impl<T> Jwt<T> {
     }
 
     pub fn with_token_file(self, token_file: impl Into<String>) -> SignerJwt {
+        let watcher = FileWatcher::create_watcher(move |file: &str| {
+                println!("in callback create callback");
+                let key = std::fs::read_to_string(file).expect("error reading file");
+                let new_key = Self::build_internal(&Some(key), &algorithm_clone)
+                    .expect("error processing new keye");
+                let mut key_lock = encoding_key_clone.write();
+                *key_lock = new_key;
+            });
+
         SignerJwt {
             claims: self.claims,
             token_duration: self.token_duration,

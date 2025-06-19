@@ -16,6 +16,7 @@ futures = { workspace = true }
 headers = { workspace = true }
 http = { workspace = true }
 jsonwebtoken-aws-lc = { workspace = true }
+notify.workspace = true
 parking_lot = { workspace = true }
 pin-project = { workspace = true }
 reqwest = { workspace = true }
@@ -25,8 +26,13 @@ serde_json = { workspace = true }
 serde_yaml.workspace = true
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
+tokio-util.workspace = true
 tower = { workspace = true }
 tower-layer = { workspace = true }
 tower-service = { workspace = true }
+tracing.workspace = true
 url = { workspace = true }
 wiremock = { workspace = true }
+
+[dev-dependencies]
+tracing-test.workspace = true

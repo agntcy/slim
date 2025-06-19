@@ -8,3 +8,4 @@ pub mod jwt_middleware;
 pub mod resolver;
 pub mod testutils;
 pub mod traits;
+pub mod file_watcher;
