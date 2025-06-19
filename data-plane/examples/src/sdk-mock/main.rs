@@ -89,15 +89,15 @@ async fn main() {
     let _ = std::fs::remove_file(&key_package_path);
     let _ = std::fs::remove_file(&welcome_path);
     
-    // Clean up MLS identity directories for fresh start
+    // Clean up MLS identity directories
     let identity_path = format!("/tmp/mls_identities_{}", local_agent);
     let _ = std::fs::remove_dir_all(&identity_path);
 
     let (_group_id, server_mls_option) = if message.is_some() {
-        // Client mode: will join group after server creates it
+        // Client: will join group after server creates it
         (None, None)
     } else {
-        // Server mode: create group and wait for client key package
+        // Server: create group and wait for client key package
         let identity_provider = Arc::new(
             slim_mls::identity::FileBasedIdentityProvider::new(&identity_path).unwrap()
         );
@@ -150,7 +150,7 @@ async fn main() {
         // get the session
         let session = res.unwrap();
 
-        // Client behavior: generate key package and wait for welcome message
+        // Client: generate key package and wait for welcome message
         let identity_provider = Arc::new(
             slim_mls::identity::FileBasedIdentityProvider::new(&identity_path).unwrap()
         );
