@@ -341,13 +341,13 @@ impl JwtBuilder<state::WithPrivateKey> {
     fn build_internal(
         private_key: &Option<String>,
         algorithm: &Algorithm,
-    ) -> Result<Option<EncodingKey>, AuthError> {
+    ) -> Result<EncodingKey, AuthError> {
         let encoding_key = match private_key {
             Some(key) => {
                 let key_str = key.as_str();
                 match algorithm {
                     Algorithm::HS256 | Algorithm::HS384 | Algorithm::HS512 => {
-                        Some(EncodingKey::from_secret(key_str.as_bytes()))
+                        EncodingKey::from_secret(key_str.as_bytes())
                     }
                     Algorithm::RS256
                     | Algorithm::RS384
@@ -356,21 +356,21 @@ impl JwtBuilder<state::WithPrivateKey> {
                     | Algorithm::PS384
                     | Algorithm::PS512 => {
                         // PEM-encoded private key
-                        Some(EncodingKey::from_rsa_pem(key_str.as_bytes()).map_err(|e| {
+                        EncodingKey::from_rsa_pem(key_str.as_bytes()).map_err(|e| {
                             AuthError::ConfigError(format!("Invalid RSA private key: {}", e))
-                        })?)
+                        })?
                     }
                     Algorithm::ES256 | Algorithm::ES384 => {
                         // PEM-encoded EC private key
-                        Some(EncodingKey::from_ec_pem(key_str.as_bytes()).map_err(|e| {
+                        EncodingKey::from_ec_pem(key_str.as_bytes()).map_err(|e| {
                             AuthError::ConfigError(format!("Invalid EC private key: {}", e))
-                        })?)
+                        })?
                     }
                     Algorithm::EdDSA => {
                         // PEM-encoded EdDSA private key
-                        Some(EncodingKey::from_ed_pem(key_str.as_bytes()).map_err(|e| {
+                        EncodingKey::from_ed_pem(key_str.as_bytes()).map_err(|e| {
                             AuthError::ConfigError(format!("Invalid EdDSA private key: {}", e))
-                        })?)
+                        })?
                     }
                 }
             }
@@ -397,7 +397,6 @@ impl JwtBuilder<state::WithPrivateKey> {
             let encoding_key_clone = encoding_key.clone();
             let algorithm_clone = self.algorithm;
             let mut w = FileWatcher::create_watcher(move |file: &str| {
-                println!("in callback create callback");
                 let key = std::fs::read_to_string(file).expect("error reading file");
                 let new_key = Self::build_internal(&Some(key), &algorithm_clone)
                     .expect("error processing new keye");
@@ -421,14 +420,14 @@ impl JwtBuilder<state::WithPublicKey> {
     fn build_internal(
         public_key: &Option<String>,
         algorithm: &Algorithm,
-    ) -> Result<Option<DecodingKey>, AuthError> {
+    ) -> Result<DecodingKey, AuthError> {
         let decoding_key = match public_key {
             Some(public_key) => {
                 // Use public key for verification
                 match algorithm {
                     Algorithm::HS256 | Algorithm::HS384 | Algorithm::HS512 => {
                         let key_str = public_key.as_str();
-                        Some(DecodingKey::from_secret(key_str.as_bytes()))
+                        DecodingKey::from_secret(key_str.as_bytes())
                     }
                     Algorithm::RS256
                     | Algorithm::RS384
@@ -437,27 +436,21 @@ impl JwtBuilder<state::WithPublicKey> {
                     | Algorithm::PS384
                     | Algorithm::PS512 => {
                         // PEM-encoded public key
-                        Some(
-                            DecodingKey::from_rsa_pem(public_key.as_bytes()).map_err(|e| {
-                                AuthError::ConfigError(format!("Invalid RSA public key: {}", e))
-                            })?,
-                        )
+                        DecodingKey::from_rsa_pem(public_key.as_bytes()).map_err(|e| {
+                            AuthError::ConfigError(format!("Invalid RSA public key: {}", e))
+                        })?
                     }
                     Algorithm::ES256 | Algorithm::ES384 => {
                         // PEM-encoded EC public key
-                        Some(
-                            DecodingKey::from_ec_pem(public_key.as_bytes()).map_err(|e| {
-                                AuthError::ConfigError(format!("Invalid EC public key: {}", e))
-                            })?,
-                        )
+                        DecodingKey::from_ec_pem(public_key.as_bytes()).map_err(|e| {
+                            AuthError::ConfigError(format!("Invalid EC public key: {}", e))
+                        })?
                     }
                     Algorithm::EdDSA => {
                         // PEM-encoded EdDSA public key
-                        Some(
-                            DecodingKey::from_ed_pem(public_key.as_bytes()).map_err(|e| {
-                                AuthError::ConfigError(format!("Invalid EdDSA public key: {}", e))
-                            })?,
-                        )
+                        DecodingKey::from_ed_pem(public_key.as_bytes()).map_err(|e| {
+                            AuthError::ConfigError(format!("Invalid EdDSA public key: {}", e))
+                        })?
                     }
                 }
             }
@@ -491,7 +484,6 @@ impl JwtBuilder<state::WithPublicKey> {
                 let encoding_key_clone = decoding_key.clone();
                 let algorithm_clone = self.algorithm;
                 let mut w = FileWatcher::create_watcher(move |file: &str| {
-                    println!("in callback create callback");
                     let key = std::fs::read_to_string(file).expect("error reading file");
                     let new_key = Self::build_internal(&Some(key), &algorithm_clone)
                         .expect("error processing new keye");

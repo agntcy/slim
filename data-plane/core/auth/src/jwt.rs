@@ -107,9 +107,9 @@ pub struct Jwt<T> {
     claims: StandardClaims,
     token_duration: Duration,
     validation: Validation,
-    encoding_key: Arc<RwLock<Option<EncodingKey>>>,
-    decoding_key: Arc<RwLock<Option<DecodingKey>>>,
-    key_resolver: std::sync::Arc<Option<KeyResolver>>,
+    encoding_key: Option<Arc<RwLock<EncodingKey>>>,
+    decoding_key: Option<Arc<RwLock<DecodingKey>>>,
+    key_resolver: Option<Arc<KeyResolver>>,
     token_cache: std::sync::Arc<TokenCache>,
     watcher: std::sync::Arc<Option<FileWatcher>>,
 
@@ -137,9 +137,9 @@ impl<T> Jwt<T> {
             claims,
             token_duration,
             validation,
-            encoding_key: Arc::new(RwLock::new(None)),
-            decoding_key: Arc::new(RwLock::new(None)),
-            key_resolver: Arc::new(None),
+            encoding_key: None,
+            decoding_key: None,
+            key_resolver: None,
             watcher: Arc::new(None),
             _token_file: None,
             token_cache: std::sync::Arc::new(TokenCache::new()),
@@ -149,16 +149,16 @@ impl<T> Jwt<T> {
 
     pub fn with_encoding_key(
         self,
-        encoding_key: Arc<RwLock<Option<EncodingKey>>>,
+        encoding_key: Arc<RwLock<EncodingKey>>,
         watcher: Option<FileWatcher>,
     ) -> SignerJwt {
         SignerJwt {
             claims: self.claims,
             token_duration: self.token_duration,
             validation: self.validation,
-            encoding_key,
-            decoding_key: Arc::new(RwLock::new(None)),
-            key_resolver: Arc::new(None),
+            encoding_key: Some(encoding_key),
+            decoding_key: None,
+            key_resolver: None,
             watcher: Arc::new(watcher),
             _token_file: None,
             token_cache: self.token_cache,
@@ -171,9 +171,9 @@ impl<T> Jwt<T> {
             claims: self.claims,
             token_duration: self.token_duration,
             validation: self.validation,
-            encoding_key: Arc::new(RwLock::new(None)),
-            decoding_key: Arc::new(RwLock::new(None)),
-            key_resolver: Arc::new(None),
+            encoding_key: None,
+            decoding_key: None,
+            key_resolver: None,
             watcher: self.watcher,
             _token_file: Some(token_file.into()),
             token_cache: self.token_cache,
@@ -183,16 +183,16 @@ impl<T> Jwt<T> {
 
     pub fn with_decoding_key(
         self,
-        decoding_key: Arc<RwLock<Option<DecodingKey>>>,
+        decoding_key: Arc<RwLock<DecodingKey>>,
         watcher: Option<FileWatcher>,
     ) -> VerifierJwt {
         VerifierJwt {
             claims: self.claims,
             token_duration: self.token_duration,
             validation: self.validation,
-            encoding_key: Arc::new(RwLock::new(None)),
-            decoding_key,
-            key_resolver: Arc::new(None),
+            encoding_key: None,
+            decoding_key: Some(decoding_key),
+            key_resolver: None,
             watcher: Arc::new(watcher),
             _token_file: None,
             token_cache: self.token_cache,
@@ -205,9 +205,9 @@ impl<T> Jwt<T> {
             claims: self.claims,
             token_duration: self.token_duration,
             validation: self.validation,
-            encoding_key: Arc::new(RwLock::new(None)),
-            decoding_key: Arc::new(RwLock::new(None)),
-            key_resolver: Arc::new(Some(key_resolver)),
+            encoding_key: None,
+            decoding_key: None,
+            key_resolver: Some(Arc::new(key_resolver)),
             watcher: self.watcher,
             _token_file: None,
             token_cache: self.token_cache,
@@ -245,8 +245,8 @@ impl<S> Jwt<S> {
 
     fn sign_claims<Claims: Serialize>(&self, claims: &Claims) -> Result<String, AuthError> {
         // Ensure we have an encoding key for signing
-        let key_lock = self.encoding_key.read();
-        let encoding_key = key_lock.as_ref().ok_or_else(|| {
+
+        let encoding_key = self.encoding_key.as_ref().ok_or_else(|| {
             AuthError::ConfigError("Private key not configured for signing".to_string())
         })?;
 
@@ -254,7 +254,8 @@ impl<S> Jwt<S> {
         let header = JwtHeader::new(self.validation.algorithms[0]);
 
         // Encode the claims into a JWT token
-        encode(&header, claims, encoding_key).map_err(|e| AuthError::SigningError(format!("{}", e)))
+        encode(&header, claims, &encoding_key.read())
+            .map_err(|e| AuthError::SigningError(format!("{}", e)))
     }
 
     fn sign_internal_claims(&self) -> Result<String, AuthError> {
@@ -393,14 +394,13 @@ impl<V> Jwt<V> {
     fn decoding_key(&self, token: &str) -> Result<DecodingKey, AuthError> {
         // If the decoding key is available, return it
         {
-            let key_lock = self.decoding_key.read();
-            if let Some(key) = &*key_lock {
-                return Ok(key.clone());
+            if let Some(key) = &self.decoding_key {
+                return Ok(key.read().clone());
             }
         }
 
         // Try to get a cached decoding key
-        if let Some(resolver) = &self.key_resolver.as_ref() {
+        if let Some(resolver) = &self.key_resolver {
             let mut validation = self.validation.clone();
             validation.insecure_disable_signature_validation();
             let decoding_key = DecodingKey::from_secret(b"unused");
@@ -428,9 +428,8 @@ impl<V> Jwt<V> {
     async fn resolve_decoding_key(&self, token: &str) -> Result<DecodingKey, AuthError> {
         // First check if we already have a decoding key
         {
-            let key_lock = self.decoding_key.read();
-            if let Some(key) = &*key_lock {
-                return Ok(key.clone());
+            if let Some(key) = &self.decoding_key {
+                return Ok(key.read().clone());
             }
         }
 
@@ -438,7 +437,6 @@ impl<V> Jwt<V> {
         // should be set, otherwise we can't proceed.
         let resolver = self
             .key_resolver
-            .as_ref()
             .as_ref()
             .ok_or_else(|| AuthError::ConfigError("Key resolver not configured".to_string()))?;
 
@@ -557,15 +555,11 @@ mod tests {
         assert_eq!(claims.aud.unwrap(), "test-audience");
         assert_eq!(claims.sub.unwrap(), "test-subject");
 
-        {
-            let dec_key = jwt.decoding_key.read();
-            assert!(dec_key.is_none());
-        }
+        assert!(jwt.decoding_key.is_none());
         {
             let expected = EncodingKey::from_secret(first_key.as_bytes());
-            let enc_key = jwt.encoding_key.read();
-            assert!(enc_key.is_some());
-            let k = enc_key.clone().unwrap();
+            assert!(jwt.encoding_key.is_some());
+            let k = jwt.encoding_key.as_ref().unwrap();
 
             #[derive(Debug, Serialize, Deserialize)]
             struct Claims {
@@ -579,7 +573,7 @@ mod tests {
             };
 
             let token_1 = encode(&Header::default(), &my_claims, &expected).unwrap();
-            let token_2 = encode(&Header::default(), &my_claims, &k).unwrap();
+            let token_2 = encode(&Header::default(), &my_claims, &k.read()).unwrap();
             assert_eq!(token_1, token_2);
         }
 
@@ -587,15 +581,11 @@ mod tests {
         modify_file(file_name, second_key).expect("failed to create file");
         time::sleep(Duration::from_millis(100)).await;
 
-        {
-            let dec_key = jwt.decoding_key.read();
-            assert!(dec_key.is_none());
-        }
+        assert!(jwt.decoding_key.is_none());
         {
             let expected = EncodingKey::from_secret(second_key.as_bytes());
-            let enc_key = jwt.encoding_key.read();
-            assert!(enc_key.is_some());
-            let k = enc_key.clone().unwrap();
+            assert!(jwt.encoding_key.is_some());
+            let k = jwt.encoding_key.as_ref().unwrap();
 
             #[derive(Debug, Serialize, Deserialize)]
             struct Claims {
@@ -609,7 +599,7 @@ mod tests {
             };
 
             let token_1 = encode(&Header::default(), &my_claims, &expected).unwrap();
-            let token_2 = encode(&Header::default(), &my_claims, &k).unwrap();
+            let token_2 = encode(&Header::default(), &my_claims, &k.read()).unwrap();
             assert_eq!(token_1, token_2);
         }
 
@@ -640,14 +630,8 @@ mod tests {
             .build()
             .unwrap();
 
-        {
-            let dec_key = jwt.decoding_key.read();
-            assert!(dec_key.is_some());
-        }
-        {
-            let enc_key = jwt.encoding_key.read();
-            assert!(enc_key.is_none());
-        }
+        assert!(jwt.decoding_key.is_some());
+        assert!(jwt.encoding_key.is_none());
 
         // test the verifier with the first key
         let signer = JwtBuilder::new()
@@ -674,14 +658,8 @@ mod tests {
         modify_file(file_name, second_key).expect("failed to create file");
         time::sleep(Duration::from_millis(100)).await;
 
-        {
-            let dec_key = jwt.decoding_key.read();
-            assert!(dec_key.is_some());
-        }
-        {
-            let enc_key = jwt.encoding_key.read();
-            assert!(enc_key.is_none());
-        }
+        assert!(jwt.decoding_key.is_some());
+        assert!(jwt.encoding_key.is_none());
 
         // test the verifier with the second key
         let signer = JwtBuilder::new()
@@ -939,7 +917,7 @@ mod tests {
 
         // Alter the decoding_key to simulate a situation where signature verification would fail
         // if attempted again. Since we're using the cache, it should still work.
-        verifier.decoding_key = Arc::new(RwLock::new(None));
+        verifier.decoding_key = None;
 
         // Second verification with the same token - should use the cache
         let second_result: StandardClaims = verifier.try_verify(token.clone()).unwrap();
