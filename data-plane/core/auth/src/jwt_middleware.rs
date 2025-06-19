@@ -17,42 +17,35 @@ use tower_layer::Layer;
 use tower_service::Service;
 
 use crate::errors::AuthError;
-use crate::traits::{Signer, Verifier};
+use crate::traits::{TokenProvider, Verifier};
 
 /// Layer to sign JWT tokens with a signing key. Custom claims can be added to the token.
 #[derive(Clone)]
-pub struct SignJwtLayer<T>
+pub struct AddJwtLayer<T>
 where
-    T: Signer + Clone,
+    T: TokenProvider + Clone,
 {
-    signer: T,
-    custom_claims: std::collections::HashMap<String, serde_json::Value>,
+    provider: T,
     duration: u64, // Duration in seconds
 }
 
-impl<T: Signer + Clone> SignJwtLayer<T> {
-    pub fn new(
-        signer: T,
-        custom_claims: std::collections::HashMap<String, serde_json::Value>,
-        duration: u64,
-    ) -> Self {
+impl<T: TokenProvider + Clone> AddJwtLayer<T> {
+    pub fn new(signer: T, duration: u64) -> Self {
         Self {
-            signer,
-            custom_claims,
+            provider: signer,
             duration,
         }
     }
 }
 
 /// Layer implementation for `SignJwtLayer` that adds JWT tokens to requests
-impl<S, T: Signer + Clone> Layer<S> for SignJwtLayer<T> {
+impl<S, T: TokenProvider + Clone> Layer<S> for AddJwtLayer<T> {
     type Service = AddJwtToken<S, T>;
 
     fn layer(&self, inner: S) -> Self::Service {
         AddJwtToken {
             inner,
-            signer: self.signer.clone(),
-            custom_claims: self.custom_claims.clone(),
+            provider: self.provider.clone(),
             cached_token: None,
             valid_until: None,
             duration: self.duration,
@@ -62,17 +55,16 @@ impl<S, T: Signer + Clone> Layer<S> for SignJwtLayer<T> {
 
 /// Middleware for adding a JWT token to the request headers
 #[derive(Clone)]
-pub struct AddJwtToken<S, T: Signer + Clone> {
+pub struct AddJwtToken<S, T: TokenProvider + Clone> {
     inner: S,
-    signer: T,
-    custom_claims: std::collections::HashMap<String, serde_json::Value>,
+    provider: T,
 
     cached_token: Option<HeaderValue>,
     valid_until: Option<u64>, // UNIX timestamp in seconds
     duration: u64,            // Duration in seconds
 }
 
-impl<S, T: Signer + Clone> AddJwtToken<S, T> {
+impl<S, T: TokenProvider + Clone> AddJwtToken<S, T> {
     /// Get a JWT token, either from cache or by signing a new one
     pub fn get_token(&mut self) -> Result<HeaderValue, AuthError> {
         let now = std::time::SystemTime::now()
@@ -90,15 +82,10 @@ impl<S, T: Signer + Clone> AddJwtToken<S, T> {
             }
         }
 
-        // Update claims with current time values
-        let claims = self
-            .signer
-            .create_standard_claims(Some(self.custom_claims.clone()));
-
         let token = self
-            .signer
-            .sign(&claims)
-            .map_err(|e| AuthError::SigningError(e.to_string()))?;
+            .provider
+            .try_get_token()
+            .map_err(|e| AuthError::GetTokenError(e.to_string()))?;
 
         let header_value = HeaderValue::try_from(format!("Bearer {}", token))
             .map_err(|e| AuthError::InvalidHeader(e.to_string()))?;
@@ -113,7 +100,7 @@ impl<S, T: Signer + Clone> AddJwtToken<S, T> {
 impl<S, T, ReqBody, ResBody> Service<Request<ReqBody>> for AddJwtToken<S, T>
 where
     S: Service<Request<ReqBody>, Response = Response<ResBody>>,
-    T: Signer + Clone,
+    T: TokenProvider + Clone,
 {
     type Response = S::Response;
     type Error = S::Error;
@@ -323,11 +310,12 @@ where
 #[cfg(test)]
 mod tests {
     use crate::jwt::Algorithm;
-    use crate::traits::StandardClaims;
+    use crate::traits::{Signer, StandardClaims};
     use crate::{builder::JwtBuilder, jwt::Key, jwt::KeyData};
     use futures::future::{self, Ready};
     use http::{Request, Response, StatusCode};
     use std::collections::HashMap;
+    use std::time::Duration;
     use tower::{Service, ServiceBuilder};
 
     use super::*;
@@ -386,12 +374,11 @@ mod tests {
             .build()
             .unwrap();
 
-        let claims = std::collections::HashMap::<String, serde_json::Value>::new();
         let duration = 3600; // 1 hour
 
         // Create our test service with the JWT signer layer
         let mut service = ServiceBuilder::new()
-            .layer(SignJwtLayer::new(signer, claims, duration))
+            .layer(AddJwtLayer::new(signer, duration))
             .service(TestService);
 
         // Make a request
@@ -419,14 +406,12 @@ mod tests {
             .build()
             .unwrap();
 
-        let claims = std::collections::HashMap::<String, serde_json::Value>::new();
         let duration = 3600; // 1 hour
 
         // Create our AddJwtToken service directly to test token caching
         let mut add_jwt = AddJwtToken {
             inner: TestService,
-            signer: signer.clone(),
-            custom_claims: claims,
+            provider: signer.clone(),
             cached_token: None,
             valid_until: None,
             duration,
@@ -434,12 +419,6 @@ mod tests {
 
         // Get a token
         let token1 = add_jwt.get_token().unwrap();
-
-        // Change the custom claims to force a new token.
-        // This should not happen at runtime, but we do it here for testing.
-        add_jwt
-            .custom_claims
-            .insert("new_claim".to_string(), "value".into());
 
         // Get another token - should be the same cached token
         let token2 = add_jwt.get_token().unwrap();
@@ -453,6 +432,9 @@ mod tests {
                 .as_secs()
                 + duration / 4,
         );
+
+        // sleep 1 sec to change the iss claim
+        tokio::time::sleep(Duration::from_secs(1)).await;
 
         // Get another token - should be a new token due to imminent expiry
         let token3 = add_jwt.get_token().unwrap();
@@ -519,7 +501,7 @@ mod tests {
             .unwrap();
 
         // Create claims and token
-        let claims = signer.create_standard_claims(None);
+        let claims = signer.create_claims();
         let token = signer.sign(&claims).unwrap();
 
         // Create a request with the token
@@ -569,16 +551,6 @@ mod tests {
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
             .as_secs();
-        let standard_claims = StandardClaims {
-            iss: Some("test-issuer".to_string()),
-            sub: Some("test-subject".to_string()),
-            aud: Some("test-audience".to_string()),
-            exp: now + 10, // Expires in 10 seconds
-            iat: Some(now),
-            nbf: Some(now),
-            jti: None,
-            custom_claims: std::collections::HashMap::new(),
-        };
 
         // Set up a JWT signer with the same key as the verifier
         let signer = JwtBuilder::new()
@@ -593,10 +565,11 @@ mod tests {
             .unwrap();
 
         // Sign the token
-        let token = signer.sign(&standard_claims).unwrap();
+        let token = signer.sign_standard_claims().unwrap();
         let auth_header = format!("Bearer {}", token);
 
         // Create our service with the verifier
+        let standard_claims = signer.create_claims();
         let mut service = ServiceBuilder::new()
             .layer(ValidateJwtLayer::new(
                 verifier.clone(),
@@ -648,29 +621,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_end_to_end() {
-        // Set up a JWT signer and verifier with the same key
-        let signer = JwtBuilder::new()
-            .issuer("test-issuer")
-            .audience("test-audience")
-            .subject("test-subject")
-            .private_key(&Key {
-                algorithm: Algorithm::HS256,
-                key: KeyData::Pem("shared-secret".to_string()),
-            })
-            .build()
-            .unwrap();
-
-        let verifier = JwtBuilder::new()
-            .issuer("test-issuer")
-            .audience("test-audience")
-            .subject("test-subject")
-            .public_key(&Key {
-                algorithm: Algorithm::HS256,
-                key: KeyData::Pem("shared-secret".to_string()),
-            })
-            .build()
-            .unwrap();
-
         // Create custom claims
         let mut claims = HashMap::new();
         claims.insert(
@@ -685,9 +635,33 @@ mod tests {
             )])),
         );
 
+        // Set up a JWT signer and verifier with the same key
+        let signer = JwtBuilder::new()
+            .issuer("test-issuer")
+            .audience("test-audience")
+            .subject("test-subject")
+            .private_key(&Key {
+                algorithm: Algorithm::HS256,
+                key: KeyData::Pem("shared-secret".to_string()),
+            })
+            .custom_claims(claims.clone())
+            .build()
+            .unwrap();
+
+        let verifier = JwtBuilder::new()
+            .issuer("test-issuer")
+            .audience("test-audience")
+            .subject("test-subject")
+            .public_key(&Key {
+                algorithm: Algorithm::HS256,
+                key: KeyData::Pem("shared-secret".to_string()),
+            })
+            .build()
+            .unwrap();
+
         // Construct a client service that adds a JWT token
         let mut client = ServiceBuilder::new()
-            .layer(SignJwtLayer::new(signer.clone(), claims.clone(), 3600))
+            .layer(AddJwtLayer::new(signer.clone(), 3600))
             .service(TestService);
 
         // Construct a server service that verifies the JWT token
@@ -713,8 +687,7 @@ mod tests {
             .unwrap();
 
         // Get a signed token and add it to the request
-        let claims = signer.create_standard_claims(Some(claims.clone()));
-        let token = signer.sign(&claims).unwrap();
+        let token = signer.sign_standard_claims().unwrap();
         server_req.headers_mut().insert(
             http::header::AUTHORIZATION,
             HeaderValue::from_str(&format!("Bearer {}", token)).unwrap(),
@@ -725,7 +698,22 @@ mod tests {
             .expect("Failed to verify token");
 
         // Check the claims are as expected
-        assert_eq!(ret_claims, claims);
+        assert_eq!(ret_claims.iss, Some("test-issuer".to_string()));
+        assert_eq!(ret_claims.aud, Some("test-audience".to_string()));
+        assert_eq!(ret_claims.sub, Some("test-subject".to_string()));
+        assert_eq!(
+            ret_claims.custom_claims.get("claim1"),
+            Some(&serde_json::Value::Number(2.into()))
+        );
+        assert_eq!(
+            ret_claims.custom_claims.get("claim2"),
+            Some(&serde_json::Value::Object(serde_json::Map::from_iter(
+                vec![(
+                    "key".to_string(),
+                    serde_json::Value::String("value".to_string())
+                )]
+            )))
+        );
 
         // Send the request through the server service, which should verify JWT
         let server_response = server.call(server_req).await.unwrap();

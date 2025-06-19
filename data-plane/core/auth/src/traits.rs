@@ -47,16 +47,9 @@ pub struct StandardClaims {
     pub custom_claims: HashMap<String, serde_json::Value>,
 }
 
-pub trait Claimer {
-    fn create_standard_claims(
-        &self,
-        custom_claims: Option<std::collections::HashMap<String, serde_json::Value>>,
-    ) -> StandardClaims;
-}
-
 /// Trait for verifying JWT tokens
 #[async_trait]
-pub trait Verifier: Claimer {
+pub trait Verifier {
     /// Verifies the JWT token and returns the claims if valid.
     ///
     /// The `Claims` type parameter represents the expected structure of the JWT claims.
@@ -72,11 +65,24 @@ pub trait Verifier: Claimer {
 }
 
 /// Trait for signing JWT claims
-pub trait Signer: Claimer {
+pub trait Signer {
     /// Signs the claims and returns a JWT token.
     ///
     /// The `Claims` type parameter represents the structure of the JWT claims to be signed.
     fn sign<Claims>(&self, claims: &Claims) -> Result<String, AuthError>
     where
         Claims: Serialize;
+
+    /// Sign standard claims and return a JWT token.
+    fn sign_standard_claims(&self) -> Result<String, AuthError>;
+}
+
+/// Trait for providing JWT claims
+#[async_trait]
+pub trait TokenProvider {
+    /// Try to get a JWT token from an external source
+    fn try_get_token(&self) -> Result<String, AuthError>;
+
+    // Async try to get token from an external source
+    async fn get_token(&self) -> Result<String, AuthError>;
 }
