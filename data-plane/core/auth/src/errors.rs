@@ -17,6 +17,12 @@ pub enum AuthError {
     #[error("signing error: {0}")]
     SigningError(String),
 
+    #[error("get token error: {0}")]
+    GetTokenError(String),
+
     #[error("verification error: {0}")]
     VerificationError(String),
+
+    #[error("invalid header: {0}")]
+    InvalidHeader(String),
 }

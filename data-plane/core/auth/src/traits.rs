@@ -13,7 +13,7 @@ use crate::errors::AuthError;
 
 /// Standard JWT Claims structure that includes the registered claims
 /// as specified in RFC 7519.
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 pub struct StandardClaims {
     /// Issuer (who issued the JWT)
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -47,30 +47,42 @@ pub struct StandardClaims {
     pub custom_claims: HashMap<String, serde_json::Value>,
 }
 
-pub trait Claimer {
-    fn create_standard_claims(
-        &self,
-        custom_claims: Option<std::collections::HashMap<String, serde_json::Value>>,
-    ) -> StandardClaims;
-}
-
 /// Trait for verifying JWT tokens
 #[async_trait]
-pub trait Verifier: Claimer {
+pub trait Verifier {
     /// Verifies the JWT token and returns the claims if valid.
     ///
     /// The `Claims` type parameter represents the expected structure of the JWT claims.
-    async fn verify<Claims>(&mut self, token: &str) -> Result<Claims, AuthError>
+    async fn verify<Claims>(&self, token: impl Into<String> + Send) -> Result<Claims, AuthError>
+    where
+        Claims: DeserializeOwned + Send;
+
+    /// Try to verify the JWT token without async context and return the claims if valid.
+    /// If an async operation is needed, an error is returned.
+    fn try_verify<Claims>(&self, token: impl Into<String>) -> Result<Claims, AuthError>
     where
         Claims: DeserializeOwned + Send;
 }
 
 /// Trait for signing JWT claims
-pub trait Signer: Claimer {
+pub trait Signer {
     /// Signs the claims and returns a JWT token.
     ///
     /// The `Claims` type parameter represents the structure of the JWT claims to be signed.
     fn sign<Claims>(&self, claims: &Claims) -> Result<String, AuthError>
     where
         Claims: Serialize;
+
+    /// Sign standard claims and return a JWT token.
+    fn sign_standard_claims(&self) -> Result<String, AuthError>;
+}
+
+/// Trait for providing JWT claims
+#[async_trait]
+pub trait TokenProvider {
+    /// Try to get a JWT token from an external source
+    fn try_get_token(&self) -> Result<String, AuthError>;
+
+    // Async try to get token from an external source
+    async fn get_token(&self) -> Result<String, AuthError>;
 }

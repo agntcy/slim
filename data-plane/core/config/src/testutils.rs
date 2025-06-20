@@ -1,10 +1,11 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
+use tonic::{Request, Response, Status};
+
 #[rustfmt::skip]
 pub mod helloworld;
-
-use tonic::{Request, Response, Status};
+pub mod tower_service;
 
 #[derive(Default)]
 pub struct Empty {}

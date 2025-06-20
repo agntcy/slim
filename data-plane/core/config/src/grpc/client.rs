@@ -20,6 +20,7 @@ use super::headers_middleware::SetRequestHeaderLayer;
 use crate::auth::ClientAuthenticator;
 use crate::auth::basic::Config as BasicAuthenticationConfig;
 use crate::auth::bearer::Config as BearerAuthenticationConfig;
+use crate::auth::jwt::Config as JwtAuthenticationConfig;
 use crate::component::configuration::{Configuration, ConfigurationError};
 use crate::tls::{client::TlsClientConfig as TLSSetting, common::RustlsConfigLoader};
 
@@ -88,6 +89,8 @@ pub enum AuthenticationConfig {
     Basic(BasicAuthenticationConfig),
     /// Bearer authentication configuration.
     Bearer(BearerAuthenticationConfig),
+    /// JWT authentication configuration.
+    Jwt(JwtAuthenticationConfig),
     /// None
     #[default]
     None,
@@ -422,6 +425,22 @@ impl ClientConfig {
             }
             AuthenticationConfig::Bearer(bearer) => {
                 let auth_layer = bearer
+                    .get_client_layer()
+                    .map_err(|e| ConfigError::AuthConfigError(e.to_string()))?;
+
+                // If auth is enabled without TLS, print a warning
+                if self.tls_setting.insecure {
+                    warn!("Auth is enabled without TLS. This is not recommended.");
+                }
+
+                Ok(tower::ServiceBuilder::new()
+                    .layer(SetRequestHeaderLayer::new(header_map))
+                    .layer(auth_layer)
+                    .service(channel)
+                    .boxed())
+            }
+            AuthenticationConfig::Jwt(jwt) => {
+                let auth_layer = jwt
                     .get_client_layer()
                     .map_err(|e| ConfigError::AuthConfigError(e.to_string()))?;
 
