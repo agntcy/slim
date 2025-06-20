@@ -16,6 +16,7 @@ pub enum FileWatcherError {
     WatchError(String),
 }
 
+#[derive(Debug)]
 pub struct FileWatcher {
     watcher: RecommendedWatcher,
     cancellation_token: CancellationToken,
