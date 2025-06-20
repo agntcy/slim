@@ -231,15 +231,15 @@ impl TlsServerConfig {
                 return Err(ConfigError::MissingServerCertAndKey);
             }
             (true, false) => Arc::new(WatcherCertResolver::new(
-                self.config.cert_file.as_ref().unwrap(),
                 self.config.key_file.as_ref().unwrap(),
+                self.config.cert_file.as_ref().unwrap(),
                 config_builder.crypto_provider(),
-            )),
+            )?),
             (false, true) => Arc::new(StaticCertResolver::new(
-                self.config.cert_pem.as_ref().unwrap(),
                 self.config.key_pem.as_ref().unwrap(),
+                self.config.cert_pem.as_ref().unwrap(),
                 config_builder.crypto_provider(),
-            )),
+            )?),
         };
 
         // Check whether to enable client auth or not

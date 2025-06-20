@@ -45,7 +45,7 @@ impl WatcherCertResolver {
         key_file: impl Into<String>,
         cert_file: impl Into<String>,
         crypto_provider: &Arc<CryptoProvider>,
-    ) -> Self {
+    ) -> Result<Self, ConfigError> {
         let key_file = key_file.into();
         let key_files = (key_file.clone(), key_file.clone());
 
@@ -54,10 +54,12 @@ impl WatcherCertResolver {
         let crypto_providers = (crypto_provider.clone(), crypto_provider.clone());
 
         // Read the cert and the key
-        let key_der =
-            PrivateKeyDer::from_pem_file(Path::new(&key_files.0)).expect("failed to read key file");
+        let key_der = PrivateKeyDer::from_pem_file(Path::new(&key_files.0))
+            .map_err(|e| ConfigError::InvalidFile(e.to_string()))?;
         let cert_der = CertificateDer::from_pem_file(Path::new(&cert_files.0))
-            .expect("failed to read cert file");
+            .map_err(|e| ConfigError::InvalidFile(e.to_string()))?;
+
+        // Transform it to CertifiedKey
         let cert_key = to_certified_key(vec![cert_der], key_der, crypto_provider);
 
         let cert = Arc::new(RwLock::new(Arc::new(cert_key)));
@@ -73,13 +75,13 @@ impl WatcherCertResolver {
             *cert_clone.as_ref().write() = Arc::new(cert_key);
         });
 
-        Self {
+        Ok(Self {
             _key_file: key_files.1,
             _cert_file: cert_files.1,
             _provider: crypto_providers.1,
             _watchers: vec![w],
             cert,
-        }
+        })
     }
 }
 
@@ -98,22 +100,22 @@ impl StaticCertResolver {
         key_pem: impl Into<String>,
         cert_pem: impl Into<String>,
         crypto_provider: &Arc<CryptoProvider>,
-    ) -> Self {
+    ) -> Result<Self, ConfigError> {
         let key_pem = key_pem.into();
         let cert_pem = cert_pem.into();
 
         // Read the cert and the key
         let key_der =
-            PrivateKeyDer::from_pem_slice(key_pem.as_bytes()).expect("failed to read key pem");
+            PrivateKeyDer::from_pem_slice(key_pem.as_bytes()).map_err(ConfigError::InvalidPem)?;
         let cert_der =
-            CertificateDer::from_pem_slice(cert_pem.as_bytes()).expect("failed to read cert pem");
+            CertificateDer::from_pem_slice(cert_pem.as_bytes()).map_err(ConfigError::InvalidPem)?;
         let cert_key = to_certified_key(vec![cert_der], key_der, crypto_provider);
 
-        Self {
+        Ok(Self {
             _key_pem: key_pem,
             _cert_pem: cert_pem,
             cert: Arc::new(cert_key),
-        }
+        })
     }
 }
 
@@ -163,6 +165,8 @@ pub enum ConfigError {
     InvalidTlsVersion(String),
     #[error("invalid pem format: {0}")]
     InvalidPem(rustls_pki_types::pem::Error),
+    #[error("error reading cert/key from file: {0}")]
+    InvalidFile(String),
     #[error("cannot use both file and pem for {0}")]
     CannotUseBoth(String),
     #[error("root store error: {0}")]

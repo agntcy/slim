@@ -276,7 +276,7 @@ impl TlsClientConfig {
                     self.config.key_file.as_ref().unwrap(),
                     self.config.cert_file.as_ref().unwrap(),
                     config_builder.crypto_provider(),
-                );
+                )?;
 
                 Ok(config_builder.with_client_cert_resolver(Arc::new(cert_resolver)))
             }
@@ -285,7 +285,7 @@ impl TlsClientConfig {
                     self.config.key_pem.as_ref().unwrap(),
                     self.config.cert_pem.as_ref().unwrap(),
                     config_builder.crypto_provider(),
-                );
+                )?;
                 Ok(config_builder.with_client_cert_resolver(Arc::new(cert_resolver)))
             }
         }
