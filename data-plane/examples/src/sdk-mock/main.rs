@@ -81,14 +81,14 @@ async fn main() {
 
     //TODO(zkacsand): use hardcoded group identifier for now
     let group_identifier = "group_123";
-    
+
     //TODO(zkacsand): temporary file based key package exchange, until the session API is ready to support it
     // Clean up previous run files
     let key_package_path = format!("/tmp/mls_key_package_{}", group_identifier);
     let welcome_path = format!("/tmp/mls_welcome_{}", group_identifier);
     let _ = std::fs::remove_file(&key_package_path);
     let _ = std::fs::remove_file(&welcome_path);
-    
+
     // Clean up MLS identity directories
     let identity_path = format!("/tmp/mls_identities_{}", local_agent);
     let _ = std::fs::remove_dir_all(&identity_path);
@@ -98,18 +98,20 @@ async fn main() {
         (None, None)
     } else {
         // Server: create group and wait for client key package
-        let identity_provider = Arc::new(
-            slim_mls::identity::FileBasedIdentityProvider::new(&identity_path).unwrap()
-        );
+        let identity_provider =
+            Arc::new(slim_mls::identity::FileBasedIdentityProvider::new(&identity_path).unwrap());
         let mut server_mls = slim_mls::mls::Mls::new(local_agent.to_string(), identity_provider);
         server_mls.initialize().await.unwrap();
-        
+
         // Create group
         let group_id = server_mls.create_group().unwrap();
         info!("Server created MLS group");
-        
+
         // Wait for client key package
-        info!("Server waiting for client key package at: {}", key_package_path);
+        info!(
+            "Server waiting for client key package at: {}",
+            key_package_path
+        );
         let mut attempts = 0;
         let key_package = loop {
             if std::path::Path::new(&key_package_path).exists() {
@@ -123,14 +125,14 @@ async fn main() {
             tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
             attempts += 1;
         };
-        
+
         // Add client to group and generate welcome message
         let welcome_message = server_mls.add_member(&group_id, &key_package).unwrap();
-        
+
         // Save welcome message for client
         std::fs::write(&welcome_path, &welcome_message).unwrap();
         info!("Server saved welcome message to: {}", welcome_path);
-        
+
         (Some(group_id.clone()), Some((server_mls, group_id)))
     };
 
@@ -151,18 +153,17 @@ async fn main() {
         let session = res.unwrap();
 
         // Client: generate key package and wait for welcome message
-        let identity_provider = Arc::new(
-            slim_mls::identity::FileBasedIdentityProvider::new(&identity_path).unwrap()
-        );
+        let identity_provider =
+            Arc::new(slim_mls::identity::FileBasedIdentityProvider::new(&identity_path).unwrap());
         let mut client_mls = slim_mls::mls::Mls::new(local_agent.to_string(), identity_provider);
         client_mls.initialize().await.unwrap();
-        
+
         // Generate and save key package for server to use
         let key_package = client_mls.generate_key_package().unwrap();
         let key_package_path = format!("/tmp/mls_key_package_{}", group_identifier);
         std::fs::write(&key_package_path, &key_package).unwrap();
         info!("Client saved key package to: {}", key_package_path);
-        
+
         // Wait for welcome message from server
         let welcome_path = format!("/tmp/mls_welcome_{}", group_identifier);
         info!("Client waiting for welcome message at: {}", welcome_path);
@@ -179,16 +180,14 @@ async fn main() {
             tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
             attempts += 1;
         };
-        
+
         // Join the group
         let group_id = client_mls.join_group(&welcome_message).unwrap();
         info!("Client successfully joined group");
 
         // enable mls for the session with group_id
-        let interceptor = slim_mls::interceptor::MlsInterceptor::new(
-            Arc::new(Mutex::new(client_mls)),
-            group_id,
-        );
+        let interceptor =
+            slim_mls::interceptor::MlsInterceptor::new(Arc::new(Mutex::new(client_mls)), group_id);
         svc.add_session_interceptor(&agent_name, session.id, Box::new(interceptor))
             .await
             .unwrap();
