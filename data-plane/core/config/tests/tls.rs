@@ -97,8 +97,8 @@ fn test_load_rustls_config<T>(
     }
 }
 
-#[test]
-fn test_load_rustls_client() {
+#[tokio::test]
+async fn test_load_rustls_client() {
     let tests = [
         (
             "test-valid-ca-1",
@@ -301,8 +301,8 @@ fn test_load_rustls_client() {
     }
 }
 
-#[test]
-fn test_load_rustls_server() {
+#[tokio::test]
+async fn test_load_rustls_server() {
     let tests = [
         (
             "test-no-certificate-file",
