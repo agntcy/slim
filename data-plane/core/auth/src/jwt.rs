@@ -94,6 +94,7 @@ impl TokenCache {
 
 pub type SignerJwt = Jwt<S>;
 pub type VerifierJwt = Jwt<V>;
+pub type StaticTokenProvider = Jwt<P>;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 struct ExpClaim {
@@ -111,10 +112,10 @@ pub struct Jwt<T> {
     decoding_key: Option<Arc<RwLock<DecodingKey>>>,
     key_resolver: Option<Arc<KeyResolver>>,
     token_cache: std::sync::Arc<TokenCache>,
-    watcher: std::sync::Arc<Option<FileWatcher>>,
+    watchers: Arc<Vec<FileWatcher>>,
 
-    /// Static token from file. Unused for the moment.
-    _token_file: Option<String>,
+    /// Static token from file
+    static_token: Option<Arc<RwLock<String>>>,
 
     _phantom: std::marker::PhantomData<T>,
 }
@@ -140,18 +141,23 @@ impl<T> Jwt<T> {
             encoding_key: None,
             decoding_key: None,
             key_resolver: None,
-            watcher: Arc::new(None),
-            _token_file: None,
+            watchers: Arc::new(Vec::new()),
+            static_token: None,
             token_cache: std::sync::Arc::new(TokenCache::new()),
             _phantom: std::marker::PhantomData,
         }
     }
 
-    pub fn with_encoding_key(
-        self,
-        encoding_key: Arc<RwLock<EncodingKey>>,
-        watcher: Option<FileWatcher>,
-    ) -> SignerJwt {
+    pub fn with_watcher(mut self, w: FileWatcher) -> Self {
+        // Clone the Arc, get a mutable reference to the Vec, and push to it
+        let watchers =
+            Arc::get_mut(&mut self.watchers).expect("Failed to get mutable reference to watchers");
+        watchers.push(w);
+
+        Self { ..self }
+    }
+
+    pub fn with_encoding_key(self, encoding_key: Arc<RwLock<EncodingKey>>) -> SignerJwt {
         SignerJwt {
             claims: self.claims,
             token_duration: self.token_duration,
@@ -159,33 +165,14 @@ impl<T> Jwt<T> {
             encoding_key: Some(encoding_key),
             decoding_key: None,
             key_resolver: None,
-            watcher: Arc::new(watcher),
-            _token_file: None,
+            watchers: Arc::new(Vec::new()),
+            static_token: None,
             token_cache: self.token_cache,
             _phantom: std::marker::PhantomData,
         }
     }
 
-    pub fn with_token_file(self, token_file: impl Into<String>) -> SignerJwt {
-        SignerJwt {
-            claims: self.claims,
-            token_duration: self.token_duration,
-            validation: self.validation,
-            encoding_key: None,
-            decoding_key: None,
-            key_resolver: None,
-            watcher: self.watcher,
-            _token_file: Some(token_file.into()),
-            token_cache: self.token_cache,
-            _phantom: std::marker::PhantomData,
-        }
-    }
-
-    pub fn with_decoding_key(
-        self,
-        decoding_key: Arc<RwLock<DecodingKey>>,
-        watcher: Option<FileWatcher>,
-    ) -> VerifierJwt {
+    pub fn with_decoding_key(self, decoding_key: Arc<RwLock<DecodingKey>>) -> VerifierJwt {
         VerifierJwt {
             claims: self.claims,
             token_duration: self.token_duration,
@@ -193,8 +180,8 @@ impl<T> Jwt<T> {
             encoding_key: None,
             decoding_key: Some(decoding_key),
             key_resolver: None,
-            watcher: Arc::new(watcher),
-            _token_file: None,
+            watchers: Arc::new(Vec::new()),
+            static_token: None,
             token_cache: self.token_cache,
             _phantom: std::marker::PhantomData,
         }
@@ -208,16 +195,25 @@ impl<T> Jwt<T> {
             encoding_key: None,
             decoding_key: None,
             key_resolver: Some(Arc::new(key_resolver)),
-            watcher: self.watcher,
-            _token_file: None,
+            watchers: Arc::new(Vec::new()),
+            static_token: None,
             token_cache: self.token_cache,
             _phantom: std::marker::PhantomData,
         }
     }
 
-    pub fn delete(&self) {
-        if let Some(w) = self.watcher.as_ref() {
-            w.stop_watcher()
+    pub fn with_static_token(self, token: Arc<RwLock<String>>) -> StaticTokenProvider {
+        StaticTokenProvider {
+            claims: self.claims,
+            token_duration: self.token_duration,
+            validation: self.validation,
+            encoding_key: None,
+            decoding_key: None,
+            key_resolver: None,
+            watchers: self.watchers,
+            static_token: Some(token),
+            token_cache: self.token_cache,
+            _phantom: std::marker::PhantomData,
         }
     }
 }
@@ -261,6 +257,20 @@ impl<S> Jwt<S> {
     fn sign_internal_claims(&self) -> Result<String, AuthError> {
         let claims = self.create_claims();
         self.sign_claims(&claims)
+    }
+}
+
+#[derive(Clone)]
+pub struct P {}
+impl<P> Jwt<P> {
+    /// Get token
+    fn get_token(&self) -> Result<String, AuthError> {
+        Ok(self
+            .static_token
+            .as_ref()
+            .ok_or(AuthError::GetTokenError("No token available".to_string()))?
+            .read()
+            .clone())
     }
 }
 
@@ -478,6 +488,17 @@ impl TokenProvider for SignerJwt {
 }
 
 #[async_trait]
+impl TokenProvider for StaticTokenProvider {
+    fn try_get_token(&self) -> Result<String, AuthError> {
+        self.get_token()
+    }
+
+    async fn get_token(&self) -> Result<String, AuthError> {
+        panic!("static token provider has no support for async token retrieval")
+    }
+}
+
+#[async_trait]
 impl Verifier for VerifierJwt {
     async fn verify<Claims>(&self, token: impl Into<String> + Send) -> Result<Claims, AuthError>
     where
@@ -603,8 +624,6 @@ mod tests {
             assert_eq!(token_1, token_2);
         }
 
-        jwt.delete();
-
         delete_file(file_name).expect("error deleting file");
     }
 
@@ -681,8 +700,6 @@ mod tests {
         assert_eq!(verified_claims.iss.unwrap(), "test-issuer");
         assert_eq!(verified_claims.aud.unwrap(), "test-audience");
         assert_eq!(verified_claims.sub.unwrap(), "test-subject");
-
-        jwt.delete();
 
         delete_file(file_name).expect("error deleting file");
     }

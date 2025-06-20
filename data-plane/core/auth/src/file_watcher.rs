@@ -21,6 +21,12 @@ pub struct FileWatcher {
     cancellation_token: CancellationToken,
 }
 
+impl Drop for FileWatcher {
+    fn drop(&mut self) {
+        self.stop_watcher();
+    }
+}
+
 impl FileWatcher {
     pub fn create_watcher<F>(callback: F) -> Self
     where
