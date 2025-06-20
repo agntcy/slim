@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0](https://github.com/agntcy/slim/compare/slim-config-v0.1.8...slim-config-v0.2.0) - 2025-06-20
+
+### Added
+
+- *(config)* update the public/private key on file change ([#356](https://github.com/agntcy/slim/pull/356))
+- *(auth)* introduce token provider trait ([#357](https://github.com/agntcy/slim/pull/357))
+- *(config)* add watcher for file modifications ([#353](https://github.com/agntcy/slim/pull/353))
+- *(auth)* jwt middleware ([#352](https://github.com/agntcy/slim/pull/352))
+
 ## [0.1.8](https://github.com/agntcy/slim/compare/slim-config-v0.1.7...slim-config-v0.1.8) - 2025-05-14
 
 ### Fixed
