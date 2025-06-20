@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.6](https://github.com/agntcy/slim/compare/slim-mcp-proxy-v0.1.5...slim-mcp-proxy-v0.1.6) - 2025-06-20
+
+### Added
+
+- *(config)* update the public/private key on file change ([#356](https://github.com/agntcy/slim/pull/356))
+- *(config)* add watcher for file modifications ([#353](https://github.com/agntcy/slim/pull/353))
+- *(auth)* jwt middleware ([#352](https://github.com/agntcy/slim/pull/352))
+- derive name id from provided identity ([#345](https://github.com/agntcy/slim/pull/345))
+
 ## [0.1.5](https://github.com/agntcy/agp/compare/slim-mcp-proxy-v0.1.4...slim-mcp-proxy-v0.1.5) - 2025-06-03
 
 ### Fixed
