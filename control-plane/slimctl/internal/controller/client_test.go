@@ -72,10 +72,22 @@ func (s *fakeServer) OpenControlChannel(
 				AgentType:    "alice",
 				AgentId:      &wrapperspb.UInt64Value{Value: 42},
 				LocalConnections: []*grpcapi.ConnectionEntry{
-					{Id: 1, Ip: "", Port: 0},
+					{
+						Attributes: map[string]string{
+							"Id":   "1",
+							"Ip":   "",
+							"Port": "0",
+						},
+					},
 				},
 				RemoteConnections: []*grpcapi.ConnectionEntry{
-					{Id: 2, Ip: "10.0.0.2", Port: 2500},
+					{
+						Attributes: map[string]string{
+							"Id":   "2",
+							"Ip":   "10.0.0.2",
+							"Port": "2500",
+						},
+					},
 				},
 			},
 			{
@@ -85,7 +97,13 @@ func (s *fakeServer) OpenControlChannel(
 				AgentId:          &wrapperspb.UInt64Value{Value: 7},
 				LocalConnections: []*grpcapi.ConnectionEntry{},
 				RemoteConnections: []*grpcapi.ConnectionEntry{
-					{Id: 3, Ip: "10.0.0.3", Port: 3500},
+					{
+						Attributes: map[string]string{
+							"Id":   "3",
+							"Ip":   "10.0.0.3",
+							"Port": "3500",
+						},
+					},
 				},
 			},
 		}
@@ -103,16 +121,20 @@ func (s *fakeServer) OpenControlChannel(
 	case *grpcapi.ControlMessage_ConnectionListRequest:
 		entries := []*grpcapi.ConnectionEntry{
 			{
-				Id:             1,
-				ConnectionType: grpcapi.ConnectionType_CONNECTION_TYPE_LOCAL,
-				Ip:             "10.1.1.1",
-				Port:           1000,
+				Attributes: map[string]string{
+					"Id":             "1",
+					"ConnectionType": grpcapi.ConnectionType_CONNECTION_TYPE_LOCAL.String(),
+					"Ip":             "10.1.1.1",
+					"Port":           "1000",
+				},
 			},
 			{
-				Id:             2,
-				ConnectionType: grpcapi.ConnectionType_CONNECTION_TYPE_LOCAL,
-				Ip:             "10.1.1.2",
-				Port:           2000,
+				Attributes: map[string]string{
+					"Id":             "2",
+					"ConnectionType": grpcapi.ConnectionType_CONNECTION_TYPE_LOCAL.String(),
+					"Ip":             "10.1.1.2",
+					"Port":           "2000",
+				},
 			},
 		}
 		resp := &grpcapi.ControlMessage{
@@ -278,14 +300,18 @@ func TestListSubscriptions(t *testing.T) {
 		t.Fatalf("expected 1 local connection, got %d", len(e1.LocalConnections))
 	}
 	lc := e1.LocalConnections[0]
-	if lc.GetId() != 1 || lc.GetIp() != "" || lc.GetPort() != 0 {
+	if lc.Attributes["Id"] != "1" ||
+		lc.Attributes["Ip"] != "" ||
+		lc.Attributes["Port"] != "0" {
 		t.Errorf("expected local {Id:1, empty ip/port}, got %+v", lc)
 	}
 	if len(e1.RemoteConnections) != 1 {
 		t.Fatalf("expected 1 remote connection, got %d", len(e1.RemoteConnections))
 	}
 	rc := e1.RemoteConnections[0]
-	if rc.GetId() != 2 || rc.GetIp() != "10.0.0.2" || rc.GetPort() != 2500 {
+	if rc.Attributes["Id"] != "2" ||
+		rc.Attributes["Ip"] != "10.0.0.2" ||
+		rc.Attributes["Port"] != "2500" {
 		t.Errorf("expected remote {Id:2, ip=10.0.0.2, port=2500}, got %+v", rc)
 	}
 
@@ -300,7 +326,9 @@ func TestListSubscriptions(t *testing.T) {
 		t.Fatalf("expected 1 remote connection, got %d", len(e2.RemoteConnections))
 	}
 	rc2 := e2.RemoteConnections[0]
-	if rc2.GetId() != 3 || rc2.GetIp() != "10.0.0.3" || rc2.GetPort() != 3500 {
+	if rc2.Attributes["Id"] != "3" ||
+		rc2.Attributes["Ip"] != "10.0.0.3" ||
+		rc2.Attributes["Port"] != "3500" {
 		t.Errorf("expected remote {Id:3, ip=10.0.0.3, port=3500}, got %+v", rc2)
 	}
 }
@@ -355,7 +383,8 @@ func TestListConnections(t *testing.T) {
 	if len(received) != 2 {
 		t.Fatalf("expected 2 entries, got %d", len(received))
 	}
-	if received[0].GetIp() != "10.1.1.1" || received[1].GetIp() != "10.1.1.2" {
+	if received[0].Attributes["Ip"] != "10.1.1.1" ||
+		received[1].Attributes["Ip"] != "10.1.1.2" {
 		t.Errorf("unexpected entries: %+v", received)
 	}
 }

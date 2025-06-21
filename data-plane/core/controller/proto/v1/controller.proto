@@ -72,10 +72,7 @@ enum ConnectionType {
 }
 
 message ConnectionEntry {
-  uint64 id = 1;
-  ConnectionType connection_type = 2;
-  string ip = 3;
-  uint32 port = 4;
+  map<string, string> attributes = 1;
 }
 
 message ConnectionListRequest {}
