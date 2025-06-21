@@ -88,14 +88,11 @@ pub struct SubscriptionEntry {
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ConnectionEntry {
-    #[prost(uint64, tag = "1")]
-    pub id: u64,
-    #[prost(enumeration = "ConnectionType", tag = "2")]
-    pub connection_type: i32,
-    #[prost(string, tag = "3")]
-    pub ip: ::prost::alloc::string::String,
-    #[prost(uint32, tag = "4")]
-    pub port: u32,
+    #[prost(map = "string, string", tag = "1")]
+    pub attributes: ::std::collections::HashMap<
+        ::prost::alloc::string::String,
+        ::prost::alloc::string::String,
+    >,
 }
 #[derive(Clone, Copy, PartialEq, ::prost::Message)]
 pub struct ConnectionListRequest {}

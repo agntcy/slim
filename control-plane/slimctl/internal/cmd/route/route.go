@@ -71,11 +71,12 @@ func newListCmd(opts *options.CommonOptions) *cobra.Command {
 						var localNames, remoteNames []string
 						for _, c := range e.GetLocalConnections() {
 							localNames = append(localNames,
-								fmt.Sprintf("local:%d", c.GetId()))
+								fmt.Sprintf("local:%s", c.Attributes["Id"]))
 						}
 						for _, c := range e.GetRemoteConnections() {
 							remoteNames = append(remoteNames,
-								fmt.Sprintf("remote:%s:%d:%d", c.GetIp(), c.GetPort(), c.GetId()))
+								fmt.Sprintf("remote:%s:%s:%s",
+									c.Attributes["Ip"], c.Attributes["Port"], c.Attributes["Id"]))
 						}
 						fmt.Printf("%s/%s/%s id=%d local=%v remote=%v\n",
 							e.GetOrganization(), e.GetNamespace(), e.GetAgentType(),

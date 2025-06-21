@@ -224,37 +224,65 @@ impl ControllerService {
 
                                 for &cid in local {
                                     entry.local_connections.push(ConnectionEntry {
-                                        id:   cid,
-                                        connection_type: ConnectionType::Local as i32,
-                                        ip:   String::new(),
-                                        port: 0,
+                                        attributes: {
+                                            let mut attrs = HashMap::new();
+                                            attrs.insert("connection_id".to_string(), cid.to_string());
+                                            attrs.insert("connection_type".to_string(), format!("{:?}", ConnectionType::Local));
+                                            attrs.insert("ip".to_string(), String::new());
+                                            attrs.insert("port".to_string(), "0".to_string());
+                                            attrs
+                                        },
                                     });
+                                    entry.local_connections.push(
+                                        ConnectionEntry {
+                                            attributes: {
+                                                let mut attrs = HashMap::new();
+                                                attrs.insert("connection_id".to_string(), cid.to_string());
+                                                attrs.insert("connection_type".to_string(), format!("{:?}", ConnectionType::Local));
+                                                attrs.insert("ip".to_string(), String::new());
+                                                attrs.insert("port".to_string(), "0".to_string());
+                                                attrs
+                                            }
+                                        }
+                                    )
                                 }
 
                                 for &cid in remote {
                                     if let Some(conn) = conn_table.get(cid as usize) {
                                         if let Some(sock) = conn.remote_addr() {
                                             entry.remote_connections.push(ConnectionEntry {
-                                                id:   cid,
-                                                connection_type: ConnectionType::Remote as i32,
-                                                ip:   sock.ip().to_string(),
-                                                port: sock.port() as u32,
+                                                attributes: {
+                                                    let mut attrs = HashMap::new();
+                                                    attrs.insert("connection_id".to_string(), cid.to_string());
+                                                    attrs.insert("connection_type".to_string(), format!("{:?}", ConnectionType::Remote));
+                                                    attrs.insert("ip".to_string(), sock.ip().to_string());
+                                                    attrs.insert("port".to_string(), sock.port().to_string());
+                                                    attrs
+                                                }
                                             });
                                         } else {
                                             entry.remote_connections.push(ConnectionEntry {
-                                                id:   cid,
-                                                connection_type: ConnectionType::Remote as i32,
-                                                ip:   String::new(),
-                                                port: 0,
+                                                attributes: {
+                                                    let mut attrs = HashMap::new();
+                                                    attrs.insert("connection_id".to_string(), cid.to_string());
+                                                    attrs.insert("connection_type".to_string(), format!("{:?}", ConnectionType::Remote));
+                                                    attrs.insert("ip".to_string(), String::new());
+                                                    attrs.insert("port".to_string(), "0".to_string());
+                                                    attrs
+                                                }
                                             });
                                         }
                                     } else {
                                         error!("no connection entry for id {}", cid);
                                         entry.remote_connections.push(ConnectionEntry {
-                                            id:   cid,
-                                            connection_type: ConnectionType::Remote as i32,
-                                            ip:   String::new(),
-                                            port: 0,
+                                            attributes: {
+                                                let mut attrs = HashMap::new();
+                                                attrs.insert("connection_id".to_string(), cid.to_string());
+                                                attrs.insert("connection_type".to_string(), format!("{:?}", ConnectionType::Remote));
+                                                attrs.insert("ip".to_string(), String::new());
+                                                attrs.insert("port".to_string(), "0".to_string());
+                                                attrs
+                                            }
                                         });
                                     }
                                 }
@@ -290,10 +318,14 @@ impl ControllerService {
                                     .unwrap_or_else(|| ("".into(), 0));
 
                                 all_entries.push(ConnectionEntry {
-                                    id: id as u64,
-                                    connection_type: ConnectionType::Remote as i32,
-                                    ip,
-                                    port,
+                                    attributes: {
+                                        let mut attrs = HashMap::new();
+                                        attrs.insert("connection_id".to_string(), id.to_string());
+                                        attrs.insert("connection_type".to_string(), format!("{:?}", ConnectionType::Remote));
+                                        attrs.insert("ip".to_string(), ip);
+                                        attrs.insert("port".to_string(), port.to_string());
+                                        attrs
+                                    }
                                 });
                             });
 
