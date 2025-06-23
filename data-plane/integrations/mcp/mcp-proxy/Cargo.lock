@@ -78,6 +78,7 @@ dependencies = [
  "hyper-rustls",
  "hyper-util",
  "lazy_static",
+ "parking_lot",
  "prost",
  "protoc-bin-vendored",
  "regex",

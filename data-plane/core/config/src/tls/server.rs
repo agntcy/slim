@@ -1,19 +1,22 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
-use std::path::Path;
+use std::{path::Path, sync::Arc};
 
 use rustls::{
     RootCertStore, ServerConfig as RustlsServerConfig,
-    server::WebPkiClientVerifier,
+    server::{ResolvesServerCert, WebPkiClientVerifier},
     version::{TLS12, TLS13},
 };
+use rustls_pki_types::CertificateDer;
 use rustls_pki_types::pem::PemObject;
-use rustls_pki_types::{CertificateDer, PrivateKeyDer};
 use serde::Deserialize;
 
 use super::common::{Config, ConfigError, RustlsConfigLoader};
-use crate::component::configuration::{Configuration, ConfigurationError};
+use crate::{
+    component::configuration::{Configuration, ConfigurationError},
+    tls::common::{StaticCertResolver, WatcherCertResolver},
+};
 
 #[derive(Debug, Deserialize, PartialEq, Clone)]
 pub struct TlsServerConfig {
@@ -61,6 +64,24 @@ fn default_reload_client_ca_file() -> bool {
 impl std::fmt::Display for TlsServerConfig {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{:?}", self)
+    }
+}
+
+impl ResolvesServerCert for WatcherCertResolver {
+    fn resolve(
+        &self,
+        _client_hello: rustls::server::ClientHello<'_>,
+    ) -> Option<Arc<rustls::sign::CertifiedKey>> {
+        Some(self.cert.read().clone())
+    }
+}
+
+impl ResolvesServerCert for StaticCertResolver {
+    fn resolve(
+        &self,
+        _client_hello: rustls::server::ClientHello<'_>,
+    ) -> Option<Arc<rustls::sign::CertifiedKey>> {
+        Some(self.cert.clone())
     }
 }
 
@@ -193,8 +214,11 @@ impl TlsServerConfig {
             }
         };
 
+        // create a server ConfigBuilder
+        let config_builder = RustlsServerConfig::builder_with_protocol_versions(&[tls_version]);
+
         // Get certificate & key
-        let (cert, key) = match (
+        let resolver: Arc<dyn ResolvesServerCert> = match (
             self.config.has_cert_file() && self.config.has_key_file(),
             self.config.has_cert_pem() && self.config.has_key_pem(),
         ) {
@@ -206,22 +230,17 @@ impl TlsServerConfig {
                 // If no cert, return an error
                 return Err(ConfigError::MissingServerCertAndKey);
             }
-            (true, false) => (
-                CertificateDer::from_pem_file(Path::new(self.config.cert_file.as_ref().unwrap()))
-                    .map_err(ConfigError::InvalidPem)?,
-                PrivateKeyDer::from_pem_file(Path::new(self.config.key_file.as_ref().unwrap()))
-                    .map_err(ConfigError::InvalidPem)?,
-            ),
-            (false, true) => (
-                CertificateDer::from_pem_slice(self.config.cert_pem.as_ref().unwrap().as_bytes())
-                    .map_err(ConfigError::InvalidPem)?,
-                PrivateKeyDer::from_pem_slice(self.config.key_pem.as_ref().unwrap().as_bytes())
-                    .map_err(ConfigError::InvalidPem)?,
-            ),
+            (true, false) => Arc::new(WatcherCertResolver::new(
+                self.config.key_file.as_ref().unwrap(),
+                self.config.cert_file.as_ref().unwrap(),
+                config_builder.crypto_provider(),
+            )?),
+            (false, true) => Arc::new(StaticCertResolver::new(
+                self.config.key_pem.as_ref().unwrap(),
+                self.config.cert_pem.as_ref().unwrap(),
+                config_builder.crypto_provider(),
+            )?),
         };
-
-        // create a server ConfigBuilder
-        let config_builder = RustlsServerConfig::builder_with_protocol_versions(&[tls_version]);
 
         // Check whether to enable client auth or not
         let client_ca = match (&self.client_ca_file, &self.client_ca_pem) {
@@ -247,13 +266,11 @@ impl TlsServerConfig {
                     .map_err(ConfigError::VerifierBuilder)?;
                 config_builder
                     .with_client_cert_verifier(verifier)
-                    .with_single_cert(vec![cert], key)
-                    .map_err(ConfigError::ConfigBuilder)?
+                    .with_cert_resolver(resolver)
             }
             None => config_builder
                 .with_no_client_auth()
-                .with_single_cert(vec![cert], key)
-                .map_err(ConfigError::ConfigBuilder)?,
+                .with_cert_resolver(resolver),
         };
 
         // We are good to go

@@ -1,22 +1,28 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
-use std::{path::Path, sync::Arc};
+use std::sync::Arc;
 
 use rustls::{
     ClientConfig as RustlsClientConfig, DigitallySignedStruct, Error, RootCertStore,
     SignatureScheme,
-    client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier},
+    client::{
+        ResolvesClientCert,
+        danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier},
+    },
+    sign::CertifiedKey,
     version::{TLS12, TLS13},
 };
-use rustls_pki_types::pem::PemObject;
-use rustls_pki_types::{CertificateDer, PrivateKeyDer, ServerName, UnixTime};
+use rustls_pki_types::{CertificateDer, ServerName, UnixTime};
 use serde;
 use serde::Deserialize;
 use tracing::warn;
 
 use super::common::{Config, ConfigError, RustlsConfigLoader};
-use crate::component::configuration::{Configuration, ConfigurationError};
+use crate::{
+    component::configuration::{Configuration, ConfigurationError},
+    tls::common::{StaticCertResolver, WatcherCertResolver},
+};
 
 #[derive(Debug, Deserialize, PartialEq, Clone)]
 pub struct TlsClientConfig {
@@ -106,6 +112,34 @@ impl ServerCertVerifier for NoVerifier {
             SignatureScheme::ED25519,
             SignatureScheme::ED448,
         ]
+    }
+}
+
+impl ResolvesClientCert for super::common::WatcherCertResolver {
+    fn resolve(
+        &self,
+        _root_hint_subjects: &[&[u8]],
+        _sigschemes: &[SignatureScheme],
+    ) -> Option<Arc<CertifiedKey>> {
+        Some(self.cert.read().clone())
+    }
+
+    fn has_certs(&self) -> bool {
+        true
+    }
+}
+
+impl ResolvesClientCert for super::common::StaticCertResolver {
+    fn resolve(
+        &self,
+        _root_hint_subjects: &[&[u8]],
+        _sigschemes: &[SignatureScheme],
+    ) -> Option<Arc<CertifiedKey>> {
+        Some(self.cert.clone())
+    }
+
+    fn has_certs(&self) -> bool {
+        true
     }
 }
 
@@ -224,49 +258,37 @@ impl TlsClientConfig {
             .with_root_certificates(root_store);
 
         // Check if enable client auth or not
-        let (cert, key) = match (
+        match (
             self.config.has_cert_file() && self.config.has_key_file(),
             self.config.has_cert_pem() && self.config.has_key_pem(),
         ) {
             (true, true) => {
                 // If both cert_file and cert_pem are set, return an error
-                return Err(CannotUseBoth("cert".to_string()));
+                Err(CannotUseBoth("cert".to_string()))
             }
             (false, false) => {
                 // If no client auth, return the config with client auth disabled
-                return Ok(config_builder.with_no_client_auth());
+                Ok(config_builder.with_no_client_auth())
             }
             (true, false) => {
-                // If cert_file is set, load the cert and key from the file
-                let cert = CertificateDer::from_pem_file(Path::new(
+                // Create a custom Certificate provider that watches for changes in the certificate or the key file
+                let cert_resolver = WatcherCertResolver::new(
+                    self.config.key_file.as_ref().unwrap(),
                     self.config.cert_file.as_ref().unwrap(),
-                ))
-                .map_err(InvalidPem)?;
-                let key =
-                    PrivateKeyDer::from_pem_file(Path::new(self.config.key_file.as_ref().unwrap()))
-                        .map_err(InvalidPem)?;
-                (cert, key)
+                    config_builder.crypto_provider(),
+                )?;
+
+                Ok(config_builder.with_client_cert_resolver(Arc::new(cert_resolver)))
             }
             (false, true) => {
-                // If cert_pem is set, load the cert and key from the memory
-                let cert = CertificateDer::from_pem_slice(
-                    self.config.cert_pem.as_ref().unwrap().as_bytes(),
-                )
-                .map_err(InvalidPem)?;
-                let key =
-                    PrivateKeyDer::from_pem_slice(self.config.key_pem.as_ref().unwrap().as_bytes())
-                        .map_err(InvalidPem)?;
-                (cert, key)
+                let cert_resolver = StaticCertResolver::new(
+                    self.config.key_pem.as_ref().unwrap(),
+                    self.config.cert_pem.as_ref().unwrap(),
+                    config_builder.crypto_provider(),
+                )?;
+                Ok(config_builder.with_client_cert_resolver(Arc::new(cert_resolver)))
             }
-        };
-
-        // Set the client auth cert and key
-        let client_config = config_builder
-            .with_client_auth_cert(vec![cert], key)
-            .map_err(ConfigBuilder)?;
-
-        // We are good to go
-        Ok(client_config)
+        }
     }
 }
 
