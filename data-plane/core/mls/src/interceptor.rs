@@ -7,7 +7,7 @@ use slim_datapath::api::MessageType;
 use slim_datapath::api::proto::pubsub::v1::Message;
 use slim_service::session::SessionInterceptor;
 use std::sync::Arc;
-use tracing::{debug, error};
+use tracing::{error, warn, debug};
 
 // Metadata Keys
 const METADATA_MLS_ENCRYPTED: &str = "MLS_ENCRYPTED";
@@ -16,128 +16,138 @@ const METADATA_MLS_GROUP_ID: &str = "MLS_GROUP_ID";
 pub struct MlsInterceptor {
     mls: Arc<Mutex<Mls>>,
     group_id: Vec<u8>,
+    group_id_b64: String,
 }
 
 impl MlsInterceptor {
     pub fn new(mls: Arc<Mutex<Mls>>, group_id: Vec<u8>) -> Self {
-        Self { mls, group_id }
+        use base64::{Engine as _, engine::general_purpose};
+        let group_id_b64 = general_purpose::STANDARD.encode(&group_id);
+        Self { mls, group_id, group_id_b64 }
     }
 }
 
 impl SessionInterceptor for MlsInterceptor {
     fn on_msg_from_app(&self, msg: &mut Message) {
-        debug!("MLS interceptor on_msg_from_app called");
-
+        // Only process Publish message types
         if !msg.is_publish() {
-            debug!("Message is not publish type, skipping MLS");
+            debug!("Skipping non-Publish message type in encryption path");
             return;
         }
 
-        use base64::{Engine as _, engine::general_purpose};
-        let group_id_b64 = general_purpose::STANDARD.encode(&self.group_id);
-        debug!("Added group_id metadata: {}", group_id_b64);
-        msg.insert_metadata(METADATA_MLS_GROUP_ID.to_string(), group_id_b64);
+        msg.insert_metadata(METADATA_MLS_GROUP_ID.to_owned(), self.group_id_b64.clone());
 
         let payload = match msg.get_payload() {
-            Some(content) => content.blob.clone(),
-            None => return,
+            Some(content) => &content.blob,
+            None => {
+                warn!("Message has no payload, skipping MLS processing");
+                return;
+            }
         };
 
-        let original_payload = payload.clone();
-
-        let encrypted_result = {
+        let (encrypted_result, should_mark_encrypted) = {
             let mut mls_guard = self.mls.lock();
             let is_member = mls_guard.is_group_member(&self.group_id);
-            debug!(
-                "Is group member: {}, group_id len: {}",
-                is_member,
-                self.group_id.len()
-            );
 
             if is_member {
-                debug!("Attempting to encrypt message");
-                mls_guard.encrypt_message(&self.group_id, &payload)
+                debug!("Encrypting message for group member");
+                match mls_guard.encrypt_message(&self.group_id, payload) {
+                    Ok(encrypted_payload) => (Ok(encrypted_payload), true),
+                    Err(e) => (Err(e), false),
+                }
             } else {
-                debug!("Not a group member, skipping encryption");
-                Ok(payload)
+                //TODO(zkacsand): DROP
+                debug!("Not a group member, sending message unencrypted");
+                (Ok(payload.to_vec()), false)
             }
         };
 
         match encrypted_result {
-            Ok(encrypted_payload) => {
-                let was_encrypted = encrypted_payload != original_payload;
-
-                if was_encrypted {
-                    debug!("MLS ENCRYPTION:");
-                    debug!(
-                        "   Original: {:?}",
-                        String::from_utf8_lossy(&original_payload)
-                    );
-                    debug!("   Encrypted length: {} bytes", encrypted_payload.len());
-                }
-
+            Ok(final_payload) => {
                 if let Some(MessageType::Publish(publish)) = &mut msg.message_type {
                     if let Some(content) = &mut publish.msg {
-                        content.blob = encrypted_payload;
-                        if was_encrypted {
+                        content.blob = final_payload;
+                        if should_mark_encrypted {
                             msg.insert_metadata(
-                                METADATA_MLS_ENCRYPTED.to_string(),
-                                "true".to_string(),
+                                METADATA_MLS_ENCRYPTED.to_owned(),
+                                "true".to_owned(),
                             );
                         }
                     }
                 }
             }
             Err(e) => {
-                error!("Failed to encrypt message with MLS: {}", e);
+                //TODO(zkacsand): DROP
+                error!("Failed to encrypt message with MLS: {}, dropping message", e);
+                if let Some(MessageType::Publish(publish)) = &mut msg.message_type {
+                    if let Some(content) = &mut publish.msg {
+                        content.blob = Vec::new();
+                    }
+                } else {
+                    error!("Unexpected: message type changed during processing");
+                }
+                
+                return;
             }
         }
     }
 
     fn on_msg_from_slim(&self, msg: &mut Message) {
-        debug!("MLS interceptor on_msg_from_slim called");
-
+        // Only process Publish message types
         if !msg.is_publish() {
-            debug!("Message is not publish type in on_msg_from_slim");
+            debug!("Skipping non-Publish message type in decryption path");
             return;
         }
 
         let is_encrypted =
             msg.metadata.get(METADATA_MLS_ENCRYPTED).map(|v| v.as_str()) == Some("true");
-        debug!(
-            "Message mls_encrypted metadata: {:?}",
-            msg.metadata.get(METADATA_MLS_ENCRYPTED)
-        );
 
         if !is_encrypted {
-            debug!("Message not marked as MLS encrypted, skipping decryption");
+            debug!("Message not marked as encrypted, skipping decryption");
             return;
         }
 
-        let payload = match msg.get_payload() {
-            Some(content) => content.blob.clone(),
-            None => return,
-        };
+        // Validate group ID matches this interceptor
+        match msg.metadata.get(METADATA_MLS_GROUP_ID) {
+            Some(msg_group_id) if msg_group_id == &self.group_id_b64 => {
+                debug!("Group ID validation passed");
+            }
+            Some(msg_group_id) => {
+                warn!("Group ID mismatch: message for '{}', interceptor expects '{}', dropping message", 
+                      msg_group_id, self.group_id_b64);
+                return;
+            }
+            None => {
+                //TODO(zkacsand): DROP
+                warn!("Message missing MLS_GROUP_ID metadata, dropping message");
+                return;
+            }
+        }
 
-        debug!("MLS DECRYPTION:");
-        debug!("   Encrypted length: {} bytes", payload.len());
+        let payload = match msg.get_payload() {
+            Some(content) => &content.blob,
+            None => {
+                //TODO(zkacsand): DROP
+                warn!("Encrypted message has no payload, dropping message");
+                return;
+            }
+        };
 
         let decrypted_result = {
             let mut mls_guard = self.mls.lock();
-            if mls_guard.has_any_groups() {
-                mls_guard.decrypt_message(&payload)
+            let is_member = mls_guard.is_group_member(&self.group_id);
+
+            if is_member {
+                debug!("Decrypting message for group member");
+                mls_guard.decrypt_message(payload)
             } else {
-                Ok(payload)
+                warn!("Not a group member but received encrypted message, passing through unchanged");
+                Ok(payload.to_vec())
             }
         };
 
         match decrypted_result {
             Ok(decrypted_payload) => {
-                debug!(
-                    "   Decrypted: {:?}",
-                    String::from_utf8_lossy(&decrypted_payload)
-                );
-
                 if let Some(MessageType::Publish(publish)) = &mut msg.message_type {
                     if let Some(content) = &mut publish.msg {
                         content.blob = decrypted_payload;
@@ -146,7 +156,17 @@ impl SessionInterceptor for MlsInterceptor {
                 }
             }
             Err(e) => {
-                error!("Failed to decrypt message with MLS: {}", e);
+                //TODO(zkacsand): DROP
+                error!("Failed to decrypt message with MLS: {}, dropping message", e);
+                // Drop the message by clearing its content when decryption fails
+                if let Some(MessageType::Publish(publish)) = &mut msg.message_type {
+                    if let Some(content) = &mut publish.msg {
+                        content.blob = Vec::new();
+                    }
+                } else {
+                    error!("Unexpected: message type changed during processing");
+                }
+                return;
             }
         }
     }
