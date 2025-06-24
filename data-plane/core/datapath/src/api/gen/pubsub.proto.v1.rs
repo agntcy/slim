@@ -111,6 +111,10 @@ pub enum SessionHeaderType {
     RtxReply = 11,
     BeaconStream = 12,
     BeaconPubSub = 13,
+    JoinRequest = 14,
+    JoinReply = 15,
+    LeaveRequest = 16,
+    LeaveReply = 17,
 }
 impl SessionHeaderType {
     /// String value of the enum field names used in the ProtoBuf definition.
@@ -133,6 +137,10 @@ impl SessionHeaderType {
             Self::RtxReply => "RTX_REPLY",
             Self::BeaconStream => "BEACON_STREAM",
             Self::BeaconPubSub => "BEACON_PUB_SUB",
+            Self::JoinRequest => "JOIN_REQUEST",
+            Self::JoinReply => "JOIN_REPLY",
+            Self::LeaveRequest => "LEAVE_REQUEST",
+            Self::LeaveReply => "LEAVE_REPLY",
         }
     }
     /// Creates an enum from field names used in the ProtoBuf definition.
@@ -152,6 +160,10 @@ impl SessionHeaderType {
             "RTX_REPLY" => Some(Self::RtxReply),
             "BEACON_STREAM" => Some(Self::BeaconStream),
             "BEACON_PUB_SUB" => Some(Self::BeaconPubSub),
+            "JOIN_REQUEST" => Some(Self::JoinRequest),
+            "JOIN_REPLY" => Some(Self::JoinReply),
+            "LEAVE_REQUEST" => Some(Self::LeaveRequest),
+            "LEAVE_REPLY" => Some(Self::LeaveReply),
             _ => None,
         }
     }

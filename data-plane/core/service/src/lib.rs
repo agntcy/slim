@@ -13,6 +13,8 @@ mod fire_and_forget;
 mod request_response;
 mod session_layer;
 
+mod channel_moderator;
+
 pub use fire_and_forget::FireAndForgetConfiguration;
 pub use request_response::RequestResponseConfiguration;
 pub use session::SessionMessage;

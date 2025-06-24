@@ -1,6 +1,7 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
+use bincode::{Decode, Encode};
 use std::hash::{Hash, Hasher};
 use twox_hash::XxHash64;
 
@@ -8,7 +9,7 @@ use crate::api::ProtoAgent;
 
 pub const DEFAULT_AGENT_ID: u64 = u64::MAX;
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, Encode, Decode)]
 pub struct AgentType {
     organization: u64,
     namespace: u64,
