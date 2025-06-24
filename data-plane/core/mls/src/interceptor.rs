@@ -7,7 +7,7 @@ use slim_datapath::api::MessageType;
 use slim_datapath::api::proto::pubsub::v1::Message;
 use slim_service::session::SessionInterceptor;
 use std::sync::Arc;
-use tracing::{error, warn, debug};
+use tracing::{debug, error, warn};
 
 // Metadata Keys
 const METADATA_MLS_ENCRYPTED: &str = "MLS_ENCRYPTED";
@@ -23,7 +23,11 @@ impl MlsInterceptor {
     pub fn new(mls: Arc<Mutex<Mls>>, group_id: Vec<u8>) -> Self {
         use base64::{Engine as _, engine::general_purpose};
         let group_id_b64 = general_purpose::STANDARD.encode(&group_id);
-        Self { mls, group_id, group_id_b64 }
+        Self {
+            mls,
+            group_id,
+            group_id_b64,
+        }
     }
 }
 
@@ -56,7 +60,6 @@ impl SessionInterceptor for MlsInterceptor {
                     Err(e) => (Err(e), false),
                 }
             } else {
-                //TODO(zkacsand): DROP
                 debug!("Not a group member, sending message unencrypted");
                 (Ok(payload.to_vec()), false)
             }
@@ -78,7 +81,10 @@ impl SessionInterceptor for MlsInterceptor {
             }
             Err(e) => {
                 //TODO(zkacsand): DROP
-                error!("Failed to encrypt message with MLS: {}, dropping message", e);
+                error!(
+                    "Failed to encrypt message with MLS: {}, dropping message",
+                    e,
+                );
                 if let Some(MessageType::Publish(publish)) = &mut msg.message_type {
                     if let Some(content) = &mut publish.msg {
                         content.blob = Vec::new();
@@ -86,8 +92,6 @@ impl SessionInterceptor for MlsInterceptor {
                 } else {
                     error!("Unexpected: message type changed during processing");
                 }
-                
-                return;
             }
         }
     }
@@ -109,13 +113,17 @@ impl SessionInterceptor for MlsInterceptor {
 
         // Validate group ID matches this interceptor
         match msg.metadata.get(METADATA_MLS_GROUP_ID) {
-            Some(msg_group_id) if msg_group_id == &self.group_id_b64 => {
-                debug!("Group ID validation passed");
-            }
             Some(msg_group_id) => {
-                warn!("Group ID mismatch: message for '{}', interceptor expects '{}', dropping message", 
-                      msg_group_id, self.group_id_b64);
-                return;
+                if msg_group_id == &self.group_id_b64 {
+                    debug!("Group ID validation passed");
+                } else {
+                    //TODO(zkacsand): DROP
+                    warn!(
+                        "Group ID mismatch: message for '{}', interceptor expects '{}', dropping message",
+                        msg_group_id, self.group_id_b64,
+                    );
+                    return;
+                }
             }
             None => {
                 //TODO(zkacsand): DROP
@@ -141,7 +149,9 @@ impl SessionInterceptor for MlsInterceptor {
                 debug!("Decrypting message for group member");
                 mls_guard.decrypt_message(payload)
             } else {
-                warn!("Not a group member but received encrypted message, passing through unchanged");
+                warn!(
+                    "Not a group member but received encrypted message, passing through unchanged"
+                );
                 Ok(payload.to_vec())
             }
         };
@@ -151,13 +161,16 @@ impl SessionInterceptor for MlsInterceptor {
                 if let Some(MessageType::Publish(publish)) = &mut msg.message_type {
                     if let Some(content) = &mut publish.msg {
                         content.blob = decrypted_payload;
-                        msg.metadata.remove(METADATA_MLS_ENCRYPTED);
+                        msg.remove_metadata(METADATA_MLS_ENCRYPTED);
                     }
                 }
             }
             Err(e) => {
                 //TODO(zkacsand): DROP
-                error!("Failed to decrypt message with MLS: {}, dropping message", e);
+                error!(
+                    "Failed to decrypt message with MLS: {}, dropping message",
+                    e
+                );
                 // Drop the message by clearing its content when decryption fails
                 if let Some(MessageType::Publish(publish)) = &mut msg.message_type {
                     if let Some(content) = &mut publish.msg {
@@ -166,7 +179,6 @@ impl SessionInterceptor for MlsInterceptor {
                 } else {
                     error!("Unexpected: message type changed during processing");
                 }
-                return;
             }
         }
     }
