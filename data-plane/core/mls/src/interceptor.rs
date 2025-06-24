@@ -147,7 +147,7 @@ impl SessionInterceptor for MlsInterceptor {
 
             if is_member {
                 debug!("Decrypting message for group member");
-                mls_guard.decrypt_message(payload)
+                mls_guard.decrypt_message(&self.group_id, payload)
             } else {
                 warn!(
                     "Not a group member but received encrypted message, passing through unchanged"

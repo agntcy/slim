@@ -180,37 +180,24 @@ impl Mls {
         Self::map_mls_error(encrypted_msg.to_bytes())
     }
 
-    pub fn decrypt_message(&mut self, encrypted_message: &[u8]) -> Result<Vec<u8>, MlsError> {
-        match self.process_message(encrypted_message)? {
-            Some(data) => Ok(data),
-            None => Err(MlsError::Mls(
+    pub fn decrypt_message(
+        &mut self,
+        group_id: &[u8],
+        encrypted_message: &[u8],
+    ) -> Result<Vec<u8>, MlsError> {
+        let group = self
+            .groups
+            .get_mut(group_id)
+            .ok_or_else(|| MlsError::Mls(format!("Group not found: {:?}", group_id)))?;
+
+        let message = Self::map_mls_error(MlsMessage::from_bytes(encrypted_message))?;
+
+        match Self::map_mls_error(group.process_incoming_message(message))? {
+            ReceivedMessage::ApplicationMessage(app_msg) => Ok(app_msg.data().to_vec()),
+            _ => Err(MlsError::Mls(
                 "Message was not an application message".to_string(),
             )),
         }
-    }
-
-    pub fn process_message(&mut self, message: &[u8]) -> Result<Option<Vec<u8>>, MlsError> {
-        let mls_message = Self::map_mls_error(MlsMessage::from_bytes(message))?;
-
-        for group in self.groups.values_mut() {
-            match group.process_incoming_message(mls_message.clone()) {
-                Ok(received_message) => match received_message {
-                    ReceivedMessage::ApplicationMessage(app_msg) => {
-                        return Ok(Some(app_msg.data().to_vec()));
-                    }
-                    ReceivedMessage::Commit(_)
-                    | ReceivedMessage::Proposal(_)
-                    | ReceivedMessage::GroupInfo(_)
-                    | ReceivedMessage::Welcome
-                    | ReceivedMessage::KeyPackage(_) => return Ok(None),
-                },
-                Err(_) => continue,
-            }
-        }
-
-        Err(MlsError::Mls(
-            "Message could not be processed by any group".to_string(),
-        ))
     }
 
     pub fn write_to_storage(&mut self) -> Result<(), MlsError> {
@@ -278,11 +265,11 @@ mod tests {
 
         let bob_group_id = bob.join_group(&welcome_message)?;
         assert!(bob.is_group_member(&bob_group_id));
-        assert_eq!(group_id, bob_group_id); // Should be the same group
+        assert_eq!(group_id, bob_group_id);
 
         let original_message = b"Hello from Alice!";
         let encrypted = alice.encrypt_message(&group_id, original_message)?;
-        let decrypted = bob.decrypt_message(&encrypted)?;
+        let decrypted = bob.decrypt_message(&bob_group_id, &encrypted)?;
 
         assert_eq!(original_message, decrypted.as_slice());
         assert_ne!(original_message.to_vec(), encrypted);
@@ -291,11 +278,11 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_process_message() -> Result<(), Box<dyn std::error::Error>> {
+    async fn test_decrypt_message() -> Result<(), Box<dyn std::error::Error>> {
         let alice_provider = Arc::new(FileBasedIdentityProvider::new(
-            "/tmp/test_mls_process_alice",
+            "/tmp/test_mls_decrypt_alice",
         )?);
-        let bob_provider = Arc::new(FileBasedIdentityProvider::new("/tmp/test_mls_process_bob")?);
+        let bob_provider = Arc::new(FileBasedIdentityProvider::new("/tmp/test_mls_decrypt_bob")?);
 
         let mut alice = Mls::new("alice".to_string(), alice_provider);
         let mut bob = Mls::new("bob".to_string(), bob_provider);
@@ -306,14 +293,13 @@ mod tests {
 
         let bob_key_package = bob.generate_key_package()?;
         let welcome_message = alice.add_member(&group_id, &bob_key_package)?;
-        bob.join_group(&welcome_message)?;
+        let bob_group_id = bob.join_group(&welcome_message)?;
 
         let message = b"Test message";
         let encrypted = alice.encrypt_message(&group_id, message)?;
 
-        let result = bob.process_message(&encrypted)?;
-        assert!(result.is_some());
-        assert_eq!(result.unwrap(), message);
+        let decrypted = bob.decrypt_message(&bob_group_id, &encrypted)?;
+        assert_eq!(decrypted, message);
 
         Ok(())
     }
