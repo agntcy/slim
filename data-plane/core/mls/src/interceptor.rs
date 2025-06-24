@@ -7,7 +7,11 @@ use slim_datapath::api::MessageType;
 use slim_datapath::api::proto::pubsub::v1::Message;
 use slim_service::session::SessionInterceptor;
 use std::sync::Arc;
-use tracing::warn;
+use tracing::{debug, error};
+
+// Metadata Keys
+const METADATA_MLS_ENCRYPTED: &str = "MLS_ENCRYPTED";
+const METADATA_MLS_GROUP_ID: &str = "MLS_GROUP_ID";
 
 pub struct MlsInterceptor {
     mls: Arc<Mutex<Mls>>,
@@ -22,18 +26,17 @@ impl MlsInterceptor {
 
 impl SessionInterceptor for MlsInterceptor {
     fn on_msg_from_app(&self, msg: &mut Message) {
-        warn!("MLS interceptor on_msg_from_app called");
+        debug!("MLS interceptor on_msg_from_app called");
 
         if !msg.is_publish() {
-            warn!("Message is not publish type, skipping MLS");
+            debug!("Message is not publish type, skipping MLS");
             return;
         }
 
         use base64::{Engine as _, engine::general_purpose};
         let group_id_b64 = general_purpose::STANDARD.encode(&self.group_id);
-        warn!("Added group_id metadata: {}", group_id_b64);
-        msg.metadata
-            .insert("mls_group_id".to_string(), group_id_b64);
+        debug!("Added group_id metadata: {}", group_id_b64);
+        msg.insert_metadata(METADATA_MLS_GROUP_ID.to_string(), group_id_b64);
 
         let payload = match msg.get_payload() {
             Some(content) => content.blob.clone(),
@@ -45,17 +48,17 @@ impl SessionInterceptor for MlsInterceptor {
         let encrypted_result = {
             let mut mls_guard = self.mls.lock();
             let is_member = mls_guard.is_group_member(&self.group_id);
-            warn!(
+            debug!(
                 "Is group member: {}, group_id len: {}",
                 is_member,
                 self.group_id.len()
             );
 
             if is_member {
-                warn!("Attempting to encrypt message");
+                debug!("Attempting to encrypt message");
                 mls_guard.encrypt_message(&self.group_id, &payload)
             } else {
-                warn!("Not a group member, skipping encryption");
+                debug!("Not a group member, skipping encryption");
                 Ok(payload)
             }
         };
@@ -65,46 +68,49 @@ impl SessionInterceptor for MlsInterceptor {
                 let was_encrypted = encrypted_payload != original_payload;
 
                 if was_encrypted {
-                    warn!("MLS ENCRYPTION:");
-                    warn!(
+                    debug!("MLS ENCRYPTION:");
+                    debug!(
                         "   Original: {:?}",
                         String::from_utf8_lossy(&original_payload)
                     );
-                    warn!("   Encrypted length: {} bytes", encrypted_payload.len());
+                    debug!("   Encrypted length: {} bytes", encrypted_payload.len());
                 }
 
                 if let Some(MessageType::Publish(publish)) = &mut msg.message_type {
                     if let Some(content) = &mut publish.msg {
                         content.blob = encrypted_payload;
                         if was_encrypted {
-                            msg.metadata
-                                .insert("mls_encrypted".to_string(), "true".to_string());
+                            msg.insert_metadata(
+                                METADATA_MLS_ENCRYPTED.to_string(),
+                                "true".to_string(),
+                            );
                         }
                     }
                 }
             }
             Err(e) => {
-                warn!("Failed to encrypt message with MLS: {}", e);
+                error!("Failed to encrypt message with MLS: {}", e);
             }
         }
     }
 
     fn on_msg_from_slim(&self, msg: &mut Message) {
-        warn!("MLS interceptor on_msg_from_slim called");
+        debug!("MLS interceptor on_msg_from_slim called");
 
         if !msg.is_publish() {
-            warn!("Message is not publish type in on_msg_from_slim");
+            debug!("Message is not publish type in on_msg_from_slim");
             return;
         }
 
-        let is_encrypted = msg.metadata.get("mls_encrypted").map(|v| v.as_str()) == Some("true");
-        warn!(
+        let is_encrypted =
+            msg.metadata.get(METADATA_MLS_ENCRYPTED).map(|v| v.as_str()) == Some("true");
+        debug!(
             "Message mls_encrypted metadata: {:?}",
-            msg.metadata.get("mls_encrypted")
+            msg.metadata.get(METADATA_MLS_ENCRYPTED)
         );
 
         if !is_encrypted {
-            warn!("Message not marked as MLS encrypted, skipping decryption");
+            debug!("Message not marked as MLS encrypted, skipping decryption");
             return;
         }
 
@@ -113,8 +119,8 @@ impl SessionInterceptor for MlsInterceptor {
             None => return,
         };
 
-        warn!("MLS DECRYPTION:");
-        warn!("   Encrypted length: {} bytes", payload.len());
+        debug!("MLS DECRYPTION:");
+        debug!("   Encrypted length: {} bytes", payload.len());
 
         let decrypted_result = {
             let mut mls_guard = self.mls.lock();
@@ -127,7 +133,7 @@ impl SessionInterceptor for MlsInterceptor {
 
         match decrypted_result {
             Ok(decrypted_payload) => {
-                warn!(
+                debug!(
                     "   Decrypted: {:?}",
                     String::from_utf8_lossy(&decrypted_payload)
                 );
@@ -135,12 +141,12 @@ impl SessionInterceptor for MlsInterceptor {
                 if let Some(MessageType::Publish(publish)) = &mut msg.message_type {
                     if let Some(content) = &mut publish.msg {
                         content.blob = decrypted_payload;
-                        msg.metadata.remove("mls_encrypted");
+                        msg.metadata.remove(METADATA_MLS_ENCRYPTED);
                     }
                 }
             }
             Err(e) => {
-                warn!("Failed to decrypt message with MLS: {}", e);
+                error!("Failed to decrypt message with MLS: {}", e);
             }
         }
     }
@@ -170,12 +176,11 @@ mod tests {
             "text",
             b"test message".to_vec(),
         );
-        msg.metadata
-            .insert("mls_group_id".to_string(), "test_group".to_string());
+        msg.insert_metadata(METADATA_MLS_GROUP_ID.to_string(), "test_group".to_string());
 
         interceptor.on_msg_from_app(&mut msg);
         assert_eq!(msg.get_payload().unwrap().blob, b"test message");
-        assert_eq!(msg.metadata.get("mls_encrypted"), None);
+        assert_eq!(msg.metadata.get(METADATA_MLS_ENCRYPTED), None);
     }
 
     #[tokio::test]
@@ -212,15 +217,16 @@ mod tests {
             "text",
             original_payload.to_vec(),
         );
-        alice_msg
-            .metadata
-            .insert("mls_group_id".to_string(), group_id_str);
+        alice_msg.insert_metadata(METADATA_MLS_GROUP_ID.to_string(), group_id_str);
 
         alice_interceptor.on_msg_from_app(&mut alice_msg);
 
         assert_ne!(alice_msg.get_payload().unwrap().blob, original_payload);
         assert_eq!(
-            alice_msg.metadata.get("mls_encrypted").map(|v| v.as_str()),
+            alice_msg
+                .metadata
+                .get(METADATA_MLS_ENCRYPTED)
+                .map(|v| v.as_str()),
             Some("true")
         );
 
@@ -228,7 +234,7 @@ mod tests {
         bob_interceptor.on_msg_from_slim(&mut bob_msg);
 
         assert_eq!(bob_msg.get_payload().unwrap().blob, original_payload);
-        assert_eq!(bob_msg.metadata.get("mls_encrypted"), None);
+        assert_eq!(bob_msg.metadata.get(METADATA_MLS_ENCRYPTED), None);
     }
 
     #[tokio::test]
