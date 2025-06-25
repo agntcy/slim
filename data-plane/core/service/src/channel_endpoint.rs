@@ -47,67 +47,158 @@ impl crate::timer::TimerObserver for RequestTimerObserver {
     }
 }
 
+enum ChannelEndpoint {
+    ChannelParticipant,
+    ChannelModerator,
+}
+
+trait OnMessageReceived {
+    fn on_message(&mut self, msg: Message);
+}
+
+struct Endpoint {
+    /// endpoint name
+    name: Agent,
+
+    /// channel name
+    channel_name: AgentType,
+    
+    /// id of the current session
+    session_id: Id,
+
+    /// connection id to the next hop SLIM
+    conn: u64,
+
+    /// true is the endpoint is already subscribed to the channel
+    subscribed: bool,
+
+    /// channel to send messages to the local slim instance
+    send_slim: SlimChannelSender,
+}
+
+impl Endpoint {
+    pub fn new(
+        name: Agent,
+        channel_name: AgentType,
+        session_id: Id,
+        conn: u64,
+        send_slim: SlimChannelSender,
+    ) -> Self {
+        Endpoint { name, channel_name, session_id, conn, subscribed: false, send_slim }
+    }
+
+    async fn join(&self) {
+        // subscribe only once to the channel
+        if self.subscribed {
+            return;
+        }
+
+        // subscribe for the topic
+        let header = Some(SlimHeaderFlags::default().with_forward_to(self.conn));
+        let sub = Message::new_subscribe(&self.name, &self.channel_name, None, header);
+
+        // TODO
+        // handle error
+        self.send(sub).await;
+    }
+
+    async fn leave(&self) {
+        // unsubscribe for the topic
+        let header = Some(SlimHeaderFlags::default().with_forward_to(self.conn));
+        let sub = Message::new_unsubscribe(&self.name, &self.channel_name, None, header);
+
+        // TODO
+        // handle error
+        self.send(sub).await;
+    }
+
+    async fn send(&self, msg: Message) {
+        // TODO
+         // handle error
+        if self.send_slim.send(Ok(msg)).await.is_err() {
+            error!("error sending invite message");
+        }
+    }
+}
+
+struct ChannelParticipant {
+    endpoint: Endpoint,
+}
+
+impl ChannelParticipant {
+    pub fn new(
+        name: Agent,
+        channel_name: AgentType,
+        session_id: Id,
+        conn: u64,
+        send_slim: SlimChannelSender,
+    ) -> Self {
+        let endpoint = Endpoint::new(name, channel_name, session_id, conn, send_slim);
+        ChannelParticipant {endpoint}
+    }
+}
+
+impl OnMessageReceived for ChannelParticipant {
+    fn on_message(&mut self, msg: Message) {
+        todo!()
+    }
+}
+
 #[allow(dead_code)]
 struct ChannelModerator {
-    source: Agent,
-    topic: AgentType,
-    session_id: Id,
-    conn: u64,
-    group: HashSet<Agent>,
+    endpoint: Endpoint,
+
+    /// list of endpoint names in the channel
+    channel_list: HashSet<Agent>,
+
+    /// list of pending requests and related timers
     pending_requests: HashMap<Agent, crate::timer::Timer>,
-    send_slim: SlimChannelSender,
+
+    /// number or maximum retries before give up with a control message
+    max_reties: u32,
+
+    /// interval between retries
+    retries_interval: Duration,
 }
 
 #[allow(dead_code)]
 impl ChannelModerator {
     pub fn new(
-        source: Agent,
-        topic: AgentType,
+        name: Agent,
+        channel_name: AgentType,
         session_id: Id,
         conn: u64,
+        max_reties: u32,
+        retries_interval: Duration,
         send_slim: SlimChannelSender,
     ) -> Self {
+        let endpoint = Endpoint::new(name, channel_name, session_id, conn, send_slim);
         ChannelModerator {
-            source,
-            topic,
-            session_id,
-            conn,
-            group: HashSet::new(),
+            endpoint,
+            channel_list: HashSet::new(),
             pending_requests: HashMap::new(),
-            send_slim,
+            max_reties,
+            retries_interval,
         }
     }
 
     pub async fn invite(&mut self, agent: &AgentType) {
+        // join the channel if needed
+        self.endpoint.join().await;
+
+        // create a join message to invite a new endpoint to the group
         let join = self.create_request(agent, None, SessionHeaderType::JoinRequest);
 
         // TODO
         // return an error
-        if self.send_slim.send(Ok(join.clone())).await.is_err() {
-            error!("error sending invite message");
-            return;
-        }
+        self.endpoint.send(join.clone()).await;
 
         // create a timer for this request
-        let observer = Arc::new(RequestTimerObserver {
-            message: join,
-            send_slim: self.send_slim.clone(),
-        });
-
-        let timer = crate::timer::Timer::new(
-            rand::random::<u32>(),
-            crate::timer::TimerType::Constant,
-            Duration::from_secs(1),
-            None,
-            Some(10),
-        );
-        timer.start(observer);
-
         let a = Agent::new(agent.clone(), DEFAULT_AGENT_ID);
-        self.pending_requests.insert(a, timer);
+        self.create_timer(a, join);
     }
 
-    pub async fn ask_to_leave(&mut self, agent: &Agent) {
+    pub async fn ask_to_leave(&mut self, agent: Agent) {
         let leave = self.create_request(
             agent.agent_type(),
             agent.agent_id_option(),
@@ -116,61 +207,60 @@ impl ChannelModerator {
 
         // TODO
         // return an error
-        if self.send_slim.send(Ok(leave.clone())).await.is_err() {
-            error!("error sending invite message");
-            return;
-        }
+        self.endpoint.send(leave.clone()).await;
 
         // create a timer for this request
+        self.create_timer(agent, leave);
+    }
+
+    pub async fn delete_group(&mut self) {
+        for a in self.channel_list.clone() {
+            self.ask_to_leave(a).await;
+        }
+
+        self.endpoint.leave().await;
+    }
+
+    fn create_request(
+        &self,
+        agent: &AgentType,
+        agent_id: Option<u64>,
+        request_type: SessionHeaderType,
+    ) -> Message {
+        let agp_header = Some(SlimHeader::new(&self.endpoint.name, agent, agent_id, None));
+
+        let session_header = Some(SessionHeader::new(
+            request_type.into(),
+            self.endpoint.session_id,
+            rand::random::<u32>(),
+        ));
+
+        let payload = bincode::encode_to_vec(&self.endpoint.channel_name, bincode::config::standard()).unwrap();
+        Message::new_publish_with_headers(agp_header, session_header, "", payload)
+    }
+
+    fn create_timer(&mut self, name: Agent, msg: Message) {
         let observer = Arc::new(RequestTimerObserver {
-            message: leave,
-            send_slim: self.send_slim.clone(),
+            message: msg,
+            send_slim: self.endpoint.send_slim.clone(),
         });
 
         let timer = crate::timer::Timer::new(
             rand::random::<u32>(),
             crate::timer::TimerType::Constant,
-            Duration::from_secs(1),
+            self.retries_interval,
             None,
-            Some(10),
+            Some(self.max_reties),
         );
         timer.start(observer);
 
-        self.pending_requests.insert(agent.clone(), timer);
+        //let a = Agent::new(agent.clone(), DEFAULT_AGENT_ID);
+        self.pending_requests.insert(name, timer);
     }
+}
 
-    pub async fn join(&self) {
-        // subscribe for the topic
-        let header = Some(SlimHeaderFlags::default().with_forward_to(self.conn));
-        let sub = Message::new_subscribe(&self.source, &self.topic, None, header);
-
-        // TODO
-        // return an error
-        if self.send_slim.send(Ok(sub)).await.is_err() {
-            error!("error sending invite message");
-        }
-    }
-
-    pub async fn leave(&self) {
-        // unsubscribe for the topic
-        let header = Some(SlimHeaderFlags::default().with_forward_to(self.conn));
-        let sub = Message::new_unsubscribe(&self.source, &self.topic, None, header);
-
-        // TODO
-        // return an error
-        if self.send_slim.send(Ok(sub)).await.is_err() {
-            error!("error sending invite message");
-        }
-    }
-
-    pub async fn delete_group(&mut self) {
-        for a in self.group.clone() {
-            self.ask_to_leave(&a).await;
-        }
-        self.leave().await;
-    }
-
-    pub fn process_response_msg(&mut self, msg: Message) {
+impl OnMessageReceived for ChannelModerator {
+    fn on_message(&mut self, msg: Message) {
         let msg_type = msg.get_session_header().header_type();
         match msg_type {
             SessionHeaderType::JoinReply => {
@@ -181,7 +271,7 @@ impl ChannelModerator {
                     Some(t) => {
                         t.stop();
                         self.pending_requests.remove(&src);
-                        self.group.insert(src);
+                        self.channel_list.insert(src);
                     }
                     None => {
                         error!("received a reply from unknown agent, drop message");
@@ -195,7 +285,7 @@ impl ChannelModerator {
                     Some(t) => {
                         t.stop();
                         self.pending_requests.remove(&src);
-                        self.group.remove(&src);
+                        self.channel_list.remove(&src);
                     }
                     None => {
                         error!("received a reply from unknown agent, drop message");
@@ -206,24 +296,6 @@ impl ChannelModerator {
                 error!("received unexpected packet type");
             }
         }
-    }
-
-    fn create_request(
-        &self,
-        agent: &AgentType,
-        agent_id: Option<u64>,
-        request_type: SessionHeaderType,
-    ) -> Message {
-        let agp_header = Some(SlimHeader::new(&self.source, agent, agent_id, None));
-
-        let session_header = Some(SessionHeader::new(
-            request_type.into(),
-            self.session_id,
-            rand::random::<u32>(),
-        ));
-
-        let payload = bincode::encode_to_vec(&self.topic, bincode::config::standard()).unwrap();
-        Message::new_publish_with_headers(agp_header, session_header, "", payload)
     }
 }
 
@@ -240,17 +312,18 @@ mod tests {
     #[tokio::test]
     #[traced_test]
     async fn test_invite_no_reply() {
-        let (tx_gw, mut rx_gw) = tokio::sync::mpsc::channel(1);
-        let source = Agent::from_strings("org", "default", "channel", 0);
-        let topic = AgentType::from_strings("org", "channel", "channel");
+        let (tx_slim, mut rx_slim) = tokio::sync::mpsc::channel(1);
+        let source = Agent::from_strings("org", "default", "source", 0);
+        let topic = AgentType::from_strings("org", "default", "channel");
 
         let agent_to_invite = Agent::from_strings("org", "default", "to_invite", 5120);
 
-        let mut h = ChannelModerator::new(source, topic.clone(), SESSION_ID, 1, tx_gw);
+        let mut cm = ChannelModerator::new(source, topic.clone(), SESSION_ID, 1, 10, Duration::from_secs(1), tx_slim);
 
-        h.invite(agent_to_invite.agent_type()).await;
+        cm.invite(agent_to_invite.agent_type()).await;
 
-        let mut request = h.create_request(
+        // create a request to compare with the output of the invite
+        let mut request = cm.create_request(
             agent_to_invite.agent_type(),
             None,
             SessionHeaderType::JoinRequest,
@@ -258,7 +331,7 @@ mod tests {
         request.get_session_header_mut().set_message_id(REQ_ID); // this is random so put a known value here
 
         for _ in 0..11 {
-            let mut msg = rx_gw.recv().await.unwrap().unwrap();
+            let mut msg = rx_slim.recv().await.unwrap().unwrap();
             let payload = &msg.get_payload().unwrap().blob;
             let agent: AgentType =
                 bincode::decode_from_slice(payload.as_ref(), bincode::config::standard())
@@ -274,24 +347,24 @@ mod tests {
     #[tokio::test]
     #[traced_test]
     async fn test_invite_with_reply() {
-        let (tx_gw, mut rx_gw) = tokio::sync::mpsc::channel(1);
+        let (tx_slim, mut rx_slim) = tokio::sync::mpsc::channel(1);
         let source = Agent::from_strings("org", "default", "source", 12345);
         let topic = AgentType::from_strings("org", "channel", "topic");
 
         let agent_to_invite = Agent::from_strings("org", "default", "to_invite", 5120);
 
-        let mut h = ChannelModerator::new(source.clone(), topic, SESSION_ID, 1, tx_gw);
+        let mut cm = ChannelModerator::new(source.clone(), topic, SESSION_ID, 1, 10, Duration::from_secs(1), tx_slim);
 
-        h.invite(agent_to_invite.agent_type()).await;
+        cm.invite(agent_to_invite.agent_type()).await;
 
-        let mut request = h.create_request(
+        let mut request = cm.create_request(
             agent_to_invite.agent_type(),
             None,
             SessionHeaderType::JoinRequest,
         );
         request.get_session_header_mut().set_message_id(REQ_ID); // this is random so put a known value here
 
-        let mut msg = rx_gw.recv().await.unwrap().unwrap();
+        let mut msg = rx_slim.recv().await.unwrap().unwrap();
         msg.get_session_header_mut().set_message_id(REQ_ID);
         assert_eq!(msg, request);
 
@@ -312,18 +385,18 @@ mod tests {
         let reply = Message::new_publish_with_headers(agp_header, session_header, "", vec![]);
 
         // receive the reply msg
-        h.process_response_msg(reply);
+        cm.on_message(reply);
 
-        h.ask_to_leave(&agent_to_invite).await;
+        cm.ask_to_leave(agent_to_invite.clone()).await;
 
-        let mut request = h.create_request(
+        let mut request = cm.create_request(
             agent_to_invite.agent_type(),
             agent_to_invite.agent_id_option(),
             SessionHeaderType::LeaveRequest,
         );
         request.get_session_header_mut().set_message_id(REQ_ID); // this is random so put a known value here
 
-        let mut msg = rx_gw.recv().await.unwrap().unwrap();
+        let mut msg = rx_slim.recv().await.unwrap().unwrap();
         msg.get_session_header_mut().set_message_id(REQ_ID);
         assert_eq!(msg, request);
 
@@ -344,6 +417,6 @@ mod tests {
         let reply = Message::new_publish_with_headers(agp_header, session_header, "", vec![]);
 
         // receive the reply msg
-        h.process_response_msg(reply);
+        cm.on_message(reply);
     }
 }
