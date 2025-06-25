@@ -40,7 +40,7 @@ runs:
               workflow_id: 'test-integrations.yaml',
               ref: 'main',
               inputs: {
-                  skip_directory_test: true,
+                  skip_slim_test: false,
                   override_slim_image_tag: '${{ steps.tags.outputs.IMAGE_TAG }}',
                   override_slim_chart_tag: '${{ steps.tags.outputs.CHART_TAG }}',
               },
