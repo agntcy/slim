@@ -15,7 +15,8 @@ use tracing::{debug, error};
 use crate::errors::SessionError;
 use crate::session::{
     AppChannelSender, Common, CommonSession, Id, MessageDirection, Session, SessionConfig,
-    SessionConfigTrait, SessionDirection, SessionMessage, SlimChannelSender, State,
+    SessionConfigTrait, SessionDirection, SessionInterceptor, SessionMessage, SlimChannelSender,
+    State,
 };
 use crate::timer;
 use slim_datapath::api::proto::pubsub::v1::{Message, SessionHeaderType};
@@ -700,6 +701,12 @@ impl CommonSession for FireAndForget {
 
     fn on_message_from_slim_interceptors(&self, msg: &mut Message) {
         self.common.on_message_from_slim_interceptors(msg);
+    }
+}
+
+impl crate::session::Interceptor for FireAndForget {
+    fn add_interceptor(&self, interceptor: Box<dyn SessionInterceptor + Send + Sync + 'static>) {
+        self.common.add_interceptor(interceptor);
     }
 }
 

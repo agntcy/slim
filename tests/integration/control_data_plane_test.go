@@ -109,6 +109,8 @@ var _ = Describe("Routing", func() {
 		)
 		Expect(err).NotTo(HaveOccurred())
 
+		time.Sleep(3000 * time.Millisecond)
+
 		clientASession, err = gexec.Start(
 			exec.Command(sdkMockPath,
 				"--config", "./testdata/client-a-config.yaml",

@@ -46,7 +46,8 @@ pub async fn setup_test_jwt_resolver(algorithm: Algorithm) -> (String, MockServe
             // Get PKCS8 DER format for the private key
             let private_key_pkcs8 = private_key.as_der().unwrap();
             // Get public key DER format
-            let public_key_der = public_key.as_der().unwrap();
+            // With aws-lc-rs 1.13: public_key.as_der().unwrap();
+            let public_key_der = public_key;
 
             // Derive key ID from the public key
             let key_id = URL_SAFE_NO_PAD.encode(public_key_der.as_ref());
