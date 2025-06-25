@@ -231,9 +231,9 @@ pub(crate) trait CommonSession: Interceptor {
     // set the session config
     fn set_session_config(&self, session_config: &SessionConfig) -> Result<(), SessionError>;
 
-    fn on_message_from_app_interceptors(&self, msg: &mut Message);
+    fn on_message_from_app_interceptors(&self, msg: &mut Message) -> Result<(), SessionError>;
 
-    fn on_message_from_slim_interceptors(&self, msg: &mut Message);
+    fn on_message_from_slim_interceptors(&self, msg: &mut Message) -> Result<(), SessionError>;
 }
 
 pub(crate) trait Interceptor {
@@ -242,9 +242,9 @@ pub(crate) trait Interceptor {
 
 pub trait SessionInterceptor {
     // interceptor to be executed when a message is received from the app
-    fn on_msg_from_app(&self, msg: &mut Message);
+    fn on_msg_from_app(&self, msg: &mut Message) -> Result<(), SessionError>;
     // interceptor to be executed when a message is received from slim
-    fn on_msg_from_slim(&self, msg: &mut Message);
+    fn on_msg_from_slim(&self, msg: &mut Message) -> Result<(), SessionError>;
 }
 
 struct IdentitySessionInterceptor {
@@ -252,13 +252,16 @@ struct IdentitySessionInterceptor {
 }
 
 impl SessionInterceptor for IdentitySessionInterceptor {
-    fn on_msg_from_app(&self, msg: &mut Message) {
+    fn on_msg_from_app(&self, msg: &mut Message) -> Result<(), SessionError> {
         if let Some(i) = &self.identity {
             msg.insert_metadata(SLIM_IDENTITY.to_owned(), i.to_string())
         }
+        Ok(())
     }
 
-    fn on_msg_from_slim(&self, _msg: &mut Message) {}
+    fn on_msg_from_slim(&self, _msg: &mut Message) -> Result<(), SessionError> {
+        Ok(())
+    }
 }
 
 #[async_trait]
@@ -343,18 +346,20 @@ impl CommonSession for Common {
         Ok(())
     }
 
-    fn on_message_from_app_interceptors(&self, msg: &mut Message) {
+    fn on_message_from_app_interceptors(&self, msg: &mut Message) -> Result<(), SessionError> {
         let interceptors = RwLockReadGuard::map(self.interceptors.read(), |x| x);
         for i in interceptors.iter() {
-            i.on_msg_from_app(msg);
+            i.on_msg_from_app(msg)?;
         }
+        Ok(())
     }
 
-    fn on_message_from_slim_interceptors(&self, msg: &mut Message) {
+    fn on_message_from_slim_interceptors(&self, msg: &mut Message) -> Result<(), SessionError> {
         let interceptors = RwLockReadGuard::map(self.interceptors.read(), |x| x);
         for i in interceptors.iter() {
-            i.on_msg_from_slim(msg);
+            i.on_msg_from_slim(msg)?;
         }
+        Ok(())
     }
 }
 
@@ -448,11 +453,11 @@ macro_rules! delegate_common_behavior {
                 self.$($tokens).+.identity()
             }
 
-            fn on_message_from_app_interceptors(&self, msg: &mut slim_datapath::api::proto::pubsub::v1::Message) {
+            fn on_message_from_app_interceptors(&self, msg: &mut slim_datapath::api::proto::pubsub::v1::Message) -> Result<(), SessionError> {
                 self.$($tokens).+.on_message_from_app_interceptors(msg)
             }
 
-            fn on_message_from_slim_interceptors(&self, msg: &mut slim_datapath::api::proto::pubsub::v1::Message) {
+            fn on_message_from_slim_interceptors(&self, msg: &mut slim_datapath::api::proto::pubsub::v1::Message) -> Result<(), SessionError> {
                 self.$($tokens).+.on_message_from_slim_interceptors(msg)
             }
         }

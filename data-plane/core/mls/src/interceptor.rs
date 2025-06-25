@@ -5,7 +5,7 @@ use crate::mls::Mls;
 use parking_lot::Mutex;
 use slim_datapath::api::MessageType;
 use slim_datapath::api::proto::pubsub::v1::Message;
-use slim_service::session::SessionInterceptor;
+use slim_service::{errors::SessionError, session::SessionInterceptor};
 use std::sync::Arc;
 use tracing::{debug, error, warn};
 
@@ -32,11 +32,11 @@ impl MlsInterceptor {
 }
 
 impl SessionInterceptor for MlsInterceptor {
-    fn on_msg_from_app(&self, msg: &mut Message) {
+    fn on_msg_from_app(&self, msg: &mut Message) -> Result<(), SessionError> {
         // Only process Publish message types
         if !msg.is_publish() {
             debug!("Skipping non-Publish message type in encryption path");
-            return;
+            return Ok(());
         }
 
         msg.insert_metadata(METADATA_MLS_GROUP_ID.to_owned(), self.group_id_b64.clone());
@@ -45,7 +45,7 @@ impl SessionInterceptor for MlsInterceptor {
             Some(content) => &content.blob,
             None => {
                 warn!("Message has no payload, skipping MLS processing");
-                return;
+                return Ok(());
             }
         };
 
@@ -60,8 +60,13 @@ impl SessionInterceptor for MlsInterceptor {
                     Err(e) => (Err(e), false),
                 }
             } else {
-                debug!("Not a group member, sending message unencrypted");
-                (Ok(payload.to_vec()), false)
+                warn!("Not a group member, dropping message");
+                (
+                    Err(crate::errors::MlsError::Mls(
+                        "Not a group member".to_string(),
+                    )),
+                    false,
+                )
             }
         };
 
@@ -80,27 +85,24 @@ impl SessionInterceptor for MlsInterceptor {
                 }
             }
             Err(e) => {
-                //TODO(zkacsand): DROP
                 error!(
                     "Failed to encrypt message with MLS: {}, dropping message",
-                    e,
+                    e
                 );
-                if let Some(MessageType::Publish(publish)) = &mut msg.message_type {
-                    if let Some(content) = &mut publish.msg {
-                        content.blob = Vec::new();
-                    }
-                } else {
-                    error!("Unexpected: message type changed during processing");
-                }
+                return Err(SessionError::InterceptorError(format!(
+                    "MLS encryption failed: {}",
+                    e
+                )));
             }
         }
+        Ok(())
     }
 
-    fn on_msg_from_slim(&self, msg: &mut Message) {
+    fn on_msg_from_slim(&self, msg: &mut Message) -> Result<(), SessionError> {
         // Only process Publish message types
         if !msg.is_publish() {
             debug!("Skipping non-Publish message type in decryption path");
-            return;
+            return Ok(());
         }
 
         let is_encrypted =
@@ -108,7 +110,7 @@ impl SessionInterceptor for MlsInterceptor {
 
         if !is_encrypted {
             debug!("Message not marked as encrypted, skipping decryption");
-            return;
+            return Ok(());
         }
 
         // Validate group ID matches this interceptor
@@ -117,27 +119,31 @@ impl SessionInterceptor for MlsInterceptor {
                 if msg_group_id == &self.group_id_b64 {
                     debug!("Group ID validation passed");
                 } else {
-                    //TODO(zkacsand): DROP
                     warn!(
-                        "Group ID mismatch: message for '{}', interceptor expects '{}', dropping message",
+                        "Group ID mismatch: message for '{}', interceptor expects '{}'",
                         msg_group_id, self.group_id_b64,
                     );
-                    return;
+                    return Err(SessionError::InterceptorError(format!(
+                        "Group ID mismatch: expected '{}', got '{}'",
+                        self.group_id_b64, msg_group_id
+                    )));
                 }
             }
             None => {
-                //TODO(zkacsand): DROP
-                warn!("Message missing MLS_GROUP_ID metadata, dropping message");
-                return;
+                warn!("Message missing MLS_GROUP_ID metadata");
+                return Err(SessionError::InterceptorError(
+                    "Message missing MLS_GROUP_ID metadata".to_string(),
+                ));
             }
         }
 
         let payload = match msg.get_payload() {
             Some(content) => &content.blob,
             None => {
-                //TODO(zkacsand): DROP
-                warn!("Encrypted message has no payload, dropping message");
-                return;
+                warn!("Encrypted message has no payload");
+                return Err(SessionError::InterceptorError(
+                    "Encrypted message has no payload".to_string(),
+                ));
             }
         };
 
@@ -149,10 +155,10 @@ impl SessionInterceptor for MlsInterceptor {
                 debug!("Decrypting message for group member");
                 mls_guard.decrypt_message(&self.group_id, payload)
             } else {
-                warn!(
-                    "Not a group member but received encrypted message, passing through unchanged"
-                );
-                Ok(payload.to_vec())
+                warn!("Not a group member but received encrypted message, dropping message");
+                Err(crate::errors::MlsError::Mls(
+                    "Not a group member".to_string(),
+                ))
             }
         };
 
@@ -166,21 +172,14 @@ impl SessionInterceptor for MlsInterceptor {
                 }
             }
             Err(e) => {
-                //TODO(zkacsand): DROP
-                error!(
-                    "Failed to decrypt message with MLS: {}, dropping message",
+                error!("Failed to decrypt message with MLS: {}", e);
+                return Err(SessionError::InterceptorError(format!(
+                    "MLS decryption failed: {}",
                     e
-                );
-                // Drop the message by clearing its content when decryption fails
-                if let Some(MessageType::Publish(publish)) = &mut msg.message_type {
-                    if let Some(content) = &mut publish.msg {
-                        content.blob = Vec::new();
-                    }
-                } else {
-                    error!("Unexpected: message type changed during processing");
-                }
+                )));
             }
         }
+        Ok(())
     }
 }
 
@@ -210,9 +209,14 @@ mod tests {
         );
         msg.insert_metadata(METADATA_MLS_GROUP_ID.to_string(), "test_group".to_string());
 
-        interceptor.on_msg_from_app(&mut msg);
-        assert_eq!(msg.get_payload().unwrap().blob, b"test message");
-        assert_eq!(msg.metadata.get(METADATA_MLS_ENCRYPTED), None);
+        let result = interceptor.on_msg_from_app(&mut msg);
+        assert!(result.is_err());
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("Not a group member")
+        );
     }
 
     #[tokio::test]
@@ -251,7 +255,7 @@ mod tests {
         );
         alice_msg.insert_metadata(METADATA_MLS_GROUP_ID.to_string(), group_id_str);
 
-        alice_interceptor.on_msg_from_app(&mut alice_msg);
+        alice_interceptor.on_msg_from_app(&mut alice_msg).unwrap();
 
         assert_ne!(alice_msg.get_payload().unwrap().blob, original_payload);
         assert_eq!(
@@ -263,7 +267,7 @@ mod tests {
         );
 
         let mut bob_msg = alice_msg.clone();
-        bob_interceptor.on_msg_from_slim(&mut bob_msg);
+        bob_interceptor.on_msg_from_slim(&mut bob_msg).unwrap();
 
         assert_eq!(bob_msg.get_payload().unwrap().blob, original_payload);
         assert_eq!(bob_msg.metadata.get(METADATA_MLS_ENCRYPTED), None);
@@ -290,7 +294,7 @@ mod tests {
             b"plain text message".to_vec(),
         );
 
-        interceptor.on_msg_from_slim(&mut msg);
+        interceptor.on_msg_from_slim(&mut msg).unwrap();
         assert_eq!(msg.get_payload().unwrap().blob, b"plain text message");
     }
 }

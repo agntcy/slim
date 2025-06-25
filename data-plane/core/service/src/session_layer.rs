@@ -225,7 +225,7 @@ impl SessionLayer {
             let header = message.message.get_session_header_mut();
             header.session_id = message.info.id;
 
-            session.on_message_from_app_interceptors(&mut message.message);
+            session.on_message_from_app_interceptors(&mut message.message)?;
             // pass the message to the session
             return session.on_message(message, direction).await;
         }
@@ -265,9 +265,8 @@ impl SessionLayer {
         // check if pool contains the session
         if let Some(session) = self.pool.read().await.get(&id) {
             // pass the message to the session
-            session.on_message_from_slim_interceptors(&mut message.message);
-            let ret = session.on_message(message, direction).await;
-            return ret;
+            session.on_message_from_slim_interceptors(&mut message.message)?;
+            return session.on_message(message, direction).await;
         }
 
         let new_session_id = match session_type {
@@ -312,7 +311,7 @@ impl SessionLayer {
         // retry the match
         if let Some(session) = self.pool.read().await.get(&new_session_id.id) {
             // pass the message
-            session.on_message_from_slim_interceptors(&mut message.message);
+            session.on_message_from_slim_interceptors(&mut message.message)?;
             return session.on_message(message, direction).await;
         }
 

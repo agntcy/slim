@@ -695,12 +695,12 @@ impl CommonSession for FireAndForget {
         self.common.identity()
     }
 
-    fn on_message_from_app_interceptors(&self, msg: &mut Message) {
-        self.common.on_message_from_app_interceptors(msg);
+    fn on_message_from_app_interceptors(&self, msg: &mut Message) -> Result<(), SessionError> {
+        self.common.on_message_from_app_interceptors(msg)
     }
 
-    fn on_message_from_slim_interceptors(&self, msg: &mut Message) {
-        self.common.on_message_from_slim_interceptors(msg);
+    fn on_message_from_slim_interceptors(&self, msg: &mut Message) -> Result<(), SessionError> {
+        self.common.on_message_from_slim_interceptors(msg)
     }
 }
 
