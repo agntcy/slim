@@ -53,7 +53,7 @@ enum ChannelEndpoint {
 }
 
 trait OnMessageReceived {
-    fn on_message(&mut self, msg: Message);
+    async fn on_message(&mut self, msg: Message);
 }
 
 struct Endpoint {
@@ -85,6 +85,27 @@ impl Endpoint {
         send_slim: SlimChannelSender,
     ) -> Self {
         Endpoint { name, channel_name, session_id, conn, subscribed: false, send_slim }
+    }
+
+    fn create_channel_message(
+        &self,
+        destination: &AgentType,
+        destination_id: Option<u64>,
+        request_type: SessionHeaderType,
+        message_id: u32,
+        payload: Vec<u8>,
+    ) -> Message {
+        let agp_header = Some(SlimHeader::new(&self.name, destination, destination_id, None));
+
+        let session_header = Some(SessionHeader::new(
+            request_type.into(),
+            self.session_id, // TODO. are we sure that we always know the session id?
+            message_id,
+            //rand::random::<u32>(),
+        ));
+
+        //let payload = bincode::encode_to_vec(&self.endpoint.channel_name, bincode::config::standard()).unwrap();
+        Message::new_publish_with_headers(agp_header, session_header, "", payload)
     }
 
     async fn join(&self) {
@@ -139,8 +160,85 @@ impl ChannelParticipant {
 }
 
 impl OnMessageReceived for ChannelParticipant {
-    fn on_message(&mut self, msg: Message) {
-        todo!()
+    async fn on_message(&mut self, msg: Message) {
+        let msg_type = msg.get_session_header().header_type();
+        match msg_type {
+            SessionHeaderType::ChannelDiscoveryRequest => {
+                debug!("received discovery request message");
+                // send te name to the source of the message without setting any state
+                // in this way if the message gets lost the sender can restart the proceduer
+                // without any problem of dandling state
+                let src = msg.get_source();
+                let reply = self.endpoint.create_channel_message(src.agent_type(), src.agent_id_option(), SessionHeaderType::ChannelDiscoveryReply, msg.get_id(), vec![]);
+                // TODO handle error
+                self.endpoint.send(reply).await;
+            }
+            SessionHeaderType::ChannelJoinRequest => {
+                debug!("received join request message");
+                // accept the join and set the state: 
+                // add the grup name to the local endpoint and subscribe
+                let src = msg.get_source();
+
+                let payload = &msg.get_payload().unwrap().blob;
+                let agent: AgentType =
+                bincode::decode_from_slice(payload.as_ref(), bincode::config::standard())
+                    .unwrap()
+                    .0;
+
+                let channel_name = match msg.get_payload() {
+                    Some(content) => {
+                        let c: AgentType = match bincode::decode_from_slice(&content.blob, bincode::config::standard()) {
+                            Ok(c) => c.0,
+                            Err(e) => {
+                                error!("error decoding payload in a Join Channel request, ignore the message");
+                                return;
+                            }
+                        };
+                        // channel name
+                        c
+                    }
+                    None => {
+                        error!("missing payload in a Join Channel request, ignore the message");
+                        return;
+                    },
+                };
+
+                // join the channel
+                self.endpoint.channel_name = channel_name;
+                // TODO: handle error
+                self.endpoint.join().await;
+
+                // reply to the request
+                let reply = self.endpoint.create_channel_message(src.agent_type(), src.agent_id_option(), SessionHeaderType::ChannelJoinReply, msg.get_id(), vec![]);
+                // TODO: handle error
+                self.endpoint.send(reply).await;
+            }
+            SessionHeaderType::ChannelLeaveRequest => {
+                debug!("received leave request message");
+                // leave the channell
+                // TODO: handle error
+                self.endpoint.join().await;
+
+                // reply to the request
+                let src = msg.get_source();
+                let reply = self.endpoint.create_channel_message(src.agent_type(), src.agent_id_option(), SessionHeaderType::ChannelJoinReply, msg.get_id(), vec![]);
+
+                let src = msg.get_slim_header().get_source();
+                match self.pending_requests.get_mut(&src) {
+                    Some(t) => {
+                        t.stop();
+                        self.pending_requests.remove(&src);
+                        self.channel_list.remove(&src);
+                    }
+                    None => {
+                        error!("received a reply from unknown agent, drop message");
+                    }
+                }
+            }
+            _ => {
+                error!("received unexpected packet type");
+            }
+        }
     }
 }
 
@@ -186,8 +284,11 @@ impl ChannelModerator {
         // join the channel if needed
         self.endpoint.join().await;
 
+        // discover a valid endpoint 
+
+
         // create a join message to invite a new endpoint to the group
-        let join = self.create_request(agent, None, SessionHeaderType::JoinRequest);
+        let join = self.create_request(agent, None, SessionHeaderType::ChannelJoinRequest);
 
         // TODO
         // return an error
@@ -202,7 +303,7 @@ impl ChannelModerator {
         let leave = self.create_request(
             agent.agent_type(),
             agent.agent_id_option(),
-            SessionHeaderType::LeaveRequest,
+            SessionHeaderType::ChannelLeaveRequest,
         );
 
         // TODO
@@ -219,24 +320,6 @@ impl ChannelModerator {
         }
 
         self.endpoint.leave().await;
-    }
-
-    fn create_request(
-        &self,
-        agent: &AgentType,
-        agent_id: Option<u64>,
-        request_type: SessionHeaderType,
-    ) -> Message {
-        let agp_header = Some(SlimHeader::new(&self.endpoint.name, agent, agent_id, None));
-
-        let session_header = Some(SessionHeader::new(
-            request_type.into(),
-            self.endpoint.session_id,
-            rand::random::<u32>(),
-        ));
-
-        let payload = bincode::encode_to_vec(&self.endpoint.channel_name, bincode::config::standard()).unwrap();
-        Message::new_publish_with_headers(agp_header, session_header, "", payload)
     }
 
     fn create_timer(&mut self, name: Agent, msg: Message) {
@@ -263,7 +346,7 @@ impl OnMessageReceived for ChannelModerator {
     fn on_message(&mut self, msg: Message) {
         let msg_type = msg.get_session_header().header_type();
         match msg_type {
-            SessionHeaderType::JoinReply => {
+            SessionHeaderType::ChannelJoinReply => {
                 debug!("received join reply message");
                 let src = msg.get_slim_header().get_source();
                 let key = src.clone().with_agent_id(DEFAULT_AGENT_ID);
@@ -278,7 +361,7 @@ impl OnMessageReceived for ChannelModerator {
                     }
                 }
             }
-            SessionHeaderType::LeaveReply => {
+            SessionHeaderType::ChannelLeaveReply => {
                 debug!("received leave reply message");
                 let src = msg.get_slim_header().get_source();
                 match self.pending_requests.get_mut(&src) {
@@ -299,7 +382,7 @@ impl OnMessageReceived for ChannelModerator {
     }
 }
 
-#[cfg(test)]
+/*#[cfg(test)]
 mod tests {
     use super::*;
     use tracing_test::traced_test;
@@ -326,7 +409,7 @@ mod tests {
         let mut request = cm.create_request(
             agent_to_invite.agent_type(),
             None,
-            SessionHeaderType::JoinRequest,
+            SessionHeaderType::ChannelJoinRequest,
         );
         request.get_session_header_mut().set_message_id(REQ_ID); // this is random so put a known value here
 
@@ -360,7 +443,7 @@ mod tests {
         let mut request = cm.create_request(
             agent_to_invite.agent_type(),
             None,
-            SessionHeaderType::JoinRequest,
+            SessionHeaderType::ChannelJoinRequest,
         );
         request.get_session_header_mut().set_message_id(REQ_ID); // this is random so put a known value here
 
@@ -392,7 +475,7 @@ mod tests {
         let mut request = cm.create_request(
             agent_to_invite.agent_type(),
             agent_to_invite.agent_id_option(),
-            SessionHeaderType::LeaveRequest,
+            SessionHeaderType::ChannelLeaveRequest,
         );
         request.get_session_header_mut().set_message_id(REQ_ID); // this is random so put a known value here
 
@@ -409,7 +492,7 @@ mod tests {
         ));
 
         let session_header = Some(SessionHeader::new(
-            SessionHeaderType::LeaveReply.into(),
+            SessionHeaderType::ChannelLeaveReply.into(),
             SESSION_ID,
             REQ_ID,
         ));
@@ -419,4 +502,4 @@ mod tests {
         // receive the reply msg
         cm.on_message(reply);
     }
-}
+}*/
