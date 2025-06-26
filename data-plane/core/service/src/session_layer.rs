@@ -161,6 +161,8 @@ impl SessionLayer {
                     direction,
                     self.agent_name().clone(),
                     self.identity.clone(),
+                    false,
+                    self.conn_id,
                     self.tx_slim.clone(),
                     self.tx_app.clone(),
                 ))

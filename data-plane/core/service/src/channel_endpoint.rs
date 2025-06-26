@@ -2,7 +2,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::{
-    collections::{HashMap, HashSet}, default, sync::Arc, time::Duration
+    collections::{HashMap, HashSet},
+    sync::Arc,
+    time::Duration,
 };
 
 use tonic::async_trait;
@@ -53,6 +55,7 @@ trait OnMessageReceived {
 #[derive(Debug)]
 pub enum ChannelEndpoint {
     ChannelParticipant(ChannelParticipant),
+    #[allow(dead_code)]
     ChannelModerator(ChannelModerator),
 }
 
@@ -67,17 +70,25 @@ impl ChannelEndpoint {
             }
         }
     }
-}
 
-impl OnMessageReceived for ChannelEndpoint {
-    async fn on_message(&mut self, msg: Message) {
+    pub async fn remove_endpoint(&mut self, endpoint_type: &Agent) {
+        match self {
+            ChannelEndpoint::ChannelParticipant(_) => {
+                error!("remove cannot ne performed by a participant")
+            }
+            ChannelEndpoint::ChannelModerator(cm) => {
+                cm.ask_to_leave(endpoint_type).await;
+            }
+        }
+    }
+
+    pub async fn on_message(&mut self, msg: Message) {
         match self {
             ChannelEndpoint::ChannelParticipant(cp) => {
                 cp.on_message(msg).await;
             }
             ChannelEndpoint::ChannelModerator(cm) => {
                 cm.on_message(msg).await;
-
             }
         }
     }
@@ -106,15 +117,15 @@ struct Endpoint {
 
 impl Endpoint {
     pub fn new(
-        name: Agent,
-        channel_name: AgentType,
+        name: &Agent,
+        channel_name: &AgentType,
         session_id: Id,
         conn: u64,
         send_slim: SlimChannelSender,
     ) -> Self {
         Endpoint {
-            name,
-            channel_name,
+            name: name.clone(),
+            channel_name: channel_name.clone(),
             session_id,
             conn,
             subscribed: false,
@@ -191,8 +202,8 @@ pub struct ChannelParticipant {
 #[allow(dead_code)]
 impl ChannelParticipant {
     pub fn new(
-        name: Agent,
-        channel_name: AgentType, // TODO: this may be unknown at the beginning, probably it has to be optional
+        name: &Agent,
+        channel_name: &AgentType, // TODO: this may be unknown at the beginning, probably it has to be optional
         session_id: Id,
         conn: u64,
         send_slim: SlimChannelSender,
@@ -314,8 +325,8 @@ pub struct ChannelModerator {
 #[allow(dead_code)]
 impl ChannelModerator {
     pub fn new(
-        name: Agent,
-        channel_name: AgentType,
+        name: &Agent,
+        channel_name: &AgentType,
         session_id: Id,
         conn: u64,
         max_reties: u32,
@@ -502,8 +513,8 @@ mod tests {
         let conn = 1;
 
         let mut cm = ChannelModerator::new(
-            source.clone(),
-            channel_name.clone(),
+            &source,
+            &channel_name,
             SESSION_ID,
             conn,
             3,
@@ -581,8 +592,8 @@ mod tests {
         let conn = 1;
 
         let mut cm = ChannelModerator::new(
-            moderator.clone(),
-            channel_name.clone(),
+            &moderator,
+            &channel_name,
             SESSION_ID,
             conn,
             3,
@@ -590,8 +601,8 @@ mod tests {
             moderator_tx,
         );
         let mut cp = ChannelParticipant::new(
-            participant.clone(),
-            channel_name.clone(),
+            &participant,
+            &channel_name,
             SESSION_ID,
             conn,
             participant_tx,
