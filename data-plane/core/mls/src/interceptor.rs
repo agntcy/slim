@@ -49,50 +49,36 @@ impl SessionInterceptor for MlsInterceptor {
             }
         };
 
-        let (encrypted_result, should_mark_encrypted) = {
+        let encrypted_payload = {
             let mut mls_guard = self.mls.lock();
-            let is_member = mls_guard.is_group_member(&self.group_id);
 
-            if is_member {
-                debug!("Encrypting message for group member");
-                match mls_guard.encrypt_message(&self.group_id, payload) {
-                    Ok(encrypted_payload) => (Ok(encrypted_payload), true),
-                    Err(e) => (Err(e), false),
-                }
-            } else {
+            if !mls_guard.is_group_member(&self.group_id) {
                 warn!("Not a group member, dropping message");
-                (
-                    Err(crate::errors::MlsError::Mls(
-                        "Not a group member".to_string(),
-                    )),
-                    false,
-                )
+                return Err(SessionError::InterceptorError(
+                    "Not a group member".to_string(),
+                ));
+            }
+
+            debug!("Encrypting message for group member");
+            match mls_guard.encrypt_message(&self.group_id, payload) {
+                Ok(encrypted_payload) => encrypted_payload,
+                Err(e) => {
+                    error!(
+                        "Failed to encrypt message with MLS: {}, dropping message",
+                        e
+                    );
+                    return Err(SessionError::InterceptorError(format!(
+                        "MLS encryption failed: {}",
+                        e
+                    )));
+                }
             }
         };
 
-        match encrypted_result {
-            Ok(final_payload) => {
-                if let Some(MessageType::Publish(publish)) = &mut msg.message_type {
-                    if let Some(content) = &mut publish.msg {
-                        content.blob = final_payload;
-                        if should_mark_encrypted {
-                            msg.insert_metadata(
-                                METADATA_MLS_ENCRYPTED.to_owned(),
-                                "true".to_owned(),
-                            );
-                        }
-                    }
-                }
-            }
-            Err(e) => {
-                error!(
-                    "Failed to encrypt message with MLS: {}, dropping message",
-                    e
-                );
-                return Err(SessionError::InterceptorError(format!(
-                    "MLS encryption failed: {}",
-                    e
-                )));
+        if let Some(MessageType::Publish(publish)) = &mut msg.message_type {
+            if let Some(content) = &mut publish.msg {
+                content.blob = encrypted_payload;
+                msg.insert_metadata(METADATA_MLS_ENCRYPTED.to_owned(), "true".to_owned());
             }
         }
         Ok(())
@@ -147,36 +133,33 @@ impl SessionInterceptor for MlsInterceptor {
             }
         };
 
-        let decrypted_result = {
+        let decrypted_payload = {
             let mut mls_guard = self.mls.lock();
-            let is_member = mls_guard.is_group_member(&self.group_id);
 
-            if is_member {
-                debug!("Decrypting message for group member");
-                mls_guard.decrypt_message(&self.group_id, payload)
-            } else {
+            if !mls_guard.is_group_member(&self.group_id) {
                 warn!("Not a group member but received encrypted message, dropping message");
-                Err(crate::errors::MlsError::Mls(
+                return Err(SessionError::InterceptorError(
                     "Not a group member".to_string(),
-                ))
+                ));
+            }
+
+            debug!("Decrypting message for group member");
+            match mls_guard.decrypt_message(&self.group_id, payload) {
+                Ok(decrypted_payload) => decrypted_payload,
+                Err(e) => {
+                    error!("Failed to decrypt message with MLS: {}", e);
+                    return Err(SessionError::InterceptorError(format!(
+                        "MLS decryption failed: {}",
+                        e
+                    )));
+                }
             }
         };
 
-        match decrypted_result {
-            Ok(decrypted_payload) => {
-                if let Some(MessageType::Publish(publish)) = &mut msg.message_type {
-                    if let Some(content) = &mut publish.msg {
-                        content.blob = decrypted_payload;
-                        msg.remove_metadata(METADATA_MLS_ENCRYPTED);
-                    }
-                }
-            }
-            Err(e) => {
-                error!("Failed to decrypt message with MLS: {}", e);
-                return Err(SessionError::InterceptorError(format!(
-                    "MLS decryption failed: {}",
-                    e
-                )));
+        if let Some(MessageType::Publish(publish)) = &mut msg.message_type {
+            if let Some(content) = &mut publish.msg {
+                content.blob = decrypted_payload;
+                msg.remove_metadata(METADATA_MLS_ENCRYPTED);
             }
         }
         Ok(())
