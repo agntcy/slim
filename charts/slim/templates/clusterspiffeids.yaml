@@ -1,0 +1,25 @@
+apiVersion: spire.spiffe.io/v1alpha1
+kind: ClusterSPIFFEID
+metadata:
+  name: slim-server-spire
+spec:
+  className: spire-server-spire
+  fallback: false
+  hint: default
+  podSelector:
+    matchExpressions:
+    - key: app.kubernetes.io/name
+      operator: In
+      values:
+      - slim
+  namespaceSelector:
+    matchExpressions:
+    - key: kubernetes.io/metadata.name
+      operator: In
+      values:
+      - default      
+  workloadSelectorTemplates:
+    - k8s:pod-image:ghcr.io/agntcy/slim:0.3.15 
+    - k8s:sa:slim   
+  spiffeIDTemplate: spiffe://{{ .TrustDomain }}/ns/{{ .PodMeta.Namespace }}/sa/slim
+  autoPopulateDNSNames: true
