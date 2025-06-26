@@ -72,7 +72,7 @@ enum ConnectionType {
 }
 
 message ConnectionEntry {
-  map<string, string> attributes = 1;
+  string config_data = 1;
 }
 
 message ConnectionListRequest {}

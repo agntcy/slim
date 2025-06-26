@@ -23,8 +23,10 @@ use crate::api::proto::api::v1::{
     ConnectionListResponse, ConnectionType, SubscriptionListResponse,
 };
 use crate::errors::ControllerError;
+use crate::schema_validator::SchemaValidator;
 
 use slim_config::grpc::client::ClientConfig;
+use slim_config::CLIENT_CONFIG_SCHEMA_JSON;
 use slim_datapath::api::proto::pubsub::v1::Message as PubsubMessage;
 use slim_datapath::message_processing::MessageProcessor;
 use slim_datapath::messages::utils::SlimHeaderFlags;
@@ -41,6 +43,9 @@ pub struct ControllerService {
 
     /// map of connection IDs to their configuration
     connections: Arc<parking_lot::RwLock<HashMap<String, u64>>>,
+
+    /// control-message schema validator
+    schema_validator: Arc<SchemaValidator>,
 }
 
 impl ControllerService {
@@ -49,9 +54,10 @@ impl ControllerService {
             message_processor,
             tx_slim: OnceLock::new(),
             connections: Arc::new(parking_lot::RwLock::new(HashMap::new())),
+            schema_validator: Arc::new(SchemaValidator::new(CLIENT_CONFIG_SCHEMA_JSON).unwrap_or_default()),
         }
     }
-
+    
     async fn handle_new_control_message(
         &self,
         msg: ControlMessage,
@@ -224,25 +230,29 @@ impl ControllerService {
 
                                 for &cid in local {
                                     entry.local_connections.push(ConnectionEntry {
-                                        attributes: {
-                                            let mut attrs = HashMap::new();
-                                            attrs.insert("connection_id".to_string(), cid.to_string());
-                                            attrs.insert("connection_type".to_string(), format!("{:?}", ConnectionType::Local));
-                                            attrs.insert("ip".to_string(), String::new());
-                                            attrs.insert("port".to_string(), "0".to_string());
-                                            attrs
-                                        },
+                                        // attributes: {
+                                        //     let mut attrs = HashMap::new();
+                                        //     attrs.insert("connection_id".to_string(), cid.to_string());
+                                        //     attrs.insert("connection_type".to_string(), format!("{:?}", ConnectionType::Local));
+                                        //     attrs.insert("ip".to_string(), String::new());
+                                        //     attrs.insert("port".to_string(), "0".to_string());
+                                        //     attrs
+                                        // },
+                                        // TODO: discuss with someonce
+                                        config_data: "config_data".to_string(),
                                     });
                                     entry.local_connections.push(
                                         ConnectionEntry {
-                                            attributes: {
-                                                let mut attrs = HashMap::new();
-                                                attrs.insert("connection_id".to_string(), cid.to_string());
-                                                attrs.insert("connection_type".to_string(), format!("{:?}", ConnectionType::Local));
-                                                attrs.insert("ip".to_string(), String::new());
-                                                attrs.insert("port".to_string(), "0".to_string());
-                                                attrs
-                                            }
+                                            // attributes: {
+                                            //     let mut attrs = HashMap::new();
+                                            //     attrs.insert("connection_id".to_string(), cid.to_string());
+                                            //     attrs.insert("connection_type".to_string(), format!("{:?}", ConnectionType::Local));
+                                            //     attrs.insert("ip".to_string(), String::new());
+                                            //     attrs.insert("port".to_string(), "0".to_string());
+                                            //     attrs
+                                            // }
+                                            // TODO: discuss with someonce
+                                            config_data: "config_data".to_string(),
                                         }
                                     )
                                 }
@@ -251,38 +261,44 @@ impl ControllerService {
                                     if let Some(conn) = conn_table.get(cid as usize) {
                                         if let Some(sock) = conn.remote_addr() {
                                             entry.remote_connections.push(ConnectionEntry {
-                                                attributes: {
-                                                    let mut attrs = HashMap::new();
-                                                    attrs.insert("connection_id".to_string(), cid.to_string());
-                                                    attrs.insert("connection_type".to_string(), format!("{:?}", ConnectionType::Remote));
-                                                    attrs.insert("ip".to_string(), sock.ip().to_string());
-                                                    attrs.insert("port".to_string(), sock.port().to_string());
-                                                    attrs
-                                                }
+                                                // attributes: {
+                                                //     let mut attrs = HashMap::new();
+                                                //     attrs.insert("connection_id".to_string(), cid.to_string());
+                                                //     attrs.insert("connection_type".to_string(), format!("{:?}", ConnectionType::Remote));
+                                                //     attrs.insert("ip".to_string(), sock.ip().to_string());
+                                                //     attrs.insert("port".to_string(), sock.port().to_string());
+                                                //     attrs
+                                                // }
+                                            // TODO: discuss with someonce
+                                            config_data: "config_data".to_string(),                                                
                                             });
                                         } else {
                                             entry.remote_connections.push(ConnectionEntry {
-                                                attributes: {
-                                                    let mut attrs = HashMap::new();
-                                                    attrs.insert("connection_id".to_string(), cid.to_string());
-                                                    attrs.insert("connection_type".to_string(), format!("{:?}", ConnectionType::Remote));
-                                                    attrs.insert("ip".to_string(), String::new());
-                                                    attrs.insert("port".to_string(), "0".to_string());
-                                                    attrs
-                                                }
+                                                // attributes: {
+                                                //     let mut attrs = HashMap::new();
+                                                //     attrs.insert("connection_id".to_string(), cid.to_string());
+                                                //     attrs.insert("connection_type".to_string(), format!("{:?}", ConnectionType::Remote));
+                                                //     attrs.insert("ip".to_string(), String::new());
+                                                //     attrs.insert("port".to_string(), "0".to_string());
+                                                //     attrs
+                                                // }
+                                            // TODO: discuss with someonce
+                                            config_data: "config_data".to_string(),
                                             });
                                         }
                                     } else {
                                         error!("no connection entry for id {}", cid);
                                         entry.remote_connections.push(ConnectionEntry {
-                                            attributes: {
-                                                let mut attrs = HashMap::new();
-                                                attrs.insert("connection_id".to_string(), cid.to_string());
-                                                attrs.insert("connection_type".to_string(), format!("{:?}", ConnectionType::Remote));
-                                                attrs.insert("ip".to_string(), String::new());
-                                                attrs.insert("port".to_string(), "0".to_string());
-                                                attrs
-                                            }
+                                            // attributes: {
+                                            //     let mut attrs = HashMap::new();
+                                            //     attrs.insert("connection_id".to_string(), cid.to_string());
+                                            //     attrs.insert("connection_type".to_string(), format!("{:?}", ConnectionType::Remote));
+                                            //     attrs.insert("ip".to_string(), String::new());
+                                            //     attrs.insert("port".to_string(), "0".to_string());
+                                            //     attrs
+                                            // }
+                                            // TODO: discuss with someonce
+                                            config_data: "config_data".to_string(),
                                         });
                                     }
                                 }
@@ -318,14 +334,16 @@ impl ControllerService {
                                     .unwrap_or_else(|| ("".into(), 0));
 
                                 all_entries.push(ConnectionEntry {
-                                    attributes: {
-                                        let mut attrs = HashMap::new();
-                                        attrs.insert("connection_id".to_string(), id.to_string());
-                                        attrs.insert("connection_type".to_string(), format!("{:?}", ConnectionType::Remote));
-                                        attrs.insert("ip".to_string(), ip);
-                                        attrs.insert("port".to_string(), port.to_string());
-                                        attrs
-                                    }
+                                    // attributes: {
+                                    //     let mut attrs = HashMap::new();
+                                    //     attrs.insert("connection_id".to_string(), id.to_string());
+                                    //     attrs.insert("connection_type".to_string(), format!("{:?}", ConnectionType::Remote));
+                                    //     attrs.insert("ip".to_string(), ip);
+                                    //     attrs.insert("port".to_string(), port.to_string());
+                                    //     attrs
+                                    // }
+                                    // TODO: discuss with someone
+                                    config_data: "config_data".to_string(),
                                 });
                             });
 

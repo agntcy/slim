@@ -9,3 +9,5 @@ pub mod testutils;
 pub mod tls;
 
 mod opaque;
+
+pub const CLIENT_CONFIG_SCHEMA_JSON: &str = include_str!("./client-config.schema.json");

@@ -88,11 +88,8 @@ pub struct SubscriptionEntry {
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ConnectionEntry {
-    #[prost(map = "string, string", tag = "1")]
-    pub attributes: ::std::collections::HashMap<
-        ::prost::alloc::string::String,
-        ::prost::alloc::string::String,
-    >,
+    #[prost(string, tag = "1")]
+    pub config_data: ::prost::alloc::string::String,
 }
 #[derive(Clone, Copy, PartialEq, ::prost::Message)]
 pub struct ConnectionListRequest {}
