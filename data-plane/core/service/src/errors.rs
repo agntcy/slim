@@ -87,4 +87,6 @@ pub enum SessionError {
     MessageLost(String),
     #[error("session closed: {0}")]
     SessionClosed(String),
+    #[error("interceptor error: {0}")]
+    InterceptorError(String),
 }
