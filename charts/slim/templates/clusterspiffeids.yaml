@@ -1,0 +1,22 @@
+{{- if eq .Values.spire.enabled true }}
+
+apiVersion: spire.spiffe.io/v1alpha1
+kind: ClusterSPIFFEID
+metadata:
+  name: {{ include "slim.fullname" . }}
+spec:
+  className: spire-server-spire
+  fallback: false
+  hint: default
+  podSelector:
+    matchExpressions:
+    - key: app.kubernetes.io/name
+      operator: In
+      values:
+      - {{ include "slim.name" . }}     
+  workloadSelectorTemplates:
+    - k8s:pod-image:{{ .Values.slim.image.repository }}:{{ .Values.slim.image.tag | default .Chart.AppVersion }}
+    - k8s:sa:{{ include "slim.serviceAccountName" . }}   
+  spiffeIDTemplate: {{ "spiffe://{{ .TrustDomain }}/ns/{{ .PodMeta.Namespace }}/sa/slim" }}
+  autoPopulateDNSNames: true
+{{- end }}
