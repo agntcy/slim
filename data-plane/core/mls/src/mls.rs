@@ -297,8 +297,16 @@ impl Mls {
                 Box::new(basic_client)
             }
             Identity::Jwt(_) => {
+                 // TODO(zkacsand)
+                let public_key = slim_auth::jwt::Key {
+                    algorithm: slim_auth::jwt::Algorithm::RS256,
+                    key: slim_auth::jwt::KeyData::File("../../../config/crypto/jwt/rsa-public.pem".to_string()),
+                };
+                
                 let jwt_verifier = slim_auth::builder::JwtBuilder::new()
-                    .auto_resolve_keys(true)
+                    .audience("slim")
+                    .issuer("slim")
+                    .public_key(&public_key)
                     .build()
                     .map_err(|e| MlsError::Mls(format!("Failed to create JWT verifier: {}", e)))?;
                 let jwt_provider = JwtIdentityProvider::new(jwt_verifier);
