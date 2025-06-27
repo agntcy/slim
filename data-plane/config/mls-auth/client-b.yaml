@@ -1,0 +1,31 @@
+# Copyright AGNTCY Contributors (https://github.com/agntcy)
+# SPDX-License-Identifier: Apache-2.0
+
+tracing:
+  log_level: info
+  display_thread_names: true
+  display_thread_ids: true
+
+runtime:
+  n_cores: 0
+  thread_name: "slim-data-plane"
+  drain_timeout: 10s
+
+services:
+  slim/0:
+    identity:
+      jwt:
+        claims:
+          audience: "slim"
+          issuer: "slim"
+          subject: "client-b"
+        duration: 12h
+        key:
+          encoding:
+            algorithm: "RS256"
+            file: "./config/crypto/jwt/rsa.pem"
+    pubsub:
+      clients:
+        - endpoint: "http://localhost:46357"
+          tls:
+            insecure: true

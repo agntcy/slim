@@ -33,6 +33,7 @@ use tonic::Status;
 use tracing::{debug, error, info};
 
 pub use errors::ServiceError;
+use slim_config::auth::jwt::Config as JwtAuthenticationConfig;
 use slim_config::component::configuration::{Configuration, ConfigurationError};
 use slim_config::component::id::{ID, Kind};
 use slim_config::component::{Component, ComponentBuilder, ComponentError};
@@ -69,6 +70,17 @@ pub struct ControllerConfig {
     client: Option<ClientConfig>,
 }
 
+/// Enum holding identity configuration
+#[derive(Debug, Default, Deserialize, Clone, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum IdentityConfig {
+    /// JWT identity configuration
+    Jwt(JwtAuthenticationConfig),
+    /// None
+    #[default]
+    None,
+}
+
 #[derive(Debug, Clone, Deserialize, Default)]
 pub struct ServiceConfiguration {
     /// Pubsub API configuration
@@ -78,6 +90,10 @@ pub struct ServiceConfiguration {
     /// Controller API configuration
     #[serde(default)]
     pub controller: ControllerConfig,
+
+    /// Identity configuration
+    #[serde(default)]
+    pub identity: IdentityConfig,
 }
 
 impl ServiceConfiguration {
@@ -109,6 +125,10 @@ impl ServiceConfiguration {
 
     pub fn controller_client(&self) -> Option<&ClientConfig> {
         self.controller.client.as_ref()
+    }
+
+    pub fn identity(&self) -> &IdentityConfig {
+        &self.identity
     }
 
     pub fn build_server(&self, id: ID) -> Result<Service, ServiceError> {
