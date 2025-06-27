@@ -189,6 +189,7 @@ impl From<PySessionConfiguration> for session::SessionConfig {
             } => session::SessionConfig::Streaming(StreamingConfiguration::new(
                 session_direction.into(),
                 topic.map(|topic| topic.into()),
+                true,
                 Some(max_retries),
                 Some(timeout),
             )),

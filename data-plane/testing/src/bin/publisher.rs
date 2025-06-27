@@ -238,6 +238,7 @@ async fn main() {
                     slim_service::session::SessionConfig::Streaming(StreamingConfiguration::new(
                         slim_service::session::SessionDirection::Sender,
                         None,
+                        false,
                         None,
                         None,
                     )),
@@ -251,6 +252,7 @@ async fn main() {
                     slim_service::session::SessionConfig::Streaming(StreamingConfiguration::new(
                         slim_service::session::SessionDirection::Bidirectional,
                         Some(topic.clone()),
+                        false,
                         Some(10),
                         Some(Duration::from_millis(1000)),
                     )),

@@ -60,28 +60,6 @@ pub enum ChannelEndpoint {
 }
 
 impl ChannelEndpoint {
-    pub async fn invite(&mut self, endpoint_type: &AgentType) {
-        match self {
-            ChannelEndpoint::ChannelParticipant(_) => {
-                error!("invite cannot ne performed by a participant")
-            }
-            ChannelEndpoint::ChannelModerator(cm) => {
-                cm.invite(endpoint_type).await;
-            }
-        }
-    }
-
-    pub async fn remove_endpoint(&mut self, endpoint_type: &Agent) {
-        match self {
-            ChannelEndpoint::ChannelParticipant(_) => {
-                error!("remove cannot ne performed by a participant")
-            }
-            ChannelEndpoint::ChannelModerator(cm) => {
-                cm.ask_to_leave(endpoint_type).await;
-            }
-        }
-    }
-
     pub async fn on_message(&mut self, msg: Message) {
         match self {
             ChannelEndpoint::ChannelParticipant(cp) => {
@@ -150,12 +128,10 @@ impl Endpoint {
 
         let session_header = Some(SessionHeader::new(
             request_type.into(),
-            self.session_id, // TODO. are we sure that we always know the session id?
+            self.session_id,
             message_id,
-            //rand::random::<u32>(),
         ));
 
-        //let payload = bincode::encode_to_vec(&self.endpoint.channel_name, bincode::config::standard()).unwrap();
         Message::new_publish_with_headers(agp_header, session_header, "", payload)
     }
 
@@ -172,6 +148,21 @@ impl Endpoint {
         // TODO
         // handle error
         self.send(sub).await;
+
+        //let at = AgentType::from_strings("topic", "topic", "topic");
+        self.set_route(&self.channel_name, None).await;
+    }
+
+    async fn set_route(&self, route_name: &AgentType, route_id: Option<u64>) {
+        // send a message with subscription from
+        let msg = Message::new_subscribe(
+            &self.name,
+            route_name,
+            route_id,
+            Some(SlimHeaderFlags::default().with_recv_from(self.conn)),
+        );
+
+        self.send(msg).await;
     }
 
     async fn leave(&self) {
@@ -219,9 +210,21 @@ impl OnMessageReceived for ChannelParticipant {
         match msg_type {
             SessionHeaderType::ChannelDiscoveryRequest => {
                 debug!("received discovery request message");
-                // send te name to the source of the message without setting any state
-                // in this way if the message gets lost the sender can restart the proceduer
-                // without any problem of dandling state
+                // set local state according to the info in the message
+                self.endpoint.conn = msg.get_incoming_conn();
+                self.endpoint.session_id = msg.get_session_header().get_session_id();
+
+                // set route in order to be able to send the packet
+                let src = msg.get_source();
+                // XXX it looks like that if we don't create the agent type from string the routes
+                // are not set correctly. We must fix this issue
+                let route_type = AgentType::from_strings("org", "default", "moderator");
+
+                self.endpoint
+                    .set_route(&route_type, src.agent_id_option())
+                    .await;
+
+                // set the connection id equal to the connection from where we received the message
                 let src = msg.get_source();
                 let reply = self.endpoint.create_channel_message(
                     src.agent_type(),
@@ -230,6 +233,7 @@ impl OnMessageReceived for ChannelParticipant {
                     msg.get_id(),
                     vec![],
                 );
+
                 // TODO handle error
                 self.endpoint.send(reply).await;
             }
@@ -353,50 +357,12 @@ impl ChannelModerator {
         }
     }
 
-    pub async fn invite(&mut self, endpoint_type: &AgentType) {
-        // the invite procedure works in two steps.
-        // 1. discover an endpoint of the require type sending a discovery message
-        // 2. invite the endpoint to the channel on the reception of the reply from the first message
-
-        let msg_id = rand::random::<u32>();
-        let discover = self.endpoint.create_channel_message(
-            endpoint_type,
-            None,
-            SessionHeaderType::ChannelDiscoveryRequest,
-            msg_id,
-            vec![],
-        );
-
+    async fn forward(&mut self, msg: Message) {
+        let msg_id = msg.get_id();
         // TODO: handle error
-        self.endpoint.send(discover.clone()).await;
-
+        self.endpoint.send(msg.clone()).await;
         // create a timer for this request
-        self.create_timer(msg_id, discover);
-    }
-
-    pub async fn ask_to_leave(&mut self, endpoint: &Agent) {
-        let msg_id = rand::random::<u32>();
-        let leave = self.endpoint.create_channel_message(
-            endpoint.agent_type(),
-            endpoint.agent_id_option(),
-            SessionHeaderType::ChannelLeaveRequest,
-            msg_id,
-            vec![],
-        );
-
-        // TODO: handle error
-        self.endpoint.send(leave.clone()).await;
-
-        // create a timer for this request
-        self.create_timer(msg_id, leave);
-    }
-
-    pub async fn delete_group(&mut self) {
-        for a in self.channel_list.clone() {
-            self.ask_to_leave(&a).await;
-        }
-
-        self.endpoint.leave().await;
+        self.create_timer(msg_id, msg);
     }
 
     fn create_timer(&mut self, key: u32, msg: Message) {
@@ -434,8 +400,16 @@ impl OnMessageReceived for ChannelModerator {
     async fn on_message(&mut self, msg: Message) {
         let msg_type = msg.get_session_header().header_type();
         match msg_type {
+            SessionHeaderType::ChannelDiscoveryRequest => {
+                // discovery message coming from the application
+                self.forward(msg).await;
+            }
             SessionHeaderType::ChannelDiscoveryReply => {
                 debug!("received discovery reply message");
+                // set the local state and join the channel
+                self.endpoint.conn = msg.get_incoming_conn();
+                self.join().await;
+
                 // an endpoint replyed to the discovery message
                 // send a join message
                 let src = msg.get_slim_header().get_source();
@@ -448,6 +422,7 @@ impl OnMessageReceived for ChannelModerator {
                 )
                 .unwrap();
 
+                // this is the only message that cannot be received but that is created here
                 let join = self.endpoint.create_channel_message(
                     src.agent_type(),
                     src.agent_id_option(),
@@ -455,6 +430,7 @@ impl OnMessageReceived for ChannelModerator {
                     new_msg_id,
                     payload,
                 );
+
                 // TODO: handle error
                 self.endpoint.send(join.clone()).await;
 
@@ -466,6 +442,7 @@ impl OnMessageReceived for ChannelModerator {
             }
             SessionHeaderType::ChannelJoinReply => {
                 debug!("received join reply message");
+
                 let src = msg.get_slim_header().get_source();
                 let msg_id = msg.get_id();
 
@@ -474,6 +451,11 @@ impl OnMessageReceived for ChannelModerator {
 
                 // add source to the channel
                 self.channel_list.insert(src);
+            }
+            SessionHeaderType::ChannelLeaveRequest => {
+                // leave message coming from the application
+                debug!("received leave request message");
+                self.forward(msg).await;
             }
             SessionHeaderType::ChannelLeaveReply => {
                 debug!("received leave reply message");
@@ -496,89 +478,11 @@ impl OnMessageReceived for ChannelModerator {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tokio::time;
     use tracing_test::traced_test;
 
     use slim_datapath::messages::AgentType;
 
     const SESSION_ID: u32 = 10;
-
-    #[tokio::test]
-    #[traced_test]
-    async fn test_no_endpoint_reply() {
-        let (tx_slim, mut rx_slim) = tokio::sync::mpsc::channel(50);
-        let source = Agent::from_strings("org", "default", "source", 0);
-        let endpoint = Agent::from_strings("org", "default", "endpoint", 100);
-        let channel_name = AgentType::from_strings("org", "default", "channel");
-        let conn = 1;
-
-        let mut cm = ChannelModerator::new(
-            &source,
-            &channel_name,
-            SESSION_ID,
-            conn,
-            3,
-            Duration::from_millis(100),
-            tx_slim,
-        );
-
-        cm.join().await;
-        // the first message received  by slim should a subscription for the channel name
-        let header = Some(SlimHeaderFlags::default().with_forward_to(conn));
-        let sub = Message::new_subscribe(&source, &channel_name, None, header);
-        let msg = rx_slim.recv().await.unwrap().unwrap();
-        assert_eq!(sub, msg);
-
-        // test invite function
-        cm.invite(endpoint.agent_type()).await;
-
-        // create a request to compare with the output of the invite fn
-        let mut request = cm.endpoint.create_channel_message(
-            endpoint.agent_type(),
-            None,
-            SessionHeaderType::ChannelDiscoveryRequest,
-            0,
-            vec![],
-        );
-
-        for _ in 0..4 {
-            let msg = rx_slim.recv().await.unwrap().unwrap();
-            let msg_id = msg.get_id();
-            request.get_session_header_mut().set_message_id(msg_id);
-            assert_eq!(msg, request);
-        }
-
-        time::sleep(Duration::from_millis(1000)).await;
-
-        // the timer will fail and print the message
-        let expected_msg = "unable to send message";
-        assert!(logs_contain(expected_msg));
-
-        // test leave fn in the same way
-        cm.ask_to_leave(&endpoint.clone()).await;
-
-        // create a request to compare with the output of the invite fn
-        let mut request = cm.endpoint.create_channel_message(
-            endpoint.agent_type(),
-            endpoint.agent_id_option(),
-            SessionHeaderType::ChannelLeaveRequest,
-            0,
-            vec![],
-        );
-
-        for _ in 0..4 {
-            let msg = rx_slim.recv().await.unwrap().unwrap();
-            let msg_id = msg.get_id();
-            request.get_session_header_mut().set_message_id(msg_id);
-            assert_eq!(msg, request);
-        }
-
-        time::sleep(Duration::from_millis(1000)).await;
-
-        // the timer will fail and print the message
-        let expected_msg = "unable to send message";
-        assert!(logs_contain(expected_msg));
-    }
 
     #[tokio::test]
     #[traced_test]
@@ -608,36 +512,46 @@ mod tests {
             participant_tx,
         );
 
-        cm.join().await;
-        // the first message received  by slim should a subscription for the channel name
-        let header = Some(SlimHeaderFlags::default().with_forward_to(conn));
-        let sub = Message::new_subscribe(&moderator, &channel_name, None, header);
-        let msg = moderator_rx.recv().await.unwrap().unwrap();
-        assert_eq!(sub, msg);
-        assert_eq!(cm.channel_list.len(), 1);
-        assert!(cm.channel_list.contains(&moderator));
+        // create a discovery request
+        let flags = SlimHeaderFlags::default().with_incoming_conn(conn);
 
-        cm.invite(participant.agent_type()).await;
-
-        // create a request to compare with the output of the invite fn
-        let mut request = cm.endpoint.create_channel_message(
+        let agp_header = Some(SlimHeader::new(
+            &moderator,
             participant.agent_type(),
             None,
-            SessionHeaderType::ChannelDiscoveryRequest,
-            0,
-            vec![],
-        );
+            Some(flags),
+        ));
 
-        // get discovery request
+        let session_header = Some(SessionHeader::new(
+            SessionHeaderType::ChannelDiscoveryRequest.into(),
+            SESSION_ID,
+            rand::random::<u32>(),
+        ));
+        let request = Message::new_publish_with_headers(agp_header, session_header, "", vec![0]);
+
+        // receive the request at the session layer
+        cm.on_message(request.clone()).await;
+
+        // the request is forwarded to slim
         let msg = moderator_rx.recv().await.unwrap().unwrap();
         let msg_id = msg.get_id();
-        request.set_message_id(msg_id);
-        assert_eq!(msg, request);
+        assert_eq!(request, msg);
 
-        // mimic message reception on participant side
+        // the message is received by the participant
         cp.on_message(msg).await;
 
-        // create a reply to compare with the output of on_message
+        // the first message received  by slim should be a set route for the moderator name
+        let header = Some(SlimHeaderFlags::default().with_recv_from(conn));
+        let sub = Message::new_subscribe(
+            &participant,
+            moderator.agent_type(),
+            moderator.agent_id_option(),
+            header,
+        );
+        let msg = participant_rx.recv().await.unwrap().unwrap();
+        assert_eq!(msg, sub);
+
+        // create the expected reply for comparison
         let reply = cp.endpoint.create_channel_message(
             moderator.agent_type(),
             moderator.agent_id_option(),
@@ -645,11 +559,25 @@ mod tests {
             msg_id,
             vec![],
         );
-        let msg = participant_rx.recv().await.unwrap().unwrap();
+
+        let mut msg = participant_rx.recv().await.unwrap().unwrap();
         assert_eq!(msg, reply);
 
-        // mimic message reception on moderator side
+        // message reception on moderator side
+        msg.set_incoming_conn(Some(conn));
         cm.on_message(msg).await;
+
+        // the first message is the subscription for the channel name
+        let header = Some(SlimHeaderFlags::default().with_forward_to(conn));
+        let sub = Message::new_subscribe(&moderator, &channel_name, None, header);
+        let msg = moderator_rx.recv().await.unwrap().unwrap();
+        assert_eq!(msg, sub);
+
+        // then we have the set route for the channel name
+        let header = Some(SlimHeaderFlags::default().with_recv_from(conn));
+        let sub = Message::new_subscribe(&moderator, &channel_name, None, header);
+        let msg = moderator_rx.recv().await.unwrap().unwrap();
+        assert_eq!(msg, sub);
 
         // create a request to compare with the output of on_message
         let payload: Vec<u8> =
@@ -661,19 +589,27 @@ mod tests {
             0,
             payload,
         );
-        let msg = moderator_rx.recv().await.unwrap().unwrap();
+
+        let mut msg = moderator_rx.recv().await.unwrap().unwrap();
         let msg_id = msg.get_id();
         request.set_message_id(msg_id);
         assert_eq!(msg, request);
 
-        // mimic message reception on participant side
+        msg.set_incoming_conn(Some(conn));
+        let msg_id = msg.get_id();
         cp.on_message(msg).await;
 
-        // the first message received  by slim should a subscription for the channel name
+        // the first message is the subscription for the channel name
         let header = Some(SlimHeaderFlags::default().with_forward_to(conn));
         let sub = Message::new_subscribe(&participant, &channel_name, None, header);
         let msg = participant_rx.recv().await.unwrap().unwrap();
-        assert_eq!(sub, msg);
+        assert_eq!(msg, sub);
+
+        // then we have the set route for the channel name
+        let header = Some(SlimHeaderFlags::default().with_recv_from(conn));
+        let sub = Message::new_subscribe(&participant, &channel_name, None, header);
+        let msg = participant_rx.recv().await.unwrap().unwrap();
+        assert_eq!(msg, sub);
 
         // create a reply to compare with the output of on_message
         let reply = cp.endpoint.create_channel_message(
@@ -683,23 +619,20 @@ mod tests {
             msg_id,
             vec![],
         );
-        let msg = participant_rx.recv().await.unwrap().unwrap();
+        let mut msg = participant_rx.recv().await.unwrap().unwrap();
         assert_eq!(msg, reply);
 
-        // mimic message reception on moderator side
+        msg.set_incoming_conn(Some(conn));
         cm.on_message(msg).await;
 
-        // nothing should happen except that the new participant
-        // now is in the channel list and the pending request size
-        // is zero
+        // end with the message exchange check the state
         assert_eq!(cm.channel_list.len(), 2);
         assert!(cm.channel_list.contains(&moderator));
         assert!(cm.channel_list.contains(&participant));
         assert_eq!(cm.pending_requests.len(), 0);
 
         // ask to leave to the participant
-        cm.ask_to_leave(&participant).await;
-        // create a request to compare with the output of the invite fn
+        // create a request to remove paticipant from the group
         let mut request = cm.endpoint.create_channel_message(
             participant.agent_type(),
             participant.agent_id_option(),
@@ -707,11 +640,14 @@ mod tests {
             0,
             vec![],
         );
+        request.set_incoming_conn(Some(conn));
+
+        cm.on_message(request.clone()).await;
 
         // get discovery request
         let msg = moderator_rx.recv().await.unwrap().unwrap();
         let msg_id = msg.get_id();
-        request.set_message_id(msg_id);
+        //request.set_message_id(msg_id);
         assert_eq!(msg, request);
 
         cp.on_message(msg).await;

@@ -326,11 +326,16 @@ impl ProtoSubscribe {
     ) -> Self {
         let header = Some(SlimHeader::new(source, agent_type, agent_id, flags));
 
+        //println!("aget type = {}", agent_type.to_string());
+        //println!("aget type = {:?} {}", agent_type.organization_string());
+        //println!("aget type = {:?}",  agent_type.namespace_string());
+        //println!("aget type = {:?}", agent_type.agent_type_string());
+
         ProtoSubscribe {
             header,
-            organization: agent_type.organization_string().unwrap(),
-            namespace: agent_type.namespace_string().unwrap(),
-            agent_type: agent_type.agent_type_string().unwrap(),
+            organization: agent_type.organization_string().unwrap_or_default(),
+            namespace: agent_type.namespace_string().unwrap_or_default(),
+            agent_type: agent_type.agent_type_string().unwrap_or_default(),
         }
     }
 }

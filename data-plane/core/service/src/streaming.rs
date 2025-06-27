@@ -34,7 +34,8 @@ const STREAM_BROADCAST: u32 = 50;
 #[derive(Debug, Clone, PartialEq)]
 pub struct StreamingConfiguration {
     pub direction: SessionDirection,
-    pub topic: AgentType,
+    pub channel_name: AgentType,
+    pub moderator: bool,
     pub max_retries: u32,
     pub timeout: std::time::Duration,
 }
@@ -65,7 +66,8 @@ impl Default for StreamingConfiguration {
     fn default() -> Self {
         StreamingConfiguration {
             direction: SessionDirection::Receiver,
-            topic: AgentType::default(),
+            channel_name: AgentType::default(),
+            moderator: false,
             max_retries: 10,
             timeout: std::time::Duration::from_millis(1000),
         }
@@ -76,7 +78,9 @@ impl std::fmt::Display for StreamingConfiguration {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "StreamingConfiguration: max_retries: {}, timeout: {} ms",
+            "StreamingConfiguration: channel_name: {}, modearator: {}, max_retries: {}, timeout: {} ms",
+            self.channel_name,
+            self.moderator,
             self.max_retries,
             self.timeout.as_millis(),
         )
@@ -86,13 +90,15 @@ impl std::fmt::Display for StreamingConfiguration {
 impl StreamingConfiguration {
     pub fn new(
         direction: SessionDirection,
-        topic: Option<AgentType>,
+        channel_name: Option<AgentType>,
+        moderator: bool,
         max_retries: Option<u32>,
         timeout: Option<std::time::Duration>,
     ) -> Self {
         StreamingConfiguration {
             direction,
-            topic: topic.unwrap_or_default(),
+            channel_name: channel_name.unwrap_or_default(),
+            moderator,
             max_retries: max_retries.unwrap_or(0),
             timeout: timeout.unwrap_or(std::time::Duration::from_millis(0)),
         }
@@ -202,7 +208,7 @@ enum Endpoint {
 
 pub(crate) struct Streaming {
     common: Common,
-    channel_endpoint: Arc<Mutex<ChannelEndpoint>>,
+    channel_endpoint: Arc<Mutex<ChannelEndpoint>>, // TODO remove this mutex
     tx: mpsc::Sender<Result<(Message, MessageDirection), Status>>,
 }
 
@@ -214,16 +220,15 @@ impl Streaming {
         session_direction: SessionDirection,
         agent: Agent,
         identity: Option<String>,
-        moderator: bool,
         conn_id: u64,
         tx_slim: SlimChannelSender,
         tx_app: AppChannelSender,
     ) -> Streaming {
         let (tx, rx) = mpsc::channel(128);
-        let channel_endpoint: ChannelEndpoint = if moderator {
+        let channel_endpoint: ChannelEndpoint = if session_config.moderator {
             let cm = ChannelModerator::new(
                 &agent,
-                &session_config.topic,
+                &session_config.channel_name,
                 id,
                 conn_id,
                 60,
@@ -234,7 +239,7 @@ impl Streaming {
         } else {
             let cp = ChannelParticipant::new(
                 &agent,
-                &session_config.topic,
+                &session_config.channel_name,
                 id,
                 conn_id,
                 tx_slim.clone(),
@@ -403,7 +408,16 @@ impl Streaming {
                                             }
                                             MessageDirection::South => {
                                                 // received a message from the APP
-                                                process_message_from_app(msg, session_id, &mut state.producer, true, &send_slim, &send_app).await;
+                                                match msg.get_session_header().header_type() {
+                                                    SessionHeaderType::ChannelDiscoveryRequest |
+                                                    SessionHeaderType::ChannelLeaveRequest => {
+                                                        let mut lock = channel_endpoint.lock().await;
+                                                        lock.on_message(msg).await;
+                                                    }
+                                                    _ => {
+                                                        process_message_from_app(msg, session_id, &mut state.producer, true, &send_slim, &send_app).await;
+                                                    }
+                                                }
                                             }
                                         };
                                     }
@@ -493,17 +507,17 @@ impl Streaming {
         });
     }
 
-    #[allow(dead_code)]
-    pub async fn invite_endpoint(&mut self, endpoint_type: &AgentType) {
-        let mut lock = self.channel_endpoint.lock().await;
-        lock.invite(endpoint_type).await;
-    }
+    //#[allow(dead_code)]
+    //pub async fn invite_endpoint(&mut self, endpoint_type: &AgentType) {
+    //    let mut lock = self.channel_endpoint.lock().await;
+    //    lock.invite(endpoint_type).await;
+    //}
 
-    #[allow(dead_code)]
-    pub async fn remove_endpoint(&mut self, endpoint_name: &Agent) {
-        let mut lock = self.channel_endpoint.lock().await;
-        lock.remove_endpoint(endpoint_name).await;
-    }
+    //#[allow(dead_code)]
+    //pub async fn remove_endpoint(&mut self, endpoint_name: &Agent) {
+    //    let mut lock = self.channel_endpoint.lock().await;
+    //     lock.remove_endpoint(endpoint_name).await;
+    //}
 }
 
 async fn process_incoming_rtx_request(
@@ -947,7 +961,7 @@ mod tests {
         let conn_id = 1;
 
         let session_config: StreamingConfiguration =
-            StreamingConfiguration::new(SessionDirection::Sender, None, None, None);
+            StreamingConfiguration::new(SessionDirection::Sender, None, false, None, None);
 
         let session = Streaming::new(
             0,
@@ -955,7 +969,6 @@ mod tests {
             SessionDirection::Sender,
             source.clone(),
             Some(source.to_string()),
-            false,
             conn_id,
             tx_slim.clone(),
             tx_app.clone(),
@@ -971,6 +984,7 @@ mod tests {
         let session_config: StreamingConfiguration = StreamingConfiguration::new(
             SessionDirection::Receiver,
             None,
+            false,
             Some(10),
             Some(Duration::from_millis(1000)),
         );
@@ -981,7 +995,6 @@ mod tests {
             SessionDirection::Receiver,
             source.clone(),
             Some(source.to_string()),
-            false,
             conn_id,
             tx_slim,
             tx_app,
@@ -1005,10 +1018,11 @@ mod tests {
         let (tx_app_receiver, mut rx_app_receiver) = tokio::sync::mpsc::channel(1);
 
         let session_config_sender: StreamingConfiguration =
-            StreamingConfiguration::new(SessionDirection::Sender, None, None, None);
+            StreamingConfiguration::new(SessionDirection::Sender, None, false, None, None);
         let session_config_receiver: StreamingConfiguration = StreamingConfiguration::new(
             SessionDirection::Receiver,
             None,
+            false,
             Some(5),
             Some(Duration::from_millis(500)),
         );
@@ -1024,7 +1038,6 @@ mod tests {
             SessionDirection::Sender,
             send.clone(),
             Some(send.to_string()),
-            false,
             conn_id,
             tx_slim_sender,
             tx_app_sender,
@@ -1035,7 +1048,6 @@ mod tests {
             SessionDirection::Receiver,
             recv.clone(),
             Some(recv.to_string()),
-            false,
             conn_id,
             tx_slim_receiver,
             tx_app_receiver,
@@ -1091,6 +1103,7 @@ mod tests {
         let session_config: StreamingConfiguration = StreamingConfiguration::new(
             SessionDirection::Receiver,
             None,
+            false,
             Some(5),
             Some(Duration::from_millis(500)),
         );
@@ -1104,7 +1117,6 @@ mod tests {
             SessionDirection::Receiver,
             agent.clone(),
             Some(agent.to_string()),
-            false,
             conn_id,
             tx_slim,
             tx_app,
@@ -1173,6 +1185,7 @@ mod tests {
         let session_config: StreamingConfiguration = StreamingConfiguration::new(
             SessionDirection::Receiver,
             None,
+            false,
             Some(5),
             Some(Duration::from_millis(500)),
         );
@@ -1187,7 +1200,6 @@ mod tests {
             SessionDirection::Sender,
             agent.clone(),
             Some(agent.to_string()),
-            false,
             conn_id,
             tx_slim,
             tx_app,
@@ -1275,10 +1287,11 @@ mod tests {
         let (tx_app_receiver, mut rx_app_receiver) = tokio::sync::mpsc::channel(1);
 
         let session_config_sender: StreamingConfiguration =
-            StreamingConfiguration::new(SessionDirection::Sender, None, None, None);
+            StreamingConfiguration::new(SessionDirection::Sender, None, false, None, None);
         let session_config_receiver: StreamingConfiguration = StreamingConfiguration::new(
             SessionDirection::Receiver,
             None,
+            false,
             Some(5),
             Some(Duration::from_millis(100)), // keep the timer shorter with respect to the beacon one
                                               // otherwise we don't know which message will be received first
@@ -1295,7 +1308,6 @@ mod tests {
             SessionDirection::Sender,
             send.clone(),
             Some(send.to_string()),
-            false,
             conn_id,
             tx_slim_sender,
             tx_app_sender,
@@ -1306,7 +1318,6 @@ mod tests {
             SessionDirection::Receiver,
             recv.clone(),
             Some(recv.to_string()),
-            false,
             conn_id,
             tx_slim_receiver,
             tx_app_receiver,
@@ -1500,7 +1511,7 @@ mod tests {
         let source = Agent::from_strings("cisco", "default", "local_agent", 0);
 
         let session_config: StreamingConfiguration =
-            StreamingConfiguration::new(SessionDirection::Sender, None, None, None);
+            StreamingConfiguration::new(SessionDirection::Sender, None, false, None, None);
 
         {
             let _session = Streaming::new(
@@ -1509,7 +1520,6 @@ mod tests {
                 SessionDirection::Sender,
                 source.clone(),
                 Some(source.to_string()),
-                false,
                 conn_id,
                 tx_slim.clone(),
                 tx_app.clone(),

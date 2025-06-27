@@ -184,6 +184,7 @@ async fn main() {
             slim_service::session::SessionConfig::Streaming(StreamingConfiguration::new(
                 slim_service::session::SessionDirection::Receiver,
                 None,
+                false,
                 Some(10),
                 Some(Duration::from_millis(1000)),
             )),
