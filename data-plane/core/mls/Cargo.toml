@@ -9,6 +9,7 @@ description = "Messaging Layer Security for SLIM data plane."
 name = "slim_mls"
 
 [dependencies]
+agntcy-slim-auth = { workspace = true }
 agntcy-slim-datapath = { workspace = true }
 agntcy-slim-service = { workspace = true }
 async-trait = "0.1"

@@ -172,6 +172,7 @@ dependencies = [
 name = "agntcy-slim-mls"
 version = "0.1.0"
 dependencies = [
+ "agntcy-slim-auth",
  "agntcy-slim-datapath",
  "agntcy-slim-service",
  "async-trait",
