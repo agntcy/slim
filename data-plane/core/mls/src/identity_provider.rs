@@ -31,6 +31,7 @@ impl IntoAnyError for JwtValidationError {}
 fn resolve_jwt_identity(
     signing_id: &SigningIdentity,
     jwt_verifier: &Jwt<slim_auth::jwt::V>,
+    timestamp: Option<MlsTime>,
 ) -> Result<StandardClaims, JwtValidationError> {
     let basic_cred = signing_id
         .credential
@@ -44,6 +45,20 @@ fn resolve_jwt_identity(
         .try_verify(jwt_token)
         .map_err(|e| JwtValidationError(format!("JWT verification failed: {}", e)))?;
 
+    if let Some(mls_time) = timestamp {
+        let current_time = mls_time.seconds_since_epoch();
+
+        if current_time > claims.exp {
+            return Err(JwtValidationError("JWT token has expired".to_string()));
+        }
+
+        if let Some(nbf) = claims.nbf {
+            if current_time < nbf {
+                return Err(JwtValidationError("JWT token is not yet valid".to_string()));
+            }
+        }
+    }
+
     Ok(claims)
 }
 
@@ -53,19 +68,19 @@ impl IdentityProvider for JwtIdentityProvider {
     fn validate_member(
         &self,
         signing_identity: &SigningIdentity,
-        _timestamp: Option<MlsTime>,
+        timestamp: Option<MlsTime>,
         _context: MemberValidationContext<'_>,
     ) -> Result<(), Self::Error> {
-        resolve_jwt_identity(signing_identity, &self.jwt_verifier).map(|_| ())
+        resolve_jwt_identity(signing_identity, &self.jwt_verifier, timestamp).map(|_| ())
     }
 
     fn validate_external_sender(
         &self,
         signing_identity: &SigningIdentity,
-        _timestamp: Option<MlsTime>,
+        timestamp: Option<MlsTime>,
         _extensions: Option<&ExtensionList>,
     ) -> Result<(), Self::Error> {
-        resolve_jwt_identity(signing_identity, &self.jwt_verifier).map(|_| ())
+        resolve_jwt_identity(signing_identity, &self.jwt_verifier, timestamp).map(|_| ())
     }
 
     fn identity(
@@ -73,8 +88,7 @@ impl IdentityProvider for JwtIdentityProvider {
         signing_identity: &SigningIdentity,
         _extensions: &ExtensionList,
     ) -> Result<Vec<u8>, Self::Error> {
-        let claims = resolve_jwt_identity(signing_identity, &self.jwt_verifier)?;
-        // Use subject as identity
+        let claims = resolve_jwt_identity(signing_identity, &self.jwt_verifier, None)?;
         Ok(claims
             .sub
             .unwrap_or_else(|| "unknown".to_string())
@@ -87,8 +101,8 @@ impl IdentityProvider for JwtIdentityProvider {
         successor: &SigningIdentity,
         _extensions: &ExtensionList,
     ) -> Result<bool, Self::Error> {
-        let pred_claims = resolve_jwt_identity(predecessor, &self.jwt_verifier)?;
-        let succ_claims = resolve_jwt_identity(successor, &self.jwt_verifier)?;
+        let pred_claims = resolve_jwt_identity(predecessor, &self.jwt_verifier, None)?;
+        let succ_claims = resolve_jwt_identity(successor, &self.jwt_verifier, None)?;
 
         Ok(pred_claims.sub == succ_claims.sub && pred_claims.iss == succ_claims.iss)
     }
