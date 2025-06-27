@@ -23,7 +23,7 @@ services:
         key:
           encoding:
             algorithm: "RS256"
-            file: "./config/crypto/jwt/rsa.pem"
+            file: "../../../config/crypto/jwt/rsa.pem"
     pubsub:
       clients:
         - endpoint: "http://localhost:46357"

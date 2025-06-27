@@ -169,14 +169,12 @@ impl SessionInterceptor for MlsInterceptor {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::identity::FileBasedIdentityProvider;
     use std::sync::Arc;
 
     #[tokio::test]
     async fn test_mls_interceptor_without_group() {
-        let identity_provider =
-            Arc::new(FileBasedIdentityProvider::new("/tmp/test_mls_interceptor_no_group").unwrap());
-        let mut mls = Mls::new("test_user".to_string(), identity_provider);
+        let mut mls = Mls::new(crate::identity::Identity::simple("test_user"));
+        mls.set_storage_path("/tmp/test_mls_interceptor_no_group");
         mls.initialize().await.unwrap();
 
         let mls_arc = Arc::new(Mutex::new(mls));
@@ -204,13 +202,11 @@ mod tests {
 
     #[tokio::test]
     async fn test_mls_interceptor_with_group() {
-        let alice_provider =
-            Arc::new(FileBasedIdentityProvider::new("/tmp/test_mls_interceptor_alice").unwrap());
-        let bob_provider =
-            Arc::new(FileBasedIdentityProvider::new("/tmp/test_mls_interceptor_bob").unwrap());
+        let mut alice_mls = Mls::new(crate::identity::Identity::simple("alice"));
+        alice_mls.set_storage_path("/tmp/test_mls_interceptor_alice");
 
-        let mut alice_mls = Mls::new("alice".to_string(), alice_provider);
-        let mut bob_mls = Mls::new("bob".to_string(), bob_provider);
+        let mut bob_mls = Mls::new(crate::identity::Identity::simple("bob"));
+        bob_mls.set_storage_path("/tmp/test_mls_interceptor_bob");
 
         alice_mls.initialize().await.unwrap();
         bob_mls.initialize().await.unwrap();
@@ -258,10 +254,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_mls_interceptor_non_encrypted_message() {
-        let identity_provider = Arc::new(
-            FileBasedIdentityProvider::new("/tmp/test_mls_interceptor_non_encrypted").unwrap(),
-        );
-        let mut mls = Mls::new("test_user".to_string(), identity_provider);
+        let mut mls = Mls::new(crate::identity::Identity::simple("test_user"));
+        mls.set_storage_path("/tmp/test_mls_interceptor_non_encrypted");
         mls.initialize().await.unwrap();
         mls.create_group().unwrap();
 

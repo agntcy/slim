@@ -72,10 +72,10 @@ pub struct ControllerConfig {
 
 /// Enum holding identity configuration
 #[derive(Debug, Default, Deserialize, Clone, PartialEq)]
-#[serde(rename_all = "snake_case")]
+#[serde(untagged)]
 pub enum IdentityConfig {
     /// JWT identity configuration
-    Jwt(JwtAuthenticationConfig),
+    Jwt{ jwt: JwtAuthenticationConfig },
     /// None
     #[default]
     None,

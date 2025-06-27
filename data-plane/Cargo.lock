@@ -3645,6 +3645,7 @@ name = "slim-examples"
 version = "0.1.0"
 dependencies = [
  "agntcy-slim",
+ "agntcy-slim-auth",
  "agntcy-slim-config",
  "agntcy-slim-datapath",
  "agntcy-slim-mls",

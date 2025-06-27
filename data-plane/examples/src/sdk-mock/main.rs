@@ -9,8 +9,11 @@ use tokio::time;
 use tracing::info;
 
 use slim::config;
+use slim_auth::builder::JwtBuilder;
+use slim_auth::traits::Signer;
+use slim_mls::Identity;
 use slim_service::{
-    FireAndForgetConfiguration,
+    FireAndForgetConfiguration, IdentityConfig,
     session::{self, SessionConfig},
 };
 
@@ -82,6 +85,36 @@ async fn main() {
     // wait for the connection to be established
     tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
 
+    let mls_identity = match svc.config().identity() {
+        IdentityConfig::Jwt { jwt: jwt_config } => {
+            let mut builder = JwtBuilder::new();
+
+            if let Some(issuer) = jwt_config.claims().issuer() {
+                builder = builder.issuer(issuer);
+            }
+            if let Some(audience) = jwt_config.claims().audience() {
+                builder = builder.audience(audience);
+            }
+            if let Some(subject) = jwt_config.claims().subject() {
+                builder = builder.subject(subject);
+            }
+
+            let signer = match jwt_config.key() {
+                slim_config::auth::jwt::JwtKey::Encoding(key) => builder
+                    .private_key(key)
+                    .build()
+                    .expect("Failed to build JWT signer"),
+                _ => panic!("JWT configuration must have an encoding key for signing"),
+            };
+
+            let jwt_token = signer.sign_standard_claims().expect("Failed to sign JWT");
+            Identity::jwt(jwt_token)
+        }
+        IdentityConfig::None => Identity::simple(local_agent),
+    };
+
+    info!("Using MLS identity: {:?}", mls_identity);
+
     // MLS setup, only if mls_group_id is provided
     let server_mls_option = if let Some(group_identifier) = mls_group_id {
         info!("MLS enabled with group identifier: {}", group_identifier);
@@ -93,20 +126,12 @@ async fn main() {
         let _ = std::fs::remove_file(&key_package_path);
         let _ = std::fs::remove_file(&welcome_path);
 
-        // Clean up MLS identity directories
-        let identity_path = format!("/tmp/mls_identities_{}", local_agent);
-        let _ = std::fs::remove_dir_all(&identity_path);
-
         if message.is_some() {
             // Client: will join group after server creates it
             None
         } else {
             // Server: create group and wait for client key package
-            let identity_provider = Arc::new(
-                slim_mls::identity::FileBasedIdentityProvider::new(&identity_path).unwrap(),
-            );
-            let mut server_mls =
-                slim_mls::mls::Mls::new(local_agent.to_string(), identity_provider);
+            let mut server_mls = slim_mls::mls::Mls::new(mls_identity.clone());
             server_mls.initialize().await.unwrap();
 
             // Create group
@@ -164,15 +189,8 @@ async fn main() {
 
         // Client MLS setup, only if mls_group_id is provided
         if let Some(group_identifier) = mls_group_id {
-            // Clean up MLS identity directories
-            let identity_path = format!("/tmp/mls_identities_{}", local_agent);
-
             // Client: generate key package and wait for welcome message
-            let identity_provider = Arc::new(
-                slim_mls::identity::FileBasedIdentityProvider::new(&identity_path).unwrap(),
-            );
-            let mut client_mls =
-                slim_mls::mls::Mls::new(local_agent.to_string(), identity_provider);
+            let mut client_mls = slim_mls::mls::Mls::new(mls_identity.clone());
             client_mls.initialize().await.unwrap();
 
             // Generate and save key package for server to use
