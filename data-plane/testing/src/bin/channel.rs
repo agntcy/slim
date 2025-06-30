@@ -216,7 +216,7 @@ async fn main() {
         // invite all participants
         for p in participants {
             info!("Invite participant {}", p);
-            svc.send_invite_message(&local_name, &p, info.clone())
+            svc.invite(&local_name, &p, info.clone())
                 .await
                 .expect("error sending invite message");
         }

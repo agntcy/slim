@@ -294,7 +294,7 @@ impl Service {
         let session_layer = Arc::new(SessionLayer::new(
             agent_name,
             Some(agent_name.to_string()),
-            conn_id, // XXX why this is the local connection id end not the remote one?
+            conn_id,
             tx_slim,
             tx_app,
         ));
@@ -602,13 +602,13 @@ impl Service {
         self.send_message(source, msg, Some(session_info)).await
     }
 
-    pub async fn send_invite_message(
+    pub async fn invite(
         &self,
         source: &Agent,
         destination: &AgentType,
         session_info: session::Info,
     ) -> Result<(), ServiceError> {
-        let agp_header = Some(SlimHeader::new(source, destination, None, None));
+        let slim_header = Some(SlimHeader::new(source, destination, None, None));
 
         let session_header = Some(SessionHeader::new(
             SessionHeaderType::ChannelDiscoveryRequest.into(),
@@ -625,7 +625,7 @@ impl Service {
             }
         };
 
-        let msg = Message::new_publish_with_headers(agp_header, session_header, "", payload);
+        let msg = Message::new_publish_with_headers(slim_header, session_header, "", payload);
 
         self.send_message(source, msg, Some(session_info)).await
     }

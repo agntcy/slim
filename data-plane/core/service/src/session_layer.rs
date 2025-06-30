@@ -317,9 +317,6 @@ impl SessionLayer {
         };
 
         debug_assert!(new_session_id.id == id);
-        if new_session_id.id != id {
-            panic!("wrong session id");
-        }
 
         // retry the match
         if let Some(session) = self.pool.read().await.get(&new_session_id.id) {

@@ -7,7 +7,7 @@ use std::{
     time::Duration,
 };
 
-use tonic::async_trait;
+use async_trait::async_trait;
 
 use tracing::{debug, error, trace};
 
@@ -24,8 +24,14 @@ use slim_datapath::{
 };
 
 struct RequestTimerObserver {
+    /// message to send in case of timeout
     message: Message,
+
+    /// channel to the local slim instance
     send_slim: SlimChannelSender,
+
+    /// channel to send messages to the application (used to signal errors)
+    send_app: AppChannelSender,
 }
 
 #[async_trait]
@@ -40,7 +46,12 @@ impl crate::timer::TimerObserver for RequestTimerObserver {
 
     async fn on_failure(&self, _timer_id: u32, _timeouts: u32) {
         error!("unable to send message {:?}, stop retrying", self.message);
-        // TO DO what do we do here ??
+        self.send_app
+            .send(Err(SessionError::Processing(
+                "timer failed on channel endpoint. Stop sending messages".to_string(),
+            )))
+            .await
+            .expect("error notifying app");
     }
 
     async fn on_stop(&self, timer_id: u32) {
@@ -124,7 +135,7 @@ impl Endpoint {
         message_id: u32,
         payload: Vec<u8>,
     ) -> Message {
-        let agp_header = Some(SlimHeader::new(
+        let slim_header = Some(SlimHeader::new(
             &self.name,
             destination,
             destination_id,
@@ -137,7 +148,7 @@ impl Endpoint {
             message_id,
         ));
 
-        Message::new_publish_with_headers(agp_header, session_header, "", payload)
+        Message::new_publish_with_headers(slim_header, session_header, "", payload)
     }
 
     async fn join(&self) {
@@ -341,7 +352,7 @@ pub struct ChannelModerator {
     pending_requests: HashMap<u32, crate::timer::Timer>,
 
     /// number or maximum retries before give up with a control message
-    max_reties: u32,
+    max_retries: u32,
 
     /// interval between retries
     retries_interval: Duration,
@@ -357,7 +368,7 @@ impl ChannelModerator {
         channel_name: &AgentType,
         session_id: Id,
         conn: u64,
-        max_reties: u32,
+        max_retries: u32,
         retries_interval: Duration,
         send_slim: SlimChannelSender,
         send_app: AppChannelSender,
@@ -369,7 +380,7 @@ impl ChannelModerator {
             endpoint,
             channel_list: HashSet::new(),
             pending_requests: HashMap::new(),
-            max_reties,
+            max_retries,
             retries_interval,
             payload,
         }
@@ -397,6 +408,7 @@ impl ChannelModerator {
         let observer = Arc::new(RequestTimerObserver {
             message: msg,
             send_slim: self.endpoint.send_slim.clone(),
+            send_app: self.endpoint.send_app.clone(),
         });
 
         let timer = crate::timer::Timer::new(
@@ -404,7 +416,7 @@ impl ChannelModerator {
             crate::timer::TimerType::Constant,
             self.retries_interval,
             None,
-            Some(self.max_reties),
+            Some(self.max_retries),
         );
         timer.start(observer);
 
@@ -540,7 +552,7 @@ mod tests {
         // create a discovery request
         let flags = SlimHeaderFlags::default().with_incoming_conn(conn);
 
-        let agp_header = Some(SlimHeader::new(
+        let slim_header = Some(SlimHeader::new(
             &moderator,
             participant.agent_type(),
             None,
@@ -552,7 +564,9 @@ mod tests {
             SESSION_ID,
             rand::random::<u32>(),
         ));
-        let request = Message::new_publish_with_headers(agp_header, session_header, "", vec![0]);
+        let payload: Vec<u8> =
+            bincode::encode_to_vec(&moderator, bincode::config::standard()).unwrap();
+        let request = Message::new_publish_with_headers(slim_header, session_header, "", payload);
 
         // receive the request at the session layer
         cm.on_message(request.clone()).await;
