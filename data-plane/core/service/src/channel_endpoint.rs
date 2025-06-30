@@ -222,7 +222,7 @@ impl OnMessageReceived for ChannelParticipant {
                 let src = msg.get_source();
                 // XXX it looks like that if we don't create the agent type from string the routes
                 // are not set correctly. We must fix this issue
-                let route_type = AgentType::from_strings("org", "default", "moderator");
+                let route_type = AgentType::from_strings("org", "ns", "moderator");
 
                 // set route for the channel moderator
                 self.endpoint
