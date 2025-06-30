@@ -9,6 +9,7 @@ description = "Messaging Layer Security for SLIM data plane."
 name = "slim_mls"
 
 [dependencies]
+agntcy-slim-config = { workspace = true }
 agntcy-slim-datapath = { workspace = true }
 agntcy-slim-service = { workspace = true }
 async-trait = "0.1"
@@ -23,4 +24,11 @@ tokio.workspace = true
 tracing = { workspace = true }
 
 [dev-dependencies]
+agntcy-slim = { workspace = true }
+criterion = { workspace = true }
+rand = { workspace = true }
 tempfile = "3.3"
+
+[[bench]]
+name = "message_exchange"
+harness = false

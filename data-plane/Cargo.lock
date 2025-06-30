@@ -172,13 +172,17 @@ dependencies = [
 name = "agntcy-slim-mls"
 version = "0.1.0"
 dependencies = [
+ "agntcy-slim",
+ "agntcy-slim-config",
  "agntcy-slim-datapath",
  "agntcy-slim-service",
  "async-trait",
  "base64 0.22.1",
+ "criterion",
  "mls-rs",
  "mls-rs-crypto-awslc",
  "parking_lot",
+ "rand 0.9.1",
  "serde",
  "serde_json",
  "tempfile",
