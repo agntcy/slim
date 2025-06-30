@@ -13,7 +13,8 @@ use crate::fire_and_forget::FireAndForgetConfiguration;
 use crate::request_response::{RequestResponse, RequestResponseConfiguration};
 use crate::session::{
     AppChannelSender, Id, Info, MessageDirection, SESSION_RANGE, Session, SessionConfig,
-    SessionConfigTrait, SessionDirection, SessionMessage, SessionType, SlimChannelSender,
+    SessionConfigTrait, SessionDirection, SessionInterceptor, SessionMessage, SessionType,
+    SlimChannelSender,
 };
 use crate::streaming::{self, StreamingConfiguration};
 use crate::{fire_and_forget, session};
@@ -218,7 +219,7 @@ impl SessionLayer {
             let header = message.message.get_session_header_mut();
             header.session_id = message.info.id;
 
-            session.on_message_from_app_interceptors(&mut message.message);
+            session.on_message_from_app_interceptors(&mut message.message)?;
             // pass the message to the session
             return session.on_message(message, direction).await;
         }
@@ -258,9 +259,8 @@ impl SessionLayer {
         // check if pool contains the session
         if let Some(session) = self.pool.read().await.get(&id) {
             // pass the message to the session
-            session.on_message_from_slim_interceptors(&mut message.message);
-            let ret = session.on_message(message, direction).await;
-            return ret;
+            session.on_message_from_slim_interceptors(&mut message.message)?;
+            return session.on_message(message, direction).await;
         }
 
         let new_session_id = match session_type {
@@ -324,7 +324,7 @@ impl SessionLayer {
         // retry the match
         if let Some(session) = self.pool.read().await.get(&new_session_id.id) {
             // pass the message
-            session.on_message_from_slim_interceptors(&mut message.message);
+            session.on_message_from_slim_interceptors(&mut message.message)?;
             return session.on_message(message, direction).await;
         }
 
@@ -400,6 +400,22 @@ impl SessionLayer {
             SessionType::Streaming => Ok(SessionConfig::Streaming(
                 self.default_stream_conf.read().clone(),
             )),
+        }
+    }
+
+    /// Add an interceptor to a session
+    pub async fn add_session_interceptor(
+        &self,
+        session_id: Id,
+        interceptor: Box<dyn SessionInterceptor + Send + Sync>,
+    ) -> Result<(), SessionError> {
+        let mut pool = self.pool.write().await;
+
+        if let Some(session) = pool.get_mut(&session_id) {
+            session.add_interceptor(interceptor);
+            Ok(())
+        } else {
+            Err(SessionError::SessionNotFound(session_id.to_string()))
         }
     }
 }

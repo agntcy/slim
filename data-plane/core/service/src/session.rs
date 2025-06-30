@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use async_trait::async_trait;
-use parking_lot::RwLock;
+use parking_lot::{RwLock, RwLockReadGuard};
 use slim_datapath::messages::utils::SLIM_IDENTITY;
 use tonic::Status;
 
@@ -211,7 +211,7 @@ impl std::fmt::Display for SessionConfig {
     }
 }
 
-pub(crate) trait CommonSession {
+pub(crate) trait CommonSession: Interceptor {
     // Session ID
     #[allow(dead_code)]
     fn id(&self) -> Id;
@@ -231,16 +231,20 @@ pub(crate) trait CommonSession {
     // set the session config
     fn set_session_config(&self, session_config: &SessionConfig) -> Result<(), SessionError>;
 
-    fn on_message_from_app_interceptors(&self, msg: &mut Message);
+    fn on_message_from_app_interceptors(&self, msg: &mut Message) -> Result<(), SessionError>;
 
-    fn on_message_from_slim_interceptors(&self, msg: &mut Message);
+    fn on_message_from_slim_interceptors(&self, msg: &mut Message) -> Result<(), SessionError>;
 }
 
-pub(crate) trait SessionInterceptor {
+pub(crate) trait Interceptor {
+    fn add_interceptor(&self, interceptor: Box<dyn SessionInterceptor + Send + Sync + 'static>);
+}
+
+pub trait SessionInterceptor {
     // interceptor to be executed when a message is received from the app
-    fn on_msg_from_app(&self, msg: &mut Message);
+    fn on_msg_from_app(&self, msg: &mut Message) -> Result<(), SessionError>;
     // interceptor to be executed when a message is received from slim
-    fn on_msg_from_slim(&self, msg: &mut Message);
+    fn on_msg_from_slim(&self, msg: &mut Message) -> Result<(), SessionError>;
 }
 
 struct IdentitySessionInterceptor {
@@ -248,13 +252,16 @@ struct IdentitySessionInterceptor {
 }
 
 impl SessionInterceptor for IdentitySessionInterceptor {
-    fn on_msg_from_app(&self, msg: &mut Message) {
+    fn on_msg_from_app(&self, msg: &mut Message) -> Result<(), SessionError> {
         if let Some(i) = &self.identity {
             msg.insert_metadata(SLIM_IDENTITY.to_owned(), i.to_string())
         }
+        Ok(())
     }
 
-    fn on_msg_from_slim(&self, _msg: &mut Message) {}
+    fn on_msg_from_slim(&self, _msg: &mut Message) -> Result<(), SessionError> {
+        Ok(())
+    }
 }
 
 #[async_trait]
@@ -298,7 +305,7 @@ pub(crate) struct Common {
     tx_app: AppChannelSender,
 
     // Interceptors to be called on message reception/send
-    interceptors: Vec<Box<dyn SessionInterceptor + Send + Sync>>,
+    interceptors: RwLock<Vec<Box<dyn SessionInterceptor + Send + Sync>>>,
 }
 
 impl CommonSession for Common {
@@ -339,25 +346,32 @@ impl CommonSession for Common {
         Ok(())
     }
 
-    fn on_message_from_app_interceptors(&self, msg: &mut Message) {
-        for i in &self.interceptors {
-            i.on_msg_from_app(msg);
+    fn on_message_from_app_interceptors(&self, msg: &mut Message) -> Result<(), SessionError> {
+        let interceptors = RwLockReadGuard::map(self.interceptors.read(), |x| x);
+        for i in interceptors.iter() {
+            i.on_msg_from_app(msg)?;
         }
+        Ok(())
     }
 
-    fn on_message_from_slim_interceptors(&self, msg: &mut Message) {
-        for i in &self.interceptors {
-            i.on_msg_from_slim(msg);
+    fn on_message_from_slim_interceptors(&self, msg: &mut Message) -> Result<(), SessionError> {
+        let interceptors = RwLockReadGuard::map(self.interceptors.read(), |x| x);
+        for i in interceptors.iter() {
+            i.on_msg_from_slim(msg)?;
         }
+        Ok(())
     }
 }
 
-impl Common {
-    #[allow(dead_code)]
-    fn add_interceptor<I: SessionInterceptor + Send + Sync + 'static>(&mut self, interceptor: I) {
-        self.interceptors.push(Box::new(interceptor));
+impl Interceptor for Common {
+    fn add_interceptor(&self, interceptor: Box<dyn SessionInterceptor + Send + Sync + 'static>) {
+        self.interceptors.write().push(interceptor);
     }
 }
+
+/*impl Common {
+    // This is no longer needed as we're using boxed trait objects directly
+}*/
 
 impl Common {
     pub(crate) fn new(
@@ -381,7 +395,7 @@ impl Common {
             identity,
             tx_slim,
             tx_app,
-            interceptors: vec![Box::new(interceptor)],
+            interceptors: RwLock::new(vec![Box::new(interceptor)]),
         }
     }
 
@@ -407,6 +421,12 @@ impl Common {
 // Define a macro to delegate trait implementation
 macro_rules! delegate_common_behavior {
     ($parent:ident, $($tokens:ident),+) => {
+        impl crate::session::Interceptor for $parent {
+            fn add_interceptor(&self, interceptor: Box<dyn crate::session::SessionInterceptor + Send + Sync +'static>) {
+                self.$($tokens).+.add_interceptor(interceptor);
+            }
+        }
+
         impl CommonSession for $parent {
             fn id(&self) -> Id {
                 // concat the token stream
@@ -433,11 +453,11 @@ macro_rules! delegate_common_behavior {
                 self.$($tokens).+.identity()
             }
 
-            fn on_message_from_app_interceptors(&self, msg: &mut slim_datapath::api::proto::pubsub::v1::Message) {
+            fn on_message_from_app_interceptors(&self, msg: &mut slim_datapath::api::proto::pubsub::v1::Message) -> Result<(), SessionError> {
                 self.$($tokens).+.on_message_from_app_interceptors(msg)
             }
 
-            fn on_message_from_slim_interceptors(&self, msg: &mut slim_datapath::api::proto::pubsub::v1::Message) {
+            fn on_message_from_slim_interceptors(&self, msg: &mut slim_datapath::api::proto::pubsub::v1::Message) -> Result<(), SessionError> {
                 self.$($tokens).+.on_message_from_slim_interceptors(msg)
             }
         }
