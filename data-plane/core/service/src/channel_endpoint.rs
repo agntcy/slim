@@ -146,7 +146,7 @@ impl Endpoint {
             return;
         }
 
-        // subscribe for the topic
+        // subscribe for the channel
         let header = Some(SlimHeaderFlags::default().with_forward_to(self.conn));
         let sub = Message::new_subscribe(&self.name, &self.channel_name, None, header);
 
@@ -218,15 +218,35 @@ impl OnMessageReceived for ChannelParticipant {
                 self.endpoint.conn = msg.get_incoming_conn();
                 self.endpoint.session_id = msg.get_session_header().get_session_id();
 
-                // set route in order to be able to send the packet
-                let src = msg.get_source();
-                // XXX it looks like that if we don't create the agent type from string the routes
-                // are not set correctly. We must fix this issue
-                let route_type = AgentType::from_strings("org", "ns", "moderator");
+                // get the source (with strings) from the packet payload
+                let source = match msg.get_payload() {
+                    Some(content) => {
+                        let c: Agent = match bincode::decode_from_slice(
+                            &content.blob,
+                            bincode::config::standard(),
+                        ) {
+                            Ok(c) => c.0,
+                            Err(_) => {
+                                error!(
+                                    "error decoding payload in a Discovery Channel request, ignore the message"
+                                );
+                                return;
+                            }
+                        };
+                        // channel name
+                        c
+                    }
+                    None => {
+                        error!(
+                            "missing payload in a Discovery Channel request, ignore the message"
+                        );
+                        return;
+                    }
+                };
 
-                // set route for the channel moderator
+                // set route in order to be able to send packets to the moderator
                 self.endpoint
-                    .set_route(&route_type, src.agent_id_option())
+                    .set_route(source.agent_type(), source.agent_id_option())
                     .await;
 
                 // set the connection id equal to the connection from where we received the message
@@ -495,7 +515,7 @@ mod tests {
 
         let moderator = Agent::from_strings("org", "default", "moderator", 12345);
         let participant = Agent::from_strings("org", "default", "participant", 5120);
-        let channel_name = AgentType::from_strings("org", "channel", "topic");
+        let channel_name = AgentType::from_strings("channel", "channel", "channel");
         let conn = 1;
 
         let mut cm = ChannelModerator::new(

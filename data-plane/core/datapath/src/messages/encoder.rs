@@ -104,7 +104,7 @@ impl AgentType {
     }
 }
 
-#[derive(Hash, Eq, PartialEq, Debug, Clone, Default)]
+#[derive(Hash, Eq, PartialEq, Debug, Clone, Default, Encode, Decode)]
 pub struct Agent {
     agent_type: AgentType,
     agent_id: u64,

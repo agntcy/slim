@@ -615,7 +615,17 @@ impl Service {
             session_info.id,
             rand::random::<u32>(),
         ));
-        let msg = Message::new_publish_with_headers(agp_header, session_header, "", vec![0]);
+
+        let payload = match bincode::encode_to_vec(source, bincode::config::standard()) {
+            Ok(payload) => payload,
+            Err(_) => {
+                return Err(ServiceError::PublishError(
+                    "error while parsing the payload".to_string(),
+                ));
+            }
+        };
+
+        let msg = Message::new_publish_with_headers(agp_header, session_header, "", payload);
 
         self.send_message(source, msg, Some(session_info)).await
     }
