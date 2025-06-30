@@ -11,7 +11,10 @@ use tonic::async_trait;
 
 use tracing::{debug, error, trace};
 
-use crate::session::{Id, SlimChannelSender};
+use crate::{
+    errors::SessionError,
+    session::{AppChannelSender, Id, SlimChannelSender},
+};
 use slim_datapath::{
     api::{
         SessionHeader, SlimHeader,
@@ -20,7 +23,6 @@ use slim_datapath::{
     messages::{Agent, AgentType, utils::SlimHeaderFlags},
 };
 
-#[allow(dead_code)]
 struct RequestTimerObserver {
     message: Message,
     send_slim: SlimChannelSender,
@@ -47,7 +49,6 @@ impl crate::timer::TimerObserver for RequestTimerObserver {
     }
 }
 
-#[allow(dead_code)]
 trait OnMessageReceived {
     async fn on_message(&mut self, msg: Message);
 }
@@ -55,7 +56,6 @@ trait OnMessageReceived {
 #[derive(Debug)]
 pub enum ChannelEndpoint {
     ChannelParticipant(ChannelParticipant),
-    #[allow(dead_code)]
     ChannelModerator(ChannelModerator),
 }
 
@@ -91,6 +91,9 @@ struct Endpoint {
 
     /// channel to send messages to the local slim instance
     send_slim: SlimChannelSender,
+
+    /// channel to send messages to the application (used to signal errors)
+    send_app: AppChannelSender,
 }
 
 impl Endpoint {
@@ -100,6 +103,7 @@ impl Endpoint {
         session_id: Id,
         conn: u64,
         send_slim: SlimChannelSender,
+        send_app: AppChannelSender,
     ) -> Self {
         Endpoint {
             name: name.clone(),
@@ -108,6 +112,7 @@ impl Endpoint {
             conn,
             subscribed: false,
             send_slim,
+            send_app,
         }
     }
 
@@ -145,11 +150,9 @@ impl Endpoint {
         let header = Some(SlimHeaderFlags::default().with_forward_to(self.conn));
         let sub = Message::new_subscribe(&self.name, &self.channel_name, None, header);
 
-        // TODO
-        // handle error
         self.send(sub).await;
 
-        //let at = AgentType::from_strings("topic", "topic", "topic");
+        // set rout for the channel
         self.set_route(&self.channel_name, None).await;
     }
 
@@ -166,31 +169,31 @@ impl Endpoint {
     }
 
     async fn leave(&self) {
-        // unsubscribe for the topic
+        // unsubscribe for the channel
         let header = Some(SlimHeaderFlags::default().with_forward_to(self.conn));
-        let sub = Message::new_unsubscribe(&self.name, &self.channel_name, None, header);
+        let unsub = Message::new_unsubscribe(&self.name, &self.channel_name, None, header);
 
-        // TODO
-        // handle error
-        self.send(sub).await;
+        self.send(unsub).await;
     }
 
     async fn send(&self, msg: Message) {
-        // TODO
-        // handle error
         if self.send_slim.send(Ok(msg)).await.is_err() {
-            error!("error sending invite message");
+            error!("error sending message to slim from channel manager");
+            self.send_app
+                .send(Err(SessionError::Processing(
+                    "error sending message to local slim instance".to_string(),
+                )))
+                .await
+                .expect("error notifying app");
         }
     }
 }
 
-#[allow(dead_code)]
 #[derive(Debug)]
 pub struct ChannelParticipant {
     endpoint: Endpoint,
 }
 
-#[allow(dead_code)]
 impl ChannelParticipant {
     pub fn new(
         name: &Agent,
@@ -198,8 +201,9 @@ impl ChannelParticipant {
         session_id: Id,
         conn: u64,
         send_slim: SlimChannelSender,
+        send_app: AppChannelSender,
     ) -> Self {
-        let endpoint = Endpoint::new(name, channel_name, session_id, conn, send_slim);
+        let endpoint = Endpoint::new(name, channel_name, session_id, conn, send_slim, send_app);
         ChannelParticipant { endpoint }
     }
 }
@@ -220,12 +224,15 @@ impl OnMessageReceived for ChannelParticipant {
                 // are not set correctly. We must fix this issue
                 let route_type = AgentType::from_strings("org", "default", "moderator");
 
+                // set route for the channel moderator
                 self.endpoint
                     .set_route(&route_type, src.agent_id_option())
                     .await;
 
                 // set the connection id equal to the connection from where we received the message
                 let src = msg.get_source();
+
+                // create reply message
                 let reply = self.endpoint.create_channel_message(
                     src.agent_type(),
                     src.agent_id_option(),
@@ -234,12 +241,11 @@ impl OnMessageReceived for ChannelParticipant {
                     vec![],
                 );
 
-                // TODO handle error
                 self.endpoint.send(reply).await;
             }
             SessionHeaderType::ChannelJoinRequest => {
                 debug!("received join request message");
-                // accept the join and set the state:
+                // accept the join and set the state
                 // add the group name to the local endpoint and subscribe
                 let src = msg.get_source();
 
@@ -268,7 +274,6 @@ impl OnMessageReceived for ChannelParticipant {
 
                 // join the channel
                 self.endpoint.channel_name = channel_name;
-                // TODO: handle error
                 self.endpoint.join().await;
 
                 // reply to the request
@@ -279,13 +284,11 @@ impl OnMessageReceived for ChannelParticipant {
                     msg.get_id(),
                     vec![],
                 );
-                // TODO: handle error
                 self.endpoint.send(reply).await;
             }
             SessionHeaderType::ChannelLeaveRequest => {
                 debug!("received leave request message");
                 // leave the channell
-                // TODO: handle error
                 self.endpoint.leave().await;
 
                 // reply to the request
@@ -298,7 +301,6 @@ impl OnMessageReceived for ChannelParticipant {
                     vec![],
                 );
 
-                // TODO: handle error
                 self.endpoint.send(reply).await;
             }
             _ => {
@@ -308,7 +310,6 @@ impl OnMessageReceived for ChannelParticipant {
     }
 }
 
-#[allow(dead_code)]
 #[derive(Debug)]
 pub struct ChannelModerator {
     endpoint: Endpoint,
@@ -324,9 +325,12 @@ pub struct ChannelModerator {
 
     /// interval between retries
     retries_interval: Duration,
+
+    /// channel name as payload to add to the invite messages
+    payload: Vec<u8>,
 }
 
-#[allow(dead_code)]
+#[allow(clippy::too_many_arguments)]
 impl ChannelModerator {
     pub fn new(
         name: &Agent,
@@ -336,20 +340,24 @@ impl ChannelModerator {
         max_reties: u32,
         retries_interval: Duration,
         send_slim: SlimChannelSender,
+        send_app: AppChannelSender,
     ) -> Self {
-        let endpoint = Endpoint::new(name, channel_name, session_id, conn, send_slim);
+        let payload: Vec<u8> = bincode::encode_to_vec(channel_name, bincode::config::standard())
+            .expect("unable to parse channel name as payload");
+        let endpoint = Endpoint::new(name, channel_name, session_id, conn, send_slim, send_app);
         ChannelModerator {
             endpoint,
             channel_list: HashSet::new(),
             pending_requests: HashMap::new(),
             max_reties,
             retries_interval,
+            payload,
         }
     }
 
     pub async fn join(&mut self) {
         if !self.endpoint.subscribed {
-            // TODO: handle error
+            // join the channel
             self.endpoint.join().await;
 
             // add the moderator to the channel
@@ -358,8 +366,8 @@ impl ChannelModerator {
     }
 
     async fn forward(&mut self, msg: Message) {
+        // forward message received form the app and set a timer
         let msg_id = msg.get_id();
-        // TODO: handle error
         self.endpoint.send(msg.clone()).await;
         // create a timer for this request
         self.create_timer(msg_id, msg);
@@ -401,6 +409,7 @@ impl OnMessageReceived for ChannelModerator {
         let msg_type = msg.get_session_header().header_type();
         match msg_type {
             SessionHeaderType::ChannelDiscoveryRequest => {
+                debug!("received discovery request message from app");
                 // discovery message coming from the application
                 self.forward(msg).await;
             }
@@ -415,12 +424,6 @@ impl OnMessageReceived for ChannelModerator {
                 let src = msg.get_slim_header().get_source();
                 let recv_msg_id = msg.get_id();
                 let new_msg_id = rand::random::<u32>();
-                // TODO: error
-                let payload: Vec<u8> = bincode::encode_to_vec(
-                    &self.endpoint.channel_name,
-                    bincode::config::standard(),
-                )
-                .unwrap();
 
                 // this is the only message that cannot be received but that is created here
                 let join = self.endpoint.create_channel_message(
@@ -428,10 +431,9 @@ impl OnMessageReceived for ChannelModerator {
                     src.agent_id_option(),
                     SessionHeaderType::ChannelJoinRequest,
                     new_msg_id,
-                    payload,
+                    self.payload.clone(),
                 );
 
-                // TODO: handle error
                 self.endpoint.send(join.clone()).await;
 
                 // remove the timer for the discovery message
@@ -487,6 +489,7 @@ mod tests {
     #[tokio::test]
     #[traced_test]
     async fn test_full_join_and_leave() {
+        let (tx_app, _) = tokio::sync::mpsc::channel(1);
         let (moderator_tx, mut moderator_rx) = tokio::sync::mpsc::channel(50);
         let (participant_tx, mut participant_rx) = tokio::sync::mpsc::channel(50);
 
@@ -503,6 +506,7 @@ mod tests {
             3,
             Duration::from_millis(100),
             moderator_tx,
+            tx_app.clone(),
         );
         let mut cp = ChannelParticipant::new(
             &participant,
@@ -510,6 +514,7 @@ mod tests {
             SESSION_ID,
             conn,
             participant_tx,
+            tx_app.clone(),
         );
 
         // create a discovery request

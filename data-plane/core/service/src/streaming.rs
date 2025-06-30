@@ -234,6 +234,7 @@ impl Streaming {
                 60,
                 Duration::from_secs(1),
                 tx_slim.clone(),
+                tx_app.clone(),
             );
             ChannelEndpoint::ChannelModerator(cm)
         } else {
@@ -243,6 +244,7 @@ impl Streaming {
                 id,
                 conn_id,
                 tx_slim.clone(),
+                tx_app.clone(),
             );
             ChannelEndpoint::ChannelParticipant(cp)
         };
@@ -506,18 +508,6 @@ impl Streaming {
             );
         });
     }
-
-    //#[allow(dead_code)]
-    //pub async fn invite_endpoint(&mut self, endpoint_type: &AgentType) {
-    //    let mut lock = self.channel_endpoint.lock().await;
-    //    lock.invite(endpoint_type).await;
-    //}
-
-    //#[allow(dead_code)]
-    //pub async fn remove_endpoint(&mut self, endpoint_name: &Agent) {
-    //    let mut lock = self.channel_endpoint.lock().await;
-    //     lock.remove_endpoint(endpoint_name).await;
-    //}
 }
 
 async fn process_incoming_rtx_request(

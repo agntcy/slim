@@ -147,13 +147,6 @@ impl SessionLayer {
             )),
             SessionConfig::Streaming(conf) => {
                 let direction = conf.direction.clone();
-                //if direction == SessionDirection::Bidirectional {
-                // TODO(micpapal/msardara): this is a temporary solution to get a session
-                // id that is common to all the agents that subscribe
-                // for the same topic.
-                //    id = (slim_datapath::messages::encoder::calculate_hash(&conf.channel_name)
-                //        % (u32::MAX as u64)) as u32;
-                //}
 
                 Box::new(streaming::Streaming::new(
                     id,
@@ -289,7 +282,7 @@ impl SessionLayer {
                     .await?
             }
             SessionHeaderType::ChannelDiscoveryRequest => {
-                // TODO: The discovery message should be handled directly here without creating the session yet
+                // TODO(micpapal/msardara): The discovery message should be handled directly here without creating the session yet
                 // the session should be created on  SessionHeaderType::ChannelJoinRequest
                 let mut conf = self.default_stream_conf.read().clone();
                 conf.direction = SessionDirection::Bidirectional;
