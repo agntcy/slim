@@ -29,7 +29,7 @@ async def test_streaming(server):
 
         print(f"Creating participant {name}...")
 
-        participant = await slim_bindings.Slim.new(org, ns, chat)
+        participant = await slim_bindings.Slim.new(org, ns, name)
 
         # Connect to SLIM server
         _ = await participant.connect(
@@ -37,28 +37,38 @@ async def test_streaming(server):
         )
 
         # set route for the chat, so that messages can be sent to the other participants
-        await participant.set_route(org, ns, chat)
+        # await participant.set_route(org, ns, chat)
 
         # Subscribe to the producer topic
-        await participant.subscribe(org, ns, chat)
+        # await participant.subscribe(org, ns, chat)
 
-        print(f"{name} -> Creating new pubsub sessions...")
-        # create pubsubb session. A pubsub session is a just a bidirectional
-        # streaming session, where participants are both sender and receivers
-        session_info = await participant.create_session(
-            slim_bindings.PySessionConfiguration.Streaming(
-                slim_bindings.PySessionDirection.BIDIRECTIONAL,
-                topic=slim_bindings.PyAgentType(org, ns, chat),
-                max_retries=5,
-                timeout=datetime.timedelta(seconds=5),
+        if index == 0:
+            print(f"{name} -> Creating new pubsub sessions...")
+            # create pubsubb session. index 0 is the moderator of the session
+            # and it will invite all the other participants to the session
+            session_info = await participant.create_session(
+                slim_bindings.PySessionConfiguration.Streaming(
+                    slim_bindings.PySessionDirection.BIDIRECTIONAL,
+                    topic=slim_bindings.PyAgentType(org, ns, chat),
+                    moderator=True,
+                    max_retries=5,
+                    timeout=datetime.timedelta(seconds=5),
+                )
             )
-        )
+
+            # wait a bit for all chat participants to be ready
+            await asyncio.sleep(5)
+        
+            # invite all participants
+            for i in range(participants_count):
+                if i != 0:
+                    type_to_add = name = f"participant-{i}"
+                    to_add = slim_bindings.PyAgentType("cisco", "default", type_to_add)
+                    await participant.invite(session_info, to_add)
+
 
         # Track if this participant was called
         called = False
-
-        # wait a bit for all chat participants to be ready
-        await asyncio.sleep(5)
 
         async with participant:
             # if this is the first participant, we need to publish the message
@@ -133,6 +143,7 @@ async def test_streaming(server):
                 except Exception as e:
                     print(f"{name} -> Error receiving message: {e}")
                     break
+
 
     # start participants in background
     for i in reversed(range(participants_count)):

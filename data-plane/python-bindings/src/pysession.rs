@@ -132,10 +132,11 @@ pub(crate) enum PySessionConfiguration {
     },
     #[pyo3(constructor = (timeout=std::time::Duration::from_millis(1000)))]
     RequestResponse { timeout: std::time::Duration },
-    #[pyo3(constructor = (session_direction, topic=None, max_retries=0, timeout=std::time::Duration::from_millis(1000)))]
+    #[pyo3(constructor = (session_direction, topic=None, moderator=false, max_retries=0, timeout=std::time::Duration::from_millis(1000)))]
     Streaming {
         session_direction: PySessionDirection,
         topic: Option<PyAgentType>,
+        moderator: bool,
         max_retries: u32,
         timeout: std::time::Duration,
     },
@@ -159,6 +160,7 @@ impl From<session::SessionConfig> for PySessionConfiguration {
             session::SessionConfig::Streaming(config) => PySessionConfiguration::Streaming {
                 session_direction: config.direction.into(),
                 topic: None,
+                moderator: config.moderator,
                 max_retries: config.max_retries,
                 timeout: config.timeout,
             },
@@ -184,12 +186,13 @@ impl From<PySessionConfiguration> for session::SessionConfig {
             PySessionConfiguration::Streaming {
                 session_direction,
                 topic,
+                moderator,
                 max_retries,
                 timeout,
             } => session::SessionConfig::Streaming(StreamingConfiguration::new(
                 session_direction.into(),
                 topic.map(|topic| topic.into()),
-                true,
+                moderator,
                 Some(max_retries),
                 Some(timeout),
             )),
