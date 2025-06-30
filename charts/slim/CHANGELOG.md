@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.8](https://github.com/agntcy/slim/compare/slim-helm-v0.1.7...slim-helm-v0.1.8) (2025-06-30)
+
+
+### Bug Fixes
+
+* **helm-chart:** use release-please to release new chart version ([#375](https://github.com/agntcy/slim/issues/375)) ([6603c71](https://github.com/agntcy/slim/commit/6603c7185849ef256ca9adf14bac0dcc444411f7))
+
 ## [0.1.7](https://github.com/agntcy/slim/compare/slim-helm-v0.1.6...slim-helm-v0.1.7) (2025-06-06)
 
 
