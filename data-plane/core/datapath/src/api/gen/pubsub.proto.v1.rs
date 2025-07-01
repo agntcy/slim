@@ -111,6 +111,12 @@ pub enum SessionHeaderType {
     RtxReply = 11,
     BeaconStream = 12,
     BeaconPubSub = 13,
+    ChannelDiscoveryRequest = 14,
+    ChannelDiscoveryReply = 15,
+    ChannelJoinRequest = 16,
+    ChannelJoinReply = 17,
+    ChannelLeaveRequest = 18,
+    ChannelLeaveReply = 19,
 }
 impl SessionHeaderType {
     /// String value of the enum field names used in the ProtoBuf definition.
@@ -133,6 +139,12 @@ impl SessionHeaderType {
             Self::RtxReply => "RTX_REPLY",
             Self::BeaconStream => "BEACON_STREAM",
             Self::BeaconPubSub => "BEACON_PUB_SUB",
+            Self::ChannelDiscoveryRequest => "CHANNEL_DISCOVERY_REQUEST",
+            Self::ChannelDiscoveryReply => "CHANNEL_DISCOVERY_REPLY",
+            Self::ChannelJoinRequest => "CHANNEL_JOIN_REQUEST",
+            Self::ChannelJoinReply => "CHANNEL_JOIN_REPLY",
+            Self::ChannelLeaveRequest => "CHANNEL_LEAVE_REQUEST",
+            Self::ChannelLeaveReply => "CHANNEL_LEAVE_REPLY",
         }
     }
     /// Creates an enum from field names used in the ProtoBuf definition.
@@ -152,6 +164,12 @@ impl SessionHeaderType {
             "RTX_REPLY" => Some(Self::RtxReply),
             "BEACON_STREAM" => Some(Self::BeaconStream),
             "BEACON_PUB_SUB" => Some(Self::BeaconPubSub),
+            "CHANNEL_DISCOVERY_REQUEST" => Some(Self::ChannelDiscoveryRequest),
+            "CHANNEL_DISCOVERY_REPLY" => Some(Self::ChannelDiscoveryReply),
+            "CHANNEL_JOIN_REQUEST" => Some(Self::ChannelJoinRequest),
+            "CHANNEL_JOIN_REPLY" => Some(Self::ChannelJoinReply),
+            "CHANNEL_LEAVE_REQUEST" => Some(Self::ChannelLeaveRequest),
+            "CHANNEL_LEAVE_REPLY" => Some(Self::ChannelLeaveReply),
             _ => None,
         }
     }

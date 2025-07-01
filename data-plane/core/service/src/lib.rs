@@ -13,6 +13,8 @@ mod fire_and_forget;
 mod request_response;
 mod session_layer;
 
+mod channel_endpoint;
+
 pub use fire_and_forget::FireAndForgetConfiguration;
 pub use request_response::RequestResponseConfiguration;
 pub use session::SessionMessage;
@@ -22,7 +24,7 @@ pub use streaming::StreamingConfiguration;
 use serde::Deserialize;
 use session::{AppChannelReceiver, MessageDirection};
 use session_layer::SessionLayer;
-use slim_datapath::api::MessageType;
+use slim_datapath::api::{MessageType, SessionHeader, SlimHeader};
 use slim_datapath::messages::{Agent, AgentType};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -40,8 +42,8 @@ use slim_config::grpc::client::ClientConfig;
 use slim_config::grpc::server::ServerConfig;
 use slim_controller::api::proto::api::v1::controller_service_server::ControllerServiceServer;
 use slim_controller::service::ControllerService;
-use slim_datapath::api::proto::pubsub::v1::Message;
 use slim_datapath::api::proto::pubsub::v1::pub_sub_service_server::PubSubServiceServer;
+use slim_datapath::api::proto::pubsub::v1::{Message, SessionHeaderType};
 use slim_datapath::message_processing::MessageProcessor;
 
 // Define the kind of the component as static string
@@ -596,6 +598,34 @@ impl Service {
         );
 
         let msg = Message::new_publish(source, agent_type, agent_id, Some(flags), "msg", blob);
+
+        self.send_message(source, msg, Some(session_info)).await
+    }
+
+    pub async fn invite(
+        &self,
+        source: &Agent,
+        destination: &AgentType,
+        session_info: session::Info,
+    ) -> Result<(), ServiceError> {
+        let slim_header = Some(SlimHeader::new(source, destination, None, None));
+
+        let session_header = Some(SessionHeader::new(
+            SessionHeaderType::ChannelDiscoveryRequest.into(),
+            session_info.id,
+            rand::random::<u32>(),
+        ));
+
+        let payload = match bincode::encode_to_vec(source, bincode::config::standard()) {
+            Ok(payload) => payload,
+            Err(_) => {
+                return Err(ServiceError::PublishError(
+                    "error while parsing the payload".to_string(),
+                ));
+            }
+        };
+
+        let msg = Message::new_publish_with_headers(slim_header, session_header, "", payload);
 
         self.send_message(source, msg, Some(session_info)).await
     }
@@ -1198,6 +1228,7 @@ mod tests {
         let session_config = SessionConfig::Streaming(StreamingConfiguration::new(
             session::SessionDirection::Receiver,
             None,
+            false,
             Some(1000),
             Some(time::Duration::from_secs(123)),
         ));
@@ -1219,6 +1250,7 @@ mod tests {
         let session_config = SessionConfig::Streaming(StreamingConfiguration::new(
             session::SessionDirection::Sender,
             None,
+            false,
             Some(2000),
             Some(time::Duration::from_secs(1234)),
         ));
@@ -1231,6 +1263,7 @@ mod tests {
         let session_config = SessionConfig::Streaming(StreamingConfiguration::new(
             session::SessionDirection::Receiver,
             None,
+            false,
             Some(2000),
             Some(time::Duration::from_secs(1234)),
         ));
@@ -1255,6 +1288,7 @@ mod tests {
         let session_config = SessionConfig::Streaming(StreamingConfiguration::new(
             session::SessionDirection::Sender,
             None,
+            false,
             Some(20000),
             Some(time::Duration::from_secs(12345)),
         ));
@@ -1267,6 +1301,7 @@ mod tests {
         let session_config = SessionConfig::Streaming(StreamingConfiguration::new(
             session::SessionDirection::Receiver,
             None,
+            false,
             Some(20000),
             Some(time::Duration::from_secs(123456)),
         ));

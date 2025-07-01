@@ -162,7 +162,7 @@ async def test_session_config(server):
 
     # Streaming session
     session_config = slim_bindings.PySessionConfiguration.Streaming(
-        slim_bindings.PySessionDirection.SENDER, None, 12345
+        slim_bindings.PySessionDirection.SENDER, None, False, 12345
     )
 
     session_info = await slim_bindings.create_session(svc, session_config)
@@ -177,7 +177,7 @@ async def test_session_config(server):
 
     # This session direction
     session_config = slim_bindings.PySessionConfiguration.Streaming(
-        slim_bindings.PySessionDirection.SENDER, None, 12345
+        slim_bindings.PySessionDirection.SENDER, None, False, 12345
     )
 
     # Try to set a sender direction as default session. We should get an error, as we are trying to
@@ -194,7 +194,7 @@ async def test_session_config(server):
 
     # Use a receiver direction
     session_config = slim_bindings.PySessionConfiguration.Streaming(
-        slim_bindings.PySessionDirection.RECEIVER, None, 12345
+        slim_bindings.PySessionDirection.RECEIVER, None, False, 12345
     )
     await slim_bindings.set_default_session_config(
         svc,
