@@ -8,6 +8,10 @@ publish = false
 name = "sdk-mock"
 path = "src/sdk-mock/main.rs"
 
+[[bin]]
+name = "authzen-demo"
+path = "src/authzen-demo/main.rs"
+
 [dependencies]
 agntcy-slim = { workspace = true }
 agntcy-slim-config = { workspace = true }
