@@ -213,12 +213,15 @@ impl PyService {
             .await
     }
 
-    async fn invite (
+    async fn invite(
         &self,
         session_info: session::Info,
         name: PyAgentType,
     ) -> Result<(), ServiceError> {
-        self.sdk.service.invite(&self.sdk.agent, &name.into(), session_info).await
+        self.sdk
+            .service
+            .invite(&self.sdk.agent, &name.into(), session_info)
+            .await
     }
 
     async fn receive(&self) -> Result<(PySessionInfo, Vec<u8>), ServiceError> {
@@ -523,14 +526,16 @@ pub fn publish(
 #[gen_stub_pyfunction]
 #[pyfunction]
 #[pyo3(signature = (svc, session_info, name))]
-pub fn invite (
+pub fn invite(
     py: Python,
     svc: PyService,
     session_info: PySessionInfo,
     name: PyAgentType,
 ) -> PyResult<Bound<PyAny>> {
     pyo3_async_runtimes::tokio::future_into_py(py, async move {
-        svc.invite(session_info.session_info, name).await.map_err(|e| PyErr::new::<PyException, _>(e.to_string()))
+        svc.invite(session_info.session_info, name)
+            .await
+            .map_err(|e| PyErr::new::<PyException, _>(e.to_string()))
     })
 }
 

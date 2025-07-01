@@ -11,7 +11,7 @@ import slim_bindings
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("server", ["127.0.0.1:12375"], indirect=True)
-async def test_streaming(server):
+async def test_streaming(server):  # noqa: C901
     org = "cisco"
     ns = "default"
     chat = "chat"
@@ -36,12 +36,6 @@ async def test_streaming(server):
             {"endpoint": "http://127.0.0.1:12375", "tls": {"insecure": True}}
         )
 
-        # set route for the chat, so that messages can be sent to the other participants
-        # await participant.set_route(org, ns, chat)
-
-        # Subscribe to the producer topic
-        # await participant.subscribe(org, ns, chat)
-
         if index == 0:
             print(f"{name} -> Creating new pubsub sessions...")
             # create pubsubb session. index 0 is the moderator of the session
@@ -56,19 +50,23 @@ async def test_streaming(server):
                 )
             )
 
-            # wait a bit for all chat participants to be ready
-            await asyncio.sleep(5)
-        
+            await asyncio.sleep(3)
+
             # invite all participants
             for i in range(participants_count):
                 if i != 0:
-                    type_to_add = name = f"participant-{i}"
-                    to_add = slim_bindings.PyAgentType("cisco", "default", type_to_add)
+                    type_to_add = f"participant-{i}"
+                    to_add = slim_bindings.PyAgentType(org, ns, type_to_add)
+                    await participant.set_route(org, ns, type_to_add)
                     await participant.invite(session_info, to_add)
+                    print(f"{name} -> add {type_to_add} to the group")
 
+        # wait a bit for all chat participants to be ready
+        await asyncio.sleep(5)
 
         # Track if this participant was called
         called = False
+        first_message = True
 
         async with participant:
             # if this is the first participant, we need to publish the message
@@ -93,9 +91,17 @@ async def test_streaming(server):
 
             while True:
                 try:
+                    # init session from session
+                    if index == 0:
+                        recv_session = session_info
+                    else:
+                        if first_message:
+                            recv_session, _ = await participant.receive()
+                            first_message = False
+
                     # receive message from session
                     recv_session, msg_rcv = await participant.receive(
-                        session=session_info.id
+                        session=recv_session.id
                     )
 
                     # increase the count
@@ -109,7 +115,7 @@ async def test_streaming(server):
                     if (not called) and msg_rcv.decode().endswith(name):
                         # print the message
                         print(
-                            f"{name} -> Received: {msg_rcv.decode()}, local count: {local_count}"
+                            f"{name} -> Receiving message: {msg_rcv.decode()}, local count: {local_count}"
                         )
 
                         called = True
@@ -137,16 +143,15 @@ async def test_streaming(server):
                     # If we received as many messages as the number of participants, we can exit
                     if local_count >= (participants_count - 1):
                         print(f"{name} -> Received all messages, exiting...")
-                        await participant.delete_session(session_info.id)
+                        await participant.delete_session(recv_session.id)
                         break
 
                 except Exception as e:
                     print(f"{name} -> Error receiving message: {e}")
                     break
 
-
     # start participants in background
-    for i in reversed(range(participants_count)):
+    for i in range(participants_count):
         task = asyncio.create_task(background_task(i))
         task.set_name(f"participant-{i}")
         participants.append(task)
