@@ -235,6 +235,7 @@ impl Streaming {
                 Duration::from_secs(1),
                 tx_slim.clone(),
                 tx_app.clone(),
+                false,
             );
             ChannelEndpoint::ChannelModerator(cm)
         } else {

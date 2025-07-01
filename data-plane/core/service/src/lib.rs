@@ -8,7 +8,7 @@ pub mod receiver_buffer;
 pub mod session;
 pub mod streaming;
 pub mod timer;
-
+pub mod interceptor;
 mod fire_and_forget;
 mod request_response;
 mod session_layer;

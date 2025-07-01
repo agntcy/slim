@@ -174,7 +174,6 @@ name = "agntcy-slim-mls"
 version = "0.1.0"
 dependencies = [
  "agntcy-slim-datapath",
- "agntcy-slim-service",
  "async-trait",
  "base64 0.22.1",
  "mls-rs",
@@ -204,7 +203,9 @@ dependencies = [
  "agntcy-slim-config",
  "agntcy-slim-controller",
  "agntcy-slim-datapath",
+ "agntcy-slim-mls",
  "async-trait",
+ "base64 0.22.1",
  "bincode",
  "drain",
  "parking_lot",

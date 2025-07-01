@@ -119,7 +119,7 @@ impl Mls {
         &mut self,
         group_id: &[u8],
         key_package_bytes: &[u8],
-    ) -> Result<Vec<u8>, MlsError> {
+    ) -> Result<(Vec<u8>, Vec<u8>), MlsError> {
         let group = self
             .groups
             .get_mut(group_id)
@@ -133,21 +133,41 @@ impl Mls {
                 .and_then(|builder| builder.build()),
         )?;
 
-        Self::map_mls_error(group.apply_pending_commit())?;
+        // create the commit message to broadcast in the group
+        let commit_msg = Self::map_mls_error(commit.commit_message.to_bytes())?;
 
-        commit
+        // apply the commit locally
+        Self::map_mls_error(group.apply_pending_commit())?; 
+
+        // create the welocme message
+        let welcome = commit
             .welcome_messages
             .first()
             .ok_or_else(|| MlsError::Mls("No welcome message generated".to_string()))
-            .and_then(|welcome| Self::map_mls_error(welcome.to_bytes()))
+            .and_then(|welcome| Self::map_mls_error(welcome.to_bytes()))?;
+
+        Ok((commit_msg, welcome))
     }
 
-    pub fn join_group(&mut self, welcome_message: &[u8]) -> Result<Vec<u8>, MlsError> {
+    pub fn process_commit(&mut self, group_id: &[u8], commit_message: &[u8]) -> Result<(), MlsError> {
+        let group = self
+            .groups
+            .get_mut(group_id)
+            .ok_or_else(|| MlsError::Mls(format!("Group not found: {:?}", group_id)))?;
+        let commit = Self::map_mls_error(MlsMessage::from_bytes(commit_message))?;
+
+        // process an incoming commit message
+        Self::map_mls_error(group.process_incoming_message(commit))?;
+        Ok(())
+    }
+
+    pub fn process_welcome(&mut self, welcome_message: &[u8]) -> Result<Vec<u8>, MlsError> {
         let client = self
             .client
             .as_ref()
             .ok_or_else(|| MlsError::Mls("MLS client not initialized".to_string()))?;
 
+        // process the welcome message and connect to the gruop    
         let welcome = Self::map_mls_error(MlsMessage::from_bytes(welcome_message))?;
         let (group, _) = Self::map_mls_error(client.join_group(None, &welcome))?;
 
@@ -250,29 +270,60 @@ mod tests {
     async fn test_messaging() -> Result<(), Box<dyn std::error::Error>> {
         let alice_provider = Arc::new(FileBasedIdentityProvider::new("/tmp/test_mls_alice")?);
         let bob_provider = Arc::new(FileBasedIdentityProvider::new("/tmp/test_mls_bob")?);
+        let charlie_provider = Arc::new(FileBasedIdentityProvider::new("/tmp/test_mls_charlie")?);
 
+        // alice will work as moderator
         let mut alice = Mls::new("alice".to_string(), alice_provider);
         let mut bob = Mls::new("bob".to_string(), bob_provider);
+        let mut charlie = Mls::new("charlie".to_string(), charlie_provider);
 
         alice.initialize().await?;
         bob.initialize().await?;
+        charlie.initialize().await?;
 
         let group_id = alice.create_group()?;
         assert!(alice.is_group_member(&group_id));
 
+        // add bob to the group
         let bob_key_package = bob.generate_key_package()?;
-        let welcome_message = alice.add_member(&group_id, &bob_key_package)?;
+        let (_, welcome_message) = alice.add_member(&group_id, &bob_key_package)?;
 
-        let bob_group_id = bob.join_group(&welcome_message)?;
+        let bob_group_id = bob.process_welcome(&welcome_message)?;
         assert!(bob.is_group_member(&bob_group_id));
         assert_eq!(group_id, bob_group_id);
 
-        let original_message = b"Hello from Alice!";
+        // test encrypt decrypt
+        let original_message = b"Hello from Alice 1!";
         let encrypted = alice.encrypt_message(&group_id, original_message)?;
         let decrypted = bob.decrypt_message(&bob_group_id, &encrypted)?;
 
         assert_eq!(original_message, decrypted.as_slice());
         assert_ne!(original_message.to_vec(), encrypted);
+
+        // add charlie
+        let charlie_key_package = charlie.generate_key_package()?;
+        let (commit_message, welcome_message) = alice.add_member(&group_id, &charlie_key_package)?;
+
+        bob.process_commit(&group_id, &commit_message)?;
+
+        let charlie_group_id = charlie.process_welcome(&welcome_message)?;
+        assert!(charlie.is_group_member(&charlie_group_id));
+        assert_eq!(group_id, charlie_group_id);
+
+        // test encrypt decrypt
+        let original_message = b"Hello from Alice 1!";
+        let encrypted = alice.encrypt_message(&group_id, original_message)?;
+        let decrypted_1 = bob.decrypt_message(&bob_group_id, &encrypted)?;
+        let decrypted_2 = charlie.decrypt_message(&charlie_group_id, &encrypted)?;
+        assert_eq!(original_message, decrypted_1.as_slice());
+        assert_eq!(original_message, decrypted_2.as_slice());
+
+        let original_message = b"Hello from Charlie!";
+        let encrypted = charlie.encrypt_message(&group_id, original_message)?;
+        let decrypted_1 = bob.decrypt_message(&bob_group_id, &encrypted)?;
+        let decrypted_2 = alice.decrypt_message(&group_id, &encrypted)?;
+        assert_eq!(original_message, decrypted_1.as_slice());
+        assert_eq!(original_message, decrypted_2.as_slice());
 
         Ok(())
     }
@@ -292,8 +343,8 @@ mod tests {
         let group_id = alice.create_group()?;
 
         let bob_key_package = bob.generate_key_package()?;
-        let welcome_message = alice.add_member(&group_id, &bob_key_package)?;
-        let bob_group_id = bob.join_group(&welcome_message)?;
+        let (_, welcome_message)  = alice.add_member(&group_id, &bob_key_package)?;
+        let bob_group_id = bob.process_welcome(&welcome_message)?;
 
         let message = b"Test message";
         let encrypted = alice.encrypt_message(&group_id, message)?;

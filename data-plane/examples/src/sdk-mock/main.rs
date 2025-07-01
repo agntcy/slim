@@ -10,8 +10,7 @@ use tracing::info;
 
 use slim::config;
 use slim_service::{
-    FireAndForgetConfiguration,
-    session::{self, SessionConfig},
+    interceptor, session::{self, SessionConfig}, FireAndForgetConfiguration
 };
 
 mod args;
@@ -133,7 +132,7 @@ async fn main() {
             };
 
             // Add client to group and generate welcome message
-            let welcome_message = server_mls.add_member(&group_id, &key_package).unwrap();
+            let (_, welcome_message) = server_mls.add_member(&group_id, &key_package).unwrap();
 
             // Save welcome message for client
             std::fs::write(&welcome_path, &welcome_message).unwrap();
@@ -199,11 +198,11 @@ async fn main() {
             };
 
             // Join the group
-            let group_id = client_mls.join_group(&welcome_message).unwrap();
+            let group_id = client_mls.process_welcome(&welcome_message).unwrap();
             info!("Client successfully joined group");
 
             // enable mls for the session with group_id
-            let interceptor = slim_mls::interceptor::MlsInterceptor::new(
+            let interceptor = interceptor::MlsInterceptor::new(
                 Arc::new(Mutex::new(client_mls)),
                 group_id,
             );
@@ -247,7 +246,7 @@ async fn main() {
                 // Setup MLS session for server on first message
                 if message.is_none() && !server_session_created && server_mls_for_session.is_some() {
                     let (mls, group_id) = server_mls_for_session.take().unwrap();
-                    let interceptor = slim_mls::interceptor::MlsInterceptor::new(
+                    let interceptor = interceptor::MlsInterceptor::new(
                         Arc::new(Mutex::new(mls)),
                         group_id,
                     );

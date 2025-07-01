@@ -10,7 +10,6 @@ name = "slim_mls"
 
 [dependencies]
 agntcy-slim-datapath = { workspace = true }
-agntcy-slim-service = { workspace = true }
 async-trait = "0.1"
 base64 = "0.22"
 mls-rs = { version = "0.47.0" }

@@ -1,15 +1,16 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::mls::Mls;
+use slim_mls::mls::Mls;
 use parking_lot::Mutex;
 use slim_datapath::api::MessageType;
 use slim_datapath::api::proto::pubsub::v1::Message;
-use slim_service::{errors::SessionError, session::SessionInterceptor};
+use crate::{errors::SessionError, session::SessionInterceptor};
 use std::sync::Arc;
 use tracing::{debug, error, warn};
 
 // Metadata Keys
+pub(crate) const METADATA_MLS_ENABLED: &str = "MLS_ENABLED";
 const METADATA_MLS_ENCRYPTED: &str = "MLS_ENCRYPTED";
 const METADATA_MLS_GROUP_ID: &str = "MLS_GROUP_ID";
 
@@ -169,7 +170,7 @@ impl SessionInterceptor for MlsInterceptor {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::identity::FileBasedIdentityProvider;
+    use slim_mls::identity::FileBasedIdentityProvider;
     use std::sync::Arc;
 
     #[tokio::test]
@@ -217,8 +218,8 @@ mod tests {
 
         let group_id = alice_mls.create_group().unwrap();
         let bob_key_package = bob_mls.generate_key_package().unwrap();
-        let welcome_message = alice_mls.add_member(&group_id, &bob_key_package).unwrap();
-        bob_mls.join_group(&welcome_message).unwrap();
+        let (_, welcome_message) = alice_mls.add_member(&group_id, &bob_key_package).unwrap();
+        bob_mls.process_welcome(&welcome_message).unwrap();
 
         let alice_interceptor =
             MlsInterceptor::new(Arc::new(Mutex::new(alice_mls)), group_id.clone());
