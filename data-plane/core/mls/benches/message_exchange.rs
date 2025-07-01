@@ -93,13 +93,15 @@ async fn message_exchange_with_mls(
     let tls_config = TlsServerConfig::new().with_insecure(true);
     let server_config = ServerConfig::with_endpoint("127.0.0.1:0").with_tls_settings(tls_config);
     let service_config = ServiceConfiguration::new().with_server(vec![server_config]);
-    let service = service_config.build_server(
-        ID::new_with_name(
-            slim_service::ServiceBuilder::kind(),
-            &format!("benchmark_{}", unique_id),
-        )
-        .unwrap(),
-    )?;
+    let service = Arc::new(
+        service_config.build_server(
+            ID::new_with_name(
+                slim_service::ServiceBuilder::kind(),
+                &format!("benchmark_{}", unique_id),
+            )
+            .unwrap(),
+        )?,
+    );
 
     let publisher_agent = Agent::from_strings("bench", "org", "publisher", unique_id);
     let subscriber_agent = Agent::from_strings("bench", "org", "subscriber", unique_id);
@@ -155,37 +157,54 @@ async fn message_exchange_with_mls(
 
     let start = Instant::now();
 
-    for i in 0..message_count {
-        let message = format!("benchmark message {}", i).into_bytes();
-        service
-            .publish(
-                &publisher_agent,
-                pub_session_info.clone(),
-                subscriber_agent.agent_type(),
-                Some(subscriber_agent.agent_id()),
-                message,
-            )
-            .await?;
-    }
+    let producer_handle = tokio::spawn({
+        let service = Arc::clone(&service);
+        let publisher_agent = publisher_agent.clone();
+        let subscriber_agent = subscriber_agent.clone();
+        let pub_session_info = pub_session_info.clone();
+        async move {
+            for i in 0..message_count {
+                let message = format!("benchmark message {}", i).into_bytes();
+                service
+                    .publish(
+                        &publisher_agent,
+                        pub_session_info.clone(),
+                        subscriber_agent.agent_type(),
+                        Some(subscriber_agent.agent_id()),
+                        message,
+                    )
+                    .await?;
+            }
+            Ok::<(), Box<dyn std::error::Error + Send + Sync>>(())
+        }
+    });
 
-    for i in 0..message_count {
-        match tokio::time::timeout(Duration::from_secs(5), sub_rx.recv()).await {
-            Ok(Some(Ok(_msg))) => {
-                // Message received successfully
-            }
-            Ok(Some(Err(e))) => {
-                return Err(format!("Message {} receive error: {}", i, e).into());
-            }
-            Ok(None) => {
-                return Err(format!("Channel closed at message {}", i).into());
-            }
-            Err(_) => {
-                return Err(
-                    format!("Timeout waiting for message {} of {}", i, message_count).into(),
-                );
+    let consumer_handle = tokio::spawn(async move {
+        for i in 0..message_count {
+            match tokio::time::timeout(Duration::from_secs(5), sub_rx.recv()).await {
+                Ok(Some(Ok(_msg))) => {
+                    // Message received successfully
+                }
+                Ok(Some(Err(e))) => {
+                    return Err::<(), Box<dyn std::error::Error + Send + Sync>>(
+                        format!("Message {} receive error: {}", i, e).into(),
+                    );
+                }
+                Ok(None) => {
+                    return Err(format!("Channel closed at message {}", i).into());
+                }
+                Err(_) => {
+                    return Err(
+                        format!("Timeout waiting for message {} of {}", i, message_count).into(),
+                    );
+                }
             }
         }
-    }
+        Ok(())
+    });
+
+    producer_handle.await??;
+    consumer_handle.await??;
 
     let duration = start.elapsed();
 
@@ -202,13 +221,15 @@ async fn message_exchange_without_mls(
     let tls_config = TlsServerConfig::new().with_insecure(true);
     let server_config = ServerConfig::with_endpoint("127.0.0.1:0").with_tls_settings(tls_config);
     let service_config = ServiceConfiguration::new().with_server(vec![server_config]);
-    let service = service_config.build_server(
-        ID::new_with_name(
-            slim_service::ServiceBuilder::kind(),
-            &format!("benchmark_{}", unique_id),
-        )
-        .unwrap(),
-    )?;
+    let service = Arc::new(
+        service_config.build_server(
+            ID::new_with_name(
+                slim_service::ServiceBuilder::kind(),
+                &format!("benchmark_{}", unique_id),
+            )
+            .unwrap(),
+        )?,
+    );
 
     let publisher_agent = Agent::from_strings("bench", "org", "publisher", unique_id);
     let subscriber_agent = Agent::from_strings("bench", "org", "subscriber", unique_id);
@@ -245,37 +266,54 @@ async fn message_exchange_without_mls(
 
     let start = Instant::now();
 
-    for i in 0..message_count {
-        let message = format!("benchmark message {}", i).into_bytes();
-        service
-            .publish(
-                &publisher_agent,
-                pub_session_info.clone(),
-                subscriber_agent.agent_type(),
-                Some(subscriber_agent.agent_id()),
-                message,
-            )
-            .await?;
-    }
+    let producer_handle = tokio::spawn({
+        let service = Arc::clone(&service);
+        let publisher_agent = publisher_agent.clone();
+        let subscriber_agent = subscriber_agent.clone();
+        let pub_session_info = pub_session_info.clone();
+        async move {
+            for i in 0..message_count {
+                let message = format!("benchmark message {}", i).into_bytes();
+                service
+                    .publish(
+                        &publisher_agent,
+                        pub_session_info.clone(),
+                        subscriber_agent.agent_type(),
+                        Some(subscriber_agent.agent_id()),
+                        message,
+                    )
+                    .await?;
+            }
+            Ok::<(), Box<dyn std::error::Error + Send + Sync>>(())
+        }
+    });
 
-    for i in 0..message_count {
-        match tokio::time::timeout(Duration::from_secs(5), sub_rx.recv()).await {
-            Ok(Some(Ok(_msg))) => {
-                // Message received successfully
-            }
-            Ok(Some(Err(e))) => {
-                return Err(format!("Message {} receive error: {}", i, e).into());
-            }
-            Ok(None) => {
-                return Err(format!("Channel closed at message {}", i).into());
-            }
-            Err(_) => {
-                return Err(
-                    format!("Timeout waiting for message {} of {}", i, message_count).into(),
-                );
+    let consumer_handle = tokio::spawn(async move {
+        for i in 0..message_count {
+            match tokio::time::timeout(Duration::from_secs(5), sub_rx.recv()).await {
+                Ok(Some(Ok(_msg))) => {
+                    // Message received successfully
+                }
+                Ok(Some(Err(e))) => {
+                    return Err::<(), Box<dyn std::error::Error + Send + Sync>>(
+                        format!("Message {} receive error: {}", i, e).into(),
+                    );
+                }
+                Ok(None) => {
+                    return Err(format!("Channel closed at message {}", i).into());
+                }
+                Err(_) => {
+                    return Err(
+                        format!("Timeout waiting for message {} of {}", i, message_count).into(),
+                    );
+                }
             }
         }
-    }
+        Ok(())
+    });
+
+    producer_handle.await??;
+    consumer_handle.await??;
 
     let duration = start.elapsed();
 
