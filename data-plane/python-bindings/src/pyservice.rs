@@ -71,7 +71,7 @@ impl PyService {
         let svc = Service::new(svc_id);
 
         // Get the rx channel
-        let rx = svc.create_agent(&agent).await?;
+        let rx = svc.create_app(&agent).await?;
 
         // create the service
         let sdk = Arc::new(PyServiceInternal {

@@ -174,7 +174,7 @@ async fn main() {
     let agent_name = Agent::from_strings("cisco", "default", "publisher", id);
 
     let mut rx = svc
-        .create_agent(&agent_name)
+        .create_app(&agent_name)
         .await
         .expect("failed to create agent");
 

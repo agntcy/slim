@@ -53,13 +53,13 @@ pub trait Verifier {
     /// Verifies the JWT token and returns the claims if valid.
     ///
     /// The `Claims` type parameter represents the expected structure of the JWT claims.
-    async fn verify<Claims>(&self, token: impl Into<String> + Send) -> Result<Claims, AuthError>
+    async fn verify<Claims>(&self, token: &str) -> Result<Claims, AuthError>
     where
         Claims: DeserializeOwned + Send;
 
     /// Try to verify the JWT token without async context and return the claims if valid.
     /// If an async operation is needed, an error is returned.
-    fn try_verify<Claims>(&self, token: impl Into<String>) -> Result<Claims, AuthError>
+    fn try_verify<Claims>(&self, token: &str) -> Result<Claims, AuthError>
     where
         Claims: DeserializeOwned + Send;
 }

@@ -50,7 +50,7 @@ async fn main() {
     let agent_id = 0;
     let agent_name = Agent::from_strings("org", "default", local_agent, agent_id);
     let mut rx = svc
-        .create_agent(&agent_name)
+        .create_app(&agent_name)
         .await
         .expect("failed to create agent");
 
