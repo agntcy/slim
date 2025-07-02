@@ -6,12 +6,12 @@ pub mod producer_buffer;
 pub mod receiver_buffer;
 #[macro_use]
 pub mod session;
-pub mod streaming;
-pub mod timer;
-pub mod interceptor;
 mod fire_and_forget;
+pub mod interceptor;
 mod request_response;
 mod session_layer;
+pub mod streaming;
+pub mod timer;
 
 mod channel_endpoint;
 

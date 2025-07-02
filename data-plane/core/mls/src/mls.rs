@@ -137,7 +137,7 @@ impl Mls {
         let commit_msg = Self::map_mls_error(commit.commit_message.to_bytes())?;
 
         // apply the commit locally
-        Self::map_mls_error(group.apply_pending_commit())?; 
+        Self::map_mls_error(group.apply_pending_commit())?;
 
         // create the welocme message
         let welcome = commit
@@ -149,7 +149,11 @@ impl Mls {
         Ok((commit_msg, welcome))
     }
 
-    pub fn process_commit(&mut self, group_id: &[u8], commit_message: &[u8]) -> Result<(), MlsError> {
+    pub fn process_commit(
+        &mut self,
+        group_id: &[u8],
+        commit_message: &[u8],
+    ) -> Result<(), MlsError> {
         let group = self
             .groups
             .get_mut(group_id)
@@ -167,7 +171,7 @@ impl Mls {
             .as_ref()
             .ok_or_else(|| MlsError::Mls("MLS client not initialized".to_string()))?;
 
-        // process the welcome message and connect to the gruop    
+        // process the welcome message and connect to the gruop
         let welcome = Self::map_mls_error(MlsMessage::from_bytes(welcome_message))?;
         let (group, _) = Self::map_mls_error(client.join_group(None, &welcome))?;
 
@@ -302,7 +306,8 @@ mod tests {
 
         // add charlie
         let charlie_key_package = charlie.generate_key_package()?;
-        let (commit_message, welcome_message) = alice.add_member(&group_id, &charlie_key_package)?;
+        let (commit_message, welcome_message) =
+            alice.add_member(&group_id, &charlie_key_package)?;
 
         bob.process_commit(&group_id, &commit_message)?;
 
@@ -343,7 +348,7 @@ mod tests {
         let group_id = alice.create_group()?;
 
         let bob_key_package = bob.generate_key_package()?;
-        let (_, welcome_message)  = alice.add_member(&group_id, &bob_key_package)?;
+        let (_, welcome_message) = alice.add_member(&group_id, &bob_key_package)?;
         let bob_group_id = bob.process_welcome(&welcome_message)?;
 
         let message = b"Test message";

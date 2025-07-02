@@ -10,7 +10,8 @@ use tracing::info;
 
 use slim::config;
 use slim_service::{
-    interceptor, session::{self, SessionConfig}, FireAndForgetConfiguration
+    FireAndForgetConfiguration, interceptor,
+    session::{self, SessionConfig},
 };
 
 mod args;
@@ -202,10 +203,8 @@ async fn main() {
             info!("Client successfully joined group");
 
             // enable mls for the session with group_id
-            let interceptor = interceptor::MlsInterceptor::new(
-                Arc::new(Mutex::new(client_mls)),
-                group_id,
-            );
+            let interceptor =
+                interceptor::MlsInterceptor::new(Arc::new(Mutex::new(client_mls)), group_id);
             svc.add_session_interceptor(&agent_name, session.id, Box::new(interceptor))
                 .await
                 .unwrap();

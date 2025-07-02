@@ -1,11 +1,11 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
-use slim_mls::mls::Mls;
+use crate::{errors::SessionError, session::SessionInterceptor};
 use parking_lot::Mutex;
 use slim_datapath::api::MessageType;
 use slim_datapath::api::proto::pubsub::v1::Message;
-use crate::{errors::SessionError, session::SessionInterceptor};
+use slim_mls::mls::Mls;
 use std::sync::Arc;
 use tracing::{debug, error, warn};
 

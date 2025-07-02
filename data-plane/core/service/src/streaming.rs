@@ -235,7 +235,7 @@ impl Streaming {
                 Duration::from_secs(1),
                 tx_slim.clone(),
                 tx_app.clone(),
-                false,
+                None,
             );
             ChannelEndpoint::ChannelModerator(cm)
         } else {
@@ -246,6 +246,7 @@ impl Streaming {
                 conn_id,
                 tx_slim.clone(),
                 tx_app.clone(),
+                None,
             );
             ChannelEndpoint::ChannelParticipant(cp)
         };
