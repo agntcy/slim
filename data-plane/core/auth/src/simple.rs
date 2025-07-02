@@ -13,7 +13,9 @@ pub struct Simple {
 
 impl Simple {
     pub fn new(token: &str) -> Self {
-        Self { token: token.to_owned() }
+        Self {
+            token: token.to_owned(),
+        }
     }
 
     pub fn get_token(&self) -> &str {
@@ -48,7 +50,10 @@ impl Verifier for Simple {
         }
     }
 
-    fn try_verify<Claims>(&self, token: impl Into<String>) -> Result<Claims, crate::errors::AuthError>
+    fn try_verify<Claims>(
+        &self,
+        token: impl Into<String>,
+    ) -> Result<Claims, crate::errors::AuthError>
     where
         Claims: serde::de::DeserializeOwned + Send,
     {

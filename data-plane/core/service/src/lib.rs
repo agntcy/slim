@@ -9,7 +9,7 @@ pub mod session;
 pub mod streaming;
 pub mod timer;
 
-mod app;
+pub mod app;
 mod fire_and_forget;
 mod request_response;
 
@@ -23,14 +23,11 @@ pub use streaming::StreamingConfiguration;
 
 use serde::Deserialize;
 use session::{AppChannelReceiver, MessageDirection};
-use slim_datapath::api::MessageType;
 use slim_datapath::messages::Agent;
 use std::collections::HashMap;
 use std::sync::Arc;
-use tokio::sync::RwLock;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
-use tonic::Status;
 use tracing::{debug, error, info};
 
 pub use errors::ServiceError;
@@ -43,7 +40,6 @@ use slim_config::grpc::server::ServerConfig;
 use slim_controller::api::proto::api::v1::controller_service_server::ControllerServiceServer;
 use slim_controller::service::ControllerService;
 use slim_datapath::api::proto::pubsub::v1::pub_sub_service_server::PubSubServiceServer;
-use slim_datapath::api::proto::pubsub::v1::{Message, SessionHeaderType};
 use slim_datapath::message_processing::MessageProcessor;
 
 use crate::app::App;
@@ -288,6 +284,7 @@ impl Service {
         // we need to load the right identifier and pass it here to the session layer
         let app = App::new(
             app_name,
+            Some(self.message_processor.clone()),
             identity_provider,
             identity_verifier,
             conn_id,
@@ -528,6 +525,7 @@ mod tests {
     use slim_auth::simple::Simple;
     use slim_config::grpc::server::ServerConfig;
     use slim_config::tls::server::TlsServerConfig;
+    use slim_datapath::api::MessageType;
     use std::time::Duration;
     use tokio::time;
     use tracing_test::traced_test;
@@ -589,7 +587,7 @@ mod tests {
 
         // create a subscriber
         let subscriber_agent = Agent::from_strings("cisco", "default", "subscriber_agent", 0);
-        let (app, mut sub_rx) = service
+        let (sub_app, mut sub_rx) = service
             .create_app(
                 &subscriber_agent,
                 Simple::new("subscriber_agent"),
@@ -600,7 +598,7 @@ mod tests {
 
         // create a publisher
         let publisher_agent = Agent::from_strings("cisco", "default", "publisher_agent", 0);
-        let (app, rx) = service
+        let (pub_app, _rx) = service
             .create_app(
                 &publisher_agent,
                 Simple::new("subscriber_agent"),
@@ -617,7 +615,7 @@ mod tests {
         // subscription is done automatically.
 
         // create a fire and forget session
-        let session_info = app
+        let session_info = pub_app
             .create_session(
                 SessionConfig::FireAndForget(FireAndForgetConfiguration::default()),
                 None,
@@ -627,14 +625,15 @@ mod tests {
 
         // publish a message
         let message_blob = "very complicated message".as_bytes().to_vec();
-        app.publish(
-            session_info.clone(),
-            subscriber_agent.agent_type(),
-            Some(subscriber_agent.agent_id()),
-            message_blob.clone(),
-        )
-        .await
-        .unwrap();
+        pub_app
+            .publish(
+                session_info.clone(),
+                subscriber_agent.agent_type(),
+                Some(subscriber_agent.agent_id()),
+                message_blob.clone(),
+            )
+            .await
+            .unwrap();
 
         // wait for the message to arrive
         let msg = sub_rx
@@ -657,11 +656,12 @@ mod tests {
         assert_eq!(session_info.id, msg.info.id);
 
         // Now remove the session from the 2 agents
-        let r0 = app.delete_session(session_info.id).await;
-        let r1 = app.delete_session(session_info.id).await;
+        pub_app.delete_session(session_info.id).await.unwrap();
+        sub_app.delete_session(session_info.id).await.unwrap();
 
-        assert!(r0);
-        assert!(r1);
+        // And drop the 2 apps
+        drop(pub_app);
+        drop(sub_app);
 
         // sleep to allow the deletion to be processed
         time::sleep(Duration::from_millis(100)).await;

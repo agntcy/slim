@@ -10,6 +10,7 @@ use rand::Rng;
 use slim_auth::simple::Simple;
 use slim_auth::traits::{TokenProvider, Verifier};
 use slim_datapath::api::{MessageType, SessionHeader, SlimHeader};
+use slim_datapath::message_processing::MessageProcessor;
 use slim_datapath::messages::AgentType;
 use slim_datapath::messages::utils::SlimHeaderFlags;
 use tokio::sync::RwLock as AsyncRwLock;
@@ -42,6 +43,9 @@ where
 
     /// Name of the local agent
     agent_name: Agent,
+
+    /// Reference to underlying message processor
+    message_processor: Option<Arc<MessageProcessor>>,
 
     /// Identity provider for the local agent
     identity_provider: P,
@@ -80,14 +84,30 @@ where
     }
 }
 
+impl<P, V> Drop for App<P, V>
+where
+    P: TokenProvider + Send + Sync + Clone + 'static,
+    V: Verifier + Send + Sync + Clone + 'static,
+{
+    fn drop(&mut self) {
+        // if connected to a message processor, disconnect
+        if let Some(message_processor) = &self.session_layer.message_processor {
+            message_processor
+                .disconnect(self.session_layer.conn_id())
+                .expect("error disconnecting the local connection");
+        }
+    }
+}
+
 impl<P, V> App<P, V>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
 {
-    /// Create a new session pool
+    /// Create new App instance
     pub(crate) fn new(
         agent_name: &Agent,
+        message_processor: Option<Arc<MessageProcessor>>,
         identity_provider: P,
         identity_verifier: V,
         conn_id: u64,
@@ -103,6 +123,7 @@ where
         let session_layer = Arc::new(SessionLayer {
             pool: AsyncRwLock::new(HashMap::new()),
             agent_name: agent_name.clone(),
+            message_processor,
             identity_provider,
             identity_verifier,
             conn_id,
@@ -124,8 +145,13 @@ where
         self.session_layer.create_session(session_config, id).await
     }
 
-    pub async fn delete_session(&self, id: Id) -> bool {
-        self.session_layer.remove_session(id).await
+    pub async fn delete_session(&self, id: Id) -> Result<(), SessionError> {
+        // remove the session from the pool
+        if self.session_layer.remove_session(id).await {
+            Ok(())
+        } else {
+            Err(SessionError::SessionNotFound(id.to_string()))
+        }
     }
 
     /// Set config for a session
@@ -468,6 +494,7 @@ where
         self.tx_app.clone()
     }
 
+    #[allow(dead_code)]
     pub(crate) fn conn_id(&self) -> u64 {
         self.conn_id
     }
@@ -816,7 +843,7 @@ mod tests {
 
     use slim_datapath::{
         api::ProtoMessage,
-        messages::{Agent, AgentType, utils::SLIM_IDENTITY},
+        messages::{Agent, AgentType},
     };
 
     fn create_app() -> App {
@@ -826,6 +853,7 @@ mod tests {
 
         App::new(
             &agent,
+            None,
             Simple::new("a"),
             Simple::new("a"),
             0,
@@ -849,6 +877,7 @@ mod tests {
 
         let app = App::new(
             &agent,
+            None,
             Simple::new("a"),
             Simple::new("a"),
             0,
@@ -863,8 +892,7 @@ mod tests {
 
         assert!(ret.is_ok());
 
-        let res = app.delete_session(1).await;
-        assert!(res);
+        app.delete_session(1).await.unwrap();
     }
 
     #[tokio::test]
@@ -875,6 +903,7 @@ mod tests {
 
         let session_layer = App::new(
             &agent,
+            None,
             Simple::new("a"),
             Simple::new("a"),
             0,
@@ -899,6 +928,7 @@ mod tests {
 
         let session_layer = App::new(
             &agent,
+            None,
             Simple::new("a"),
             Simple::new("a"),
             0,
@@ -914,12 +944,11 @@ mod tests {
             .await;
         assert!(res.is_ok());
 
-        let res = session_layer.delete_session(1).await;
-        assert!(res);
+        session_layer.delete_session(1).await.unwrap();
 
         // try to delete a non-existing session
         let res = session_layer.delete_session(1).await;
-        assert!(!res);
+        assert!(res.is_err());
     }
 
     #[tokio::test]
@@ -930,6 +959,7 @@ mod tests {
 
         let app = App::new(
             &agent,
+            None,
             Simple::new("a"),
             Simple::new("a"),
             0,
@@ -987,6 +1017,7 @@ mod tests {
 
         let app = App::new(
             &agent,
+            None,
             Simple::new("a"),
             Simple::new("a"),
             0,
@@ -1035,8 +1066,6 @@ mod tests {
             .expect("no message received")
             .expect("error");
 
-        // add identity to message and reset the msg id msg to allow the comparison
-        message.insert_metadata(SLIM_IDENTITY.to_owned(), agent.to_string());
         msg.set_message_id(0);
         assert_eq!(msg, message);
     }

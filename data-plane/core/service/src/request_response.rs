@@ -123,6 +123,7 @@ where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
 {
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn new(
         id: Id,
         session_config: RequestResponseConfiguration,
@@ -239,12 +240,12 @@ where
         self.internal.common.source()
     }
 
-    fn token_provider(&self) -> P {
-        self.internal.common.token_provider().clone()
+    fn identity_provider(&self) -> P {
+        self.internal.common.identity_provider().clone()
     }
 
-    fn verifier(&self) -> V {
-        self.internal.common.verifier().clone()
+    fn identity_verifier(&self) -> V {
+        self.internal.common.identity_verifier().clone()
     }
 
     fn on_message_from_app_interceptors(&self, msg: &mut Message) -> Result<(), SessionError> {

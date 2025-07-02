@@ -10,9 +10,8 @@ use crate::{
     channel_endpoint::{ChannelEndpoint, ChannelModerator, ChannelParticipant},
     errors::SessionError,
     producer_buffer, receiver_buffer,
-    request_response::RequestResponse,
     session::{
-        AppChannelSender, Common, CommonSession, Id, Info, Interceptor, MessageHandler, Session,
+        AppChannelSender, Common, CommonSession, Id, Info, Interceptor, MessageHandler,
         SessionConfig, SessionConfigTrait, SessionDirection, SessionInterceptor, SlimChannelSender,
         State,
     },
@@ -224,6 +223,7 @@ where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
 {
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn new(
         id: Id,
         session_config: StreamingConfiguration,
@@ -981,12 +981,12 @@ where
         self.common.source()
     }
 
-    fn token_provider(&self) -> P {
-        self.common.token_provider().clone()
+    fn identity_provider(&self) -> P {
+        self.common.identity_provider().clone()
     }
 
-    fn verifier(&self) -> V {
-        self.common.verifier().clone()
+    fn identity_verifier(&self) -> V {
+        self.common.identity_verifier().clone()
     }
 
     fn on_message_from_app_interceptors(&self, msg: &mut Message) -> Result<(), SessionError> {

@@ -7,6 +7,6 @@ pub mod file_watcher;
 pub mod jwt;
 pub mod jwt_middleware;
 pub mod resolver;
+pub mod simple;
 pub mod testutils;
 pub mod traits;
-pub mod simple;

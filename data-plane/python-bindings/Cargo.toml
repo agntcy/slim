@@ -13,6 +13,7 @@ name = "_slim_bindings"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
+agntcy-slim-auth = { workspace = true }
 agntcy-slim-config = { workspace = true }
 agntcy-slim-datapath = { workspace = true }
 agntcy-slim-service = { workspace = true }

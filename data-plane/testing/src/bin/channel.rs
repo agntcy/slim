@@ -3,13 +3,13 @@
 
 use std::time::Duration;
 
-use slim_datapath::messages::{Agent, AgentType, utils::SlimHeaderFlags};
-
-use slim_service::streaming::StreamingConfiguration;
-
 use clap::Parser;
 use slim::config;
 use tracing::{error, info};
+
+use slim_auth::simple::Simple;
+use slim_datapath::messages::{Agent, AgentType, utils::SlimHeaderFlags};
+use slim_service::streaming::StreamingConfiguration;
 
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
@@ -153,8 +153,8 @@ async fn main() {
 
     let channel_name = AgentType::from_strings("channel", "channel", "channel");
 
-    let mut rx = svc
-        .create_agent(&local_name)
+    let (app, mut rx) = svc
+        .create_app(&local_name, Simple::new("secret"), Simple::new("secret"))
         .await
         .expect("failed to create agent");
 
@@ -168,8 +168,7 @@ async fn main() {
     info!("remote connection id = {}", conn_id);
 
     // subscribe for local name
-    svc.subscribe(
-        &local_name,
+    app.subscribe(
         local_name.agent_type(),
         local_name.agent_id_option(),
         Some(conn_id),
@@ -188,7 +187,7 @@ async fn main() {
             participants.push(p.clone());
 
             // add route
-            svc.set_route(&local_name, &p, None, conn_id)
+            app.set_route(&p, None, conn_id)
                 .await
                 .expect("an error accoured while adding a route");
         }
@@ -199,9 +198,8 @@ async fn main() {
 
     if is_moderator {
         // create session
-        let info = svc
+        let info = app
             .create_session(
-                &local_name,
                 slim_service::session::SessionConfig::Streaming(StreamingConfiguration::new(
                     slim_service::session::SessionDirection::Bidirectional,
                     Some(channel_name.clone()),
@@ -209,6 +207,7 @@ async fn main() {
                     Some(10),
                     Some(Duration::from_secs(1)),
                 )),
+                None,
             )
             .await
             .expect("error creating session");
@@ -216,7 +215,7 @@ async fn main() {
         // invite all participants
         for p in participants {
             info!("Invite participant {}", p);
-            svc.invite(&local_name, &p, info.clone())
+            app.invite(&p, info.clone())
                 .await
                 .expect("error sending invite message");
         }
@@ -252,15 +251,8 @@ async fn main() {
             info!("publishing message {}", i);
             // set fanout > 1 to send the message in broadcast
             let flags = SlimHeaderFlags::new(10, None, None, None, None);
-            if svc
-                .publish_with_flags(
-                    &local_name,
-                    info.clone(),
-                    &channel_name,
-                    None,
-                    flags,
-                    payload,
-                )
+            if app
+                .publish_with_flags(info.clone(), &channel_name, None, flags, payload)
                 .await
                 .is_err()
             {
@@ -297,15 +289,8 @@ async fn main() {
                             // set fanout > 1 to send the message in broadcast
                             let payload: Vec<u8> = vec![120; msg_size as usize]; // ASCII for 'x' = 120
                             let flags = SlimHeaderFlags::new(10, None, None, None, None);
-                            if svc
-                                .publish_with_flags(
-                                    &local_name,
-                                    info,
-                                    &channel_name,
-                                    None,
-                                    flags,
-                                    payload,
-                                )
+                            if app
+                                .publish_with_flags(info, &channel_name, None, flags, payload)
                                 .await
                                 .is_err()
                             {

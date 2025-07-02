@@ -1,8 +1,6 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
-use std::sync::Arc;
-
 use async_trait::async_trait;
 use parking_lot::{RwLock, RwLockReadGuard};
 use slim_auth::traits::{TokenProvider, Verifier};
@@ -241,10 +239,12 @@ where
     fn state(&self) -> &State;
 
     /// Get the token provider
-    fn token_provider(&self) -> P;
+    #[allow(dead_code)]
+    fn identity_provider(&self) -> P;
 
     /// Get the verifier
-    fn verifier(&self) -> V;
+    #[allow(dead_code)]
+    fn identity_verifier(&self) -> V;
 
     /// Get the source name
     fn source(&self) -> &Agent;
@@ -298,10 +298,12 @@ where
     state: State,
 
     /// Token provider for authentication
-    token_provider: P,
+    #[allow(dead_code)]
+    identity_provider: P,
 
     /// Verifier for authentication
-    verifier: V,
+    #[allow(dead_code)]
+    identity_verifier: V,
 
     /// Session type
     session_config: RwLock<SessionConfig>,
@@ -377,19 +379,19 @@ where
         }
     }
 
-    fn token_provider(&self) -> P {
+    fn identity_provider(&self) -> P {
         match self {
-            Session::FireAndForget(session) => session.token_provider(),
-            Session::RequestResponse(session) => session.token_provider(),
-            Session::Streaming(session) => session.token_provider(),
+            Session::FireAndForget(session) => session.identity_provider(),
+            Session::RequestResponse(session) => session.identity_provider(),
+            Session::Streaming(session) => session.identity_provider(),
         }
     }
 
-    fn verifier(&self) -> V {
+    fn identity_verifier(&self) -> V {
         match self {
-            Session::FireAndForget(session) => session.verifier(),
-            Session::RequestResponse(session) => session.verifier(),
-            Session::Streaming(session) => session.verifier(),
+            Session::FireAndForget(session) => session.identity_verifier(),
+            Session::RequestResponse(session) => session.identity_verifier(),
+            Session::Streaming(session) => session.identity_verifier(),
         }
     }
 
@@ -455,12 +457,12 @@ where
         self.session_config.read().clone()
     }
 
-    fn token_provider(&self) -> P {
-        self.token_provider.clone()
+    fn identity_provider(&self) -> P {
+        self.identity_provider.clone()
     }
 
-    fn verifier(&self) -> V {
-        self.verifier.clone()
+    fn identity_verifier(&self) -> V {
+        self.identity_verifier.clone()
     }
 
     fn set_session_config(&self, session_config: &SessionConfig) -> Result<(), SessionError> {
@@ -512,6 +514,7 @@ where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
 {
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn new(
         id: Id,
         session_direction: SessionDirection,
@@ -525,8 +528,8 @@ where
         Self {
             id,
             state: State::Active,
-            token_provider: identity_provider,
-            verifier,
+            identity_provider,
+            identity_verifier: verifier,
             session_direction,
             session_config: RwLock::new(session_config),
             source,
