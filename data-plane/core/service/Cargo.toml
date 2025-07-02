@@ -9,6 +9,7 @@ description = "Main service and public API to interact with SLIM data plane."
 name = "slim_service"
 
 [dependencies]
+agntcy-slim-auth = { workspace = true }
 agntcy-slim-config = { workspace = true }
 agntcy-slim-controller = { workspace = true }
 agntcy-slim-datapath = { workspace = true }

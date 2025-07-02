@@ -1,6 +1,7 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
+use slim_auth::simple::Simple;
 use slim_datapath::messages::Agent;
 use slim_service::streaming::StreamingConfiguration;
 use std::fs::File;
@@ -89,8 +90,8 @@ async fn main() {
 
     // create local agent
     let agent_name = Agent::from_strings("cisco", "default", "subscriber", id);
-    let mut rx = svc
-        .create_agent(&agent_name)
+    let (app, mut rx) = svc
+        .create_app(&agent_name, Simple::new("secret"), Simple::new("secret"))
         .await
         .expect("failed to create agent");
 
@@ -105,9 +106,8 @@ async fn main() {
     if streaming {
         // run subscriber in streaming mode
         // subscribe for local name
-        match svc
+        match app
             .subscribe(
-                &agent_name,
                 agent_name.agent_type(),
                 agent_name.agent_id_option(),
                 Some(conn_id),
@@ -178,9 +178,8 @@ async fn main() {
         }
     }
 
-    let res = svc
+    let res = app
         .create_session(
-            &agent_name,
             slim_service::session::SessionConfig::Streaming(StreamingConfiguration::new(
                 slim_service::session::SessionDirection::Receiver,
                 None,
@@ -188,6 +187,7 @@ async fn main() {
                 Some(10),
                 Some(Duration::from_millis(1000)),
             )),
+            None,
         )
         .await;
     if res.is_err() {
@@ -201,13 +201,8 @@ async fn main() {
     info!("register subscriptions for subscriber {}", id);
     let bar = ProgressBar::new(subscriptions_list.len() as u64);
     for s in subscriptions_list.iter() {
-        match svc
-            .subscribe(
-                &agent_name,
-                s.agent_type(),
-                Some(s.agent_id()),
-                Some(conn_id),
-            )
+        match app
+            .subscribe(s.agent_type(), Some(s.agent_id()), Some(conn_id))
             .await
         {
             Ok(_) => {}
@@ -262,8 +257,7 @@ async fn main() {
         }
 
         // send message
-        svc.publish_to(
-            &agent_name,
+        app.publish_to(
             recv_msg.info,
             source.agent_type(),
             Some(source.agent_id()),

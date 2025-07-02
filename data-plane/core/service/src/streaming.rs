@@ -1,6 +1,7 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
+use slim_auth::traits::{TokenProvider, Verifier};
 use std::{collections::HashMap, sync::Arc, time::Duration};
 use tokio::sync::{Mutex, mpsc};
 
@@ -10,8 +11,9 @@ use crate::{
     errors::SessionError,
     producer_buffer, receiver_buffer,
     session::{
-        AppChannelSender, Common, CommonSession, Id, Info, Session, SessionConfig,
-        SessionConfigTrait, SessionDirection, SlimChannelSender, State,
+        AppChannelSender, Common, CommonSession, Id, Info, Interceptor, MessageHandler,
+        SessionConfig, SessionConfigTrait, SessionDirection, SessionInterceptor, SlimChannelSender,
+        State,
     },
     timer,
 };
@@ -206,24 +208,33 @@ enum Endpoint {
     Bidirectional(BidirectionalState),
 }
 
-pub(crate) struct Streaming {
-    common: Common,
+pub(crate) struct Streaming<P, V>
+where
+    P: TokenProvider + Send + Sync + Clone + 'static,
+    V: Verifier + Send + Sync + Clone + 'static,
+{
+    common: Common<P, V>,
     channel_endpoint: Arc<Mutex<ChannelEndpoint>>, // TODO remove this mutex
     tx: mpsc::Sender<Result<(Message, MessageDirection), Status>>,
 }
 
-impl Streaming {
+impl<P, V> Streaming<P, V>
+where
+    P: TokenProvider + Send + Sync + Clone + 'static,
+    V: Verifier + Send + Sync + Clone + 'static,
+{
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn new(
         id: Id,
         session_config: StreamingConfiguration,
         session_direction: SessionDirection,
         agent: Agent,
-        identity: Option<String>,
         conn_id: u64,
         tx_slim: SlimChannelSender,
         tx_app: AppChannelSender,
-    ) -> Streaming {
+        identity_provider: P,
+        identity_verifier: V,
+    ) -> Self {
         let (tx, rx) = mpsc::channel(128);
         let channel_endpoint: ChannelEndpoint = if session_config.moderator {
             let cm = ChannelModerator::new(
@@ -254,9 +265,10 @@ impl Streaming {
                 session_direction.clone(),
                 SessionConfig::Streaming(session_config.clone()),
                 agent,
-                identity,
                 tx_slim,
                 tx_app,
+                identity_provider,
+                identity_verifier,
             ),
             channel_endpoint: Arc::new(Mutex::new(channel_endpoint)),
             tx,
@@ -916,7 +928,11 @@ async fn send_message_to_app(
 }
 
 #[async_trait]
-impl Session for Streaming {
+impl<P, V> MessageHandler for Streaming<P, V>
+where
+    P: TokenProvider + Send + Sync + Clone + 'static,
+    V: Verifier + Send + Sync + Clone + 'static,
+{
     async fn on_message(
         &self,
         message: SessionMessage,
@@ -929,13 +945,65 @@ impl Session for Streaming {
     }
 }
 
-delegate_common_behavior!(Streaming, common);
+impl<P, V> Interceptor for Streaming<P, V>
+where
+    P: TokenProvider + Send + Sync + Clone + 'static,
+    V: Verifier + Send + Sync + Clone + 'static,
+{
+    fn add_interceptor(&self, interceptor: Box<dyn SessionInterceptor + Send + Sync + 'static>) {
+        self.common.add_interceptor(interceptor);
+    }
+}
+
+impl<P, V> CommonSession<P, V> for Streaming<P, V>
+where
+    P: TokenProvider + Send + Sync + Clone + 'static,
+    V: Verifier + Send + Sync + Clone + 'static,
+{
+    fn id(&self) -> Id {
+        // concat the token stream
+        self.common.id()
+    }
+
+    fn state(&self) -> &State {
+        self.common.state()
+    }
+
+    fn session_config(&self) -> SessionConfig {
+        self.common.session_config()
+    }
+
+    fn set_session_config(&self, session_config: &SessionConfig) -> Result<(), SessionError> {
+        self.common.set_session_config(session_config)
+    }
+
+    fn source(&self) -> &Agent {
+        self.common.source()
+    }
+
+    fn identity_provider(&self) -> P {
+        self.common.identity_provider().clone()
+    }
+
+    fn identity_verifier(&self) -> V {
+        self.common.identity_verifier().clone()
+    }
+
+    fn on_message_from_app_interceptors(&self, msg: &mut Message) -> Result<(), SessionError> {
+        self.common.on_message_from_app_interceptors(msg)
+    }
+
+    fn on_message_from_slim_interceptors(&self, msg: &mut Message) -> Result<(), SessionError> {
+        self.common.on_message_from_slim_interceptors(msg)
+    }
+}
 
 #[cfg(test)]
 mod tests {
     use std::time::Duration;
 
     use super::*;
+    use slim_auth::simple::Simple;
     use tokio::time;
     use tracing_test::traced_test;
 
@@ -958,10 +1026,11 @@ mod tests {
             session_config.clone(),
             SessionDirection::Sender,
             source.clone(),
-            Some(source.to_string()),
             conn_id,
             tx_slim.clone(),
             tx_app.clone(),
+            Simple::new("token"),
+            Simple::new("token"),
         );
 
         assert_eq!(session.id(), 0);
@@ -984,10 +1053,11 @@ mod tests {
             session_config.clone(),
             SessionDirection::Receiver,
             source.clone(),
-            Some(source.to_string()),
             conn_id,
             tx_slim,
             tx_app,
+            Simple::new("token"),
+            Simple::new("token"),
         );
 
         assert_eq!(session.id(), 1);
@@ -1027,20 +1097,22 @@ mod tests {
             session_config_sender,
             SessionDirection::Sender,
             send.clone(),
-            Some(send.to_string()),
             conn_id,
             tx_slim_sender,
             tx_app_sender,
+            Simple::new("token"),
+            Simple::new("token"),
         );
         let receiver = Streaming::new(
             0,
             session_config_receiver,
             SessionDirection::Receiver,
             recv.clone(),
-            Some(recv.to_string()),
             conn_id,
             tx_slim_receiver,
             tx_app_receiver,
+            Simple::new("token"),
+            Simple::new("token"),
         );
 
         let mut message = Message::new_publish(
@@ -1106,10 +1178,11 @@ mod tests {
             session_config,
             SessionDirection::Receiver,
             agent.clone(),
-            Some(agent.to_string()),
             conn_id,
             tx_slim,
             tx_app,
+            Simple::new("token"),
+            Simple::new("token"),
         );
 
         let mut message = Message::new_publish(
@@ -1189,10 +1262,11 @@ mod tests {
             session_config,
             SessionDirection::Sender,
             agent.clone(),
-            Some(agent.to_string()),
             conn_id,
             tx_slim,
             tx_app,
+            Simple::new("token"),
+            Simple::new("token"),
         );
 
         let mut message = Message::new_publish(
@@ -1297,20 +1371,22 @@ mod tests {
             session_config_sender,
             SessionDirection::Sender,
             send.clone(),
-            Some(send.to_string()),
             conn_id,
             tx_slim_sender,
             tx_app_sender,
+            Simple::new("token"),
+            Simple::new("token"),
         );
         let receiver = Streaming::new(
             0,
             session_config_receiver,
             SessionDirection::Receiver,
             recv.clone(),
-            Some(recv.to_string()),
             conn_id,
             tx_slim_receiver,
             tx_app_receiver,
+            Simple::new("token"),
+            Simple::new("token"),
         );
 
         let mut message = Message::new_publish(
@@ -1509,10 +1585,11 @@ mod tests {
                 session_config.clone(),
                 SessionDirection::Sender,
                 source.clone(),
-                Some(source.to_string()),
                 conn_id,
                 tx_slim.clone(),
                 tx_app.clone(),
+                Simple::new("token"),
+                Simple::new("token"),
             );
         }
 

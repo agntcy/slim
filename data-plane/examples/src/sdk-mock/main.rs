@@ -9,6 +9,7 @@ use tokio::time;
 use tracing::info;
 
 use slim::config;
+use slim_auth::simple::Simple;
 use slim_service::{
     FireAndForgetConfiguration,
     session::{self, SessionConfig},
@@ -49,8 +50,8 @@ async fn main() {
     // create local agent
     let agent_id = 0;
     let agent_name = Agent::from_strings("org", "default", local_agent, agent_id);
-    let mut rx = svc
-        .create_agent(&agent_name)
+    let (app, mut rx) = svc
+        .create_app(&agent_name, Simple::new("secret"), Simple::new("secret"))
         .await
         .expect("failed to create agent");
 
@@ -63,21 +64,14 @@ async fn main() {
         .unwrap();
 
     let local_agent_type = AgentType::from_strings("org", "default", local_agent);
-    svc.subscribe(
-        &agent_name,
-        &local_agent_type,
-        Some(agent_id),
-        Some(conn_id),
-    )
-    .await
-    .unwrap();
+    app.subscribe(&local_agent_type, Some(agent_id), Some(conn_id))
+        .await
+        .unwrap();
 
     // Set a route for the remote agent
     let route = AgentType::from_strings("org", "default", remote_agent);
     info!("allowing messages to remote agent: {:?}", route);
-    svc.set_route(&agent_name, &route, None, conn_id)
-        .await
-        .unwrap();
+    app.set_route(&route, None, conn_id).await.unwrap();
 
     // wait for the connection to be established
     tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
@@ -149,10 +143,10 @@ async fn main() {
     // check what to do with the message
     if let Some(msg) = message {
         // create a fire and forget session
-        let res = svc
+        let res = app
             .create_session(
-                &agent_name,
                 SessionConfig::FireAndForget(FireAndForgetConfiguration::default()),
+                None,
             )
             .await;
         if res.is_err() {
@@ -207,13 +201,13 @@ async fn main() {
                 Arc::new(Mutex::new(client_mls)),
                 group_id,
             );
-            svc.add_session_interceptor(&agent_name, session.id, Box::new(interceptor))
+            app.add_interceptor(session.id, Box::new(interceptor))
                 .await
                 .unwrap();
         }
 
         // publish message
-        svc.publish(&agent_name, session, &route, None, msg.into())
+        app.publish(session, &route, None, msg.into())
             .await
             .unwrap();
     }
@@ -232,7 +226,7 @@ async fn main() {
                 // send a message back
                 let msg = messages.pop_front();
                 if let Some(msg) = msg {
-                    svc.publish(&agent_name, msg.1, &route, None, msg.0.into())
+                    app.publish(msg.1, &route, None, msg.0.into())
                         .await
                         .unwrap();
                 }
@@ -251,7 +245,7 @@ async fn main() {
                         Arc::new(Mutex::new(mls)),
                         group_id,
                     );
-                    svc.add_session_interceptor(&agent_name, session_msg.info.id, Box::new(interceptor))
+                    app.add_interceptor(session_msg.info.id, Box::new(interceptor))
                         .await
                         .unwrap();
                     server_session_created = true;
@@ -283,6 +277,9 @@ async fn main() {
     }
 
     info!("sdk-mock shutting down");
+
+    // Delete app
+    drop(app);
 
     // consume the service and get the drain signal
     let signal = svc.signal();
