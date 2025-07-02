@@ -3,10 +3,11 @@
 
 use slim_auth::traits::{TokenProvider, Verifier};
 use std::{collections::HashMap, sync::Arc, time::Duration};
-use tokio::sync::mpsc;
+use tokio::sync::{Mutex, mpsc};
 
 use crate::{
     MessageDirection, SessionMessage,
+    channel_endpoint::{ChannelEndpoint, ChannelModerator, ChannelParticipant},
     errors::SessionError,
     producer_buffer, receiver_buffer,
     request_response::RequestResponse,
@@ -36,7 +37,8 @@ const STREAM_BROADCAST: u32 = 50;
 #[derive(Debug, Clone, PartialEq)]
 pub struct StreamingConfiguration {
     pub direction: SessionDirection,
-    pub topic: AgentType,
+    pub channel_name: AgentType,
+    pub moderator: bool,
     pub max_retries: u32,
     pub timeout: std::time::Duration,
 }
@@ -67,7 +69,8 @@ impl Default for StreamingConfiguration {
     fn default() -> Self {
         StreamingConfiguration {
             direction: SessionDirection::Receiver,
-            topic: AgentType::default(),
+            channel_name: AgentType::default(),
+            moderator: false,
             max_retries: 10,
             timeout: std::time::Duration::from_millis(1000),
         }
@@ -78,7 +81,9 @@ impl std::fmt::Display for StreamingConfiguration {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "StreamingConfiguration: max_retries: {}, timeout: {} ms",
+            "StreamingConfiguration: channel_name: {}, modearator: {}, max_retries: {}, timeout: {} ms",
+            self.channel_name,
+            self.moderator,
             self.max_retries,
             self.timeout.as_millis(),
         )
@@ -88,13 +93,15 @@ impl std::fmt::Display for StreamingConfiguration {
 impl StreamingConfiguration {
     pub fn new(
         direction: SessionDirection,
-        topic: Option<AgentType>,
+        channel_name: Option<AgentType>,
+        moderator: bool,
         max_retries: Option<u32>,
         timeout: Option<std::time::Duration>,
     ) -> Self {
         StreamingConfiguration {
             direction,
-            topic: topic.unwrap_or_default(),
+            channel_name: channel_name.unwrap_or_default(),
+            moderator,
             max_retries: max_retries.unwrap_or(0),
             timeout: timeout.unwrap_or(std::time::Duration::from_millis(0)),
         }
@@ -208,6 +215,7 @@ where
     V: Verifier + Send + Sync + Clone + 'static,
 {
     common: Common<P, V>,
+    channel_endpoint: Arc<Mutex<ChannelEndpoint>>, // TODO remove this mutex
     tx: mpsc::Sender<Result<(Message, MessageDirection), Status>>,
 }
 
@@ -227,6 +235,29 @@ where
         identity_verifier: V,
     ) -> Self {
         let (tx, rx) = mpsc::channel(128);
+        let channel_endpoint: ChannelEndpoint = if session_config.moderator {
+            let cm = ChannelModerator::new(
+                &agent,
+                &session_config.channel_name,
+                id,
+                conn_id,
+                60,
+                Duration::from_secs(1),
+                tx_slim.clone(),
+                tx_app.clone(),
+            );
+            ChannelEndpoint::ChannelModerator(cm)
+        } else {
+            let cp = ChannelParticipant::new(
+                &agent,
+                &session_config.channel_name,
+                id,
+                conn_id,
+                tx_slim.clone(),
+                tx_app.clone(),
+            );
+            ChannelEndpoint::ChannelParticipant(cp)
+        };
         let stream = Streaming {
             common: Common::new(
                 id,
@@ -238,6 +269,7 @@ where
                 identity_provider,
                 identity_verifier,
             ),
+            channel_endpoint: Arc::new(Mutex::new(channel_endpoint)),
             tx,
         };
         stream.process_message(rx, session_direction);
@@ -316,6 +348,7 @@ where
 
         let mut rtx_timer_rx_closed = false;
         let mut prod_timer_rx_closed = false;
+        let channel_endpoint = self.channel_endpoint.clone();
 
         tokio::spawn(async move {
             debug!("starting message processing on session {}", session_id);
@@ -364,9 +397,19 @@ where
                                     Endpoint::Bidirectional(state) => {
                                         match direction {
                                             MessageDirection::North => {
-                                                // in this case the message can be a stream message to send to the app, or a rtx request
+                                                // in this case the message can be a stream message to send to the app, a rtx request,
+                                                // or a channel control message to handle in the channel endpoint
                                                 trace!("received message from the gataway on bidirectional session {}", session_id);
                                                 match msg.get_session_header().header_type() {
+                                                    SessionHeaderType::ChannelDiscoveryRequest |
+                                                    SessionHeaderType::ChannelDiscoveryReply |
+                                                    SessionHeaderType::ChannelJoinRequest |
+                                                    SessionHeaderType::ChannelJoinReply |
+                                                    SessionHeaderType::ChannelLeaveRequest |
+                                                    SessionHeaderType::ChannelLeaveReply => {
+                                                        let mut lock = channel_endpoint.lock().await;
+                                                        lock.on_message(msg).await;
+                                                    }
                                                     SessionHeaderType::RtxRequest => {
                                                         // handle RTX request
                                                         process_incoming_rtx_request(msg, session_id, &state.producer, &source, &send_slim).await;
@@ -378,7 +421,16 @@ where
                                             }
                                             MessageDirection::South => {
                                                 // received a message from the APP
-                                                process_message_from_app(msg, session_id, &mut state.producer, true, &send_slim, &send_app).await;
+                                                match msg.get_session_header().header_type() {
+                                                    SessionHeaderType::ChannelDiscoveryRequest |
+                                                    SessionHeaderType::ChannelLeaveRequest => {
+                                                        let mut lock = channel_endpoint.lock().await;
+                                                        lock.on_message(msg).await;
+                                                    }
+                                                    _ => {
+                                                        process_message_from_app(msg, session_id, &mut state.producer, true, &send_slim, &send_app).await;
+                                                    }
+                                                }
                                             }
                                         };
                                     }
@@ -963,9 +1015,10 @@ mod tests {
         let (tx_app, _) = tokio::sync::mpsc::channel(1);
 
         let source = Agent::from_strings("cisco", "default", "local_agent", 0);
+        let conn_id = 1;
 
         let session_config: StreamingConfiguration =
-            StreamingConfiguration::new(SessionDirection::Sender, None, None, None);
+            StreamingConfiguration::new(SessionDirection::Sender, None, false, None, None);
 
         let session = Streaming::new(
             0,
@@ -988,6 +1041,7 @@ mod tests {
         let session_config: StreamingConfiguration = StreamingConfiguration::new(
             SessionDirection::Receiver,
             None,
+            false,
             Some(10),
             Some(Duration::from_millis(1000)),
         );
@@ -1021,13 +1075,16 @@ mod tests {
         let (tx_app_receiver, mut rx_app_receiver) = tokio::sync::mpsc::channel(1);
 
         let session_config_sender: StreamingConfiguration =
-            StreamingConfiguration::new(SessionDirection::Sender, None, None, None);
+            StreamingConfiguration::new(SessionDirection::Sender, None, false, None, None);
         let session_config_receiver: StreamingConfiguration = StreamingConfiguration::new(
             SessionDirection::Receiver,
             None,
+            false,
             Some(5),
             Some(Duration::from_millis(500)),
         );
+
+        let conn_id = 1;
 
         let send = Agent::from_strings("cisco", "default", "sender", 0);
         let recv = Agent::from_strings("cisco", "default", "receiver", 0);
@@ -1103,9 +1160,11 @@ mod tests {
         let session_config: StreamingConfiguration = StreamingConfiguration::new(
             SessionDirection::Receiver,
             None,
+            false,
             Some(5),
             Some(Duration::from_millis(500)),
         );
+        let conn_id = 1;
 
         let agent = Agent::from_strings("cisco", "default", "sender", 0);
 
@@ -1183,9 +1242,12 @@ mod tests {
         let session_config: StreamingConfiguration = StreamingConfiguration::new(
             SessionDirection::Receiver,
             None,
+            false,
             Some(5),
             Some(Duration::from_millis(500)),
         );
+
+        let conn_id = 1;
 
         let agent = Agent::from_strings("cisco", "default", "receiver", 0);
 
@@ -1282,14 +1344,17 @@ mod tests {
         let (tx_app_receiver, mut rx_app_receiver) = tokio::sync::mpsc::channel(1);
 
         let session_config_sender: StreamingConfiguration =
-            StreamingConfiguration::new(SessionDirection::Sender, None, None, None);
+            StreamingConfiguration::new(SessionDirection::Sender, None, false, None, None);
         let session_config_receiver: StreamingConfiguration = StreamingConfiguration::new(
             SessionDirection::Receiver,
             None,
+            false,
             Some(5),
             Some(Duration::from_millis(100)), // keep the timer shorter with respect to the beacon one
                                               // otherwise we don't know which message will be received first
         );
+
+        let conn_id = 1;
 
         let send = Agent::from_strings("cisco", "default", "sender", 0);
         let recv = Agent::from_strings("cisco", "default", "receiver", 0);
@@ -1498,10 +1563,12 @@ mod tests {
         let (tx_slim, _) = tokio::sync::mpsc::channel(1);
         let (tx_app, _) = tokio::sync::mpsc::channel(1);
 
+        let conn_id = 1;
+
         let source = Agent::from_strings("cisco", "default", "local_agent", 0);
 
         let session_config: StreamingConfiguration =
-            StreamingConfiguration::new(SessionDirection::Sender, None, None, None);
+            StreamingConfiguration::new(SessionDirection::Sender, None, false, None, None);
 
         {
             let _session = Streaming::new(

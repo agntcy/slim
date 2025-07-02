@@ -1,0 +1,329 @@
+// Copyright AGNTCY Contributors (https://github.com/agntcy)
+// SPDX-License-Identifier: Apache-2.0
+
+use std::time::Duration;
+
+use slim_datapath::messages::{Agent, AgentType, utils::SlimHeaderFlags};
+
+use slim_service::streaming::StreamingConfiguration;
+
+use clap::Parser;
+use slim::config;
+use tracing::{error, info};
+
+#[derive(Parser, Debug)]
+#[command(version, about, long_about = None)]
+pub struct Args {
+    /// Slim config file
+    #[arg(short, long, value_name = "CONFIGURATION", required = true)]
+    config: String,
+
+    /// Local endpoint name in the form org/ns/type/id
+    #[arg(short, long, value_name = "ENDOPOINT", required = true)]
+    name: String,
+
+    /// Runs the endpoint in moderator mode.
+    #[arg(
+        short,
+        long,
+        value_name = "IS_MODERATOR",
+        required = false,
+        default_value_t = false
+    )]
+    is_moderator: bool,
+
+    // List of paticipants types to add to the channel in the form org/ns/type. used only in moderator mode
+    #[clap(short, long, value_name = "PARITICIPANTS", num_args = 1.., value_delimiter = ' ', required = false)]
+    participants: Vec<String>,
+
+    // Moderator name in the for org/ns/type/id. used only in participant mode
+    #[arg(
+        short,
+        long,
+        value_name = "MODERATOR_NAME",
+        required = false,
+        default_value = ""
+    )]
+    moderator_name: String,
+
+    /// Publication message size
+    #[arg(
+        short,
+        long,
+        value_name = "SIZE",
+        required = false,
+        default_value_t = 1500
+    )]
+    msg_size: u32,
+
+    /// Time between publications in milliseconds
+    #[arg(
+        short,
+        long,
+        value_name = "FREQUENCY",
+        required = false,
+        default_value_t = 1000
+    )]
+    frequency: u32,
+
+    /// Maximum number of packets to send. used only by the moderator
+    #[arg(short, long, value_name = "MAX_PACKETS", required = false)]
+    max_packets: Option<u64>,
+}
+
+impl Args {
+    pub fn msg_size(&self) -> &u32 {
+        &self.msg_size
+    }
+
+    pub fn name(&self) -> &String {
+        &self.name
+    }
+
+    pub fn config(&self) -> &String {
+        &self.config
+    }
+
+    pub fn is_moderator(&self) -> &bool {
+        &self.is_moderator
+    }
+
+    pub fn moderator_name(&self) -> &String {
+        &self.moderator_name
+    }
+
+    pub fn participants(&self) -> &Vec<String> {
+        &self.participants
+    }
+
+    pub fn frequency(&self) -> &u32 {
+        &self.frequency
+    }
+
+    pub fn max_packets(&self) -> &Option<u64> {
+        &self.max_packets
+    }
+}
+
+fn parse_string_name(name: String) -> Agent {
+    let mut strs = name.split('/');
+    Agent::from_strings(
+        strs.next().expect("error parsing local_name string"),
+        strs.next().expect("error parsing local_name string"),
+        strs.next().expect("error parsing local_name string"),
+        strs.next()
+            .expect("error parsing local_name string")
+            .parse::<u64>()
+            .expect("error parsing local_name string"),
+    )
+}
+
+fn parse_string_type(name: String) -> AgentType {
+    let mut strs = name.split('/');
+    AgentType::from_strings(
+        strs.next().expect("error parsing local_name string"),
+        strs.next().expect("error parsing local_name string"),
+        strs.next().expect("error parsing local_name string"),
+    )
+}
+
+#[tokio::main]
+async fn main() {
+    let args = Args::parse();
+
+    let config_file = args.config();
+    let msg_size = *args.msg_size();
+    let local_name_str = args.name().clone();
+    let frequency = *args.frequency();
+    let is_moderator = *args.is_moderator();
+    let moderator_name = args.moderator_name().clone();
+    let max_packets = args.max_packets;
+    let participants_str = args.participants().clone();
+    let mut participants = vec![];
+
+    // start local agent
+    // get service
+    let mut config = config::load_config(config_file).expect("failed to load configuration");
+    let _guard = config.tracing.setup_tracing_subscriber();
+    let svc_id = slim_config::component::id::ID::new_with_str("slim/0").unwrap();
+    let svc = config.services.get_mut(&svc_id).unwrap();
+
+    // parse local name string
+    let local_name = parse_string_name(local_name_str);
+
+    let channel_name = AgentType::from_strings("channel", "channel", "channel");
+
+    let mut rx = svc
+        .create_agent(&local_name)
+        .await
+        .expect("failed to create agent");
+
+    // run the service - this will create all the connections provided via the config file.
+    svc.run().await.unwrap();
+
+    // get the connection id
+    let conn_id = svc
+        .get_connection_id(&svc.config().clients()[0].endpoint)
+        .unwrap();
+    info!("remote connection id = {}", conn_id);
+
+    // subscribe for local name
+    svc.subscribe(
+        &local_name,
+        local_name.agent_type(),
+        local_name.agent_id_option(),
+        Some(conn_id),
+    )
+    .await
+    .expect("an error accoured while adding a subscription");
+
+    if is_moderator {
+        if participants_str.is_empty() {
+            panic!("the participant list is missing.");
+        }
+
+        for n in participants_str {
+            // add to the participants list
+            let p = parse_string_type(n);
+            participants.push(p.clone());
+
+            // add route
+            svc.set_route(&local_name, &p, None, conn_id)
+                .await
+                .expect("an error accoured while adding a route");
+        }
+    }
+
+    // wait for the connection to be established
+    tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+
+    if is_moderator {
+        // create session
+        let info = svc
+            .create_session(
+                &local_name,
+                slim_service::session::SessionConfig::Streaming(StreamingConfiguration::new(
+                    slim_service::session::SessionDirection::Bidirectional,
+                    Some(channel_name.clone()),
+                    true,
+                    Some(10),
+                    Some(Duration::from_secs(1)),
+                )),
+            )
+            .await
+            .expect("error creating session");
+
+        // invite all participants
+        for p in participants {
+            info!("Invite participant {}", p);
+            svc.invite(&local_name, &p, info.clone())
+                .await
+                .expect("error sending invite message");
+        }
+        tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
+
+        // listen for messages
+        tokio::spawn(async move {
+            loop {
+                match rx.recv().await {
+                    None => {
+                        info!(%conn_id, "end of stream");
+                        break;
+                    }
+                    Some(msg_info) => match msg_info {
+                        Ok(msg) => {
+                            let publisher_id = msg.message.get_slim_header().get_source();
+                            info!(
+                                "received message {} from publisher {}",
+                                msg.info.message_id.unwrap(),
+                                publisher_id
+                            );
+                        }
+                        Err(e) => {
+                            error!("received an error message {:?}", e);
+                        }
+                    },
+                }
+            }
+        });
+
+        for i in 0..max_packets.unwrap_or(u64::MAX) {
+            let payload: Vec<u8> = vec![120; msg_size as usize]; // ASCII for 'x' = 120
+            info!("publishing message {}", i);
+            // set fanout > 1 to send the message in broadcast
+            let flags = SlimHeaderFlags::new(10, None, None, None, None);
+            if svc
+                .publish_with_flags(
+                    &local_name,
+                    info.clone(),
+                    &channel_name,
+                    None,
+                    flags,
+                    payload,
+                )
+                .await
+                .is_err()
+            {
+                panic!("an error occurred sending publication from moderator",);
+            }
+            if frequency != 0 {
+                tokio::time::sleep(tokio::time::Duration::from_millis(frequency as u64)).await;
+            }
+        }
+    } else {
+        // participant
+        if moderator_name.is_empty() && !is_moderator {
+            panic!("missing moderator name in the configuration")
+        }
+        let moderator = parse_string_name(moderator_name);
+
+        // listen for messages
+        loop {
+            match rx.recv().await {
+                None => {
+                    info!(%conn_id, "end of stream");
+                    break;
+                }
+                Some(msg_info) => match msg_info {
+                    Ok(msg) => {
+                        let publisher = msg.message.get_slim_header().get_source();
+                        let info = msg.info;
+                        if publisher == moderator {
+                            info!(
+                                "received message {} from moderator",
+                                info.message_id.unwrap(),
+                            );
+                            // for each message coming from the moderator reply with another message
+                            // set fanout > 1 to send the message in broadcast
+                            let payload: Vec<u8> = vec![120; msg_size as usize]; // ASCII for 'x' = 120
+                            let flags = SlimHeaderFlags::new(10, None, None, None, None);
+                            if svc
+                                .publish_with_flags(
+                                    &local_name,
+                                    info,
+                                    &channel_name,
+                                    None,
+                                    flags,
+                                    payload,
+                                )
+                                .await
+                                .is_err()
+                            {
+                                panic!("an error occurred sending publication from moderator",);
+                            }
+                        } else {
+                            info!(
+                                "received message {} from participant {}",
+                                info.message_id.unwrap(),
+                                publisher.to_string(),
+                            );
+                        }
+                    }
+                    Err(e) => {
+                        error!("received an error message {:?}", e);
+                    }
+                },
+            }
+        }
+    }
+}

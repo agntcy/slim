@@ -112,6 +112,7 @@ async def test_streaming(server):
     session_info = await producer.create_session(
         slim_bindings.PySessionConfiguration.Streaming(
             slim_bindings.PySessionDirection.SENDER,
+            moderator=False,
             topic=None,
             max_retries=5,
             timeout=datetime.timedelta(seconds=5),

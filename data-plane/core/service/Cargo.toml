@@ -14,6 +14,7 @@ agntcy-slim-config = { workspace = true }
 agntcy-slim-controller = { workspace = true }
 agntcy-slim-datapath = { workspace = true }
 async-trait = { workspace = true }
+bincode = { workspace = true }
 drain = { workspace = true }
 parking_lot = { workspace = true }
 rand = { workspace = true }

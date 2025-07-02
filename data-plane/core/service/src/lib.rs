@@ -13,6 +13,8 @@ mod app;
 mod fire_and_forget;
 mod request_response;
 
+mod channel_endpoint;
+
 pub use fire_and_forget::FireAndForgetConfiguration;
 pub use request_response::RequestResponseConfiguration;
 pub use session::SessionMessage;
@@ -40,8 +42,8 @@ use slim_config::grpc::client::ClientConfig;
 use slim_config::grpc::server::ServerConfig;
 use slim_controller::api::proto::api::v1::controller_service_server::ControllerServiceServer;
 use slim_controller::service::ControllerService;
-use slim_datapath::api::proto::pubsub::v1::Message;
 use slim_datapath::api::proto::pubsub::v1::pub_sub_service_server::PubSubServiceServer;
+use slim_datapath::api::proto::pubsub::v1::{Message, SessionHeaderType};
 use slim_datapath::message_processing::MessageProcessor;
 
 use crate::app::App;
@@ -801,6 +803,7 @@ mod tests {
         let session_config = SessionConfig::Streaming(StreamingConfiguration::new(
             session::SessionDirection::Receiver,
             None,
+            false,
             Some(1000),
             Some(time::Duration::from_secs(123)),
         ));
@@ -822,6 +825,7 @@ mod tests {
         let session_config = SessionConfig::Streaming(StreamingConfiguration::new(
             session::SessionDirection::Sender,
             None,
+            false,
             Some(2000),
             Some(time::Duration::from_secs(1234)),
         ));
@@ -833,6 +837,7 @@ mod tests {
         let session_config = SessionConfig::Streaming(StreamingConfiguration::new(
             session::SessionDirection::Receiver,
             None,
+            false,
             Some(2000),
             Some(time::Duration::from_secs(1234)),
         ));
@@ -856,6 +861,7 @@ mod tests {
         let session_config = SessionConfig::Streaming(StreamingConfiguration::new(
             session::SessionDirection::Sender,
             None,
+            false,
             Some(20000),
             Some(time::Duration::from_secs(12345)),
         ));
@@ -867,6 +873,7 @@ mod tests {
         let session_config = SessionConfig::Streaming(StreamingConfiguration::new(
             session::SessionDirection::Receiver,
             None,
+            false,
             Some(20000),
             Some(time::Duration::from_secs(123456)),
         ));

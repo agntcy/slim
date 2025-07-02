@@ -11,6 +11,7 @@ name = "slim_datapath"
 [dependencies]
 agntcy-slim-config = { workspace = true }
 agntcy-slim-tracing = { workspace = true }
+bincode = { workspace = true }
 bit-vec = { workspace = true }
 bytes = { workspace = true }
 drain = { workspace = true }
