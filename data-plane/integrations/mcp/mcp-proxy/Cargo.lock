@@ -171,6 +171,7 @@ dependencies = [
 name = "agntcy-slim-service"
 version = "0.4.2"
 dependencies = [
+ "agntcy-slim-auth",
  "agntcy-slim-config",
  "agntcy-slim-controller",
  "agntcy-slim-datapath",
