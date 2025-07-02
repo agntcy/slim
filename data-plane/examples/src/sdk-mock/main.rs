@@ -201,7 +201,7 @@ async fn main() {
                 Arc::new(Mutex::new(client_mls)),
                 group_id,
             );
-            app.add_interceptor(session.id, Box::new(interceptor))
+            app.add_interceptor(session.id, Arc::new(interceptor))
                 .await
                 .unwrap();
         }
@@ -245,7 +245,7 @@ async fn main() {
                         Arc::new(Mutex::new(mls)),
                         group_id,
                     );
-                    app.add_interceptor(session_msg.info.id, Box::new(interceptor))
+                    app.add_interceptor(session_msg.info.id, Arc::new(interceptor))
                         .await
                         .unwrap();
                     server_session_created = true;

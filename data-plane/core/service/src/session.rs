@@ -1,13 +1,16 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
+use std::sync::Arc;
+
 use async_trait::async_trait;
-use parking_lot::{RwLock, RwLockReadGuard};
+use parking_lot::RwLock;
 use slim_auth::traits::{TokenProvider, Verifier};
 use tonic::Status;
 
 use crate::errors::SessionError;
 use crate::fire_and_forget::{FireAndForget, FireAndForgetConfiguration};
+use crate::interceptor::{SessionInterceptor, SessionInterceptorProvider};
 use crate::request_response::{RequestResponse, RequestResponseConfiguration};
 use crate::streaming::{Streaming, StreamingConfiguration};
 use slim_datapath::api::proto::pubsub::v1::{Message, SessionHeaderType};
@@ -225,7 +228,8 @@ impl std::fmt::Display for SessionConfig {
     }
 }
 
-pub(crate) trait CommonSession<P, V>: Interceptor
+#[async_trait]
+pub(crate) trait CommonSession<P, V>: SessionInterceptorProvider
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
@@ -256,21 +260,14 @@ where
     fn set_session_config(&self, session_config: &SessionConfig) -> Result<(), SessionError>;
 
     /// Intercept message from app
-    fn on_message_from_app_interceptors(&self, msg: &mut Message) -> Result<(), SessionError>;
+    async fn on_message_from_app_interceptors(&self, msg: &mut Message)
+    -> Result<(), SessionError>;
 
     /// Intercept message from slim
-    fn on_message_from_slim_interceptors(&self, msg: &mut Message) -> Result<(), SessionError>;
-}
-
-pub(crate) trait Interceptor {
-    fn add_interceptor(&self, interceptor: Box<dyn SessionInterceptor + Send + Sync + 'static>);
-}
-
-pub trait SessionInterceptor {
-    // interceptor to be executed when a message is received from the app
-    fn on_msg_from_app(&self, msg: &mut Message) -> Result<(), SessionError>;
-    // interceptor to be executed when a message is received from slim
-    fn on_msg_from_slim(&self, msg: &mut Message) -> Result<(), SessionError>;
+    async fn on_message_from_slim_interceptors(
+        &self,
+        msg: &mut Message,
+    ) -> Result<(), SessionError>;
 }
 
 #[async_trait]
@@ -322,7 +319,7 @@ where
     tx_app: AppChannelSender,
 
     // Interceptors to be called on message reception/send
-    interceptors: RwLock<Vec<Box<dyn SessionInterceptor + Send + Sync>>>,
+    interceptors: RwLock<Vec<Arc<dyn SessionInterceptor + Send + Sync>>>,
 }
 
 #[async_trait]
@@ -344,12 +341,12 @@ where
     }
 }
 
-impl<P, V> Interceptor for Session<P, V>
+impl<P, V> SessionInterceptorProvider for Session<P, V>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
 {
-    fn add_interceptor(&self, interceptor: Box<dyn SessionInterceptor + Send + Sync + 'static>) {
+    fn add_interceptor(&self, interceptor: Arc<dyn SessionInterceptor + Send + Sync + 'static>) {
         match self {
             Session::FireAndForget(session) => session.add_interceptor(interceptor),
             Session::RequestResponse(session) => session.add_interceptor(interceptor),
@@ -358,6 +355,7 @@ where
     }
 }
 
+#[async_trait]
 impl<P, V> CommonSession<P, V> for Session<P, V>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
@@ -419,23 +417,34 @@ where
         }
     }
 
-    fn on_message_from_app_interceptors(&self, msg: &mut Message) -> Result<(), SessionError> {
+    async fn on_message_from_app_interceptors(
+        &self,
+        msg: &mut Message,
+    ) -> Result<(), SessionError> {
         match self {
-            Session::FireAndForget(session) => session.on_message_from_app_interceptors(msg),
-            Session::RequestResponse(session) => session.on_message_from_app_interceptors(msg),
-            Session::Streaming(session) => session.on_message_from_app_interceptors(msg),
+            Session::FireAndForget(session) => session.on_message_from_app_interceptors(msg).await,
+            Session::RequestResponse(session) => {
+                session.on_message_from_app_interceptors(msg).await
+            }
+            Session::Streaming(session) => session.on_message_from_app_interceptors(msg).await,
         }
     }
 
-    fn on_message_from_slim_interceptors(&self, msg: &mut Message) -> Result<(), SessionError> {
+    async fn on_message_from_slim_interceptors(
+        &self,
+        msg: &mut Message,
+    ) -> Result<(), SessionError> {
         match self {
-            Session::FireAndForget(session) => session.on_message_from_slim_interceptors(msg),
-            Session::RequestResponse(session) => session.on_message_from_slim_interceptors(msg),
-            Session::Streaming(session) => session.on_message_from_slim_interceptors(msg),
+            Session::FireAndForget(session) => session.on_message_from_slim_interceptors(msg).await,
+            Session::RequestResponse(session) => {
+                session.on_message_from_slim_interceptors(msg).await
+            }
+            Session::Streaming(session) => session.on_message_from_slim_interceptors(msg).await,
         }
     }
 }
 
+#[async_trait]
 impl<P, V> CommonSession<P, V> for Common<P, V>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
@@ -482,29 +491,41 @@ where
         Ok(())
     }
 
-    fn on_message_from_app_interceptors(&self, msg: &mut Message) -> Result<(), SessionError> {
-        let interceptors = RwLockReadGuard::map(self.interceptors.read(), |x| x);
+    async fn on_message_from_app_interceptors(
+        &self,
+        msg: &mut Message,
+    ) -> Result<(), SessionError> {
+        // Clone interceptors to avoid holding the lock while processing
+        let interceptors = self.interceptors.read().clone();
+
         for i in interceptors.iter() {
-            i.on_msg_from_app(msg)?;
+            i.on_msg_from_app(msg).await?;
         }
+
         Ok(())
     }
 
-    fn on_message_from_slim_interceptors(&self, msg: &mut Message) -> Result<(), SessionError> {
-        let interceptors = RwLockReadGuard::map(self.interceptors.read(), |x| x);
+    async fn on_message_from_slim_interceptors(
+        &self,
+        msg: &mut Message,
+    ) -> Result<(), SessionError> {
+        // Clone interceptors to avoid holding the lock while processing
+        let interceptors = self.interceptors.read().clone();
+
         for i in interceptors.iter() {
-            i.on_msg_from_slim(msg)?;
+            i.on_msg_from_slim(msg).await?;
         }
+
         Ok(())
     }
 }
 
-impl<P, V> Interceptor for Common<P, V>
+impl<P, V> SessionInterceptorProvider for Common<P, V>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
 {
-    fn add_interceptor(&self, interceptor: Box<dyn SessionInterceptor + Send + Sync + 'static>) {
+    fn add_interceptor(&self, interceptor: Arc<dyn SessionInterceptor + Send + Sync + 'static>) {
         self.interceptors.write().push(interceptor);
     }
 }

@@ -14,10 +14,10 @@ use tokio_util::sync::CancellationToken;
 use tracing::{debug, error};
 
 use crate::errors::SessionError;
+use crate::interceptor::{SessionInterceptor, SessionInterceptorProvider};
 use crate::session::{
     AppChannelSender, Common, CommonSession, Id, MessageDirection, MessageHandler, SessionConfig,
-    SessionConfigTrait, SessionDirection, SessionInterceptor, SessionMessage, SlimChannelSender,
-    State,
+    SessionConfigTrait, SessionDirection, SessionMessage, SlimChannelSender, State,
 };
 use crate::timer;
 use slim_datapath::api::proto::pubsub::v1::{Message, SessionHeaderType};
@@ -661,6 +661,7 @@ where
     }
 }
 
+#[async_trait]
 impl<P, V> CommonSession<P, V> for FireAndForget<P, V>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
@@ -715,21 +716,21 @@ where
         self.common.identity_verifier().clone()
     }
 
-    fn on_message_from_app_interceptors(&self, msg: &mut Message) -> Result<(), SessionError> {
-        self.common.on_message_from_app_interceptors(msg)
+    async fn on_message_from_app_interceptors(&self, msg: &mut Message) -> Result<(), SessionError> {
+        self.common.on_message_from_app_interceptors(msg).await
     }
 
-    fn on_message_from_slim_interceptors(&self, msg: &mut Message) -> Result<(), SessionError> {
-        self.common.on_message_from_slim_interceptors(msg)
+    async fn on_message_from_slim_interceptors(&self, msg: &mut Message) -> Result<(), SessionError> {
+        self.common.on_message_from_slim_interceptors(msg).await
     }
 }
 
-impl<P, V> crate::session::Interceptor for FireAndForget<P, V>
+impl<P, V> SessionInterceptorProvider for FireAndForget<P, V>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
 {
-    fn add_interceptor(&self, interceptor: Box<dyn SessionInterceptor + Send + Sync + 'static>) {
+    fn add_interceptor(&self, interceptor: Arc<dyn SessionInterceptor + Send + Sync + 'static>) {
         self.common.add_interceptor(interceptor);
     }
 }

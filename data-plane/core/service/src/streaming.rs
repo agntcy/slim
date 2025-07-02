@@ -9,11 +9,11 @@ use crate::{
     MessageDirection, SessionMessage,
     channel_endpoint::{ChannelEndpoint, ChannelModerator, ChannelParticipant},
     errors::SessionError,
+    interceptor::{SessionInterceptor, SessionInterceptorProvider},
     producer_buffer, receiver_buffer,
     session::{
-        AppChannelSender, Common, CommonSession, Id, Info, Interceptor, MessageHandler,
-        SessionConfig, SessionConfigTrait, SessionDirection, SessionInterceptor, SlimChannelSender,
-        State,
+        AppChannelSender, Common, CommonSession, Id, Info, MessageHandler, SessionConfig,
+        SessionConfigTrait, SessionDirection, SlimChannelSender, State,
     },
     timer,
 };
@@ -945,16 +945,17 @@ where
     }
 }
 
-impl<P, V> Interceptor for Streaming<P, V>
+impl<P, V> SessionInterceptorProvider for Streaming<P, V>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
 {
-    fn add_interceptor(&self, interceptor: Box<dyn SessionInterceptor + Send + Sync + 'static>) {
+    fn add_interceptor(&self, interceptor: Arc<dyn SessionInterceptor + Send + Sync + 'static>) {
         self.common.add_interceptor(interceptor);
     }
 }
 
+#[async_trait]
 impl<P, V> CommonSession<P, V> for Streaming<P, V>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
@@ -989,12 +990,18 @@ where
         self.common.identity_verifier().clone()
     }
 
-    fn on_message_from_app_interceptors(&self, msg: &mut Message) -> Result<(), SessionError> {
-        self.common.on_message_from_app_interceptors(msg)
+    async fn on_message_from_app_interceptors(
+        &self,
+        msg: &mut Message,
+    ) -> Result<(), SessionError> {
+        self.common.on_message_from_app_interceptors(msg).await
     }
 
-    fn on_message_from_slim_interceptors(&self, msg: &mut Message) -> Result<(), SessionError> {
-        self.common.on_message_from_slim_interceptors(msg)
+    async fn on_message_from_slim_interceptors(
+        &self,
+        msg: &mut Message,
+    ) -> Result<(), SessionError> {
+        self.common.on_message_from_slim_interceptors(msg).await
     }
 }
 

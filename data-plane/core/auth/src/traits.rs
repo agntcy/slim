@@ -47,6 +47,22 @@ pub struct StandardClaims {
     pub custom_claims: HashMap<String, serde_json::Value>,
 }
 
+impl StandardClaims {
+    /// Creates a new instance of `StandardClaims` with the required fields.
+    pub fn new(exp: u64) -> Self {
+        Self {
+            iss: None,
+            sub: None,
+            aud: None,
+            exp,
+            iat: None,
+            jti: None,
+            nbf: None,
+            custom_claims: HashMap::new(),
+        }
+    }
+}
+
 /// Trait for verifying JWT tokens
 #[async_trait]
 pub trait Verifier {

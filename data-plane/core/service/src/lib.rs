@@ -6,10 +6,11 @@ pub mod producer_buffer;
 pub mod receiver_buffer;
 #[macro_use]
 pub mod session;
+pub mod app;
+pub mod interceptor;
 pub mod streaming;
 pub mod timer;
 
-pub mod app;
 mod fire_and_forget;
 mod request_response;
 

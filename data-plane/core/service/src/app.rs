@@ -19,11 +19,12 @@ use tracing::{debug, error, warn};
 
 use crate::errors::SessionError;
 use crate::fire_and_forget::FireAndForgetConfiguration;
+use crate::interceptor::{IdentityInterceptor, SessionInterceptor, SessionInterceptorProvider};
 use crate::request_response::{RequestResponse, RequestResponseConfiguration};
 use crate::session::{
-    AppChannelSender, CommonSession, Id, Info, Interceptor, MessageDirection, MessageHandler,
-    SESSION_RANGE, Session, SessionConfig, SessionConfigTrait, SessionDirection,
-    SessionInterceptor, SessionMessage, SessionType, SlimChannelSender,
+    AppChannelSender, CommonSession, Id, Info, MessageDirection, MessageHandler, SESSION_RANGE,
+    Session, SessionConfig, SessionConfigTrait, SessionDirection, SessionMessage, SessionType,
+    SlimChannelSender,
 };
 use crate::streaming::{self, StreamingConfiguration};
 use crate::{ServiceError, fire_and_forget, session};
@@ -52,6 +53,9 @@ where
 
     /// Identity verifier
     identity_verifier: V,
+
+    /// Identity interceptor
+    identity_interceptor: Arc<dyn SessionInterceptor + Send + Sync>,
 
     /// ID of the local connection
     conn_id: u64,
@@ -119,6 +123,12 @@ where
         let default_rr_conf = SyncRwLock::new(RequestResponseConfiguration::default());
         let default_stream_conf = SyncRwLock::new(StreamingConfiguration::default());
 
+        // Create identity interceptor
+        let identity_interceptor = Arc::new(IdentityInterceptor::new(
+            identity_provider.clone(),
+            identity_verifier.clone(),
+        ));
+
         // Create the session layer
         let session_layer = Arc::new(SessionLayer {
             pool: AsyncRwLock::new(HashMap::new()),
@@ -126,6 +136,7 @@ where
             message_processor,
             identity_provider,
             identity_verifier,
+            identity_interceptor,
             conn_id,
             tx_slim,
             tx_app,
@@ -142,7 +153,13 @@ where
         session_config: SessionConfig,
         id: Option<Id>,
     ) -> Result<Info, SessionError> {
-        self.session_layer.create_session(session_config, id).await
+        let ret = self
+            .session_layer
+            .create_session(session_config, id)
+            .await?;
+
+        // return the session info
+        Ok(ret)
     }
 
     pub async fn delete_session(&self, id: Id) -> Result<(), SessionError> {
@@ -190,7 +207,7 @@ where
     pub async fn add_interceptor(
         &self,
         session_id: session::Id,
-        interceptor: Box<dyn session::SessionInterceptor + Send + Sync>,
+        interceptor: Arc<dyn SessionInterceptor + Send + Sync>,
     ) -> Result<(), SessionError> {
         self.session_layer
             .add_session_interceptor(session_id, interceptor)
@@ -581,6 +598,9 @@ where
             }
         };
 
+        // Add identity interceptor to the session
+        session.add_interceptor(self.identity_interceptor.clone());
+
         // insert the session into the pool
         let ret = pool.insert(id, session);
 
@@ -638,7 +658,9 @@ where
             let header = message.message.get_session_header_mut();
             header.session_id = message.info.id;
 
-            session.on_message_from_app_interceptors(&mut message.message)?;
+            session
+                .on_message_from_app_interceptors(&mut message.message)
+                .await?;
             // pass the message to the session
             return session.on_message(message, direction).await;
         }
@@ -678,7 +700,9 @@ where
         // check if pool contains the session
         if let Some(session) = self.pool.read().await.get(&id) {
             // pass the message to the session
-            session.on_message_from_slim_interceptors(&mut message.message)?;
+            session
+                .on_message_from_slim_interceptors(&mut message.message)
+                .await?;
             return session.on_message(message, direction).await;
         }
 
@@ -740,7 +764,9 @@ where
         // retry the match
         if let Some(session) = self.pool.read().await.get(&new_session_id.id) {
             // pass the message
-            session.on_message_from_slim_interceptors(&mut message.message)?;
+            session
+                .on_message_from_slim_interceptors(&mut message.message)
+                .await?;
             return session.on_message(message, direction).await;
         }
 
@@ -823,7 +849,7 @@ where
     pub async fn add_session_interceptor(
         &self,
         session_id: Id,
-        interceptor: Box<dyn SessionInterceptor + Send + Sync>,
+        interceptor: Arc<dyn SessionInterceptor + Send + Sync>,
     ) -> Result<(), SessionError> {
         let mut pool = self.pool.write().await;
 
@@ -843,7 +869,7 @@ mod tests {
 
     use slim_datapath::{
         api::ProtoMessage,
-        messages::{Agent, AgentType},
+        messages::{Agent, AgentType, utils::SLIM_IDENTITY},
     };
 
     fn create_app() -> App {
@@ -957,11 +983,13 @@ mod tests {
         let (tx_app, mut rx_app) = tokio::sync::mpsc::channel(1);
         let agent = Agent::from_strings("org", "ns", "type", 0);
 
+        let identity = Simple::new("a");
+
         let app = App::new(
             &agent,
             None,
-            Simple::new("a"),
-            Simple::new("a"),
+            identity.clone(),
+            identity.clone(),
             0,
             tx_slim.clone(),
             tx_app.clone(),
@@ -997,6 +1025,21 @@ mod tests {
             )
             .await;
 
+        // This should fail, as message has no identity
+        assert!(res.is_err());
+
+        // Add identity to message
+        message.insert_metadata(SLIM_IDENTITY.to_string(), identity.try_get_token().unwrap());
+
+        // Try again
+        let res = app
+            .session_layer
+            .handle_message(
+                SessionMessage::from(message.clone()),
+                MessageDirection::North,
+            )
+            .await;
+
         assert!(res.is_ok());
 
         // message should have been delivered to the app
@@ -1015,11 +1058,13 @@ mod tests {
         let (tx_app, _) = tokio::sync::mpsc::channel(1);
         let agent = Agent::from_strings("org", "ns", "type", 0);
 
+        let identity = Simple::new("a");
+
         let app = App::new(
             &agent,
             None,
-            Simple::new("a"),
-            Simple::new("a"),
+            identity.clone(),
+            identity.clone(),
             0,
             tx_slim.clone(),
             tx_app.clone(),
@@ -1065,6 +1110,9 @@ mod tests {
             .await
             .expect("no message received")
             .expect("error");
+
+        // Add identity to message
+        message.insert_metadata(SLIM_IDENTITY.to_string(), identity.try_get_token().unwrap());
 
         msg.set_message_id(0);
         assert_eq!(msg, message);

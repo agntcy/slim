@@ -10,10 +10,8 @@ use slim_auth::traits::{TokenProvider, Verifier};
 use tracing::debug;
 
 use crate::errors::SessionError;
-use crate::session::{
-    AppChannelSender, Interceptor, MessageHandler, SessionConfig, SessionInterceptor,
-    SlimChannelSender,
-};
+use crate::interceptor::{SessionInterceptor, SessionInterceptorProvider};
+use crate::session::{AppChannelSender, MessageHandler, SessionConfig, SlimChannelSender};
 use crate::session::{
     Common, CommonSession, Id, MessageDirection, SessionConfigTrait, SessionDirection, State,
 };
@@ -204,16 +202,17 @@ where
     }
 }
 
-impl<P, V> Interceptor for RequestResponse<P, V>
+impl<P, V> SessionInterceptorProvider for RequestResponse<P, V>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
 {
-    fn add_interceptor(&self, interceptor: Box<dyn SessionInterceptor + Send + Sync + 'static>) {
+    fn add_interceptor(&self, interceptor: Arc<dyn SessionInterceptor + Send + Sync + 'static>) {
         self.internal.common.add_interceptor(interceptor);
     }
 }
 
+#[async_trait]
 impl<P, V> CommonSession<P, V> for RequestResponse<P, V>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
@@ -248,12 +247,24 @@ where
         self.internal.common.identity_verifier().clone()
     }
 
-    fn on_message_from_app_interceptors(&self, msg: &mut Message) -> Result<(), SessionError> {
-        self.internal.common.on_message_from_app_interceptors(msg)
+    async fn on_message_from_app_interceptors(
+        &self,
+        msg: &mut Message,
+    ) -> Result<(), SessionError> {
+        self.internal
+            .common
+            .on_message_from_app_interceptors(msg)
+            .await
     }
 
-    fn on_message_from_slim_interceptors(&self, msg: &mut Message) -> Result<(), SessionError> {
-        self.internal.common.on_message_from_slim_interceptors(msg)
+    async fn on_message_from_slim_interceptors(
+        &self,
+        msg: &mut Message,
+    ) -> Result<(), SessionError> {
+        self.internal
+            .common
+            .on_message_from_slim_interceptors(msg)
+            .await
     }
 }
 
