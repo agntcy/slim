@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0](https://github.com/agntcy/slim/compare/slim-service-v0.4.2...slim-service-v0.5.0) - 2025-07-02
+
+### Added
+
+- add auth support in sessions ([#382](https://github.com/agntcy/slim/pull/382))
+- channel creation in session layer ([#374](https://github.com/agntcy/slim/pull/374))
+- add the ability to drop messages from the interceptor ([#371](https://github.com/agntcy/slim/pull/371))
+- implement MLS ([#307](https://github.com/agntcy/slim/pull/307))
+- add identity into the SLIM message ([#342](https://github.com/agntcy/slim/pull/342))
+- *(data-plane)* upgrade to rust 1.87 ([#317](https://github.com/agntcy/slim/pull/317))
+
 ## [0.4.2](https://github.com/agntcy/slim/compare/slim-service-v0.4.1...slim-service-v0.4.2) - 2025-05-14
 
 ### Other
