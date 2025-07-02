@@ -205,7 +205,12 @@ where
         destination: &AgentType,
         session_info: session::Info,
     ) -> Result<(), ServiceError> {
-        let slim_header = Some(SlimHeader::new(self.session_layer.agent_name(), destination, None, None));
+        let slim_header = Some(SlimHeader::new(
+            self.session_layer.agent_name(),
+            destination,
+            None,
+            None,
+        ));
 
         let session_header = Some(SessionHeader::new(
             SessionHeaderType::ChannelDiscoveryRequest.into(),
@@ -213,7 +218,10 @@ where
             rand::random::<u32>(),
         ));
 
-        let payload = match bincode::encode_to_vec(self.session_layer.agent_name(), bincode::config::standard()) {
+        let payload = match bincode::encode_to_vec(
+            self.session_layer.agent_name(),
+            bincode::config::standard(),
+        ) {
             Ok(payload) => payload,
             Err(_) => {
                 return Err(ServiceError::PublishError(
