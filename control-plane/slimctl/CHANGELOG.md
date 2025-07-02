@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.5](https://github.com/agntcy/slim/compare/slimctl-v0.1.4...slimctl-v0.1.5) (2025-07-02)
+
+
+### Features
+
+* add auth support in sessions ([#382](https://github.com/agntcy/slim/issues/382)) ([242e38a](https://github.com/agntcy/slim/commit/242e38a96c9e8b3d9e4a69de3d35740a53fcf252))
+
 ## [0.1.4](https://github.com/agntcy/slim/compare/slimctl-v0.1.3...slimctl-v0.1.4) (2025-05-07)
 
 
