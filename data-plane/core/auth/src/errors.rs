@@ -8,6 +8,9 @@ pub enum AuthError {
     #[error("config error: {0}")]
     ConfigError(String),
 
+    #[error("configuration error: {0}")]
+    ConfigurationError(String),
+
     #[error("token expired")]
     TokenExpired,
 
@@ -25,4 +28,16 @@ pub enum AuthError {
 
     #[error("invalid header: {0}")]
     InvalidHeader(String),
+
+    #[error("network error: {0}")]
+    NetworkError(String),
+
+    #[error("authorization error: {0}")]
+    AuthorizationError(String),
+
+    #[error("parse error: {0}")]
+    ParseError(String),
+
+    #[error("fallback allow - continuing due to AuthZEN unavailability")]
+    FallbackAllow,
 }

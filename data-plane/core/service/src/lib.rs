@@ -1,6 +1,7 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
+pub mod authzen_integration;
 pub mod errors;
 pub mod producer_buffer;
 pub mod receiver_buffer;
