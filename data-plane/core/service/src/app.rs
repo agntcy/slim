@@ -33,7 +33,7 @@ use slim_datapath::api::proto::pubsub::v1::SessionHeaderType;
 use slim_datapath::messages::encoder::Agent;
 
 /// SessionLayer
-struct SessionLayer<P = Simple, V = Simple>
+struct SessionLayer<P, V>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,

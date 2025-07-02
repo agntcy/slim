@@ -280,8 +280,6 @@ impl Service {
         let (tx_app, rx_app) = mpsc::channel(128);
 
         // create app
-        // TODO(micpapal/msardara): here the identity is set as the agent_name itself
-        // we need to load the right identifier and pass it here to the session layer
         let app = App::new(
             app_name,
             Some(self.message_processor.clone()),
