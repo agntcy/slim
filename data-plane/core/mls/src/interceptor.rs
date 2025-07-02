@@ -239,7 +239,10 @@ mod tests {
         );
         alice_msg.insert_metadata(METADATA_MLS_GROUP_ID.to_string(), group_id_str);
 
-        alice_interceptor.on_msg_from_app(&mut alice_msg).await.unwrap();
+        alice_interceptor
+            .on_msg_from_app(&mut alice_msg)
+            .await
+            .unwrap();
 
         assert_ne!(alice_msg.get_payload().unwrap().blob, original_payload);
         assert_eq!(
@@ -251,7 +254,10 @@ mod tests {
         );
 
         let mut bob_msg = alice_msg.clone();
-        bob_interceptor.on_msg_from_slim(&mut bob_msg).await.unwrap();
+        bob_interceptor
+            .on_msg_from_slim(&mut bob_msg)
+            .await
+            .unwrap();
 
         assert_eq!(bob_msg.get_payload().unwrap().blob, original_payload);
         assert_eq!(bob_msg.metadata.get(METADATA_MLS_ENCRYPTED), None);

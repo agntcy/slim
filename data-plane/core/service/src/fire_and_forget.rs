@@ -716,11 +716,17 @@ where
         self.common.identity_verifier().clone()
     }
 
-    async fn on_message_from_app_interceptors(&self, msg: &mut Message) -> Result<(), SessionError> {
+    async fn on_message_from_app_interceptors(
+        &self,
+        msg: &mut Message,
+    ) -> Result<(), SessionError> {
         self.common.on_message_from_app_interceptors(msg).await
     }
 
-    async fn on_message_from_slim_interceptors(&self, msg: &mut Message) -> Result<(), SessionError> {
+    async fn on_message_from_slim_interceptors(
+        &self,
+        msg: &mut Message,
+    ) -> Result<(), SessionError> {
         self.common.on_message_from_slim_interceptors(msg).await
     }
 }
