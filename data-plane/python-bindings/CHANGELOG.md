@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.3.7](https://github.com/agntcy/slim/compare/slim-bindings-v0.3.6...slim-bindings-v0.3.7) (2025-07-02)
+
+
+### Features
+
+* add auth support in sessions ([#382](https://github.com/agntcy/slim/issues/382)) ([242e38a](https://github.com/agntcy/slim/commit/242e38a96c9e8b3d9e4a69de3d35740a53fcf252))
+* channel creation in session layer ([#374](https://github.com/agntcy/slim/issues/374)) ([88d1610](https://github.com/agntcy/slim/commit/88d16107e655a731176cbe7a29bb544c9d301b7c)), closes [#362](https://github.com/agntcy/slim/issues/362)
+* derive name id from provided identity ([#345](https://github.com/agntcy/slim/issues/345)) ([d73f6a3](https://github.com/agntcy/slim/commit/d73f6a36b0ea29599fa43d6e0fc3667d47665cf8)), closes [#327](https://github.com/agntcy/slim/issues/327)
+
+
+### Bug Fixes
+
+* **python-byndings:** fix examples and taskfile ([#340](https://github.com/agntcy/slim/issues/340)) ([785f6a9](https://github.com/agntcy/slim/commit/785f6a99f319784000c7c61a0b1dbf6d7fb5d97c)), closes [#339](https://github.com/agntcy/slim/issues/339)
+
 ## [0.3.6](https://github.com/agntcy/agp/compare/slim-bindings-v0.3.5...slim-bindings-v0.3.6) (2025-06-03)
 
 
