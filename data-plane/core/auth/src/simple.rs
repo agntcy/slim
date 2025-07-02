@@ -34,10 +34,12 @@ impl TokenProvider for Simple {
 
 #[async_trait::async_trait]
 impl Verifier for Simple {
-    async fn verify<Claims>(&self, token: &str) -> Result<Claims, AuthError>
+    async fn verify<Claims>(&self, token: impl Into<String> + Send) -> Result<Claims, AuthError>
     where
         Claims: serde::de::DeserializeOwned + Send,
     {
+        let token = token.into();
+
         if token == self.token {
             // Here you would typically decode the token and return the claims
             Ok(serde_json::from_str("{}").unwrap()) // Placeholder for actual claims
@@ -46,10 +48,12 @@ impl Verifier for Simple {
         }
     }
 
-    fn try_verify<Claims>(&self, token: &str) -> Result<Claims, crate::errors::AuthError>
+    fn try_verify<Claims>(&self, token: impl Into<String>) -> Result<Claims, crate::errors::AuthError>
     where
         Claims: serde::de::DeserializeOwned + Send,
     {
+        let token = token.into();
+
         if token == self.token {
             Ok(serde_json::from_str("{}").unwrap()) // Placeholder for actual claims
         } else {

@@ -9,7 +9,7 @@ use parking_lot::RwLock as SyncRwLock;
 use rand::Rng;
 use slim_auth::simple::Simple;
 use slim_auth::traits::{TokenProvider, Verifier};
-use slim_datapath::api::MessageType;
+use slim_datapath::api::{MessageType, SessionHeader, SlimHeader};
 use slim_datapath::messages::AgentType;
 use slim_datapath::messages::utils::SlimHeaderFlags;
 use tokio::sync::RwLock as AsyncRwLock;
@@ -205,7 +205,7 @@ where
         destination: &AgentType,
         session_info: session::Info,
     ) -> Result<(), ServiceError> {
-        let slim_header = Some(SlimHeader::new(source, destination, None, None));
+        let slim_header = Some(SlimHeader::new(self.session_layer.agent_name(), destination, None, None));
 
         let session_header = Some(SessionHeader::new(
             SessionHeaderType::ChannelDiscoveryRequest.into(),
@@ -213,7 +213,7 @@ where
             rand::random::<u32>(),
         ));
 
-        let payload = match bincode::encode_to_vec(source, bincode::config::standard()) {
+        let payload = match bincode::encode_to_vec(self.session_layer.agent_name(), bincode::config::standard()) {
             Ok(payload) => payload,
             Err(_) => {
                 return Err(ServiceError::PublishError(
@@ -537,6 +537,7 @@ where
                     conf,
                     direction,
                     self.agent_name().clone(),
+                    self.conn_id,
                     self.tx_slim(),
                     self.tx_app(),
                     self.identity_provider.clone(),
