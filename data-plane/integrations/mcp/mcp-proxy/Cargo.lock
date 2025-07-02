@@ -153,6 +153,7 @@ name = "agntcy-slim-mcp-proxy"
 version = "0.1.5"
 dependencies = [
  "agntcy-slim",
+ "agntcy-slim-auth",
  "agntcy-slim-config",
  "agntcy-slim-datapath",
  "agntcy-slim-service",

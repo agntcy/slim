@@ -11,6 +11,7 @@ use rmcp::{
     transport::{IntoTransport, SseTransport, sse::SseTransportError},
 };
 use slim::config::ConfigResult;
+use slim_auth::simple::Simple;
 use slim_datapath::{
     api::proto::pubsub::v1::Message,
     messages::{Agent, AgentType},
@@ -296,8 +297,8 @@ impl Proxy {
         // create service from config
         let mut svc = self.config.services.remove(&self.svc_id).unwrap();
 
-        let mut slim_rx = svc
-            .create_agent(&self.name)
+        let (app, mut slim_rx) = svc
+            .create_app(&self.name, Simple::new("token"), Simple::new("token"))
             .await
             .expect("failed to create agent");
 
@@ -310,9 +311,8 @@ impl Proxy {
             .unwrap();
 
         // subscribe for local name
-        match svc
+        match app
             .subscribe(
-                &self.name,
                 self.name.agent_type(),
                 self.name.agent_id_option(),
                 Some(conn_id),
@@ -325,10 +325,10 @@ impl Proxy {
             }
         }
 
-        let res = svc
+        let res = app
             .create_session(
-                &self.name,
                 SessionConfig::FireAndForget(FireAndForgetConfiguration::default()),
+                None,
             )
             .await;
         if res.is_err() {
@@ -420,8 +420,7 @@ impl Proxy {
                                         continue;
                                     }
                                 };
-                                match svc.publish_to(
-                                    &self.name,
+                                match app.publish_to(
                                     info,
                                     src.agent_type(),
                                     Some(src.agent_id()),

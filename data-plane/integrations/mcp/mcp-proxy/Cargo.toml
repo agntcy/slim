@@ -8,6 +8,7 @@ description = "Proxy for exposing a native MCP server over SLIM"
 [package.metadata.cargo-machete]
 ignored = [
     "agntcy-slim",
+    "agntcy-slim-auth",
     "agntcy-slim-config",
     "agntcy-slim-controller",
     "agntcy-slim-datapath",
@@ -22,6 +23,7 @@ path = "src/main.rs"
 
 [dependencies]
 agntcy-slim = { path = "../../../core/slim", version = "0.3.14" }
+agntcy-slim-auth = { path = "../../../core/auth", version = "0.1.0" }
 agntcy-slim-config = { path = "../../../core/config", version = "0.1.8" }
 agntcy-slim-datapath = { path = "../../../core/datapath", version = "0.7.0" }
 agntcy-slim-service = { path = "../../../core/service", version = "0.4.2" }
