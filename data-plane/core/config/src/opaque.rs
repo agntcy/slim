@@ -1,12 +1,14 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
+use schemars::JsonSchema;
 use serde::de::{self, Deserialize, Deserializer, Visitor};
+use serde::{ Serialize };
 use std::fmt;
 use std::ops;
 
 // Define the OpaqueString struct
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Serialize, JsonSchema)]
 pub struct OpaqueString(String);
 
 impl OpaqueString {

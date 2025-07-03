@@ -3,5 +3,4 @@
 
 pub mod api;
 pub mod errors;
-pub mod schema_validator;
 pub mod service;

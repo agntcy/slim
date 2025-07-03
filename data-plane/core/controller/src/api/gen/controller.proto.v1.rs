@@ -29,9 +29,7 @@ pub struct Connection {
     #[prost(string, tag = "1")]
     pub connection_id: ::prost::alloc::string::String,
     #[prost(string, tag = "2")]
-    pub remote_address: ::prost::alloc::string::String,
-    #[prost(int32, tag = "3")]
-    pub remote_port: i32,
+    pub config_data: ::prost::alloc::string::String,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct Subscription {
@@ -88,7 +86,11 @@ pub struct SubscriptionEntry {
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ConnectionEntry {
-    #[prost(string, tag = "1")]
+    #[prost(uint64, tag = "1")]
+    pub id: u64,
+    #[prost(enumeration = "ConnectionType", tag = "2")]
+    pub connection_type: i32,
+    #[prost(string, tag = "3")]
     pub config_data: ::prost::alloc::string::String,
 }
 #[derive(Clone, Copy, PartialEq, ::prost::Message)]

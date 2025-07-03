@@ -6,7 +6,6 @@ use std::net::ToSocketAddrs;
 use std::pin::Pin;
 use std::sync::{Arc, OnceLock};
 
-use slim_config::tls::client::TlsClientConfig;
 use tokio::sync::mpsc;
 use tokio_stream::{Stream, StreamExt, wrappers::ReceiverStream};
 use tokio_util::sync::CancellationToken;
@@ -23,10 +22,9 @@ use crate::api::proto::api::v1::{
     ConnectionListResponse, ConnectionType, SubscriptionListResponse,
 };
 use crate::errors::ControllerError;
-use crate::schema_validator::SchemaValidator;
 
 use slim_config::grpc::client::ClientConfig;
-use slim_config::CLIENT_CONFIG_SCHEMA_JSON;
+
 use slim_datapath::api::proto::pubsub::v1::Message as PubsubMessage;
 use slim_datapath::message_processing::MessageProcessor;
 use slim_datapath::messages::utils::SlimHeaderFlags;
@@ -43,9 +41,6 @@ pub struct ControllerService {
 
     /// map of connection IDs to their configuration
     connections: Arc<parking_lot::RwLock<HashMap<String, u64>>>,
-
-    /// control-message schema validator
-    schema_validator: Arc<SchemaValidator>,
 }
 
 impl ControllerService {
@@ -54,7 +49,6 @@ impl ControllerService {
             message_processor,
             tx_slim: OnceLock::new(),
             connections: Arc::new(parking_lot::RwLock::new(HashMap::new())),
-            schema_validator: Arc::new(SchemaValidator::new(CLIENT_CONFIG_SCHEMA_JSON).unwrap_or_default()),
         }
     }
     
@@ -68,8 +62,10 @@ impl ControllerService {
                 match payload {
                     crate::api::proto::api::v1::control_message::Payload::ConfigCommand(config) => {
                         for conn in &config.connections_to_create {
-                            let client_endpoint =
-                                format!("{}:{}", conn.remote_address, conn.remote_port);
+                            let client_config = serde_json::from_str::<ClientConfig>(&conn.config_data).map_err(
+                                    |e| ControllerError::ConfigError(e.to_string())
+                            )?;
+                            let client_endpoint = &client_config.endpoint;
 
                             let mut addrs_iter = client_endpoint
                                 .as_str()
@@ -80,13 +76,7 @@ impl ControllerService {
                                 .ok_or_else(|| ControllerError::ConnectionError(format!("could not resolve {}", client_endpoint)))?;
 
                             // connect to an endpoint if it's not already connected
-                            if !self.connections.read().contains_key(&client_endpoint) {
-                                let client_config = ClientConfig {
-                                    endpoint: format!("http://{}", client_endpoint),
-                                    tls_setting: TlsClientConfig::default().with_insecure(true),
-                                    ..ClientConfig::default()
-                                };
-
+                            if !self.connections.read().contains_key(client_endpoint) {
                                 match client_config.to_channel() {
                                     Err(e) => {
                                         error!("error reading channel config {:?}", e);
@@ -115,7 +105,7 @@ impl ControllerService {
                                             Ok(conn_id) => conn_id.1,
                                         };
 
-                                        self.connections.write().insert(client_endpoint, conn_id);
+                                        self.connections.write().insert(client_endpoint.clone(), conn_id);
                                     }
                                 }
                             }
@@ -230,79 +220,27 @@ impl ControllerService {
 
                                 for &cid in local {
                                     entry.local_connections.push(ConnectionEntry {
-                                        // attributes: {
-                                        //     let mut attrs = HashMap::new();
-                                        //     attrs.insert("connection_id".to_string(), cid.to_string());
-                                        //     attrs.insert("connection_type".to_string(), format!("{:?}", ConnectionType::Local));
-                                        //     attrs.insert("ip".to_string(), String::new());
-                                        //     attrs.insert("port".to_string(), "0".to_string());
-                                        //     attrs
-                                        // },
-                                        // TODO: discuss with someonce
-                                        config_data: "config_data".to_string(),
+                                        id: cid,
+                                        connection_type: ConnectionType::Local as i32,
+                                        config_data: "{}".to_string(),
                                     });
-                                    entry.local_connections.push(
-                                        ConnectionEntry {
-                                            // attributes: {
-                                            //     let mut attrs = HashMap::new();
-                                            //     attrs.insert("connection_id".to_string(), cid.to_string());
-                                            //     attrs.insert("connection_type".to_string(), format!("{:?}", ConnectionType::Local));
-                                            //     attrs.insert("ip".to_string(), String::new());
-                                            //     attrs.insert("port".to_string(), "0".to_string());
-                                            //     attrs
-                                            // }
-                                            // TODO: discuss with someonce
-                                            config_data: "config_data".to_string(),
-                                        }
-                                    )
                                 }
 
                                 for &cid in remote {
                                     if let Some(conn) = conn_table.get(cid as usize) {
-                                        if let Some(sock) = conn.remote_addr() {
                                             entry.remote_connections.push(ConnectionEntry {
-                                                // attributes: {
-                                                //     let mut attrs = HashMap::new();
-                                                //     attrs.insert("connection_id".to_string(), cid.to_string());
-                                                //     attrs.insert("connection_type".to_string(), format!("{:?}", ConnectionType::Remote));
-                                                //     attrs.insert("ip".to_string(), sock.ip().to_string());
-                                                //     attrs.insert("port".to_string(), sock.port().to_string());
-                                                //     attrs
-                                                // }
-                                            // TODO: discuss with someonce
-                                            config_data: "config_data".to_string(),                                                
+                                                id: cid,
+                                                connection_type: ConnectionType::Remote as i32,
+                                                config_data: match conn.config_data() {
+                                                    Some(data) => serde_json::to_string(data)
+                                                        .unwrap_or_else(|_| "{}".to_string()),
+                                                    None => "{}".to_string(),
+                                                },
                                             });
-                                        } else {
-                                            entry.remote_connections.push(ConnectionEntry {
-                                                // attributes: {
-                                                //     let mut attrs = HashMap::new();
-                                                //     attrs.insert("connection_id".to_string(), cid.to_string());
-                                                //     attrs.insert("connection_type".to_string(), format!("{:?}", ConnectionType::Remote));
-                                                //     attrs.insert("ip".to_string(), String::new());
-                                                //     attrs.insert("port".to_string(), "0".to_string());
-                                                //     attrs
-                                                // }
-                                            // TODO: discuss with someonce
-                                            config_data: "config_data".to_string(),
-                                            });
-                                        }
                                     } else {
                                         error!("no connection entry for id {}", cid);
-                                        entry.remote_connections.push(ConnectionEntry {
-                                            // attributes: {
-                                            //     let mut attrs = HashMap::new();
-                                            //     attrs.insert("connection_id".to_string(), cid.to_string());
-                                            //     attrs.insert("connection_type".to_string(), format!("{:?}", ConnectionType::Remote));
-                                            //     attrs.insert("ip".to_string(), String::new());
-                                            //     attrs.insert("port".to_string(), "0".to_string());
-                                            //     attrs
-                                            // }
-                                            // TODO: discuss with someonce
-                                            config_data: "config_data".to_string(),
-                                        });
                                     }
                                 }
-
                                 entries.push(entry);
                             });
 
@@ -328,22 +266,14 @@ impl ControllerService {
                         self.message_processor
                             .connection_table()
                             .for_each(|id, conn| {
-                                let (ip, port) = conn
-                                    .remote_addr()
-                                    .map(|sock| (sock.ip().to_string(), sock.port() as u32))
-                                    .unwrap_or_else(|| ("".into(), 0));
-
                                 all_entries.push(ConnectionEntry {
-                                    // attributes: {
-                                    //     let mut attrs = HashMap::new();
-                                    //     attrs.insert("connection_id".to_string(), id.to_string());
-                                    //     attrs.insert("connection_type".to_string(), format!("{:?}", ConnectionType::Remote));
-                                    //     attrs.insert("ip".to_string(), ip);
-                                    //     attrs.insert("port".to_string(), port.to_string());
-                                    //     attrs
-                                    // }
-                                    // TODO: discuss with someone
-                                    config_data: "config_data".to_string(),
+                                    id: id as u64,
+                                    connection_type: ConnectionType::Remote as i32,
+                                    config_data: match conn.config_data() {
+                                        Some(data) => serde_json::to_string(data)
+                                            .unwrap_or_else(|_| "{}".to_string()),
+                                        None => "{}".to_string(),
+                                    },
                                 });
                             });
 

@@ -11,14 +11,15 @@ use rustls::{
 };
 use rustls_pki_types::pem::PemObject;
 use rustls_pki_types::{CertificateDer, PrivateKeyDer, ServerName, UnixTime};
+use schemars::JsonSchema;
 use serde;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use tracing::warn;
 
 use super::common::{Config, ConfigError, RustlsConfigLoader};
 use crate::component::configuration::{Configuration, ConfigurationError};
 
-#[derive(Debug, Deserialize, PartialEq, Clone)]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Clone, JsonSchema)]
 pub struct TlsClientConfig {
     /// The Config struct
     #[serde(flatten, default)]

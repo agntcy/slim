@@ -27,8 +27,7 @@ message ControlMessage {
 
 message Connection {
   string connection_id = 1;
-  string remote_address = 2;
-  int32 remote_port = 3;
+  string config_data = 2;
 }
 
 message Subscription {
@@ -72,7 +71,9 @@ enum ConnectionType {
 }
 
 message ConnectionEntry {
-  string config_data = 1;
+  uint64 id = 1;
+  ConnectionType connection_type = 2;
+  string config_data = 3;
 }
 
 message ConnectionListRequest {}

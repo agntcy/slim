@@ -13,6 +13,7 @@ use jsonwebtoken_aws_lc::{
 };
 
 use parking_lot::RwLock;
+use schemars::JsonSchema;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
@@ -22,7 +23,7 @@ use crate::resolver::KeyResolver;
 use crate::traits::{Signer, StandardClaims, TokenProvider, Verifier};
 
 /// Enum representing key data types
-#[derive(Debug, Deserialize, Clone, PartialEq)]
+#[derive(Debug, Serialize,Deserialize, Clone, PartialEq)]
 #[serde(rename_all = "lowercase")]
 pub enum KeyData {
     /// PEM encoded key
@@ -32,12 +33,14 @@ pub enum KeyData {
 }
 
 /// Represents a key
-#[derive(Debug, Deserialize, Clone, PartialEq)]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, JsonSchema)]
 pub struct Key {
     /// Algorithm used for signing the JWT
+    #[schemars(skip)]
     pub algorithm: Algorithm,
 
     /// PEM encoded key or file path
+    #[schemars(skip)]
     #[serde(flatten, with = "serde_yaml::with::singleton_map")]
     pub key: KeyData,
 }
