@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.1.8](https://github.com/agntcy/slim/compare/slim-helm-v0.1.7...slim-helm-v0.1.8) (2025-06-30)
+
+### Features
+
+* **helm-chart:** Add spire support to SLIM chart ([#372](https://github.com/agntcy/slim/pull/372)) ([6603c7](https://github.com/agntcy/slim/commit/6603c7185849ef256ca9adf14bac0dcc444411f7))
+
+## [0.1.5](https://github.com/agntcy/slim/compare/slim-helm-v0.1.4...slim-helm-v0.1.5) (2025-06-03)
+
+### Bug Fixes
+
+* **helm-chart:** use release-please to release new chart version ([#375](https://github.com/agntcy/slim/issues/375)) ([6603c71](https://github.com/agntcy/slim/commit/6603c7185849ef256ca9adf14bac0dcc444411f7))
+
 ## [0.1.7](https://github.com/agntcy/slim/compare/slim-helm-v0.1.6...slim-helm-v0.1.7) (2025-06-06)
 
 

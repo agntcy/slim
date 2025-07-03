@@ -9,9 +9,10 @@ pub mod session;
 mod fire_and_forget;
 pub mod interceptor;
 mod request_response;
-mod session_layer;
 pub mod streaming;
 pub mod timer;
+
+pub mod app;
 
 mod channel_endpoint;
 
@@ -23,18 +24,15 @@ pub use streaming::StreamingConfiguration;
 
 use serde::Deserialize;
 use session::{AppChannelReceiver, MessageDirection};
-use session_layer::SessionLayer;
-use slim_datapath::api::{MessageType, SessionHeader, SlimHeader};
-use slim_datapath::messages::{Agent, AgentType};
+use slim_datapath::messages::Agent;
 use std::collections::HashMap;
 use std::sync::Arc;
-use tokio::sync::RwLock;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
-use tonic::Status;
 use tracing::{debug, error, info};
 
 pub use errors::ServiceError;
+use slim_auth::traits::{TokenProvider, Verifier};
 use slim_config::component::configuration::{Configuration, ConfigurationError};
 use slim_config::component::id::{ID, Kind};
 use slim_config::component::{Component, ComponentBuilder, ComponentError};
@@ -43,8 +41,9 @@ use slim_config::grpc::server::ServerConfig;
 use slim_controller::api::proto::api::v1::controller_service_server::ControllerServiceServer;
 use slim_controller::service::ControllerService;
 use slim_datapath::api::proto::pubsub::v1::pub_sub_service_server::PubSubServiceServer;
-use slim_datapath::api::proto::pubsub::v1::{Message, SessionHeaderType};
 use slim_datapath::message_processing::MessageProcessor;
+
+use crate::app::App;
 
 // Define the kind of the component as static string
 pub const KIND: &str = "slim";
@@ -158,9 +157,6 @@ pub struct Service {
     /// the configuration of the service
     config: ServiceConfiguration,
 
-    /// pool of sessions for the service
-    session_layers: RwLock<HashMap<Agent, Arc<SessionLayer>>>,
-
     /// drain watch to shutdown the service
     watch: drain::Watch,
 
@@ -190,7 +186,6 @@ impl Service {
             controller,
             controller_cancellation_token: CancellationToken::new(),
             config: ServiceConfiguration::new(),
-            session_layers: RwLock::new(HashMap::new()),
             watch,
             signal,
             cancellation_tokens: parking_lot::RwLock::new(HashMap::new()),
@@ -266,20 +261,17 @@ impl Service {
     }
 
     // APP APIs
-    pub async fn create_agent(
+    pub async fn create_app<P, V>(
         &self,
-        agent_name: &Agent,
-    ) -> Result<AppChannelReceiver, ServiceError> {
-        // get a write lock on the session layers
-        let mut session_layers = self.session_layers.write().await;
-
-        // make sure the agent is not already registered
-        if session_layers.contains_key(agent_name) {
-            error!(%agent_name, "agent already exists");
-            return Err(ServiceError::AgentAlreadyRegistered);
-        }
-
-        debug!(%agent_name, "creating agent");
+        app_name: &Agent,
+        identity_provider: P,
+        identity_verifier: V,
+    ) -> Result<(App<P, V>, AppChannelReceiver), ServiceError>
+    where
+        P: TokenProvider + Send + Sync + Clone + 'static,
+        V: Verifier + Send + Sync + Clone + 'static,
+    {
+        debug!(%app_name, "creating app");
 
         // Channels to communicate with SLIM
         let (conn_id, tx_slim, rx_slim) = self.message_processor.register_local_connection();
@@ -288,48 +280,22 @@ impl Service {
         // TODO(msardara): make the buffer size configurable
         let (tx_app, rx_app) = mpsc::channel(128);
 
-        // create session layer
-        // TODO(micpapal/msardara): here the identity is set as the agent_name itself
-        // we need to load the right identifier and pass it here to the session layer
-        let session_layer = Arc::new(SessionLayer::new(
-            agent_name,
-            Some(agent_name.to_string()),
+        // create app
+        let app = App::new(
+            app_name,
+            Some(self.message_processor.clone()),
+            identity_provider,
+            identity_verifier,
             conn_id,
             tx_slim,
             tx_app,
-        ));
-
-        // register agent within session layers
-        session_layers.insert(agent_name.clone(), session_layer.clone());
+        );
 
         // start message processing using the rx channel
-        self.process_messages(agent_name.clone(), session_layer, rx_slim);
+        app.process_messages(rx_slim, self.watch.clone());
 
-        // return the rx channel
-        Ok(rx_app)
-    }
-
-    pub async fn delete_agent(&self, agent_name: &Agent) -> Result<(), ServiceError> {
-        // get a write lock on the session layers
-        let mut session_layers = self.session_layers.write().await;
-
-        match session_layers.remove(agent_name) {
-            None => {
-                error!("agent {:?} not found", agent_name);
-                Err(ServiceError::AgentNotFound(agent_name.to_string()))
-            }
-            Some(layer) => {
-                info!("deleting agent {}", agent_name);
-
-                // disconnect local connection (this should also end the processing loop)
-                self.message_processor
-                    .disconnect(layer.conn_id())
-                    .map_err(|e| {
-                        error!("error disconnecting agent: {}", e);
-                        ServiceError::DisconnectError(e.to_string())
-                    })
-            }
-        }
+        // return the app instance and the rx channel
+        Ok((app, rx_app))
     }
 
     pub fn run_server(&self, config: &ServerConfig) -> Result<(), ServiceError> {
@@ -440,401 +406,6 @@ impl Service {
 
     pub fn get_connection_id(&self, endpoint: &str) -> Option<u64> {
         self.clients.read().get(endpoint).cloned()
-    }
-
-    async fn send_message(
-        &self,
-        agent: &Agent,
-        msg: Message,
-        info: Option<session::Info>,
-    ) -> Result<(), ServiceError> {
-        self.with_session_layer(agent, async move |session: &Arc<SessionLayer>| {
-            // save session id for later use
-            match info {
-                Some(info) => {
-                    let id = info.id;
-                    session
-                        .handle_message(SessionMessage::from((msg, info)), MessageDirection::South)
-                        .await
-                        .map_err(|e| {
-                            error!("error sending the message to session {}: {}", id, e);
-                            ServiceError::SessionError(e.to_string())
-                        })
-                }
-                None => session.tx_slim().send(Ok(msg)).await.map_err(|e| {
-                    error!("error sending message {}", e);
-                    ServiceError::MessageSendingError(e.to_string())
-                }),
-            }
-        })
-        .await
-    }
-
-    pub async fn subscribe(
-        &self,
-        local_agent: &Agent,
-        agent_type: &AgentType,
-        agent_id: Option<u64>,
-        conn: Option<u64>,
-    ) -> Result<(), ServiceError> {
-        debug!("subscribe to {}/{:?}", agent_type, agent_id);
-
-        let header = if let Some(c) = conn {
-            Some(SlimHeaderFlags::default().with_forward_to(c))
-        } else {
-            Some(SlimHeaderFlags::default())
-        };
-        let msg = Message::new_subscribe(local_agent, agent_type, agent_id, header);
-        self.send_message(local_agent, msg, None).await
-    }
-
-    pub async fn unsubscribe(
-        &self,
-        local_agent: &Agent,
-        agent_type: &AgentType,
-        agent_id: Option<u64>,
-        conn: Option<u64>,
-    ) -> Result<(), ServiceError> {
-        debug!("unsubscribe from {}/{:?}", agent_type, agent_id);
-
-        let header = if let Some(c) = conn {
-            Some(SlimHeaderFlags::default().with_forward_to(c))
-        } else {
-            Some(SlimHeaderFlags::default())
-        };
-        let msg = Message::new_subscribe(local_agent, agent_type, agent_id, header);
-        self.send_message(local_agent, msg, None).await
-    }
-
-    pub async fn set_route(
-        &self,
-        local_agent: &Agent,
-        agent_type: &AgentType,
-        agent_id: Option<u64>,
-        conn: u64,
-    ) -> Result<(), ServiceError> {
-        debug!("set route to {}/{:?}", agent_type, agent_id);
-
-        // send a message with subscription from
-        let msg = Message::new_subscribe(
-            local_agent,
-            agent_type,
-            agent_id,
-            Some(SlimHeaderFlags::default().with_recv_from(conn)),
-        );
-        self.send_message(local_agent, msg, None).await
-    }
-
-    pub async fn remove_route(
-        &self,
-        local_agent: &Agent,
-        agent_type: &AgentType,
-        agent_id: Option<u64>,
-        conn: u64,
-    ) -> Result<(), ServiceError> {
-        debug!("unset route to {}/{:?}", agent_type, agent_id);
-
-        //  send a message with unsubscription from
-        let msg = Message::new_unsubscribe(
-            local_agent,
-            agent_type,
-            agent_id,
-            Some(SlimHeaderFlags::default().with_recv_from(conn)),
-        );
-        self.send_message(local_agent, msg, None).await
-    }
-
-    pub async fn publish_to(
-        &self,
-        source: &Agent,
-        session_info: session::Info,
-        agent_type: &AgentType,
-        agent_id: Option<u64>,
-        forward_to: u64,
-        blob: Vec<u8>,
-    ) -> Result<(), ServiceError> {
-        self.publish_with_flags(
-            source,
-            session_info,
-            agent_type,
-            agent_id,
-            SlimHeaderFlags::default().with_forward_to(forward_to),
-            blob,
-        )
-        .await
-    }
-
-    pub async fn publish(
-        &self,
-        source: &Agent,
-        session_info: session::Info,
-        agent_type: &AgentType,
-        agent_id: Option<u64>,
-        blob: Vec<u8>,
-    ) -> Result<(), ServiceError> {
-        self.publish_with_flags(
-            source,
-            session_info,
-            agent_type,
-            agent_id,
-            SlimHeaderFlags::default(),
-            blob,
-        )
-        .await
-    }
-
-    pub async fn publish_with_flags(
-        &self,
-        source: &Agent,
-        session_info: session::Info,
-        agent_type: &AgentType,
-        agent_id: Option<u64>,
-        flags: SlimHeaderFlags,
-        blob: Vec<u8>,
-    ) -> Result<(), ServiceError> {
-        debug!(
-            "sending publication to {}/{:?}. Flags: {}",
-            agent_type, agent_id, flags
-        );
-
-        let msg = Message::new_publish(source, agent_type, agent_id, Some(flags), "msg", blob);
-
-        self.send_message(source, msg, Some(session_info)).await
-    }
-
-    pub async fn invite(
-        &self,
-        source: &Agent,
-        destination: &AgentType,
-        session_info: session::Info,
-    ) -> Result<(), ServiceError> {
-        let slim_header = Some(SlimHeader::new(source, destination, None, None));
-
-        let session_header = Some(SessionHeader::new(
-            SessionHeaderType::ChannelDiscoveryRequest.into(),
-            session_info.id,
-            rand::random::<u32>(),
-        ));
-
-        let payload = match bincode::encode_to_vec(source, bincode::config::standard()) {
-            Ok(payload) => payload,
-            Err(_) => {
-                return Err(ServiceError::PublishError(
-                    "error while parsing the payload".to_string(),
-                ));
-            }
-        };
-
-        let msg = Message::new_publish_with_headers(slim_header, session_header, "", payload);
-
-        self.send_message(source, msg, Some(session_info)).await
-    }
-
-    /// Receive messages from slim and forward them to the appropriate session
-    fn process_messages(
-        &self,
-        agent: Agent,
-        session_layer: Arc<SessionLayer>,
-        mut rx: mpsc::Receiver<Result<Message, Status>>,
-    ) {
-        // clone drain watch
-        let watch = self.watch.clone();
-
-        tokio::spawn(async move {
-            debug!("starting message processing loop for agent {}", agent);
-
-            // subscribe for local agent running this loop
-            let subscribe_msg =
-                Message::new_subscribe(&agent, agent.agent_type(), Some(agent.agent_id()), None);
-            let tx = session_layer.tx_slim();
-            tx.send(Ok(subscribe_msg))
-                .await
-                .expect("error sending subscription");
-
-            loop {
-                tokio::select! {
-                    next = rx.recv() => {
-                        match next {
-                            None => {
-                                debug!("no more messages to process");
-                                break;
-                            }
-                            Some(msg) => {
-                                match msg {
-                                    Ok(msg) => {
-                                        debug!("received message in service processing: {:?}", msg);
-
-                                        // filter only the messages of type publish
-                                        match msg.message_type.as_ref() {
-                                            Some(MessageType::Publish(_)) => {},
-                                            None => {
-                                                continue;
-                                            }
-                                            _ => {
-                                                continue;
-                                            }
-                                        }
-
-                                        // Handle the message
-                                        let res = session_layer
-                                            .handle_message(SessionMessage::from(msg), MessageDirection::North)
-                                            .await;
-
-                                        if let Err(e) = res {
-                                            error!("error handling message: {}", e);
-                                        }
-                                    }
-                                    Err(e) => {
-                                        error!("error: {}", e);
-
-                                        // if internal error, forward it to application
-                                        let tx_app = session_layer.tx_app();
-                                        tx_app.send(Err(errors::SessionError::Forward(e.to_string())))
-                                            .await
-                                            .expect("error sending error to application");
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    _ = watch.clone().signaled() => {
-                        debug!("shutting down processing on drain for agent: {}", agent);
-                        break;
-                    }
-                }
-            }
-        });
-    }
-
-    async fn with_session_layer<F, T>(&self, agent: &Agent, f: F) -> Result<T, ServiceError>
-    where
-        F: AsyncFnOnce(&Arc<SessionLayer>) -> Result<T, ServiceError>,
-    {
-        // get a read lock on the session layers
-        let session_layers = self.session_layers.read().await;
-
-        // check if agent was registered
-        let layer = session_layers.get(agent);
-
-        if layer.is_none() {
-            error!("agent {} not found", agent);
-            return Err(ServiceError::AgentNotFound(agent.to_string()));
-        }
-
-        let layer = layer.unwrap();
-
-        f(layer).await
-    }
-
-    /// Create a new session
-    pub async fn create_session(
-        &self,
-        agent: &Agent,
-        session_config: session::SessionConfig,
-    ) -> Result<session::Info, ServiceError> {
-        self.with_session_layer(agent, async move |layer: &Arc<SessionLayer>| {
-            layer
-                .create_session(session_config, None)
-                .await
-                .map_err(|e| {
-                    error!("error creating session: {}", e);
-                    ServiceError::SessionError(e.to_string())
-                })
-        })
-        .await
-    }
-
-    /// Set config for a session
-    pub async fn set_session_config(
-        &self,
-        agent: &Agent,
-        session_config: &session::SessionConfig,
-        session_id: Option<session::Id>,
-    ) -> Result<(), ServiceError> {
-        self.with_session_layer(agent, async move |layer: &Arc<SessionLayer>| {
-            // set the session config
-            layer
-                .set_session_config(session_config, session_id)
-                .await
-                .map_err(|e| {
-                    error!("error setting session config: {}", e);
-                    ServiceError::SessionError(e.to_string())
-                })
-        })
-        .await
-    }
-
-    /// Get config for a session
-    pub async fn get_session_config(
-        &self,
-        agent: &Agent,
-        session_id: session::Id,
-    ) -> Result<session::SessionConfig, ServiceError> {
-        self.with_session_layer(agent, async move |layer: &Arc<SessionLayer>| {
-            // get the session config
-            layer.get_session_config(session_id).await.map_err(|e| {
-                error!("error getting session config: {}", e);
-                ServiceError::SessionError(e.to_string())
-            })
-        })
-        .await
-    }
-
-    /// Get default session config
-    pub async fn get_default_session_config(
-        &self,
-        agent: &Agent,
-        session_type: session::SessionType,
-    ) -> Result<session::SessionConfig, ServiceError> {
-        self.with_session_layer(agent, async move |layer: &Arc<SessionLayer>| {
-            // get the default session config
-            layer
-                .get_default_session_config(session_type)
-                .await
-                .map_err(|e| {
-                    error!("error getting default session config: {}", e);
-                    ServiceError::SessionError(e.to_string())
-                })
-        })
-        .await
-    }
-
-    /// Add an interceptor to a session
-    pub async fn add_session_interceptor(
-        &self,
-        agent: &Agent,
-        session_id: session::Id,
-        interceptor: Box<dyn session::SessionInterceptor + Send + Sync>,
-    ) -> Result<(), ServiceError> {
-        self.with_session_layer(agent, async move |layer: &Arc<SessionLayer>| {
-            layer
-                .add_session_interceptor(session_id, interceptor)
-                .await
-                .map_err(|e| {
-                    error!("error adding session interceptor: {}", e);
-                    ServiceError::SessionError(e.to_string())
-                })
-        })
-        .await
-    }
-
-    /// delete a session
-    pub async fn delete_session(
-        &self,
-        agent: &Agent,
-        session_id: session::Id,
-    ) -> Result<(), ServiceError> {
-        self.with_session_layer(agent, async move |layer: &Arc<SessionLayer>| {
-            // delete the session
-            match layer.remove_session(session_id).await {
-                true => Ok(()),
-                false => {
-                    error!("error deleting session");
-                    Err(ServiceError::SessionError("session not found".to_string()))
-                }
-            }
-        })
-        .await
     }
 
     fn serve_controller(&self) -> Result<(), ServiceError> {
@@ -950,8 +521,10 @@ mod tests {
     use crate::session::SessionConfig;
 
     use super::*;
+    use slim_auth::simple::Simple;
     use slim_config::grpc::server::ServerConfig;
     use slim_config::tls::server::TlsServerConfig;
+    use slim_datapath::api::MessageType;
     use std::time::Duration;
     use tokio::time;
     use tracing_test::traced_test;
@@ -1013,15 +586,23 @@ mod tests {
 
         // create a subscriber
         let subscriber_agent = Agent::from_strings("cisco", "default", "subscriber_agent", 0);
-        let mut sub_rx = service
-            .create_agent(&subscriber_agent)
+        let (sub_app, mut sub_rx) = service
+            .create_app(
+                &subscriber_agent,
+                Simple::new("subscriber_agent"),
+                Simple::new("subscriber_agent"),
+            )
             .await
             .expect("failed to create agent");
 
         // create a publisher
         let publisher_agent = Agent::from_strings("cisco", "default", "publisher_agent", 0);
-        let _pub_rx = service
-            .create_agent(&publisher_agent)
+        let (pub_app, _rx) = service
+            .create_app(
+                &publisher_agent,
+                Simple::new("subscriber_agent"),
+                Simple::new("subscriber_agent"),
+            )
             .await
             .expect("failed to create agent");
 
@@ -1033,19 +614,18 @@ mod tests {
         // subscription is done automatically.
 
         // create a fire and forget session
-        let session_info = service
+        let session_info = pub_app
             .create_session(
-                &publisher_agent,
                 SessionConfig::FireAndForget(FireAndForgetConfiguration::default()),
+                None,
             )
             .await
             .unwrap();
 
         // publish a message
         let message_blob = "very complicated message".as_bytes().to_vec();
-        service
+        pub_app
             .publish(
-                &publisher_agent,
                 session_info.clone(),
                 subscriber_agent.agent_type(),
                 Some(subscriber_agent.agent_id()),
@@ -1075,18 +655,12 @@ mod tests {
         assert_eq!(session_info.id, msg.info.id);
 
         // Now remove the session from the 2 agents
-        service
-            .delete_session(&publisher_agent, session_info.id)
-            .await
-            .unwrap();
-        service
-            .delete_session(&subscriber_agent, session_info.id)
-            .await
-            .unwrap();
+        pub_app.delete_session(session_info.id).await.unwrap();
+        sub_app.delete_session(session_info.id).await.unwrap();
 
-        // And remove the agents
-        service.delete_agent(&publisher_agent).await.unwrap();
-        service.delete_agent(&subscriber_agent).await.unwrap();
+        // And drop the 2 apps
+        drop(pub_app);
+        drop(sub_app);
 
         // sleep to allow the deletion to be processed
         time::sleep(Duration::from_millis(100)).await;
@@ -1109,21 +683,25 @@ mod tests {
 
         // register local agent
         let agent = Agent::from_strings("cisco", "default", "session_agent", 0);
-        let _ = service
-            .create_agent(&agent)
+        let (app, _) = service
+            .create_app(
+                &agent,
+                Simple::new("subscriber_agent"),
+                Simple::new("subscriber_agent"),
+            )
             .await
             .expect("failed to create agent");
 
         //////////////////////////// ff session ////////////////////////////////////////////////////////////////////////
         let session_config = SessionConfig::FireAndForget(FireAndForgetConfiguration::default());
-        let session_info = service
-            .create_session(&agent, session_config.clone())
+        let session_info = app
+            .create_session(session_config.clone(), None)
             .await
             .expect("failed to create session");
 
         // check the configuration we get is the one we used to create the session
-        let session_config_ret = service
-            .get_session_config(&agent, session_info.id)
+        let session_config_ret = app
+            .get_session_config(session_info.id)
             .await
             .expect("failed to get session config");
 
@@ -1135,14 +713,13 @@ mod tests {
         // set config for the session
         let session_config = SessionConfig::FireAndForget(FireAndForgetConfiguration::default());
 
-        service
-            .set_session_config(&agent, &session_config, Some(session_info.id))
+        app.set_session_config(&session_config, Some(session_info.id))
             .await
             .expect("failed to set session config");
 
         // get session config
-        let session_config_ret = service
-            .get_session_config(&agent, session_info.id)
+        let session_config_ret = app
+            .get_session_config(session_info.id)
             .await
             .expect("failed to get session config");
         assert_eq!(
@@ -1152,14 +729,13 @@ mod tests {
 
         // set default session config
         let session_config = SessionConfig::FireAndForget(FireAndForgetConfiguration::default());
-        service
-            .set_session_config(&agent, &session_config, None)
+        app.set_session_config(&session_config, None)
             .await
             .expect("failed to set default session config");
 
         // get default session config
-        let session_config_ret = service
-            .get_default_session_config(&agent, session::SessionType::FireAndForget)
+        let session_config_ret = app
+            .get_default_session_config(session::SessionType::FireAndForget)
             .await
             .expect("failed to get default session config");
 
@@ -1170,14 +746,14 @@ mod tests {
         let session_config = SessionConfig::RequestResponse(RequestResponseConfiguration {
             timeout: Duration::from_secs(20000),
         });
-        let session_info = service
-            .create_session(&agent, session_config.clone())
+        let session_info = app
+            .create_session(session_config.clone(), None)
             .await
             .expect("failed to create session");
 
         // get session config
-        let session_config_ret = service
-            .get_session_config(&agent, session_info.id)
+        let session_config_ret = app
+            .get_session_config(session_info.id)
             .await
             .expect("failed to get session config");
 
@@ -1190,14 +766,13 @@ mod tests {
             timeout: Duration::from_secs(21345),
         });
 
-        service
-            .set_session_config(&agent, &session_config, Some(session_info.id))
+        app.set_session_config(&session_config, Some(session_info.id))
             .await
             .expect("failed to set session config");
 
         // get session config
-        let session_config_ret = service
-            .get_session_config(&agent, session_info.id)
+        let session_config_ret = app
+            .get_session_config(session_info.id)
             .await
             .expect("failed to get session config");
 
@@ -1210,14 +785,13 @@ mod tests {
         let session_config = SessionConfig::RequestResponse(RequestResponseConfiguration {
             timeout: Duration::from_secs(213456),
         });
-        service
-            .set_session_config(&agent, &session_config, None)
+        app.set_session_config(&session_config, None)
             .await
             .expect("failed to set default session config");
 
         // get default session config
-        let session_config_ret = service
-            .get_default_session_config(&agent, session::SessionType::RequestResponse)
+        let session_config_ret = app
+            .get_default_session_config(session::SessionType::RequestResponse)
             .await
             .expect("failed to get default session config");
 
@@ -1232,13 +806,13 @@ mod tests {
             Some(1000),
             Some(time::Duration::from_secs(123)),
         ));
-        let session_info = service
-            .create_session(&agent, session_config.clone())
+        let session_info = app
+            .create_session(session_config.clone(), None)
             .await
             .expect("failed to create session");
         // get session config
-        let session_config_ret = service
-            .get_session_config(&agent, session_info.id)
+        let session_config_ret = app
+            .get_session_config(session_info.id)
             .await
             .expect("failed to get session config");
 
@@ -1255,8 +829,7 @@ mod tests {
             Some(time::Duration::from_secs(1234)),
         ));
 
-        service
-            .set_session_config(&agent, &session_config, Some(session_info.id))
+        app.set_session_config(&session_config, Some(session_info.id))
             .await
             .expect_err("we should not be allowed to set a different direction");
 
@@ -1268,14 +841,13 @@ mod tests {
             Some(time::Duration::from_secs(1234)),
         ));
 
-        service
-            .set_session_config(&agent, &session_config, Some(session_info.id))
+        app.set_session_config(&session_config, Some(session_info.id))
             .await
             .expect("failed to set session config");
 
         // get session config
-        let session_config_ret = service
-            .get_session_config(&agent, session_info.id)
+        let session_config_ret = app
+            .get_session_config(session_info.id)
             .await
             .expect("failed to get session config");
 
@@ -1293,8 +865,7 @@ mod tests {
             Some(time::Duration::from_secs(12345)),
         ));
 
-        service
-            .set_session_config(&agent, &session_config, None)
+        app.set_session_config(&session_config, None)
             .await
             .expect_err("we should not be allowed to set a sender direction as default");
 
@@ -1306,14 +877,13 @@ mod tests {
             Some(time::Duration::from_secs(123456)),
         ));
 
-        service
-            .set_session_config(&agent, &session_config, None)
+        app.set_session_config(&session_config, None)
             .await
             .expect("failed to set default session config");
 
         // get default session config
-        let session_config_ret = service
-            .get_default_session_config(&agent, session::SessionType::Streaming)
+        let session_config_ret = app
+            .get_default_session_config(session::SessionType::Streaming)
             .await
             .expect("failed to get default session config");
 

@@ -10,6 +10,7 @@ name = "slim_service"
 
 [dependencies]
 base64 = "0.22"
+agntcy-slim-auth = { workspace = true }
 agntcy-slim-config = { workspace = true }
 agntcy-slim-controller = { workspace = true }
 agntcy-slim-datapath = { workspace = true }

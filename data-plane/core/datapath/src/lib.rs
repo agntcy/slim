@@ -10,3 +10,5 @@ mod errors;
 
 mod connection;
 mod forwarder;
+
+pub use tonic::Status;

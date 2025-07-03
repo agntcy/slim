@@ -12,6 +12,7 @@ use slim_mls::mls::Mls;
 use async_trait::async_trait;
 
 use tokio::sync::Mutex;
+
 use tracing::{debug, error, trace};
 
 use crate::{
@@ -118,6 +119,7 @@ struct Endpoint {
 
     /// used only is Some(mls)
     mls_group: Vec<u8>,
+
 }
 
 impl Endpoint {
@@ -129,6 +131,7 @@ impl Endpoint {
         send_slim: SlimChannelSender,
         send_app: AppChannelSender,
         mls: Option<Arc<Mutex<Mls>>>,
+
     ) -> Self {
         Endpoint {
             name: name.clone(),
@@ -441,6 +444,7 @@ impl ChannelParticipant {
         self.endpoint.send(ack).await;
     }
 }
+
 
 impl OnMessageReceived for ChannelParticipant {
     async fn on_message(&mut self, msg: Message) {

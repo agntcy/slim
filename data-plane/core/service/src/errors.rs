@@ -89,4 +89,6 @@ pub enum SessionError {
     SessionClosed(String),
     #[error("interceptor error: {0}")]
     InterceptorError(String),
+    #[error("identity error: {0}")]
+    IdentityError(String),
 }
