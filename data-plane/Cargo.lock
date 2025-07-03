@@ -174,19 +174,16 @@ dependencies = [
 name = "agntcy-slim-mls"
 version = "0.1.0"
 dependencies = [
+ "agntcy-slim-auth",
  "agntcy-slim-datapath",
- "agntcy-slim-service",
- "async-trait",
- "base64 0.22.1",
  "mls-rs",
+ "mls-rs-core",
  "mls-rs-crypto-awslc",
- "parking_lot",
  "serde",
  "serde_json",
  "tempfile",
  "thiserror 2.0.12",
  "tokio",
- "tracing",
 ]
 
 [[package]]
@@ -206,7 +203,9 @@ dependencies = [
  "agntcy-slim-config",
  "agntcy-slim-controller",
  "agntcy-slim-datapath",
+ "agntcy-slim-mls",
  "async-trait",
+ "base64 0.22.1",
  "bincode",
  "drain",
  "parking_lot",
@@ -3674,7 +3673,6 @@ dependencies = [
  "agntcy-slim-service",
  "agntcy-slim-signal",
  "clap",
- "parking_lot",
  "tokio",
  "tracing",
 ]

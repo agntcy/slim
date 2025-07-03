@@ -11,6 +11,7 @@ pub mod timer;
 
 pub mod app;
 mod fire_and_forget;
+pub mod mls_interceptor;
 mod request_response;
 
 mod channel_endpoint;

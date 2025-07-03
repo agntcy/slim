@@ -4,8 +4,9 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use crate::mls_interceptor::MlsInterceptor;
 use drain::Watch;
-use parking_lot::RwLock as SyncRwLock;
+use parking_lot::{Mutex, RwLock as SyncRwLock};
 use rand::Rng;
 use slim_auth::simple::Simple;
 use slim_auth::traits::{TokenProvider, Verifier};
@@ -13,9 +14,10 @@ use slim_datapath::api::{MessageType, SessionHeader, SlimHeader};
 use slim_datapath::message_processing::MessageProcessor;
 use slim_datapath::messages::AgentType;
 use slim_datapath::messages::utils::SlimHeaderFlags;
+use slim_mls::mls::Mls;
 use tokio::sync::RwLock as AsyncRwLock;
 use tokio::sync::mpsc;
-use tracing::{debug, error, warn};
+use tracing::{debug, error, info, warn};
 
 use crate::errors::SessionError;
 use crate::fire_and_forget::FireAndForgetConfiguration;
@@ -72,6 +74,10 @@ where
     V: Verifier + Send + Sync + Clone + 'static,
 {
     session_layer: Arc<SessionLayer<P, V>>,
+
+    mls: AsyncRwLock<Option<Arc<Mutex<Mls<P, V>>>>>,
+
+    mls_group_id: AsyncRwLock<Option<Vec<u8>>>,
 }
 
 impl<P, V> std::fmt::Debug for App<P, V>
@@ -134,7 +140,11 @@ where
             default_stream_conf,
         });
 
-        Self { session_layer }
+        Self {
+            session_layer,
+            mls: AsyncRwLock::new(None),
+            mls_group_id: AsyncRwLock::new(None),
+        }
     }
 
     pub async fn create_session(
@@ -142,7 +152,27 @@ where
         session_config: SessionConfig,
         id: Option<Id>,
     ) -> Result<Info, SessionError> {
-        self.session_layer.create_session(session_config, id).await
+        let session_info = self
+            .session_layer
+            .create_session(session_config, id)
+            .await?;
+
+        // if MLS is enabled, add the interceptor to the session
+        if let (Some(mls), Some(group_id)) = (
+            self.mls.read().await.clone(),
+            self.mls_group_id.read().await.clone(),
+        ) {
+            let interceptor = MlsInterceptor::<P, V>::new(mls, group_id);
+            self.session_layer
+                .add_session_interceptor(session_info.id, Box::new(interceptor))
+                .await?;
+            info!(
+                "MLS interceptor automatically added to session {}",
+                session_info.id
+            );
+        }
+
+        Ok(session_info)
     }
 
     pub async fn delete_session(&self, id: Id) -> Result<(), SessionError> {
@@ -195,6 +225,115 @@ where
         self.session_layer
             .add_session_interceptor(session_id, interceptor)
             .await
+    }
+
+    /// Enable MLS
+    pub async fn enable_mls(&self) -> Result<(), SessionError> {
+        let identity_provider = self.session_layer.identity_provider.clone();
+        let identity_verifier = self.session_layer.identity_verifier.clone();
+
+        let agent = self.session_layer.agent_name.clone();
+
+        let mut mls = Mls::new(agent.clone(), identity_provider, identity_verifier);
+
+        mls.initialize()
+            .await
+            .map_err(|e| SessionError::MlsError(format!("Failed to initialize MLS: {}", e)))?;
+
+        let mls_arc = Arc::new(Mutex::new(mls));
+        *self.mls.write().await = Some(mls_arc);
+
+        info!("MLS enabled for agent: {}", agent);
+        Ok(())
+    }
+
+    /// Join MLS group
+    pub async fn join_mls_group(&self, welcome_message: &[u8]) -> Result<(), SessionError> {
+        let mls = self
+            .mls
+            .read()
+            .await
+            .clone()
+            .ok_or_else(|| SessionError::MlsError("MLS not enabled".to_string()))?;
+
+        let group_id = {
+            let mut mls_guard = mls.lock();
+            mls_guard
+                .join_group(welcome_message)
+                .map_err(|e| SessionError::MlsError(format!("Failed to join group: {}", e)))?
+        };
+
+        *self.mls_group_id.write().await = Some(group_id);
+        info!("Successfully joined MLS group");
+
+        Ok(())
+    }
+
+    /// Generate key package
+    pub async fn generate_mls_key_package(&self) -> Result<Vec<u8>, SessionError> {
+        let mls = self
+            .mls
+            .read()
+            .await
+            .clone()
+            .ok_or_else(|| SessionError::MlsError("MLS not enabled".to_string()))?;
+
+        let mls_guard = mls.lock();
+        mls_guard
+            .generate_key_package()
+            .map_err(|e| SessionError::MlsError(format!("Failed to generate key package: {}", e)))
+    }
+
+    /// Add member to group
+    pub async fn add_member_to_mls_group(
+        &self,
+        key_package: &[u8],
+    ) -> Result<Vec<u8>, SessionError> {
+        let mls = self
+            .mls
+            .read()
+            .await
+            .clone()
+            .ok_or_else(|| SessionError::MlsError("MLS not enabled".to_string()))?;
+
+        let group_id = self
+            .mls_group_id
+            .read()
+            .await
+            .clone()
+            .ok_or_else(|| SessionError::MlsError("No MLS group available".to_string()))?;
+
+        let mut mls_guard = mls.lock();
+        mls_guard
+            .add_member(&group_id, key_package)
+            .map_err(|e| SessionError::MlsError(format!("Failed to add member: {}", e)))
+    }
+
+    /// Create MLS group
+    pub async fn create_mls_group(&self) -> Result<(), SessionError> {
+        let mls = self
+            .mls
+            .read()
+            .await
+            .clone()
+            .ok_or_else(|| SessionError::MlsError("MLS not enabled".to_string()))?;
+
+        let group_id = {
+            let mut mls_guard = mls.lock();
+            mls_guard
+                .create_group()
+                .map_err(|e| SessionError::MlsError(format!("Failed to create group: {}", e)))?
+        };
+
+        *self.mls_group_id.write().await = Some(group_id);
+        info!("Successfully created MLS group");
+
+        Ok(())
+    }
+
+    /// Check if MLS is enabled
+    pub async fn is_mls_enabled(&self) -> bool {
+        self.mls.read().await.is_some()
     }
 
     async fn send_message(

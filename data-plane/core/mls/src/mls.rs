@@ -2,60 +2,119 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use crate::errors::MlsError;
-use crate::identity::IdentityProvider;
+use crate::identity_provider::SlimIdentityProvider;
 use mls_rs::{
-    Client, ExtensionList, Group, MlsMessage, group::ReceivedMessage,
-    identity::basic::BasicIdentityProvider,
+    CipherSuite, CipherSuiteProvider, Client, CryptoProvider, ExtensionList, Group, MlsMessage,
+    crypto::{SignaturePublicKey, SignatureSecretKey},
+    group::ReceivedMessage,
+    identity::SigningIdentity,
+    identity::basic::BasicCredential,
 };
 use mls_rs_crypto_awslc::AwsLcCryptoProvider;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::fs::File;
+use std::io::{Read, Write};
 
-type MlsClient = Client<
-    mls_rs::client_builder::WithIdentityProvider<
-        BasicIdentityProvider,
-        mls_rs::client_builder::WithCryptoProvider<
-            AwsLcCryptoProvider,
-            mls_rs::client_builder::BaseConfig,
-        >,
-    >,
->;
+const CIPHERSUITE: CipherSuite = CipherSuite::CURVE25519_AES128;
 
-type MlsGroup = Group<
-    mls_rs::client_builder::WithIdentityProvider<
-        BasicIdentityProvider,
-        mls_rs::client_builder::WithCryptoProvider<
-            AwsLcCryptoProvider,
-            mls_rs::client_builder::BaseConfig,
-        >,
-    >,
->;
-
-pub struct Mls {
-    identity_provider: Arc<dyn IdentityProvider>,
-    participant_id: String,
-    client: Option<MlsClient>,
-    groups: HashMap<Vec<u8>, MlsGroup>,
+#[derive(Clone, Debug, Serialize, Deserialize)]
+struct StoredIdentity {
+    identifier: String,
+    public_key_bytes: Vec<u8>,
+    private_key_bytes: Vec<u8>,
 }
 
-impl std::fmt::Debug for Mls {
+pub struct Mls<P, V>
+where
+    P: slim_auth::traits::TokenProvider + Send + Sync + Clone + 'static,
+    V: slim_auth::traits::Verifier + Send + Sync + Clone + 'static,
+{
+    agent: slim_datapath::messages::Agent,
+    storage_path: Option<std::path::PathBuf>,
+    client: Option<
+        Client<
+            mls_rs::client_builder::WithIdentityProvider<
+                SlimIdentityProvider<V>,
+                mls_rs::client_builder::WithCryptoProvider<
+                    AwsLcCryptoProvider,
+                    mls_rs::client_builder::BaseConfig,
+                >,
+            >,
+        >,
+    >,
+    groups: HashMap<
+        Vec<u8>,
+        Group<
+            mls_rs::client_builder::WithIdentityProvider<
+                SlimIdentityProvider<V>,
+                mls_rs::client_builder::WithCryptoProvider<
+                    AwsLcCryptoProvider,
+                    mls_rs::client_builder::BaseConfig,
+                >,
+            >,
+        >,
+    >,
+    identity_provider: P,
+    identity_verifier: V,
+}
+
+impl<P, V> std::fmt::Debug for Mls<P, V>
+where
+    P: slim_auth::traits::TokenProvider + Send + Sync + Clone + 'static,
+    V: slim_auth::traits::Verifier + Send + Sync + Clone + 'static,
+{
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("mls")
-            .field("participant_id", &self.participant_id)
+            .field("agent", &self.agent)
             .field("has_client", &self.client.is_some())
             .field("num_groups", &self.groups.len())
             .finish()
     }
 }
 
-impl Mls {
-    pub fn new(participant_id: String, identity_provider: Arc<dyn IdentityProvider>) -> Self {
+impl<P, V> Mls<P, V>
+where
+    P: slim_auth::traits::TokenProvider + Send + Sync + Clone + 'static,
+    V: slim_auth::traits::Verifier + Send + Sync + Clone + 'static,
+{
+    pub fn new(
+        agent: slim_datapath::messages::Agent,
+        identity_provider: P,
+        identity_verifier: V,
+    ) -> Self {
+        // Hash the agent for storage path
+        use std::collections::hash_map::DefaultHasher;
+        use std::hash::{Hash, Hasher};
+
+        let mut hasher = DefaultHasher::new();
+        agent.to_string().hash(&mut hasher);
+        let hashed_agent = hasher.finish();
+
+        let storage_path = Some(std::path::PathBuf::from(format!(
+            "/tmp/mls_identities_{}",
+            hashed_agent
+        )));
+
         Self {
-            identity_provider,
-            participant_id,
+            agent,
+            storage_path,
             client: None,
             groups: HashMap::new(),
+            identity_provider,
+            identity_verifier,
         }
+    }
+
+    pub fn set_storage_path<T: Into<std::path::PathBuf>>(&mut self, path: T) -> &mut Self {
+        self.storage_path = Some(path.into());
+        self
+    }
+
+    fn get_storage_path(&self) -> std::path::PathBuf {
+        self.storage_path
+            .clone()
+            .expect("Storage path should always be set in constructor")
     }
 
     fn map_mls_error<T>(result: Result<T, impl std::fmt::Display>) -> Result<T, MlsError> {
@@ -63,25 +122,64 @@ impl Mls {
     }
 
     pub async fn initialize(&mut self) -> Result<(), MlsError> {
-        let identity = self
+        let storage_path = self.get_storage_path();
+        std::fs::create_dir_all(&storage_path)
+            .map_err(|e| MlsError::Io(format!("Failed to create storage directory: {}", e)))?;
+
+        let identity_file = storage_path.join("identity.json");
+
+        let stored_identity = if identity_file.exists() {
+            let mut file = File::open(&identity_file).map_err(|e| MlsError::Io(e.to_string()))?;
+            let mut buf = Vec::new();
+            file.read_to_end(&mut buf)
+                .map_err(|e| MlsError::Io(e.to_string()))?;
+            serde_json::from_slice(&buf).map_err(|e| MlsError::Serde(e.to_string()))?
+        } else {
+            let crypto_provider = AwsLcCryptoProvider::default();
+            let cipher_suite_provider = crypto_provider
+                .cipher_suite_provider(CIPHERSUITE)
+                .ok_or(MlsError::CiphersuiteUnavailable)?;
+
+            let (private_key, public_key) = cipher_suite_provider
+                .signature_key_generate()
+                .map_err(|e| MlsError::Mls(e.to_string()))?;
+
+            let stored = StoredIdentity {
+                identifier: self.agent.to_string(),
+                public_key_bytes: public_key.as_bytes().to_vec(),
+                private_key_bytes: private_key.as_bytes().to_vec(),
+            };
+
+            let json =
+                serde_json::to_vec_pretty(&stored).map_err(|e| MlsError::Serde(e.to_string()))?;
+            let mut file = File::create(&identity_file).map_err(|e| MlsError::Io(e.to_string()))?;
+            file.write_all(&json)
+                .map_err(|e| MlsError::Io(e.to_string()))?;
+
+            stored
+        };
+
+        let public_key = SignaturePublicKey::new(stored_identity.public_key_bytes);
+        let private_key = SignatureSecretKey::new(stored_identity.private_key_bytes);
+
+        // Get the token from the identity provider
+        let token = self
             .identity_provider
-            .get_identity(&self.participant_id)
-            .await?;
+            .get_token()
+            .await
+            .map_err(|e| MlsError::Mls(format!("Failed to get token: {}", e)))?;
+        let credential_data = token.as_bytes().to_vec();
+        let basic_cred = BasicCredential::new(credential_data);
+        let signing_identity = SigningIdentity::new(basic_cred.into_credential(), public_key);
 
         let crypto_provider = AwsLcCryptoProvider::default();
-        let (signing_identity_data, secret_key_data) = identity
-            .clone()
-            .into_signing_identity()
-            .map_err(|e| MlsError::Mls(format!("Failed to get signing identity: {}", e)))?;
+
+        let identity_provider = SlimIdentityProvider::new(self.identity_verifier.clone());
 
         let client = Client::builder()
-            .identity_provider(BasicIdentityProvider)
+            .identity_provider(identity_provider)
             .crypto_provider(crypto_provider)
-            .signing_identity(
-                signing_identity_data,
-                secret_key_data,
-                identity.cipher_suite(),
-            )
+            .signing_identity(signing_identity, private_key, CIPHERSUITE)
             .build();
 
         self.client = Some(client);
@@ -211,13 +309,17 @@ impl Mls {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::identity::FileBasedIdentityProvider;
-    use std::sync::Arc;
+    use slim_auth::simple::Simple;
 
     #[tokio::test]
     async fn test_mls_creation() -> Result<(), Box<dyn std::error::Error>> {
-        let identity_provider = Arc::new(FileBasedIdentityProvider::new("/tmp/test_mls")?);
-        let mut mls = Mls::new("alice".to_string(), identity_provider);
+        let agent = slim_datapath::messages::Agent::from_strings("org", "default", "test_agent", 0);
+        let mut mls = Mls::new(
+            agent,
+            Simple::new("test_secret"),
+            Simple::new("test_secret"),
+        );
+        mls.set_storage_path("/tmp/test_mls");
 
         mls.initialize().await?;
         assert!(!mls.has_any_groups());
@@ -226,8 +328,13 @@ mod tests {
 
     #[tokio::test]
     async fn test_group_creation() -> Result<(), Box<dyn std::error::Error>> {
-        let identity_provider = Arc::new(FileBasedIdentityProvider::new("/tmp/test_mls_group")?);
-        let mut mls = Mls::new("alice".to_string(), identity_provider);
+        let agent = slim_datapath::messages::Agent::from_strings("org", "default", "test_agent", 0);
+        let mut mls = Mls::new(
+            agent,
+            Simple::new("test_secret"),
+            Simple::new("test_secret"),
+        );
+        mls.set_storage_path("/tmp/test_mls_group");
 
         mls.initialize().await?;
         let group_id = mls.create_group()?;
@@ -237,8 +344,13 @@ mod tests {
 
     #[tokio::test]
     async fn test_key_package_generation() -> Result<(), Box<dyn std::error::Error>> {
-        let identity_provider = Arc::new(FileBasedIdentityProvider::new("/tmp/test_mls_keypack")?);
-        let mut mls = Mls::new("alice".to_string(), identity_provider);
+        let agent = slim_datapath::messages::Agent::from_strings("org", "default", "test_agent", 0);
+        let mut mls = Mls::new(
+            agent,
+            Simple::new("test_secret"),
+            Simple::new("test_secret"),
+        );
+        mls.set_storage_path("/tmp/test_mls_keypack");
 
         mls.initialize().await?;
         let key_package = mls.generate_key_package()?;
@@ -248,11 +360,23 @@ mod tests {
 
     #[tokio::test]
     async fn test_messaging() -> Result<(), Box<dyn std::error::Error>> {
-        let alice_provider = Arc::new(FileBasedIdentityProvider::new("/tmp/test_mls_alice")?);
-        let bob_provider = Arc::new(FileBasedIdentityProvider::new("/tmp/test_mls_bob")?);
+        let alice_agent =
+            slim_datapath::messages::Agent::from_strings("org", "default", "test_agent_alice", 0);
+        let mut alice = Mls::new(
+            alice_agent,
+            Simple::new("alice_secret"),
+            Simple::new("alice_secret"),
+        );
+        alice.set_storage_path("/tmp/test_mls_alice");
 
-        let mut alice = Mls::new("alice".to_string(), alice_provider);
-        let mut bob = Mls::new("bob".to_string(), bob_provider);
+        let bob_agent =
+            slim_datapath::messages::Agent::from_strings("org", "default", "test_agent_bob", 1);
+        let mut bob = Mls::new(
+            bob_agent,
+            Simple::new("bob_secret"),
+            Simple::new("bob_secret"),
+        );
+        bob.set_storage_path("/tmp/test_mls_bob");
 
         alice.initialize().await?;
         bob.initialize().await?;
@@ -279,13 +403,23 @@ mod tests {
 
     #[tokio::test]
     async fn test_decrypt_message() -> Result<(), Box<dyn std::error::Error>> {
-        let alice_provider = Arc::new(FileBasedIdentityProvider::new(
-            "/tmp/test_mls_decrypt_alice",
-        )?);
-        let bob_provider = Arc::new(FileBasedIdentityProvider::new("/tmp/test_mls_decrypt_bob")?);
+        let alice_agent =
+            slim_datapath::messages::Agent::from_strings("org", "default", "test_agent_alice", 0);
+        let mut alice = Mls::new(
+            alice_agent,
+            Simple::new("alice_secret"),
+            Simple::new("alice_secret"),
+        );
+        alice.set_storage_path("/tmp/test_mls_decrypt_alice");
 
-        let mut alice = Mls::new("alice".to_string(), alice_provider);
-        let mut bob = Mls::new("bob".to_string(), bob_provider);
+        let bob_agent =
+            slim_datapath::messages::Agent::from_strings("org", "default", "test_agent_bob", 1);
+        let mut bob = Mls::new(
+            bob_agent,
+            Simple::new("bob_secret"),
+            Simple::new("bob_secret"),
+        );
+        bob.set_storage_path("/tmp/test_mls_decrypt_bob");
 
         alice.initialize().await?;
         bob.initialize().await?;
