@@ -7,7 +7,6 @@ use clap::Parser;
 use slim::config;
 use tracing::{error, info};
 
-
 use slim_auth::simple::Simple;
 use slim_datapath::messages::{Agent, AgentType, utils::SlimHeaderFlags};
 use slim_service::streaming::StreamingConfiguration;

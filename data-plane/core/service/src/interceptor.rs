@@ -10,7 +10,8 @@ use std::sync::Arc;
 use tracing::{debug, error, warn};
 
 // Metadata Keys
-pub(crate) const METADATA_MLS_ENABLED: &str = "MLS_ENABLED";
+pub const METADATA_MLS_ENABLED: &str = "MLS_ENABLED";
+pub const METADATA_MLS_INIT_COMMIT_ID: &str = "MLS_INIT_COMMIT_ID";
 const METADATA_MLS_ENCRYPTED: &str = "MLS_ENCRYPTED";
 const METADATA_MLS_GROUP_ID: &str = "MLS_GROUP_ID";
 

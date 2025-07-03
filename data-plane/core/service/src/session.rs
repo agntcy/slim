@@ -1,9 +1,14 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
+use std::sync::Arc;
+
 use async_trait::async_trait;
 use parking_lot::{RwLock, RwLockReadGuard};
 use slim_auth::traits::{TokenProvider, Verifier};
+use slim_mls::identity::FileBasedIdentityProvider;
+use slim_mls::mls::Mls;
+use tokio::sync::Mutex;
 use tonic::Status;
 
 use crate::errors::SessionError;
@@ -323,6 +328,9 @@ where
 
     // Interceptors to be called on message reception/send
     interceptors: RwLock<Vec<Box<dyn SessionInterceptor + Send + Sync>>>,
+
+    /// MLS state (used only in pub/sub section for the moment)
+    mls: Option<Arc<Mutex<Mls>>>,
 }
 
 #[async_trait]
@@ -524,7 +532,20 @@ where
         tx_app: AppChannelSender,
         identity_provider: P,
         verifier: V,
+        msl_enabled: bool,
     ) -> Self {
+        let mls = if msl_enabled {
+            // ?? how to use the right identity here ??
+            let mut name = "/tmp/mls_id_".to_owned();
+            let rnd = rand::random::<u32>();
+            name.push_str(&rnd.to_string());
+            let id_provider =
+                Arc::new(FileBasedIdentityProvider::new(name).expect("error creating id provider"));
+            Some(Arc::new(Mutex::new(Mls::new(rnd.to_string(), id_provider))))
+        } else {
+            None
+        };
+
         Self {
             id,
             state: State::Active,
@@ -536,6 +557,7 @@ where
             tx_slim,
             tx_app,
             interceptors: RwLock::new(vec![]),
+            mls,
         }
     }
 
@@ -555,5 +577,9 @@ where
 
     pub(crate) fn tx_app_ref(&self) -> &AppChannelSender {
         &self.tx_app
+    }
+
+    pub(crate) fn mls(&self) -> Option<Arc<Mutex<Mls>>> {
+        self.mls.as_ref().map(|mls| mls.clone())
     }
 }

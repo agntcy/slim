@@ -13,7 +13,7 @@ use async_trait::async_trait;
 
 use tokio::sync::Mutex;
 
-use tracing::{debug, error, trace};
+use tracing::{debug, error, info, trace};
 
 use crate::{
     errors::SessionError,
@@ -28,6 +28,7 @@ use slim_datapath::{
 };
 
 use crate::interceptor::METADATA_MLS_ENABLED;
+use crate::interceptor::METADATA_MLS_INIT_COMMIT_ID;
 
 struct RequestTimerObserver {
     /// message to send in case of timeout
@@ -90,6 +91,68 @@ impl ChannelEndpoint {
 }
 
 #[derive(Debug)]
+struct MlsState {
+    /// true if initialized
+    init: bool,
+
+    /// mls state for the channel of this endpoint
+    /// the mls state shoudl be created and initiaded in the app
+    /// so that it can be shared with the chanel and the interceptors
+    mls: Option<Arc<Mutex<Mls>>>,
+
+    /// used only is Some(mls)
+    mls_group: Vec<u8>,
+
+    /// last commit id
+    last_commit_id: u32,
+}
+
+impl MlsState {
+    fn parse_welcome_message(&mut self, msg: &Message) -> bool {
+        if self.last_commit_id != 0 {
+            info!("welcome message already received, drop");
+            // we already got a welcome message, ignore this one
+            return false;
+        }
+
+        match msg.get_metadata(METADATA_MLS_INIT_COMMIT_ID) {
+            Some(x) => {
+                info!("recevied valid welcome message");
+                self.last_commit_id = x.parse::<u32>().unwrap();
+                true
+            }
+            None => {
+                info!("received welcome message without commit id, drop it");
+                false
+            }
+        }
+    }
+
+    fn is_valid_commit(&mut self, msg: &Message) -> bool {
+        // the first message to be received should be a welcome message
+        // this message will init the last_commit_id. so if last_commit_id
+        // drop the commits
+        if self.last_commit_id == 0 {
+            info!("welcome message not received yet, drop commit");
+            return false;
+        }
+
+        // the only valid commit that we can accpet it the commit with id
+        // last_commit_id + 1. We can safely drop all the others because
+        // the moderator will keep sending them if needed
+        let msg_id = msg.get_id();
+        if msg_id == self.last_commit_id + 1 {
+            info!("received valid commit with id {}", msg_id);
+            self.last_commit_id += 1;
+            return true;
+        }
+
+        info!("unexpected commit, drop");
+        false
+    }
+}
+
+#[derive(Debug)]
 struct Endpoint {
     /// endpoint name
     name: Agent,
@@ -112,14 +175,8 @@ struct Endpoint {
     /// channel to send messages to the application (used to signal errors)
     send_app: AppChannelSender,
 
-    /// mls state for the channel of this endpoint
-    /// the mls state shoudl be created and initiaded in the app
-    /// so that it can be shared with the chanel and the interceptors
-    mls: Option<Arc<Mutex<Mls>>>,
-
-    /// used only is Some(mls)
-    mls_group: Vec<u8>,
-
+    /// mls state
+    mls: MlsState,
 }
 
 impl Endpoint {
@@ -131,7 +188,6 @@ impl Endpoint {
         send_slim: SlimChannelSender,
         send_app: AppChannelSender,
         mls: Option<Arc<Mutex<Mls>>>,
-
     ) -> Self {
         Endpoint {
             name: name.clone(),
@@ -141,8 +197,12 @@ impl Endpoint {
             subscribed: false,
             send_slim,
             send_app,
-            mls,
-            mls_group: vec![],
+            mls: MlsState {
+                init: false,
+                mls,
+                mls_group: vec![],
+                last_commit_id: 0,
+            },
         }
     }
 
@@ -341,9 +401,14 @@ impl ChannelParticipant {
 
         let payload: Vec<u8> = if msg.contains_metadata(METADATA_MLS_ENABLED) {
             // if mls we need to provide the key pakage
-            match &self.endpoint.mls {
+            match &self.endpoint.mls.mls {
                 Some(mls) => {
-                    let lock = mls.lock().await;
+                    let mut lock = mls.lock().await;
+                    if !&self.endpoint.mls.init {
+                        // TODO handle the errors
+                        lock.initialize().await.expect("error init MLS");
+                        self.endpoint.mls.init = true;
+                    }
                     // TODO handle the errors
                     lock.generate_key_package().unwrap()
                 }
@@ -373,6 +438,11 @@ impl ChannelParticipant {
     }
 
     async fn on_mls_welcome(&mut self, msg: Message) {
+        if !self.endpoint.mls.parse_welcome_message(&msg) {
+            // drop the message
+            return;
+        }
+
         let welcome = match msg.get_payload() {
             Some(content) => &content.blob,
             None => {
@@ -382,11 +452,11 @@ impl ChannelParticipant {
         };
 
         // join the group
-        match &self.endpoint.mls {
+        match &self.endpoint.mls.mls {
             Some(mls) => {
                 let mut lock = mls.lock().await;
                 // TODO handle the errors
-                self.endpoint.mls_group = lock.process_welcome(welcome).unwrap();
+                self.endpoint.mls.mls_group = lock.process_welcome(welcome).unwrap();
             }
             None => {
                 panic!("MLS not seutp, this cannot happen");
@@ -410,6 +480,11 @@ impl ChannelParticipant {
     }
 
     async fn on_mls_commit(&mut self, msg: Message) {
+        if !self.endpoint.mls.is_valid_commit(&msg) {
+            // drop the message
+            return;
+        }
+
         let commit = match msg.get_payload() {
             Some(content) => &content.blob,
             None => {
@@ -419,11 +494,11 @@ impl ChannelParticipant {
         };
 
         // join the group
-        match &self.endpoint.mls {
+        match &self.endpoint.mls.mls {
             Some(mls) => {
                 let mut lock = mls.lock().await;
                 // TODO handle the errors
-                lock.process_commit(&self.endpoint.mls_group, commit)
+                lock.process_commit(&self.endpoint.mls.mls_group, commit)
                     .unwrap();
             }
             None => {
@@ -445,29 +520,28 @@ impl ChannelParticipant {
     }
 }
 
-
 impl OnMessageReceived for ChannelParticipant {
     async fn on_message(&mut self, msg: Message) {
         let msg_type = msg.get_session_header().header_type();
         match msg_type {
             SessionHeaderType::ChannelDiscoveryRequest => {
-                debug!("received discovery request message");
+                info!("received discovery request message");
                 self.on_discovery_request(msg).await;
             }
             SessionHeaderType::ChannelJoinRequest => {
-                debug!("received join request message");
+                info!("received join request message");
                 self.on_join_request(msg).await;
             }
             SessionHeaderType::ChannelMlsWelcome => {
-                debug!("received mls welcome message");
+                info!("received mls welcome message");
                 self.on_mls_welcome(msg).await;
             }
             SessionHeaderType::ChannelMlsCommit => {
-                debug!("received mls commit message");
+                info!("received mls commit message");
                 self.on_mls_commit(msg).await;
             }
             SessionHeaderType::ChannelLeaveRequest => {
-                debug!("received leave request message");
+                info!("received leave request message");
                 // leave the channell
                 self.endpoint.leave().await;
 
@@ -560,9 +634,14 @@ impl ChannelModerator {
             self.endpoint.join().await;
 
             // create mls group if needed
-            self.endpoint.mls_group = match self.endpoint.mls {
+            self.endpoint.mls.mls_group = match self.endpoint.mls.mls {
                 Some(ref mut mls) => {
                     let mut lock = mls.lock().await;
+                    if !&self.endpoint.mls.init {
+                        // TODO handle the errors
+                        lock.initialize().await.expect("error init MLS");
+                        self.endpoint.mls.init = true;
+                    }
                     // TODO handle error
                     lock.create_group().expect("error while creating MLS group")
                 }
@@ -644,7 +723,7 @@ impl ChannelModerator {
             self.invite_payload.clone(),
         );
 
-        if self.endpoint.mls.is_some() {
+        if self.endpoint.mls.mls.is_some() {
             join.insert_metadata(METADATA_MLS_ENABLED.to_string(), "true".to_owned());
         }
 
@@ -665,7 +744,7 @@ impl ChannelModerator {
         self.delete_timer(msg_id);
 
         // send MLS messages if needed
-        match self.endpoint.mls {
+        match self.endpoint.mls.mls {
             Some(ref mut mls) => {
                 let payload = match msg.get_payload() {
                     Some(p) => &p.blob,
@@ -685,14 +764,15 @@ impl ChannelModerator {
                 {
                     let mut lock = mls.lock().await;
                     // TODO handle errors
-                    (welcome_payload, commit_payload) = lock
-                        .add_member(&self.endpoint.mls_group, payload)
+                    (commit_payload, welcome_payload) = lock
+                        .add_member(&self.endpoint.mls.mls_group, payload)
                         .expect("error adding a new member to the gruop");
                 }
 
                 // send the commit message to the channel
                 let commit_id = self.get_next_mls_mgs_id();
-                let welcome_id = self.get_next_mls_mgs_id();
+                let welcome_id = rand::random::<u32>();
+
                 let commit = self.endpoint.create_channel_message(
                     &self.endpoint.channel_name,
                     None,
@@ -701,7 +781,7 @@ impl ChannelModerator {
                     commit_id,
                     commit_payload,
                 );
-                let welcome = self.endpoint.create_channel_message(
+                let mut welcome = self.endpoint.create_channel_message(
                     src.agent_type(),
                     src.agent_id_option(),
                     false,
@@ -709,19 +789,24 @@ impl ChannelModerator {
                     welcome_id,
                     welcome_payload,
                 );
-
-                self.endpoint.send(commit.clone()).await;
-                self.endpoint.send(welcome.clone()).await;
-
-                // set timers
-                // add timer for the commit message
-                self.create_timer(
-                    commit_id,
-                    (self.channel_list.len() - 1).try_into().unwrap(),
-                    commit,
+                welcome.insert_metadata(
+                    METADATA_MLS_INIT_COMMIT_ID.to_string(),
+                    commit_id.to_string(),
                 );
-                // add timer for the welcome message
+
+                // send welcome message
+                self.endpoint.send(welcome.clone()).await;
                 self.create_timer(welcome_id, 1, welcome);
+
+                // send commit message if needed
+                if self.channel_list.len() > 1 {
+                    self.endpoint.send(commit.clone()).await;
+                    self.create_timer(
+                        commit_id,
+                        (self.channel_list.len() - 1).try_into().unwrap(),
+                        commit,
+                    );
+                }
             }
             None => {}
         }
@@ -741,25 +826,25 @@ impl OnMessageReceived for ChannelModerator {
         let msg_type = msg.get_session_header().header_type();
         match msg_type {
             SessionHeaderType::ChannelDiscoveryRequest => {
-                debug!("received discovery request message from app");
+                info!("received discovery request message from app");
                 // discovery message coming from the application
                 self.forward(msg).await;
             }
             SessionHeaderType::ChannelDiscoveryReply => {
-                debug!("received discovery reply message");
+                info!("received discovery reply message");
                 self.on_discovery_reply(msg).await;
             }
             SessionHeaderType::ChannelJoinReply => {
-                debug!("received join reply message");
+                info!("received join reply message");
                 self.on_join_reply(msg).await;
             }
             SessionHeaderType::ChannelMlsAck => {
-                debug!("received mls ack message");
+                info!("received mls ack message");
                 self.on_msl_ack(msg).await;
             }
             SessionHeaderType::ChannelLeaveRequest => {
                 // leave message coming from the application
-                debug!("received leave request message");
+                info!("received leave request message");
                 self.forward(msg).await;
             }
             SessionHeaderType::ChannelLeaveReply => {

@@ -236,6 +236,21 @@ where
         identity_verifier: V,
     ) -> Self {
         let (tx, rx) = mpsc::channel(128);
+
+        // TODO pass a parameter to set MLS on/off
+        // fot the moment is always on
+        let common = Common::new(
+            id,
+            session_direction.clone(),
+            SessionConfig::Streaming(session_config.clone()),
+            agent.clone(),
+            tx_slim.clone(),
+            tx_app.clone(),
+            identity_provider,
+            identity_verifier,
+            true, // TODO fix this
+        );
+
         let channel_endpoint: ChannelEndpoint = if session_config.moderator {
             let cm = ChannelModerator::new(
                 &agent,
@@ -246,7 +261,7 @@ where
                 Duration::from_secs(1),
                 tx_slim.clone(),
                 tx_app.clone(),
-                None,
+                common.mls(),
             );
             ChannelEndpoint::ChannelModerator(cm)
         } else {
@@ -257,21 +272,12 @@ where
                 conn_id,
                 tx_slim.clone(),
                 tx_app.clone(),
-                None,
+                common.mls(),
             );
             ChannelEndpoint::ChannelParticipant(cp)
         };
         let stream = Streaming {
-            common: Common::new(
-                id,
-                session_direction.clone(),
-                SessionConfig::Streaming(session_config.clone()),
-                agent,
-                tx_slim,
-                tx_app,
-                identity_provider,
-                identity_verifier,
-            ),
+            common,
             channel_endpoint: Arc::new(Mutex::new(channel_endpoint)),
             tx,
         };
@@ -409,7 +415,10 @@ where
                                                     SessionHeaderType::ChannelJoinRequest |
                                                     SessionHeaderType::ChannelJoinReply |
                                                     SessionHeaderType::ChannelLeaveRequest |
-                                                    SessionHeaderType::ChannelLeaveReply => {
+                                                    SessionHeaderType::ChannelLeaveReply |
+                                                    SessionHeaderType::ChannelMlsWelcome |
+                                                    SessionHeaderType::ChannelMlsCommit |
+                                                    SessionHeaderType::ChannelMlsAck => {
                                                         let mut lock = channel_endpoint.lock().await;
                                                         lock.on_message(msg).await;
                                                     }
