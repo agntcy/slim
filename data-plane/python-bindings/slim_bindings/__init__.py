@@ -21,6 +21,7 @@ from ._slim_bindings import (  # type: ignore[attr-defined]
     disconnect,
     get_default_session_config,
     get_session_config,
+    invite,
     publish,
     receive,
     remove_route,
@@ -546,6 +547,17 @@ class Slim:
 
         dest = PyAgentType(organization, namespace, agent)
         await publish(self.svc, session, 1, msg, dest, agent_id)
+
+    async def invite(
+        self,
+        session: PySessionInfo,
+        name: PyAgentType,
+    ):
+        # Make sure the sessions exists
+        if session.id not in self.sessions:
+            raise Exception("session not found", session.id)
+
+        await invite(self.svc, session, name)
 
     async def request_reply(
         self,

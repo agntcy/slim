@@ -25,6 +25,11 @@ pub struct Args {
     #[clap(long, env)]
     #[arg(short, long, value_name = "MESSAGE")]
     message: Option<String>,
+
+    /// MLS group identifier.
+    #[clap(long, env)]
+    #[arg(long, value_name = "MLS_GROUP_ID")]
+    mls_group_id: Option<String>,
 }
 
 impl Args {
@@ -42,5 +47,9 @@ impl Args {
 
     pub fn message(&self) -> Option<&str> {
         self.message.as_deref()
+    }
+
+    pub fn mls_group_id(&self) -> Option<&str> {
+        self.mls_group_id.as_deref()
     }
 }

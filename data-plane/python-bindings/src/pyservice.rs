@@ -10,6 +10,8 @@ use rand::Rng;
 use serde_pyobject::from_pyobject;
 use slim_datapath::messages::encoder::{Agent, AgentType};
 use slim_datapath::messages::utils::SlimHeaderFlags;
+use slim_service::app::App;
+use slim_service::errors::SessionError;
 use slim_service::session;
 use slim_service::{Service, ServiceError};
 use tokio::sync::RwLock;
@@ -17,6 +19,7 @@ use tokio::sync::RwLock;
 use crate::pysession::PySessionType;
 use crate::pysession::{PySessionConfiguration, PySessionInfo};
 use crate::utils::PyAgentType;
+use slim_auth::simple::Simple;
 use slim_config::grpc::client::ClientConfig as PyGrpcClientConfig;
 use slim_config::grpc::server::ServerConfig as PyGrpcServerConfig;
 
@@ -29,6 +32,7 @@ pub struct PyService {
 
 struct PyServiceInternal {
     service: Service,
+    app: App<Simple, Simple>,
     agent: Agent,
     rx: RwLock<session::AppChannelReceiver>,
 }
@@ -71,11 +75,14 @@ impl PyService {
         let svc = Service::new(svc_id);
 
         // Get the rx channel
-        let rx = svc.create_agent(&agent).await?;
+        let (app, rx) = svc
+            .create_app(&agent, Simple::new("secret"), Simple::new("secret"))
+            .await?;
 
         // create the service
         let sdk = Arc::new(PyServiceInternal {
             service: svc,
+            app,
             agent,
             rx: RwLock::new(rx),
         });
@@ -86,20 +93,14 @@ impl PyService {
     async fn create_session(
         &self,
         session_config: session::SessionConfig,
-    ) -> Result<PySessionInfo, ServiceError> {
+    ) -> Result<PySessionInfo, SessionError> {
         Ok(PySessionInfo::from(
-            self.sdk
-                .service
-                .create_session(&self.sdk.agent, session_config)
-                .await?,
+            self.sdk.app.create_session(session_config, None).await?,
         ))
     }
 
-    async fn delete_session(&self, session_id: session::Id) -> Result<(), ServiceError> {
-        self.sdk
-            .service
-            .delete_session(&self.sdk.agent, session_id)
-            .await
+    async fn delete_session(&self, session_id: session::Id) -> Result<(), SessionError> {
+        self.sdk.app.delete_session(session_id).await
     }
 
     async fn run_server(&self, config: PyGrpcServerConfig) -> Result<(), ServiceError> {
@@ -127,10 +128,7 @@ impl PyService {
     ) -> Result<(), ServiceError> {
         let class = AgentType::from_strings(&name.organization, &name.namespace, &name.agent_type);
 
-        self.sdk
-            .service
-            .subscribe(&self.sdk.agent, &class, id, Some(conn))
-            .await
+        self.sdk.app.subscribe(&class, id, Some(conn)).await
     }
 
     async fn unsubscribe(
@@ -140,10 +138,7 @@ impl PyService {
         id: Option<u64>,
     ) -> Result<(), ServiceError> {
         let class = AgentType::from_strings(&name.organization, &name.namespace, &name.agent_type);
-        self.sdk
-            .service
-            .unsubscribe(&self.sdk.agent, &class, id, Some(conn))
-            .await
+        self.sdk.app.unsubscribe(&class, id, Some(conn)).await
     }
 
     async fn set_route(
@@ -153,10 +148,7 @@ impl PyService {
         id: Option<u64>,
     ) -> Result<(), ServiceError> {
         let class = AgentType::from_strings(&name.organization, &name.namespace, &name.agent_type);
-        self.sdk
-            .service
-            .set_route(&self.sdk.agent, &class, id, conn)
-            .await
+        self.sdk.app.set_route(&class, id, conn).await
     }
 
     async fn remove_route(
@@ -166,10 +158,7 @@ impl PyService {
         id: Option<u64>,
     ) -> Result<(), ServiceError> {
         let class = AgentType::from_strings(&name.organization, &name.namespace, &name.agent_type);
-        self.sdk
-            .service
-            .remove_route(&self.sdk.agent, &class, id, conn)
-            .await
+        self.sdk.app.remove_route(&class, id, conn).await
     }
 
     async fn publish(
@@ -201,16 +190,17 @@ impl PyService {
         let flags = SlimHeaderFlags::new(fanout, None, conn_out, None, None);
 
         self.sdk
-            .service
-            .publish_with_flags(
-                &self.sdk.agent,
-                session_info,
-                &agent_type,
-                agent_id,
-                flags,
-                blob,
-            )
+            .app
+            .publish_with_flags(session_info, &agent_type, agent_id, flags, blob)
             .await
+    }
+
+    async fn invite(
+        &self,
+        session_info: session::Info,
+        name: PyAgentType,
+    ) -> Result<(), ServiceError> {
+        self.sdk.app.invite(&name.into(), session_info).await
     }
 
     async fn receive(&self) -> Result<(PySessionInfo, Vec<u8>), ServiceError> {
@@ -247,20 +237,20 @@ impl PyService {
         &self,
         session_id: u32,
         config: session::SessionConfig,
-    ) -> Result<(), ServiceError> {
+    ) -> Result<(), SessionError> {
         self.sdk
-            .service
-            .set_session_config(&self.sdk.agent, &config, Some(session_id))
+            .app
+            .set_session_config(&config, Some(session_id))
             .await
     }
 
     async fn get_session_config(
         &self,
         session_id: u32,
-    ) -> Result<PySessionConfiguration, ServiceError> {
+    ) -> Result<PySessionConfiguration, SessionError> {
         self.sdk
-            .service
-            .get_session_config(&self.sdk.agent, session_id)
+            .app
+            .get_session_config(session_id)
             .await
             .map(|val| val.into())
     }
@@ -268,20 +258,17 @@ impl PyService {
     async fn set_default_session_config(
         &self,
         config: session::SessionConfig,
-    ) -> Result<(), ServiceError> {
-        self.sdk
-            .service
-            .set_session_config(&self.sdk.agent, &config, None)
-            .await
+    ) -> Result<(), SessionError> {
+        self.sdk.app.set_session_config(&config, None).await
     }
 
     async fn get_default_session_config(
         &self,
         session_type: session::SessionType,
-    ) -> Result<PySessionConfiguration, ServiceError> {
+    ) -> Result<PySessionConfiguration, SessionError> {
         self.sdk
-            .service
-            .get_default_session_config(&self.sdk.agent, session_type)
+            .app
+            .get_default_session_config(session_type)
             .await
             .map(|val| val.into())
     }
@@ -507,6 +494,22 @@ pub fn publish(
 ) -> PyResult<Bound<PyAny>> {
     pyo3_async_runtimes::tokio::future_into_py(py, async move {
         svc.publish(session_info.session_info, fanout, blob, name, id)
+            .await
+            .map_err(|e| PyErr::new::<PyException, _>(e.to_string()))
+    })
+}
+
+#[gen_stub_pyfunction]
+#[pyfunction]
+#[pyo3(signature = (svc, session_info, name))]
+pub fn invite(
+    py: Python,
+    svc: PyService,
+    session_info: PySessionInfo,
+    name: PyAgentType,
+) -> PyResult<Bound<PyAny>> {
+    pyo3_async_runtimes::tokio::future_into_py(py, async move {
+        svc.invite(session_info.session_info, name)
             .await
             .map_err(|e| PyErr::new::<PyException, _>(e.to_string()))
     })

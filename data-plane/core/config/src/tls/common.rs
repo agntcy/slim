@@ -1,16 +1,123 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
+use parking_lot::RwLock;
 use rustls::RootCertStore;
+use rustls::crypto::CryptoProvider;
 use rustls::server::VerifierBuilderError;
+use rustls::sign::CertifiedKey;
 use rustls_native_certs;
-use rustls_pki_types::CertificateDer;
-use rustls_pki_types::pem::PemObject;
+use rustls_pki_types::{CertificateDer, PrivateKeyDer};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+use slim_auth::file_watcher::FileWatcher;
 use std::path::Path;
+use std::sync::Arc;
 use std::time::Duration;
 use thiserror::Error;
+
+#[derive(Debug)]
+pub(crate) struct WatcherCertResolver {
+    // Files
+    _key_file: String,
+    _cert_file: String,
+
+    // Crypto provider
+    _provider: Arc<CryptoProvider>,
+
+    // watchers
+    _watchers: Vec<FileWatcher>,
+
+    // the certificate
+    pub cert: Arc<RwLock<Arc<CertifiedKey>>>,
+}
+
+fn to_certified_key(
+    cert_der: Vec<CertificateDer<'static>>,
+    key_der: PrivateKeyDer<'static>,
+    crypto_provider: &CryptoProvider,
+) -> CertifiedKey {
+    CertifiedKey::from_der(cert_der, key_der, crypto_provider).unwrap()
+}
+
+impl WatcherCertResolver {
+    pub(crate) fn new(
+        key_file: impl Into<String>,
+        cert_file: impl Into<String>,
+        crypto_provider: &Arc<CryptoProvider>,
+    ) -> Result<Self, ConfigError> {
+        let key_file = key_file.into();
+        let key_files = (key_file.clone(), key_file.clone());
+
+        let cert_file = cert_file.into();
+        let cert_files = (cert_file.clone(), cert_file.clone());
+        let crypto_providers = (crypto_provider.clone(), crypto_provider.clone());
+
+        // Read the cert and the key
+        let key_der = PrivateKeyDer::from_pem_file(Path::new(&key_files.0))
+            .map_err(|e| ConfigError::InvalidFile(e.to_string()))?;
+        let cert_der = CertificateDer::from_pem_file(Path::new(&cert_files.0))
+            .map_err(|e| ConfigError::InvalidFile(e.to_string()))?;
+
+        // Transform it to CertifiedKey
+        let cert_key = to_certified_key(vec![cert_der], key_der, crypto_provider);
+
+        let cert = Arc::new(RwLock::new(Arc::new(cert_key)));
+        let cert_clone = cert.clone();
+        let w = FileWatcher::create_watcher(move |_file| {
+            // Read the cert and the key
+            let key_der = PrivateKeyDer::from_pem_file(Path::new(&key_files.0))
+                .expect("failed to read key file");
+            let cert_der = CertificateDer::from_pem_file(Path::new(&cert_files.0))
+                .expect("failed to read cert file");
+            let cert_key = to_certified_key(vec![cert_der], key_der, &crypto_providers.0);
+
+            *cert_clone.as_ref().write() = Arc::new(cert_key);
+        });
+
+        Ok(Self {
+            _key_file: key_files.1,
+            _cert_file: cert_files.1,
+            _provider: crypto_providers.1,
+            _watchers: vec![w],
+            cert,
+        })
+    }
+}
+
+#[derive(Debug)]
+pub(crate) struct StaticCertResolver {
+    // Cert and key
+    _key_pem: String,
+    _cert_pem: String,
+
+    // the certificate
+    pub cert: Arc<CertifiedKey>,
+}
+
+impl StaticCertResolver {
+    pub(crate) fn new(
+        key_pem: impl Into<String>,
+        cert_pem: impl Into<String>,
+        crypto_provider: &Arc<CryptoProvider>,
+    ) -> Result<Self, ConfigError> {
+        let key_pem = key_pem.into();
+        let cert_pem = cert_pem.into();
+
+        // Read the cert and the key
+        let key_der =
+            PrivateKeyDer::from_pem_slice(key_pem.as_bytes()).map_err(ConfigError::InvalidPem)?;
+        let cert_der =
+            CertificateDer::from_pem_slice(cert_pem.as_bytes()).map_err(ConfigError::InvalidPem)?;
+        let cert_key = to_certified_key(vec![cert_der], key_der, crypto_provider);
+
+        Ok(Self {
+            _key_pem: key_pem,
+            _cert_pem: cert_pem,
+            cert: Arc::new(cert_key),
+        })
+    }
+}
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Clone, JsonSchema)]
 pub struct Config {
@@ -58,6 +165,8 @@ pub enum ConfigError {
     InvalidTlsVersion(String),
     #[error("invalid pem format: {0}")]
     InvalidPem(rustls_pki_types::pem::Error),
+    #[error("error reading cert/key from file: {0}")]
+    InvalidFile(String),
     #[error("cannot use both file and pem for {0}")]
     CannotUseBoth(String),
     #[error("root store error: {0}")]

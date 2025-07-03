@@ -10,10 +10,13 @@ path = "src/sdk-mock/main.rs"
 
 [dependencies]
 agntcy-slim = { workspace = true }
+agntcy-slim-auth = { workspace = true }
 agntcy-slim-config = { workspace = true }
 agntcy-slim-datapath = { workspace = true }
+agntcy-slim-mls = { workspace = true }
 agntcy-slim-service = { workspace = true }
 agntcy-slim-signal = { workspace = true }
 clap = { workspace = true }
+parking_lot = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }

@@ -19,6 +19,7 @@ path = "src/bin/publisher.rs"
 
 [dependencies]
 agntcy-slim = { workspace = true }
+agntcy-slim-auth = { workspace = true }
 agntcy-slim-config = { workspace = true }
 agntcy-slim-datapath = { workspace = true }
 agntcy-slim-service = { workspace = true }

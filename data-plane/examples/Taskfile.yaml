@@ -27,11 +27,23 @@ tasks:
     cmds:
       - cargo run -- --config ../../../config/base/client-config.yaml --local-agent server --remote-agent client
 
+  run:mock-agent:server-mls:
+    desc: "Run the mock agent server"
+    dir: src/sdk-mock
+    cmds:
+      - cargo run -- --config ../../../config/base/client-config.yaml --local-agent server --remote-agent client --mls-group-id mls-group
+
   run:mock-agent:client:
     desc: "Run the mock agent client"
     dir: src/sdk-mock
     cmds:
       - cargo run -- --config ../../../config/base/client-config.yaml --local-agent client --remote-agent server --message "hey there!"
+
+  run:mock-agent:client-mls:
+    desc: "Run the mock agent client"
+    dir: src/sdk-mock
+    cmds:
+      - cargo run -- --config ../../../config/base/client-config.yaml --local-agent client --remote-agent server --mls-group-id mls-group --message "hey there!"
 
   docker:build-all:
     desc: "Build all Docker images"

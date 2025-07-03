@@ -12,12 +12,13 @@ use slim_service::SlimHeaderFlags;
 use testing::parse_line;
 use tokio_util::sync::CancellationToken;
 
-use slim_service::streaming::StreamingConfiguration;
-
 use clap::Parser;
 use indicatif::ProgressBar;
-use slim::config;
 use tracing::{debug, error, info};
+
+use slim::config;
+use slim_auth::simple::Simple;
+use slim_service::streaming::StreamingConfiguration;
 
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
@@ -173,8 +174,8 @@ async fn main() {
     // create local agent
     let agent_name = Agent::from_strings("cisco", "default", "publisher", id);
 
-    let mut rx = svc
-        .create_agent(&agent_name)
+    let (app, mut rx) = svc
+        .create_app(&agent_name, Simple::new("secret"), Simple::new("secret"))
         .await
         .expect("failed to create agent");
 
@@ -188,9 +189,8 @@ async fn main() {
     info!("remote connection id = {}", conn_id);
 
     // subscribe for local name
-    match svc
+    match app
         .subscribe(
-            &agent_name,
             agent_name.agent_type(),
             agent_name.agent_id_option(),
             Some(conn_id),
@@ -215,45 +215,42 @@ async fn main() {
         };
 
         // subscribe for the topic
-        match svc
-            .subscribe(&agent_name, &topic, None, Some(conn_id))
-            .await
-        {
+        match app.subscribe(&topic, None, Some(conn_id)).await {
             Ok(_) => {}
             Err(e) => {
                 panic!("an error accoured while adding a subscription {}", e);
             }
         }
 
-        svc.set_route(&agent_name, &topic, None, conn_id)
-            .await
-            .unwrap();
+        app.set_route(&topic, None, conn_id).await.unwrap();
 
         // create session
         let res = match streaming {
             true => {
                 // create a producer streaming session
-                svc.create_session(
-                    &agent_name,
+                app.create_session(
                     slim_service::session::SessionConfig::Streaming(StreamingConfiguration::new(
                         slim_service::session::SessionDirection::Sender,
                         None,
+                        false,
                         None,
                         None,
                     )),
+                    None,
                 )
                 .await
             }
             false => {
                 // create a pubsub session
-                svc.create_session(
-                    &agent_name,
+                app.create_session(
                     slim_service::session::SessionConfig::Streaming(StreamingConfiguration::new(
                         slim_service::session::SessionDirection::Bidirectional,
                         Some(topic.clone()),
+                        false,
                         Some(10),
                         Some(Duration::from_millis(1000)),
                     )),
+                    None,
                 )
                 .await
             }
@@ -302,15 +299,8 @@ async fn main() {
             info!("publishing message {}", i);
             // set fanout > 1 to send the message in broadcast
             let flags = SlimHeaderFlags::new(10, None, None, None, None);
-            if svc
-                .publish_with_flags(
-                    &agent_name,
-                    session_info.clone(),
-                    &topic,
-                    None,
-                    flags,
-                    payload,
-                )
+            if app
+                .publish_with_flags(session_info.clone(), &topic, None, flags, payload)
                 .await
                 .is_err()
             {
@@ -363,8 +353,8 @@ async fn main() {
 
     // set routes for all subscriptions
     for r in routes {
-        match svc
-            .set_route(&agent_name, r.agent_type(), r.agent_id_option(), conn_id)
+        match app
+            .set_route(r.agent_type(), r.agent_id_option(), conn_id)
             .await
         {
             Ok(_) => {}
@@ -379,12 +369,12 @@ async fn main() {
 
     // create fire and forget session
     // create a fire and forget session
-    let res = svc
+    let res = app
         .create_session(
-            &agent_name,
             slim_service::session::SessionConfig::FireAndForget(
                 slim_service::FireAndForgetConfiguration::default(),
             ),
+            None,
         )
         .await;
     if res.is_err() {
@@ -484,14 +474,8 @@ async fn main() {
 
         // for the moment we send the message in anycast
         // we need to test also the match_all function
-        if svc
-            .publish(
-                &agent_name,
-                session_info.clone(),
-                p.1.agent_type(),
-                name_id,
-                payload,
-            )
+        if app
+            .publish(session_info.clone(), p.1.agent_type(), name_id, payload)
             .await
             .is_err()
         {

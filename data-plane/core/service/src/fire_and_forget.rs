@@ -6,6 +6,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use rand::Rng;
+use slim_auth::traits::{TokenProvider, Verifier};
 use slim_datapath::api::{SessionHeader, SlimHeader};
 use slim_datapath::messages::AgentType;
 use tokio::sync::mpsc::{self, Receiver, Sender};
@@ -14,8 +15,9 @@ use tracing::{debug, error};
 
 use crate::errors::SessionError;
 use crate::session::{
-    AppChannelSender, Common, CommonSession, Id, MessageDirection, Session, SessionConfig,
-    SessionConfigTrait, SessionDirection, SessionMessage, SlimChannelSender, State,
+    AppChannelSender, Common, CommonSession, Id, MessageDirection, MessageHandler, SessionConfig,
+    SessionConfigTrait, SessionDirection, SessionInterceptor, SessionMessage, SlimChannelSender,
+    State,
 };
 use crate::timer;
 use slim_datapath::api::proto::pubsub::v1::{Message, SessionHeaderType};
@@ -587,22 +589,32 @@ impl FireAndForgetProcessor {
 }
 
 /// The interface for the Fire and Forget session
-pub(crate) struct FireAndForget {
-    common: Common,
+pub(crate) struct FireAndForget<P, V>
+where
+    P: TokenProvider + Send + Sync + Clone + 'static,
+    V: Verifier + Send + Sync + Clone + 'static,
+{
+    common: Common<P, V>,
     tx: Sender<InternalMessage>,
     cancellation_token: CancellationToken,
 }
 
-impl FireAndForget {
+impl<P, V> FireAndForget<P, V>
+where
+    P: TokenProvider + Send + Sync + Clone + 'static,
+    V: Verifier + Send + Sync + Clone + 'static,
+{
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn new(
         id: Id,
         session_config: FireAndForgetConfiguration,
         session_direction: SessionDirection,
         agent: Agent,
-        identity: Option<String>,
         tx_slim: SlimChannelSender,
         tx_app: AppChannelSender,
-    ) -> FireAndForget {
+        identity_provider: P,
+        identity_verifier: V,
+    ) -> Self {
         let (tx, rx) = mpsc::channel(32);
 
         // Common session stuff
@@ -611,9 +623,10 @@ impl FireAndForget {
             session_direction,
             SessionConfig::FireAndForget(session_config.clone()),
             agent,
-            identity,
             tx_slim,
             tx_app,
+            identity_provider,
+            identity_verifier,
         );
 
         // FireAndForget internal state
@@ -648,7 +661,11 @@ impl FireAndForget {
     }
 }
 
-impl CommonSession for FireAndForget {
+impl<P, V> CommonSession<P, V> for FireAndForget<P, V>
+where
+    P: TokenProvider + Send + Sync + Clone + 'static,
+    V: Verifier + Send + Sync + Clone + 'static,
+{
     fn id(&self) -> Id {
         // concat the token stream
         self.common.id()
@@ -690,20 +707,38 @@ impl CommonSession for FireAndForget {
         self.common.source()
     }
 
-    fn identity(&self) -> &Option<String> {
-        self.common.identity()
+    fn identity_provider(&self) -> P {
+        self.common.identity_provider().clone()
     }
 
-    fn on_message_from_app_interceptors(&self, msg: &mut Message) {
-        self.common.on_message_from_app_interceptors(msg);
+    fn identity_verifier(&self) -> V {
+        self.common.identity_verifier().clone()
     }
 
-    fn on_message_from_slim_interceptors(&self, msg: &mut Message) {
-        self.common.on_message_from_slim_interceptors(msg);
+    fn on_message_from_app_interceptors(&self, msg: &mut Message) -> Result<(), SessionError> {
+        self.common.on_message_from_app_interceptors(msg)
+    }
+
+    fn on_message_from_slim_interceptors(&self, msg: &mut Message) -> Result<(), SessionError> {
+        self.common.on_message_from_slim_interceptors(msg)
     }
 }
 
-impl Drop for FireAndForget {
+impl<P, V> crate::session::Interceptor for FireAndForget<P, V>
+where
+    P: TokenProvider + Send + Sync + Clone + 'static,
+    V: Verifier + Send + Sync + Clone + 'static,
+{
+    fn add_interceptor(&self, interceptor: Box<dyn SessionInterceptor + Send + Sync + 'static>) {
+        self.common.add_interceptor(interceptor);
+    }
+}
+
+impl<P, V> Drop for FireAndForget<P, V>
+where
+    P: TokenProvider + Send + Sync + Clone + 'static,
+    V: Verifier + Send + Sync + Clone + 'static,
+{
     fn drop(&mut self) {
         // Signal the processor to stop
         self.cancellation_token.cancel();
@@ -711,7 +746,11 @@ impl Drop for FireAndForget {
 }
 
 #[async_trait]
-impl Session for FireAndForget {
+impl<P, V> MessageHandler for FireAndForget<P, V>
+where
+    P: TokenProvider + Send + Sync + Clone + 'static,
+    V: Verifier + Send + Sync + Clone + 'static,
+{
     async fn on_message(
         &self,
         message: SessionMessage,
@@ -726,6 +765,7 @@ impl Session for FireAndForget {
 
 #[cfg(test)]
 mod tests {
+    use slim_auth::simple::Simple;
     use std::time::Duration;
     use tracing_test::traced_test;
 
@@ -747,9 +787,10 @@ mod tests {
             FireAndForgetConfiguration::default(),
             SessionDirection::Bidirectional,
             source.clone(),
-            Some(source.to_string()),
             tx_slim,
             tx_app,
+            Simple::new("test_token_provider"),
+            Simple::new("test_verifier"),
         );
 
         assert_eq!(session.id(), 0);
@@ -772,9 +813,10 @@ mod tests {
             FireAndForgetConfiguration::default(),
             SessionDirection::Bidirectional,
             source.clone(),
-            Some(source.to_string()),
             tx_slim,
             tx_app,
+            Simple::new("token"),
+            Simple::new("token"),
         );
 
         let mut message = ProtoMessage::new_publish(
@@ -820,9 +862,10 @@ mod tests {
             FireAndForgetConfiguration::default(),
             SessionDirection::Bidirectional,
             source.clone(),
-            Some(source.to_string()),
             tx_slim,
             tx_app,
+            Simple::new("token"),
+            Simple::new("token"),
         );
 
         let mut message = ProtoMessage::new_publish(
@@ -884,9 +927,10 @@ mod tests {
             },
             SessionDirection::Bidirectional,
             source.clone(),
-            Some(source.to_string()),
             tx_slim,
             tx_app,
+            Simple::new("token"),
+            Simple::new("token"),
         );
 
         let mut message = ProtoMessage::new_publish(
@@ -946,9 +990,10 @@ mod tests {
             },
             SessionDirection::Bidirectional,
             local.clone(),
-            Some(local.to_string()),
             tx_slim_sender,
             tx_app_sender,
+            Simple::new("token"),
+            Simple::new("token"),
         );
 
         // this can be a standard fnf session
@@ -957,9 +1002,10 @@ mod tests {
             FireAndForgetConfiguration::default(),
             SessionDirection::Bidirectional,
             remote.clone(),
-            Some(remote.to_string()),
             tx_slim_receiver,
             tx_app_receiver,
+            Simple::new("token"),
+            Simple::new("token"),
         );
 
         let mut message = ProtoMessage::new_publish(
@@ -1052,9 +1098,10 @@ mod tests {
                 FireAndForgetConfiguration::default(),
                 SessionDirection::Bidirectional,
                 source.clone(),
-                Some(source.to_string()),
                 tx_slim,
                 tx_app,
+                Simple::new("token"),
+                Simple::new("token"),
             );
         }
 
@@ -1087,9 +1134,10 @@ mod tests {
             },
             SessionDirection::Bidirectional,
             local.clone(),
-            Some(local.to_string()),
             sender_tx_slim,
             sender_tx_app,
+            Simple::new("token"),
+            Simple::new("token"),
         );
 
         let receiver_session = FireAndForget::new(
@@ -1097,9 +1145,10 @@ mod tests {
             FireAndForgetConfiguration::default(),
             SessionDirection::Bidirectional,
             remote.clone(),
-            Some(remote.to_string()),
             receiver_tx_slim,
             receiver_tx_app,
+            Simple::new("token"),
+            Simple::new("token"),
         );
 
         // Create a message to send

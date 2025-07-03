@@ -2,14 +2,14 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use async_trait::async_trait;
-use parking_lot::RwLock;
-use slim_datapath::messages::utils::SLIM_IDENTITY;
+use parking_lot::{RwLock, RwLockReadGuard};
+use slim_auth::traits::{TokenProvider, Verifier};
 use tonic::Status;
 
 use crate::errors::SessionError;
-use crate::fire_and_forget::FireAndForgetConfiguration;
-use crate::request_response::RequestResponseConfiguration;
-use crate::streaming::StreamingConfiguration;
+use crate::fire_and_forget::{FireAndForget, FireAndForgetConfiguration};
+use crate::request_response::{RequestResponse, RequestResponseConfiguration};
+use crate::streaming::{Streaming, StreamingConfiguration};
 use slim_datapath::api::proto::pubsub::v1::{Message, SessionHeaderType};
 use slim_datapath::messages::encoder::Agent;
 
@@ -19,6 +19,20 @@ pub type Id = u32;
 /// Reserved session id
 pub const SESSION_RANGE: std::ops::Range<u32> = 0..(u32::MAX - 1000);
 pub const SESSION_UNSPECIFIED: u32 = u32::MAX;
+
+/// The session
+pub(crate) enum Session<P, V>
+where
+    P: TokenProvider + Send + Sync + Clone + 'static,
+    V: Verifier + Send + Sync + Clone + 'static,
+{
+    /// Fire and forget session
+    FireAndForget(FireAndForget<P, V>),
+    /// Request response session
+    RequestResponse(RequestResponse<P, V>),
+    /// Streaming session
+    Streaming(Streaming<P, V>),
+}
 
 /// Message wrapper
 #[derive(Clone, PartialEq, Debug)]
@@ -211,8 +225,12 @@ impl std::fmt::Display for SessionConfig {
     }
 }
 
-pub(crate) trait CommonSession {
-    // Session ID
+pub(crate) trait CommonSession<P, V>: Interceptor
+where
+    P: TokenProvider + Send + Sync + Clone + 'static,
+    V: Verifier + Send + Sync + Clone + 'static,
+{
+    /// Session ID
     #[allow(dead_code)]
     fn id(&self) -> Id;
 
@@ -220,10 +238,16 @@ pub(crate) trait CommonSession {
     #[allow(dead_code)]
     fn state(&self) -> &State;
 
-    fn source(&self) -> &Agent;
-
+    /// Get the token provider
     #[allow(dead_code)]
-    fn identity(&self) -> &Option<String>;
+    fn identity_provider(&self) -> P;
+
+    /// Get the verifier
+    #[allow(dead_code)]
+    fn identity_verifier(&self) -> V;
+
+    /// Get the source name
+    fn source(&self) -> &Agent;
 
     // get the session config
     fn session_config(&self) -> SessionConfig;
@@ -231,34 +255,26 @@ pub(crate) trait CommonSession {
     // set the session config
     fn set_session_config(&self, session_config: &SessionConfig) -> Result<(), SessionError>;
 
-    fn on_message_from_app_interceptors(&self, msg: &mut Message);
+    /// Intercept message from app
+    fn on_message_from_app_interceptors(&self, msg: &mut Message) -> Result<(), SessionError>;
 
-    fn on_message_from_slim_interceptors(&self, msg: &mut Message);
+    /// Intercept message from slim
+    fn on_message_from_slim_interceptors(&self, msg: &mut Message) -> Result<(), SessionError>;
 }
 
-pub(crate) trait SessionInterceptor {
+pub(crate) trait Interceptor {
+    fn add_interceptor(&self, interceptor: Box<dyn SessionInterceptor + Send + Sync + 'static>);
+}
+
+pub trait SessionInterceptor {
     // interceptor to be executed when a message is received from the app
-    fn on_msg_from_app(&self, msg: &mut Message);
+    fn on_msg_from_app(&self, msg: &mut Message) -> Result<(), SessionError>;
     // interceptor to be executed when a message is received from slim
-    fn on_msg_from_slim(&self, msg: &mut Message);
-}
-
-struct IdentitySessionInterceptor {
-    identity: Option<String>,
-}
-
-impl SessionInterceptor for IdentitySessionInterceptor {
-    fn on_msg_from_app(&self, msg: &mut Message) {
-        if let Some(i) = &self.identity {
-            msg.insert_metadata(SLIM_IDENTITY.to_owned(), i.to_string())
-        }
-    }
-
-    fn on_msg_from_slim(&self, _msg: &mut Message) {}
+    fn on_msg_from_slim(&self, msg: &mut Message) -> Result<(), SessionError>;
 }
 
 #[async_trait]
-pub(crate) trait Session: CommonSession {
+pub(crate) trait MessageHandler {
     // publish a message as part of the session
     async fn on_message(
         &self,
@@ -268,7 +284,11 @@ pub(crate) trait Session: CommonSession {
 }
 
 /// Common session data
-pub(crate) struct Common {
+pub(crate) struct Common<P, V>
+where
+    P: TokenProvider + Send + Sync + Clone + 'static,
+    V: Verifier + Send + Sync + Clone + 'static,
+{
     /// Session ID - unique identifier for the session
     #[allow(dead_code)]
     id: Id,
@@ -276,6 +296,14 @@ pub(crate) struct Common {
     /// Session state
     #[allow(dead_code)]
     state: State,
+
+    /// Token provider for authentication
+    #[allow(dead_code)]
+    identity_provider: P,
+
+    /// Verifier for authentication
+    #[allow(dead_code)]
+    identity_verifier: V,
 
     /// Session type
     session_config: RwLock<SessionConfig>,
@@ -287,10 +315,6 @@ pub(crate) struct Common {
     /// Source agent
     source: Agent,
 
-    /// Identity
-    #[allow(dead_code)]
-    identity: Option<String>,
-
     /// Sender for messages to slim
     tx_slim: SlimChannelSender,
 
@@ -298,10 +322,125 @@ pub(crate) struct Common {
     tx_app: AppChannelSender,
 
     // Interceptors to be called on message reception/send
-    interceptors: Vec<Box<dyn SessionInterceptor + Send + Sync>>,
+    interceptors: RwLock<Vec<Box<dyn SessionInterceptor + Send + Sync>>>,
 }
 
-impl CommonSession for Common {
+#[async_trait]
+impl<P, V> MessageHandler for Session<P, V>
+where
+    P: TokenProvider + Send + Sync + Clone + 'static,
+    V: Verifier + Send + Sync + Clone + 'static,
+{
+    async fn on_message(
+        &self,
+        message: SessionMessage,
+        direction: MessageDirection,
+    ) -> Result<(), SessionError> {
+        match self {
+            Session::FireAndForget(session) => session.on_message(message, direction).await,
+            Session::RequestResponse(session) => session.on_message(message, direction).await,
+            Session::Streaming(session) => session.on_message(message, direction).await,
+        }
+    }
+}
+
+impl<P, V> Interceptor for Session<P, V>
+where
+    P: TokenProvider + Send + Sync + Clone + 'static,
+    V: Verifier + Send + Sync + Clone + 'static,
+{
+    fn add_interceptor(&self, interceptor: Box<dyn SessionInterceptor + Send + Sync + 'static>) {
+        match self {
+            Session::FireAndForget(session) => session.add_interceptor(interceptor),
+            Session::RequestResponse(session) => session.add_interceptor(interceptor),
+            Session::Streaming(session) => session.add_interceptor(interceptor),
+        }
+    }
+}
+
+impl<P, V> CommonSession<P, V> for Session<P, V>
+where
+    P: TokenProvider + Send + Sync + Clone + 'static,
+    V: Verifier + Send + Sync + Clone + 'static,
+{
+    fn id(&self) -> Id {
+        match self {
+            Session::FireAndForget(session) => session.id(),
+            Session::RequestResponse(session) => session.id(),
+            Session::Streaming(session) => session.id(),
+        }
+    }
+
+    fn state(&self) -> &State {
+        match self {
+            Session::FireAndForget(session) => session.state(),
+            Session::RequestResponse(session) => session.state(),
+            Session::Streaming(session) => session.state(),
+        }
+    }
+
+    fn identity_provider(&self) -> P {
+        match self {
+            Session::FireAndForget(session) => session.identity_provider(),
+            Session::RequestResponse(session) => session.identity_provider(),
+            Session::Streaming(session) => session.identity_provider(),
+        }
+    }
+
+    fn identity_verifier(&self) -> V {
+        match self {
+            Session::FireAndForget(session) => session.identity_verifier(),
+            Session::RequestResponse(session) => session.identity_verifier(),
+            Session::Streaming(session) => session.identity_verifier(),
+        }
+    }
+
+    fn source(&self) -> &Agent {
+        match self {
+            Session::FireAndForget(session) => session.source(),
+            Session::RequestResponse(session) => session.source(),
+            Session::Streaming(session) => session.source(),
+        }
+    }
+
+    fn session_config(&self) -> SessionConfig {
+        match self {
+            Session::FireAndForget(session) => session.session_config(),
+            Session::RequestResponse(session) => session.session_config(),
+            Session::Streaming(session) => session.session_config(),
+        }
+    }
+
+    fn set_session_config(&self, session_config: &SessionConfig) -> Result<(), SessionError> {
+        match self {
+            Session::FireAndForget(session) => session.set_session_config(session_config),
+            Session::RequestResponse(session) => session.set_session_config(session_config),
+            Session::Streaming(session) => session.set_session_config(session_config),
+        }
+    }
+
+    fn on_message_from_app_interceptors(&self, msg: &mut Message) -> Result<(), SessionError> {
+        match self {
+            Session::FireAndForget(session) => session.on_message_from_app_interceptors(msg),
+            Session::RequestResponse(session) => session.on_message_from_app_interceptors(msg),
+            Session::Streaming(session) => session.on_message_from_app_interceptors(msg),
+        }
+    }
+
+    fn on_message_from_slim_interceptors(&self, msg: &mut Message) -> Result<(), SessionError> {
+        match self {
+            Session::FireAndForget(session) => session.on_message_from_slim_interceptors(msg),
+            Session::RequestResponse(session) => session.on_message_from_slim_interceptors(msg),
+            Session::Streaming(session) => session.on_message_from_slim_interceptors(msg),
+        }
+    }
+}
+
+impl<P, V> CommonSession<P, V> for Common<P, V>
+where
+    P: TokenProvider + Send + Sync + Clone + 'static,
+    V: Verifier + Send + Sync + Clone + 'static,
+{
     fn id(&self) -> Id {
         self.id
     }
@@ -314,12 +453,16 @@ impl CommonSession for Common {
         &self.source
     }
 
-    fn identity(&self) -> &Option<String> {
-        &self.identity
-    }
-
     fn session_config(&self) -> SessionConfig {
         self.session_config.read().clone()
+    }
+
+    fn identity_provider(&self) -> P {
+        self.identity_provider.clone()
+    }
+
+    fn identity_verifier(&self) -> V {
+        self.identity_verifier.clone()
     }
 
     fn set_session_config(&self, session_config: &SessionConfig) -> Result<(), SessionError> {
@@ -339,49 +482,60 @@ impl CommonSession for Common {
         Ok(())
     }
 
-    fn on_message_from_app_interceptors(&self, msg: &mut Message) {
-        for i in &self.interceptors {
-            i.on_msg_from_app(msg);
+    fn on_message_from_app_interceptors(&self, msg: &mut Message) -> Result<(), SessionError> {
+        let interceptors = RwLockReadGuard::map(self.interceptors.read(), |x| x);
+        for i in interceptors.iter() {
+            i.on_msg_from_app(msg)?;
         }
+        Ok(())
     }
 
-    fn on_message_from_slim_interceptors(&self, msg: &mut Message) {
-        for i in &self.interceptors {
-            i.on_msg_from_slim(msg);
+    fn on_message_from_slim_interceptors(&self, msg: &mut Message) -> Result<(), SessionError> {
+        let interceptors = RwLockReadGuard::map(self.interceptors.read(), |x| x);
+        for i in interceptors.iter() {
+            i.on_msg_from_slim(msg)?;
         }
+        Ok(())
     }
 }
 
-impl Common {
-    #[allow(dead_code)]
-    fn add_interceptor<I: SessionInterceptor + Send + Sync + 'static>(&mut self, interceptor: I) {
-        self.interceptors.push(Box::new(interceptor));
+impl<P, V> Interceptor for Common<P, V>
+where
+    P: TokenProvider + Send + Sync + Clone + 'static,
+    V: Verifier + Send + Sync + Clone + 'static,
+{
+    fn add_interceptor(&self, interceptor: Box<dyn SessionInterceptor + Send + Sync + 'static>) {
+        self.interceptors.write().push(interceptor);
     }
 }
 
-impl Common {
+impl<P, V> Common<P, V>
+where
+    P: TokenProvider + Send + Sync + Clone + 'static,
+    V: Verifier + Send + Sync + Clone + 'static,
+{
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn new(
         id: Id,
         session_direction: SessionDirection,
         session_config: SessionConfig,
         source: Agent,
-        identity: Option<String>,
         tx_slim: SlimChannelSender,
         tx_app: AppChannelSender,
-    ) -> Common {
-        let interceptor = IdentitySessionInterceptor {
-            identity: identity.clone(),
-        };
-        Common {
+        identity_provider: P,
+        verifier: V,
+    ) -> Self {
+        Self {
             id,
             state: State::Active,
+            identity_provider,
+            identity_verifier: verifier,
             session_direction,
             session_config: RwLock::new(session_config),
             source,
-            identity,
             tx_slim,
             tx_app,
-            interceptors: vec![Box::new(interceptor)],
+            interceptors: RwLock::new(vec![]),
         }
     }
 
@@ -402,44 +556,4 @@ impl Common {
     pub(crate) fn tx_app_ref(&self) -> &AppChannelSender {
         &self.tx_app
     }
-}
-
-// Define a macro to delegate trait implementation
-macro_rules! delegate_common_behavior {
-    ($parent:ident, $($tokens:ident),+) => {
-        impl CommonSession for $parent {
-            fn id(&self) -> Id {
-                // concat the token stream
-                self.$($tokens).+.id()
-            }
-
-            fn state(&self) -> &State {
-                self.$($tokens).+.state()
-            }
-
-            fn session_config(&self) -> SessionConfig {
-                self.$($tokens).+.session_config()
-            }
-
-            fn set_session_config(&self, session_config: &SessionConfig) -> Result<(), SessionError> {
-                self.$($tokens).+.set_session_config(session_config)
-            }
-
-            fn source(&self) -> &Agent {
-                self.$($tokens).+.source()
-            }
-
-            fn identity(&self) -> &Option<String> {
-                self.$($tokens).+.identity()
-            }
-
-            fn on_message_from_app_interceptors(&self, msg: &mut slim_datapath::api::proto::pubsub::v1::Message) {
-                self.$($tokens).+.on_message_from_app_interceptors(msg)
-            }
-
-            fn on_message_from_slim_interceptors(&self, msg: &mut slim_datapath::api::proto::pubsub::v1::Message) {
-                self.$($tokens).+.on_message_from_slim_interceptors(msg)
-            }
-        }
-    };
 }

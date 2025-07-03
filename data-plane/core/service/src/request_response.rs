@@ -6,15 +6,19 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use parking_lot::RwLock;
+use slim_auth::traits::{TokenProvider, Verifier};
 use tracing::debug;
 
 use crate::errors::SessionError;
-use crate::session::{AppChannelSender, SessionConfig, SlimChannelSender};
 use crate::session::{
-    Common, CommonSession, Id, MessageDirection, Session, SessionConfigTrait, SessionDirection,
-    State,
+    AppChannelSender, Interceptor, MessageHandler, SessionConfig, SessionInterceptor,
+    SlimChannelSender,
+};
+use crate::session::{
+    Common, CommonSession, Id, MessageDirection, SessionConfigTrait, SessionDirection, State,
 };
 use crate::{SessionMessage, timer};
+use slim_datapath::api::proto::pubsub::v1::Message;
 use slim_datapath::api::proto::pubsub::v1::SessionHeaderType;
 use slim_datapath::messages::encoder::Agent;
 
@@ -59,13 +63,21 @@ impl std::fmt::Display for RequestResponseConfiguration {
 }
 
 /// Internal state of the Request Response session
-struct RequestResponseInternal {
-    common: Common,
+struct RequestResponseInternal<P, V>
+where
+    P: TokenProvider + Send + Sync + Clone + 'static,
+    V: Verifier + Send + Sync + Clone + 'static,
+{
+    common: Common<P, V>,
     timers: RwLock<HashMap<u32, (timer::Timer, SessionMessage)>>,
 }
 
 #[async_trait]
-impl timer::TimerObserver for RequestResponseInternal {
+impl<P, V> timer::TimerObserver for RequestResponseInternal<P, V>
+where
+    P: TokenProvider + Send + Sync + Clone + 'static,
+    V: Verifier + Send + Sync + Clone + 'static,
+{
     async fn on_timeout(&self, _message_id: u32, _timeouts: u32) {
         panic!("this should never happen");
     }
@@ -98,29 +110,40 @@ impl timer::TimerObserver for RequestResponseInternal {
 }
 
 /// Request Response session
-pub(crate) struct RequestResponse {
-    internal: Arc<RequestResponseInternal>,
+pub(crate) struct RequestResponse<P, V>
+where
+    P: TokenProvider + Send + Sync + Clone + 'static,
+    V: Verifier + Send + Sync + Clone + 'static,
+{
+    internal: Arc<RequestResponseInternal<P, V>>,
 }
 
-impl RequestResponse {
+impl<P, V> RequestResponse<P, V>
+where
+    P: TokenProvider + Send + Sync + Clone + 'static,
+    V: Verifier + Send + Sync + Clone + 'static,
+{
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn new(
         id: Id,
         session_config: RequestResponseConfiguration,
         session_direction: SessionDirection,
         source: Agent,
-        identity: Option<String>,
         tx_slim: SlimChannelSender,
         tx_app: AppChannelSender,
-    ) -> RequestResponse {
+        identity_provider: P,
+        identity_verifier: V,
+    ) -> Self {
         let internal = RequestResponseInternal {
             common: Common::new(
                 id,
                 session_direction,
                 SessionConfig::RequestResponse(session_config),
                 source,
-                identity,
                 tx_slim,
                 tx_app,
+                identity_provider,
+                identity_verifier,
             ),
             timers: RwLock::new(HashMap::new()),
         };
@@ -181,8 +204,65 @@ impl RequestResponse {
     }
 }
 
+impl<P, V> Interceptor for RequestResponse<P, V>
+where
+    P: TokenProvider + Send + Sync + Clone + 'static,
+    V: Verifier + Send + Sync + Clone + 'static,
+{
+    fn add_interceptor(&self, interceptor: Box<dyn SessionInterceptor + Send + Sync + 'static>) {
+        self.internal.common.add_interceptor(interceptor);
+    }
+}
+
+impl<P, V> CommonSession<P, V> for RequestResponse<P, V>
+where
+    P: TokenProvider + Send + Sync + Clone + 'static,
+    V: Verifier + Send + Sync + Clone + 'static,
+{
+    fn id(&self) -> Id {
+        // concat the token stream
+        self.internal.common.id()
+    }
+
+    fn state(&self) -> &State {
+        self.internal.common.state()
+    }
+
+    fn session_config(&self) -> SessionConfig {
+        self.internal.common.session_config()
+    }
+
+    fn set_session_config(&self, session_config: &SessionConfig) -> Result<(), SessionError> {
+        self.internal.common.set_session_config(session_config)
+    }
+
+    fn source(&self) -> &Agent {
+        self.internal.common.source()
+    }
+
+    fn identity_provider(&self) -> P {
+        self.internal.common.identity_provider().clone()
+    }
+
+    fn identity_verifier(&self) -> V {
+        self.internal.common.identity_verifier().clone()
+    }
+
+    fn on_message_from_app_interceptors(&self, msg: &mut Message) -> Result<(), SessionError> {
+        self.internal.common.on_message_from_app_interceptors(msg)
+    }
+
+    fn on_message_from_slim_interceptors(&self, msg: &mut Message) -> Result<(), SessionError> {
+        self.internal.common.on_message_from_slim_interceptors(msg)
+    }
+}
+
 #[async_trait]
-impl Session for RequestResponse {
+impl<P, V> MessageHandler for RequestResponse<P, V>
+where
+    P: TokenProvider + Send + Sync + Clone + 'static,
+    V: Verifier + Send + Sync + Clone + 'static,
+{
     async fn on_message(
         &self,
         mut message: SessionMessage,
@@ -273,11 +353,10 @@ impl Session for RequestResponse {
     }
 }
 
-delegate_common_behavior!(RequestResponse, internal, common);
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use slim_auth::simple::Simple;
     use slim_datapath::{
         api::{ProtoMessage, ProtoPublish},
         messages::{Agent, AgentType},
@@ -299,9 +378,10 @@ mod tests {
             session_config.clone(),
             SessionDirection::Bidirectional,
             source.clone(),
-            Some(source.to_string()),
             tx_slim,
             tx_app,
+            Simple::new("token"),
+            Simple::new("token"),
         );
 
         assert_eq!(session.id(), 0);
@@ -328,9 +408,10 @@ mod tests {
             session_config,
             SessionDirection::Bidirectional,
             source.clone(),
-            Some(source.to_string()),
             tx_slim,
             tx_app,
+            Simple::new("token"),
+            Simple::new("token"),
         );
 
         let payload = vec![0x1, 0x2, 0x3, 0x4];
@@ -402,9 +483,10 @@ mod tests {
                 session_config,
                 SessionDirection::Bidirectional,
                 source.clone(),
-                Some(source.to_string()),
                 tx_slim,
                 tx_app,
+                Simple::new("token"),
+                Simple::new("token"),
             );
         }
     }
