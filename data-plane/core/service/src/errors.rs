@@ -91,4 +91,6 @@ pub enum SessionError {
     InterceptorError(String),
     #[error("identity error: {0}")]
     IdentityError(String),
+    #[error("MLS error: {0}")]
+    MlsError(String),
 }
