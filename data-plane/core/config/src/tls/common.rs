@@ -7,6 +7,7 @@ use rustls::crypto::CryptoProvider;
 use rustls::server::VerifierBuilderError;
 use rustls::sign::CertifiedKey;
 use rustls_native_certs;
+use rustls_pki_types::pem::PemObject;
 use rustls_pki_types::{CertificateDer, PrivateKeyDer};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
