@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use schemars::JsonSchema;
+use serde::Serialize;
 use serde::de::{self, Deserialize, Deserializer, Visitor};
-use serde::{ Serialize };
 use std::fmt;
 use std::ops;
 

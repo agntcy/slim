@@ -1,12 +1,12 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
+use crate::api::proto::pubsub::v1::Message;
+use slim_config::grpc::client::ClientConfig;
 use std::net::SocketAddr;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 use tonic::Status;
-use slim_config::grpc::client::ClientConfig;
-use crate::api::proto::pubsub::v1::Message;
 
 #[derive(Debug, Clone, Default)]
 pub(crate) enum Channel {

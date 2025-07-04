@@ -51,7 +51,7 @@ impl ControllerService {
             connections: Arc::new(parking_lot::RwLock::new(HashMap::new())),
         }
     }
-    
+
     async fn handle_new_control_message(
         &self,
         msg: ControlMessage,

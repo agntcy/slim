@@ -23,7 +23,7 @@ use crate::resolver::KeyResolver;
 use crate::traits::{Signer, StandardClaims, TokenProvider, Verifier};
 
 /// Enum representing key data types
-#[derive(Debug, Serialize,Deserialize, Clone, PartialEq)]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 #[serde(rename_all = "lowercase")]
 pub enum KeyData {
     /// PEM encoded key

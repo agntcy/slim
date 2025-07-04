@@ -13,8 +13,10 @@ agntcy-slim-config = { workspace = true }
 agntcy-slim-datapath = { workspace = true }
 bytes = { workspace = true }
 h2 = { workspace = true }
+jsonschema = { workspace = true }
 parking_lot = { workspace = true }
 prost = { workspace = true }
+serde_json = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 tokio-stream = { workspace = true }
@@ -22,8 +24,6 @@ tokio-util = { workspace = true }
 tonic = { workspace = true }
 tracing = { workspace = true }
 uuid = { workspace = true, features = ["v4"] }
-serde_json = { workspace = true }
-jsonschema = { workspace = true }
 
 [build-dependencies]
 protoc-bin-vendored = { workspace = true }

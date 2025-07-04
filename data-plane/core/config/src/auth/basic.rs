@@ -9,7 +9,7 @@ use tower_http::validate_request::ValidateRequestHeaderLayer;
 use super::{AuthError, ClientAuthenticator, ServerAuthenticator};
 use crate::opaque::OpaqueString;
 
-#[derive(Debug, Serialize,Deserialize, Clone, PartialEq, JsonSchema)]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, JsonSchema)]
 pub struct Config {
     /// The target the client will connect to.
     username: String,

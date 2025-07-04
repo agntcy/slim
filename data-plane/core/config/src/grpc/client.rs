@@ -83,7 +83,7 @@ fn default_keep_alive_while_idle() -> bool {
 }
 
 /// Enum holding one configuration for the client.
-#[derive(Debug, Serialize,Default, Deserialize, Clone, PartialEq, JsonSchema)]
+#[derive(Debug, Serialize, Default, Deserialize, Clone, PartialEq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum AuthenticationConfig {
     /// Basic authentication configuration.

@@ -8,6 +8,10 @@ description = "Configuration utilities"
 [lib]
 name = "slim_config"
 
+[[bin]]
+name = "generate-schema"
+path = "src/grpc/schema/generate_schema.rs"
+
 [dependencies]
 agntcy-slim-auth.workspace = true
 duration-str = { workspace = true }
@@ -44,7 +48,3 @@ tonic-build = { workspace = true }
 [dev-dependencies]
 serde_json = { workspace = true }
 tracing-test = { workspace = true }
-
-[[bin]]
-name = "generate-schema"
-path = "src/grpc/schema/generate_schema.rs"
