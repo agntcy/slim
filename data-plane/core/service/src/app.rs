@@ -4,17 +4,15 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use drain::Watch;
 use parking_lot::RwLock as SyncRwLock;
 use rand::Rng;
-use slim_auth::simple::Simple;
 use slim_auth::traits::{TokenProvider, Verifier};
 use slim_datapath::api::{MessageType, SessionHeader, SlimHeader};
-use slim_datapath::message_processing::MessageProcessor;
 use slim_datapath::messages::AgentType;
 use slim_datapath::messages::utils::SlimHeaderFlags;
 use tokio::sync::RwLock as AsyncRwLock;
 use tokio::sync::mpsc;
+use tokio::sync::mpsc::error::SendError;
 use tracing::{debug, error, warn};
 
 use crate::errors::SessionError;
@@ -23,8 +21,8 @@ use crate::interceptor::{IdentityInterceptor, SessionInterceptor, SessionInterce
 use crate::request_response::{RequestResponse, RequestResponseConfiguration};
 use crate::session::{
     AppChannelSender, CommonSession, Id, Info, MessageDirection, MessageHandler, SESSION_RANGE,
-    Session, SessionConfig, SessionConfigTrait, SessionDirection, SessionMessage, SessionType,
-    SlimChannelSender,
+    Session, SessionConfig, SessionConfigTrait, SessionDirection, SessionMessage,
+    SessionTransmitter, SessionType, SlimChannelSender,
 };
 use crate::streaming::{self, StreamingConfiguration};
 use crate::{ServiceError, fire_and_forget, session};
@@ -33,20 +31,87 @@ use slim_datapath::api::proto::pubsub::v1::Message;
 use slim_datapath::api::proto::pubsub::v1::SessionHeaderType;
 use slim_datapath::messages::encoder::Agent;
 
+/// Transmitter used to intercept messages sent from sessions and apply interceptors on them
+#[derive(Clone)]
+struct Transmitter {
+    /// SLIM tx
+    slim_tx: SlimChannelSender,
+
+    /// Application tx
+    app_tx: AppChannelSender,
+
+    // Interceptors to be called on message reception/send
+    interceptors: Arc<SyncRwLock<Vec<Arc<dyn SessionInterceptor + Send + Sync>>>>,
+}
+
+impl SessionInterceptorProvider for Transmitter {
+    fn add_interceptor(&self, interceptor: Arc<dyn SessionInterceptor + Send + Sync + 'static>) {
+        self.interceptors.write().push(interceptor);
+    }
+
+    fn get_interceptors(&self) -> Vec<Arc<dyn SessionInterceptor + Send + Sync + 'static>> {
+        self.interceptors.read().clone()
+    }
+}
+
+impl SessionTransmitter for Transmitter {
+    fn send_to_app(
+        &self,
+        message: Result<SessionMessage, SessionError>,
+    ) -> impl Future<Output = Result<(), SessionError>> + Send + 'static {
+        let tx = self.app_tx.clone();
+        async move {
+            tx.send(message)
+                .await
+                .map_err(|e: SendError<Result<SessionMessage, SessionError>>| {
+                    SessionError::AppTransmission(e.to_string())
+                })
+        }
+    }
+
+    fn send_to_slim(
+        &self,
+        mut message: Result<Message, Status>,
+    ) -> impl Future<Output = Result<(), SessionError>> + Send + 'static {
+        let tx = self.slim_tx.clone();
+
+        // Interceptors
+        let interceptors = match &message {
+            Ok(_) => self.interceptors.read().clone(),
+            Err(_) => Vec::new(),
+        };
+
+        async move {
+            if let Ok(msg) = message.as_mut() {
+                // Apply interceptors on the message
+                for interceptor in interceptors {
+                    if let Err(e) = interceptor.on_msg_from_app(msg).await {
+                        warn!("error applying interceptor on message: {}", e);
+                    }
+                }
+            }
+
+            tx.send(message)
+                .await
+                .map_err(|e: SendError<Result<Message, Status>>| {
+                    SessionError::SlimTransmission(e.to_string())
+                })
+        }
+    }
+}
+
 /// SessionLayer
-struct SessionLayer<P, V>
+struct SessionLayer<P, V, T>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
+    T: SessionTransmitter + Send + Sync + Clone + 'static,
 {
     /// Session pool
-    pool: AsyncRwLock<HashMap<Id, Session<P, V>>>,
+    pool: AsyncRwLock<HashMap<Id, Session<P, V, T>>>,
 
     /// Name of the local agent
     agent_name: Agent,
-
-    /// Reference to underlying message processor
-    message_processor: Option<Arc<MessageProcessor>>,
 
     /// Identity provider for the local agent
     identity_provider: P,
@@ -64,18 +129,25 @@ where
     tx_slim: SlimChannelSender,
     tx_app: AppChannelSender,
 
+    /// Transmitter for sessions
+    transmitter: T,
+
     /// Default configuration for the session
     default_ff_conf: SyncRwLock<FireAndForgetConfiguration>,
     default_rr_conf: SyncRwLock<RequestResponseConfiguration>,
     default_stream_conf: SyncRwLock<StreamingConfiguration>,
 }
 
-pub struct App<P = Simple, V = Simple>
+pub struct App<P, V>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
 {
-    session_layer: Arc<SessionLayer<P, V>>,
+    /// Session layer that manages sessions
+    session_layer: Arc<SessionLayer<P, V, Transmitter>>,
+
+    /// Cancelation token for the app receiver loop
+    cancel_token: tokio_util::sync::CancellationToken,
 }
 
 impl<P, V> std::fmt::Debug for App<P, V>
@@ -94,12 +166,8 @@ where
     V: Verifier + Send + Sync + Clone + 'static,
 {
     fn drop(&mut self) {
-        // if connected to a message processor, disconnect
-        if let Some(message_processor) = &self.session_layer.message_processor {
-            message_processor
-                .disconnect(self.session_layer.conn_id())
-                .expect("error disconnecting the local connection");
-        }
+        // cancel the app receiver loop
+        self.cancel_token.cancel();
     }
 }
 
@@ -111,7 +179,6 @@ where
     /// Create new App instance
     pub(crate) fn new(
         agent_name: &Agent,
-        message_processor: Option<Arc<MessageProcessor>>,
         identity_provider: P,
         identity_verifier: V,
         conn_id: u64,
@@ -129,23 +196,35 @@ where
             identity_verifier.clone(),
         ));
 
+        // Create the transmitter
+        let transmitter = Transmitter {
+            slim_tx: tx_slim.clone(),
+            app_tx: tx_app.clone(),
+            interceptors: Arc::new(SyncRwLock::new(Vec::new())),
+        };
+
         // Create the session layer
         let session_layer = Arc::new(SessionLayer {
             pool: AsyncRwLock::new(HashMap::new()),
             agent_name: agent_name.clone(),
-            message_processor,
             identity_provider,
             identity_verifier,
             identity_interceptor,
             conn_id,
             tx_slim,
             tx_app,
+            transmitter,
             default_ff_conf,
             default_rr_conf,
             default_stream_conf,
         });
 
-        Self { session_layer }
+        let cancel_token = tokio_util::sync::CancellationToken::new();
+
+        Self {
+            session_layer,
+            cancel_token,
+        }
     }
 
     pub async fn create_session(
@@ -419,13 +498,10 @@ where
     }
 
     /// SLIM receiver loop
-    pub(crate) fn process_messages(
-        &self,
-        mut rx: mpsc::Receiver<Result<Message, Status>>,
-        watch: Watch,
-    ) {
+    pub(crate) fn process_messages(&self, mut rx: mpsc::Receiver<Result<Message, Status>>) {
         let agent_name = self.session_layer.agent_name.clone();
         let session_layer = self.session_layer.clone();
+        let token_clone = self.cancel_token.clone();
 
         tokio::spawn(async move {
             debug!("starting message processing loop for agent {}", agent_name);
@@ -488,8 +564,8 @@ where
                             }
                         }
                     }
-                    _ = watch.clone().signaled() => {
-                        debug!("shutting down processing on drain for agent: {}", session_layer.agent_name());
+                    _ = token_clone.cancelled() => {
+                        debug!("message processing loop cancelled");
                         break;
                     }
                 }
@@ -498,10 +574,11 @@ where
     }
 }
 
-impl<P, V> SessionLayer<P, V>
+impl<P, V, T> SessionLayer<P, V, T>
 where
-    P: TokenProvider + Send + Sync + Clone,
-    V: Verifier + Send + Sync + Clone,
+    P: TokenProvider + Send + Sync + Clone + 'static,
+    V: Verifier + Send + Sync + Clone + 'static,
+    T: SessionTransmitter + Send + Sync + Clone + 'static,
 {
     pub(crate) fn tx_slim(&self) -> SlimChannelSender {
         self.tx_slim.clone()
@@ -557,6 +634,9 @@ where
             }
         };
 
+        // Create a new transmitter
+        let tx = self.transmitter.clone();
+
         // create a new session
         let session = match session_config {
             SessionConfig::FireAndForget(conf) => {
@@ -565,8 +645,7 @@ where
                     conf,
                     SessionDirection::Bidirectional,
                     self.agent_name().clone(),
-                    self.tx_slim(),
-                    self.tx_app(),
+                    tx,
                     self.identity_provider.clone(),
                     self.identity_verifier.clone(),
                 ))
@@ -576,8 +655,7 @@ where
                 conf,
                 SessionDirection::Bidirectional,
                 self.agent_name().clone(),
-                self.tx_slim(),
-                self.tx_app(),
+                tx,
                 self.identity_provider.clone(),
                 self.identity_verifier.clone(),
             )),
@@ -590,8 +668,7 @@ where
                     direction,
                     self.agent_name().clone(),
                     self.conn_id,
-                    self.tx_slim(),
-                    self.tx_app(),
+                    tx,
                     self.identity_provider.clone(),
                     self.identity_verifier.clone(),
                 ))
@@ -658,9 +735,6 @@ where
             let header = message.message.get_session_header_mut();
             header.session_id = message.info.id;
 
-            session
-                .on_message_from_app_interceptors(&mut message.message)
-                .await?;
             // pass the message to the session
             return session.on_message(message, direction).await;
         }
@@ -701,7 +775,8 @@ where
         if let Some(session) = self.pool.read().await.get(&id) {
             // pass the message to the session
             session
-                .on_message_from_slim_interceptors(&mut message.message)
+                .tx_ref()
+                .on_msg_from_slim_interceptors(&mut message.message)
                 .await?;
             return session.on_message(message, direction).await;
         }
@@ -765,7 +840,8 @@ where
         if let Some(session) = self.pool.read().await.get(&new_session_id.id) {
             // pass the message
             session
-                .on_message_from_slim_interceptors(&mut message.message)
+                .tx_ref()
+                .on_msg_from_slim_interceptors(&mut message.message)
                 .await?;
             return session.on_message(message, direction).await;
         }
@@ -867,19 +943,19 @@ mod tests {
     use super::*;
     use crate::fire_and_forget::FireAndForgetConfiguration;
 
+    use slim_auth::simple::Simple;
     use slim_datapath::{
         api::ProtoMessage,
         messages::{Agent, AgentType, utils::SLIM_IDENTITY},
     };
 
-    fn create_app() -> App {
+    fn create_app() -> App<Simple, Simple> {
         let (tx_slim, _) = tokio::sync::mpsc::channel(128);
         let (tx_app, _) = tokio::sync::mpsc::channel(128);
         let agent = Agent::from_strings("org", "ns", "type", 0);
 
         App::new(
             &agent,
-            None,
             Simple::new("a"),
             Simple::new("a"),
             0,
@@ -903,7 +979,6 @@ mod tests {
 
         let app = App::new(
             &agent,
-            None,
             Simple::new("a"),
             Simple::new("a"),
             0,
@@ -929,7 +1004,6 @@ mod tests {
 
         let session_layer = App::new(
             &agent,
-            None,
             Simple::new("a"),
             Simple::new("a"),
             0,
@@ -954,7 +1028,6 @@ mod tests {
 
         let session_layer = App::new(
             &agent,
-            None,
             Simple::new("a"),
             Simple::new("a"),
             0,
@@ -987,7 +1060,6 @@ mod tests {
 
         let app = App::new(
             &agent,
-            None,
             identity.clone(),
             identity.clone(),
             0,
@@ -1062,7 +1134,6 @@ mod tests {
 
         let app = App::new(
             &agent,
-            None,
             identity.clone(),
             identity.clone(),
             0,

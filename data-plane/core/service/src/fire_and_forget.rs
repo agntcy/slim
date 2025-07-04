@@ -14,10 +14,9 @@ use tokio_util::sync::CancellationToken;
 use tracing::{debug, error};
 
 use crate::errors::SessionError;
-use crate::interceptor::{SessionInterceptor, SessionInterceptorProvider};
 use crate::session::{
-    AppChannelSender, Common, CommonSession, Id, MessageDirection, MessageHandler, SessionConfig,
-    SessionConfigTrait, SessionDirection, SessionMessage, SlimChannelSender, State,
+    Common, CommonSession, Id, MessageDirection, MessageHandler, SessionConfig, SessionConfigTrait,
+    SessionDirection, SessionMessage, SessionTransmitter, State,
 };
 use crate::timer;
 use slim_datapath::api::proto::pubsub::v1::{Message, SessionHeaderType};
@@ -86,11 +85,13 @@ enum InternalMessage {
     },
 }
 
-struct FireAndForgetState {
+struct FireAndForgetState<T>
+where
+    T: SessionTransmitter + Send + Sync + Clone + 'static,
+{
     session_id: u32,
     source: Agent,
-    tx_app: AppChannelSender,
-    tx_slim: SlimChannelSender,
+    tx: T,
     config: FireAndForgetConfiguration,
     timers: HashMap<u32, (timer::Timer, Message)>,
     sticky_name: Option<Agent>,
@@ -104,8 +105,11 @@ struct RtxTimerObserver {
 }
 
 /// The internal part of the Fire and Forget session that handles message processing
-struct FireAndForgetProcessor {
-    state: FireAndForgetState,
+struct FireAndForgetProcessor<T>
+where
+    T: SessionTransmitter + Send + Sync + Clone + 'static,
+{
+    state: FireAndForgetState<T>,
     timer_observer: Arc<RtxTimerObserver>,
     rx: Receiver<InternalMessage>,
     cancellation_token: CancellationToken,
@@ -139,9 +143,12 @@ impl timer::TimerObserver for RtxTimerObserver {
     }
 }
 
-impl FireAndForgetProcessor {
+impl<T> FireAndForgetProcessor<T>
+where
+    T: SessionTransmitter + Send + Sync + Clone + 'static,
+{
     fn new(
-        state: FireAndForgetState,
+        state: FireAndForgetState<T>,
         tx: Sender<InternalMessage>,
         rx: Receiver<InternalMessage>,
         cancellation_token: CancellationToken,
@@ -219,8 +226,8 @@ impl FireAndForgetProcessor {
 
             let _ = self
                 .state
-                .tx_slim
-                .send(Ok(msg))
+                .tx
+                .send_to_slim(Ok(msg))
                 .await
                 .map_err(|e| SessionError::AppTransmission(e.to_string()));
         }
@@ -231,8 +238,8 @@ impl FireAndForgetProcessor {
         if let Some((_timer, message)) = self.state.timers.remove(&message_id) {
             let _ = self
                 .state
-                .tx_app
-                .send(Err(SessionError::Timeout {
+                .tx
+                .send_to_app(Err(SessionError::Timeout {
                     session_id: self.state.session_id,
                     message_id,
                     message: Box::new(SessionMessage::from(message)),
@@ -266,8 +273,8 @@ impl FireAndForgetProcessor {
 
         // Send the probe message to slim
         self.state
-            .tx_slim
-            .send(Ok(probe_message))
+            .tx
+            .send_to_slim(Ok(probe_message))
             .await
             .map_err(|e| SessionError::SlimTransmission(e.to_string()))
     }
@@ -413,8 +420,8 @@ impl FireAndForgetProcessor {
 
         // Send message
         self.state
-            .tx_slim
-            .send(Ok(message))
+            .tx
+            .send_to_slim(Ok(message))
             .await
             .map_err(|e| SessionError::SlimTransmission(e.to_string()))
     }
@@ -531,8 +538,8 @@ impl FireAndForgetProcessor {
 
                 // Send the ack
                 self.state
-                    .tx_slim
-                    .send(Ok(ack))
+                    .tx
+                    .send_to_slim(Ok(ack))
                     .await
                     .map_err(|e| SessionError::SlimTransmission(e.to_string()))?;
 
@@ -565,8 +572,8 @@ impl FireAndForgetProcessor {
     /// This is used by both the Fnf and FnfReliable message handlers.
     async fn send_message_to_app(&mut self, message: SessionMessage) -> Result<(), SessionError> {
         self.state
-            .tx_app
-            .send(Ok(message))
+            .tx
+            .send_to_app(Ok(message))
             .await
             .map_err(|e| SessionError::SlimTransmission(e.to_string()))
     }
@@ -589,20 +596,21 @@ impl FireAndForgetProcessor {
 }
 
 /// The interface for the Fire and Forget session
-pub(crate) struct FireAndForget<P, V>
+pub(crate) struct FireAndForget<P, V, T>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
+    T: SessionTransmitter + Send + Sync + Clone + 'static,
 {
-    common: Common<P, V>,
+    common: Common<P, V, T>,
     tx: Sender<InternalMessage>,
     cancellation_token: CancellationToken,
 }
-
-impl<P, V> FireAndForget<P, V>
+impl<P, V, T> FireAndForget<P, V, T>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
+    T: SessionTransmitter + Send + Sync + Clone + 'static,
 {
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn new(
@@ -610,8 +618,7 @@ where
         session_config: FireAndForgetConfiguration,
         session_direction: SessionDirection,
         agent: Agent,
-        tx_slim: SlimChannelSender,
-        tx_app: AppChannelSender,
+        tx_slim_app: T,
         identity_provider: P,
         identity_verifier: V,
     ) -> Self {
@@ -623,8 +630,7 @@ where
             session_direction,
             SessionConfig::FireAndForget(session_config.clone()),
             agent,
-            tx_slim,
-            tx_app,
+            tx_slim_app.clone(),
             identity_provider,
             identity_verifier,
         );
@@ -633,8 +639,7 @@ where
         let state = FireAndForgetState {
             session_id: id,
             source: common.source().clone(),
-            tx_app: common.tx_app(),
-            tx_slim: common.tx_slim(),
+            tx: tx_slim_app.clone(),
             config: session_config,
             timers: HashMap::new(),
             sticky_name: None,
@@ -662,10 +667,11 @@ where
 }
 
 #[async_trait]
-impl<P, V> CommonSession<P, V> for FireAndForget<P, V>
+impl<P, V, T> CommonSession<P, V, T> for FireAndForget<P, V, T>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
+    T: SessionTransmitter + Send + Sync + Clone + 'static,
 {
     fn id(&self) -> Id {
         // concat the token stream
@@ -716,35 +722,20 @@ where
         self.common.identity_verifier().clone()
     }
 
-    async fn on_message_from_app_interceptors(
-        &self,
-        msg: &mut Message,
-    ) -> Result<(), SessionError> {
-        self.common.on_message_from_app_interceptors(msg).await
+    fn tx(&self) -> T {
+        self.common.tx().clone()
     }
 
-    async fn on_message_from_slim_interceptors(
-        &self,
-        msg: &mut Message,
-    ) -> Result<(), SessionError> {
-        self.common.on_message_from_slim_interceptors(msg).await
+    fn tx_ref(&self) -> &T {
+        self.common.tx_ref()
     }
 }
 
-impl<P, V> SessionInterceptorProvider for FireAndForget<P, V>
+impl<P, V, T> Drop for FireAndForget<P, V, T>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
-{
-    fn add_interceptor(&self, interceptor: Arc<dyn SessionInterceptor + Send + Sync + 'static>) {
-        self.common.add_interceptor(interceptor);
-    }
-}
-
-impl<P, V> Drop for FireAndForget<P, V>
-where
-    P: TokenProvider + Send + Sync + Clone + 'static,
-    V: Verifier + Send + Sync + Clone + 'static,
+    T: SessionTransmitter + Send + Sync + Clone + 'static,
 {
     fn drop(&mut self) {
         // Signal the processor to stop
@@ -753,10 +744,11 @@ where
 }
 
 #[async_trait]
-impl<P, V> MessageHandler for FireAndForget<P, V>
+impl<P, V, T> MessageHandler for FireAndForget<P, V, T>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
+    T: SessionTransmitter + Send + Sync + Clone + 'static,
 {
     async fn on_message(
         &self,
@@ -777,6 +769,7 @@ mod tests {
     use tracing_test::traced_test;
 
     use super::*;
+    use crate::testutils::MockTransmitter;
     use slim_datapath::{
         api::ProtoMessage,
         messages::{Agent, AgentType},
@@ -787,6 +780,8 @@ mod tests {
         let (tx_slim, _) = tokio::sync::mpsc::channel(1);
         let (tx_app, _) = tokio::sync::mpsc::channel(1);
 
+        let tx = MockTransmitter { tx_app, tx_slim };
+
         let source = Agent::from_strings("cisco", "default", "local_agent", 0);
 
         let session = FireAndForget::new(
@@ -794,8 +789,7 @@ mod tests {
             FireAndForgetConfiguration::default(),
             SessionDirection::Bidirectional,
             source.clone(),
-            tx_slim,
-            tx_app,
+            tx,
             Simple::new("test_token_provider"),
             Simple::new("test_verifier"),
         );
@@ -813,6 +807,8 @@ mod tests {
         let (tx_slim, _rx_slim) = tokio::sync::mpsc::channel(1);
         let (tx_app, mut rx_app) = tokio::sync::mpsc::channel(1);
 
+        let tx = MockTransmitter { tx_app, tx_slim };
+
         let source = Agent::from_strings("cisco", "default", "local_agent", 0);
 
         let session = FireAndForget::new(
@@ -820,8 +816,7 @@ mod tests {
             FireAndForgetConfiguration::default(),
             SessionDirection::Bidirectional,
             source.clone(),
-            tx_slim,
-            tx_app,
+            tx,
             Simple::new("token"),
             Simple::new("token"),
         );
@@ -862,6 +857,8 @@ mod tests {
         let (tx_slim, mut rx_slim) = tokio::sync::mpsc::channel(1);
         let (tx_app, mut rx_app) = tokio::sync::mpsc::channel(1);
 
+        let tx = MockTransmitter { tx_app, tx_slim };
+
         let source = Agent::from_strings("cisco", "default", "local_agent", 0);
 
         let session = FireAndForget::new(
@@ -869,8 +866,7 @@ mod tests {
             FireAndForgetConfiguration::default(),
             SessionDirection::Bidirectional,
             source.clone(),
-            tx_slim,
-            tx_app,
+            tx,
             Simple::new("token"),
             Simple::new("token"),
         );
@@ -923,6 +919,8 @@ mod tests {
         let (tx_slim, mut rx_slim) = tokio::sync::mpsc::channel(1);
         let (tx_app, mut rx_app) = tokio::sync::mpsc::channel(1);
 
+        let tx = MockTransmitter { tx_app, tx_slim };
+
         let source = Agent::from_strings("cisco", "default", "local_agent", 0);
 
         let session = FireAndForget::new(
@@ -934,8 +932,7 @@ mod tests {
             },
             SessionDirection::Bidirectional,
             source.clone(),
-            tx_slim,
-            tx_app,
+            tx,
             Simple::new("token"),
             Simple::new("token"),
         );
@@ -983,8 +980,19 @@ mod tests {
         let (tx_slim_sender, mut rx_slim_sender) = tokio::sync::mpsc::channel(1);
         let (tx_app_sender, _rx_app_sender) = tokio::sync::mpsc::channel(1);
 
+        let tx_sender = MockTransmitter {
+            tx_app: tx_app_sender,
+            tx_slim: tx_slim_sender,
+        };
+
         let (tx_slim_receiver, mut rx_slim_receiver) = tokio::sync::mpsc::channel(1);
         let (tx_app_receiver, mut rx_app_receiver) = tokio::sync::mpsc::channel(1);
+
+        let tx_receiver = MockTransmitter {
+            tx_app: tx_app_receiver,
+            tx_slim: tx_slim_receiver,
+        };
+
         let local = Agent::from_strings("cisco", "default", "local_agent", 0);
         let remote = Agent::from_strings("cisco", "default", "remote_agent", 0);
 
@@ -997,8 +1005,7 @@ mod tests {
             },
             SessionDirection::Bidirectional,
             local.clone(),
-            tx_slim_sender,
-            tx_app_sender,
+            tx_sender,
             Simple::new("token"),
             Simple::new("token"),
         );
@@ -1009,8 +1016,7 @@ mod tests {
             FireAndForgetConfiguration::default(),
             SessionDirection::Bidirectional,
             remote.clone(),
-            tx_slim_receiver,
-            tx_app_receiver,
+            tx_receiver,
             Simple::new("token"),
             Simple::new("token"),
         );
@@ -1097,6 +1103,8 @@ mod tests {
         let (tx_slim, _) = tokio::sync::mpsc::channel(1);
         let (tx_app, _) = tokio::sync::mpsc::channel(1);
 
+        let tx = MockTransmitter { tx_app, tx_slim };
+
         let source = Agent::from_strings("cisco", "default", "local_agent", 0);
 
         {
@@ -1105,8 +1113,7 @@ mod tests {
                 FireAndForgetConfiguration::default(),
                 SessionDirection::Bidirectional,
                 source.clone(),
-                tx_slim,
-                tx_app,
+                tx,
                 Simple::new("token"),
                 Simple::new("token"),
             );
@@ -1126,8 +1133,18 @@ mod tests {
         let (sender_tx_slim, mut sender_rx_slim) = tokio::sync::mpsc::channel(1);
         let (sender_tx_app, _sender_rx_app) = tokio::sync::mpsc::channel(1);
 
+        let sender_tx = MockTransmitter {
+            tx_app: sender_tx_app,
+            tx_slim: sender_tx_slim,
+        };
+
         let (receiver_tx_slim, mut receiver_rx_slim) = tokio::sync::mpsc::channel(1);
         let (receiver_tx_app, mut _receiver_rx_app) = tokio::sync::mpsc::channel(1);
+
+        let receiver_tx = MockTransmitter {
+            tx_app: receiver_tx_app,
+            tx_slim: receiver_tx_slim,
+        };
 
         let local = Agent::from_strings("cisco", "default", "local_agent", 0);
         let remote = Agent::from_strings("cisco", "default", "remote_agent", 0);
@@ -1141,8 +1158,7 @@ mod tests {
             },
             SessionDirection::Bidirectional,
             local.clone(),
-            sender_tx_slim,
-            sender_tx_app,
+            sender_tx,
             Simple::new("token"),
             Simple::new("token"),
         );
@@ -1152,8 +1168,7 @@ mod tests {
             FireAndForgetConfiguration::default(),
             SessionDirection::Bidirectional,
             remote.clone(),
-            receiver_tx_slim,
-            receiver_tx_app,
+            receiver_tx,
             Simple::new("token"),
             Simple::new("token"),
         );

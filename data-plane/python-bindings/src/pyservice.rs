@@ -31,8 +31,8 @@ pub struct PyService {
 }
 
 struct PyServiceInternal {
-    service: Service,
     app: App<Simple, Simple>,
+    service: Service,
     agent: Agent,
     rx: RwLock<session::AppChannelReceiver>,
 }

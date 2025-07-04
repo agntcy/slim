@@ -7,7 +7,6 @@ use slim_auth::traits::StandardClaims;
 use slim_auth::traits::{TokenProvider, Verifier};
 use slim_datapath::api::proto::pubsub::v1::Message;
 use slim_datapath::messages::utils::SLIM_IDENTITY;
-use tracing::info;
 
 use crate::errors::SessionError;
 
@@ -19,9 +18,32 @@ pub trait SessionInterceptor {
     async fn on_msg_from_slim(&self, msg: &mut Message) -> Result<(), SessionError>;
 }
 
+#[async_trait::async_trait]
 pub trait SessionInterceptorProvider {
     // add an interceptor to the session
     fn add_interceptor(&self, interceptor: Arc<dyn SessionInterceptor + Send + Sync + 'static>);
+
+    // get the interceptors for the session
+    fn get_interceptors(&self) -> Vec<Arc<dyn SessionInterceptor + Send + Sync + 'static>>;
+
+    // run all interceptors on a message received from the app
+    async fn on_msg_from_app_interceptors(&self, msg: &mut Message) -> Result<(), SessionError> {
+        let interceptors = self.get_interceptors();
+        for interceptor in interceptors {
+            interceptor.on_msg_from_app(msg).await?;
+        }
+        Ok(())
+    }
+
+    // run all interceptors on a message received from slim
+    async fn on_msg_from_slim_interceptors(&self, msg: &mut Message) -> Result<(), SessionError> {
+        let interceptors = self.get_interceptors();
+        for interceptor in interceptors {
+            interceptor.on_msg_from_slim(msg).await?;
+        }
+
+        Ok(())
+    }
 }
 
 pub(crate) struct IdentityInterceptor<P, V>
@@ -75,7 +97,6 @@ where
             match self.verifier.try_verify::<StandardClaims>(identity) {
                 Ok(_) => {
                     // Identity is valid, we can proceed
-                    info!("identity verified successfully: {}", identity);
                     Ok(())
                 }
                 Err(_e) => {
