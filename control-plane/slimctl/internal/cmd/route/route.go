@@ -5,13 +5,12 @@ package route
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net"
 	"os"
 	"strconv"
 	"strings"
-
-	"encoding/json"
 
 	"github.com/google/uuid"
 	"github.com/spf13/cobra"

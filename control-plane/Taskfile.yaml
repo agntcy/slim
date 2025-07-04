@@ -135,6 +135,8 @@ tasks:
     dir: slimctl/cmd
     cmds:
       - |
+        go generate -v ./../internal/controller
+      - |
         go build -o \
           {{.OUTPUT_DIR}}/bin/slimctl \
           -ldflags \
