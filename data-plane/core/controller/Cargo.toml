@@ -13,7 +13,6 @@ agntcy-slim-config = { workspace = true }
 agntcy-slim-datapath = { workspace = true }
 bytes = { workspace = true }
 h2 = { workspace = true }
-jsonschema = { workspace = true }
 parking_lot = { workspace = true }
 prost = { workspace = true }
 serde_json = { workspace = true }

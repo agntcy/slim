@@ -131,7 +131,6 @@ dependencies = [
  "agntcy-slim-datapath",
  "bytes",
  "h2 0.4.10",
- "jsonschema",
  "parking_lot",
  "prost",
  "protoc-bin-vendored",
