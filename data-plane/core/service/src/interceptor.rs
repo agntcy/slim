@@ -17,19 +17,11 @@ const METADATA_MLS_GROUP_ID: &str = "MLS_GROUP_ID";
 
 pub struct MlsInterceptor {
     mls: Arc<Mutex<Mls>>,
-    group_id: Vec<u8>,
-    group_id_b64: String,
 }
 
 impl MlsInterceptor {
-    pub fn new(mls: Arc<Mutex<Mls>>, group_id: Vec<u8>) -> Self {
-        use base64::{Engine as _, engine::general_purpose};
-        let group_id_b64 = general_purpose::STANDARD.encode(&group_id);
-        Self {
-            mls,
-            group_id,
-            group_id_b64,
-        }
+    pub fn new(mls: Arc<Mutex<Mls>>) -> Self {
+        Self { mls }
     }
 }
 
@@ -41,8 +33,6 @@ impl SessionInterceptor for MlsInterceptor {
             return Ok(());
         }
 
-        msg.insert_metadata(METADATA_MLS_GROUP_ID.to_owned(), self.group_id_b64.clone());
-
         let payload = match msg.get_payload() {
             Some(content) => &content.blob,
             None => {
@@ -51,36 +41,29 @@ impl SessionInterceptor for MlsInterceptor {
             }
         };
 
-        let encrypted_payload = {
-            let mut mls_guard = self.mls.lock();
+        let mut mls_guard = self.mls.lock();
 
-            if !mls_guard.is_group_member(&self.group_id) {
-                warn!("Not a group member, dropping message");
-                return Err(SessionError::InterceptorError(
-                    "Not a group member".to_string(),
-                ));
-            }
-
-            debug!("Encrypting message for group member");
-            match mls_guard.encrypt_message(&self.group_id, payload) {
-                Ok(encrypted_payload) => encrypted_payload,
-                Err(e) => {
-                    error!(
-                        "Failed to encrypt message with MLS: {}, dropping message",
-                        e
-                    );
-                    return Err(SessionError::InterceptorError(format!(
-                        "MLS encryption failed: {}",
-                        e
-                    )));
-                }
+        debug!("Encrypting message for group member");
+        let binding = mls_guard.encrypt_message(payload);
+        let (encrypted_payload, group_id) = match &binding {
+            Ok(res) => res,
+            Err(e) => {
+                error!(
+                    "Failed to encrypt message with MLS: {}, dropping message",
+                    e
+                );
+                return Err(SessionError::InterceptorError(format!(
+                    "MLS encryption failed: {}",
+                    e
+                )));
             }
         };
 
         if let Some(MessageType::Publish(publish)) = &mut msg.message_type {
             if let Some(content) = &mut publish.msg {
-                content.blob = encrypted_payload;
+                content.blob = encrypted_payload.to_vec();
                 msg.insert_metadata(METADATA_MLS_ENCRYPTED.to_owned(), "true".to_owned());
+                msg.insert_metadata(METADATA_MLS_GROUP_ID.to_owned(), group_id.to_string());
             }
         }
         Ok(())
@@ -101,29 +84,15 @@ impl SessionInterceptor for MlsInterceptor {
             return Ok(());
         }
 
-        // Validate group ID matches this interceptor
-        match msg.metadata.get(METADATA_MLS_GROUP_ID) {
-            Some(msg_group_id) => {
-                if msg_group_id == &self.group_id_b64 {
-                    debug!("Group ID validation passed");
-                } else {
-                    warn!(
-                        "Group ID mismatch: message for '{}', interceptor expects '{}'",
-                        msg_group_id, self.group_id_b64,
-                    );
-                    return Err(SessionError::InterceptorError(format!(
-                        "Group ID mismatch: expected '{}', got '{}'",
-                        self.group_id_b64, msg_group_id
-                    )));
-                }
-            }
+        let group_id = match msg.metadata.get(METADATA_MLS_GROUP_ID) {
+            Some(id) => id,
             None => {
                 warn!("Message missing MLS_GROUP_ID metadata");
                 return Err(SessionError::InterceptorError(
                     "Message missing MLS_GROUP_ID metadata".to_string(),
                 ));
             }
-        }
+        };
 
         let payload = match msg.get_payload() {
             Some(content) => &content.blob,
@@ -138,15 +107,8 @@ impl SessionInterceptor for MlsInterceptor {
         let decrypted_payload = {
             let mut mls_guard = self.mls.lock();
 
-            if !mls_guard.is_group_member(&self.group_id) {
-                warn!("Not a group member but received encrypted message, dropping message");
-                return Err(SessionError::InterceptorError(
-                    "Not a group member".to_string(),
-                ));
-            }
-
             debug!("Decrypting message for group member");
-            match mls_guard.decrypt_message(&self.group_id, payload) {
+            match mls_guard.decrypt_message(group_id, payload) {
                 Ok(decrypted_payload) => decrypted_payload,
                 Err(e) => {
                     error!("Failed to decrypt message with MLS: {}", e);
@@ -182,7 +144,7 @@ mod tests {
         mls.initialize().await.unwrap();
 
         let mls_arc = Arc::new(Mutex::new(mls));
-        let interceptor = MlsInterceptor::new(mls_arc, vec![1, 2, 3]);
+        let interceptor = MlsInterceptor::new(mls_arc);
 
         let mut msg = Message::new_publish(
             &slim_datapath::messages::Agent::from_strings("org", "default", "test", 0),
@@ -200,7 +162,7 @@ mod tests {
             result
                 .unwrap_err()
                 .to_string()
-                .contains("Not a group member")
+                .contains("MLS group does not exists")
         );
     }
 
@@ -219,12 +181,11 @@ mod tests {
 
         let group_id = alice_mls.create_group().unwrap();
         let bob_key_package = bob_mls.generate_key_package().unwrap();
-        let (_, welcome_message) = alice_mls.add_member(&group_id, &bob_key_package).unwrap();
+        let (_, welcome_message) = alice_mls.add_member(&bob_key_package).unwrap();
         bob_mls.process_welcome(&welcome_message).unwrap();
 
-        let alice_interceptor =
-            MlsInterceptor::new(Arc::new(Mutex::new(alice_mls)), group_id.clone());
-        let bob_interceptor = MlsInterceptor::new(Arc::new(Mutex::new(bob_mls)), group_id.clone());
+        let alice_interceptor = MlsInterceptor::new(Arc::new(Mutex::new(alice_mls)));
+        let bob_interceptor = MlsInterceptor::new(Arc::new(Mutex::new(bob_mls)));
 
         use base64::{Engine as _, engine::general_purpose};
         let group_id_str = general_purpose::STANDARD.encode(&group_id);
@@ -268,7 +229,7 @@ mod tests {
         mls.create_group().unwrap();
 
         let mls_arc = Arc::new(Mutex::new(mls));
-        let interceptor = MlsInterceptor::new(mls_arc, vec![1, 2, 3]);
+        let interceptor = MlsInterceptor::new(mls_arc);
 
         let mut msg = Message::new_publish(
             &slim_datapath::messages::Agent::from_strings("org", "default", "sender", 0),

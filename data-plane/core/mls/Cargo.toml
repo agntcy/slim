@@ -11,6 +11,7 @@ name = "slim_mls"
 [dependencies]
 agntcy-slim-datapath = { workspace = true }
 async-trait = "0.1"
+base64 = "0.22"
 mls-rs = { version = "0.47.0" }
 mls-rs-crypto-awslc = { version = "0.17.0" }
 serde = { version = "1", features = ["derive"] }

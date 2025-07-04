@@ -253,7 +253,7 @@ impl MlsState {
         match &self.mls {
             Some(mls) => {
                 let mut lock = mls.lock().await;
-                match lock.process_commit(&self.group, commit) {
+                match lock.process_commit(commit) {
                     Ok(_) => Ok(()),
                     Err(e) => {
                         error!("error processing commit message {}", e.to_string());
@@ -283,7 +283,7 @@ impl MlsState {
         match &self.mls {
             Some(mls) => {
                 let mut lock = mls.lock().await;
-                match lock.add_member(&self.group, payload) {
+                match lock.add_member(payload) {
                     Ok((commit_payload, welcome_payload)) => Ok((commit_payload, welcome_payload)),
                     Err(e) => {
                         error!("error adding new endpoint {}", e.to_string());
