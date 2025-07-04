@@ -713,7 +713,7 @@ impl MessageProcessor {
                                     Err(e) => {
                                         if let Some(io_err) = MessageProcessor::match_for_io_error(&e) {
                                             if io_err.kind() == std::io::ErrorKind::BrokenPipe {
-                                                info!("connection {:?} closed by peer", conn_index);
+                                                info!(%conn_index, "connection closed by peer");
                                             }
                                         } else {
                                             error!("error receiving messages {:?}", e);

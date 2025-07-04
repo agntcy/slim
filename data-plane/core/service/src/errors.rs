@@ -91,4 +91,6 @@ pub enum SessionError {
     InterceptorError(String),
     #[error("identity error: {0}")]
     IdentityError(String),
+    #[error("error pushing identity to the message: {0}")]
+    IdentityPushError(String),
 }
