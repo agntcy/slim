@@ -1,15 +1,15 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
+use schemars::JsonSchema;
+use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::str::FromStr;
-
-use serde::Deserialize;
 
 /// CompressionType represents the supported compression types for gRPC messages.
 /// The supported types are: Gzip, Zlib, Deflate, Snappy, Zstd, Lz4, None, and Empty.
 /// The default type is None.
-#[derive(Debug, Deserialize, PartialEq, Clone, Default)]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Clone, Default, JsonSchema)]
 pub enum CompressionType {
     Gzip,
     Zlib,

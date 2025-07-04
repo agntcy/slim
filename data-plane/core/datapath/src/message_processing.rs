@@ -177,6 +177,7 @@ impl MessageProcessor {
                         .with_local_addr(local)
                         .with_remote_addr(remote)
                         .with_channel(Channel::Client(tx))
+                        .with_config_data(client_config.clone())
                         .with_cancellation_token(Some(cancellation_token.clone()));
 
                     debug!(

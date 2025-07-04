@@ -61,10 +61,9 @@ func newListCmd(opts *options.CommonOptions) *cobra.Command {
 
 				if listResp := resp.GetConnectionListResponse(); listResp != nil {
 					for _, e := range listResp.Entries {
-						fmt.Printf("id=%d %s:%d\n",
+						fmt.Printf("id=%d %s\n",
 							e.GetId(),
-							e.GetIp(),
-							e.GetPort(),
+							e.GetConfigData(),
 						)
 					}
 				}

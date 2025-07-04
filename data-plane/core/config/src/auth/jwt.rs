@@ -5,15 +5,15 @@ use std::collections::HashMap;
 use std::time::Duration;
 
 use duration_str::deserialize_duration;
-use serde::Deserialize;
+use schemars::JsonSchema;
+use serde::{Deserialize, Serialize};
 use slim_auth::builder::JwtBuilder;
-
-use slim_auth::jwt_middleware::{AddJwtLayer, ValidateJwtLayer};
 
 use super::{AuthError, ClientAuthenticator, ServerAuthenticator};
 use slim_auth::jwt::{Key, SignerJwt, VerifierJwt};
+use slim_auth::jwt_middleware::{AddJwtLayer, ValidateJwtLayer};
 
-#[derive(Debug, Default, Deserialize, Clone, PartialEq)]
+#[derive(Debug, Default, Serialize, Deserialize, Clone, PartialEq, JsonSchema)]
 pub struct Claims {
     /// JWT audience
     audience: Option<String>,
@@ -25,6 +25,7 @@ pub struct Claims {
     subject: Option<String>,
 
     // Other claims
+    #[schemars(skip)]
     custom_claims: Option<std::collections::HashMap<String, serde_yaml::Value>>,
 }
 
@@ -91,7 +92,7 @@ impl Claims {
     }
 }
 
-#[derive(Debug, Deserialize, Clone, PartialEq)]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 #[serde(rename_all = "lowercase")]
 pub enum JwtKey {
     Encoding(Key),
@@ -99,7 +100,7 @@ pub enum JwtKey {
     Autoresolve(bool),
 }
 
-#[derive(Debug, Deserialize, Clone, PartialEq)]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, JsonSchema)]
 pub struct Config {
     /// Claims
     #[serde(default)]
@@ -116,6 +117,7 @@ pub struct Config {
     /// Encoding key is used for signing JWTs (client-side).
     /// Decoding key is used for verifying JWTs (server-side).
     /// Autoresolve is used to automatically resolve the key based on the claims.
+    #[schemars(skip)]
     #[serde(with = "serde_yaml::with::singleton_map")]
     key: JwtKey,
 }

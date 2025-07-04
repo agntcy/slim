@@ -9,7 +9,8 @@ use rustls::sign::CertifiedKey;
 use rustls_native_certs;
 use rustls_pki_types::pem::PemObject;
 use rustls_pki_types::{CertificateDer, PrivateKeyDer};
-use serde::Deserialize;
+use schemars::JsonSchema;
+use serde::{Deserialize, Serialize};
 use slim_auth::file_watcher::FileWatcher;
 use std::path::Path;
 use std::sync::Arc;
@@ -119,7 +120,7 @@ impl StaticCertResolver {
     }
 }
 
-#[derive(Debug, Deserialize, PartialEq, Clone)]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Clone, JsonSchema)]
 pub struct Config {
     /// Path to the CA cert. For a client this verifies the server certificate.
     /// For a server this verifies client certificates. If empty uses system root CA.

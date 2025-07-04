@@ -5,8 +5,10 @@ package route
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net"
+	"os"
 	"strconv"
 	"strings"
 
@@ -69,13 +71,13 @@ func newListCmd(opts *options.CommonOptions) *cobra.Command {
 				if listResp := resp.GetSubscriptionListResponse(); listResp != nil {
 					for _, e := range listResp.Entries {
 						var localNames, remoteNames []string
-						for _, c := range e.GetLocalConnections() {
+						for _, lc := range e.GetLocalConnections() {
 							localNames = append(localNames,
-								fmt.Sprintf("local:%d", c.GetId()))
+								fmt.Sprintf("local:%d:%s", lc.GetId(), lc.GetConfigData()))
 						}
-						for _, c := range e.GetRemoteConnections() {
+						for _, rc := range e.GetRemoteConnections() {
 							remoteNames = append(remoteNames,
-								fmt.Sprintf("remote:%s:%d:%d", c.GetIp(), c.GetPort(), c.GetId()))
+								fmt.Sprintf("remote:%d:%s", rc.GetId(), rc.GetConfigData()))
 						}
 						fmt.Printf("%s/%s/%s id=%d local=%v remote=%v\n",
 							e.GetOrganization(), e.GetNamespace(), e.GetAgentType(),
@@ -94,14 +96,14 @@ func newListCmd(opts *options.CommonOptions) *cobra.Command {
 
 func newAddCmd(opts *options.CommonOptions) *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "add <organization/namespace/agentname/agentid> via <host:port>",
+		Use:   "add <organization/namespace/agentname/agentid> via <config_file>",
 		Short: "Add a route to a SLIM instance",
 		Long:  `Add a route to a SLIM instance`,
 		Args:  cobra.ExactArgs(3),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			routeID := args[0]
 			viaKeyword := strings.ToLower(args[1])
-			endpoint := args[2]
+			configFile := args[2]
 
 			if viaKeyword != "via" {
 				return fmt.Errorf(
@@ -115,7 +117,7 @@ func newAddCmd(opts *options.CommonOptions) *cobra.Command {
 				return err
 			}
 
-			conn, connID, err := parseEndpoint(endpoint)
+			conn, err := parseConfigFile(configFile)
 			if err != nil {
 				return err
 			}
@@ -124,7 +126,7 @@ func newAddCmd(opts *options.CommonOptions) *cobra.Command {
 				Organization: organization,
 				Namespace:    namespace,
 				AgentType:    agentType,
-				ConnectionId: connID,
+				ConnectionId: conn.ConnectionId,
 				AgentId:      wrapperspb.UInt64(agentID),
 			}
 
@@ -346,10 +348,47 @@ func parseEndpoint(endpoint string) (*grpcapi.Connection, string, error) {
 
 	connID := endpoint
 	conn := &grpcapi.Connection{
-		ConnectionId:  connID,
-		RemoteAddress: host,
-		RemotePort:    int32(port),
+		ConnectionId: connID,
+		ConfigData:   "",
 	}
 
 	return conn, connID, nil
+}
+
+func parseConfigFile(configFile string) (*grpcapi.Connection, error) {
+	if configFile == "" {
+		return nil, fmt.Errorf("config file path cannot be empty")
+	}
+	if !strings.HasSuffix(configFile, ".json") {
+		return nil, fmt.Errorf("config file '%s' must be a JSON file", configFile)
+	}
+
+	// Read the file content as a string
+	data, err := os.ReadFile(configFile)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read config file: %w", err)
+	}
+	// validate the json data against the ConfigClient Schema
+	if !controller.Validate(data) {
+		return nil, fmt.Errorf("failed to validate config data")
+	}
+
+	configData := string(data)
+
+	// Parse the JSON and extract the endpoint value
+	var jsonObj map[string]interface{}
+	if err := json.Unmarshal(data, &jsonObj); err != nil {
+		return nil, fmt.Errorf("invalid JSON in config file: %w", err)
+	}
+	endpoint, ok := jsonObj["endpoint"].(string)
+	if !ok || endpoint == "" {
+		return nil, fmt.Errorf("'endpoint' key not found in config data")
+	}
+
+	conn := &grpcapi.Connection{
+		ConnectionId: endpoint,
+		ConfigData:   configData,
+	}
+
+	return conn, nil
 }

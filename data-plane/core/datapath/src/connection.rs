@@ -1,12 +1,12 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
+use crate::api::proto::pubsub::v1::Message;
+use slim_config::grpc::client::ClientConfig;
 use std::net::SocketAddr;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 use tonic::Status;
-
-use crate::api::proto::pubsub::v1::Message;
 
 #[derive(Debug, Clone, Default)]
 pub(crate) enum Channel {
@@ -43,6 +43,9 @@ pub struct Connection {
     /// Channel to send messages
     channel: Channel,
 
+    /// Configuration data for the connection.
+    config_data: Option<ClientConfig>,
+
     /// Connection type
     connection_type: Type,
 
@@ -78,6 +81,14 @@ impl Connection {
         Self { channel, ..self }
     }
 
+    /// Set the configuration data for the connection
+    pub(crate) fn with_config_data(self, config_data: Option<ClientConfig>) -> Self {
+        Self {
+            config_data,
+            ..self
+        }
+    }
+
     /// Get the remote address
     pub fn remote_addr(&self) -> Option<&SocketAddr> {
         self.remote_addr.as_ref()
@@ -91,6 +102,10 @@ impl Connection {
     /// Get the channel
     pub(crate) fn channel(&self) -> &Channel {
         &self.channel
+    }
+
+    pub fn config_data(&self) -> Option<&ClientConfig> {
+        self.config_data.as_ref()
     }
 
     /// Get the connection type

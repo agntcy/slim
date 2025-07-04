@@ -14,8 +14,9 @@ use rustls::{
     version::{TLS12, TLS13},
 };
 use rustls_pki_types::{CertificateDer, ServerName, UnixTime};
+use schemars::JsonSchema;
 use serde;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use tracing::warn;
 
 use super::common::{Config, ConfigError, RustlsConfigLoader};
@@ -24,7 +25,7 @@ use crate::{
     tls::common::{StaticCertResolver, WatcherCertResolver},
 };
 
-#[derive(Debug, Deserialize, PartialEq, Clone)]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Clone, JsonSchema)]
 pub struct TlsClientConfig {
     /// The Config struct
     #[serde(flatten, default)]

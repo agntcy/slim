@@ -72,10 +72,18 @@ func (s *fakeServer) OpenControlChannel(
 				AgentType:    "alice",
 				AgentId:      &wrapperspb.UInt64Value{Value: 42},
 				LocalConnections: []*grpcapi.ConnectionEntry{
-					{Id: 1, Ip: "", Port: 0},
+					{
+						Id:             1,
+						ConnectionType: grpcapi.ConnectionType_CONNECTION_TYPE_LOCAL,
+						ConfigData:     "{\"endpoint\":\":\"}",
+					},
 				},
 				RemoteConnections: []*grpcapi.ConnectionEntry{
-					{Id: 2, Ip: "10.0.0.2", Port: 2500},
+					{
+						Id:             2,
+						ConnectionType: grpcapi.ConnectionType_CONNECTION_TYPE_REMOTE,
+						ConfigData:     "{\"endpoint\":\"10.0.0.2:2500\"}",
+					},
 				},
 			},
 			{
@@ -85,7 +93,11 @@ func (s *fakeServer) OpenControlChannel(
 				AgentId:          &wrapperspb.UInt64Value{Value: 7},
 				LocalConnections: []*grpcapi.ConnectionEntry{},
 				RemoteConnections: []*grpcapi.ConnectionEntry{
-					{Id: 3, Ip: "10.0.0.3", Port: 3500},
+					{
+						Id:             3,
+						ConnectionType: grpcapi.ConnectionType_CONNECTION_TYPE_REMOTE,
+						ConfigData:     "{\"endpoint\":\"10.0.0.3:3500\"}",
+					},
 				},
 			},
 		}
@@ -105,14 +117,12 @@ func (s *fakeServer) OpenControlChannel(
 			{
 				Id:             1,
 				ConnectionType: grpcapi.ConnectionType_CONNECTION_TYPE_LOCAL,
-				Ip:             "10.1.1.1",
-				Port:           1000,
+				ConfigData:     "{\"endpoint\":\"10.0.0.1:1000\"}",
 			},
 			{
 				Id:             2,
 				ConnectionType: grpcapi.ConnectionType_CONNECTION_TYPE_LOCAL,
-				Ip:             "10.1.1.2",
-				Port:           2000,
+				ConfigData:     "{\"endpoint\":\"10.1.1.2:2000\"}",
 			},
 		}
 		resp := &grpcapi.ControlMessage{
@@ -127,7 +137,6 @@ func (s *fakeServer) OpenControlChannel(
 			return err
 		}
 	}
-
 	return nil
 }
 
@@ -157,9 +166,8 @@ func TestSendConfigMessage(t *testing.T) {
 		Payload: &grpcapi.ControlMessage_ConfigCommand{
 			ConfigCommand: &grpcapi.ConfigurationCommand{
 				ConnectionsToCreate: []*grpcapi.Connection{{
-					ConnectionId:  "c1",
-					RemoteAddress: "10.0.0.1",
-					RemotePort:    8080,
+					ConnectionId: "c1",
+					ConfigData:   "{\"endpoint\":\"10.0.0.1:8080\"}",
 				}},
 				SubscriptionsToSet: []*grpcapi.Subscription{{
 					Organization: "acme",
@@ -278,15 +286,18 @@ func TestListSubscriptions(t *testing.T) {
 		t.Fatalf("expected 1 local connection, got %d", len(e1.LocalConnections))
 	}
 	lc := e1.LocalConnections[0]
-	if lc.GetId() != 1 || lc.GetIp() != "" || lc.GetPort() != 0 {
-		t.Errorf("expected local {Id:1, empty ip/port}, got %+v", lc)
+	if lc.GetId() != 1 ||
+		lc.GetConfigData() != "{\"endpoint\":\":\"}" {
+		t.Errorf("unexpected local connection: %+v", lc)
 	}
+
 	if len(e1.RemoteConnections) != 1 {
 		t.Fatalf("expected 1 remote connection, got %d", len(e1.RemoteConnections))
 	}
 	rc := e1.RemoteConnections[0]
-	if rc.GetId() != 2 || rc.GetIp() != "10.0.0.2" || rc.GetPort() != 2500 {
-		t.Errorf("expected remote {Id:2, ip=10.0.0.2, port=2500}, got %+v", rc)
+	if rc.GetId() != 2 ||
+		rc.GetConfigData() != "{\"endpoint\":\"10.0.0.2:2500\"}" {
+		t.Errorf("unexpected remote connection: %+v", rc)
 	}
 
 	e2 := received[1]
@@ -299,9 +310,11 @@ func TestListSubscriptions(t *testing.T) {
 	if len(e2.RemoteConnections) != 1 {
 		t.Fatalf("expected 1 remote connection, got %d", len(e2.RemoteConnections))
 	}
+
 	rc2 := e2.RemoteConnections[0]
-	if rc2.GetId() != 3 || rc2.GetIp() != "10.0.0.3" || rc2.GetPort() != 3500 {
-		t.Errorf("expected remote {Id:3, ip=10.0.0.3, port=3500}, got %+v", rc2)
+	if rc2.GetId() != 3 ||
+		rc2.GetConfigData() != "{\"endpoint\":\"10.0.0.3:3500\"}" {
+		t.Errorf("unexpected remote connection: %+v", rc2)
 	}
 }
 
@@ -355,7 +368,7 @@ func TestListConnections(t *testing.T) {
 	if len(received) != 2 {
 		t.Fatalf("expected 2 entries, got %d", len(received))
 	}
-	if received[0].GetIp() != "10.1.1.1" || received[1].GetIp() != "10.1.1.2" {
+	if received[0].GetId() != 1 || received[1].GetId() != 2 {
 		t.Errorf("unexpected entries: %+v", received)
 	}
 }

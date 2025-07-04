@@ -1,14 +1,15 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
-use serde::Deserialize;
+use schemars::JsonSchema;
+use serde::{Deserialize, Serialize};
 use tower_http::auth::{AddAuthorizationLayer, require_authorization::Bearer};
 use tower_http::validate_request::ValidateRequestHeaderLayer;
 
 use super::{AuthError, ClientAuthenticator, ServerAuthenticator};
 use crate::opaque::OpaqueString;
 
-#[derive(Debug, Deserialize, Clone, PartialEq)]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, JsonSchema)]
 pub struct Config {
     token: OpaqueString,
 }
