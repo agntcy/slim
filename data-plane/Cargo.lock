@@ -176,16 +176,13 @@ version = "0.1.0"
 dependencies = [
  "agntcy-slim-datapath",
  "async-trait",
- "base64 0.22.1",
  "mls-rs",
  "mls-rs-crypto-awslc",
- "parking_lot",
  "serde",
  "serde_json",
  "tempfile",
  "thiserror 2.0.12",
  "tokio",
- "tracing",
 ]
 
 [[package]]

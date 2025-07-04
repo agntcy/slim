@@ -136,15 +136,15 @@ impl Mls {
         // create the commit message to broadcast in the group
         let commit_msg = Self::map_mls_error(commit.commit_message.to_bytes())?;
 
-        // apply the commit locally
-        Self::map_mls_error(group.apply_pending_commit())?;
-
-        // create the welocme message
+        // create the welcome message
         let welcome = commit
             .welcome_messages
             .first()
             .ok_or_else(|| MlsError::Mls("No welcome message generated".to_string()))
             .and_then(|welcome| Self::map_mls_error(welcome.to_bytes()))?;
+
+        // apply the commit locally
+        Self::map_mls_error(group.apply_pending_commit())?;
 
         Ok((commit_msg, welcome))
     }
@@ -171,7 +171,7 @@ impl Mls {
             .as_ref()
             .ok_or_else(|| MlsError::Mls("MLS client not initialized".to_string()))?;
 
-        // process the welcome message and connect to the gruop
+        // process the welcome message and connect to the group
         let welcome = Self::map_mls_error(MlsMessage::from_bytes(welcome_message))?;
         let (group, _) = Self::map_mls_error(client.join_group(None, &welcome))?;
 
@@ -234,9 +234,11 @@ impl Mls {
 
 #[cfg(test)]
 mod tests {
+    use tokio::time;
+
     use super::*;
     use crate::identity::FileBasedIdentityProvider;
-    use std::sync::Arc;
+    use std::{sync::Arc, thread};
 
     #[tokio::test]
     async fn test_mls_creation() -> Result<(), Box<dyn std::error::Error>> {
@@ -304,6 +306,13 @@ mod tests {
         assert_eq!(original_message, decrypted.as_slice());
         assert_ne!(original_message.to_vec(), encrypted);
 
+        let ag = alice.groups.get(&group_id).unwrap();
+        let bg = bob.groups.get(&group_id).unwrap();
+        assert_eq!(ag.current_epoch(), bg.current_epoch());
+        assert_eq!(ag.group_id(), bg.group_id());
+
+        thread::sleep(time::Duration::from_millis(1000));
+
         // add charlie
         let charlie_key_package = charlie.generate_key_package()?;
         let (commit_message, welcome_message) =
@@ -314,6 +323,14 @@ mod tests {
         let charlie_group_id = charlie.process_welcome(&welcome_message)?;
         assert!(charlie.is_group_member(&charlie_group_id));
         assert_eq!(group_id, charlie_group_id);
+
+        let ag = alice.groups.get(&group_id).unwrap();
+        let bg = bob.groups.get(&group_id).unwrap();
+        let cg = charlie.groups.get(&group_id).unwrap();
+        assert_eq!(ag.current_epoch(), bg.current_epoch());
+        assert_eq!(ag.current_epoch(), cg.current_epoch());
+        assert_eq!(ag.group_id(), bg.group_id());
+        assert_eq!(ag.group_id(), cg.group_id());
 
         // test encrypt decrypt
         let original_message = b"Hello from Alice 1!";

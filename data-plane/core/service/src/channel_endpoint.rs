@@ -96,8 +96,8 @@ struct MlsState {
     init: bool,
 
     /// mls state for the channel of this endpoint
-    /// the mls state shoudl be created and initiaded in the app
-    /// so that it can be shared with the chanel and the interceptors
+    /// the mls state should be created and initiaded in the app
+    /// so that it can be shared with the channel and the interceptors
     mls: Option<Arc<Mutex<Mls>>>,
 
     /// used only is Some(mls)
@@ -117,7 +117,7 @@ impl MlsState {
 
         match msg.get_metadata(METADATA_MLS_INIT_COMMIT_ID) {
             Some(x) => {
-                info!("recevied valid welcome message");
+                info!("received valid welcome message");
                 self.last_commit_id = x.parse::<u32>().unwrap();
                 true
             }
@@ -137,7 +137,7 @@ impl MlsState {
             return false;
         }
 
-        // the only valid commit that we can accpet it the commit with id
+        // the only valid commit that we can accepet it the commit with id
         // last_commit_id + 1. We can safely drop all the others because
         // the moderator will keep sending them if needed
         let msg_id = msg.get_id();
@@ -238,11 +238,13 @@ impl Endpoint {
         Message::new_publish_with_headers(slim_header, session_header, "", payload)
     }
 
-    async fn join(&self) {
+    async fn join(&mut self) {
         // subscribe only once to the channel
         if self.subscribed {
             return;
         }
+
+        self.subscribed = true;
 
         // subscribe for the channel
         let header = Some(SlimHeaderFlags::default().with_forward_to(self.conn));
@@ -400,7 +402,7 @@ impl ChannelParticipant {
         self.endpoint.channel_name = channel_name;
 
         let payload: Vec<u8> = if msg.contains_metadata(METADATA_MLS_ENABLED) {
-            // if mls we need to provide the key pakage
+            // if mls we need to provide the key package
             match &self.endpoint.mls.mls {
                 Some(mls) => {
                     let mut lock = mls.lock().await;
@@ -744,72 +746,69 @@ impl ChannelModerator {
         self.delete_timer(msg_id);
 
         // send MLS messages if needed
-        match self.endpoint.mls.mls {
-            Some(ref mut mls) => {
-                let payload = match msg.get_payload() {
-                    Some(p) => &p.blob,
-                    None => {
-                        error!(
-                            "The key packege is missing. the end point cannot be added to the channel"
-                        );
-                        return;
-                        // TODO send error to the app
-                    }
-                };
-
-                // add member to the group
-                let welcome_payload;
-                let commit_payload;
-
-                {
-                    let mut lock = mls.lock().await;
-                    // TODO handle errors
-                    (commit_payload, welcome_payload) = lock
-                        .add_member(&self.endpoint.mls.mls_group, payload)
-                        .expect("error adding a new member to the gruop");
-                }
-
-                // send the commit message to the channel
-                let commit_id = self.get_next_mls_mgs_id();
-                let welcome_id = rand::random::<u32>();
-
-                let commit = self.endpoint.create_channel_message(
-                    &self.endpoint.channel_name,
-                    None,
-                    true,
-                    SessionHeaderType::ChannelMlsCommit,
-                    commit_id,
-                    commit_payload,
-                );
-                let mut welcome = self.endpoint.create_channel_message(
-                    src.agent_type(),
-                    src.agent_id_option(),
-                    false,
-                    SessionHeaderType::ChannelMlsWelcome,
-                    welcome_id,
-                    welcome_payload,
-                );
-                welcome.insert_metadata(
-                    METADATA_MLS_INIT_COMMIT_ID.to_string(),
-                    commit_id.to_string(),
-                );
-
-                // send welcome message
-                self.endpoint.send(welcome.clone()).await;
-                self.create_timer(welcome_id, 1, welcome);
-
-                // send commit message if needed
-                if self.channel_list.len() > 1 {
-                    self.endpoint.send(commit.clone()).await;
-                    self.create_timer(
-                        commit_id,
-                        (self.channel_list.len() - 1).try_into().unwrap(),
-                        commit,
+        if let Some(ref mut mls) = self.endpoint.mls.mls {
+            let payload = match msg.get_payload() {
+                Some(p) => &p.blob,
+                None => {
+                    error!(
+                        "The key package is missing. the end point cannot be added to the channel"
                     );
+                    return;
+                    // TODO send error to the app
                 }
+            };
+
+            // add member to the group
+            let welcome_payload;
+            let commit_payload;
+
+            {
+                let mut lock = mls.lock().await;
+                // TODO handle errors
+                (commit_payload, welcome_payload) = lock
+                    .add_member(&self.endpoint.mls.mls_group, payload)
+                    .expect("error adding a new member to the group");
             }
-            None => {}
-        }
+
+            // send the commit message to the channel
+            let commit_id = self.get_next_mls_mgs_id();
+            let welcome_id = rand::random::<u32>();
+
+            let commit = self.endpoint.create_channel_message(
+                &self.endpoint.channel_name,
+                None,
+                true,
+                SessionHeaderType::ChannelMlsCommit,
+                commit_id,
+                commit_payload,
+            );
+            let mut welcome = self.endpoint.create_channel_message(
+                src.agent_type(),
+                src.agent_id_option(),
+                false,
+                SessionHeaderType::ChannelMlsWelcome,
+                welcome_id,
+                welcome_payload,
+            );
+            welcome.insert_metadata(
+                METADATA_MLS_INIT_COMMIT_ID.to_string(),
+                commit_id.to_string(),
+            );
+
+            // send welcome message
+            self.endpoint.send(welcome.clone()).await;
+            self.create_timer(welcome_id, 1, welcome);
+
+            // send commit message if needed
+            if self.channel_list.len() > 1 {
+                self.endpoint.send(commit.clone()).await;
+                self.create_timer(
+                    commit_id,
+                    (self.channel_list.len() - 1).try_into().unwrap(),
+                    commit,
+                );
+            }
+        };
 
         // track source in the channel list
         self.channel_list.insert(src);

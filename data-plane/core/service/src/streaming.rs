@@ -238,7 +238,7 @@ where
         let (tx, rx) = mpsc::channel(128);
 
         // TODO pass a parameter to set MLS on/off
-        // fot the moment is always on
+        // for the moment is always on
         let common = Common::new(
             id,
             session_direction.clone(),
