@@ -16,7 +16,7 @@ use tokio::sync::Mutex;
 use tracing::{debug, error, info, trace};
 
 use crate::{
-    errors::SessionError,
+    errors::{ChannelEndpointError, SessionError},
     session::{AppChannelSender, Id, SlimChannelSender},
 };
 use slim_datapath::{
@@ -101,40 +101,133 @@ struct MlsState {
     mls: Option<Arc<Mutex<Mls>>>,
 
     /// used only is Some(mls)
-    mls_group: Vec<u8>,
+    group: Vec<u8>,
 
     /// last commit id
     last_commit_id: u32,
 }
 
 impl MlsState {
-    fn parse_welcome_message(&mut self, msg: &Message) -> bool {
+    async fn init(&mut self) -> Result<(), ChannelEndpointError> {
+        if self.init {
+            return Ok(());
+        }
+
+        if let Some(mls) = &self.mls {
+            let mut lock = mls.lock().await;
+            match lock.initialize().await {
+                Ok(()) => {
+                    self.init = true;
+                    return Ok(());
+                }
+                Err(e) => {
+                    return Err(ChannelEndpointError::MLSInit(e.to_string()));
+                }
+            }
+        };
+
+        Err(ChannelEndpointError::NoMls)
+    }
+
+    async fn init_moderator(&mut self) -> Result<(), ChannelEndpointError> {
+        self.init().await?;
+
+        self.group = match &self.mls {
+            Some(mls) => {
+                let mut lock = mls.lock().await;
+                match lock.create_group() {
+                    Ok(id) => id,
+                    Err(e) => {
+                        error!("error creating a new group {}", e.to_string());
+                        return Err(ChannelEndpointError::MLSInit(e.to_string()));
+                    }
+                }
+            }
+            None => vec![],
+        };
+
+        Ok(())
+    }
+    async fn generate_key_package(&mut self) -> Result<Vec<u8>, ChannelEndpointError> {
+        self.init().await?;
+
+        if let Some(mls) = &self.mls {
+            let lock = mls.lock().await;
+            match lock.generate_key_package() {
+                Ok(msg) => {
+                    return Ok(msg);
+                }
+                Err(e) => {
+                    return Err(ChannelEndpointError::MLSKeyPackage(e.to_string()));
+                }
+            }
+        };
+
+        Err(ChannelEndpointError::NoMls)
+    }
+
+    async fn process_welcome_message(&mut self, msg: &Message) -> Result<(), ChannelEndpointError> {
+        if !self.init {
+            return Err(ChannelEndpointError::NoMls);
+        }
+
         if self.last_commit_id != 0 {
-            info!("welcome message already received, drop");
+            debug!("welcome message already received, drop");
             // we already got a welcome message, ignore this one
-            return false;
+            return Ok(());
         }
 
         match msg.get_metadata(METADATA_MLS_INIT_COMMIT_ID) {
             Some(x) => {
-                info!("received valid welcome message");
+                debug!("received valid welcome message");
                 self.last_commit_id = x.parse::<u32>().unwrap();
-                true
             }
             None => {
-                info!("received welcome message without commit id, drop it");
-                false
+                error!("received welcome message without commit id, drop it");
+                return Err(ChannelEndpointError::WelcomeMessage);
+            }
+        }
+
+        let welcome = match msg.get_payload() {
+            Some(content) => &content.blob,
+            None => {
+                error!("missing payload in MLS welcome, cannot join the group");
+                return Err(ChannelEndpointError::WelcomeMessage);
+            }
+        };
+
+        match &self.mls {
+            Some(mls) => {
+                let mut lock = mls.lock().await;
+                match lock.process_welcome(welcome) {
+                    Ok(id) => {
+                        self.group = id;
+                        Ok(())
+                    }
+                    Err(e) => {
+                        error!("error parsing welcome message {}", e.to_string());
+                        Err(ChannelEndpointError::WelcomeMessage)
+                    }
+                }
+            }
+            None => {
+                error!("no mls state set. cannot process the welcome message");
+                Err(ChannelEndpointError::WelcomeMessage)
             }
         }
     }
 
-    fn is_valid_commit(&mut self, msg: &Message) -> bool {
+    async fn process_commit_message(&mut self, msg: &Message) -> Result<(), ChannelEndpointError> {
+        if !self.init {
+            return Err(ChannelEndpointError::NoMls);
+        }
+
         // the first message to be received should be a welcome message
-        // this message will init the last_commit_id. so if last_commit_id
+        // this message will init the last_commit_id. so if last_commit_id = 0
         // drop the commits
         if self.last_commit_id == 0 {
-            info!("welcome message not received yet, drop commit");
-            return false;
+            error!("welcome message not received yet, drop commit");
+            return Err(ChannelEndpointError::CommitMessage);
         }
 
         // the only valid commit that we can accepet it the commit with id
@@ -142,13 +235,67 @@ impl MlsState {
         // the moderator will keep sending them if needed
         let msg_id = msg.get_id();
         if msg_id == self.last_commit_id + 1 {
-            info!("received valid commit with id {}", msg_id);
+            debug!("received valid commit with id {}", msg_id);
             self.last_commit_id += 1;
-            return true;
+        } else {
+            error!("unexpected commit id, drop message");
+            return Err(ChannelEndpointError::CommitMessage);
         }
 
-        info!("unexpected commit, drop");
-        false
+        let commit = match msg.get_payload() {
+            Some(content) => &content.blob,
+            None => {
+                error!("missing payload in MLS welcome, cannot join the group");
+                return Err(ChannelEndpointError::CommitMessage);
+            }
+        };
+
+        match &self.mls {
+            Some(mls) => {
+                let mut lock = mls.lock().await;
+                match lock.process_commit(&self.group, commit) {
+                    Ok(_) => Ok(()),
+                    Err(e) => {
+                        error!("error processing commit message {}", e.to_string());
+                        Err(ChannelEndpointError::CommitMessage)
+                    }
+                }
+            }
+            None => {
+                error!("MLS not seutp, drop commit message");
+                Err(ChannelEndpointError::CommitMessage)
+            }
+        }
+    }
+
+    async fn add_participant(
+        &self,
+        msg: &Message,
+    ) -> Result<(Vec<u8>, Vec<u8>), ChannelEndpointError> {
+        let payload = match msg.get_payload() {
+            Some(p) => &p.blob,
+            None => {
+                error!("The key package is missing. the end point cannot be added to the channel");
+                return Err(ChannelEndpointError::AddParticipant);
+            }
+        };
+
+        match &self.mls {
+            Some(mls) => {
+                let mut lock = mls.lock().await;
+                match lock.add_member(&self.group, payload) {
+                    Ok((commit_payload, welcome_payload)) => Ok((commit_payload, welcome_payload)),
+                    Err(e) => {
+                        error!("error adding new endpoint {}", e.to_string());
+                        Err(ChannelEndpointError::AddParticipant)
+                    }
+                }
+            }
+            None => {
+                error!("MLS not seutp, drop commit message");
+                Err(ChannelEndpointError::CommitMessage)
+            }
+        }
     }
 }
 
@@ -176,7 +323,7 @@ struct Endpoint {
     send_app: AppChannelSender,
 
     /// mls state
-    mls: MlsState,
+    mls_state: MlsState,
 }
 
 impl Endpoint {
@@ -197,10 +344,10 @@ impl Endpoint {
             subscribed: false,
             send_slim,
             send_app,
-            mls: MlsState {
+            mls_state: MlsState {
                 init: false,
                 mls,
-                mls_group: vec![],
+                group: vec![],
                 last_commit_id: 0,
             },
         }
@@ -297,7 +444,7 @@ pub struct ChannelParticipant {
 impl ChannelParticipant {
     pub fn new(
         name: &Agent,
-        channel_name: &AgentType, // TODO: this may be unknown at the beginning, probably it has to be optional
+        channel_name: &AgentType,
         session_id: Id,
         conn: u64,
         send_slim: SlimChannelSender,
@@ -403,19 +550,14 @@ impl ChannelParticipant {
 
         let payload: Vec<u8> = if msg.contains_metadata(METADATA_MLS_ENABLED) {
             // if mls we need to provide the key package
-            match &self.endpoint.mls.mls {
-                Some(mls) => {
-                    let mut lock = mls.lock().await;
-                    if !&self.endpoint.mls.init {
-                        // TODO handle the errors
-                        lock.initialize().await.expect("error init MLS");
-                        self.endpoint.mls.init = true;
-                    }
-                    // TODO handle the errors
-                    lock.generate_key_package().unwrap()
-                }
-                None => {
-                    error!("MLS required but not setup, cannot join the channel");
+            match &self.endpoint.mls_state.generate_key_package().await {
+                Ok(payload) => payload.to_vec(),
+                Err(e) => {
+                    error!(
+                        "received a join request with MLS, error creating the key package {}",
+                        e.to_string()
+                    );
+                    // ignore the request and return
                     return;
                 }
             }
@@ -440,28 +582,11 @@ impl ChannelParticipant {
     }
 
     async fn on_mls_welcome(&mut self, msg: Message) {
-        if !self.endpoint.mls.parse_welcome_message(&msg) {
-            // drop the message
-            return;
-        }
-
-        let welcome = match msg.get_payload() {
-            Some(content) => &content.blob,
-            None => {
-                error!("missing payload in MLS welcome, cannot join the group");
+        match self.endpoint.mls_state.process_welcome_message(&msg).await {
+            Ok(()) => {}
+            Err(_) => {
+                //error processing welcome message, drop it
                 return;
-            }
-        };
-
-        // join the group
-        match &self.endpoint.mls.mls {
-            Some(mls) => {
-                let mut lock = mls.lock().await;
-                // TODO handle the errors
-                self.endpoint.mls.mls_group = lock.process_welcome(welcome).unwrap();
-            }
-            None => {
-                panic!("MLS not seutp, this cannot happen");
             }
         }
 
@@ -482,29 +607,11 @@ impl ChannelParticipant {
     }
 
     async fn on_mls_commit(&mut self, msg: Message) {
-        if !self.endpoint.mls.is_valid_commit(&msg) {
-            // drop the message
-            return;
-        }
-
-        let commit = match msg.get_payload() {
-            Some(content) => &content.blob,
-            None => {
-                error!("missing payload in MLS welcome, cannot join the group");
+        match self.endpoint.mls_state.process_commit_message(&msg).await {
+            Ok(()) => {}
+            Err(_) => {
+                //error processing commit message, drop it
                 return;
-            }
-        };
-
-        // join the group
-        match &self.endpoint.mls.mls {
-            Some(mls) => {
-                let mut lock = mls.lock().await;
-                // TODO handle the errors
-                lock.process_commit(&self.endpoint.mls.mls_group, commit)
-                    .unwrap();
-            }
-            None => {
-                panic!("MLS not seutp, this cannot happen");
             }
         }
 
@@ -636,19 +743,13 @@ impl ChannelModerator {
             self.endpoint.join().await;
 
             // create mls group if needed
-            self.endpoint.mls.mls_group = match self.endpoint.mls.mls {
-                Some(ref mut mls) => {
-                    let mut lock = mls.lock().await;
-                    if !&self.endpoint.mls.init {
-                        // TODO handle the errors
-                        lock.initialize().await.expect("error init MLS");
-                        self.endpoint.mls.init = true;
-                    }
-                    // TODO handle error
-                    lock.create_group().expect("error while creating MLS group")
+            match self.endpoint.mls_state.init_moderator().await {
+                Ok(()) => {}
+                Err(_) => {
+                    // error while init the moderator. return;
+                    return;
                 }
-                None => vec![],
-            };
+            }
 
             // add the moderator to the channel
             self.channel_list.insert(self.endpoint.name.clone());
@@ -725,7 +826,7 @@ impl ChannelModerator {
             self.invite_payload.clone(),
         );
 
-        if self.endpoint.mls.mls.is_some() {
+        if self.endpoint.mls_state.mls.is_some() {
             join.insert_metadata(METADATA_MLS_ENABLED.to_string(), "true".to_owned());
         }
 
@@ -746,29 +847,15 @@ impl ChannelModerator {
         self.delete_timer(msg_id);
 
         // send MLS messages if needed
-        if let Some(ref mut mls) = self.endpoint.mls.mls {
-            let payload = match msg.get_payload() {
-                Some(p) => &p.blob,
-                None => {
-                    error!(
-                        "The key package is missing. the end point cannot be added to the channel"
-                    );
-                    return;
-                    // TODO send error to the app
-                }
-            };
-
-            // add member to the group
-            let welcome_payload;
-            let commit_payload;
-
-            {
-                let mut lock = mls.lock().await;
-                // TODO handle errors
-                (commit_payload, welcome_payload) = lock
-                    .add_member(&self.endpoint.mls.mls_group, payload)
-                    .expect("error adding a new member to the group");
-            }
+        if self.endpoint.mls_state.mls.is_some() {
+            let (commit_payload, welcome_payload) =
+                match self.endpoint.mls_state.add_participant(&msg).await {
+                    Ok((commit_payload, welcome_payload)) => (commit_payload, welcome_payload),
+                    Err(_) => {
+                        // error adding participant, drop message
+                        return;
+                    }
+                };
 
             // send the commit message to the channel
             let commit_id = self.get_next_mls_mgs_id();
