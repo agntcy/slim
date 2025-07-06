@@ -19,6 +19,6 @@
     "timeout": "20s"
   },
   "origin": "https://client.example.com",
-  "rate_limit": "100rps",
+  "rate_limit": "20/60",
   "request_timeout": "30s"
 }
