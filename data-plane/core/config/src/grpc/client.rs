@@ -36,6 +36,7 @@ pub struct KeepaliveConfig {
         default = "default_tcp_keepalive",
         deserialize_with = "deserialize_duration"
     )]
+    #[schemars(with = "String")]
     pub tcp_keepalive: Duration,
 
     /// The duration of the keepalive time for HTTP2
@@ -43,10 +44,12 @@ pub struct KeepaliveConfig {
         default = "default_http2_keepalive",
         deserialize_with = "deserialize_duration"
     )]
+    #[schemars(with = "String")]
     pub http2_keepalive: Duration,
 
     /// The timeout duration for the keepalive
     #[serde(default = "default_timeout", deserialize_with = "deserialize_duration")]
+    #[schemars(with = "String")]
     pub timeout: Duration,
 
     /// Whether to permit keepalive without an active stream
@@ -128,6 +131,7 @@ pub struct ClientConfig {
         default = "default_connect_timeout",
         deserialize_with = "deserialize_duration"
     )]
+    #[schemars(with = "String")]
     pub connect_timeout: Duration,
 
     /// Timeout per request.
@@ -135,6 +139,7 @@ pub struct ClientConfig {
         default = "default_request_timeout",
         deserialize_with = "deserialize_duration"
     )]
+    #[schemars(with = "String")]
     pub request_timeout: Duration,
 
     /// ReadBufferSize.

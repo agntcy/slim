@@ -63,13 +63,13 @@ var _ = BeforeSuite(func() {
 	// add routes
 	Expect(exec.Command(slimctlPath,
 		"route", "add", "org/default/b/0",
-		"via", "localhost:46367",
+		"via", "testdata/client-b-config-data.json",
 		"-s", "127.0.0.1:46358",
 	).Run()).To(Succeed())
 
 	Expect(exec.Command(slimctlPath,
 		"route", "add", "org/default/a/0",
-		"via", "localhost:46357",
+		"via", "testdata/client-a-config-data.json",
 		"-s", "127.0.0.1:46368",
 	).Run()).To(Succeed())
 })
