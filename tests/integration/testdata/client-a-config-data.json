@@ -1,5 +1,5 @@
 {
-  "endpoint": "127.0.0.1:46357",
+  "endpoint": "http://127.0.0.1:46357",
   "auth": {
     "basic": {
       "username": "testuser",

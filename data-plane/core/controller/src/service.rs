@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::collections::HashMap;
-use std::net::ToSocketAddrs;
 use std::pin::Pin;
 use std::sync::{Arc, OnceLock};
 
@@ -22,9 +21,7 @@ use crate::api::proto::api::v1::{
     ConnectionListResponse, ConnectionType, SubscriptionListResponse,
 };
 use crate::errors::ControllerError;
-
 use slim_config::grpc::client::ClientConfig;
-
 use slim_datapath::api::proto::pubsub::v1::Message as PubsubMessage;
 use slim_datapath::message_processing::MessageProcessor;
 use slim_datapath::messages::utils::SlimHeaderFlags;
@@ -67,14 +64,6 @@ impl ControllerService {
                             )?;
                             let client_endpoint = &client_config.endpoint;
 
-                            let mut addrs_iter = client_endpoint
-                                .as_str()
-                                .to_socket_addrs()
-                                .map_err(|e| ControllerError::ConnectionError(e.to_string()))?;
-                            let remote_sock = addrs_iter
-                                .next()
-                                .ok_or_else(|| ControllerError::ConnectionError(format!("could not resolve {}", client_endpoint)))?;
-
                             // connect to an endpoint if it's not already connected
                             if !self.connections.read().contains_key(client_endpoint) {
                                 match client_config.to_channel() {
@@ -88,7 +77,7 @@ impl ControllerService {
                                                 channel,
                                                 Some(client_config.clone()),
                                                 None,
-                                                Some(remote_sock),
+                                                None,
                                             )
                                             .await
                                             .map_err(|e| {
