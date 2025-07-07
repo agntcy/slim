@@ -273,6 +273,7 @@ where
             );
             ChannelEndpoint::ChannelParticipant(cp)
         };
+
         let stream = Streaming {
             common,
             channel_endpoint: Arc::new(Mutex::new(channel_endpoint)),

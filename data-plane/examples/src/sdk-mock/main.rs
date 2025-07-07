@@ -2,10 +2,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use clap::Parser;
-use parking_lot::Mutex;
 use slim_datapath::messages::{Agent, AgentType};
 use std::sync::Arc;
-use tokio::time;
+use tokio::{sync::Mutex, time};
 use tracing::info;
 
 use slim::config;

@@ -2,11 +2,11 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use crate::{errors::SessionError, interceptor::SessionInterceptor};
-use parking_lot::Mutex;
-use slim_datapath::api::MessageType;
 use slim_datapath::api::proto::pubsub::v1::Message;
+use slim_datapath::api::{MessageType, proto::pubsub::v1::SessionHeaderType};
 use slim_mls::mls::Mls;
 use std::sync::Arc;
+use tokio::sync::Mutex;
 use tracing::{debug, error, warn};
 
 // Metadata Keys
@@ -34,6 +34,22 @@ impl SessionInterceptor for MlsInterceptor {
             return Ok(());
         }
 
+        match msg.get_session_header().header_type() {
+            SessionHeaderType::ChannelDiscoveryRequest
+            | SessionHeaderType::ChannelDiscoveryReply
+            | SessionHeaderType::ChannelJoinRequest
+            | SessionHeaderType::ChannelJoinReply
+            | SessionHeaderType::ChannelLeaveRequest
+            | SessionHeaderType::ChannelLeaveReply
+            | SessionHeaderType::ChannelMlsCommit
+            | SessionHeaderType::ChannelMlsWelcome
+            | SessionHeaderType::ChannelMlsAck => {
+                debug!("Skipping channel messages type in encryption path");
+                return Ok(());
+            }
+            _ => {}
+        }
+
         let payload = match msg.get_payload() {
             Some(content) => &content.blob,
             None => {
@@ -42,7 +58,7 @@ impl SessionInterceptor for MlsInterceptor {
             }
         };
 
-        let mut mls_guard = self.mls.lock();
+        let mut mls_guard = self.mls.lock().await;
 
         debug!("Encrypting message for group member");
         let binding = mls_guard.encrypt_message(payload);
@@ -77,6 +93,22 @@ impl SessionInterceptor for MlsInterceptor {
             return Ok(());
         }
 
+        match msg.get_session_header().header_type() {
+            SessionHeaderType::ChannelDiscoveryRequest
+            | SessionHeaderType::ChannelDiscoveryReply
+            | SessionHeaderType::ChannelJoinRequest
+            | SessionHeaderType::ChannelJoinReply
+            | SessionHeaderType::ChannelLeaveRequest
+            | SessionHeaderType::ChannelLeaveReply
+            | SessionHeaderType::ChannelMlsCommit
+            | SessionHeaderType::ChannelMlsWelcome
+            | SessionHeaderType::ChannelMlsAck => {
+                debug!("Skipping channel messages type in decryption path");
+                return Ok(());
+            }
+            _ => {}
+        }
+
         let is_encrypted =
             msg.metadata.get(METADATA_MLS_ENCRYPTED).map(|v| v.as_str()) == Some("true");
 
@@ -106,7 +138,7 @@ impl SessionInterceptor for MlsInterceptor {
         };
 
         let decrypted_payload = {
-            let mut mls_guard = self.mls.lock();
+            let mut mls_guard = self.mls.lock().await;
 
             debug!("Decrypting message for group member");
             match mls_guard.decrypt_message(group_id, payload) {

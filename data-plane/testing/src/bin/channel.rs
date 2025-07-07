@@ -234,10 +234,20 @@ async fn main() {
                     Some(msg_info) => match msg_info {
                         Ok(msg) => {
                             let publisher_id = msg.message.get_slim_header().get_source();
+
+                            let payload = match msg.message.get_payload() {
+                                Some(c) => {
+                                    let p = &c.blob;
+                                    String::from_utf8(p.to_vec())
+                                        .expect("error while parsing received message")
+                                }
+                                None => "".to_string(),
+                            };
                             info!(
-                                "received message {} from publisher {}",
+                                "received message {} from publisher {}: content = {}",
                                 msg.info.message_id.unwrap(),
-                                publisher_id
+                                publisher_id,
+                                payload
                             );
                         }
                         Err(e) => {

@@ -14,6 +14,7 @@ use tonic::Status;
 use crate::errors::SessionError;
 use crate::fire_and_forget::{FireAndForget, FireAndForgetConfiguration};
 use crate::interceptor::{SessionInterceptor, SessionInterceptorProvider};
+use crate::interceptor_mls::MlsInterceptor;
 use crate::request_response::{RequestResponse, RequestResponseConfiguration};
 use crate::streaming::{Streaming, StreamingConfiguration};
 use slim_datapath::api::proto::pubsub::v1::{Message, SessionHeaderType};
@@ -543,7 +544,7 @@ where
             None
         };
 
-        Self {
+        let session = Self {
             id,
             state: State::Active,
             identity_provider,
@@ -553,7 +554,14 @@ where
             source,
             mls,
             tx,
+        };
+
+        if let Some(mls) = session.mls() {
+            let interceptor = MlsInterceptor::new(mls.clone());
+            session.tx.add_interceptor(Arc::new(interceptor));
         }
+
+        session
     }
 
     pub(crate) fn tx(&self) -> T {
