@@ -13,7 +13,6 @@ use tracing::{debug, error, warn};
 pub const METADATA_MLS_ENABLED: &str = "MLS_ENABLED";
 pub const METADATA_MLS_INIT_COMMIT_ID: &str = "MLS_INIT_COMMIT_ID";
 const METADATA_MLS_ENCRYPTED: &str = "MLS_ENCRYPTED";
-const METADATA_MLS_GROUP_ID: &str = "MLS_GROUP_ID";
 
 pub struct MlsInterceptor {
     mls: Arc<Mutex<Mls>>,
@@ -62,7 +61,7 @@ impl SessionInterceptor for MlsInterceptor {
 
         debug!("Encrypting message for group member");
         let binding = mls_guard.encrypt_message(payload);
-        let (encrypted_payload, group_id) = match &binding {
+        let encrypted_payload = match &binding {
             Ok(res) => res,
             Err(e) => {
                 error!(
@@ -80,7 +79,6 @@ impl SessionInterceptor for MlsInterceptor {
             if let Some(content) = &mut publish.msg {
                 content.blob = encrypted_payload.to_vec();
                 msg.insert_metadata(METADATA_MLS_ENCRYPTED.to_owned(), "true".to_owned());
-                msg.insert_metadata(METADATA_MLS_GROUP_ID.to_owned(), group_id.to_string());
             }
         }
         Ok(())
@@ -117,16 +115,6 @@ impl SessionInterceptor for MlsInterceptor {
             return Ok(());
         }
 
-        let group_id = match msg.metadata.get(METADATA_MLS_GROUP_ID) {
-            Some(id) => id,
-            None => {
-                warn!("Message missing MLS_GROUP_ID metadata");
-                return Err(SessionError::InterceptorError(
-                    "Message missing MLS_GROUP_ID metadata".to_string(),
-                ));
-            }
-        };
-
         let payload = match msg.get_payload() {
             Some(content) => &content.blob,
             None => {
@@ -141,7 +129,7 @@ impl SessionInterceptor for MlsInterceptor {
             let mut mls_guard = self.mls.lock().await;
 
             debug!("Decrypting message for group member");
-            match mls_guard.decrypt_message(group_id, payload) {
+            match mls_guard.decrypt_message(payload) {
                 Ok(decrypted_payload) => decrypted_payload,
                 Err(e) => {
                     error!("Failed to decrypt message with MLS: {}", e);
@@ -187,7 +175,6 @@ mod tests {
             "text",
             b"test message".to_vec(),
         );
-        msg.insert_metadata(METADATA_MLS_GROUP_ID.to_string(), "test_group".to_string());
 
         let result = interceptor.on_msg_from_app(&mut msg).await;
         assert!(result.is_err());
@@ -212,16 +199,13 @@ mod tests {
         alice_mls.initialize().await.unwrap();
         bob_mls.initialize().await.unwrap();
 
-        let group_id = alice_mls.create_group().unwrap();
+        let _group_id = alice_mls.create_group().unwrap();
         let bob_key_package = bob_mls.generate_key_package().unwrap();
         let (_, welcome_message) = alice_mls.add_member(&bob_key_package).unwrap();
         bob_mls.process_welcome(&welcome_message).unwrap();
 
         let alice_interceptor = MlsInterceptor::new(Arc::new(Mutex::new(alice_mls)));
         let bob_interceptor = MlsInterceptor::new(Arc::new(Mutex::new(bob_mls)));
-
-        use base64::{Engine as _, engine::general_purpose};
-        let group_id_str = general_purpose::STANDARD.encode(&group_id);
 
         let original_payload = b"Hello from Alice!";
         let mut alice_msg = Message::new_publish(
@@ -232,7 +216,6 @@ mod tests {
             "text",
             original_payload.to_vec(),
         );
-        alice_msg.insert_metadata(METADATA_MLS_GROUP_ID.to_string(), group_id_str);
 
         alice_interceptor
             .on_msg_from_app(&mut alice_msg)

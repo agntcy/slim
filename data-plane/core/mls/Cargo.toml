@@ -10,14 +10,13 @@ name = "slim_mls"
 
 [dependencies]
 agntcy-slim-datapath = { workspace = true }
-async-trait = "0.1"
-base64 = "0.22"
+async-trait = { workspace = true }
 mls-rs = { version = "0.47.0" }
 mls-rs-crypto-awslc = { version = "0.17.0" }
 serde = { version = "1", features = ["derive"] }
-serde_json = "1.0"
+serde_json = { workspace = true }
 thiserror = { workspace = true }
-tokio.workspace = true
+tokio = { workspace = true }
 
 [dev-dependencies]
 tempfile = "3.3"

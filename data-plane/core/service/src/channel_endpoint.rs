@@ -277,7 +277,7 @@ impl MlsState {
                 }
             }
             None => {
-                error!("MLS not seutp, drop commit message");
+                error!("MLS not setup, drop commit message");
                 Err(ChannelEndpointError::CommitMessage)
             }
         }
