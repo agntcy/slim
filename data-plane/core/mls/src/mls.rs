@@ -93,8 +93,11 @@ impl Mls {
             .as_ref()
             .ok_or_else(|| MlsError::Mls("MLS client not initialized".to_string()))?;
 
-        let group =
-            Self::map_mls_error(client.create_group(ExtensionList::default(), Default::default()))?;
+        let group = Self::map_mls_error(client.create_group(
+            ExtensionList::default(),
+            Default::default(),
+            None,
+        ))?;
 
         let group_id = group.group_id().to_vec();
         self.group = Some(group);
@@ -108,9 +111,11 @@ impl Mls {
             .as_ref()
             .ok_or_else(|| MlsError::Mls("MLS client not initialized".to_string()))?;
 
-        let key_package = Self::map_mls_error(
-            client.generate_key_package_message(Default::default(), Default::default()),
-        )?;
+        let key_package = Self::map_mls_error(client.generate_key_package_message(
+            Default::default(),
+            Default::default(),
+            None,
+        ))?;
         Self::map_mls_error(key_package.to_bytes())
     }
 
@@ -164,7 +169,7 @@ impl Mls {
 
         // process the welcome message and connect to the group
         let welcome = Self::map_mls_error(MlsMessage::from_bytes(welcome_message))?;
-        let (group, _) = Self::map_mls_error(client.join_group(None, &welcome))?;
+        let (group, _) = Self::map_mls_error(client.join_group(None, &welcome, None))?;
 
         let group_id = group.group_id().to_vec();
         self.group = Some(group);
