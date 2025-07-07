@@ -29,15 +29,15 @@ message ControPlaneMessage {
 
 message ControlPlaneConfigurationCommand {
     ConfigurationCommand configuration_command = 1;
-    string endpoint = 2;
+    string nodeId = 2;
 }
 
 message ControlPlaneSubscriptionListRequest {
-    string endpoint = 1;
+    string nodeId = 1;
 }
 
 message ControlPlaneConnectionListRequest {
-    string endpoint = 1;
+    string nodeId = 1;
 }
 
 message NodeListRequest {}
