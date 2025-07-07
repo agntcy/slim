@@ -6,6 +6,9 @@ use crate::{
     traits::{TokenProvider, Verifier},
 };
 
+#[derive(serde::Deserialize)]
+struct EmptyClaims;
+
 #[derive(Debug, Clone)]
 pub struct Simple {
     token: String,
@@ -40,14 +43,7 @@ impl Verifier for Simple {
     where
         Claims: serde::de::DeserializeOwned + Send,
     {
-        let token = token.into();
-
-        if token == self.token {
-            // Here you would typically decode the token and return the claims
-            Ok(serde_json::from_str("{}").unwrap()) // Placeholder for actual claims
-        } else {
-            Err(AuthError::TokenInvalid("invalid token".to_string()))
-        }
+        self.try_verify(token)
     }
 
     fn try_verify<Claims>(
@@ -60,7 +56,7 @@ impl Verifier for Simple {
         let token = token.into();
 
         if token == self.token {
-            Ok(serde_json::from_str("{}").unwrap()) // Placeholder for actual claims
+            Ok(serde_json::from_str(r#"{"exp":0}"#).unwrap())
         } else {
             Err(AuthError::TokenInvalid("invalid token".to_string()))
         }

@@ -5,7 +5,7 @@ use crate::mls::Mls;
 use parking_lot::Mutex;
 use slim_datapath::api::MessageType;
 use slim_datapath::api::proto::pubsub::v1::Message;
-use slim_service::{errors::SessionError, session::SessionInterceptor};
+use slim_service::{errors::SessionError, interceptor::SessionInterceptor};
 use std::sync::Arc;
 use tracing::{debug, error, warn};
 
@@ -31,8 +31,9 @@ impl MlsInterceptor {
     }
 }
 
+#[async_trait::async_trait]
 impl SessionInterceptor for MlsInterceptor {
-    fn on_msg_from_app(&self, msg: &mut Message) -> Result<(), SessionError> {
+    async fn on_msg_from_app(&self, msg: &mut Message) -> Result<(), SessionError> {
         // Only process Publish message types
         if !msg.is_publish() {
             debug!("Skipping non-Publish message type in encryption path");
@@ -84,7 +85,7 @@ impl SessionInterceptor for MlsInterceptor {
         Ok(())
     }
 
-    fn on_msg_from_slim(&self, msg: &mut Message) -> Result<(), SessionError> {
+    async fn on_msg_from_slim(&self, msg: &mut Message) -> Result<(), SessionError> {
         // Only process Publish message types
         if !msg.is_publish() {
             debug!("Skipping non-Publish message type in decryption path");
@@ -192,7 +193,7 @@ mod tests {
         );
         msg.insert_metadata(METADATA_MLS_GROUP_ID.to_string(), "test_group".to_string());
 
-        let result = interceptor.on_msg_from_app(&mut msg);
+        let result = interceptor.on_msg_from_app(&mut msg).await;
         assert!(result.is_err());
         assert!(
             result
@@ -238,7 +239,10 @@ mod tests {
         );
         alice_msg.insert_metadata(METADATA_MLS_GROUP_ID.to_string(), group_id_str);
 
-        alice_interceptor.on_msg_from_app(&mut alice_msg).unwrap();
+        alice_interceptor
+            .on_msg_from_app(&mut alice_msg)
+            .await
+            .unwrap();
 
         assert_ne!(alice_msg.get_payload().unwrap().blob, original_payload);
         assert_eq!(
@@ -250,7 +254,10 @@ mod tests {
         );
 
         let mut bob_msg = alice_msg.clone();
-        bob_interceptor.on_msg_from_slim(&mut bob_msg).unwrap();
+        bob_interceptor
+            .on_msg_from_slim(&mut bob_msg)
+            .await
+            .unwrap();
 
         assert_eq!(bob_msg.get_payload().unwrap().blob, original_payload);
         assert_eq!(bob_msg.metadata.get(METADATA_MLS_ENCRYPTED), None);
@@ -277,7 +284,7 @@ mod tests {
             b"plain text message".to_vec(),
         );
 
-        interceptor.on_msg_from_slim(&mut msg).unwrap();
+        interceptor.on_msg_from_slim(&mut msg).await.unwrap();
         assert_eq!(msg.get_payload().unwrap().blob, b"plain text message");
     }
 }

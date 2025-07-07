@@ -6,12 +6,14 @@ pub mod producer_buffer;
 pub mod receiver_buffer;
 #[macro_use]
 pub mod session;
+pub mod app;
+pub mod interceptor;
 pub mod streaming;
 pub mod timer;
 
-pub mod app;
 mod fire_and_forget;
 mod request_response;
+mod testutils;
 
 mod channel_endpoint;
 
@@ -282,7 +284,6 @@ impl Service {
         // create app
         let app = App::new(
             app_name,
-            Some(self.message_processor.clone()),
             identity_provider,
             identity_verifier,
             conn_id,
@@ -291,7 +292,7 @@ impl Service {
         );
 
         // start message processing using the rx channel
-        app.process_messages(rx_slim, self.watch.clone());
+        app.process_messages(rx_slim);
 
         // return the app instance and the rx channel
         Ok((app, rx_app))
@@ -666,7 +667,7 @@ mod tests {
 
         // This should also trigger a stop of the message processing loop.
         // Make sure the loop stopped by checking the logs
-        assert!(logs_contain("no more messages to process"));
+        assert!(logs_contain("message processing loop cancelled"));
     }
 
     #[tokio::test]
