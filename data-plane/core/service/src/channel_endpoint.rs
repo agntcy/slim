@@ -13,7 +13,7 @@ use async_trait::async_trait;
 
 use tokio::sync::Mutex;
 
-use tracing::{debug, error, info, trace};
+use tracing::{debug, error, trace};
 
 use crate::{
     errors::{ChannelEndpointError, SessionError},
@@ -649,23 +649,23 @@ where
         let msg_type = msg.get_session_header().header_type();
         match msg_type {
             SessionHeaderType::ChannelDiscoveryRequest => {
-                info!("received discovery request message");
+                debug!("received discovery request message");
                 self.on_discovery_request(msg).await;
             }
             SessionHeaderType::ChannelJoinRequest => {
-                info!("received join request message");
+                debug!("received join request message");
                 self.on_join_request(msg).await;
             }
             SessionHeaderType::ChannelMlsWelcome => {
-                info!("received mls welcome message");
+                debug!("received mls welcome message");
                 self.on_mls_welcome(msg).await;
             }
             SessionHeaderType::ChannelMlsCommit => {
-                info!("received mls commit message");
+                debug!("received mls commit message");
                 self.on_mls_commit(msg).await;
             }
             SessionHeaderType::ChannelLeaveRequest => {
-                info!("received leave request message");
+                debug!("received leave request message");
                 // leave the channell
                 self.endpoint.leave().await;
 
@@ -738,7 +738,6 @@ where
                 .expect("unable to parse channel name as payload");
 
         let endpoint = Endpoint::new(name, channel_name, session_id, conn, mls, tx);
-
         ChannelModerator {
             endpoint,
             channel_list: HashSet::new(),
@@ -927,25 +926,25 @@ where
         let msg_type = msg.get_session_header().header_type();
         match msg_type {
             SessionHeaderType::ChannelDiscoveryRequest => {
-                info!("received discovery request message from app");
+                debug!("received discovery request message from app");
                 // discovery message coming from the application
                 self.forward(msg).await;
             }
             SessionHeaderType::ChannelDiscoveryReply => {
-                info!("received discovery reply message");
+                debug!("received discovery reply message");
                 self.on_discovery_reply(msg).await;
             }
             SessionHeaderType::ChannelJoinReply => {
-                info!("received join reply message");
+                debug!("received join reply message");
                 self.on_join_reply(msg).await;
             }
             SessionHeaderType::ChannelMlsAck => {
-                info!("received mls ack message");
+                debug!("received mls ack message");
                 self.on_msl_ack(msg).await;
             }
             SessionHeaderType::ChannelLeaveRequest => {
                 // leave message coming from the application
-                info!("received leave request message");
+                debug!("received leave request message");
                 self.forward(msg).await;
             }
             SessionHeaderType::ChannelLeaveReply => {
