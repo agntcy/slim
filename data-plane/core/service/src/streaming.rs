@@ -997,7 +997,7 @@ mod tests {
     use crate::testutils::MockTransmitter;
 
     use super::*;
-    use slim_auth::simple::Simple;
+    use slim_auth::simple::SimpleGroup;
     use tokio::time;
     use tracing_test::traced_test;
 
@@ -1027,8 +1027,8 @@ mod tests {
             source.clone(),
             conn_id,
             tx.clone(),
-            Simple::new("token"),
-            Simple::new("token"),
+            SimpleGroup::new("a", "group"),
+            SimpleGroup::new("a", "group"),
         );
 
         assert_eq!(session.id(), 0);
@@ -1053,8 +1053,8 @@ mod tests {
             source.clone(),
             conn_id,
             tx,
-            Simple::new("token"),
-            Simple::new("token"),
+            SimpleGroup::new("a", "group"),
+            SimpleGroup::new("a", "group"),
         );
 
         assert_eq!(session.id(), 1);
@@ -1106,8 +1106,8 @@ mod tests {
             send.clone(),
             conn_id,
             tx_sender,
-            Simple::new("token"),
-            Simple::new("token"),
+            SimpleGroup::new("a", "group"),
+            SimpleGroup::new("a", "group"),
         );
         let receiver = Streaming::new(
             0,
@@ -1116,8 +1116,8 @@ mod tests {
             recv.clone(),
             conn_id,
             tx_receiver,
-            Simple::new("token"),
-            Simple::new("token"),
+            SimpleGroup::new("a", "group"),
+            SimpleGroup::new("a", "group"),
         );
 
         let mut message = Message::new_publish(
@@ -1187,8 +1187,8 @@ mod tests {
             agent.clone(),
             conn_id,
             tx,
-            Simple::new("token"),
-            Simple::new("token"),
+            SimpleGroup::new("a", "group"),
+            SimpleGroup::new("a", "group"),
         );
 
         let mut message = Message::new_publish(
@@ -1272,8 +1272,8 @@ mod tests {
             agent.clone(),
             conn_id,
             tx,
-            Simple::new("token"),
-            Simple::new("token"),
+            SimpleGroup::new("a", "group"),
+            SimpleGroup::new("a", "group"),
         );
 
         let mut message = Message::new_publish(
@@ -1390,8 +1390,8 @@ mod tests {
             send.clone(),
             conn_id,
             tx_sender,
-            Simple::new("token"),
-            Simple::new("token"),
+            SimpleGroup::new("a", "group"),
+            SimpleGroup::new("a", "group"),
         );
         let receiver = Streaming::new(
             0,
@@ -1400,8 +1400,8 @@ mod tests {
             recv.clone(),
             conn_id,
             tx_receiver,
-            Simple::new("token"),
-            Simple::new("token"),
+            SimpleGroup::new("a", "group"),
+            SimpleGroup::new("a", "group"),
         );
 
         let mut message = Message::new_publish(
@@ -1604,8 +1604,8 @@ mod tests {
                 source.clone(),
                 conn_id,
                 tx,
-                Simple::new("token"),
-                Simple::new("token"),
+            SimpleGroup::new("a", "group"),
+            SimpleGroup::new("a", "group"),
             );
         }
 

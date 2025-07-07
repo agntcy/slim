@@ -9,7 +9,7 @@ use tokio::time;
 use tracing::info;
 
 use slim::config;
-use slim_auth::simple::Simple;
+use slim_auth::simple::SimpleGroup;
 use slim_service::{
     FireAndForgetConfiguration,
     session::{self, SessionConfig},
@@ -51,7 +51,8 @@ async fn main() {
     let agent_id = 0;
     let agent_name = Agent::from_strings("org", "default", local_agent, agent_id);
     let (app, mut rx) = svc
-        .create_app(&agent_name, Simple::new("secret"), Simple::new("secret"))
+        .create_app(&agent_name,             SimpleGroup::new("a", "group"),
+            SimpleGroup::new("a", "group"),)
         .await
         .expect("failed to create agent");
 

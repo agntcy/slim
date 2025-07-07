@@ -348,7 +348,7 @@ where
 mod tests {
     use super::*;
     use crate::testutils::MockTransmitter;
-    use slim_auth::simple::Simple;
+    use slim_auth::simple::SimpleGroup;
     use slim_datapath::{
         api::{ProtoMessage, ProtoPublish},
         messages::{Agent, AgentType},
@@ -373,8 +373,8 @@ mod tests {
             SessionDirection::Bidirectional,
             source.clone(),
             tx,
-            Simple::new("token"),
-            Simple::new("token"),
+            SimpleGroup::new("a", "group"),
+            SimpleGroup::new("a", "group"),
         );
 
         assert_eq!(session.id(), 0);
@@ -404,8 +404,8 @@ mod tests {
             SessionDirection::Bidirectional,
             source.clone(),
             tx,
-            Simple::new("token"),
-            Simple::new("token"),
+            SimpleGroup::new("a", "group"),
+            SimpleGroup::new("a", "group"),
         );
 
         let payload = vec![0x1, 0x2, 0x3, 0x4];
@@ -480,8 +480,8 @@ mod tests {
                 SessionDirection::Bidirectional,
                 source.clone(),
                 tx,
-                Simple::new("token"),
-                Simple::new("token"),
+                SimpleGroup::new("a", "group"),
+                SimpleGroup::new("a", "group"),
             );
         }
     }
