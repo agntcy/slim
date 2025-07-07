@@ -219,7 +219,7 @@ where
             default_stream_conf,
         });
 
-        /// Create a new cancellation token for the app receiver loop
+        // Create a new cancellation token for the app receiver loop
         let cancel_token = tokio_util::sync::CancellationToken::new();
 
         Self {
