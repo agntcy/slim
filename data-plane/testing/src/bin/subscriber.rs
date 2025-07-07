@@ -192,6 +192,7 @@ async fn main() {
                 Some(Duration::from_millis(1000)),
             )),
             None,
+            false,
         )
         .await;
     if res.is_err() {

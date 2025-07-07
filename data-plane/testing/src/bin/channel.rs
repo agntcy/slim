@@ -212,6 +212,7 @@ async fn main() {
                     Some(Duration::from_secs(1)),
                 )),
                 None,
+                true,
             )
             .await
             .expect("error creating session");
@@ -222,6 +223,8 @@ async fn main() {
             app.invite(&p, info.clone())
                 .await
                 .expect("error sending invite message");
+
+            tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
         }
         tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
 
@@ -236,10 +239,20 @@ async fn main() {
                     Some(msg_info) => match msg_info {
                         Ok(msg) => {
                             let publisher_id = msg.message.get_slim_header().get_source();
+
+                            let payload = match msg.message.get_payload() {
+                                Some(c) => {
+                                    let p = &c.blob;
+                                    String::from_utf8(p.to_vec())
+                                        .expect("error while parsing received message")
+                                }
+                                None => "".to_string(),
+                            };
                             info!(
-                                "received message {} from publisher {}",
+                                "received message {} from publisher {}: content = {}",
                                 msg.info.message_id.unwrap(),
-                                publisher_id
+                                publisher_id,
+                                payload
                             );
                         }
                         Err(e) => {
@@ -255,6 +268,7 @@ async fn main() {
             info!("publishing message {}", i);
             // set fanout > 1 to send the message in broadcast
             let flags = SlimHeaderFlags::new(10, None, None, None, None);
+
             if app
                 .publish_with_flags(info.clone(), &channel_name, None, flags, payload)
                 .await

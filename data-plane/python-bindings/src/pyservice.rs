@@ -99,7 +99,10 @@ impl PyService {
         session_config: session::SessionConfig,
     ) -> Result<PySessionInfo, SessionError> {
         Ok(PySessionInfo::from(
-            self.sdk.app.create_session(session_config, None).await?,
+            self.sdk
+                .app
+                .create_session(session_config, None, false)
+                .await?,
         ))
     }
 

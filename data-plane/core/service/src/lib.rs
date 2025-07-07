@@ -6,8 +6,10 @@ pub mod producer_buffer;
 pub mod receiver_buffer;
 #[macro_use]
 pub mod session;
+
 pub mod app;
 pub mod interceptor;
+pub mod interceptor_mls;
 pub mod streaming;
 pub mod timer;
 
@@ -618,6 +620,7 @@ mod tests {
             .create_session(
                 SessionConfig::FireAndForget(FireAndForgetConfiguration::default()),
                 None,
+                false,
             )
             .await
             .unwrap();
@@ -695,7 +698,7 @@ mod tests {
         //////////////////////////// ff session ////////////////////////////////////////////////////////////////////////
         let session_config = SessionConfig::FireAndForget(FireAndForgetConfiguration::default());
         let session_info = app
-            .create_session(session_config.clone(), None)
+            .create_session(session_config.clone(), None, false)
             .await
             .expect("failed to create session");
 
@@ -747,7 +750,7 @@ mod tests {
             timeout: Duration::from_secs(20000),
         });
         let session_info = app
-            .create_session(session_config.clone(), None)
+            .create_session(session_config.clone(), None, false)
             .await
             .expect("failed to create session");
 
@@ -807,7 +810,7 @@ mod tests {
             Some(time::Duration::from_secs(123)),
         ));
         let session_info = app
-            .create_session(session_config.clone(), None)
+            .create_session(session_config.clone(), None, false)
             .await
             .expect("failed to create session");
         // get session config

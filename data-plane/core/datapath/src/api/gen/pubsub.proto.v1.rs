@@ -117,6 +117,9 @@ pub enum SessionHeaderType {
     ChannelJoinReply = 17,
     ChannelLeaveRequest = 18,
     ChannelLeaveReply = 19,
+    ChannelMlsCommit = 20,
+    ChannelMlsWelcome = 21,
+    ChannelMlsAck = 22,
 }
 impl SessionHeaderType {
     /// String value of the enum field names used in the ProtoBuf definition.
@@ -145,6 +148,9 @@ impl SessionHeaderType {
             Self::ChannelJoinReply => "CHANNEL_JOIN_REPLY",
             Self::ChannelLeaveRequest => "CHANNEL_LEAVE_REQUEST",
             Self::ChannelLeaveReply => "CHANNEL_LEAVE_REPLY",
+            Self::ChannelMlsCommit => "CHANNEL_MLS_COMMIT",
+            Self::ChannelMlsWelcome => "CHANNEL_MLS_WELCOME",
+            Self::ChannelMlsAck => "CHANNEL_MLS_ACK",
         }
     }
     /// Creates an enum from field names used in the ProtoBuf definition.
@@ -170,6 +176,9 @@ impl SessionHeaderType {
             "CHANNEL_JOIN_REPLY" => Some(Self::ChannelJoinReply),
             "CHANNEL_LEAVE_REQUEST" => Some(Self::ChannelLeaveRequest),
             "CHANNEL_LEAVE_REPLY" => Some(Self::ChannelLeaveReply),
+            "CHANNEL_MLS_COMMIT" => Some(Self::ChannelMlsCommit),
+            "CHANNEL_MLS_WELCOME" => Some(Self::ChannelMlsWelcome),
+            "CHANNEL_MLS_ACK" => Some(Self::ChannelMlsAck),
             _ => None,
         }
     }
