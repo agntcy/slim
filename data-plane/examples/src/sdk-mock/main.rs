@@ -11,7 +11,8 @@ use tracing::info;
 use slim::config;
 use slim_auth::simple::Simple;
 use slim_service::{
-    FireAndForgetConfiguration, interceptor_mls,
+    FireAndForgetConfiguration,
+    interceptor_mls::{self, MlsInterceptor},
     session::{self, SessionConfig},
 };
 
@@ -197,8 +198,8 @@ async fn main() {
             info!("Client successfully joined group");
 
             // enable mls for the session with group_id
-            let interceptor = interceptor_mls::MlsInterceptor::new(Arc::new(Mutex::new(client_mls)));
-            app.add_interceptor(session.id, Box::new(interceptor))
+            let interceptor = MlsInterceptor::new(Arc::new(Mutex::new(client_mls)));
+            app.add_interceptor(session.id, Arc::new(interceptor))
                 .await
                 .unwrap();
         }
@@ -241,7 +242,7 @@ async fn main() {
                     let interceptor = interceptor_mls::MlsInterceptor::new(
                         Arc::new(Mutex::new(mls)),
                     );
-                    app.add_interceptor(session_msg.info.id, Box::new(interceptor))
+                    app.add_interceptor(session_msg.info.id, Arc::new(interceptor))
                         .await
                         .unwrap();
                     server_session_created = true;
@@ -273,9 +274,6 @@ async fn main() {
     }
 
     info!("sdk-mock shutting down");
-
-    // Delete app
-    drop(app);
 
     // consume the service and get the drain signal
     let signal = svc.signal();

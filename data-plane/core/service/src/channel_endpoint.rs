@@ -17,8 +17,9 @@ use tracing::{debug, error, info, trace};
 
 use crate::{
     errors::{ChannelEndpointError, SessionError},
-    session::{AppChannelSender, Id, SlimChannelSender},
+    session::{Id, SessionTransmitter},
 };
+
 use slim_datapath::{
     api::{
         SessionHeader, SlimHeader,
@@ -30,31 +31,39 @@ use slim_datapath::{
 use crate::interceptor_mls::METADATA_MLS_ENABLED;
 use crate::interceptor_mls::METADATA_MLS_INIT_COMMIT_ID;
 
-struct RequestTimerObserver {
+struct RequestTimerObserver<T>
+where
+    T: SessionTransmitter + Send + Sync + Clone + 'static,
+{
     /// message to send in case of timeout
     message: Message,
 
-    /// channel to the local slim instance
-    send_slim: SlimChannelSender,
-
-    /// channel to send messages to the application (used to signal errors)
-    send_app: AppChannelSender,
+    /// transmitter to send messages to the local SLIM instance and to the application
+    tx: T,
 }
 
 #[async_trait]
-impl crate::timer::TimerObserver for RequestTimerObserver {
+impl<T> crate::timer::TimerObserver for RequestTimerObserver<T>
+where
+    T: SessionTransmitter + Send + Sync + Clone + 'static,
+{
     async fn on_timeout(&self, timer_id: u32, timeouts: u32) {
         trace!("timeout number {} for request {}", timeouts, timer_id);
 
-        if self.send_slim.send(Ok(self.message.clone())).await.is_err() {
+        if self
+            .tx
+            .send_to_slim(Ok(self.message.clone()))
+            .await
+            .is_err()
+        {
             error!("error sending invite message");
         }
     }
 
     async fn on_failure(&self, _timer_id: u32, _timeouts: u32) {
         error!("unable to send message {:?}, stop retrying", self.message);
-        self.send_app
-            .send(Err(SessionError::Processing(
+        self.tx
+            .send_to_app(Err(SessionError::Processing(
                 "timer failed on channel endpoint. Stop sending messages".to_string(),
             )))
             .await
@@ -72,12 +81,18 @@ trait OnMessageReceived {
 }
 
 #[derive(Debug)]
-pub enum ChannelEndpoint {
-    ChannelParticipant(ChannelParticipant),
-    ChannelModerator(ChannelModerator),
+pub enum ChannelEndpoint<T>
+where
+    T: SessionTransmitter + Send + Sync + Clone + 'static,
+{
+    ChannelParticipant(ChannelParticipant<T>),
+    ChannelModerator(ChannelModerator<T>),
 }
 
-impl ChannelEndpoint {
+impl<T> ChannelEndpoint<T>
+where
+    T: SessionTransmitter + Send + Sync + Clone + 'static,
+{
     pub async fn on_message(&mut self, msg: Message) {
         match self {
             ChannelEndpoint::ChannelParticipant(cp) => {
@@ -300,7 +315,11 @@ impl MlsState {
 }
 
 #[derive(Debug)]
-struct Endpoint {
+
+struct Endpoint<T>
+where
+    T: SessionTransmitter + Send + Sync + Clone + 'static,
+{
     /// endpoint name
     name: Agent,
 
@@ -316,25 +335,24 @@ struct Endpoint {
     /// true is the endpoint is already subscribed to the channel
     subscribed: bool,
 
-    /// channel to send messages to the local slim instance
-    send_slim: SlimChannelSender,
-
-    /// channel to send messages to the application (used to signal errors)
-    send_app: AppChannelSender,
-
     /// mls state
     mls_state: MlsState,
+
+    /// transmitter to send messages to the local SLIM instance and to the application
+    tx: T,
 }
 
-impl Endpoint {
+impl<T> Endpoint<T>
+where
+    T: SessionTransmitter + Send + Sync + Clone + 'static,
+{
     pub fn new(
         name: &Agent,
         channel_name: &AgentType,
         session_id: Id,
         conn: u64,
-        send_slim: SlimChannelSender,
-        send_app: AppChannelSender,
         mls: Option<Arc<Mutex<Mls>>>,
+        tx: T,
     ) -> Self {
         Endpoint {
             name: name.clone(),
@@ -342,14 +360,13 @@ impl Endpoint {
             session_id,
             conn,
             subscribed: false,
-            send_slim,
-            send_app,
             mls_state: MlsState {
                 init: false,
                 mls,
                 group: vec![],
                 last_commit_id: 0,
             },
+            tx,
         }
     }
 
@@ -424,10 +441,10 @@ impl Endpoint {
     }
 
     async fn send(&self, msg: Message) {
-        if self.send_slim.send(Ok(msg)).await.is_err() {
+        if self.tx.send_to_slim(Ok(msg)).await.is_err() {
             error!("error sending message to slim from channel manager");
-            self.send_app
-                .send(Err(SessionError::Processing(
+            self.tx
+                .send_to_app(Err(SessionError::Processing(
                     "error sending message to local slim instance".to_string(),
                 )))
                 .await
@@ -437,34 +454,29 @@ impl Endpoint {
 }
 
 #[derive(Debug)]
-pub struct ChannelParticipant {
-    endpoint: Endpoint,
+pub struct ChannelParticipant<T>
+where
+    T: SessionTransmitter + Send + Sync + Clone + 'static,
+{
+    endpoint: Endpoint<T>,
 }
 
-impl ChannelParticipant {
+impl<T> ChannelParticipant<T>
+where
+    T: SessionTransmitter + Send + Sync + Clone + 'static,
+{
     pub fn new(
         name: &Agent,
         channel_name: &AgentType,
         session_id: Id,
         conn: u64,
-        send_slim: SlimChannelSender,
-        send_app: AppChannelSender,
         mls: Option<Arc<Mutex<Mls>>>,
+        tx: T,
     ) -> Self {
-        let endpoint = Endpoint::new(
-            name,
-            channel_name,
-            session_id,
-            conn,
-            send_slim,
-            send_app,
-            mls,
-        );
+        let endpoint = Endpoint::new(name, channel_name, session_id, conn, mls, tx);
         ChannelParticipant { endpoint }
     }
-}
 
-impl ChannelParticipant {
     async fn on_discovery_request(&mut self, msg: Message) {
         // set local state according to the info in the message
         self.endpoint.conn = msg.get_incoming_conn();
@@ -629,7 +641,10 @@ impl ChannelParticipant {
     }
 }
 
-impl OnMessageReceived for ChannelParticipant {
+impl<T> OnMessageReceived for ChannelParticipant<T>
+where
+    T: SessionTransmitter + Send + Sync + Clone + 'static,
+{
     async fn on_message(&mut self, msg: Message) {
         let msg_type = msg.get_session_header().header_type();
         match msg_type {
@@ -675,8 +690,11 @@ impl OnMessageReceived for ChannelParticipant {
 }
 
 #[derive(Debug)]
-pub struct ChannelModerator {
-    endpoint: Endpoint,
+pub struct ChannelModerator<T>
+where
+    T: SessionTransmitter + Send + Sync + Clone + 'static,
+{
+    endpoint: Endpoint<T>,
 
     /// list of endpoint names in the channel
     channel_list: HashSet<Agent>,
@@ -701,7 +719,10 @@ pub struct ChannelModerator {
 }
 
 #[allow(clippy::too_many_arguments)]
-impl ChannelModerator {
+impl<T> ChannelModerator<T>
+where
+    T: SessionTransmitter + Send + Sync + Clone + 'static,
+{
     pub fn new(
         name: &Agent,
         channel_name: &AgentType,
@@ -709,23 +730,15 @@ impl ChannelModerator {
         conn: u64,
         max_retries: u32,
         retries_interval: Duration,
-        send_slim: SlimChannelSender,
-        send_app: AppChannelSender,
         mls: Option<Arc<Mutex<Mls>>>,
+        tx: T,
     ) -> Self {
         let invite_payload: Vec<u8> =
             bincode::encode_to_vec(channel_name, bincode::config::standard())
                 .expect("unable to parse channel name as payload");
 
-        let endpoint = Endpoint::new(
-            name,
-            channel_name,
-            session_id,
-            conn,
-            send_slim,
-            send_app,
-            mls,
-        );
+        let endpoint = Endpoint::new(name, channel_name, session_id, conn, mls, tx);
+
         ChannelModerator {
             endpoint,
             channel_list: HashSet::new(),
@@ -767,8 +780,7 @@ impl ChannelModerator {
     fn create_timer(&mut self, key: u32, pending_mesasges: u32, msg: Message) {
         let observer = Arc::new(RequestTimerObserver {
             message: msg,
-            send_slim: self.endpoint.send_slim.clone(),
-            send_app: self.endpoint.send_app.clone(),
+            tx: self.endpoint.tx.clone(),
         });
 
         let timer = crate::timer::Timer::new(
@@ -907,7 +919,10 @@ impl ChannelModerator {
     }
 }
 
-impl OnMessageReceived for ChannelModerator {
+impl<T> OnMessageReceived for ChannelModerator<T>
+where
+    T: SessionTransmitter + Send + Sync + Clone + 'static,
+{
     async fn on_message(&mut self, msg: Message) {
         let msg_type = msg.get_session_header().header_type();
         match msg_type {
@@ -953,6 +968,8 @@ impl OnMessageReceived for ChannelModerator {
 
 /*#[cfg(test)]
 mod tests {
+    use crate::testutils::MockTransmitter;
+
     use super::*;
     use tracing_test::traced_test;
 
@@ -967,6 +984,16 @@ mod tests {
         let (moderator_tx, mut moderator_rx) = tokio::sync::mpsc::channel(50);
         let (participant_tx, mut participant_rx) = tokio::sync::mpsc::channel(50);
 
+        let moderator_tx = MockTransmitter {
+            tx_app: tx_app.clone(),
+            tx_slim: moderator_tx,
+        };
+
+        let participant_tx = MockTransmitter {
+            tx_app: tx_app.clone(),
+            tx_slim: participant_tx,
+        };
+
         let moderator = Agent::from_strings("org", "default", "moderator", 12345);
         let participant = Agent::from_strings("org", "default", "participant", 5120);
         let channel_name = AgentType::from_strings("channel", "channel", "channel");
@@ -980,7 +1007,6 @@ mod tests {
             3,
             Duration::from_millis(100),
             moderator_tx,
-            tx_app.clone(),
         );
         let mut cp = ChannelParticipant::new(
             &participant,
@@ -988,7 +1014,6 @@ mod tests {
             SESSION_ID,
             conn,
             participant_tx,
-            tx_app.clone(),
         );
 
         // create a discovery request

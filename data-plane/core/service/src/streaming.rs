@@ -11,9 +11,8 @@ use crate::{
     errors::SessionError,
     producer_buffer, receiver_buffer,
     session::{
-        AppChannelSender, Common, CommonSession, Id, Info, Interceptor, MessageHandler,
-        SessionConfig, SessionConfigTrait, SessionDirection, SessionInterceptor, SlimChannelSender,
-        State,
+        Common, CommonSession, Id, Info, MessageHandler, SessionConfig, SessionConfigTrait,
+        SessionDirection, SessionTransmitter, State,
     },
     timer,
 };
@@ -208,20 +207,22 @@ enum Endpoint {
     Bidirectional(BidirectionalState),
 }
 
-pub(crate) struct Streaming<P, V>
+pub(crate) struct Streaming<P, V, T>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
+    T: SessionTransmitter + Send + Sync + Clone + 'static,
 {
-    common: Common<P, V>,
-    channel_endpoint: Arc<Mutex<ChannelEndpoint>>, // TODO remove this mutex
+    common: Common<P, V, T>,
+    channel_endpoint: Arc<Mutex<ChannelEndpoint<T>>>, // TODO remove this mutex
     tx: mpsc::Sender<Result<(Message, MessageDirection), Status>>,
 }
 
-impl<P, V> Streaming<P, V>
+impl<P, V, T> Streaming<P, V, T>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
+    T: SessionTransmitter + Send + Sync + Clone + 'static,
 {
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn new(
@@ -230,8 +231,7 @@ where
         session_direction: SessionDirection,
         agent: Agent,
         conn_id: u64,
-        tx_slim: SlimChannelSender,
-        tx_app: AppChannelSender,
+        tx_slim_app: T,
         identity_provider: P,
         identity_verifier: V,
     ) -> Self {
@@ -244,14 +244,13 @@ where
             session_direction.clone(),
             SessionConfig::Streaming(session_config.clone()),
             agent.clone(),
-            tx_slim.clone(),
-            tx_app.clone(),
+            tx_slim_app.clone(),
             identity_provider,
             identity_verifier,
             true, // TODO fix this
         );
 
-        let channel_endpoint: ChannelEndpoint = if session_config.moderator {
+        let channel_endpoint: ChannelEndpoint<T> = if session_config.moderator {
             let cm = ChannelModerator::new(
                 &agent,
                 &session_config.channel_name,
@@ -259,9 +258,8 @@ where
                 conn_id,
                 60,
                 Duration::from_secs(1),
-                tx_slim.clone(),
-                tx_app.clone(),
                 common.mls(),
+                tx_slim_app.clone(),
             );
             ChannelEndpoint::ChannelModerator(cm)
         } else {
@@ -270,9 +268,8 @@ where
                 &session_config.channel_name,
                 id,
                 conn_id,
-                tx_slim.clone(),
-                tx_app.clone(),
                 common.mls(),
+                tx_slim_app.clone(),
             );
             ChannelEndpoint::ChannelParticipant(cp)
         };
@@ -291,8 +288,7 @@ where
         session_direction: SessionDirection,
     ) {
         let session_id = self.common.id();
-        let send_slim = self.common.tx_slim();
-        let send_app = self.common.tx_app();
+        let tx = self.common.tx();
         let source = self.common.source().clone();
 
         let (max_retries, timeout) = match self.common.session_config() {
@@ -391,17 +387,17 @@ where
                                                     }
                                                 };
 
-                                                process_incoming_rtx_request(msg, session_id, producer, &source, &send_slim).await;
+                                                process_incoming_rtx_request(msg, session_id, producer, &source, &tx).await;
                                             }
                                             MessageDirection::South => {
                                                 // received a message from the APP
-                                                process_message_from_app(msg, session_id, producer, false, &send_slim, &send_app).await;
+                                                process_message_from_app(msg, session_id, producer, false, &tx).await;
                                             }
                                         }
                                     }
                                     Endpoint::Receiver(receiver) => {
                                         trace!("received message from the gataway on receiver session {}", session_id);
-                                        process_message_from_slim(msg, session_id, receiver, &source, max_retries, timeout, &rtx_timer_tx, &send_slim, &send_app).await;
+                                        process_message_from_slim(msg, session_id, receiver, &source, max_retries, timeout, &rtx_timer_tx, &tx).await;
                                     }
                                     Endpoint::Bidirectional(state) => {
                                         match direction {
@@ -424,10 +420,10 @@ where
                                                     }
                                                     SessionHeaderType::RtxRequest => {
                                                         // handle RTX request
-                                                        process_incoming_rtx_request(msg, session_id, &state.producer, &source, &send_slim).await;
+                                                        process_incoming_rtx_request(msg, session_id, &state.producer, &source, &tx).await;
                                                     }
                                                     _ => {
-                                                        process_message_from_slim(msg, session_id, &mut state.receiver, &source, max_retries, timeout, &rtx_timer_tx, &send_slim, &send_app).await;
+                                                        process_message_from_slim(msg, session_id, &mut state.receiver, &source, max_retries, timeout, &rtx_timer_tx, &tx).await;
                                                     }
                                                 }
                                             }
@@ -440,7 +436,7 @@ where
                                                         lock.on_message(msg).await;
                                                     }
                                                     _ => {
-                                                        process_message_from_app(msg, session_id, &mut state.producer, true, &send_slim, &send_app).await;
+                                                        process_message_from_app(msg, session_id, &mut state.producer, true, &tx).await;
                                                     }
                                                 }
                                             }
@@ -467,9 +463,9 @@ where
                                 match &mut endpoint {
                                     Endpoint::Receiver(receiver) => {
                                         if retry {
-                                            handle_rtx_timeout(receiver, &producer_name, msg_id, session_id, &send_slim).await;
+                                            handle_rtx_timeout(receiver, &producer_name, msg_id, session_id, &tx).await;
                                         } else {
-                                            handle_rtx_failure(receiver, &producer_name, msg_id, session_id, &send_app).await;
+                                            handle_rtx_failure(receiver, &producer_name, msg_id, session_id, &tx).await;
                                         }
                                     }
                                     Endpoint::Producer(_) => {
@@ -478,9 +474,9 @@ where
                                     }
                                     Endpoint::Bidirectional(state) => {
                                         if retry {
-                                            handle_rtx_timeout(&mut state.receiver, &producer_name, msg_id, session_id, &send_slim).await;
+                                            handle_rtx_timeout(&mut state.receiver, &producer_name, msg_id, session_id, &tx).await;
                                         } else {
-                                            handle_rtx_failure(&mut state.receiver, &producer_name, msg_id, session_id, &send_app).await;
+                                            handle_rtx_failure(&mut state.receiver, &producer_name, msg_id, session_id, &tx).await;
                                         }
                                     }
                                 }
@@ -501,13 +497,13 @@ where
                                             let last_msg_id = producer.next_id - 1;
                                             debug!("received producer timer, last packet = {}", last_msg_id);
 
-                                            send_beacon_msg(&source, producer.buffer.get_destination_name(), SessionHeaderType::BeaconStream, last_msg_id, session_id, &send_slim).await;
+                                            send_beacon_msg(&source, producer.buffer.get_destination_name(), SessionHeaderType::BeaconStream, last_msg_id, session_id, &tx).await;
                                         }
                                         Endpoint::Bidirectional(state) => {
                                             let last_msg_id = state.producer.next_id - 1;
                                             debug!("received producer timer, last packet = {}", last_msg_id);
 
-                                            send_beacon_msg(&source, state.producer.buffer.get_destination_name(), SessionHeaderType::BeaconPubSub, last_msg_id, session_id, &send_slim).await;
+                                            send_beacon_msg(&source, state.producer.buffer.get_destination_name(), SessionHeaderType::BeaconPubSub, last_msg_id, session_id, &tx).await;
                                         }
                                         _ => {
                                             error!("received producer timer on a non producer buffer");
@@ -533,13 +529,15 @@ where
     }
 }
 
-async fn process_incoming_rtx_request(
+async fn process_incoming_rtx_request<T>(
     msg: Message,
     session_id: u32,
     producer: &ProducerState,
     source: &Agent,
-    send_slim: &mpsc::Sender<Result<Message, Status>>,
-) {
+    tx: &T,
+) where
+    T: SessionTransmitter + Send + Sync + Clone + 'static,
+{
     let msg_rtx_id = msg.get_id();
 
     trace!(
@@ -619,19 +617,20 @@ async fn process_incoming_rtx_request(
     };
 
     trace!("send rtx reply for message {}", msg_rtx_id);
-    if send_slim.send(Ok(rtx_pub)).await.is_err() {
+    if tx.send_to_slim(Ok(rtx_pub)).await.is_err() {
         error!("error sending RTX packet to slim on session {}", session_id);
     }
 }
 
-async fn process_message_from_app(
+async fn process_message_from_app<T>(
     mut msg: Message,
     session_id: u32,
     producer: &mut ProducerState,
     is_bidirectional: bool,
-    send_slim: &mpsc::Sender<Result<Message, Status>>,
-    send_app: &mpsc::Sender<Result<SessionMessage, SessionError>>,
-) {
+    tx: &T,
+) where
+    T: SessionTransmitter + Send + Sync + Clone + 'static,
+{
     // set the session header, add the message to the buffer and send it
     trace!("received message from the app on session {}", session_id);
 
@@ -657,17 +656,16 @@ async fn process_message_from_app(
     );
     producer.next_id += 1;
 
-    if send_slim.send(Ok(msg)).await.is_err() {
+    if tx.send_to_slim(Ok(msg)).await.is_err() {
         error!(
             "error sending publication packet to slim on session {}",
             session_id
         );
-        send_app
-            .send(Err(SessionError::Processing(
-                "error sending message to local slim instance".to_string(),
-            )))
-            .await
-            .expect("error notifying app");
+        tx.send_to_app(Err(SessionError::Processing(
+            "error sending message to local slim instance".to_string(),
+        )))
+        .await
+        .expect("error notifying app");
     }
 
     // set timer for this message
@@ -675,7 +673,7 @@ async fn process_message_from_app(
 }
 
 #[allow(clippy::too_many_arguments)]
-async fn process_message_from_slim(
+async fn process_message_from_slim<T>(
     msg: Message,
     session_id: u32,
     receiver_state: &mut ReceiverState,
@@ -683,9 +681,10 @@ async fn process_message_from_slim(
     max_retries: u32,
     timeout: Duration,
     rtx_timer_tx: &mpsc::Sender<Result<(u32, bool, Agent), Status>>,
-    send_slim: &mpsc::Sender<Result<Message, Status>>,
-    send_app: &mpsc::Sender<Result<SessionMessage, SessionError>>,
-) {
+    tx: &T,
+) where
+    T: SessionTransmitter + Send + Sync + Clone + 'static,
+{
     let producer_name = msg.get_source();
     let producer_conn = msg.get_incoming_conn();
 
@@ -764,7 +763,7 @@ async fn process_message_from_slim(
 
     // send packets to the app
     if !recv.is_empty() {
-        send_message_to_app(recv, session_id, send_app).await;
+        send_message_to_app(recv, session_id, tx).await;
     }
 
     // send RTX
@@ -802,19 +801,21 @@ async fn process_message_from_slim(
         receiver.rtx_map.insert(r, rtx.clone());
         receiver.timers_map.insert(r, timer);
 
-        if send_slim.send(Ok(rtx)).await.is_err() {
+        if tx.send_to_slim(Ok(rtx)).await.is_err() {
             error!("error sending RTX for id {} on session {}", r, session_id);
         }
     }
 }
 
-async fn handle_rtx_timeout(
+async fn handle_rtx_timeout<T>(
     receiver_state: &mut ReceiverState,
     producer_name: &Agent,
     msg_id: u32,
     session_id: u32,
-    send_slim: &mpsc::Sender<Result<Message, Status>>,
-) {
+    tx: &T,
+) where
+    T: SessionTransmitter + Send + Sync + Clone + 'static,
+{
     trace!(
         "try to send rtx for packet {} on receiver session {}",
         msg_id, session_id
@@ -847,7 +848,7 @@ async fn handle_rtx_timeout(
         }
     };
 
-    if send_slim.send(Ok(rtx.clone())).await.is_err() {
+    if tx.send_to_slim(Ok(rtx.clone())).await.is_err() {
         error!(
             "error sending RTX for id {} on session {}",
             msg_id, session_id
@@ -855,13 +856,15 @@ async fn handle_rtx_timeout(
     }
 }
 
-async fn handle_rtx_failure(
+async fn handle_rtx_failure<T>(
     receiver_state: &mut ReceiverState,
     producer_name: &Agent,
     msg_id: u32,
     session_id: u32,
-    send_app: &mpsc::Sender<Result<SessionMessage, SessionError>>,
-) {
+    tx: &T,
+) where
+    T: SessionTransmitter + Send + Sync + Clone + 'static,
+{
     trace!("packet {} lost, not retries left", msg_id);
 
     let receiver = match receiver_state.buffers.get_mut(producer_name) {
@@ -875,22 +878,19 @@ async fn handle_rtx_failure(
     receiver.rtx_map.remove(&msg_id);
     receiver.timers_map.remove(&msg_id);
 
-    send_message_to_app(
-        receiver.buffer.on_lost_message(msg_id),
-        session_id,
-        send_app,
-    )
-    .await;
+    send_message_to_app(receiver.buffer.on_lost_message(msg_id), session_id, tx).await;
 }
 
-async fn send_beacon_msg(
+async fn send_beacon_msg<T>(
     source: &Agent,
     topic: &AgentType,
     beacon_type: SessionHeaderType,
     last_msg_id: u32,
     session_id: u32,
-    send_slim: &mpsc::Sender<Result<Message, Status>>,
-) {
+    tx: &T,
+) where
+    T: SessionTransmitter + Send + Sync + Clone + 'static,
+{
     let slim_header = Some(SlimHeader::new(
         source,
         topic,
@@ -908,30 +908,29 @@ async fn send_beacon_msg(
 
     trace!("beacon to send {:?}", msg);
 
-    if send_slim.send(Ok(msg)).await.is_err() {
+    if tx.send_to_slim(Ok(msg)).await.is_err() {
         error!("error sending beacon msg to slim on session {}", session_id);
     }
 }
 
-async fn send_message_to_app(
-    messages: Vec<Option<Message>>,
-    session_id: u32,
-    send_app: &mpsc::Sender<Result<SessionMessage, SessionError>>,
-) {
+async fn send_message_to_app<T>(messages: Vec<Option<Message>>, session_id: u32, tx: &T)
+where
+    T: SessionTransmitter + Send + Sync + Clone + 'static,
+{
     for opt in messages {
         match opt {
             Some(m) => {
                 let info = Info::from(&m);
                 let session_msg = SessionMessage::new(m, info);
                 // send message to the app
-                if send_app.send(Ok(session_msg)).await.is_err() {
+                if tx.send_to_app(Ok(session_msg)).await.is_err() {
                     error!("error sending packet to slim on session {}", session_id);
                 }
             }
             None => {
                 warn!("a message was definitely lost in session {}", session_id);
-                let _ = send_app
-                    .send(Err(SessionError::MessageLost(session_id.to_string())))
+                let _ = tx
+                    .send_to_app(Err(SessionError::MessageLost(session_id.to_string())))
                     .await;
             }
         }
@@ -939,10 +938,11 @@ async fn send_message_to_app(
 }
 
 #[async_trait]
-impl<P, V> MessageHandler for Streaming<P, V>
+impl<P, V, T> MessageHandler for Streaming<P, V, T>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
+    T: SessionTransmitter + Send + Sync + Clone + 'static,
 {
     async fn on_message(
         &self,
@@ -956,20 +956,12 @@ where
     }
 }
 
-impl<P, V> Interceptor for Streaming<P, V>
+#[async_trait]
+impl<P, V, T> CommonSession<P, V, T> for Streaming<P, V, T>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
-{
-    fn add_interceptor(&self, interceptor: Box<dyn SessionInterceptor + Send + Sync + 'static>) {
-        self.common.add_interceptor(interceptor);
-    }
-}
-
-impl<P, V> CommonSession<P, V> for Streaming<P, V>
-where
-    P: TokenProvider + Send + Sync + Clone + 'static,
-    V: Verifier + Send + Sync + Clone + 'static,
+    T: SessionTransmitter + Send + Sync + Clone + 'static,
 {
     fn id(&self) -> Id {
         // concat the token stream
@@ -1000,18 +992,20 @@ where
         self.common.identity_verifier().clone()
     }
 
-    fn on_message_from_app_interceptors(&self, msg: &mut Message) -> Result<(), SessionError> {
-        self.common.on_message_from_app_interceptors(msg)
+    fn tx(&self) -> T {
+        self.common.tx().clone()
     }
 
-    fn on_message_from_slim_interceptors(&self, msg: &mut Message) -> Result<(), SessionError> {
-        self.common.on_message_from_slim_interceptors(msg)
+    fn tx_ref(&self) -> &T {
+        self.common.tx_ref()
     }
 }
 
 #[cfg(test)]
 mod tests {
     use std::time::Duration;
+
+    use crate::testutils::MockTransmitter;
 
     use super::*;
     use slim_auth::simple::Simple;
@@ -1026,6 +1020,11 @@ mod tests {
         let (tx_slim, _) = tokio::sync::mpsc::channel(1);
         let (tx_app, _) = tokio::sync::mpsc::channel(1);
 
+        let tx = MockTransmitter {
+            tx_slim: tx_slim.clone(),
+            tx_app: tx_app.clone(),
+        };
+
         let source = Agent::from_strings("cisco", "default", "local_agent", 0);
         let conn_id = 1;
 
@@ -1038,8 +1037,7 @@ mod tests {
             SessionDirection::Sender,
             source.clone(),
             conn_id,
-            tx_slim.clone(),
-            tx_app.clone(),
+            tx.clone(),
             Simple::new("token"),
             Simple::new("token"),
         );
@@ -1065,8 +1063,7 @@ mod tests {
             SessionDirection::Receiver,
             source.clone(),
             conn_id,
-            tx_slim,
-            tx_app,
+            tx,
             Simple::new("token"),
             Simple::new("token"),
         );
@@ -1085,8 +1082,18 @@ mod tests {
         let (tx_slim_sender, mut rx_slim_sender) = tokio::sync::mpsc::channel(1);
         let (tx_app_sender, _rx_app_sender) = tokio::sync::mpsc::channel(1);
 
+        let tx_sender = MockTransmitter {
+            tx_slim: tx_slim_sender,
+            tx_app: tx_app_sender,
+        };
+
         let (tx_slim_receiver, _rx_slim_receiver) = tokio::sync::mpsc::channel(1);
         let (tx_app_receiver, mut rx_app_receiver) = tokio::sync::mpsc::channel(1);
+
+        let tx_receiver = MockTransmitter {
+            tx_slim: tx_slim_receiver,
+            tx_app: tx_app_receiver,
+        };
 
         let session_config_sender: StreamingConfiguration =
             StreamingConfiguration::new(SessionDirection::Sender, None, false, None, None);
@@ -1109,8 +1116,7 @@ mod tests {
             SessionDirection::Sender,
             send.clone(),
             conn_id,
-            tx_slim_sender,
-            tx_app_sender,
+            tx_sender,
             Simple::new("token"),
             Simple::new("token"),
         );
@@ -1120,8 +1126,7 @@ mod tests {
             SessionDirection::Receiver,
             recv.clone(),
             conn_id,
-            tx_slim_receiver,
-            tx_app_receiver,
+            tx_receiver,
             Simple::new("token"),
             Simple::new("token"),
         );
@@ -1173,6 +1178,8 @@ mod tests {
         let (tx_slim, mut rx_slim) = tokio::sync::mpsc::channel(1);
         let (tx_app, mut rx_app) = tokio::sync::mpsc::channel(1);
 
+        let tx: MockTransmitter = MockTransmitter { tx_slim, tx_app };
+
         let session_config: StreamingConfiguration = StreamingConfiguration::new(
             SessionDirection::Receiver,
             None,
@@ -1190,8 +1197,7 @@ mod tests {
             SessionDirection::Receiver,
             agent.clone(),
             conn_id,
-            tx_slim,
-            tx_app,
+            tx,
             Simple::new("token"),
             Simple::new("token"),
         );
@@ -1256,6 +1262,8 @@ mod tests {
         let (tx_slim, mut rx_slim) = tokio::sync::mpsc::channel(8);
         let (tx_app, _rx_app) = tokio::sync::mpsc::channel(8);
 
+        let tx = MockTransmitter { tx_slim, tx_app };
+
         let session_config: StreamingConfiguration = StreamingConfiguration::new(
             SessionDirection::Receiver,
             None,
@@ -1274,8 +1282,7 @@ mod tests {
             SessionDirection::Sender,
             agent.clone(),
             conn_id,
-            tx_slim,
-            tx_app,
+            tx,
             Simple::new("token"),
             Simple::new("token"),
         );
@@ -1358,8 +1365,18 @@ mod tests {
         let (tx_slim_sender, mut rx_slim_sender) = tokio::sync::mpsc::channel(1);
         let (tx_app_sender, _rx_app_sender) = tokio::sync::mpsc::channel(1);
 
+        let tx_sender = MockTransmitter {
+            tx_slim: tx_slim_sender,
+            tx_app: tx_app_sender,
+        };
+
         let (tx_slim_receiver, mut rx_slim_receiver) = tokio::sync::mpsc::channel(1);
         let (tx_app_receiver, mut rx_app_receiver) = tokio::sync::mpsc::channel(1);
+
+        let tx_receiver = MockTransmitter {
+            tx_slim: tx_slim_receiver,
+            tx_app: tx_app_receiver,
+        };
 
         let session_config_sender: StreamingConfiguration =
             StreamingConfiguration::new(SessionDirection::Sender, None, false, None, None);
@@ -1383,8 +1400,7 @@ mod tests {
             SessionDirection::Sender,
             send.clone(),
             conn_id,
-            tx_slim_sender,
-            tx_app_sender,
+            tx_sender,
             Simple::new("token"),
             Simple::new("token"),
         );
@@ -1394,8 +1410,7 @@ mod tests {
             SessionDirection::Receiver,
             recv.clone(),
             conn_id,
-            tx_slim_receiver,
-            tx_app_receiver,
+            tx_receiver,
             Simple::new("token"),
             Simple::new("token"),
         );
@@ -1583,6 +1598,8 @@ mod tests {
         let (tx_slim, _) = tokio::sync::mpsc::channel(1);
         let (tx_app, _) = tokio::sync::mpsc::channel(1);
 
+        let tx: MockTransmitter = MockTransmitter { tx_slim, tx_app };
+
         let conn_id = 1;
 
         let source = Agent::from_strings("cisco", "default", "local_agent", 0);
@@ -1597,8 +1614,7 @@ mod tests {
                 SessionDirection::Sender,
                 source.clone(),
                 conn_id,
-                tx_slim.clone(),
-                tx_app.clone(),
+                tx,
                 Simple::new("token"),
                 Simple::new("token"),
             );
