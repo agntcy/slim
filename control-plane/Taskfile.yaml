@@ -136,7 +136,7 @@ tasks:
     dir: slimctl/cmd
     cmds:
       - |
-        go generate ./...
+        go generate ./../...
       - |
         go build -o \
           {{.OUTPUT_DIR}}/bin/slimctl \
