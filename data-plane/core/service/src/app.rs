@@ -6,10 +6,6 @@ use std::sync::Arc;
 
 use parking_lot::RwLock as SyncRwLock;
 use rand::Rng;
-use slim_auth::traits::{TokenProvider, Verifier};
-use slim_datapath::api::{MessageType, SessionHeader, SlimHeader};
-use slim_datapath::messages::AgentType;
-use slim_datapath::messages::utils::SlimHeaderFlags;
 use tokio::sync::RwLock as AsyncRwLock;
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::error::SendError;
@@ -26,10 +22,14 @@ use crate::session::{
 };
 use crate::streaming::{self, StreamingConfiguration};
 use crate::{ServiceError, fire_and_forget, session};
+use slim_auth::traits::{TokenProvider, Verifier};
 use slim_datapath::Status;
 use slim_datapath::api::proto::pubsub::v1::Message;
 use slim_datapath::api::proto::pubsub::v1::SessionHeaderType;
+use slim_datapath::api::{MessageType, SessionHeader, SlimHeader};
+use slim_datapath::messages::AgentType;
 use slim_datapath::messages::encoder::Agent;
+use slim_datapath::messages::utils::SlimHeaderFlags;
 
 /// Transmitter used to intercept messages sent from sessions and apply interceptors on them
 #[derive(Clone)]
@@ -219,6 +219,7 @@ where
             default_stream_conf,
         });
 
+        /// Create a new cancellation token for the app receiver loop
         let cancel_token = tokio_util::sync::CancellationToken::new();
 
         Self {
@@ -227,6 +228,7 @@ where
         }
     }
 
+    /// Create a new session with the given configuration
     pub async fn create_session(
         &self,
         session_config: SessionConfig,
@@ -241,6 +243,7 @@ where
         Ok(ret)
     }
 
+    /// Get a session by its ID
     pub async fn delete_session(&self, id: Id) -> Result<(), SessionError> {
         // remove the session from the pool
         if self.session_layer.remove_session(id).await {
@@ -293,6 +296,7 @@ where
             .await
     }
 
+    /// Send a message to the session layer
     async fn send_message(
         &self,
         msg: Message,
@@ -322,6 +326,7 @@ where
         }
     }
 
+    /// Invite someone to a session
     pub async fn invite(
         &self,
         destination: &AgentType,
@@ -357,6 +362,7 @@ where
         self.send_message(msg, Some(session_info)).await
     }
 
+    /// Subscribe the app to receive messages for a name
     pub async fn subscribe(
         &self,
         agent_type: &AgentType,
@@ -379,6 +385,7 @@ where
         self.send_message(msg, None).await
     }
 
+    /// Unsubscribe the app
     pub async fn unsubscribe(
         &self,
         agent_type: &AgentType,
@@ -401,6 +408,7 @@ where
         self.send_message(msg, None).await
     }
 
+    /// Set a route towards another app
     pub async fn set_route(
         &self,
         agent_type: &AgentType,
@@ -437,6 +445,7 @@ where
         self.send_message(msg, None).await
     }
 
+    /// Publish a message to a specific connection
     pub async fn publish_to(
         &self,
         session_info: session::Info,
@@ -455,6 +464,7 @@ where
         .await
     }
 
+    /// Publish a message to a specific app name
     pub async fn publish(
         &self,
         session_info: session::Info,
@@ -472,6 +482,7 @@ where
         .await
     }
 
+    /// Publish a message with specific flags
     pub async fn publish_with_flags(
         &self,
         session_info: session::Info,

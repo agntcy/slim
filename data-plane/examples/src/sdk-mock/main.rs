@@ -278,9 +278,6 @@ async fn main() {
 
     info!("sdk-mock shutting down");
 
-    // Delete app
-    drop(app);
-
     // consume the service and get the drain signal
     let signal = svc.signal();
 
