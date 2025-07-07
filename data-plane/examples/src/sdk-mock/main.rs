@@ -147,6 +147,7 @@ async fn main() {
             .create_session(
                 SessionConfig::FireAndForget(FireAndForgetConfiguration::default()),
                 None,
+                false,
             )
             .await;
         if res.is_err() {

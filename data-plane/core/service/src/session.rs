@@ -530,10 +530,11 @@ where
         tx: T,
         identity_provider: P,
         verifier: V,
-        msl_enabled: bool,
+        mls_enabled: bool,
     ) -> Self {
-        let mls = if msl_enabled {
-            // ?? how to use the right identity here ??
+        let mls = if mls_enabled {
+            // TODO
+            // this must be replaced by the real identity provider in the next PRs
             let mut name = "/tmp/mls_id_".to_owned();
             let rnd = rand::random::<u32>();
             name.push_str(&rnd.to_string());

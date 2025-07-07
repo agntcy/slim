@@ -214,7 +214,7 @@ where
     T: SessionTransmitter + Send + Sync + Clone + 'static,
 {
     common: Common<P, V, T>,
-    channel_endpoint: Arc<Mutex<ChannelEndpoint<T>>>, // TODO remove this mutex
+    channel_endpoint: Arc<Mutex<ChannelEndpoint<T>>>,
     tx: mpsc::Sender<Result<(Message, MessageDirection), Status>>,
 }
 
@@ -234,6 +234,7 @@ where
         tx_slim_app: T,
         identity_provider: P,
         identity_verifier: V,
+        mls_enabled: bool,
     ) -> Self {
         let (tx, rx) = mpsc::channel(128);
 
@@ -247,7 +248,7 @@ where
             tx_slim_app.clone(),
             identity_provider,
             identity_verifier,
-            true, // TODO fix this
+            mls_enabled,
         );
 
         let channel_endpoint: ChannelEndpoint<T> = if session_config.moderator {
@@ -1041,6 +1042,7 @@ mod tests {
             tx.clone(),
             Simple::new("token"),
             Simple::new("token"),
+            false,
         );
 
         assert_eq!(session.id(), 0);
@@ -1067,6 +1069,7 @@ mod tests {
             tx,
             Simple::new("token"),
             Simple::new("token"),
+            false,
         );
 
         assert_eq!(session.id(), 1);
@@ -1120,6 +1123,7 @@ mod tests {
             tx_sender,
             Simple::new("token"),
             Simple::new("token"),
+            false,
         );
         let receiver = Streaming::new(
             0,
@@ -1130,6 +1134,7 @@ mod tests {
             tx_receiver,
             Simple::new("token"),
             Simple::new("token"),
+            false,
         );
 
         let mut message = Message::new_publish(
@@ -1201,6 +1206,7 @@ mod tests {
             tx,
             Simple::new("token"),
             Simple::new("token"),
+            false,
         );
 
         let mut message = Message::new_publish(
@@ -1286,6 +1292,7 @@ mod tests {
             tx,
             Simple::new("token"),
             Simple::new("token"),
+            false,
         );
 
         let mut message = Message::new_publish(
@@ -1404,6 +1411,7 @@ mod tests {
             tx_sender,
             Simple::new("token"),
             Simple::new("token"),
+            false,
         );
         let receiver = Streaming::new(
             0,
@@ -1414,6 +1422,7 @@ mod tests {
             tx_receiver,
             Simple::new("token"),
             Simple::new("token"),
+            false,
         );
 
         let mut message = Message::new_publish(
@@ -1618,6 +1627,7 @@ mod tests {
                 tx,
                 Simple::new("token"),
                 Simple::new("token"),
+                false,
             );
         }
 

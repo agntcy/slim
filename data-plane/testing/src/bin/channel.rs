@@ -208,6 +208,7 @@ async fn main() {
                     Some(Duration::from_secs(1)),
                 )),
                 None,
+                true,
             )
             .await
             .expect("error creating session");
