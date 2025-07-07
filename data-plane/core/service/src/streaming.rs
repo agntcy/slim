@@ -1010,7 +1010,7 @@ mod tests {
     use crate::testutils::MockTransmitter;
 
     use super::*;
-    use slim_auth::simple::Simple;
+    use slim_auth::simple::SimpleGroup;
     use tokio::time;
     use tracing_test::traced_test;
 
@@ -1040,8 +1040,8 @@ mod tests {
             source.clone(),
             conn_id,
             tx.clone(),
-            Simple::new("token"),
-            Simple::new("token"),
+            SimpleGroup::new("a", "group"),
+            SimpleGroup::new("a", "group"),
             false,
         );
 
@@ -1067,8 +1067,8 @@ mod tests {
             source.clone(),
             conn_id,
             tx,
-            Simple::new("token"),
-            Simple::new("token"),
+            SimpleGroup::new("a", "group"),
+            SimpleGroup::new("a", "group"),
             false,
         );
 
@@ -1121,8 +1121,8 @@ mod tests {
             send.clone(),
             conn_id,
             tx_sender,
-            Simple::new("token"),
-            Simple::new("token"),
+            SimpleGroup::new("a", "group"),
+            SimpleGroup::new("a", "group"),
             false,
         );
         let receiver = Streaming::new(
@@ -1132,8 +1132,8 @@ mod tests {
             recv.clone(),
             conn_id,
             tx_receiver,
-            Simple::new("token"),
-            Simple::new("token"),
+            SimpleGroup::new("a", "group"),
+            SimpleGroup::new("a", "group"),
             false,
         );
 
@@ -1204,8 +1204,8 @@ mod tests {
             agent.clone(),
             conn_id,
             tx,
-            Simple::new("token"),
-            Simple::new("token"),
+            SimpleGroup::new("a", "group"),
+            SimpleGroup::new("a", "group"),
             false,
         );
 
@@ -1290,8 +1290,8 @@ mod tests {
             agent.clone(),
             conn_id,
             tx,
-            Simple::new("token"),
-            Simple::new("token"),
+            SimpleGroup::new("a", "group"),
+            SimpleGroup::new("a", "group"),
             false,
         );
 
@@ -1409,8 +1409,8 @@ mod tests {
             send.clone(),
             conn_id,
             tx_sender,
-            Simple::new("token"),
-            Simple::new("token"),
+            SimpleGroup::new("a", "group"),
+            SimpleGroup::new("a", "group"),
             false,
         );
         let receiver = Streaming::new(
@@ -1420,8 +1420,8 @@ mod tests {
             recv.clone(),
             conn_id,
             tx_receiver,
-            Simple::new("token"),
-            Simple::new("token"),
+            SimpleGroup::new("a", "group"),
+            SimpleGroup::new("a", "group"),
             false,
         );
 
@@ -1625,8 +1625,8 @@ mod tests {
                 source.clone(),
                 conn_id,
                 tx,
-                Simple::new("token"),
-                Simple::new("token"),
+                SimpleGroup::new("a", "group"),
+                SimpleGroup::new("a", "group"),
                 false,
             );
         }

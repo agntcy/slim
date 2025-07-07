@@ -19,7 +19,7 @@ use tokio::sync::RwLock;
 use crate::pysession::PySessionType;
 use crate::pysession::{PySessionConfiguration, PySessionInfo};
 use crate::utils::PyAgentType;
-use slim_auth::simple::Simple;
+use slim_auth::simple::SimpleGroup;
 use slim_config::grpc::client::ClientConfig as PyGrpcClientConfig;
 use slim_config::grpc::server::ServerConfig as PyGrpcServerConfig;
 
@@ -31,7 +31,7 @@ pub struct PyService {
 }
 
 struct PyServiceInternal {
-    app: App<Simple, Simple>,
+    app: App<SimpleGroup, SimpleGroup>,
     service: Service,
     agent: Agent,
     rx: RwLock<session::AppChannelReceiver>,
@@ -76,7 +76,11 @@ impl PyService {
 
         // Get the rx channel
         let (app, rx) = svc
-            .create_app(&agent, Simple::new("secret"), Simple::new("secret"))
+            .create_app(
+                &agent,
+                SimpleGroup::new("a", "group"),
+                SimpleGroup::new("a", "group"),
+            )
             .await?;
 
         // create the service

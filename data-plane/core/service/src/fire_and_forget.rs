@@ -766,7 +766,7 @@ where
 
 #[cfg(test)]
 mod tests {
-    use slim_auth::simple::Simple;
+    use slim_auth::simple::SimpleGroup;
     use std::time::Duration;
     use tracing_test::traced_test;
 
@@ -792,8 +792,8 @@ mod tests {
             SessionDirection::Bidirectional,
             source.clone(),
             tx,
-            Simple::new("test_token_provider"),
-            Simple::new("test_verifier"),
+            SimpleGroup::new("a", "group"),
+            SimpleGroup::new("a", "group"),
             false,
         );
 
@@ -820,8 +820,8 @@ mod tests {
             SessionDirection::Bidirectional,
             source.clone(),
             tx,
-            Simple::new("token"),
-            Simple::new("token"),
+            SimpleGroup::new("a", "group"),
+            SimpleGroup::new("a", "group"),
             false,
         );
 
@@ -871,8 +871,8 @@ mod tests {
             SessionDirection::Bidirectional,
             source.clone(),
             tx,
-            Simple::new("token"),
-            Simple::new("token"),
+            SimpleGroup::new("a", "group"),
+            SimpleGroup::new("a", "group"),
             false,
         );
 
@@ -938,8 +938,8 @@ mod tests {
             SessionDirection::Bidirectional,
             source.clone(),
             tx,
-            Simple::new("token"),
-            Simple::new("token"),
+            SimpleGroup::new("a", "group"),
+            SimpleGroup::new("a", "group"),
             false,
         );
 
@@ -1012,8 +1012,8 @@ mod tests {
             SessionDirection::Bidirectional,
             local.clone(),
             tx_sender,
-            Simple::new("token"),
-            Simple::new("token"),
+            SimpleGroup::new("a", "group"),
+            SimpleGroup::new("a", "group"),
             false,
         );
 
@@ -1024,8 +1024,8 @@ mod tests {
             SessionDirection::Bidirectional,
             remote.clone(),
             tx_receiver,
-            Simple::new("token"),
-            Simple::new("token"),
+            SimpleGroup::new("a", "group"),
+            SimpleGroup::new("a", "group"),
             false,
         );
 
@@ -1122,8 +1122,8 @@ mod tests {
                 SessionDirection::Bidirectional,
                 source.clone(),
                 tx,
-                Simple::new("token"),
-                Simple::new("token"),
+                SimpleGroup::new("a", "group"),
+                SimpleGroup::new("a", "group"),
                 false,
             );
         }
@@ -1168,8 +1168,8 @@ mod tests {
             SessionDirection::Bidirectional,
             local.clone(),
             sender_tx,
-            Simple::new("token"),
-            Simple::new("token"),
+            SimpleGroup::new("a", "group"),
+            SimpleGroup::new("a", "group"),
             false,
         );
 
@@ -1179,8 +1179,8 @@ mod tests {
             SessionDirection::Bidirectional,
             remote.clone(),
             receiver_tx,
-            Simple::new("token"),
-            Simple::new("token"),
+            SimpleGroup::new("a", "group"),
+            SimpleGroup::new("a", "group"),
             false,
         );
 

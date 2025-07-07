@@ -350,7 +350,7 @@ where
 mod tests {
     use super::*;
     use crate::testutils::MockTransmitter;
-    use slim_auth::simple::Simple;
+    use slim_auth::simple::SimpleGroup;
     use slim_datapath::{
         api::{ProtoMessage, ProtoPublish},
         messages::{Agent, AgentType},
@@ -375,8 +375,8 @@ mod tests {
             SessionDirection::Bidirectional,
             source.clone(),
             tx,
-            Simple::new("token"),
-            Simple::new("token"),
+            SimpleGroup::new("a", "group"),
+            SimpleGroup::new("a", "group"),
             false,
         );
 
@@ -407,8 +407,8 @@ mod tests {
             SessionDirection::Bidirectional,
             source.clone(),
             tx,
-            Simple::new("token"),
-            Simple::new("token"),
+            SimpleGroup::new("a", "group"),
+            SimpleGroup::new("a", "group"),
             false,
         );
 
@@ -484,8 +484,8 @@ mod tests {
                 SessionDirection::Bidirectional,
                 source.clone(),
                 tx,
-                Simple::new("token"),
-                Simple::new("token"),
+                SimpleGroup::new("a", "group"),
+                SimpleGroup::new("a", "group"),
                 false,
             );
         }

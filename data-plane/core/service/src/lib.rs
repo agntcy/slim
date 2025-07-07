@@ -523,7 +523,7 @@ mod tests {
     use crate::session::SessionConfig;
 
     use super::*;
-    use slim_auth::simple::Simple;
+    use slim_auth::simple::SimpleGroup;
     use slim_config::grpc::server::ServerConfig;
     use slim_config::tls::server::TlsServerConfig;
     use slim_datapath::api::MessageType;
@@ -591,8 +591,8 @@ mod tests {
         let (sub_app, mut sub_rx) = service
             .create_app(
                 &subscriber_agent,
-                Simple::new("subscriber_agent"),
-                Simple::new("subscriber_agent"),
+                SimpleGroup::new("a", "group"),
+                SimpleGroup::new("a", "group"),
             )
             .await
             .expect("failed to create agent");
@@ -602,8 +602,8 @@ mod tests {
         let (pub_app, _rx) = service
             .create_app(
                 &publisher_agent,
-                Simple::new("subscriber_agent"),
-                Simple::new("subscriber_agent"),
+                SimpleGroup::new("a", "group"),
+                SimpleGroup::new("a", "group"),
             )
             .await
             .expect("failed to create agent");
@@ -689,8 +689,8 @@ mod tests {
         let (app, _) = service
             .create_app(
                 &agent,
-                Simple::new("subscriber_agent"),
-                Simple::new("subscriber_agent"),
+                SimpleGroup::new("a", "group"),
+                SimpleGroup::new("a", "group"),
             )
             .await
             .expect("failed to create agent");
