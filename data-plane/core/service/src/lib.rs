@@ -7,7 +7,7 @@ pub mod receiver_buffer;
 #[macro_use]
 pub mod session;
 mod fire_and_forget;
-pub mod interceptor;
+pub mod interceptor_mls;
 mod request_response;
 pub mod streaming;
 pub mod timer;

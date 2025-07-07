@@ -27,8 +27,8 @@ use slim_datapath::{
     messages::{Agent, AgentType, utils::SlimHeaderFlags},
 };
 
-use crate::interceptor::METADATA_MLS_ENABLED;
-use crate::interceptor::METADATA_MLS_INIT_COMMIT_ID;
+use crate::interceptor_mls::METADATA_MLS_ENABLED;
+use crate::interceptor_mls::METADATA_MLS_INIT_COMMIT_ID;
 
 struct RequestTimerObserver {
     /// message to send in case of timeout

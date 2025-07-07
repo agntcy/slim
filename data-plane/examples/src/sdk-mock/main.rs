@@ -11,7 +11,7 @@ use tracing::info;
 use slim::config;
 use slim_auth::simple::Simple;
 use slim_service::{
-    FireAndForgetConfiguration, interceptor,
+    FireAndForgetConfiguration, interceptor_mls,
     session::{self, SessionConfig},
 };
 
@@ -197,7 +197,7 @@ async fn main() {
             info!("Client successfully joined group");
 
             // enable mls for the session with group_id
-            let interceptor = interceptor::MlsInterceptor::new(Arc::new(Mutex::new(client_mls)));
+            let interceptor = interceptor_mls::MlsInterceptor::new(Arc::new(Mutex::new(client_mls)));
             app.add_interceptor(session.id, Box::new(interceptor))
                 .await
                 .unwrap();
@@ -238,7 +238,7 @@ async fn main() {
                 // Setup MLS session for server on first message
                 if message.is_none() && !server_session_created && server_mls_for_session.is_some() {
                     let (mls, _group_id) = server_mls_for_session.take().unwrap();
-                    let interceptor = interceptor::MlsInterceptor::new(
+                    let interceptor = interceptor_mls::MlsInterceptor::new(
                         Arc::new(Mutex::new(mls)),
                     );
                     app.add_interceptor(session_msg.info.id, Box::new(interceptor))
