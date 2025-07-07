@@ -37,6 +37,7 @@ tasks:
         for dir in {{.MODULES}}; do
           pushd ${dir} > /dev/null
           echo "${dir}: running {{.CMD}}"
+          go generate ./...
           {{.CMD}}
           popd > /dev/null
         done
@@ -53,7 +54,6 @@ tasks:
     deps:
       - tools
     cmds:
-      - cd slimctl && go generate -v ./internal/controller
       - task: control-plane:foreach-module
         vars:
           CMD: "echo ${PWD} && {{.TOOLS_INSTALL_DIR}}/golangci-lint run"
@@ -103,7 +103,6 @@ tasks:
     deps:
       - tools
     cmds:
-      - cd slimctl && go generate -v ./internal/controller
       - task: control-plane:foreach-module
         vars:
           CMD: go test --tags=test -failfast -v 2>&1 ./...
@@ -137,7 +136,7 @@ tasks:
     dir: slimctl/cmd
     cmds:
       - |
-        go generate -v ./../internal/controller
+        go generate ./...
       - |
         go build -o \
           {{.OUTPUT_DIR}}/bin/slimctl \
