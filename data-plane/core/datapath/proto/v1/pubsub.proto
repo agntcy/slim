@@ -65,6 +65,9 @@ enum SessionHeaderType {
   CHANNEL_JOIN_REPLY = 17;
   CHANNEL_LEAVE_REQUEST = 18;
   CHANNEL_LEAVE_REPLY = 19;
+  CHANNEL_MLS_COMMIT = 20;
+  CHANNEL_MLS_WELCOME = 21;
+  CHANNEL_MLS_ACK = 22;
 }
 // Session.session_id is the ID of the session
 

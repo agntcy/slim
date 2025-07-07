@@ -237,6 +237,7 @@ async fn main() {
                         None,
                     )),
                     None,
+                    false,
                 )
                 .await
             }
@@ -251,6 +252,7 @@ async fn main() {
                         Some(Duration::from_millis(1000)),
                     )),
                     None,
+                    false,
                 )
                 .await
             }
@@ -375,6 +377,7 @@ async fn main() {
                 slim_service::FireAndForgetConfiguration::default(),
             ),
             None,
+            false,
         )
         .await;
     if res.is_err() {

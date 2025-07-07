@@ -94,3 +94,19 @@ pub enum SessionError {
     #[error("error pushing identity to the message: {0}")]
     IdentityPushError(String),
 }
+
+#[derive(Error, Debug, PartialEq)]
+pub enum ChannelEndpointError {
+    #[error("error initializing MLS: {0}")]
+    MLSInit(String),
+    #[error("msl state is None")]
+    NoMls,
+    #[error("error generating key package: {0}")]
+    MLSKeyPackage(String),
+    #[error("error processing welcome message")]
+    WelcomeMessage,
+    #[error("error processing commit message")]
+    CommitMessage,
+    #[error("error adding a new participant")]
+    AddParticipant,
+}

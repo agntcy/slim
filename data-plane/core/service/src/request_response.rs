@@ -132,6 +132,7 @@ where
         tx: T,
         identity_provider: P,
         identity_verifier: V,
+        mls_enabled: bool,
     ) -> Self {
         let internal = RequestResponseInternal {
             common: Common::new(
@@ -142,6 +143,7 @@ where
                 tx,
                 identity_provider,
                 identity_verifier,
+                mls_enabled,
             ),
             timers: RwLock::new(HashMap::new()),
         };
@@ -375,6 +377,7 @@ mod tests {
             tx,
             Simple::new("token"),
             Simple::new("token"),
+            false,
         );
 
         assert_eq!(session.id(), 0);
@@ -406,6 +409,7 @@ mod tests {
             tx,
             Simple::new("token"),
             Simple::new("token"),
+            false,
         );
 
         let payload = vec![0x1, 0x2, 0x3, 0x4];
@@ -482,6 +486,7 @@ mod tests {
                 tx,
                 Simple::new("token"),
                 Simple::new("token"),
+                false,
             );
         }
     }

@@ -214,7 +214,7 @@ where
     T: SessionTransmitter + Send + Sync + Clone + 'static,
 {
     common: Common<P, V, T>,
-    channel_endpoint: Arc<Mutex<ChannelEndpoint<T>>>, // TODO remove this mutex
+    channel_endpoint: Arc<Mutex<ChannelEndpoint<T>>>,
     tx: mpsc::Sender<Result<(Message, MessageDirection), Status>>,
 }
 
@@ -234,8 +234,23 @@ where
         tx_slim_app: T,
         identity_provider: P,
         identity_verifier: V,
+        mls_enabled: bool,
     ) -> Self {
         let (tx, rx) = mpsc::channel(128);
+
+        // TODO pass a parameter to set MLS on/off
+        // for the moment is always on
+        let common = Common::new(
+            id,
+            session_direction.clone(),
+            SessionConfig::Streaming(session_config.clone()),
+            agent.clone(),
+            tx_slim_app.clone(),
+            identity_provider,
+            identity_verifier,
+            mls_enabled,
+        );
+
         let channel_endpoint: ChannelEndpoint<T> = if session_config.moderator {
             let cm = ChannelModerator::new(
                 &agent,
@@ -244,6 +259,7 @@ where
                 conn_id,
                 60,
                 Duration::from_secs(1),
+                common.mls(),
                 tx_slim_app.clone(),
             );
             ChannelEndpoint::ChannelModerator(cm)
@@ -253,20 +269,14 @@ where
                 &session_config.channel_name,
                 id,
                 conn_id,
+                common.mls(),
                 tx_slim_app.clone(),
             );
             ChannelEndpoint::ChannelParticipant(cp)
         };
+
         let stream = Streaming {
-            common: Common::new(
-                id,
-                session_direction.clone(),
-                SessionConfig::Streaming(session_config.clone()),
-                agent,
-                tx_slim_app,
-                identity_provider,
-                identity_verifier,
-            ),
+            common,
             channel_endpoint: Arc::new(Mutex::new(channel_endpoint)),
             tx,
         };
@@ -403,7 +413,10 @@ where
                                                     SessionHeaderType::ChannelJoinRequest |
                                                     SessionHeaderType::ChannelJoinReply |
                                                     SessionHeaderType::ChannelLeaveRequest |
-                                                    SessionHeaderType::ChannelLeaveReply => {
+                                                    SessionHeaderType::ChannelLeaveReply |
+                                                    SessionHeaderType::ChannelMlsWelcome |
+                                                    SessionHeaderType::ChannelMlsCommit |
+                                                    SessionHeaderType::ChannelMlsAck => {
                                                         let mut lock = channel_endpoint.lock().await;
                                                         lock.on_message(msg).await;
                                                     }
@@ -1029,6 +1042,7 @@ mod tests {
             tx.clone(),
             Simple::new("token"),
             Simple::new("token"),
+            false,
         );
 
         assert_eq!(session.id(), 0);
@@ -1055,6 +1069,7 @@ mod tests {
             tx,
             Simple::new("token"),
             Simple::new("token"),
+            false,
         );
 
         assert_eq!(session.id(), 1);
@@ -1108,6 +1123,7 @@ mod tests {
             tx_sender,
             Simple::new("token"),
             Simple::new("token"),
+            false,
         );
         let receiver = Streaming::new(
             0,
@@ -1118,6 +1134,7 @@ mod tests {
             tx_receiver,
             Simple::new("token"),
             Simple::new("token"),
+            false,
         );
 
         let mut message = Message::new_publish(
@@ -1189,6 +1206,7 @@ mod tests {
             tx,
             Simple::new("token"),
             Simple::new("token"),
+            false,
         );
 
         let mut message = Message::new_publish(
@@ -1274,6 +1292,7 @@ mod tests {
             tx,
             Simple::new("token"),
             Simple::new("token"),
+            false,
         );
 
         let mut message = Message::new_publish(
@@ -1392,6 +1411,7 @@ mod tests {
             tx_sender,
             Simple::new("token"),
             Simple::new("token"),
+            false,
         );
         let receiver = Streaming::new(
             0,
@@ -1402,6 +1422,7 @@ mod tests {
             tx_receiver,
             Simple::new("token"),
             Simple::new("token"),
+            false,
         );
 
         let mut message = Message::new_publish(
@@ -1606,6 +1627,7 @@ mod tests {
                 tx,
                 Simple::new("token"),
                 Simple::new("token"),
+                false,
             );
         }
 

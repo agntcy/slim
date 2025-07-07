@@ -6,11 +6,15 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use parking_lot::RwLock;
 use slim_auth::traits::{TokenProvider, Verifier};
+use slim_mls::identity::FileBasedIdentityProvider;
+use slim_mls::mls::Mls;
+use tokio::sync::Mutex;
 use tonic::Status;
 
 use crate::errors::SessionError;
 use crate::fire_and_forget::{FireAndForget, FireAndForgetConfiguration};
 use crate::interceptor::{SessionInterceptor, SessionInterceptorProvider};
+use crate::interceptor_mls::MlsInterceptor;
 use crate::request_response::{RequestResponse, RequestResponseConfiguration};
 use crate::streaming::{Streaming, StreamingConfiguration};
 use slim_datapath::api::proto::pubsub::v1::{Message, SessionHeaderType};
@@ -324,6 +328,9 @@ where
     /// Source agent
     source: Agent,
 
+    /// MLS state (used only in pub/sub section for the moment)
+    mls: Option<Arc<Mutex<Mls>>>,
+
     /// Transmitter for sending messages to slim and app
     tx: T,
 }
@@ -523,8 +530,22 @@ where
         tx: T,
         identity_provider: P,
         verifier: V,
+        mls_enabled: bool,
     ) -> Self {
-        Self {
+        let mls = if mls_enabled {
+            // TODO
+            // this must be replaced by the real identity provider in the next PRs
+            let mut name = "/tmp/mls_id_".to_owned();
+            let rnd = rand::random::<u32>();
+            name.push_str(&rnd.to_string());
+            let id_provider =
+                Arc::new(FileBasedIdentityProvider::new(name).expect("error creating id provider"));
+            Some(Arc::new(Mutex::new(Mls::new(rnd.to_string(), id_provider))))
+        } else {
+            None
+        };
+
+        let session = Self {
             id,
             state: State::Active,
             identity_provider,
@@ -532,8 +553,16 @@ where
             session_direction,
             session_config: RwLock::new(session_config),
             source,
+            mls,
             tx,
+        };
+
+        if let Some(mls) = session.mls() {
+            let interceptor = MlsInterceptor::new(mls.clone());
+            session.tx.add_interceptor(Arc::new(interceptor));
         }
+
+        session
     }
 
     pub(crate) fn tx(&self) -> T {
@@ -542,5 +571,9 @@ where
 
     pub(crate) fn tx_ref(&self) -> &T {
         &self.tx
+    }
+
+    pub(crate) fn mls(&self) -> Option<Arc<Mutex<Mls>>> {
+        self.mls.as_ref().map(|mls| mls.clone())
     }
 }

@@ -175,18 +175,14 @@ name = "agntcy-slim-mls"
 version = "0.1.0"
 dependencies = [
  "agntcy-slim-datapath",
- "agntcy-slim-service",
  "async-trait",
- "base64 0.22.1",
  "mls-rs",
  "mls-rs-crypto-awslc",
- "parking_lot",
  "serde",
  "serde_json",
  "tempfile",
  "thiserror 2.0.12",
  "tokio",
- "tracing",
 ]
 
 [[package]]
@@ -206,6 +202,7 @@ dependencies = [
  "agntcy-slim-config",
  "agntcy-slim-controller",
  "agntcy-slim-datapath",
+ "agntcy-slim-mls",
  "async-trait",
  "bincode",
  "drain",
@@ -407,34 +404,20 @@ checksum = "c08606f8c3cbf4ce6ec8e28fb0014a2c086708fe954eaa885384a6165172e7e8"
 
 [[package]]
 name = "aws-lc-rs"
-version = "1.12.6"
+version = "1.13.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dabb68eb3a7aa08b46fddfd59a3d55c978243557a90ab804769f7e20e67d2b01"
+checksum = "93fcc8f365936c834db5514fc45aee5b1202d677e6b40e48468aaaa8183ca8c7"
 dependencies = [
- "aws-lc-sys 0.27.1",
+ "aws-lc-sys",
  "untrusted 0.7.1",
  "zeroize",
 ]
 
 [[package]]
 name = "aws-lc-sys"
-version = "0.26.0"
+version = "0.29.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0f9dd2e03ee80ca2822dd6ea431163d2ef259f2066a4d6ccaca6d9dcb386aa43"
-dependencies = [
- "bindgen",
- "cc",
- "cmake",
- "dunce",
- "fs_extra",
- "paste",
-]
-
-[[package]]
-name = "aws-lc-sys"
-version = "0.27.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "77926887776171ced7d662120a75998e444d3750c951abfe07f90da130514b1f"
+checksum = "61b1d86e7705efe1be1b569bab41d4fa1e14e220b60a160f78de2db687add079"
 dependencies = [
  "bindgen",
  "cc",
@@ -2173,9 +2156,9 @@ dependencies = [
 
 [[package]]
 name = "mls-rs"
-version = "0.47.0"
+version = "0.48.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1c7e00981ddebfb0d8f5c025cafa63f3a961e05cdfd083f8327311fd6e78276f"
+checksum = "a5c5f385480adea41795dfae0fd694440f14040ead5dca1af27ce981a37ca68c"
 dependencies = [
  "async-trait",
  "cfg-if",
@@ -2189,13 +2172,13 @@ dependencies = [
  "mls-rs-core",
  "mls-rs-identity-x509",
  "portable-atomic",
- "portable-atomic-util 0.1.5",
+ "portable-atomic-util",
  "rand_core 0.6.4",
  "rayon",
  "safer-ffi-gen",
  "serde",
  "spin",
- "thiserror 1.0.69",
+ "thiserror 2.0.12",
  "wasm-bindgen",
  "zeroize",
 ]
@@ -2225,9 +2208,9 @@ dependencies = [
 
 [[package]]
 name = "mls-rs-core"
-version = "0.22.0"
+version = "0.23.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "45e0804c7724b5a520ca23de0bc04c1e52026634885b55fafc3e90150307f123"
+checksum = "a282545c6b6ce1fe29f1f4b707019a694d3b5bcb82e84e6f72c9d51e99fb56b1"
 dependencies = [
  "async-trait",
  "hex",
@@ -2235,49 +2218,49 @@ dependencies = [
  "mls-rs-codec",
  "safer-ffi-gen",
  "serde",
- "thiserror 1.0.69",
+ "thiserror 2.0.12",
  "wasm-bindgen",
  "zeroize",
 ]
 
 [[package]]
 name = "mls-rs-crypto-awslc"
-version = "0.17.0"
+version = "0.18.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fd9539aa384d81a63b90cb58fd2b523ebf1e04e201024d2135713de3d158a35a"
+checksum = "9334e7ff64572364753d461c677253c2c2617361affdd4a5051a5257d1a22c1b"
 dependencies = [
  "async-trait",
  "aws-lc-rs",
- "aws-lc-sys 0.26.0",
+ "aws-lc-sys",
  "maybe-async",
  "mls-rs-core",
  "mls-rs-crypto-hpke",
  "mls-rs-crypto-traits",
  "mls-rs-identity-x509",
- "thiserror 1.0.69",
+ "thiserror 2.0.12",
  "zeroize",
 ]
 
 [[package]]
 name = "mls-rs-crypto-hpke"
-version = "0.15.0"
+version = "0.16.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "42d9905cc18674ef987a91fb774bf9669d618e7c673f9f404c24977cc3de3624"
+checksum = "59b6208976b78f5d12196a8308618a24a974014a04de554e47dc3e65cd26795d"
 dependencies = [
  "async-trait",
  "cfg-if",
  "maybe-async",
  "mls-rs-core",
  "mls-rs-crypto-traits",
- "thiserror 1.0.69",
+ "thiserror 2.0.12",
  "zeroize",
 ]
 
 [[package]]
 name = "mls-rs-crypto-traits"
-version = "0.16.0"
+version = "0.17.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b24698acbfdbf54ad8a5da9893266258192feea0fbb47f38bb21168e369fd2a5"
+checksum = "20d41b82ac304c249cfc2e62ceb411e7c0cb34fac7b0d32b5ea1f01bc090d667"
 dependencies = [
  "async-trait",
  "maybe-async",
@@ -2286,14 +2269,14 @@ dependencies = [
 
 [[package]]
 name = "mls-rs-identity-x509"
-version = "0.16.0"
+version = "0.17.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "825b7232460d3a24240e304f14bfe49d498113a03c07e5e4536f1b292653e2d1"
+checksum = "982328b99e2785a301e80fed6893539ad5b2ea2dbd7bbd9db453757e8a4bcbf4"
 dependencies = [
  "async-trait",
  "maybe-async",
  "mls-rs-core",
- "thiserror 1.0.69",
+ "thiserror 2.0.12",
  "wasm-bindgen",
 ]
 
@@ -2314,7 +2297,7 @@ dependencies = [
  "num-integer",
  "num-traits",
  "portable-atomic",
- "portable-atomic-util 0.2.4",
+ "portable-atomic-util",
  "rawpointer",
 ]
 
@@ -2707,15 +2690,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f84267b20a16ea918e43c6a88433c2d54fa145c92a811b5b047ccbe153674483"
 dependencies = [
  "critical-section",
-]
-
-[[package]]
-name = "portable-atomic-util"
-version = "0.1.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a1a7411625b38d51b41421c6333976adffd4674a925a978856734a2dc853449b"
-dependencies = [
- "portable-atomic",
 ]
 
 [[package]]
@@ -3674,7 +3648,6 @@ dependencies = [
  "agntcy-slim-service",
  "agntcy-slim-signal",
  "clap",
- "parking_lot",
  "tokio",
  "tracing",
 ]
@@ -3697,9 +3670,9 @@ dependencies = [
 
 [[package]]
 name = "spin"
-version = "0.9.8"
+version = "0.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6980e8d7511241f8acf4aebddbb1ff938df5eebe98691418c4468d0b72a96a67"
+checksum = "d5fe4ccb98d9c292d56fec89a5e07da7fc4cf0dc11e156b41793132775d3e591"
 dependencies = [
  "portable-atomic",
 ]

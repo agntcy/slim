@@ -621,6 +621,7 @@ where
         tx_slim_app: T,
         identity_provider: P,
         identity_verifier: V,
+        msl_enabled: bool,
     ) -> Self {
         let (tx, rx) = mpsc::channel(32);
 
@@ -633,6 +634,7 @@ where
             tx_slim_app.clone(),
             identity_provider,
             identity_verifier,
+            msl_enabled,
         );
 
         // FireAndForget internal state
@@ -792,6 +794,7 @@ mod tests {
             tx,
             Simple::new("test_token_provider"),
             Simple::new("test_verifier"),
+            false,
         );
 
         assert_eq!(session.id(), 0);
@@ -819,6 +822,7 @@ mod tests {
             tx,
             Simple::new("token"),
             Simple::new("token"),
+            false,
         );
 
         let mut message = ProtoMessage::new_publish(
@@ -869,6 +873,7 @@ mod tests {
             tx,
             Simple::new("token"),
             Simple::new("token"),
+            false,
         );
 
         let mut message = ProtoMessage::new_publish(
@@ -935,6 +940,7 @@ mod tests {
             tx,
             Simple::new("token"),
             Simple::new("token"),
+            false,
         );
 
         let mut message = ProtoMessage::new_publish(
@@ -1008,6 +1014,7 @@ mod tests {
             tx_sender,
             Simple::new("token"),
             Simple::new("token"),
+            false,
         );
 
         // this can be a standard fnf session
@@ -1019,6 +1026,7 @@ mod tests {
             tx_receiver,
             Simple::new("token"),
             Simple::new("token"),
+            false,
         );
 
         let mut message = ProtoMessage::new_publish(
@@ -1116,6 +1124,7 @@ mod tests {
                 tx,
                 Simple::new("token"),
                 Simple::new("token"),
+                false,
             );
         }
 
@@ -1161,6 +1170,7 @@ mod tests {
             sender_tx,
             Simple::new("token"),
             Simple::new("token"),
+            false,
         );
 
         let receiver_session = FireAndForget::new(
@@ -1171,6 +1181,7 @@ mod tests {
             receiver_tx,
             Simple::new("token"),
             Simple::new("token"),
+            false,
         );
 
         // Create a message to send
