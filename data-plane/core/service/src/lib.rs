@@ -686,8 +686,8 @@ mod tests {
         let (app, _) = service
             .create_app(
                 &agent,
-            SimpleGroup::new("a", "group"),
-            SimpleGroup::new("a", "group"),
+                SimpleGroup::new("a", "group"),
+                SimpleGroup::new("a", "group"),
             )
             .await
             .expect("failed to create agent");

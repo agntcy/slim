@@ -175,8 +175,11 @@ async fn main() {
     let agent_name = Agent::from_strings("cisco", "default", "publisher", id);
 
     let (app, mut rx) = svc
-        .create_app(&agent_name,             SimpleGroup::new("a", "group"),
-            SimpleGroup::new("a", "group"),)
+        .create_app(
+            &agent_name,
+            SimpleGroup::new("a", "group"),
+            SimpleGroup::new("a", "group"),
+        )
         .await
         .expect("failed to create agent");
 

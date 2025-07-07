@@ -154,8 +154,11 @@ async fn main() {
     let channel_name = AgentType::from_strings("channel", "channel", "channel");
 
     let (app, mut rx) = svc
-        .create_app(&local_name,             SimpleGroup::new("a", "group"),
-            SimpleGroup::new("a", "group"),)
+        .create_app(
+            &local_name,
+            SimpleGroup::new("a", "group"),
+            SimpleGroup::new("a", "group"),
+        )
         .await
         .expect("failed to create agent");
 

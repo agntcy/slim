@@ -1604,8 +1604,8 @@ mod tests {
                 source.clone(),
                 conn_id,
                 tx,
-            SimpleGroup::new("a", "group"),
-            SimpleGroup::new("a", "group"),
+                SimpleGroup::new("a", "group"),
+                SimpleGroup::new("a", "group"),
             );
         }
 

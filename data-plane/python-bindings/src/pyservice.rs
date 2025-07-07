@@ -76,8 +76,11 @@ impl PyService {
 
         // Get the rx channel
         let (app, rx) = svc
-            .create_app(&agent,             SimpleGroup::new("a", "group"),
-            SimpleGroup::new("a", "group"),)
+            .create_app(
+                &agent,
+                SimpleGroup::new("a", "group"),
+                SimpleGroup::new("a", "group"),
+            )
             .await?;
 
         // create the service
