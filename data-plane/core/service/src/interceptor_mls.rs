@@ -169,6 +169,7 @@ mod tests {
             SimpleGroup::new("test", "group"),
             SimpleGroup::new("test", "group"),
         );
+        mls.set_storage_path("/tmp/mls_interceptor_test_without_group");
         mls.initialize().await.unwrap();
 
         let mls_arc = Arc::new(Mutex::new(mls));
@@ -204,11 +205,13 @@ mod tests {
             SimpleGroup::new("alice", "group"),
             SimpleGroup::new("alice", "group"),
         );
+        alice_mls.set_storage_path("/tmp/mls_interceptor_test_alice");
         let mut bob_mls = Mls::new(
             bob_agent,
             SimpleGroup::new("bob", "group"),
             SimpleGroup::new("bob", "group"),
         );
+        bob_mls.set_storage_path("/tmp/mls_interceptor_test_bob");
 
         alice_mls.initialize().await.unwrap();
         bob_mls.initialize().await.unwrap();
@@ -263,6 +266,7 @@ mod tests {
             SimpleGroup::new("test", "group"),
             SimpleGroup::new("test", "group"),
         );
+        mls.set_storage_path("/tmp/mls_interceptor_test_non_encrypted");
         mls.initialize().await.unwrap();
         mls.create_group().unwrap();
 
