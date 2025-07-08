@@ -7,19 +7,15 @@ use std::{
     time::Duration,
 };
 
-use slim_mls::mls::Mls;
-
 use async_trait::async_trait;
-
 use tokio::sync::Mutex;
-
 use tracing::{debug, error, trace};
 
 use crate::{
     errors::{ChannelEndpointError, SessionError},
+    interceptor_mls::{METADATA_MLS_ENABLED, METADATA_MLS_INIT_COMMIT_ID},
     session::{Id, SessionTransmitter},
 };
-
 use slim_datapath::{
     api::{
         SessionHeader, SlimHeader,
@@ -27,9 +23,7 @@ use slim_datapath::{
     },
     messages::{Agent, AgentType, utils::SlimHeaderFlags},
 };
-
-use crate::interceptor_mls::METADATA_MLS_ENABLED;
-use crate::interceptor_mls::METADATA_MLS_INIT_COMMIT_ID;
+use slim_mls::mls::Mls;
 
 struct RequestTimerObserver<T>
 where
@@ -81,7 +75,7 @@ trait OnMessageReceived {
 }
 
 #[derive(Debug)]
-pub enum ChannelEndpoint<T>
+pub(crate) enum ChannelEndpoint<T>
 where
     T: SessionTransmitter + Send + Sync + Clone + 'static,
 {
@@ -106,16 +100,13 @@ where
 }
 
 #[derive(Debug)]
-struct MlsState {
-    /// true if initialized
-    init: bool,
-
+pub struct MlsState {
     /// mls state for the channel of this endpoint
-    /// the mls state should be created and initiaded in the app
+    /// the mls state should be created and initiated in the app
     /// so that it can be shared with the channel and the interceptors
-    mls: Option<Arc<Mutex<Mls>>>,
+    mls: Arc<Mutex<Mls>>,
 
-    /// used only is Some(mls)
+    /// used only if Some(mls)
     group: Vec<u8>,
 
     /// last commit id
@@ -123,69 +114,38 @@ struct MlsState {
 }
 
 impl MlsState {
-    async fn init(&mut self) -> Result<(), ChannelEndpointError> {
-        if self.init {
-            return Ok(());
-        }
+    pub async fn new(mls: Arc<Mutex<Mls>>) -> Result<Self, ChannelEndpointError> {
+        mls.lock()
+            .await
+            .initialize()
+            .await
+            .map_err(|e| ChannelEndpointError::MLSInit(e.to_string()))?;
 
-        if let Some(mls) = &self.mls {
-            let mut lock = mls.lock().await;
-            match lock.initialize().await {
-                Ok(()) => {
-                    self.init = true;
-                    return Ok(());
-                }
-                Err(e) => {
-                    return Err(ChannelEndpointError::MLSInit(e.to_string()));
-                }
-            }
-        };
-
-        Err(ChannelEndpointError::NoMls)
+        Ok(MlsState {
+            mls,
+            group: vec![],
+            last_commit_id: 0,
+        })
     }
 
     async fn init_moderator(&mut self) -> Result<(), ChannelEndpointError> {
-        self.init().await?;
-
-        self.group = match &self.mls {
-            Some(mls) => {
-                let mut lock = mls.lock().await;
-                match lock.create_group() {
-                    Ok(id) => id,
-                    Err(e) => {
-                        error!("error creating a new group {}", e.to_string());
-                        return Err(ChannelEndpointError::MLSInit(e.to_string()));
-                    }
-                }
-            }
-            None => vec![],
-        };
-
-        Ok(())
+        self.mls
+            .lock()
+            .await
+            .create_group()
+            .map(|_| ())
+            .map_err(|e| ChannelEndpointError::MLSInit(e.to_string()))
     }
+
     async fn generate_key_package(&mut self) -> Result<Vec<u8>, ChannelEndpointError> {
-        self.init().await?;
-
-        if let Some(mls) = &self.mls {
-            let lock = mls.lock().await;
-            match lock.generate_key_package() {
-                Ok(msg) => {
-                    return Ok(msg);
-                }
-                Err(e) => {
-                    return Err(ChannelEndpointError::MLSKeyPackage(e.to_string()));
-                }
-            }
-        };
-
-        Err(ChannelEndpointError::NoMls)
+        self.mls
+            .lock()
+            .await
+            .generate_key_package()
+            .map_err(|e| ChannelEndpointError::MLSInit(e.to_string()))
     }
 
     async fn process_welcome_message(&mut self, msg: &Message) -> Result<(), ChannelEndpointError> {
-        if !self.init {
-            return Err(ChannelEndpointError::NoMls);
-        }
-
         if self.last_commit_id != 0 {
             debug!("welcome message already received, drop");
             // we already got a welcome message, ignore this one
@@ -211,32 +171,19 @@ impl MlsState {
             }
         };
 
-        match &self.mls {
-            Some(mls) => {
-                let mut lock = mls.lock().await;
-                match lock.process_welcome(welcome) {
-                    Ok(id) => {
-                        self.group = id;
-                        Ok(())
-                    }
-                    Err(e) => {
-                        error!("error parsing welcome message {}", e.to_string());
-                        Err(ChannelEndpointError::WelcomeMessage)
-                    }
-                }
+        match self.mls.lock().await.process_welcome(welcome) {
+            Ok(id) => {
+                self.group = id;
+                Ok(())
             }
-            None => {
-                error!("no mls state set. cannot process the welcome message");
+            Err(e) => {
+                error!("error parsing welcome message {}", e.to_string());
                 Err(ChannelEndpointError::WelcomeMessage)
             }
         }
     }
 
     async fn process_commit_message(&mut self, msg: &Message) -> Result<(), ChannelEndpointError> {
-        if !self.init {
-            return Err(ChannelEndpointError::NoMls);
-        }
-
         // the first message to be received should be a welcome message
         // this message will init the last_commit_id. so if last_commit_id = 0
         // drop the commits
@@ -265,19 +212,10 @@ impl MlsState {
             }
         };
 
-        match &self.mls {
-            Some(mls) => {
-                let mut lock = mls.lock().await;
-                match lock.process_commit(commit) {
-                    Ok(_) => Ok(()),
-                    Err(e) => {
-                        error!("error processing commit message {}", e.to_string());
-                        Err(ChannelEndpointError::CommitMessage)
-                    }
-                }
-            }
-            None => {
-                error!("MLS not setup, drop commit message");
+        match self.mls.lock().await.process_commit(commit) {
+            Ok(_) => Ok(()),
+            Err(e) => {
+                error!("error processing commit message {}", e.to_string());
                 Err(ChannelEndpointError::CommitMessage)
             }
         }
@@ -295,20 +233,11 @@ impl MlsState {
             }
         };
 
-        match &self.mls {
-            Some(mls) => {
-                let mut lock = mls.lock().await;
-                match lock.add_member(payload) {
-                    Ok((commit_payload, welcome_payload)) => Ok((commit_payload, welcome_payload)),
-                    Err(e) => {
-                        error!("error adding new endpoint {}", e.to_string());
-                        Err(ChannelEndpointError::AddParticipant)
-                    }
-                }
-            }
-            None => {
-                error!("MLS not seutp, drop commit message");
-                Err(ChannelEndpointError::CommitMessage)
+        match self.mls.lock().await.add_member(payload) {
+            Ok((commit_payload, welcome_payload)) => Ok((commit_payload, welcome_payload)),
+            Err(e) => {
+                error!("error adding new endpoint {}", e.to_string());
+                Err(ChannelEndpointError::AddParticipant)
             }
         }
     }
@@ -330,13 +259,13 @@ where
     session_id: Id,
 
     /// connection id to the next hop SLIM
-    conn: u64,
+    conn: Option<u64>,
 
     /// true is the endpoint is already subscribed to the channel
     subscribed: bool,
 
     /// mls state
-    mls_state: MlsState,
+    mls_state: Option<MlsState>,
 
     /// transmitter to send messages to the local SLIM instance and to the application
     tx: T,
@@ -350,22 +279,16 @@ where
         name: &Agent,
         channel_name: &AgentType,
         session_id: Id,
-        conn: u64,
-        mls: Option<Arc<Mutex<Mls>>>,
+        mls_state: Option<MlsState>,
         tx: T,
     ) -> Self {
         Endpoint {
             name: name.clone(),
             channel_name: channel_name.clone(),
             session_id,
-            conn,
+            conn: None,
             subscribed: false,
-            mls_state: MlsState {
-                init: false,
-                mls,
-                group: vec![],
-                last_commit_id: 0,
-            },
+            mls_state,
             tx,
         }
     }
@@ -411,7 +334,10 @@ where
         self.subscribed = true;
 
         // subscribe for the channel
-        let header = Some(SlimHeaderFlags::default().with_forward_to(self.conn));
+        let header = Some(
+            SlimHeaderFlags::default()
+                .with_forward_to(self.conn.expect("connection id should be set before")),
+        );
         let sub = Message::new_subscribe(&self.name, &self.channel_name, None, header);
 
         self.send(sub).await;
@@ -426,7 +352,7 @@ where
             &self.name,
             route_name,
             route_id,
-            Some(SlimHeaderFlags::default().with_recv_from(self.conn)),
+            Some(SlimHeaderFlags::default().with_recv_from(self.conn.unwrap())),
         );
 
         self.send(msg).await;
@@ -434,7 +360,7 @@ where
 
     async fn leave(&self) {
         // unsubscribe for the channel
-        let header = Some(SlimHeaderFlags::default().with_forward_to(self.conn));
+        let header = Some(SlimHeaderFlags::default().with_forward_to(self.conn.unwrap()));
         let unsub = Message::new_unsubscribe(&self.name, &self.channel_name, None, header);
 
         self.send(unsub).await;
@@ -469,17 +395,16 @@ where
         name: &Agent,
         channel_name: &AgentType,
         session_id: Id,
-        conn: u64,
-        mls: Option<Arc<Mutex<Mls>>>,
+        mls: Option<MlsState>,
         tx: T,
     ) -> Self {
-        let endpoint = Endpoint::new(name, channel_name, session_id, conn, mls, tx);
+        let endpoint = Endpoint::new(name, channel_name, session_id, mls, tx);
         ChannelParticipant { endpoint }
     }
 
     async fn on_discovery_request(&mut self, msg: Message) {
         // set local state according to the info in the message
-        self.endpoint.conn = msg.get_incoming_conn();
+        self.endpoint.conn = Some(msg.get_incoming_conn());
         self.endpoint.session_id = msg.get_session_header().get_session_id();
 
         // get the source (with strings) from the packet payload
@@ -562,14 +487,16 @@ where
 
         let payload: Vec<u8> = if msg.contains_metadata(METADATA_MLS_ENABLED) {
             // if mls we need to provide the key package
-            match &self.endpoint.mls_state.generate_key_package().await {
-                Ok(payload) => payload.to_vec(),
-                Err(e) => {
-                    error!(
-                        "received a join request with MLS, error creating the key package {}",
-                        e.to_string()
-                    );
-                    // ignore the request and return
+            match self.endpoint.mls_state.as_mut() {
+                Some(mls_state) => match mls_state.generate_key_package().await {
+                    Ok(key_package) => key_package,
+                    Err(_) => {
+                        error!("error generating key package, drop join request");
+                        return;
+                    }
+                },
+                None => {
+                    error!("MLS not initialized, cannot generate key package");
                     return;
                 }
             }
@@ -594,10 +521,16 @@ where
     }
 
     async fn on_mls_welcome(&mut self, msg: Message) {
-        match self.endpoint.mls_state.process_welcome_message(&msg).await {
-            Ok(()) => {}
-            Err(_) => {
-                //error processing welcome message, drop it
+        match self.endpoint.mls_state.as_mut() {
+            Some(mls_state) => match mls_state.process_welcome_message(&msg).await {
+                Ok(()) => {}
+                Err(_) => {
+                    // error processing welcome message, drop it
+                    return;
+                }
+            },
+            None => {
+                error!("MLS not initialized, cannot process welcome message");
                 return;
             }
         }
@@ -619,10 +552,16 @@ where
     }
 
     async fn on_mls_commit(&mut self, msg: Message) {
-        match self.endpoint.mls_state.process_commit_message(&msg).await {
-            Ok(()) => {}
-            Err(_) => {
-                //error processing commit message, drop it
+        match self.endpoint.mls_state.as_mut() {
+            Some(mls_state) => match mls_state.process_commit_message(&msg).await {
+                Ok(()) => {}
+                Err(_) => {
+                    // error processing commit message, drop it
+                    return;
+                }
+            },
+            None => {
+                error!("MLS not initialized, cannot process commit message");
                 return;
             }
         }
@@ -727,17 +666,16 @@ where
         name: &Agent,
         channel_name: &AgentType,
         session_id: Id,
-        conn: u64,
         max_retries: u32,
         retries_interval: Duration,
-        mls: Option<Arc<Mutex<Mls>>>,
+        mls: Option<MlsState>,
         tx: T,
     ) -> Self {
         let invite_payload: Vec<u8> =
             bincode::encode_to_vec(channel_name, bincode::config::standard())
                 .expect("unable to parse channel name as payload");
 
-        let endpoint = Endpoint::new(name, channel_name, session_id, conn, mls, tx);
+        let endpoint = Endpoint::new(name, channel_name, session_id, mls, tx);
         ChannelModerator {
             endpoint,
             channel_list: HashSet::new(),
@@ -755,10 +693,18 @@ where
             self.endpoint.join().await;
 
             // create mls group if needed
-            match self.endpoint.mls_state.init_moderator().await {
-                Ok(()) => {}
-                Err(_) => {
-                    // error while init the moderator. return;
+            match self.endpoint.mls_state.as_mut() {
+                Some(mls_state) => match mls_state.init_moderator().await {
+                    Ok(()) => {
+                        debug!("MLS group created successfully");
+                    }
+                    Err(e) => {
+                        error!("error creating MLS group: {}", e);
+                        return;
+                    }
+                },
+                None => {
+                    error!("MLS not initialized, cannot create group");
                     return;
                 }
             }
@@ -769,7 +715,7 @@ where
     }
 
     async fn forward(&mut self, msg: Message) {
-        // forward message received form the app and set a timer
+        // forward message received from the app and set a timer
         let msg_id = msg.get_id();
         self.endpoint.send(msg.clone()).await;
         // create a timer for this request
@@ -818,7 +764,7 @@ where
 
     async fn on_discovery_reply(&mut self, msg: Message) {
         // set the local state and join the channel
-        self.endpoint.conn = msg.get_incoming_conn();
+        self.endpoint.conn = Some(msg.get_incoming_conn());
         self.join().await;
 
         // an endpoint replyed to the discovery message
@@ -837,7 +783,7 @@ where
             self.invite_payload.clone(),
         );
 
-        if self.endpoint.mls_state.mls.is_some() {
+        if self.endpoint.mls_state.is_some() {
             join.insert_metadata(METADATA_MLS_ENABLED.to_string(), "true".to_owned());
         }
 
@@ -858,15 +804,21 @@ where
         self.delete_timer(msg_id);
 
         // send MLS messages if needed
-        if self.endpoint.mls_state.mls.is_some() {
-            let (commit_payload, welcome_payload) =
-                match self.endpoint.mls_state.add_participant(&msg).await {
-                    Ok((commit_payload, welcome_payload)) => (commit_payload, welcome_payload),
-                    Err(_) => {
-                        // error adding participant, drop message
-                        return;
-                    }
-                };
+        if self.endpoint.mls_state.is_some() {
+            let (commit_payload, welcome_payload) = match self
+                .endpoint
+                .mls_state
+                .as_ref()
+                .unwrap()
+                .add_participant(&msg)
+                .await
+            {
+                Ok((commit_payload, welcome_payload)) => (commit_payload, welcome_payload),
+                Err(_) => {
+                    // error adding participant, drop message
+                    return;
+                }
+            };
 
             // send the commit message to the channel
             let commit_id = self.get_next_mls_mgs_id();

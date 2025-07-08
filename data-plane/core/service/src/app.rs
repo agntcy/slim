@@ -682,7 +682,6 @@ where
                     conf,
                     direction,
                     self.agent_name().clone(),
-                    self.conn_id,
                     tx,
                     self.identity_provider.clone(),
                     self.identity_verifier.clone(),
