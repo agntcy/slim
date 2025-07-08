@@ -1,5 +1,27 @@
 # Run this example
 
+## Available Examples
+
+### SDK Mock (`sdk-mock`)
+Basic SLIM SDK demonstration showing agent communication patterns.
+
+### AuthZEN Integration Demo (`authzen-demo`)
+Comprehensive demonstration of SLIM's AuthZEN (OpenID Authorization API) integration for fine-grained authorization. See [authzen-demo README](src/authzen-demo/README.md) for details.
+
+## Quick Start
+
+### AuthZEN Demo
+```bash
+# Run AuthZEN integration example
+cargo run --bin authzen-demo
+
+# Run with custom PDP endpoint
+cargo run --bin authzen-demo --pdp-endpoint http://your-pdp:8080
+```
+
+### SDK Mock
+See instructions below for Docker Compose or manual runs.
+
 # Docker Compose Quick Start
 
 To run all services (slim server, mock agent server, and mock agent client) using Docker Compose:

@@ -16,10 +16,12 @@ agntcy-slim-datapath = { workspace = true }
 agntcy-slim-mls = { workspace = true }
 async-trait = { workspace = true }
 bincode = { workspace = true }
+chrono = { version = "0.4", features = ["serde"] }
 drain = { workspace = true }
 parking_lot = { workspace = true }
 rand = { workspace = true }
 serde = { workspace = true }
+serde_json = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true }
 tokio-util = { workspace = true }
