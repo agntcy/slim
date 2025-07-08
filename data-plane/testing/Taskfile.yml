@@ -55,4 +55,28 @@ tasks:
         echo "stop slim"
         killall slim || true
 
+  run:channel-test:moderator:
+    desc: "start moderator for test channel"
+    cmds: 
+      - cargo run --release --bin channel -- --config $CONFIG_CLIENT --name org/ns/moderator/1 --is-moderator --participants org/ns/t1 org/ns/t2
+
+  run:channel-test:participant-1:
+    desc: "start participant-1 for test channel"
+    cmds: 
+      - cargo run --release --bin channel -- --config $CONFIG_CLIENT --name org/ns/t1/1 --moderator-name org/ns/moderator/1
+
+  run:channel-test:participant-2:
+    desc: "start participant-2 for test channel"
+    cmds: 
+      - cargo run --release --bin channel -- --config $CONFIG_CLIENT --name org/ns/t2/1 --moderator-name org/ns/moderator/1
+
+  run:channel-test:attacker:
+    desc: "start attacker for test channel"
+    cmds:
+      - cargo run --release --bin channel -- --config $CONFIG_CLIENT --name org/ns/t3/1 --moderator-name org/ns/moderator/1 --is-attacker
+
+
+  
+
+
 
