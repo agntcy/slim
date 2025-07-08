@@ -86,3 +86,8 @@ tasks:
     desc: "Get version from corresponding git tag"
     cmds:
       - git describe --tags --match "slim-v*" | cut -d 'v' -f 2
+
+  data-plane:generate:grpc-json-schema:
+    desc: "Generate the gRPC schema"
+    cmds:
+      - cargo run --bin generate-schema

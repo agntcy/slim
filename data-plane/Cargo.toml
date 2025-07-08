@@ -68,6 +68,7 @@ indicatif = "0.17.11"
 
 jemallocator = { version = "0.5" }
 jsonwebtoken-aws-lc = "9.3.0"
+
 lazy_static = "1.5.0"
 mls-rs = { version = "0.48.0" }
 mls-rs-crypto-awslc = { version = "0.18.0" }
@@ -107,6 +108,7 @@ reqwest = { version = "0.12", features = [
 rustls = "0.23.19"
 rustls-native-certs = "0.8.1"
 rustls-pki-types = "1.10.0"
+schemars = "1.0.3"
 serde = "1.0.217"
 serde-pyobject = "0.6.1"
 serde_json = "1.0"
