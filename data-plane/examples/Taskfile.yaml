@@ -15,8 +15,8 @@ tasks:
     cmds:
       - task -l
 
-  run:server:
-    desc: "Run the server"
+  run:slim:
+    desc: "Run SLIM gateway"
     dir: ".."
     cmds:
       - cargo run --bin slim -- --config ./config/base/server-config.yaml
