@@ -336,7 +336,7 @@ where
         // subscribe for the channel
         let header = Some(
             SlimHeaderFlags::default()
-                .with_forward_to(self.conn.expect("connection id should be set before")),
+                .with_forward_to(self.conn.unwrap()),
         );
         let sub = Message::new_subscribe(&self.name, &self.channel_name, None, header);
 
