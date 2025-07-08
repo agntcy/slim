@@ -7,13 +7,14 @@ use std::{
     time::Duration,
 };
 
+use bincode::{Decode, Encode};
 use slim_mls::mls::Mls;
 
 use async_trait::async_trait;
 
 use tokio::sync::Mutex;
 
-use tracing::{debug, error, trace};
+use tracing::{debug, error, info, trace};
 
 use crate::{
     errors::{ChannelEndpointError, SessionError},
@@ -314,6 +315,21 @@ impl MlsState {
     }
 }
 
+#[derive(Debug, Clone, Default, Encode, Decode)]
+pub struct JoinMessagePayload {
+    channel_name: AgentType,
+    moderator_name: Agent,
+}
+
+impl JoinMessagePayload {
+    fn new(channel_name: AgentType, moderator_name: Agent) -> Self {
+        JoinMessagePayload {
+            channel_name,
+            moderator_name,
+        }
+    }
+}
+
 #[derive(Debug)]
 
 struct Endpoint<T>
@@ -477,66 +493,11 @@ where
         ChannelParticipant { endpoint }
     }
 
-    async fn on_discovery_request(&mut self, msg: Message) {
-        // set local state according to the info in the message
-        self.endpoint.conn = msg.get_incoming_conn();
-        self.endpoint.session_id = msg.get_session_header().get_session_id();
-
-        // get the source (with strings) from the packet payload
-        let source_name = match msg.get_payload() {
-            Some(content) => {
-                let c: Agent = match bincode::decode_from_slice(
-                    &content.blob,
-                    bincode::config::standard(),
-                ) {
-                    Ok(c) => c.0,
-                    Err(_) => {
-                        error!(
-                            "error decoding payload in a Discovery Channel request, ignore the message"
-                        );
-                        return;
-                    }
-                };
-                // channel name
-                c
-            }
-            None => {
-                error!("missing payload in a Discovery Channel request, ignore the message");
-                return;
-            }
-        };
-
-        // set route in order to be able to send packets to the moderator
-        self.endpoint
-            .set_route(source_name.agent_type(), source_name.agent_id_option())
-            .await;
-
-        // set the connection id equal to the connection from where we received the message
-        let src = msg.get_source();
-
-        //if msg
-
-        // create reply message
-        let reply = self.endpoint.create_channel_message(
-            src.agent_type(),
-            src.agent_id_option(),
-            false,
-            SessionHeaderType::ChannelDiscoveryReply,
-            msg.get_id(),
-            vec![],
-        );
-
-        self.endpoint.send(reply).await;
-    }
-
     async fn on_join_request(&mut self, msg: Message) {
-        // accept the join and set the state
-        // add the group name to the local endpoint and subscribe
-        let src = msg.get_source();
-
-        let channel_name = match msg.get_payload() {
+        // get the payload
+        let names = match msg.get_payload() {
             Some(content) => {
-                let c: AgentType = match bincode::decode_from_slice(
+                let c: JoinMessagePayload = match bincode::decode_from_slice(
                     &content.blob,
                     bincode::config::standard(),
                 ) {
@@ -557,11 +518,24 @@ where
             }
         };
 
-        // store the channel name
-        self.endpoint.channel_name = channel_name;
+        // set local state according to the info in the message
+        self.endpoint.conn = msg.get_incoming_conn();
+        self.endpoint.session_id = msg.get_session_header().get_session_id();
+        self.endpoint.channel_name = names.channel_name;
 
+        // set route in order to be able to send packets to the moderator
+        self.endpoint
+            .set_route(
+                names.moderator_name.agent_type(),
+                names.moderator_name.agent_id_option(),
+            )
+            .await;
+
+        // send reply to the moderator
+        let src = msg.get_source();
         let payload: Vec<u8> = if msg.contains_metadata(METADATA_MLS_ENABLED) {
             // if mls we need to provide the key package
+            info!("MLS is required, reply with key package");
             match &self.endpoint.mls_state.generate_key_package().await {
                 Ok(payload) => payload.to_vec(),
                 Err(e) => {
@@ -590,6 +564,7 @@ where
             msg.get_id(),
             payload,
         );
+
         self.endpoint.send(reply).await;
     }
 
@@ -601,6 +576,8 @@ where
                 return;
             }
         }
+
+        info!("Welcome message correctly processed, MLS state initialized");
 
         // set route for the channel name
         self.endpoint.join().await;
@@ -627,6 +604,8 @@ where
             }
         }
 
+        info!("Commit message correctly processed, MLS state updated");
+
         // send an ack back to the moderator
         let src = msg.get_source();
         let ack = self.endpoint.create_channel_message(
@@ -649,23 +628,24 @@ where
         let msg_type = msg.get_session_header().header_type();
         match msg_type {
             SessionHeaderType::ChannelDiscoveryRequest => {
-                debug!("received discovery request message");
-                self.on_discovery_request(msg).await;
+                error!(
+                    "Received discovery request message, this should not happen. drop the message"
+                );
             }
             SessionHeaderType::ChannelJoinRequest => {
-                debug!("received join request message");
+                info!("Received join request message");
                 self.on_join_request(msg).await;
             }
             SessionHeaderType::ChannelMlsWelcome => {
-                debug!("received mls welcome message");
+                info!("Received mls welcome message");
                 self.on_mls_welcome(msg).await;
             }
             SessionHeaderType::ChannelMlsCommit => {
-                debug!("received mls commit message");
+                info!("Received mls commit message");
                 self.on_mls_commit(msg).await;
             }
             SessionHeaderType::ChannelLeaveRequest => {
-                debug!("received leave request message");
+                info!("Received leave request message");
                 // leave the channell
                 self.endpoint.leave().await;
 
@@ -733,9 +713,9 @@ where
         mls: Option<Arc<Mutex<Mls>>>,
         tx: T,
     ) -> Self {
-        let invite_payload: Vec<u8> =
-            bincode::encode_to_vec(channel_name, bincode::config::standard())
-                .expect("unable to parse channel name as payload");
+        let p = JoinMessagePayload::new(channel_name.clone(), name.clone());
+        let invite_payload: Vec<u8> = bincode::encode_to_vec(p, bincode::config::standard())
+            .expect("unable to parse channel name as payload");
 
         let endpoint = Endpoint::new(name, channel_name, session_id, conn, mls, tx);
         ChannelModerator {
@@ -839,6 +819,9 @@ where
 
         if self.endpoint.mls_state.mls.is_some() {
             join.insert_metadata(METADATA_MLS_ENABLED.to_string(), "true".to_owned());
+            info!("Reply with the join request, MLS is enabled");
+        } else {
+            info!("Reply with the join request, MLS is disabled");
         }
 
         self.endpoint.send(join.clone()).await;
@@ -859,6 +842,7 @@ where
 
         // send MLS messages if needed
         if self.endpoint.mls_state.mls.is_some() {
+            info!("Generate MLS Welcome and Commit Message");
             let (commit_payload, welcome_payload) =
                 match self.endpoint.mls_state.add_participant(&msg).await {
                     Ok((commit_payload, welcome_payload)) => (commit_payload, welcome_payload),
@@ -894,11 +878,13 @@ where
             );
 
             // send welcome message
+            info!("Send MLS Welcome Message to the new participant");
             self.endpoint.send(welcome.clone()).await;
             self.create_timer(welcome_id, 1, welcome);
 
             // send commit message if needed
             if self.channel_list.len() > 1 {
+                info!("Send MLS Commit Message to the channel");
                 self.endpoint.send(commit.clone()).await;
                 self.create_timer(
                     commit_id,
@@ -926,29 +912,29 @@ where
         let msg_type = msg.get_session_header().header_type();
         match msg_type {
             SessionHeaderType::ChannelDiscoveryRequest => {
-                debug!("received discovery request message from app");
+                info!("Invite new participant to the channel, send discovery message");
                 // discovery message coming from the application
                 self.forward(msg).await;
             }
             SessionHeaderType::ChannelDiscoveryReply => {
-                debug!("received discovery reply message");
+                info!("Received discovery reply message");
                 self.on_discovery_reply(msg).await;
             }
             SessionHeaderType::ChannelJoinReply => {
-                debug!("received join reply message");
+                info!("Received join reply message");
                 self.on_join_reply(msg).await;
             }
             SessionHeaderType::ChannelMlsAck => {
-                debug!("received mls ack message");
+                info!("Received mls ack message");
                 self.on_msl_ack(msg).await;
             }
             SessionHeaderType::ChannelLeaveRequest => {
                 // leave message coming from the application
-                debug!("received leave request message");
+                info!("Received leave request message");
                 self.forward(msg).await;
             }
             SessionHeaderType::ChannelLeaveReply => {
-                debug!("received leave reply message");
+                info!("Received leave reply message");
                 let src = msg.get_slim_header().get_source();
                 let msg_id = msg.get_id();
 
