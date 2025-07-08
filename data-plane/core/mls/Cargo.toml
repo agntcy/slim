@@ -12,6 +12,7 @@ name = "slim_mls"
 agntcy-slim-auth = { workspace = true }
 agntcy-slim-datapath = { workspace = true }
 async-trait = { workspace = true }
+hex = "0.4"
 mls-rs = { workspace = true }
 mls-rs-core = { workspace = true }
 mls-rs-crypto-awslc = { workspace = true }
@@ -20,7 +21,6 @@ serde_json = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
-hex = "0.4"
 
 [dev-dependencies]
 tempfile = "3.3"

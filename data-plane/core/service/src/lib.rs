@@ -14,7 +14,6 @@ pub mod streaming;
 pub mod timer;
 
 mod fire_and_forget;
-pub mod mls_interceptor;
 mod request_response;
 mod testutils;
 

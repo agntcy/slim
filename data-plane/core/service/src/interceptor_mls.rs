@@ -14,18 +14,30 @@ pub const METADATA_MLS_ENABLED: &str = "MLS_ENABLED";
 pub const METADATA_MLS_INIT_COMMIT_ID: &str = "MLS_INIT_COMMIT_ID";
 const METADATA_MLS_ENCRYPTED: &str = "MLS_ENCRYPTED";
 
-pub struct MlsInterceptor {
-    mls: Arc<Mutex<Mls>>,
+pub struct MlsInterceptor<P, V>
+where
+    P: slim_auth::traits::TokenProvider + Send + Sync + Clone + 'static,
+    V: slim_auth::traits::Verifier + Send + Sync + Clone + 'static,
+{
+    mls: Arc<Mutex<Mls<P, V>>>,
 }
 
-impl MlsInterceptor {
-    pub fn new(mls: Arc<Mutex<Mls>>) -> Self {
+impl<P, V> MlsInterceptor<P, V>
+where
+    P: slim_auth::traits::TokenProvider + Send + Sync + Clone + 'static,
+    V: slim_auth::traits::Verifier + Send + Sync + Clone + 'static,
+{
+    pub fn new(mls: Arc<Mutex<Mls<P, V>>>) -> Self {
         Self { mls }
     }
 }
 
 #[async_trait::async_trait]
-impl SessionInterceptor for MlsInterceptor {
+impl<P, V> SessionInterceptor for MlsInterceptor<P, V>
+where
+    P: slim_auth::traits::TokenProvider + Send + Sync + Clone + 'static,
+    V: slim_auth::traits::Verifier + Send + Sync + Clone + 'static,
+{
     async fn on_msg_from_app(&self, msg: &mut Message) -> Result<(), SessionError> {
         // Only process Publish message types
         if !msg.is_publish() {
@@ -68,10 +80,7 @@ impl SessionInterceptor for MlsInterceptor {
                     "Failed to encrypt message with MLS: {}, dropping message",
                     e
                 );
-                return Err(SessionError::InterceptorError(format!(
-                    "MLS encryption failed: {}",
-                    e
-                )));
+                return Err(SessionError::MlsEncryptionFailed(e.to_string()));
             }
         };
 
@@ -119,9 +128,7 @@ impl SessionInterceptor for MlsInterceptor {
             Some(content) => &content.blob,
             None => {
                 warn!("Encrypted message has no payload");
-                return Err(SessionError::InterceptorError(
-                    "Encrypted message has no payload".to_string(),
-                ));
+                return Err(SessionError::MlsNoPayload);
             }
         };
 
@@ -133,10 +140,7 @@ impl SessionInterceptor for MlsInterceptor {
                 Ok(decrypted_payload) => decrypted_payload,
                 Err(e) => {
                     error!("Failed to decrypt message with MLS: {}", e);
-                    return Err(SessionError::InterceptorError(format!(
-                        "MLS decryption failed: {}",
-                        e
-                    )));
+                    return Err(SessionError::MlsDecryptionFailed(e.to_string()));
                 }
             }
         };
@@ -154,14 +158,17 @@ impl SessionInterceptor for MlsInterceptor {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use slim_mls::identity::FileBasedIdentityProvider;
+    use slim_auth::simple::SimpleGroup;
     use std::sync::Arc;
 
     #[tokio::test]
     async fn test_mls_interceptor_without_group() {
-        let identity_provider =
-            Arc::new(FileBasedIdentityProvider::new("/tmp/test_mls_interceptor_no_group").unwrap());
-        let mut mls = Mls::new("test_user".to_string(), identity_provider);
+        let agent = slim_datapath::messages::Agent::from_strings("org", "default", "test_user", 0);
+        let mut mls = Mls::new(
+            agent,
+            SimpleGroup::new("test", "group"),
+            SimpleGroup::new("test", "group"),
+        );
         mls.initialize().await.unwrap();
 
         let mls_arc = Arc::new(Mutex::new(mls));
@@ -182,19 +189,26 @@ mod tests {
             result
                 .unwrap_err()
                 .to_string()
-                .contains("MLS group does not exists")
+                .contains("MLS group does not exist")
         );
     }
 
     #[tokio::test]
     async fn test_mls_interceptor_with_group() {
-        let alice_provider =
-            Arc::new(FileBasedIdentityProvider::new("/tmp/test_mls_interceptor_alice").unwrap());
-        let bob_provider =
-            Arc::new(FileBasedIdentityProvider::new("/tmp/test_mls_interceptor_bob").unwrap());
+        let alice_agent =
+            slim_datapath::messages::Agent::from_strings("org", "default", "alice", 0);
+        let bob_agent = slim_datapath::messages::Agent::from_strings("org", "default", "bob", 1);
 
-        let mut alice_mls = Mls::new("alice".to_string(), alice_provider);
-        let mut bob_mls = Mls::new("bob".to_string(), bob_provider);
+        let mut alice_mls = Mls::new(
+            alice_agent,
+            SimpleGroup::new("alice", "group"),
+            SimpleGroup::new("alice", "group"),
+        );
+        let mut bob_mls = Mls::new(
+            bob_agent,
+            SimpleGroup::new("bob", "group"),
+            SimpleGroup::new("bob", "group"),
+        );
 
         alice_mls.initialize().await.unwrap();
         bob_mls.initialize().await.unwrap();
@@ -243,10 +257,12 @@ mod tests {
 
     #[tokio::test]
     async fn test_mls_interceptor_non_encrypted_message() {
-        let identity_provider = Arc::new(
-            FileBasedIdentityProvider::new("/tmp/test_mls_interceptor_non_encrypted").unwrap(),
+        let agent = slim_datapath::messages::Agent::from_strings("org", "default", "test_user", 0);
+        let mut mls = Mls::new(
+            agent,
+            SimpleGroup::new("test", "group"),
+            SimpleGroup::new("test", "group"),
         );
-        let mut mls = Mls::new("test_user".to_string(), identity_provider);
         mls.initialize().await.unwrap();
         mls.create_group().unwrap();
 
