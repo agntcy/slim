@@ -166,6 +166,8 @@ where
             let mut file = File::create(&identity_file).map_err(|e| MlsError::Io(e.to_string()))?;
             file.write_all(&json)
                 .map_err(|e| MlsError::Io(e.to_string()))?;
+            file.sync_all()
+                .map_err(|e| MlsError::FileSyncFailed(e.to_string()))?;
 
             stored
         };
@@ -341,6 +343,7 @@ mod tests {
             SimpleGroup::new("alice", "group"),
             SimpleGroup::new("alice", "group"),
         );
+        mls.set_storage_path("/tmp/mls_test_creation");
 
         mls.initialize().await?;
         assert!(mls.client.is_some());
@@ -356,6 +359,7 @@ mod tests {
             SimpleGroup::new("alice", "group"),
             SimpleGroup::new("alice", "group"),
         );
+        mls.set_storage_path("/tmp/mls_test_group_creation");
 
         mls.initialize().await?;
         let _group_id = mls.create_group()?;
@@ -372,6 +376,7 @@ mod tests {
             SimpleGroup::new("alice", "group"),
             SimpleGroup::new("alice", "group"),
         );
+        mls.set_storage_path("/tmp/mls_test_key_package");
 
         mls.initialize().await?;
         let key_package = mls.generate_key_package()?;
@@ -393,16 +398,19 @@ mod tests {
             SimpleGroup::new("alice", "group"),
             SimpleGroup::new("alice", "group"),
         );
+        alice.set_storage_path("/tmp/mls_test_messaging_alice");
         let mut bob = Mls::new(
             bob_agent,
             SimpleGroup::new("bob", "group"),
             SimpleGroup::new("bob", "group"),
         );
+        bob.set_storage_path("/tmp/mls_test_messaging_bob");
         let mut charlie = Mls::new(
             charlie_agent,
             SimpleGroup::new("charlie", "group"),
             SimpleGroup::new("charlie", "group"),
         );
+        charlie.set_storage_path("/tmp/mls_test_messaging_charlie");
 
         alice.initialize().await?;
         bob.initialize().await?;
@@ -476,11 +484,13 @@ mod tests {
             SimpleGroup::new("alice", "group"),
             SimpleGroup::new("alice", "group"),
         );
+        alice.set_storage_path("/tmp/mls_test_decrypt_alice");
         let mut bob = Mls::new(
             bob_agent,
             SimpleGroup::new("bob", "group"),
             SimpleGroup::new("bob", "group"),
         );
+        bob.set_storage_path("/tmp/mls_test_decrypt_bob");
 
         alice.initialize().await?;
         bob.initialize().await?;

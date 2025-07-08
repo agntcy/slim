@@ -24,6 +24,8 @@ pub enum MlsError {
     StorageDirectoryCreation(#[from] std::io::Error),
     #[error("Failed to get token: {0}")]
     TokenRetrievalFailed(String),
+    #[error("Failed to sync file: {0}")]
+    FileSyncFailed(String),
 }
 
 #[derive(Error, Debug)]
