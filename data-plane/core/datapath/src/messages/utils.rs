@@ -565,6 +565,14 @@ impl ProtoMessage {
         self.metadata.remove(key);
     }
 
+    pub fn contains_metadata(&self, key: &str) -> bool {
+        self.metadata.contains_key(key)
+    }
+
+    pub fn get_metadata(&self, key: &str) -> Option<&String> {
+        self.metadata.get(key)
+    }
+
     pub fn get_slim_header(&self) -> &SlimHeader {
         match &self.message_type {
             Some(ProtoPublishType(publish)) => publish.header.as_ref().unwrap(),
@@ -1169,7 +1177,7 @@ mod tests {
     #[test]
     fn test_service_type_to_int() {
         // Get total number of service types
-        let total_service_types = SessionHeaderType::ChannelLeaveReply as i32;
+        let total_service_types = SessionHeaderType::ChannelMlsAck as i32;
 
         for i in 0..total_service_types {
             // int -> ServiceType

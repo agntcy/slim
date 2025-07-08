@@ -7,7 +7,7 @@ use clap::Parser;
 use slim::config;
 use tracing::{error, info};
 
-use slim_auth::simple::Simple;
+use slim_auth::simple::SimpleGroup;
 use slim_datapath::messages::{Agent, AgentType, utils::SlimHeaderFlags};
 use slim_service::streaming::StreamingConfiguration;
 
@@ -32,6 +32,16 @@ pub struct Args {
     )]
     is_moderator: bool,
 
+    /// Runs the endpoint in attacker mode.
+    #[arg(
+        short,
+        long,
+        value_name = "IS_ATTACKER",
+        required = false,
+        default_value_t = false
+    )]
+    is_attacker: bool,
+
     // List of paticipants types to add to the channel in the form org/ns/type. used only in moderator mode
     #[clap(short, long, value_name = "PARITICIPANTS", num_args = 1.., value_delimiter = ' ', required = false)]
     participants: Vec<String>,
@@ -45,16 +55,6 @@ pub struct Args {
         default_value = ""
     )]
     moderator_name: String,
-
-    /// Publication message size
-    #[arg(
-        short,
-        long,
-        value_name = "SIZE",
-        required = false,
-        default_value_t = 1500
-    )]
-    msg_size: u32,
 
     /// Time between publications in milliseconds
     #[arg(
@@ -72,10 +72,6 @@ pub struct Args {
 }
 
 impl Args {
-    pub fn msg_size(&self) -> &u32 {
-        &self.msg_size
-    }
-
     pub fn name(&self) -> &String {
         &self.name
     }
@@ -86,6 +82,10 @@ impl Args {
 
     pub fn is_moderator(&self) -> &bool {
         &self.is_moderator
+    }
+
+    pub fn is_attacker(&self) -> &bool {
+        &self.is_attacker
     }
 
     pub fn moderator_name(&self) -> &String {
@@ -132,14 +132,20 @@ async fn main() {
     let args = Args::parse();
 
     let config_file = args.config();
-    let msg_size = *args.msg_size();
     let local_name_str = args.name().clone();
     let frequency = *args.frequency();
     let is_moderator = *args.is_moderator();
+    let is_attacker = *args.is_attacker();
     let moderator_name = args.moderator_name().clone();
     let max_packets = args.max_packets;
     let participants_str = args.participants().clone();
     let mut participants = vec![];
+
+    let msg_payload_str = if is_moderator {
+        "Hello from the moderator. msg id: ".to_owned()
+    } else {
+        format!("Hello from the participant {}. msg id: ", local_name_str)
+    };
 
     // start local agent
     // get service
@@ -154,7 +160,11 @@ async fn main() {
     let channel_name = AgentType::from_strings("channel", "channel", "channel");
 
     let (app, mut rx) = svc
-        .create_app(&local_name, Simple::new("secret"), Simple::new("secret"))
+        .create_app(
+            &local_name,
+            SimpleGroup::new("a", "group"),
+            SimpleGroup::new("a", "group"),
+        )
         .await
         .expect("failed to create agent");
 
@@ -207,7 +217,8 @@ async fn main() {
                     Some(10),
                     Some(Duration::from_secs(1)),
                 )),
-                None,
+                Some(12345),
+                true,
             )
             .await
             .expect("error creating session");
@@ -218,6 +229,8 @@ async fn main() {
             app.invite(&p, info.clone())
                 .await
                 .expect("error sending invite message");
+
+            tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
         }
         tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
 
@@ -231,12 +244,16 @@ async fn main() {
                     }
                     Some(msg_info) => match msg_info {
                         Ok(msg) => {
-                            let publisher_id = msg.message.get_slim_header().get_source();
-                            info!(
-                                "received message {} from publisher {}",
-                                msg.info.message_id.unwrap(),
-                                publisher_id
-                            );
+                            let payload = match msg.message.get_payload() {
+                                Some(c) => {
+                                    let p = &c.blob;
+                                    String::from_utf8(p.to_vec())
+                                        .expect("error while parsing received message")
+                                }
+                                None => "".to_string(),
+                            };
+
+                            info!("received message: {}", payload);
                         }
                         Err(e) => {
                             error!("received an error message {:?}", e);
@@ -247,12 +264,17 @@ async fn main() {
         });
 
         for i in 0..max_packets.unwrap_or(u64::MAX) {
-            let payload: Vec<u8> = vec![120; msg_size as usize]; // ASCII for 'x' = 120
-            info!("publishing message {}", i);
+            info!("moderator: send message {}", i);
+            // create payload
+            let mut pstr = msg_payload_str.clone();
+            pstr.push_str(&i.to_string());
+            let p = pstr.as_bytes().to_vec();
+
             // set fanout > 1 to send the message in broadcast
             let flags = SlimHeaderFlags::new(10, None, None, None, None);
+
             if app
-                .publish_with_flags(info.clone(), &channel_name, None, flags, payload)
+                .publish_with_flags(info.clone(), &channel_name, None, flags, p)
                 .await
                 .is_err()
             {
@@ -268,6 +290,30 @@ async fn main() {
             panic!("missing moderator name in the configuration")
         }
         let moderator = parse_string_name(moderator_name);
+        let mut msg_id = 0;
+
+        if is_attacker {
+            info!("Starting the attacker");
+            let _ = app
+                .create_session(
+                    slim_service::session::SessionConfig::Streaming(StreamingConfiguration::new(
+                        slim_service::session::SessionDirection::Bidirectional,
+                        Some(channel_name.clone()),
+                        true,
+                        Some(10),
+                        Some(Duration::from_secs(1)),
+                    )),
+                    Some(12345),
+                    true,
+                )
+                .await
+                .expect("error creating session");
+
+            // subscribe for local name
+            app.subscribe(&channel_name, None, Some(conn_id))
+                .await
+                .expect("an error accoured while adding a subscription");
+        }
 
         // listen for messages
         loop {
@@ -279,29 +325,36 @@ async fn main() {
                 Some(msg_info) => match msg_info {
                     Ok(msg) => {
                         let publisher = msg.message.get_slim_header().get_source();
+                        let payload = match msg.message.get_payload() {
+                            Some(c) => {
+                                let p = &c.blob;
+                                String::from_utf8(p.to_vec())
+                                    .expect("error while parsing received message")
+                            }
+                            None => "".to_string(),
+                        };
+
                         let info = msg.info;
-                        if publisher == moderator {
-                            info!(
-                                "received message {} from moderator",
-                                info.message_id.unwrap(),
-                            );
+                        info!("received message: {}", payload,);
+
+                        if publisher == moderator && !is_attacker {
                             // for each message coming from the moderator reply with another message
-                            // set fanout > 1 to send the message in broadcast
-                            let payload: Vec<u8> = vec![120; msg_size as usize]; // ASCII for 'x' = 120
+                            info!("reply to moderator with message {}", msg_id);
+
+                            // create payload
+                            let mut pstr = msg_payload_str.clone();
+                            pstr.push_str(&msg_id.to_string());
+                            let p = pstr.as_bytes().to_vec();
+                            msg_id += 1;
+
                             let flags = SlimHeaderFlags::new(10, None, None, None, None);
                             if app
-                                .publish_with_flags(info, &channel_name, None, flags, payload)
+                                .publish_with_flags(info, &channel_name, None, flags, p)
                                 .await
                                 .is_err()
                             {
                                 panic!("an error occurred sending publication from moderator",);
                             }
-                        } else {
-                            info!(
-                                "received message {} from participant {}",
-                                info.message_id.unwrap(),
-                                publisher.to_string(),
-                            );
                         }
                     }
                     Err(e) => {

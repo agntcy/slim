@@ -2,16 +2,16 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use clap::Parser;
-use parking_lot::Mutex;
 use slim_datapath::messages::{Agent, AgentType};
 use std::sync::Arc;
-use tokio::time;
+use tokio::{sync::Mutex, time};
 use tracing::info;
 
 use slim::config;
-use slim_auth::simple::Simple;
+use slim_auth::simple::SimpleGroup;
 use slim_service::{
     FireAndForgetConfiguration,
+    interceptor_mls::{self, MlsInterceptor},
     session::{self, SessionConfig},
 };
 
@@ -51,7 +51,11 @@ async fn main() {
     let agent_id = 0;
     let agent_name = Agent::from_strings("org", "default", local_agent, agent_id);
     let (app, mut rx) = svc
-        .create_app(&agent_name, Simple::new("secret"), Simple::new("secret"))
+        .create_app(
+            &agent_name,
+            SimpleGroup::new("a", "group"),
+            SimpleGroup::new("a", "group"),
+        )
         .await
         .expect("failed to create agent");
 
@@ -127,7 +131,7 @@ async fn main() {
             };
 
             // Add client to group and generate welcome message
-            let welcome_message = server_mls.add_member(&group_id, &key_package).unwrap();
+            let (_, welcome_message) = server_mls.add_member(&key_package).unwrap();
 
             // Save welcome message for client
             std::fs::write(&welcome_path, &welcome_message).unwrap();
@@ -147,6 +151,7 @@ async fn main() {
             .create_session(
                 SessionConfig::FireAndForget(FireAndForgetConfiguration::default()),
                 None,
+                false,
             )
             .await;
         if res.is_err() {
@@ -193,15 +198,12 @@ async fn main() {
             };
 
             // Join the group
-            let group_id = client_mls.join_group(&welcome_message).unwrap();
+            let _group_id = client_mls.process_welcome(&welcome_message).unwrap();
             info!("Client successfully joined group");
 
             // enable mls for the session with group_id
-            let interceptor = slim_mls::interceptor::MlsInterceptor::new(
-                Arc::new(Mutex::new(client_mls)),
-                group_id,
-            );
-            app.add_interceptor(session.id, Box::new(interceptor))
+            let interceptor = MlsInterceptor::new(Arc::new(Mutex::new(client_mls)));
+            app.add_interceptor(session.id, Arc::new(interceptor))
                 .await
                 .unwrap();
         }
@@ -240,12 +242,11 @@ async fn main() {
 
                 // Setup MLS session for server on first message
                 if message.is_none() && !server_session_created && server_mls_for_session.is_some() {
-                    let (mls, group_id) = server_mls_for_session.take().unwrap();
-                    let interceptor = slim_mls::interceptor::MlsInterceptor::new(
+                    let (mls, _group_id) = server_mls_for_session.take().unwrap();
+                    let interceptor = interceptor_mls::MlsInterceptor::new(
                         Arc::new(Mutex::new(mls)),
-                        group_id,
                     );
-                    app.add_interceptor(session_msg.info.id, Box::new(interceptor))
+                    app.add_interceptor(session_msg.info.id, Arc::new(interceptor))
                         .await
                         .unwrap();
                     server_session_created = true;
@@ -277,9 +278,6 @@ async fn main() {
     }
 
     info!("sdk-mock shutting down");
-
-    // Delete app
-    drop(app);
 
     // consume the service and get the drain signal
     let signal = svc.signal();

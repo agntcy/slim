@@ -17,7 +17,7 @@ use indicatif::ProgressBar;
 use tracing::{debug, error, info};
 
 use slim::config;
-use slim_auth::simple::Simple;
+use slim_auth::simple::SimpleGroup;
 use slim_service::streaming::StreamingConfiguration;
 
 #[derive(Parser, Debug)]
@@ -175,7 +175,11 @@ async fn main() {
     let agent_name = Agent::from_strings("cisco", "default", "publisher", id);
 
     let (app, mut rx) = svc
-        .create_app(&agent_name, Simple::new("secret"), Simple::new("secret"))
+        .create_app(
+            &agent_name,
+            SimpleGroup::new("a", "group"),
+            SimpleGroup::new("a", "group"),
+        )
         .await
         .expect("failed to create agent");
 
@@ -237,6 +241,7 @@ async fn main() {
                         None,
                     )),
                     None,
+                    false,
                 )
                 .await
             }
@@ -251,6 +256,7 @@ async fn main() {
                         Some(Duration::from_millis(1000)),
                     )),
                     None,
+                    false,
                 )
                 .await
             }
@@ -375,6 +381,7 @@ async fn main() {
                 slim_service::FireAndForgetConfiguration::default(),
             ),
             None,
+            false,
         )
         .await;
     if res.is_err() {

@@ -1,7 +1,7 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
-use slim_auth::simple::Simple;
+use slim_auth::simple::SimpleGroup;
 use slim_datapath::messages::Agent;
 use slim_service::streaming::StreamingConfiguration;
 use std::fs::File;
@@ -91,7 +91,11 @@ async fn main() {
     // create local agent
     let agent_name = Agent::from_strings("cisco", "default", "subscriber", id);
     let (app, mut rx) = svc
-        .create_app(&agent_name, Simple::new("secret"), Simple::new("secret"))
+        .create_app(
+            &agent_name,
+            SimpleGroup::new("a", "group"),
+            SimpleGroup::new("a", "group"),
+        )
         .await
         .expect("failed to create agent");
 
@@ -188,6 +192,7 @@ async fn main() {
                 Some(Duration::from_millis(1000)),
             )),
             None,
+            false,
         )
         .await;
     if res.is_err() {

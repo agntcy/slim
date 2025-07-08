@@ -11,14 +11,10 @@ use tracing::debug;
 
 use crate::errors::SessionError;
 use crate::session::{
-    AppChannelSender, Interceptor, MessageHandler, SessionConfig, SessionInterceptor,
-    SlimChannelSender,
-};
-use crate::session::{
     Common, CommonSession, Id, MessageDirection, SessionConfigTrait, SessionDirection, State,
 };
+use crate::session::{MessageHandler, SessionConfig, SessionTransmitter};
 use crate::{SessionMessage, timer};
-use slim_datapath::api::proto::pubsub::v1::Message;
 use slim_datapath::api::proto::pubsub::v1::SessionHeaderType;
 use slim_datapath::messages::encoder::Agent;
 
@@ -63,20 +59,22 @@ impl std::fmt::Display for RequestResponseConfiguration {
 }
 
 /// Internal state of the Request Response session
-struct RequestResponseInternal<P, V>
+struct RequestResponseInternal<P, V, T>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
+    T: SessionTransmitter + Send + Sync + Clone + 'static,
 {
-    common: Common<P, V>,
+    common: Common<P, V, T>,
     timers: RwLock<HashMap<u32, (timer::Timer, SessionMessage)>>,
 }
 
 #[async_trait]
-impl<P, V> timer::TimerObserver for RequestResponseInternal<P, V>
+impl<P, V, T> timer::TimerObserver for RequestResponseInternal<P, V, T>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
+    T: SessionTransmitter + Send + Sync + Clone + 'static,
 {
     async fn on_timeout(&self, _message_id: u32, _timeouts: u32) {
         panic!("this should never happen");
@@ -94,8 +92,8 @@ where
 
         let _ = self
             .common
-            .tx_app_ref()
-            .send(Err(SessionError::Timeout {
+            .tx_ref()
+            .send_to_app(Err(SessionError::Timeout {
                 session_id: self.common.id(),
                 message_id,
                 message: Box::new(message),
@@ -110,18 +108,20 @@ where
 }
 
 /// Request Response session
-pub(crate) struct RequestResponse<P, V>
+pub(crate) struct RequestResponse<P, V, T>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
+    T: SessionTransmitter + Send + Sync + Clone + 'static,
 {
-    internal: Arc<RequestResponseInternal<P, V>>,
+    internal: Arc<RequestResponseInternal<P, V, T>>,
 }
 
-impl<P, V> RequestResponse<P, V>
+impl<P, V, T> RequestResponse<P, V, T>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
+    T: SessionTransmitter + Send + Sync + Clone + 'static,
 {
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn new(
@@ -129,10 +129,10 @@ where
         session_config: RequestResponseConfiguration,
         session_direction: SessionDirection,
         source: Agent,
-        tx_slim: SlimChannelSender,
-        tx_app: AppChannelSender,
+        tx: T,
         identity_provider: P,
         identity_verifier: V,
+        mls_enabled: bool,
     ) -> Self {
         let internal = RequestResponseInternal {
             common: Common::new(
@@ -140,10 +140,10 @@ where
                 session_direction,
                 SessionConfig::RequestResponse(session_config),
                 source,
-                tx_slim,
-                tx_app,
+                tx,
                 identity_provider,
                 identity_verifier,
+                mls_enabled,
             ),
             timers: RwLock::new(HashMap::new()),
         };
@@ -185,8 +185,8 @@ where
         // send message
         self.internal
             .common
-            .tx_slim_ref()
-            .send(Ok(message.message.clone()))
+            .tx_ref()
+            .send_to_slim(Ok(message.message.clone()))
             .await
             .map_err(|e| SessionError::SlimTransmission(e.to_string()))?;
 
@@ -204,20 +204,12 @@ where
     }
 }
 
-impl<P, V> Interceptor for RequestResponse<P, V>
+#[async_trait]
+impl<P, V, T> CommonSession<P, V, T> for RequestResponse<P, V, T>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
-{
-    fn add_interceptor(&self, interceptor: Box<dyn SessionInterceptor + Send + Sync + 'static>) {
-        self.internal.common.add_interceptor(interceptor);
-    }
-}
-
-impl<P, V> CommonSession<P, V> for RequestResponse<P, V>
-where
-    P: TokenProvider + Send + Sync + Clone + 'static,
-    V: Verifier + Send + Sync + Clone + 'static,
+    T: SessionTransmitter + Send + Sync + Clone + 'static,
 {
     fn id(&self) -> Id {
         // concat the token stream
@@ -248,20 +240,21 @@ where
         self.internal.common.identity_verifier().clone()
     }
 
-    fn on_message_from_app_interceptors(&self, msg: &mut Message) -> Result<(), SessionError> {
-        self.internal.common.on_message_from_app_interceptors(msg)
+    fn tx(&self) -> T {
+        self.internal.common.tx().clone()
     }
 
-    fn on_message_from_slim_interceptors(&self, msg: &mut Message) -> Result<(), SessionError> {
-        self.internal.common.on_message_from_slim_interceptors(msg)
+    fn tx_ref(&self) -> &T {
+        self.internal.common.tx_ref()
     }
 }
 
 #[async_trait]
-impl<P, V> MessageHandler for RequestResponse<P, V>
+impl<P, V, T> MessageHandler for RequestResponse<P, V, T>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
+    T: SessionTransmitter + Send + Sync + Clone + 'static,
 {
     async fn on_message(
         &self,
@@ -304,8 +297,8 @@ where
 
                 self.internal
                     .common
-                    .tx_app_ref()
-                    .send(Ok(message))
+                    .tx_ref()
+                    .send_to_app(Ok(message))
                     .await
                     .map_err(|e| SessionError::AppTransmission(e.to_string()))
             }
@@ -325,8 +318,8 @@ where
 
                                 self.internal
                                     .common
-                                    .tx_slim_ref()
-                                    .send(Ok(message.message.clone()))
+                                    .tx_ref()
+                                    .send_to_slim(Ok(message.message.clone()))
                                     .await
                                     .map_err(|e| SessionError::SlimTransmission(e.to_string()))
                             }
@@ -356,7 +349,8 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use slim_auth::simple::Simple;
+    use crate::testutils::MockTransmitter;
+    use slim_auth::simple::SimpleGroup;
     use slim_datapath::{
         api::{ProtoMessage, ProtoPublish},
         messages::{Agent, AgentType},
@@ -366,6 +360,8 @@ mod tests {
     async fn test_rr_create() {
         let (tx_slim, _) = tokio::sync::mpsc::channel(1);
         let (tx_app, _) = tokio::sync::mpsc::channel(1);
+
+        let tx = MockTransmitter { tx_app, tx_slim };
 
         let session_config = RequestResponseConfiguration {
             timeout: std::time::Duration::from_millis(1000),
@@ -378,10 +374,10 @@ mod tests {
             session_config.clone(),
             SessionDirection::Bidirectional,
             source.clone(),
-            tx_slim,
-            tx_app,
-            Simple::new("token"),
-            Simple::new("token"),
+            tx,
+            SimpleGroup::new("a", "group"),
+            SimpleGroup::new("a", "group"),
+            false,
         );
 
         assert_eq!(session.id(), 0);
@@ -397,6 +393,8 @@ mod tests {
         let (tx_slim, _rx_slim) = tokio::sync::mpsc::channel(1);
         let (tx_app, mut rx_app) = tokio::sync::mpsc::channel(1);
 
+        let tx = MockTransmitter { tx_app, tx_slim };
+
         let session_config = RequestResponseConfiguration {
             timeout: std::time::Duration::from_millis(1000),
         };
@@ -408,10 +406,10 @@ mod tests {
             session_config,
             SessionDirection::Bidirectional,
             source.clone(),
-            tx_slim,
-            tx_app,
-            Simple::new("token"),
-            Simple::new("token"),
+            tx,
+            SimpleGroup::new("a", "group"),
+            SimpleGroup::new("a", "group"),
+            false,
         );
 
         let payload = vec![0x1, 0x2, 0x3, 0x4];
@@ -471,6 +469,8 @@ mod tests {
         let (tx_slim, _) = tokio::sync::mpsc::channel(1);
         let (tx_app, _) = tokio::sync::mpsc::channel(1);
 
+        let tx = MockTransmitter { tx_app, tx_slim };
+
         let session_config = RequestResponseConfiguration {
             timeout: std::time::Duration::from_millis(1000),
         };
@@ -483,10 +483,10 @@ mod tests {
                 session_config,
                 SessionDirection::Bidirectional,
                 source.clone(),
-                tx_slim,
-                tx_app,
-                Simple::new("token"),
-                Simple::new("token"),
+                tx,
+                SimpleGroup::new("a", "group"),
+                SimpleGroup::new("a", "group"),
+                false,
             );
         }
     }

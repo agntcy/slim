@@ -4,54 +4,123 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use drain::Watch;
 use parking_lot::RwLock as SyncRwLock;
 use rand::Rng;
-use slim_auth::simple::Simple;
-use slim_auth::traits::{TokenProvider, Verifier};
-use slim_datapath::api::{MessageType, SessionHeader, SlimHeader};
-use slim_datapath::message_processing::MessageProcessor;
-use slim_datapath::messages::AgentType;
-use slim_datapath::messages::utils::SlimHeaderFlags;
 use tokio::sync::RwLock as AsyncRwLock;
 use tokio::sync::mpsc;
+use tokio::sync::mpsc::error::SendError;
 use tracing::{debug, error, warn};
 
 use crate::errors::SessionError;
 use crate::fire_and_forget::FireAndForgetConfiguration;
+use crate::interceptor::{IdentityInterceptor, SessionInterceptor, SessionInterceptorProvider};
 use crate::request_response::{RequestResponse, RequestResponseConfiguration};
 use crate::session::{
-    AppChannelSender, CommonSession, Id, Info, Interceptor, MessageDirection, MessageHandler,
-    SESSION_RANGE, Session, SessionConfig, SessionConfigTrait, SessionDirection,
-    SessionInterceptor, SessionMessage, SessionType, SlimChannelSender,
+    AppChannelSender, CommonSession, Id, Info, MessageDirection, MessageHandler, SESSION_RANGE,
+    Session, SessionConfig, SessionConfigTrait, SessionDirection, SessionMessage,
+    SessionTransmitter, SessionType, SlimChannelSender,
 };
 use crate::streaming::{self, StreamingConfiguration};
 use crate::{ServiceError, fire_and_forget, session};
+use slim_auth::traits::{TokenProvider, Verifier};
 use slim_datapath::Status;
 use slim_datapath::api::proto::pubsub::v1::Message;
 use slim_datapath::api::proto::pubsub::v1::SessionHeaderType;
+use slim_datapath::api::{MessageType, SessionHeader, SlimHeader};
+use slim_datapath::messages::AgentType;
 use slim_datapath::messages::encoder::Agent;
+use slim_datapath::messages::utils::SlimHeaderFlags;
+
+/// Transmitter used to intercept messages sent from sessions and apply interceptors on them
+#[derive(Clone)]
+struct Transmitter {
+    /// SLIM tx
+    slim_tx: SlimChannelSender,
+
+    /// Application tx
+    app_tx: AppChannelSender,
+
+    // Interceptors to be called on message reception/send
+    interceptors: Arc<SyncRwLock<Vec<Arc<dyn SessionInterceptor + Send + Sync>>>>,
+}
+
+impl SessionInterceptorProvider for Transmitter {
+    fn add_interceptor(&self, interceptor: Arc<dyn SessionInterceptor + Send + Sync + 'static>) {
+        self.interceptors.write().push(interceptor);
+    }
+
+    fn get_interceptors(&self) -> Vec<Arc<dyn SessionInterceptor + Send + Sync + 'static>> {
+        self.interceptors.read().clone()
+    }
+}
+
+impl SessionTransmitter for Transmitter {
+    fn send_to_app(
+        &self,
+        message: Result<SessionMessage, SessionError>,
+    ) -> impl Future<Output = Result<(), SessionError>> + Send + 'static {
+        let tx = self.app_tx.clone();
+        async move {
+            tx.send(message)
+                .await
+                .map_err(|e: SendError<Result<SessionMessage, SessionError>>| {
+                    SessionError::AppTransmission(e.to_string())
+                })
+        }
+    }
+
+    fn send_to_slim(
+        &self,
+        mut message: Result<Message, Status>,
+    ) -> impl Future<Output = Result<(), SessionError>> + Send + 'static {
+        let tx = self.slim_tx.clone();
+
+        // Interceptors
+        let interceptors = match &message {
+            Ok(_) => self.interceptors.read().clone(),
+            Err(_) => Vec::new(),
+        };
+
+        async move {
+            if let Ok(msg) = message.as_mut() {
+                // Apply interceptors on the message
+                for interceptor in interceptors {
+                    if let Err(e) = interceptor.on_msg_from_app(msg).await {
+                        warn!("error applying interceptor on message: {}", e);
+                    }
+                }
+            }
+
+            tx.send(message)
+                .await
+                .map_err(|e: SendError<Result<Message, Status>>| {
+                    SessionError::SlimTransmission(e.to_string())
+                })
+        }
+    }
+}
 
 /// SessionLayer
-struct SessionLayer<P, V>
+struct SessionLayer<P, V, T>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
+    T: SessionTransmitter + Send + Sync + Clone + 'static,
 {
     /// Session pool
-    pool: AsyncRwLock<HashMap<Id, Session<P, V>>>,
+    pool: AsyncRwLock<HashMap<Id, Session<P, V, T>>>,
 
     /// Name of the local agent
     agent_name: Agent,
-
-    /// Reference to underlying message processor
-    message_processor: Option<Arc<MessageProcessor>>,
 
     /// Identity provider for the local agent
     identity_provider: P,
 
     /// Identity verifier
     identity_verifier: V,
+
+    /// Identity interceptor
+    identity_interceptor: Arc<dyn SessionInterceptor + Send + Sync>,
 
     /// ID of the local connection
     conn_id: u64,
@@ -60,18 +129,25 @@ where
     tx_slim: SlimChannelSender,
     tx_app: AppChannelSender,
 
+    /// Transmitter for sessions
+    transmitter: T,
+
     /// Default configuration for the session
     default_ff_conf: SyncRwLock<FireAndForgetConfiguration>,
     default_rr_conf: SyncRwLock<RequestResponseConfiguration>,
     default_stream_conf: SyncRwLock<StreamingConfiguration>,
 }
 
-pub struct App<P = Simple, V = Simple>
+pub struct App<P, V>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
 {
-    session_layer: Arc<SessionLayer<P, V>>,
+    /// Session layer that manages sessions
+    session_layer: Arc<SessionLayer<P, V, Transmitter>>,
+
+    /// Cancelation token for the app receiver loop
+    cancel_token: tokio_util::sync::CancellationToken,
 }
 
 impl<P, V> std::fmt::Debug for App<P, V>
@@ -90,12 +166,8 @@ where
     V: Verifier + Send + Sync + Clone + 'static,
 {
     fn drop(&mut self) {
-        // if connected to a message processor, disconnect
-        if let Some(message_processor) = &self.session_layer.message_processor {
-            message_processor
-                .disconnect(self.session_layer.conn_id())
-                .expect("error disconnecting the local connection");
-        }
+        // cancel the app receiver loop
+        self.cancel_token.cancel();
     }
 }
 
@@ -107,7 +179,6 @@ where
     /// Create new App instance
     pub(crate) fn new(
         agent_name: &Agent,
-        message_processor: Option<Arc<MessageProcessor>>,
         identity_provider: P,
         identity_verifier: V,
         conn_id: u64,
@@ -119,32 +190,61 @@ where
         let default_rr_conf = SyncRwLock::new(RequestResponseConfiguration::default());
         let default_stream_conf = SyncRwLock::new(StreamingConfiguration::default());
 
+        // Create identity interceptor
+        let identity_interceptor = Arc::new(IdentityInterceptor::new(
+            identity_provider.clone(),
+            identity_verifier.clone(),
+        ));
+
+        // Create the transmitter
+        let transmitter = Transmitter {
+            slim_tx: tx_slim.clone(),
+            app_tx: tx_app.clone(),
+            interceptors: Arc::new(SyncRwLock::new(Vec::new())),
+        };
+
         // Create the session layer
         let session_layer = Arc::new(SessionLayer {
             pool: AsyncRwLock::new(HashMap::new()),
             agent_name: agent_name.clone(),
-            message_processor,
             identity_provider,
             identity_verifier,
+            identity_interceptor,
             conn_id,
             tx_slim,
             tx_app,
+            transmitter,
             default_ff_conf,
             default_rr_conf,
             default_stream_conf,
         });
 
-        Self { session_layer }
+        // Create a new cancellation token for the app receiver loop
+        let cancel_token = tokio_util::sync::CancellationToken::new();
+
+        Self {
+            session_layer,
+            cancel_token,
+        }
     }
 
+    /// Create a new session with the given configuration
     pub async fn create_session(
         &self,
         session_config: SessionConfig,
         id: Option<Id>,
+        mls_enabled: bool,
     ) -> Result<Info, SessionError> {
-        self.session_layer.create_session(session_config, id).await
+        let ret = self
+            .session_layer
+            .create_session(session_config, id, mls_enabled)
+            .await?;
+
+        // return the session info
+        Ok(ret)
     }
 
+    /// Get a session by its ID
     pub async fn delete_session(&self, id: Id) -> Result<(), SessionError> {
         // remove the session from the pool
         if self.session_layer.remove_session(id).await {
@@ -190,13 +290,14 @@ where
     pub async fn add_interceptor(
         &self,
         session_id: session::Id,
-        interceptor: Box<dyn session::SessionInterceptor + Send + Sync>,
+        interceptor: Arc<dyn SessionInterceptor + Send + Sync>,
     ) -> Result<(), SessionError> {
         self.session_layer
             .add_session_interceptor(session_id, interceptor)
             .await
     }
 
+    /// Send a message to the session layer
     async fn send_message(
         &self,
         msg: Message,
@@ -226,6 +327,7 @@ where
         }
     }
 
+    /// Invite someone to a session
     pub async fn invite(
         &self,
         destination: &AgentType,
@@ -261,6 +363,7 @@ where
         self.send_message(msg, Some(session_info)).await
     }
 
+    /// Subscribe the app to receive messages for a name
     pub async fn subscribe(
         &self,
         agent_type: &AgentType,
@@ -283,6 +386,7 @@ where
         self.send_message(msg, None).await
     }
 
+    /// Unsubscribe the app
     pub async fn unsubscribe(
         &self,
         agent_type: &AgentType,
@@ -305,6 +409,7 @@ where
         self.send_message(msg, None).await
     }
 
+    /// Set a route towards another app
     pub async fn set_route(
         &self,
         agent_type: &AgentType,
@@ -341,6 +446,7 @@ where
         self.send_message(msg, None).await
     }
 
+    /// Publish a message to a specific connection
     pub async fn publish_to(
         &self,
         session_info: session::Info,
@@ -359,6 +465,7 @@ where
         .await
     }
 
+    /// Publish a message to a specific app name
     pub async fn publish(
         &self,
         session_info: session::Info,
@@ -376,6 +483,7 @@ where
         .await
     }
 
+    /// Publish a message with specific flags
     pub async fn publish_with_flags(
         &self,
         session_info: session::Info,
@@ -402,13 +510,10 @@ where
     }
 
     /// SLIM receiver loop
-    pub(crate) fn process_messages(
-        &self,
-        mut rx: mpsc::Receiver<Result<Message, Status>>,
-        watch: Watch,
-    ) {
+    pub(crate) fn process_messages(&self, mut rx: mpsc::Receiver<Result<Message, Status>>) {
         let agent_name = self.session_layer.agent_name.clone();
         let session_layer = self.session_layer.clone();
+        let token_clone = self.cancel_token.clone();
 
         tokio::spawn(async move {
             debug!("starting message processing loop for agent {}", agent_name);
@@ -471,8 +576,8 @@ where
                             }
                         }
                     }
-                    _ = watch.clone().signaled() => {
-                        debug!("shutting down processing on drain for agent: {}", session_layer.agent_name());
+                    _ = token_clone.cancelled() => {
+                        debug!("message processing loop cancelled");
                         break;
                     }
                 }
@@ -481,10 +586,11 @@ where
     }
 }
 
-impl<P, V> SessionLayer<P, V>
+impl<P, V, T> SessionLayer<P, V, T>
 where
-    P: TokenProvider + Send + Sync + Clone,
-    V: Verifier + Send + Sync + Clone,
+    P: TokenProvider + Send + Sync + Clone + 'static,
+    V: Verifier + Send + Sync + Clone + 'static,
+    T: SessionTransmitter + Send + Sync + Clone + 'static,
 {
     pub(crate) fn tx_slim(&self) -> SlimChannelSender {
         self.tx_slim.clone()
@@ -507,6 +613,7 @@ where
         &self,
         session_config: SessionConfig,
         id: Option<Id>,
+        mls_enabled: bool,
     ) -> Result<Info, SessionError> {
         // TODO(msardara): the session identifier should be a combination of the
         // session ID and the agent ID, to prevent collisions.
@@ -540,6 +647,9 @@ where
             }
         };
 
+        // Create a new transmitter
+        let tx = self.transmitter.clone();
+
         // create a new session
         let session = match session_config {
             SessionConfig::FireAndForget(conf) => {
@@ -548,10 +658,10 @@ where
                     conf,
                     SessionDirection::Bidirectional,
                     self.agent_name().clone(),
-                    self.tx_slim(),
-                    self.tx_app(),
+                    tx,
                     self.identity_provider.clone(),
                     self.identity_verifier.clone(),
+                    mls_enabled,
                 ))
             }
             SessionConfig::RequestResponse(conf) => Session::RequestResponse(RequestResponse::new(
@@ -559,10 +669,10 @@ where
                 conf,
                 SessionDirection::Bidirectional,
                 self.agent_name().clone(),
-                self.tx_slim(),
-                self.tx_app(),
+                tx,
                 self.identity_provider.clone(),
                 self.identity_verifier.clone(),
+                mls_enabled,
             )),
             SessionConfig::Streaming(conf) => {
                 let direction = conf.direction.clone();
@@ -573,13 +683,16 @@ where
                     direction,
                     self.agent_name().clone(),
                     self.conn_id,
-                    self.tx_slim(),
-                    self.tx_app(),
+                    tx,
                     self.identity_provider.clone(),
                     self.identity_verifier.clone(),
+                    mls_enabled,
                 ))
             }
         };
+
+        // Add identity interceptor to the session
+        session.add_interceptor(self.identity_interceptor.clone());
 
         // insert the session into the pool
         let ret = pool.insert(id, session);
@@ -638,7 +751,6 @@ where
             let header = message.message.get_session_header_mut();
             header.session_id = message.info.id;
 
-            session.on_message_from_app_interceptors(&mut message.message)?;
             // pass the message to the session
             return session.on_message(message, direction).await;
         }
@@ -678,7 +790,10 @@ where
         // check if pool contains the session
         if let Some(session) = self.pool.read().await.get(&id) {
             // pass the message to the session
-            session.on_message_from_slim_interceptors(&mut message.message)?;
+            session
+                .tx_ref()
+                .on_msg_from_slim_interceptors(&mut message.message)
+                .await?;
             return session.on_message(message, direction).await;
         }
 
@@ -687,17 +802,20 @@ where
             | SessionHeaderType::FnfReliable
             | SessionHeaderType::FnfDiscovery => {
                 let conf = self.default_ff_conf.read().clone();
-                self.create_session(SessionConfig::FireAndForget(conf), Some(id))
+                // TODO check if MLS is on (it should be in the received packet). Put false for the moment
+                self.create_session(SessionConfig::FireAndForget(conf), Some(id), false)
                     .await?
             }
             SessionHeaderType::Request => {
                 let conf = self.default_rr_conf.read().clone();
-                self.create_session(SessionConfig::RequestResponse(conf), Some(id))
+                // TODO check if MLS is on (it should be in the received packet). Put false for the moment
+                self.create_session(SessionConfig::RequestResponse(conf), Some(id), false)
                     .await?
             }
             SessionHeaderType::Stream | SessionHeaderType::BeaconStream => {
                 let conf = self.default_stream_conf.read().clone();
-                self.create_session(session::SessionConfig::Streaming(conf), Some(id))
+                // TODO check if MLS is on (it should be in the received packet). Put false for the moment
+                self.create_session(session::SessionConfig::Streaming(conf), Some(id), false)
                     .await?
             }
             SessionHeaderType::ChannelDiscoveryRequest => {
@@ -705,7 +823,8 @@ where
                 // the session should be created on  SessionHeaderType::ChannelJoinRequest
                 let mut conf = self.default_stream_conf.read().clone();
                 conf.direction = SessionDirection::Bidirectional;
-                self.create_session(session::SessionConfig::Streaming(conf), Some(id))
+                // TODO check if MLS is on (it should be in the received packet). Put true (always on) for the moment
+                self.create_session(session::SessionConfig::Streaming(conf), Some(id), true)
                     .await?
             }
             SessionHeaderType::ChannelDiscoveryReply
@@ -740,7 +859,10 @@ where
         // retry the match
         if let Some(session) = self.pool.read().await.get(&new_session_id.id) {
             // pass the message
-            session.on_message_from_slim_interceptors(&mut message.message)?;
+            session
+                .tx_ref()
+                .on_msg_from_slim_interceptors(&mut message.message)
+                .await?;
             return session.on_message(message, direction).await;
         }
 
@@ -823,7 +945,7 @@ where
     pub async fn add_session_interceptor(
         &self,
         session_id: Id,
-        interceptor: Box<dyn SessionInterceptor + Send + Sync>,
+        interceptor: Arc<dyn SessionInterceptor + Send + Sync>,
     ) -> Result<(), SessionError> {
         let mut pool = self.pool.write().await;
 
@@ -841,21 +963,21 @@ mod tests {
     use super::*;
     use crate::fire_and_forget::FireAndForgetConfiguration;
 
+    use slim_auth::simple::SimpleGroup;
     use slim_datapath::{
         api::ProtoMessage,
-        messages::{Agent, AgentType},
+        messages::{Agent, AgentType, utils::SLIM_IDENTITY},
     };
 
-    fn create_app() -> App {
+    fn create_app() -> App<SimpleGroup, SimpleGroup> {
         let (tx_slim, _) = tokio::sync::mpsc::channel(128);
         let (tx_app, _) = tokio::sync::mpsc::channel(128);
         let agent = Agent::from_strings("org", "ns", "type", 0);
 
         App::new(
             &agent,
-            None,
-            Simple::new("a"),
-            Simple::new("a"),
+            SimpleGroup::new("a", "group"),
+            SimpleGroup::new("a", "group"),
             0,
             tx_slim,
             tx_app,
@@ -877,9 +999,8 @@ mod tests {
 
         let app = App::new(
             &agent,
-            None,
-            Simple::new("a"),
-            Simple::new("a"),
+            SimpleGroup::new("a", "group"),
+            SimpleGroup::new("a", "group"),
             0,
             tx_slim.clone(),
             tx_app.clone(),
@@ -887,7 +1008,7 @@ mod tests {
         let session_config = FireAndForgetConfiguration::default();
 
         let ret = app
-            .create_session(SessionConfig::FireAndForget(session_config), Some(1))
+            .create_session(SessionConfig::FireAndForget(session_config), Some(1), false)
             .await;
 
         assert!(ret.is_ok());
@@ -903,9 +1024,8 @@ mod tests {
 
         let session_layer = App::new(
             &agent,
-            None,
-            Simple::new("a"),
-            Simple::new("a"),
+            SimpleGroup::new("a", "group"),
+            SimpleGroup::new("a", "group"),
             0,
             tx_slim.clone(),
             tx_app.clone(),
@@ -915,6 +1035,7 @@ mod tests {
             .create_session(
                 SessionConfig::FireAndForget(FireAndForgetConfiguration::default()),
                 None,
+                false,
             )
             .await;
         assert!(res.is_ok());
@@ -928,9 +1049,8 @@ mod tests {
 
         let session_layer = App::new(
             &agent,
-            None,
-            Simple::new("a"),
-            Simple::new("a"),
+            SimpleGroup::new("a", "group"),
+            SimpleGroup::new("a", "group"),
             0,
             tx_slim.clone(),
             tx_app.clone(),
@@ -940,6 +1060,7 @@ mod tests {
             .create_session(
                 SessionConfig::FireAndForget(FireAndForgetConfiguration::default()),
                 Some(1),
+                false,
             )
             .await;
         assert!(res.is_ok());
@@ -957,11 +1078,12 @@ mod tests {
         let (tx_app, mut rx_app) = tokio::sync::mpsc::channel(1);
         let agent = Agent::from_strings("org", "ns", "type", 0);
 
+        let identity = SimpleGroup::new("a", "group");
+
         let app = App::new(
             &agent,
-            None,
-            Simple::new("a"),
-            Simple::new("a"),
+            identity.clone(),
+            identity.clone(),
             0,
             tx_slim.clone(),
             tx_app.clone(),
@@ -971,7 +1093,7 @@ mod tests {
 
         // create a new session
         let res = app
-            .create_session(SessionConfig::FireAndForget(session_config), Some(1))
+            .create_session(SessionConfig::FireAndForget(session_config), Some(1), false)
             .await;
         assert!(res.is_ok());
 
@@ -989,6 +1111,21 @@ mod tests {
         header.session_id = 1;
         header.header_type = i32::from(SessionHeaderType::Fnf);
 
+        let res = app
+            .session_layer
+            .handle_message(
+                SessionMessage::from(message.clone()),
+                MessageDirection::North,
+            )
+            .await;
+
+        // This should fail, as message has no identity
+        assert!(res.is_err());
+
+        // Add identity to message
+        message.insert_metadata(SLIM_IDENTITY.to_string(), identity.try_get_token().unwrap());
+
+        // Try again
         let res = app
             .session_layer
             .handle_message(
@@ -1015,11 +1152,12 @@ mod tests {
         let (tx_app, _) = tokio::sync::mpsc::channel(1);
         let agent = Agent::from_strings("org", "ns", "type", 0);
 
+        let identity = SimpleGroup::new("a", "group");
+
         let app = App::new(
             &agent,
-            None,
-            Simple::new("a"),
-            Simple::new("a"),
+            identity.clone(),
+            identity.clone(),
             0,
             tx_slim.clone(),
             tx_app.clone(),
@@ -1029,7 +1167,7 @@ mod tests {
 
         // create a new session
         let res = app
-            .create_session(SessionConfig::FireAndForget(session_config), Some(1))
+            .create_session(SessionConfig::FireAndForget(session_config), Some(1), false)
             .await;
         assert!(res.is_ok());
 
@@ -1065,6 +1203,9 @@ mod tests {
             .await
             .expect("no message received")
             .expect("error");
+
+        // Add identity to message
+        message.insert_metadata(SLIM_IDENTITY.to_string(), identity.try_get_token().unwrap());
 
         msg.set_message_id(0);
         assert_eq!(msg, message);
