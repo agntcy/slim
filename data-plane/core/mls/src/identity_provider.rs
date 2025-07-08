@@ -1,14 +1,22 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
+use crate::errors::SlimIdentityError;
 use mls_rs::{
     ExtensionList, IdentityProvider,
-    error::IntoAnyError,
     identity::{CredentialType, SigningIdentity},
     time::MlsTime,
 };
 use mls_rs_core::identity::MemberValidationContext;
 use slim_auth::traits::Verifier;
+use tracing::debug;
+
+//TODO(zkacsand): what should we use for `.try_verify::<EmptyClaims>(&identity)`?
+#[derive(serde::Deserialize)]
+struct EmptyClaims {
+    #[allow(dead_code)]
+    exp: u64,
+}
 
 #[derive(Clone)]
 pub struct SlimIdentityProvider<V>
@@ -27,26 +35,14 @@ where
     }
 }
 
-#[derive(Debug, thiserror::Error)]
-#[error("Slim identity validation failed: {0}")]
-pub struct SlimIdentityError(String);
-
-impl IntoAnyError for SlimIdentityError {}
-
-fn resolve_slim_identity<V>(
-    signing_id: &SigningIdentity,
-    _verifier: &V,
-) -> Result<String, SlimIdentityError>
-where
-    V: Verifier + Send + Sync + Clone + 'static,
-{
+fn resolve_slim_identity(signing_id: &SigningIdentity) -> Result<String, SlimIdentityError> {
     let basic_cred = signing_id
         .credential
         .as_basic()
-        .ok_or_else(|| SlimIdentityError("Not a basic credential".to_string()))?;
+        .ok_or(SlimIdentityError::NotBasicCredential)?;
 
-    let credential_data = std::str::from_utf8(&basic_cred.identifier)
-        .map_err(|_| SlimIdentityError("Invalid UTF-8 in credential".to_string()))?;
+    let credential_data =
+        std::str::from_utf8(&basic_cred.identifier).map_err(SlimIdentityError::InvalidUtf8)?;
 
     Ok(credential_data.to_string())
 }
@@ -63,16 +59,29 @@ where
         _timestamp: Option<MlsTime>,
         _context: MemberValidationContext<'_>,
     ) -> Result<(), Self::Error> {
-        resolve_slim_identity(signing_identity, &self.identity_verifier).map(|_| ())
+        debug!("Validating MLS group member identity");
+        let identity = resolve_slim_identity(signing_identity)?;
+
+        self.identity_verifier
+            .try_verify::<EmptyClaims>(&identity)
+            .map_err(|e| SlimIdentityError::VerificationFailed(e.to_string()))?;
+
+        Ok(())
     }
 
     fn validate_external_sender(
         &self,
-        _signing_identity: &SigningIdentity,
+        signing_identity: &SigningIdentity,
         _timestamp: Option<MlsTime>,
         _extensions: Option<&ExtensionList>,
     ) -> Result<(), Self::Error> {
-        // TODO: temporary workaround for Simple auth - this should validate the external sender
+        debug!("Validating external sender identity");
+        let identity = resolve_slim_identity(signing_identity)?;
+
+        self.identity_verifier
+            .try_verify::<EmptyClaims>(&identity)
+            .map_err(|e| SlimIdentityError::ExternalSenderFailed(e.to_string()))?;
+
         Ok(())
     }
 
@@ -81,7 +90,7 @@ where
         signing_identity: &SigningIdentity,
         _extensions: &ExtensionList,
     ) -> Result<Vec<u8>, Self::Error> {
-        let identity = resolve_slim_identity(signing_identity, &self.identity_verifier)?;
+        let identity = resolve_slim_identity(signing_identity)?;
         Ok(identity.into_bytes())
     }
 
@@ -91,11 +100,14 @@ where
         successor: &SigningIdentity,
         _extensions: &ExtensionList,
     ) -> Result<bool, Self::Error> {
-        let pred_identity = resolve_slim_identity(predecessor, &self.identity_verifier)?;
-        let succ_identity = resolve_slim_identity(successor, &self.identity_verifier)?;
+        debug!("Validating identity succession");
+        let pred_identity = resolve_slim_identity(predecessor)?;
+        let succ_identity = resolve_slim_identity(successor)?;
 
-        // for simple auth, consider successors valid if they have the same identity
-        Ok(pred_identity == succ_identity)
+        //TODO(zkacsand): we need to verify this with the verifier
+        let is_valid = pred_identity == succ_identity;
+        debug!("Identity succession validation result: {}", is_valid);
+        Ok(is_valid)
     }
 
     fn supported_types(&self) -> Vec<CredentialType> {
