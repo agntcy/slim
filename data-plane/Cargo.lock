@@ -179,7 +179,6 @@ version = "0.1.0"
 dependencies = [
  "agntcy-slim-auth",
  "agntcy-slim-datapath",
- "async-trait",
  "hex",
  "mls-rs",
  "mls-rs-core",
@@ -211,7 +210,6 @@ dependencies = [
  "agntcy-slim-datapath",
  "agntcy-slim-mls",
  "async-trait",
- "base64 0.22.1",
  "bincode",
  "drain",
  "parking_lot",
