@@ -2,5 +2,5 @@
 // SPDX-License-Identifier: Apache-2.0
 
 pub mod errors;
-pub mod identity_provider;
+pub mod identity;
 pub mod mls;

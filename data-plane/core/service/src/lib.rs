@@ -6,13 +6,17 @@ pub mod producer_buffer;
 pub mod receiver_buffer;
 #[macro_use]
 pub mod session;
+
+pub mod app;
+pub mod interceptor;
+pub mod interceptor_mls;
 pub mod streaming;
 pub mod timer;
 
-pub mod app;
 mod fire_and_forget;
 pub mod mls_interceptor;
 mod request_response;
+mod testutils;
 
 mod channel_endpoint;
 
@@ -283,7 +287,6 @@ impl Service {
         // create app
         let app = App::new(
             app_name,
-            Some(self.message_processor.clone()),
             identity_provider,
             identity_verifier,
             conn_id,
@@ -292,7 +295,7 @@ impl Service {
         );
 
         // start message processing using the rx channel
-        app.process_messages(rx_slim, self.watch.clone());
+        app.process_messages(rx_slim);
 
         // return the app instance and the rx channel
         Ok((app, rx_app))
@@ -521,7 +524,7 @@ mod tests {
     use crate::session::SessionConfig;
 
     use super::*;
-    use slim_auth::simple::Simple;
+    use slim_auth::simple::SimpleGroup;
     use slim_config::grpc::server::ServerConfig;
     use slim_config::tls::server::TlsServerConfig;
     use slim_datapath::api::MessageType;
@@ -589,8 +592,8 @@ mod tests {
         let (sub_app, mut sub_rx) = service
             .create_app(
                 &subscriber_agent,
-                Simple::new("subscriber_agent"),
-                Simple::new("subscriber_agent"),
+                SimpleGroup::new("a", "group"),
+                SimpleGroup::new("a", "group"),
             )
             .await
             .expect("failed to create agent");
@@ -600,8 +603,8 @@ mod tests {
         let (pub_app, _rx) = service
             .create_app(
                 &publisher_agent,
-                Simple::new("subscriber_agent"),
-                Simple::new("subscriber_agent"),
+                SimpleGroup::new("a", "group"),
+                SimpleGroup::new("a", "group"),
             )
             .await
             .expect("failed to create agent");
@@ -618,6 +621,7 @@ mod tests {
             .create_session(
                 SessionConfig::FireAndForget(FireAndForgetConfiguration::default()),
                 None,
+                false,
             )
             .await
             .unwrap();
@@ -667,7 +671,7 @@ mod tests {
 
         // This should also trigger a stop of the message processing loop.
         // Make sure the loop stopped by checking the logs
-        assert!(logs_contain("no more messages to process"));
+        assert!(logs_contain("message processing loop cancelled"));
     }
 
     #[tokio::test]
@@ -686,8 +690,8 @@ mod tests {
         let (app, _) = service
             .create_app(
                 &agent,
-                Simple::new("subscriber_agent"),
-                Simple::new("subscriber_agent"),
+                SimpleGroup::new("a", "group"),
+                SimpleGroup::new("a", "group"),
             )
             .await
             .expect("failed to create agent");
@@ -695,7 +699,7 @@ mod tests {
         //////////////////////////// ff session ////////////////////////////////////////////////////////////////////////
         let session_config = SessionConfig::FireAndForget(FireAndForgetConfiguration::default());
         let session_info = app
-            .create_session(session_config.clone(), None)
+            .create_session(session_config.clone(), None, false)
             .await
             .expect("failed to create session");
 
@@ -747,7 +751,7 @@ mod tests {
             timeout: Duration::from_secs(20000),
         });
         let session_info = app
-            .create_session(session_config.clone(), None)
+            .create_session(session_config.clone(), None, false)
             .await
             .expect("failed to create session");
 
@@ -807,7 +811,7 @@ mod tests {
             Some(time::Duration::from_secs(123)),
         ));
         let session_info = app
-            .create_session(session_config.clone(), None)
+            .create_session(session_config.clone(), None, false)
             .await
             .expect("failed to create session");
         // get session config

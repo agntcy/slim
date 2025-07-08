@@ -11,7 +11,7 @@ use rmcp::{
     transport::{IntoTransport, SseTransport, sse::SseTransportError},
 };
 use slim::config::ConfigResult;
-use slim_auth::simple::Simple;
+use slim_auth::simple::SimpleGroup;
 use slim_datapath::{
     api::proto::pubsub::v1::Message,
     messages::{Agent, AgentType},
@@ -298,7 +298,11 @@ impl Proxy {
         let mut svc = self.config.services.remove(&self.svc_id).unwrap();
 
         let (app, mut slim_rx) = svc
-            .create_app(&self.name, Simple::new("token"), Simple::new("token"))
+            .create_app(
+                &self.name,
+                SimpleGroup::new("id", "group"),
+                SimpleGroup::new("id", "group"),
+            )
             .await
             .expect("failed to create agent");
 
@@ -329,6 +333,7 @@ impl Proxy {
             .create_session(
                 SessionConfig::FireAndForget(FireAndForgetConfiguration::default()),
                 None,
+                false,
             )
             .await;
         if res.is_err() {

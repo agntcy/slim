@@ -6,48 +6,58 @@ use crate::{
     traits::{TokenProvider, Verifier},
 };
 
+#[derive(serde::Deserialize)]
+struct EmptyClaims;
+
 #[derive(Debug, Clone)]
-pub struct Simple {
-    token: String,
+pub struct SimpleGroup {
+    /// Unique identifier for the entity
+    id: String,
+
+    /// The group this identity belongs to
+    group: String,
 }
 
-impl Simple {
-    pub fn new(token: &str) -> Self {
+impl SimpleGroup {
+    pub fn new(id: &str, group: &str) -> Self {
         Self {
-            token: token.to_owned(),
+            id: id.to_owned(),
+            group: group.to_owned(),
         }
     }
 
-    pub fn get_token(&self) -> &str {
-        &self.token
+    pub fn id(&self) -> &str {
+        &self.id
+    }
+
+    pub fn group(&self) -> &str {
+        &self.group
     }
 }
 
 #[async_trait::async_trait]
-impl TokenProvider for Simple {
+impl TokenProvider for SimpleGroup {
     async fn get_token(&self) -> Result<String, AuthError> {
-        Ok(async { self.token.clone() }.await)
+        self.try_get_token()
     }
 
     fn try_get_token(&self) -> Result<String, crate::errors::AuthError> {
-        Ok(self.token.clone())
+        if self.group.is_empty() {
+            Err(AuthError::TokenInvalid("group is empty".to_string()))
+        } else {
+            // Join the group and id to create a token
+            Ok(format!("{}:{}", self.group, self.id))
+        }
     }
 }
 
 #[async_trait::async_trait]
-impl Verifier for Simple {
+impl Verifier for SimpleGroup {
     async fn verify<Claims>(&self, token: impl Into<String> + Send) -> Result<Claims, AuthError>
     where
         Claims: serde::de::DeserializeOwned + Send,
     {
-        let token = token.into();
-
-        if token == self.token {
-            // Here you would typically decode the token and return the claims
-            Ok(serde_json::from_str("{}").unwrap()) // Placeholder for actual claims
-        } else {
-            Err(AuthError::TokenInvalid("invalid token".to_string()))
-        }
+        self.try_verify(token)
     }
 
     fn try_verify<Claims>(
@@ -59,8 +69,14 @@ impl Verifier for Simple {
     {
         let token = token.into();
 
-        if token == self.token {
-            Ok(serde_json::from_str("{}").unwrap()) // Placeholder for actual claims
+        // Split the token into group and id
+        let parts: Vec<&str> = token.split(':').collect();
+        if parts.len() != 2 {
+            return Err(AuthError::TokenInvalid("invalid token format".to_string()));
+        }
+
+        if parts[0] == self.group {
+            Ok(serde_json::from_str(r#"{"exp":0}"#).unwrap())
         } else {
             Err(AuthError::TokenInvalid("invalid token".to_string()))
         }
