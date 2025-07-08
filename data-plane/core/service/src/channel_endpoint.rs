@@ -100,7 +100,7 @@ where
 }
 
 #[derive(Debug)]
-pub struct MlsState {
+pub(crate) struct MlsState {
     /// mls state for the channel of this endpoint
     /// the mls state should be created and initiated in the app
     /// so that it can be shared with the channel and the interceptors
@@ -114,7 +114,7 @@ pub struct MlsState {
 }
 
 impl MlsState {
-    pub async fn new(mls: Arc<Mutex<Mls>>) -> Result<Self, ChannelEndpointError> {
+    pub(crate) async fn new(mls: Arc<Mutex<Mls>>) -> Result<Self, ChannelEndpointError> {
         mls.lock()
             .await
             .initialize()
