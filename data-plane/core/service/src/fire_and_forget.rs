@@ -555,7 +555,9 @@ where
             }
             SessionHeaderType::ChannelDiscoveryRequest | SessionHeaderType::ChannelDiscoveryReply => {
                 // Handle sticky session discovery
-                self.
+                self.state
+                    .channel_endpoint
+                    .on_message(message.message)
             }
             _ => {
                 // Unexpected header
