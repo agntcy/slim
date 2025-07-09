@@ -4,10 +4,10 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use parking_lot::Mutex;
 use parking_lot::RwLock;
 use slim_auth::traits::{TokenProvider, Verifier};
 use slim_mls::mls::Mls;
-use tokio::sync::Mutex;
 use tonic::Status;
 
 use crate::errors::SessionError;

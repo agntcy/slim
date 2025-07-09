@@ -94,11 +94,7 @@ pub trait Signer {
 }
 
 /// Trait for providing JWT claims
-#[async_trait]
 pub trait TokenProvider {
-    /// Try to get a JWT token from an external source
-    fn try_get_token(&self) -> Result<String, AuthError>;
-
-    // Async try to get token from an external source
-    async fn get_token(&self) -> Result<String, AuthError>;
+    // Try to get a token
+    fn get_token(&self) -> Result<String, AuthError>;
 }

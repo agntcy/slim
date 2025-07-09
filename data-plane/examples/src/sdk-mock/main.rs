@@ -1,14 +1,16 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
-use clap::Parser;
-use slim_datapath::messages::{Agent, AgentType};
 use std::sync::Arc;
-use tokio::{sync::Mutex, time};
+
+use clap::Parser;
+use parking_lot::Mutex;
+use tokio::time;
 use tracing::info;
 
 use slim::config;
 use slim_auth::simple::SimpleGroup;
+use slim_datapath::messages::{Agent, AgentType};
 use slim_service::{
     FireAndForgetConfiguration,
     interceptor_mls::{self, MlsInterceptor},
@@ -104,7 +106,7 @@ async fn main() {
             let identity_verifier = SimpleGroup::new("server", "group");
             let mut server_mls =
                 slim_mls::mls::Mls::new(agent_name.clone(), identity_provider, identity_verifier);
-            server_mls.initialize().await.unwrap();
+            server_mls.initialize().unwrap();
 
             // Create group
             let group_id = server_mls.create_group().unwrap();
@@ -167,7 +169,7 @@ async fn main() {
             let identity_verifier = SimpleGroup::new("client", "group");
             let mut client_mls =
                 slim_mls::mls::Mls::new(agent_name.clone(), identity_provider, identity_verifier);
-            client_mls.initialize().await.unwrap();
+            client_mls.initialize().unwrap();
 
             // Generate and save key package for server to use
             let key_package = client_mls.generate_key_package().unwrap();

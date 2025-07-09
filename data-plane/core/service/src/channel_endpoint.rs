@@ -11,8 +11,7 @@ use bincode::{Decode, Encode};
 use slim_mls::mls::Mls;
 
 use async_trait::async_trait;
-use tokio::sync::Mutex;
-
+use parking_lot::Mutex;
 use tracing::{debug, error, trace};
 
 use crate::{
@@ -20,6 +19,7 @@ use crate::{
     interceptor_mls::{METADATA_MLS_ENABLED, METADATA_MLS_INIT_COMMIT_ID},
     session::{Id, SessionTransmitter},
 };
+
 use slim_auth::traits::{TokenProvider, Verifier};
 use slim_datapath::{
     api::{
@@ -130,11 +130,9 @@ where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
 {
-    pub(crate) async fn new(mls: Arc<Mutex<Mls<P, V>>>) -> Result<Self, ChannelEndpointError> {
+    pub(crate) fn new(mls: Arc<Mutex<Mls<P, V>>>) -> Result<Self, ChannelEndpointError> {
         mls.lock()
-            .await
             .initialize()
-            .await
             .map_err(|e| ChannelEndpointError::MLSInit(e.to_string()))?;
 
         Ok(MlsState {
@@ -147,7 +145,6 @@ where
     async fn init_moderator(&mut self) -> Result<(), ChannelEndpointError> {
         self.mls
             .lock()
-            .await
             .create_group()
             .map(|_| ())
             .map_err(|e| ChannelEndpointError::MLSInit(e.to_string()))
@@ -156,7 +153,6 @@ where
     async fn generate_key_package(&mut self) -> Result<Vec<u8>, ChannelEndpointError> {
         self.mls
             .lock()
-            .await
             .generate_key_package()
             .map_err(|e| ChannelEndpointError::MLSInit(e.to_string()))
     }
@@ -187,7 +183,7 @@ where
             }
         };
 
-        match self.mls.lock().await.process_welcome(welcome) {
+        match self.mls.lock().process_welcome(welcome) {
             Ok(id) => {
                 self.group = id;
                 Ok(())
@@ -228,7 +224,7 @@ where
             }
         };
 
-        match self.mls.lock().await.process_commit(commit) {
+        match self.mls.lock().process_commit(commit) {
             Ok(_) => Ok(()),
             Err(e) => {
                 error!("error processing commit message {}", e.to_string());
@@ -249,7 +245,7 @@ where
             }
         };
 
-        match self.mls.lock().await.add_member(payload) {
+        match self.mls.lock().add_member(payload) {
             Ok((commit_payload, welcome_payload)) => Ok((commit_payload, welcome_payload)),
             Err(e) => {
                 error!("error adding new endpoint {}", e.to_string());
@@ -709,8 +705,7 @@ where
                     }
                 },
                 None => {
-                    error!("MLS not initialized, cannot create group");
-                    return;
+                    debug!("MLS is disabled, do not create any group");
                 }
             }
 
@@ -968,7 +963,6 @@ mod tests {
             SimpleGroup::new("moderator", "group"),
             SimpleGroup::new("moderator", "group"),
         ))))
-        .await
         .unwrap();
 
         let participant_mls = MlsState::new(Arc::new(Mutex::new(Mls::new(
@@ -976,7 +970,6 @@ mod tests {
             SimpleGroup::new("participant", "group"),
             SimpleGroup::new("participant", "group"),
         ))))
-        .await
         .unwrap();
 
         let mut cm = ChannelModerator::new(

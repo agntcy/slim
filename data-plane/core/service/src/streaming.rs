@@ -340,14 +340,7 @@ where
         tokio::spawn(async move {
             debug!("starting message processing on session {}", session_id);
 
-            let mls = match mls {
-                Some(mls) => Some(
-                    MlsState::new(mls)
-                        .await
-                        .expect("failed to create MLS state"),
-                ),
-                None => None,
-            };
+            let mls = mls.map(|mls| MlsState::new(mls).expect("failed to create MLS state"));
 
             // create the channel endpoint
             let mut channel_endpoint = match session_config.moderator {
