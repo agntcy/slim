@@ -951,11 +951,12 @@ where
     }
 }
 
-/*#[cfg(test)]
+#[cfg(test)]
 mod tests {
     use crate::testutils::MockTransmitter;
 
     use super::*;
+    use slim_mls::identity::FileBasedIdentityProvider;
     use tracing_test::traced_test;
 
     use slim_datapath::messages::AgentType;
@@ -984,6 +985,9 @@ mod tests {
         let channel_name = AgentType::from_strings("channel", "channel", "channel");
         let conn = 1;
 
+        let moderator_provider = Arc::new(FileBasedIdentityProvider::new("/tmp/moderator").unwrap());
+        let participant_provider = Arc::new(FileBasedIdentityProvider::new("/tmp/participant").unwrap());
+
         let mut cm = ChannelModerator::new(
             &moderator,
             &channel_name,
@@ -991,6 +995,7 @@ mod tests {
             conn,
             3,
             Duration::from_millis(100),
+            Some(Arc::new(Mutex::new(Mls::new("moderator".to_string(), moderator_provider)))),
             moderator_tx,
         );
         let mut cp = ChannelParticipant::new(
@@ -998,6 +1003,7 @@ mod tests {
             &channel_name,
             SESSION_ID,
             conn,
+            Some(Arc::new(Mutex::new(Mls::new("participant".to_string(), participant_provider)))),
             participant_tx,
         );
 
@@ -1025,13 +1031,34 @@ mod tests {
 
         // the request is forwarded to slim
         let msg = moderator_rx.recv().await.unwrap().unwrap();
-        let msg_id = msg.get_id();
         assert_eq!(request, msg);
 
-        // the message is received by the participant
-        cp.on_message(msg).await;
+        // this message is handled by the session layer itself
+        // so we can create a reply and send it back to the moderator
+        let destination = msg.get_source();
+        let msg_id = msg.get_id();
+        let session_id = msg.get_session_header().get_session_id();
 
-        // the first message received  by slim should be a set route for the moderator name
+        let slim_header = Some(SlimHeader::new(
+            &participant,
+            destination.agent_type(),
+            destination.agent_id_option(),
+            Some(SlimHeaderFlags::default().with_forward_to(msg.get_incoming_conn())),
+        ));
+
+        let session_header = Some(SessionHeader::new(
+            SessionHeaderType::ChannelDiscoveryReply.into(),
+            session_id,
+            msg_id,
+        ));
+
+        let mut msg =
+            Message::new_publish_with_headers(slim_header, session_header, "", vec![]);
+
+        // the message is received by the participant
+        // cp.on_message(msg).await;
+
+        /*// the first message received  by slim should be a set route for the moderator name
         let header = Some(SlimHeaderFlags::default().with_recv_from(conn));
         let sub = Message::new_subscribe(
             &participant,
@@ -1052,7 +1079,7 @@ mod tests {
         );
 
         let mut msg = participant_rx.recv().await.unwrap().unwrap();
-        assert_eq!(msg, reply);
+        assert_eq!(msg, reply); */
 
         // message reception on moderator side
         msg.set_incoming_conn(Some(conn));
@@ -1076,17 +1103,20 @@ mod tests {
         let mut request = cm.endpoint.create_channel_message(
             participant.agent_type(),
             participant.agent_id_option(),
+            false,
             SessionHeaderType::ChannelJoinRequest,
             0,
             payload,
         );
+
+        request.insert_metadata(METADATA_MLS_ENABLED.to_string(), "true".to_owned());
 
         let mut msg = moderator_rx.recv().await.unwrap().unwrap();
         let msg_id = msg.get_id();
         request.set_message_id(msg_id);
         assert_eq!(msg, request);
 
-        msg.set_incoming_conn(Some(conn));
+        /*msg.set_incoming_conn(Some(conn));
         let msg_id = msg.get_id();
         cp.on_message(msg).await;
 
@@ -1168,6 +1198,6 @@ mod tests {
         assert_eq!(cm.channel_list.len(), 1);
         assert!(cm.channel_list.contains(&moderator));
         assert!(!cm.channel_list.contains(&participant));
-        assert_eq!(cm.pending_requests.len(), 0);
+        assert_eq!(cm.pending_requests.len(), 0);*/
     }
-}*/
+}
