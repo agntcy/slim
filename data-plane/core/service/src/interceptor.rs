@@ -82,16 +82,10 @@ where
 {
     async fn on_msg_from_app(&self, msg: &mut Message) -> Result<(), SessionError> {
         // Let's try first to get the identity without an async call
-        let identity = match self.provider.try_get_token() {
-            Ok(id) => id,
-            Err(_) => {
-                // If that fails, we can use the async method
-                self.provider
-                    .get_token()
-                    .await
-                    .map_err(|e| SessionError::IdentityPushError(e.to_string()))?
-            }
-        };
+        let identity = self
+            .provider
+            .get_token()
+            .map_err(|e| SessionError::IdentityPushError(e.to_string()))?;
 
         // Add the identity to the message metadata
         msg.insert_metadata(SLIM_IDENTITY.to_string(), identity);

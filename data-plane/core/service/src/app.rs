@@ -1122,7 +1122,7 @@ mod tests {
         assert!(res.is_err());
 
         // Add identity to message
-        message.insert_metadata(SLIM_IDENTITY.to_string(), identity.try_get_token().unwrap());
+        message.insert_metadata(SLIM_IDENTITY.to_string(), identity.get_token().unwrap());
 
         // Try again
         let res = app
@@ -1204,7 +1204,7 @@ mod tests {
             .expect("error");
 
         // Add identity to message
-        message.insert_metadata(SLIM_IDENTITY.to_string(), identity.try_get_token().unwrap());
+        message.insert_metadata(SLIM_IDENTITY.to_string(), identity.get_token().unwrap());
 
         msg.set_message_id(0);
         assert_eq!(msg, message);

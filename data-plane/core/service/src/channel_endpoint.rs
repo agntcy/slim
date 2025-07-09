@@ -11,7 +11,7 @@ use slim_auth::traits::{TokenProvider, Verifier};
 use slim_mls::mls::Mls;
 
 use async_trait::async_trait;
-use tokio::sync::Mutex;
+use parking_lot::Mutex;
 use tracing::{debug, error, trace};
 
 use crate::{
@@ -26,7 +26,6 @@ use slim_datapath::{
     },
     messages::{Agent, AgentType, utils::SlimHeaderFlags},
 };
-use slim_mls::mls::Mls;
 
 struct RequestTimerObserver<T>
 where
@@ -107,7 +106,7 @@ where
 }
 
 #[derive(Debug)]
-struct MlsState<P, V>
+pub(crate) struct MlsState<P, V>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
@@ -127,13 +126,11 @@ where
 impl<P, V> MlsState<P, V>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
-    V: Verifier + Send + Sync + Clone + 'static
+    V: Verifier + Send + Sync + Clone + 'static,
 {
-    pub(crate) async fn new(mls: Arc<Mutex<Mls>>) -> Result<Self, ChannelEndpointError> {
+    pub(crate) fn new(mls: Arc<Mutex<Mls<P, V>>>) -> Result<Self, ChannelEndpointError> {
         mls.lock()
-            .await
             .initialize()
-            .await
             .map_err(|e| ChannelEndpointError::MLSInit(e.to_string()))?;
 
         Ok(MlsState {
@@ -146,7 +143,6 @@ where
     async fn init_moderator(&mut self) -> Result<(), ChannelEndpointError> {
         self.mls
             .lock()
-            .await
             .create_group()
             .map(|_| ())
             .map_err(|e| ChannelEndpointError::MLSInit(e.to_string()))
@@ -155,7 +151,6 @@ where
     async fn generate_key_package(&mut self) -> Result<Vec<u8>, ChannelEndpointError> {
         self.mls
             .lock()
-            .await
             .generate_key_package()
             .map_err(|e| ChannelEndpointError::MLSInit(e.to_string()))
     }
@@ -186,7 +181,7 @@ where
             }
         };
 
-        match self.mls.lock().await.process_welcome(welcome) {
+        match self.mls.lock().process_welcome(welcome) {
             Ok(id) => {
                 self.group = id;
                 Ok(())
@@ -227,7 +222,7 @@ where
             }
         };
 
-        match self.mls.lock().await.process_commit(commit) {
+        match self.mls.lock().process_commit(commit) {
             Ok(_) => Ok(()),
             Err(e) => {
                 error!("error processing commit message {}", e.to_string());
@@ -248,7 +243,7 @@ where
             }
         };
 
-        match self.mls.lock().await.add_member(payload) {
+        match self.mls.lock().add_member(payload) {
             Ok((commit_payload, welcome_payload)) => Ok((commit_payload, welcome_payload)),
             Err(e) => {
                 error!("error adding new endpoint {}", e.to_string());
@@ -298,7 +293,7 @@ where
         name: &Agent,
         channel_name: &AgentType,
         session_id: Id,
-        mls_state: Option<Mls<P, V>>,
+        mls_state: Option<MlsState<P, V>>,
         tx: T,
     ) -> Self {
         Endpoint {

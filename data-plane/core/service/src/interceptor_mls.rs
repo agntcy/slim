@@ -2,11 +2,11 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use crate::{errors::SessionError, interceptor::SessionInterceptor};
+use parking_lot::Mutex;
 use slim_datapath::api::proto::pubsub::v1::Message;
 use slim_datapath::api::{MessageType, proto::pubsub::v1::SessionHeaderType};
 use slim_mls::mls::Mls;
 use std::sync::Arc;
-use tokio::sync::Mutex;
 use tracing::{debug, error, warn};
 
 // Metadata Keys
@@ -69,7 +69,7 @@ where
             }
         };
 
-        let mut mls_guard = self.mls.lock().await;
+        let mut mls_guard = self.mls.lock();
 
         debug!("Encrypting message for group member");
         let binding = mls_guard.encrypt_message(payload);
@@ -133,7 +133,7 @@ where
         };
 
         let decrypted_payload = {
-            let mut mls_guard = self.mls.lock().await;
+            let mut mls_guard = self.mls.lock();
 
             debug!("Decrypting message for group member");
             match mls_guard.decrypt_message(payload) {
@@ -170,7 +170,7 @@ mod tests {
             SimpleGroup::new("test", "group"),
         );
         mls.set_storage_path("/tmp/mls_interceptor_test_without_group");
-        mls.initialize().await.unwrap();
+        mls.initialize().unwrap();
 
         let mls_arc = Arc::new(Mutex::new(mls));
         let interceptor = MlsInterceptor::new(mls_arc);
@@ -213,8 +213,8 @@ mod tests {
         );
         bob_mls.set_storage_path("/tmp/mls_interceptor_test_bob");
 
-        alice_mls.initialize().await.unwrap();
-        bob_mls.initialize().await.unwrap();
+        alice_mls.initialize().unwrap();
+        bob_mls.initialize().unwrap();
 
         let _group_id = alice_mls.create_group().unwrap();
         let bob_key_package = bob_mls.generate_key_package().unwrap();
@@ -267,7 +267,7 @@ mod tests {
             SimpleGroup::new("test", "group"),
         );
         mls.set_storage_path("/tmp/mls_interceptor_test_non_encrypted");
-        mls.initialize().await.unwrap();
+        mls.initialize().unwrap();
         mls.create_group().unwrap();
 
         let mls_arc = Arc::new(Mutex::new(mls));
