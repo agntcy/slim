@@ -6,7 +6,6 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use parking_lot::RwLock;
 use slim_auth::traits::{TokenProvider, Verifier};
-use slim_mls::identity::FileBasedIdentityProvider;
 use slim_mls::mls::Mls;
 use tokio::sync::Mutex;
 use tonic::Status;
@@ -329,7 +328,7 @@ where
     source: Agent,
 
     /// MLS state (used only in pub/sub section for the moment)
-    mls: Option<Arc<Mutex<Mls>>>,
+    mls: Option<Arc<Mutex<Mls<P, V>>>>,
 
     /// Transmitter for sending messages to slim and app
     tx: T,
@@ -533,14 +532,8 @@ where
         mls_enabled: bool,
     ) -> Self {
         let mls = if mls_enabled {
-            // TODO
-            // this must be replaced by the real identity provider in the next PRs
-            let mut name = "/tmp/mls_id_".to_owned();
-            let rnd = rand::random::<u32>();
-            name.push_str(&rnd.to_string());
-            let id_provider =
-                Arc::new(FileBasedIdentityProvider::new(name).expect("error creating id provider"));
-            Some(Arc::new(Mutex::new(Mls::new(rnd.to_string(), id_provider))))
+            let mls = Mls::new(source.clone(), identity_provider.clone(), verifier.clone());
+            Some(Arc::new(Mutex::new(mls)))
         } else {
             None
         };
@@ -573,7 +566,7 @@ where
         &self.tx
     }
 
-    pub(crate) fn mls(&self) -> Option<Arc<Mutex<Mls>>> {
+    pub(crate) fn mls(&self) -> Option<Arc<Mutex<Mls<P, V>>>> {
         self.mls.as_ref().map(|mls| mls.clone())
     }
 }

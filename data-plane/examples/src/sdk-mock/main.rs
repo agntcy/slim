@@ -100,11 +100,10 @@ async fn main() {
             None
         } else {
             // Server: create group and wait for client key package
-            let identity_provider = Arc::new(
-                slim_mls::identity::FileBasedIdentityProvider::new(&identity_path).unwrap(),
-            );
+            let identity_provider = SimpleGroup::new("server", "group");
+            let identity_verifier = SimpleGroup::new("server", "group");
             let mut server_mls =
-                slim_mls::mls::Mls::new(local_agent.to_string(), identity_provider);
+                slim_mls::mls::Mls::new(agent_name.clone(), identity_provider, identity_verifier);
             server_mls.initialize().await.unwrap();
 
             // Create group
@@ -163,15 +162,11 @@ async fn main() {
 
         // Client MLS setup, only if mls_group_id is provided
         if let Some(group_identifier) = mls_group_id {
-            // Clean up MLS identity directories
-            let identity_path = format!("/tmp/mls_identities_{}", local_agent);
-
             // Client: generate key package and wait for welcome message
-            let identity_provider = Arc::new(
-                slim_mls::identity::FileBasedIdentityProvider::new(&identity_path).unwrap(),
-            );
+            let identity_provider = SimpleGroup::new("client", "group");
+            let identity_verifier = SimpleGroup::new("client", "group");
             let mut client_mls =
-                slim_mls::mls::Mls::new(local_agent.to_string(), identity_provider);
+                slim_mls::mls::Mls::new(agent_name.clone(), identity_provider, identity_verifier);
             client_mls.initialize().await.unwrap();
 
             // Generate and save key package for server to use
