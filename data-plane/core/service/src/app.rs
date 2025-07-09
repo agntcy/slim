@@ -120,6 +120,7 @@ where
     identity_verifier: V,
 
     /// Identity interceptor
+    #[allow(dead_code)]
     identity_interceptor: Arc<dyn SessionInterceptor + Send + Sync>,
 
     /// ID of the local connection
@@ -202,6 +203,8 @@ where
             app_tx: tx_app.clone(),
             interceptors: Arc::new(SyncRwLock::new(Vec::new())),
         };
+
+        transmitter.add_interceptor(identity_interceptor.clone());
 
         // Create the session layer
         let session_layer = Arc::new(SessionLayer {
@@ -690,9 +693,6 @@ where
             }
         };
 
-        // Add identity interceptor to the session
-        session.add_interceptor(self.identity_interceptor.clone());
-
         // insert the session into the pool
         let ret = pool.insert(id, session);
 
@@ -758,6 +758,48 @@ where
         Err(SessionError::SessionNotFound(message.info.id.to_string()))
     }
 
+    /// Handle session from slim without creating a session
+    /// return true is the message processing is done and no
+    /// other action is needed, false otherwise
+    async fn handle_message_from_slim_without_session(
+        &self,
+        message: &Message,
+        session_type: SessionHeaderType,
+        session_id: u32,
+    ) -> Result<bool, SessionError> {
+        match session_type {
+            SessionHeaderType::ChannelDiscoveryRequest => {
+                // reply direcetly without creating any new Session
+                let destination = message.get_source();
+                let msg_id = message.get_id();
+
+                let slim_header = Some(SlimHeader::new(
+                    self.agent_name(),
+                    destination.agent_type(),
+                    destination.agent_id_option(),
+                    Some(SlimHeaderFlags::default().with_forward_to(message.get_incoming_conn())),
+                ));
+
+                let session_header = Some(SessionHeader::new(
+                    SessionHeaderType::ChannelDiscoveryReply.into(),
+                    session_id,
+                    msg_id,
+                ));
+
+                let msg =
+                    Message::new_publish_with_headers(slim_header, session_header, "", vec![]);
+
+                debug!("Received discovery request, reply to the msg source");
+
+                match self.transmitter.send_to_slim(Ok(msg)).await {
+                    Ok(_) => Ok(true),
+                    Err(e) => Err(e),
+                }
+            }
+            _ => Ok(false),
+        }
+    }
+
     /// Handle a message from the message processor, and pass it to the
     /// corresponding session
     async fn handle_message_from_slim(
@@ -785,6 +827,25 @@ where
 
             (id, session_type)
         };
+
+        match self
+            .handle_message_from_slim_without_session(&message.message, session_type, id)
+            .await
+        {
+            Ok(done) => {
+                if done {
+                    // message process concluded
+                    return Ok(());
+                }
+            }
+            Err(e) => {
+                // return an error
+                return Err(SessionError::SlimReception(format!(
+                    "error processing packets from slim {}",
+                    e
+                )));
+            }
+        }
 
         // check if pool contains the session
         if let Some(session) = self.pool.read().await.get(&id) {
@@ -817,18 +878,19 @@ where
                 self.create_session(session::SessionConfig::Streaming(conf), Some(id), false)
                     .await?
             }
-            SessionHeaderType::ChannelDiscoveryRequest => {
-                // TODO(micpapal/msardara): The discovery message should be handled directly here without creating the session yet
-                // the session should be created on  SessionHeaderType::ChannelJoinRequest
+            SessionHeaderType::ChannelJoinRequest => {
                 let mut conf = self.default_stream_conf.read().clone();
                 conf.direction = SessionDirection::Bidirectional;
                 // TODO check if MLS is on (it should be in the received packet). Put true (always on) for the moment
                 self.create_session(session::SessionConfig::Streaming(conf), Some(id), true)
                     .await?
             }
-            SessionHeaderType::ChannelDiscoveryReply
-            | SessionHeaderType::ChannelJoinRequest
-            | SessionHeaderType::ChannelJoinReply => {
+            SessionHeaderType::ChannelDiscoveryRequest
+            | SessionHeaderType::ChannelDiscoveryReply
+            | SessionHeaderType::ChannelJoinReply
+            | SessionHeaderType::ChannelMlsCommit
+            | SessionHeaderType::ChannelMlsWelcome
+            | SessionHeaderType::ChannelMlsAck => {
                 warn!("received channel message with unknown session id");
                 return Err(SessionError::SessionUnknown(
                     session_type.as_str_name().to_string(),
