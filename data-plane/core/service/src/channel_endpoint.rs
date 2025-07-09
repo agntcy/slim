@@ -7,9 +7,6 @@ use std::{
     time::Duration,
 };
 
-use slim_auth::traits::{TokenProvider, Verifier};
-use slim_mls::mls::Mls;
-
 use async_trait::async_trait;
 use tokio::sync::Mutex;
 use tracing::{debug, error, trace};
@@ -19,6 +16,7 @@ use crate::{
     interceptor_mls::{METADATA_MLS_ENABLED, METADATA_MLS_INIT_COMMIT_ID},
     session::{Id, SessionTransmitter},
 };
+use slim_auth::traits::{TokenProvider, Verifier};
 use slim_datapath::{
     api::{
         SessionHeader, SlimHeader,
@@ -115,7 +113,7 @@ where
     /// mls state for the channel of this endpoint
     /// the mls state should be created and initiated in the app
     /// so that it can be shared with the channel and the interceptors
-    mls: Arc<Mutex<Mls>>,
+    mls: Arc<Mutex<Mls<P, V>>>,
 
     /// used only if Some(mls)
     group: Vec<u8>,
@@ -129,7 +127,7 @@ where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
 {
-    pub(crate) async fn new(mls: Arc<Mutex<Mls>>) -> Result<Self, ChannelEndpointError> {
+    pub(crate) async fn new(mls: Arc<Mutex<Mls<P, V>>>) -> Result<Self, ChannelEndpointError> {
         mls.lock()
             .await
             .initialize()
