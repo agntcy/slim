@@ -31,6 +31,8 @@ use slim_datapath::messages::AgentType;
 use slim_datapath::messages::encoder::Agent;
 use slim_datapath::messages::utils::SlimHeaderFlags;
 
+use crate::interceptor_mls::METADATA_MLS_ENABLED;
+
 /// Transmitter used to intercept messages sent from sessions and apply interceptors on them
 #[derive(Clone)]
 struct Transmitter {
@@ -881,9 +883,16 @@ where
             SessionHeaderType::ChannelJoinRequest => {
                 let mut conf = self.default_stream_conf.read().clone();
                 conf.direction = SessionDirection::Bidirectional;
-                // TODO check if MLS is on (it should be in the received packet). Put true (always on) for the moment
-                self.create_session(session::SessionConfig::Streaming(conf), Some(id), true)
-                    .await?
+                let mut mls_enable = false;
+                if message.message.contains_metadata(METADATA_MLS_ENABLED) {
+                    mls_enable = true;
+                }
+                self.create_session(
+                    session::SessionConfig::Streaming(conf),
+                    Some(id),
+                    mls_enable,
+                )
+                .await?
             }
             SessionHeaderType::ChannelDiscoveryRequest
             | SessionHeaderType::ChannelDiscoveryReply

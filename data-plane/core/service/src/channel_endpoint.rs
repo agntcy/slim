@@ -705,8 +705,7 @@ where
                     }
                 },
                 None => {
-                    error!("MLS not initialized, cannot create group");
-                    return;
+                    debug!("MLS is disabled, do not create any group");
                 }
             }
 
