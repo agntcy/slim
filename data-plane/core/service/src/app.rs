@@ -330,8 +330,8 @@ where
         }
     }
 
-    /// Invite someone to a session
-    pub async fn invite(
+    /// Invite a new participant to a session
+    pub async fn invite_participant(
         &self,
         destination: &AgentType,
         session_info: session::Info,
@@ -349,19 +349,31 @@ where
             rand::random::<u32>(),
         ));
 
-        let payload = match bincode::encode_to_vec(
-            self.session_layer.agent_name(),
-            bincode::config::standard(),
-        ) {
-            Ok(payload) => payload,
-            Err(_) => {
-                return Err(ServiceError::PublishError(
-                    "error while parsing the payload".to_string(),
-                ));
-            }
-        };
+        let msg = Message::new_publish_with_headers(slim_header, session_header, "", vec![]);
 
-        let msg = Message::new_publish_with_headers(slim_header, session_header, "", payload);
+        self.send_message(msg, Some(session_info)).await
+    }
+
+    /// Remove a participant from a session
+    pub async fn remove_participant(
+        &self,
+        destination: &Agent,
+        session_info: session::Info,
+    ) -> Result<(), ServiceError> {
+        let slim_header = Some(SlimHeader::new(
+            self.session_layer.agent_name(),
+            destination.agent_type(),
+            destination.agent_id_option(),
+            None,
+        ));
+
+        let session_header = Some(SessionHeader::new(
+            SessionHeaderType::ChannelLeaveRequest.into(),
+            session_info.id,
+            rand::random::<u32>(),
+        ));
+
+        let msg = Message::new_publish_with_headers(slim_header, session_header, "", vec![]);
 
         self.send_message(msg, Some(session_info)).await
     }
