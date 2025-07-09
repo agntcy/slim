@@ -84,7 +84,7 @@ impl<S, T: TokenProvider + Clone> AddJwtToken<S, T> {
 
         let token = self
             .provider
-            .try_get_token()
+            .get_token()
             .map_err(|e| AuthError::GetTokenError(e.to_string()))?;
 
         let header_value = HeaderValue::try_from(format!("Bearer {}", token))

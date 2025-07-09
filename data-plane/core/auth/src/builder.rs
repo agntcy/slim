@@ -686,7 +686,7 @@ mod tests {
             .unwrap();
 
         // check the content of the token
-        let token = provider.try_get_token().unwrap();
+        let token = provider.get_token().unwrap();
         assert_eq!(token, tokenvalue);
 
         // Modify the file
@@ -698,7 +698,7 @@ mod tests {
         tokio::time::sleep(Duration::from_millis(100)).await;
 
         // Let's check the token again
-        let token = provider.try_get_token().unwrap();
+        let token = provider.get_token().unwrap();
         assert_eq!(token, new_token_value);
     }
 }
