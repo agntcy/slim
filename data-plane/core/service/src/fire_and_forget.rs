@@ -3,6 +3,7 @@
 
 use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
+use std::time::Duration;
 
 use async_trait::async_trait;
 use rand::Rng;
@@ -13,6 +14,7 @@ use tokio::sync::mpsc::{self, Receiver, Sender};
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, error};
 
+use crate::channel_endpoint::{ChannelEndpoint, ChannelModerator, ChannelParticipant, MlsState};
 use crate::errors::SessionError;
 use crate::session::{
     Common, CommonSession, Id, MessageDirection, MessageHandler, SessionConfig, SessionConfigTrait,
@@ -98,6 +100,7 @@ where
     sticky_connection: Option<u64>,
     sticky_session_status: StickySessionStatus,
     sticky_buffer: VecDeque<Message>,
+    channel_endpoint: ChannelEndpoint,
 }
 
 struct RtxTimerObserver {
@@ -550,13 +553,9 @@ where
                 // Remove the timer and drop the message
                 self.stop_and_remove_timer(message_id)
             }
-            SessionHeaderType::FnfDiscovery => {
+            SessionHeaderType::ChannelDiscoveryRequest | SessionHeaderType::ChannelDiscoveryReply => {
                 // Handle sticky session discovery
-                self.handle_sticky_session_discovery(message).await
-            }
-            SessionHeaderType::FnfDiscoveryReply => {
-                // Handle sticky session discovery reply
-                self.handle_sticky_session_discovery_reply(message).await
+                self.
             }
             _ => {
                 // Unexpected header
@@ -622,6 +621,7 @@ where
         identity_provider: P,
         identity_verifier: V,
         msl_enabled: bool,
+        initiator: bool,
     ) -> Self {
         let (tx, rx) = mpsc::channel(32);
 
@@ -637,6 +637,39 @@ where
             msl_enabled,
         );
 
+        // Create mls state if needed
+        let mls = common
+            .mls()
+            .map(|mls| MlsState::new(mls).expect("failed to create MLS state"));
+
+        // Create channel endpoint to handle sticky sessions and encryption
+        let channel_endpoint = match initiator {
+            true => {
+                let cm = ChannelModerator::new(
+                    common.source().clone(),
+                    common.source().agent_type().clone(),
+                    None,
+                    id,
+                    60,
+                    Duration::from_secs(1),
+                    mls,
+                    tx_slim_app.clone(),
+                );
+                ChannelEndpoint::ChannelModerator(cm)
+            }
+            false => {
+                let cp = ChannelParticipant::new(
+                    common.source().clone(),
+                    common.source().agent_type().clone(),
+                    None,
+                    id,
+                    mls,
+                    tx_slim_app.clone(),
+                );
+                ChannelEndpoint::ChannelParticipant(cp)
+            }
+        };
+
         // FireAndForget internal state
         let state = FireAndForgetState {
             session_id: id,
@@ -648,6 +681,7 @@ where
             sticky_connection: None,
             sticky_session_status: StickySessionStatus::Uninitialized,
             sticky_buffer: VecDeque::new(),
+            channel_endpoint,
         };
 
         // Cancellation token

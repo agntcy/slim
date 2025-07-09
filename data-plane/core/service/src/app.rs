@@ -798,8 +798,7 @@ where
 
         let new_session_id = match session_type {
             SessionHeaderType::Fnf
-            | SessionHeaderType::FnfReliable
-            | SessionHeaderType::FnfDiscovery => {
+            | SessionHeaderType::FnfReliable => {
                 let conf = self.default_ff_conf.read().clone();
                 // TODO check if MLS is on (it should be in the received packet). Put false for the moment
                 self.create_session(SessionConfig::FireAndForget(conf), Some(id), false)

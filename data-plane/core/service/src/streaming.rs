@@ -346,8 +346,9 @@ where
             let mut channel_endpoint = match session_config.moderator {
                 true => {
                     let cm = ChannelModerator::new(
-                        &source,
-                        &session_config.channel_name,
+                        source.clone(),
+                        session_config.channel_name.clone(),
+                        None,
                         id,
                         60,
                         Duration::from_secs(1),
@@ -358,8 +359,9 @@ where
                 }
                 false => {
                     let cp = ChannelParticipant::new(
-                        &source,
-                        &session_config.channel_name,
+                        source.clone(),
+                        session_config.channel_name.clone(),
+                        None,
                         id,
                         mls,
                         tx.clone(),

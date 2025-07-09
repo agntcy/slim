@@ -254,7 +254,6 @@ where
 }
 
 #[derive(Debug)]
-
 struct Endpoint<P, V, T>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
@@ -266,6 +265,9 @@ where
 
     /// channel name
     channel_name: AgentType,
+
+    /// channel id, used to exchange messages with a single endpoint
+    channel_id: Option<u64>,
 
     /// id of the current session
     session_id: Id,
@@ -290,15 +292,17 @@ where
     T: SessionTransmitter + Send + Sync + Clone + 'static,
 {
     pub fn new(
-        name: &Agent,
-        channel_name: &AgentType,
+        name: Agent,
+        channel_name: AgentType,
+        channel_id: Option<u64>,
         session_id: Id,
         mls_state: Option<MlsState<P, V>>,
         tx: T,
     ) -> Self {
         Endpoint {
-            name: name.clone(),
-            channel_name: channel_name.clone(),
+            name: name,
+            channel_name: channel_name,
+            channel_id,
             session_id,
             conn: None,
             subscribed: false,
@@ -407,13 +411,14 @@ where
     T: SessionTransmitter + Send + Sync + Clone + 'static,
 {
     pub fn new(
-        name: &Agent,
-        channel_name: &AgentType,
+        name: Agent,
+        channel_name: AgentType,
+        channel_id: Option<u64>,
         session_id: Id,
         mls: Option<MlsState<P, V>>,
         tx: T,
     ) -> Self {
-        let endpoint = Endpoint::new(name, channel_name, session_id, mls, tx);
+        let endpoint = Endpoint::new(name, channel_name, channel_id, session_id, mls, tx);
         ChannelParticipant { endpoint }
     }
 
@@ -684,8 +689,9 @@ where
     T: SessionTransmitter + Send + Sync + Clone + 'static,
 {
     pub fn new(
-        name: &Agent,
-        channel_name: &AgentType,
+        name: Agent,
+        channel_name: AgentType,
+        channel_id: Option<u64>,
         session_id: Id,
         max_retries: u32,
         retries_interval: Duration,
@@ -693,10 +699,10 @@ where
         tx: T,
     ) -> Self {
         let invite_payload: Vec<u8> =
-            bincode::encode_to_vec(channel_name, bincode::config::standard())
+            bincode::encode_to_vec(channel_name.clone(), bincode::config::standard())
                 .expect("unable to parse channel name as payload");
 
-        let endpoint = Endpoint::new(name, channel_name, session_id, mls, tx);
+        let endpoint = Endpoint::new(name, channel_name, channel_id, session_id, mls, tx);
         ChannelModerator {
             endpoint,
             channel_list: HashSet::new(),
