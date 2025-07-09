@@ -132,7 +132,7 @@ where
     pub fn initialize(&mut self) -> Result<(), MlsError> {
         info!("Initializing MLS client for agent: {}", self.agent);
         let storage_path = self.get_storage_path();
-        debug!("Using storage path: {}", storage_path.display());
+        info!("Using storage path for MLS: {}", storage_path.display());
         std::fs::create_dir_all(&storage_path).map_err(MlsError::StorageDirectoryCreation)?;
 
         let identity_file = storage_path.join("identity.json");

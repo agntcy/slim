@@ -7,9 +7,6 @@ use std::{
     time::Duration,
 };
 
-use slim_auth::traits::{TokenProvider, Verifier};
-use slim_mls::mls::Mls;
-
 use async_trait::async_trait;
 use parking_lot::Mutex;
 use tracing::{debug, error, trace};
@@ -19,6 +16,8 @@ use crate::{
     interceptor_mls::{METADATA_MLS_ENABLED, METADATA_MLS_INIT_COMMIT_ID},
     session::{Id, SessionTransmitter},
 };
+
+use slim_auth::traits::{TokenProvider, Verifier};
 use slim_datapath::{
     api::{
         SessionHeader, SlimHeader,
@@ -26,6 +25,7 @@ use slim_datapath::{
     },
     messages::{Agent, AgentType, utils::SlimHeaderFlags},
 };
+use slim_mls::mls::Mls;
 
 struct RequestTimerObserver<T>
 where
@@ -77,7 +77,7 @@ trait OnMessageReceived {
 }
 
 #[derive(Debug)]
-pub enum ChannelEndpoint<P, V, T>
+pub(crate) enum ChannelEndpoint<P, V, T>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
