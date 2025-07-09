@@ -177,15 +177,18 @@ dependencies = [
 name = "agntcy-slim-mls"
 version = "0.1.0"
 dependencies = [
+ "agntcy-slim-auth",
  "agntcy-slim-datapath",
- "async-trait",
+ "hex",
  "mls-rs",
+ "mls-rs-core",
  "mls-rs-crypto-awslc",
  "serde",
  "serde_json",
  "tempfile",
  "thiserror 2.0.12",
  "tokio",
+ "tracing",
 ]
 
 [[package]]

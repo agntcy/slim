@@ -89,6 +89,12 @@ pub enum SessionError {
     SessionClosed(String),
     #[error("interceptor error: {0}")]
     InterceptorError(String),
+    #[error("MLS encryption failed: {0}")]
+    MlsEncryptionFailed(String),
+    #[error("MLS decryption failed: {0}")]
+    MlsDecryptionFailed(String),
+    #[error("Encrypted message has no payload")]
+    MlsNoPayload,
     #[error("identity error: {0}")]
     IdentityError(String),
     #[error("error pushing identity to the message: {0}")]

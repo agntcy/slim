@@ -7,6 +7,9 @@ use std::{
     time::Duration,
 };
 
+use slim_auth::traits::{TokenProvider, Verifier};
+use slim_mls::mls::Mls;
+
 use async_trait::async_trait;
 use tokio::sync::Mutex;
 use tracing::{debug, error, trace};
@@ -75,16 +78,20 @@ trait OnMessageReceived {
 }
 
 #[derive(Debug)]
-pub(crate) enum ChannelEndpoint<T>
+pub(crate) enum ChannelEndpoint<P, V, T>
 where
+    P: TokenProvider + Send + Sync + Clone + 'static,
+    V: Verifier + Send + Sync + Clone + 'static,
     T: SessionTransmitter + Send + Sync + Clone + 'static,
 {
-    ChannelParticipant(ChannelParticipant<T>),
-    ChannelModerator(ChannelModerator<T>),
+    ChannelParticipant(ChannelParticipant<P, V, T>),
+    ChannelModerator(ChannelModerator<P, V, T>),
 }
 
-impl<T> ChannelEndpoint<T>
+impl<P, V, T> ChannelEndpoint<P, V, T>
 where
+    P: TokenProvider + Send + Sync + Clone + 'static,
+    V: Verifier + Send + Sync + Clone + 'static,
     T: SessionTransmitter + Send + Sync + Clone + 'static,
 {
     pub async fn on_message(&mut self, msg: Message) {
@@ -100,7 +107,11 @@ where
 }
 
 #[derive(Debug)]
-pub(crate) struct MlsState {
+pub(crate) struct MlsState<P, V>
+where
+    P: TokenProvider + Send + Sync + Clone + 'static,
+    V: Verifier + Send + Sync + Clone + 'static,
+{
     /// mls state for the channel of this endpoint
     /// the mls state should be created and initiated in the app
     /// so that it can be shared with the channel and the interceptors
@@ -113,7 +124,11 @@ pub(crate) struct MlsState {
     last_commit_id: u32,
 }
 
-impl MlsState {
+impl<P, V> MlsState<P, V>
+where
+    P: TokenProvider + Send + Sync + Clone + 'static,
+    V: Verifier + Send + Sync + Clone + 'static,
+{
     pub(crate) async fn new(mls: Arc<Mutex<Mls>>) -> Result<Self, ChannelEndpointError> {
         mls.lock()
             .await
@@ -245,8 +260,10 @@ impl MlsState {
 
 #[derive(Debug)]
 
-struct Endpoint<T>
+struct Endpoint<P, V, T>
 where
+    P: TokenProvider + Send + Sync + Clone + 'static,
+    V: Verifier + Send + Sync + Clone + 'static,
     T: SessionTransmitter + Send + Sync + Clone + 'static,
 {
     /// endpoint name
@@ -265,21 +282,23 @@ where
     subscribed: bool,
 
     /// mls state
-    mls_state: Option<MlsState>,
+    mls_state: Option<MlsState<P, V>>,
 
     /// transmitter to send messages to the local SLIM instance and to the application
     tx: T,
 }
 
-impl<T> Endpoint<T>
+impl<P, V, T> Endpoint<P, V, T>
 where
+    P: TokenProvider + Send + Sync + Clone + 'static,
+    V: Verifier + Send + Sync + Clone + 'static,
     T: SessionTransmitter + Send + Sync + Clone + 'static,
 {
     pub fn new(
         name: &Agent,
         channel_name: &AgentType,
         session_id: Id,
-        mls_state: Option<MlsState>,
+        mls_state: Option<MlsState<P, V>>,
         tx: T,
     ) -> Self {
         Endpoint {
@@ -377,22 +396,26 @@ where
 }
 
 #[derive(Debug)]
-pub struct ChannelParticipant<T>
+pub struct ChannelParticipant<P, V, T>
 where
+    P: TokenProvider + Send + Sync + Clone + 'static,
+    V: Verifier + Send + Sync + Clone + 'static,
     T: SessionTransmitter + Send + Sync + Clone + 'static,
 {
-    endpoint: Endpoint<T>,
+    endpoint: Endpoint<P, V, T>,
 }
 
-impl<T> ChannelParticipant<T>
+impl<P, V, T> ChannelParticipant<P, V, T>
 where
+    P: TokenProvider + Send + Sync + Clone + 'static,
+    V: Verifier + Send + Sync + Clone + 'static,
     T: SessionTransmitter + Send + Sync + Clone + 'static,
 {
     pub fn new(
         name: &Agent,
         channel_name: &AgentType,
         session_id: Id,
-        mls: Option<MlsState>,
+        mls: Option<MlsState<P, V>>,
         tx: T,
     ) -> Self {
         let endpoint = Endpoint::new(name, channel_name, session_id, mls, tx);
@@ -577,8 +600,10 @@ where
     }
 }
 
-impl<T> OnMessageReceived for ChannelParticipant<T>
+impl<P, V, T> OnMessageReceived for ChannelParticipant<P, V, T>
 where
+    P: TokenProvider + Send + Sync + Clone + 'static,
+    V: Verifier + Send + Sync + Clone + 'static,
     T: SessionTransmitter + Send + Sync + Clone + 'static,
 {
     async fn on_message(&mut self, msg: Message) {
@@ -626,11 +651,13 @@ where
 }
 
 #[derive(Debug)]
-pub struct ChannelModerator<T>
+pub struct ChannelModerator<P, V, T>
 where
+    P: TokenProvider + Send + Sync + Clone + 'static,
+    V: Verifier + Send + Sync + Clone + 'static,
     T: SessionTransmitter + Send + Sync + Clone + 'static,
 {
-    endpoint: Endpoint<T>,
+    endpoint: Endpoint<P, V, T>,
 
     /// list of endpoint names in the channel
     channel_list: HashSet<Agent>,
@@ -655,8 +682,10 @@ where
 }
 
 #[allow(clippy::too_many_arguments)]
-impl<T> ChannelModerator<T>
+impl<P, V, T> ChannelModerator<P, V, T>
 where
+    P: TokenProvider + Send + Sync + Clone + 'static,
+    V: Verifier + Send + Sync + Clone + 'static,
     T: SessionTransmitter + Send + Sync + Clone + 'static,
 {
     pub fn new(
@@ -665,7 +694,7 @@ where
         session_id: Id,
         max_retries: u32,
         retries_interval: Duration,
-        mls: Option<MlsState>,
+        mls: Option<MlsState<P, V>>,
         tx: T,
     ) -> Self {
         let invite_payload: Vec<u8> =
@@ -867,8 +896,10 @@ where
     }
 }
 
-impl<T> OnMessageReceived for ChannelModerator<T>
+impl<P, V, T> OnMessageReceived for ChannelModerator<P, V, T>
 where
+    P: TokenProvider + Send + Sync + Clone + 'static,
+    V: Verifier + Send + Sync + Clone + 'static,
     T: SessionTransmitter + Send + Sync + Clone + 'static,
 {
     async fn on_message(&mut self, msg: Message) {
