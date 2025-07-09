@@ -9,7 +9,8 @@ use tower::ServiceExt;
 use http::header::{HeaderMap, HeaderName, HeaderValue};
 use hyper_rustls;
 use hyper_util::client::legacy::connect::HttpConnector;
-use serde::Deserialize;
+use schemars::JsonSchema;
+use serde::{Deserialize, Serialize};
 use tonic::codegen::{Body, Bytes, StdError};
 use tonic::transport::{Channel, Uri};
 use tracing::warn;
@@ -28,13 +29,14 @@ use crate::tls::{client::TlsClientConfig as TLSSetting, common::RustlsConfigLoad
 /// This struct contains the keepalive time for TCP and HTTP2,
 /// the timeout duration for the keepalive, and whether to permit
 /// keepalive without an active stream.
-#[derive(Debug, Deserialize, PartialEq, Clone)]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Clone, JsonSchema)]
 pub struct KeepaliveConfig {
     /// The duration of the keepalive time for TCP
     #[serde(
         default = "default_tcp_keepalive",
         deserialize_with = "deserialize_duration"
     )]
+    #[schemars(with = "String")]
     pub tcp_keepalive: Duration,
 
     /// The duration of the keepalive time for HTTP2
@@ -42,10 +44,12 @@ pub struct KeepaliveConfig {
         default = "default_http2_keepalive",
         deserialize_with = "deserialize_duration"
     )]
+    #[schemars(with = "String")]
     pub http2_keepalive: Duration,
 
     /// The timeout duration for the keepalive
     #[serde(default = "default_timeout", deserialize_with = "deserialize_duration")]
+    #[schemars(with = "String")]
     pub timeout: Duration,
 
     /// Whether to permit keepalive without an active stream
@@ -82,7 +86,7 @@ fn default_keep_alive_while_idle() -> bool {
 }
 
 /// Enum holding one configuration for the client.
-#[derive(Debug, Default, Deserialize, Clone, PartialEq)]
+#[derive(Debug, Serialize, Default, Deserialize, Clone, PartialEq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum AuthenticationConfig {
     /// Basic authentication configuration.
@@ -101,7 +105,7 @@ pub enum AuthenticationConfig {
 /// TLS settings, keepalive settings, timeout settings, buffer size settings,
 /// headers, and auth settings.
 /// The client configuration can be converted to a tonic channel.
-#[derive(Debug, Deserialize, Clone, PartialEq)]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, JsonSchema)]
 pub struct ClientConfig {
     /// The target the client will connect to.
     pub endpoint: String,
@@ -127,6 +131,7 @@ pub struct ClientConfig {
         default = "default_connect_timeout",
         deserialize_with = "deserialize_duration"
     )]
+    #[schemars(with = "String")]
     pub connect_timeout: Duration,
 
     /// Timeout per request.
@@ -134,6 +139,7 @@ pub struct ClientConfig {
         default = "default_request_timeout",
         deserialize_with = "deserialize_duration"
     )]
+    #[schemars(with = "String")]
     pub request_timeout: Duration,
 
     /// ReadBufferSize.
@@ -145,7 +151,7 @@ pub struct ClientConfig {
 
     /// Auth configuration for outgoing RPCs.
     #[serde(default)]
-    #[serde(with = "serde_yaml::with::singleton_map")]
+    // #[serde(with = "serde_yaml::with::singleton_map")]
     pub auth: AuthenticationConfig,
 }
 

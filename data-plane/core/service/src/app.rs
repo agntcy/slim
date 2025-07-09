@@ -9,7 +9,6 @@ use rand::Rng;
 use tokio::sync::RwLock as AsyncRwLock;
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::error::SendError;
-use tracing::info;
 use tracing::{debug, error, warn};
 
 use crate::errors::SessionError;
@@ -686,7 +685,6 @@ where
                     conf,
                     direction,
                     self.agent_name().clone(),
-                    self.conn_id,
                     tx,
                     self.identity_provider.clone(),
                     self.identity_verifier.clone(),
@@ -791,7 +789,7 @@ where
                 let msg =
                     Message::new_publish_with_headers(slim_header, session_header, "", vec![]);
 
-                info!("Received discovery request, reply to the msg source");
+                debug!("Received discovery request, reply to the msg source");
 
                 match self.transmitter.send_to_slim(Ok(msg)).await {
                     Ok(_) => Ok(true),

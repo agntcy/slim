@@ -155,15 +155,15 @@ async fn main() {
     let svc = config.services.get_mut(&svc_id).unwrap();
 
     // parse local name string
-    let local_name = parse_string_name(local_name_str);
+    let local_name = parse_string_name(local_name_str.clone());
 
     let channel_name = AgentType::from_strings("channel", "channel", "channel");
 
     let (app, mut rx) = svc
         .create_app(
             &local_name,
-            SimpleGroup::new("a", "group"),
-            SimpleGroup::new("a", "group"),
+            SimpleGroup::new(&local_name_str, "group"),
+            SimpleGroup::new(&local_name_str, "group"),
         )
         .await
         .expect("failed to create agent");

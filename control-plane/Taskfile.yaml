@@ -37,6 +37,7 @@ tasks:
         for dir in {{.MODULES}}; do
           pushd ${dir} > /dev/null
           echo "${dir}: running {{.CMD}}"
+          go generate ./...
           {{.CMD}}
           popd > /dev/null
         done
@@ -134,6 +135,8 @@ tasks:
       - control-plane:proto:generate
     dir: slimctl/cmd
     cmds:
+      - |
+        go generate ./../...
       - |
         go build -o \
           {{.OUTPUT_DIR}}/bin/slimctl \
