@@ -929,11 +929,12 @@ where
     }
 }
 
-/*#[cfg(test)]
+#[cfg(test)]
 mod tests {
     use crate::testutils::MockTransmitter;
 
     use super::*;
+    use slim_auth::simple::SimpleGroup;
     use tracing_test::traced_test;
 
     use slim_datapath::messages::AgentType;
@@ -962,20 +963,36 @@ mod tests {
         let channel_name = AgentType::from_strings("channel", "channel", "channel");
         let conn = 1;
 
+        let moderator_mls = MlsState::new(Arc::new(Mutex::new(Mls::new(
+            moderator.clone(),
+            SimpleGroup::new("moderator", "group"),
+            SimpleGroup::new("moderator", "group"),
+        ))))
+        .await
+        .unwrap();
+
+        let participant_mls = MlsState::new(Arc::new(Mutex::new(Mls::new(
+            participant.clone(),
+            SimpleGroup::new("participant", "group"),
+            SimpleGroup::new("participant", "group"),
+        ))))
+        .await
+        .unwrap();
+
         let mut cm = ChannelModerator::new(
             &moderator,
             &channel_name,
             SESSION_ID,
-            conn,
             3,
             Duration::from_millis(100),
+            Some(moderator_mls),
             moderator_tx,
         );
         let mut cp = ChannelParticipant::new(
             &participant,
             &channel_name,
             SESSION_ID,
-            conn,
+            Some(participant_mls),
             participant_tx,
         );
 
@@ -1003,34 +1020,28 @@ mod tests {
 
         // the request is forwarded to slim
         let msg = moderator_rx.recv().await.unwrap().unwrap();
-        let msg_id = msg.get_id();
         assert_eq!(request, msg);
 
-        // the message is received by the participant
-        cp.on_message(msg).await;
+        // this message is handled by the session layer itself
+        // so we can create a reply and send it back to the moderator
+        let destination = msg.get_source();
+        let msg_id = msg.get_id();
+        let session_id = msg.get_session_header().get_session_id();
 
-        // the first message received  by slim should be a set route for the moderator name
-        let header = Some(SlimHeaderFlags::default().with_recv_from(conn));
-        let sub = Message::new_subscribe(
+        let slim_header = Some(SlimHeader::new(
             &participant,
-            moderator.agent_type(),
-            moderator.agent_id_option(),
-            header,
-        );
-        let msg = participant_rx.recv().await.unwrap().unwrap();
-        assert_eq!(msg, sub);
+            destination.agent_type(),
+            destination.agent_id_option(),
+            Some(SlimHeaderFlags::default().with_forward_to(msg.get_incoming_conn())),
+        ));
 
-        // create the expected reply for comparison
-        let reply = cp.endpoint.create_channel_message(
-            moderator.agent_type(),
-            moderator.agent_id_option(),
-            SessionHeaderType::ChannelDiscoveryReply,
+        let session_header = Some(SessionHeader::new(
+            SessionHeaderType::ChannelDiscoveryReply.into(),
+            session_id,
             msg_id,
-            vec![],
-        );
+        ));
 
-        let mut msg = participant_rx.recv().await.unwrap().unwrap();
-        assert_eq!(msg, reply);
+        let mut msg = Message::new_publish_with_headers(slim_header, session_header, "", vec![]);
 
         // message reception on moderator side
         msg.set_incoming_conn(Some(conn));
@@ -1049,15 +1060,22 @@ mod tests {
         assert_eq!(msg, sub);
 
         // create a request to compare with the output of on_message
-        let payload: Vec<u8> =
-            bincode::encode_to_vec(&channel_name, bincode::config::standard()).unwrap();
+        let jp = JoinMessagePayload {
+            channel_name: channel_name.clone(),
+            moderator_name: moderator.clone(),
+        };
+
+        let payload: Vec<u8> = bincode::encode_to_vec(&jp, bincode::config::standard()).unwrap();
         let mut request = cm.endpoint.create_channel_message(
             participant.agent_type(),
             participant.agent_id_option(),
+            false,
             SessionHeaderType::ChannelJoinRequest,
             0,
             payload,
         );
+
+        request.insert_metadata(METADATA_MLS_ENABLED.to_string(), "true".to_owned());
 
         let mut msg = moderator_rx.recv().await.unwrap().unwrap();
         let msg_id = msg.get_id();
@@ -1068,7 +1086,59 @@ mod tests {
         let msg_id = msg.get_id();
         cp.on_message(msg).await;
 
-        // the first message is the subscription for the channel name
+        // the first message is the set route for moderator name
+        let header = Some(SlimHeaderFlags::default().with_recv_from(conn));
+        let sub = Message::new_subscribe(
+            &participant,
+            moderator.agent_type(),
+            moderator.agent_id_option(),
+            header,
+        );
+        let msg = participant_rx.recv().await.unwrap().unwrap();
+        assert_eq!(msg, sub);
+
+        // create a reply to compare with the output of on_message
+        let reply = cp.endpoint.create_channel_message(
+            moderator.agent_type(),
+            moderator.agent_id_option(),
+            false,
+            SessionHeaderType::ChannelJoinReply,
+            msg_id,
+            vec![],
+        );
+        let mut msg = participant_rx.recv().await.unwrap().unwrap();
+
+        // the payload of the message contains the keypackage and it change all the times
+        // so we can compare only the header
+        assert_eq!(msg.get_slim_header(), reply.get_slim_header());
+        assert_eq!(msg.get_session_header(), reply.get_session_header());
+
+        msg.set_incoming_conn(Some(conn));
+        cm.on_message(msg).await;
+
+        // create a reply to compare with the output of on_message
+        let mut reply = cm.endpoint.create_channel_message(
+            participant.agent_type(),
+            participant.agent_id_option(),
+            false,
+            SessionHeaderType::ChannelMlsWelcome,
+            0,
+            vec![],
+        );
+
+        // this should be the MLS welcome message, we can comprare only
+        // the headers like in the previous case
+        let mut msg = moderator_rx.recv().await.unwrap().unwrap();
+        reply.set_message_id(msg.get_id());
+        assert_eq!(msg.get_slim_header(), reply.get_slim_header());
+        assert_eq!(msg.get_session_header(), reply.get_session_header());
+
+        // receive the message on the participant side
+        msg.set_incoming_conn(Some(conn));
+        let msg_id = msg.get_id();
+        cp.on_message(msg).await;
+
+        // the first message generated is a subscription for the channel name
         let header = Some(SlimHeaderFlags::default().with_forward_to(conn));
         let sub = Message::new_subscribe(&participant, &channel_name, None, header);
         let msg = participant_rx.recv().await.unwrap().unwrap();
@@ -1080,72 +1150,18 @@ mod tests {
         let msg = participant_rx.recv().await.unwrap().unwrap();
         assert_eq!(msg, sub);
 
+        // the third is the ack
         // create a reply to compare with the output of on_message
         let reply = cp.endpoint.create_channel_message(
             moderator.agent_type(),
             moderator.agent_id_option(),
-            SessionHeaderType::ChannelJoinReply,
+            false,
+            SessionHeaderType::ChannelMlsAck,
             msg_id,
             vec![],
         );
-        let mut msg = participant_rx.recv().await.unwrap().unwrap();
-        assert_eq!(msg, reply);
 
-        msg.set_incoming_conn(Some(conn));
-        cm.on_message(msg).await;
-
-        // end with the message exchange check the state
-        assert_eq!(cm.channel_list.len(), 2);
-        assert!(cm.channel_list.contains(&moderator));
-        assert!(cm.channel_list.contains(&participant));
-        assert_eq!(cm.pending_requests.len(), 0);
-
-        // ask to leave to the participant
-        // create a request to remove paticipant from the group
-        let mut request = cm.endpoint.create_channel_message(
-            participant.agent_type(),
-            participant.agent_id_option(),
-            SessionHeaderType::ChannelLeaveRequest,
-            0,
-            vec![],
-        );
-        request.set_incoming_conn(Some(conn));
-
-        cm.on_message(request.clone()).await;
-
-        // get discovery request
-        let msg = moderator_rx.recv().await.unwrap().unwrap();
-        let msg_id = msg.get_id();
-        //request.set_message_id(msg_id);
-        assert_eq!(msg, request);
-
-        cp.on_message(msg).await;
-
-        // the firs message will be the unsubscribe
-        let header = Some(SlimHeaderFlags::default().with_forward_to(conn));
-        let unsub = Message::new_unsubscribe(&participant, &channel_name, None, header);
-        let msg = participant_rx.recv().await.unwrap().unwrap();
-        assert_eq!(msg, unsub);
-
-        // create a reply to compare with the output of on_message
-        let reply = cp.endpoint.create_channel_message(
-            moderator.agent_type(),
-            moderator.agent_id_option(),
-            SessionHeaderType::ChannelLeaveReply,
-            msg_id,
-            vec![],
-        );
         let msg = participant_rx.recv().await.unwrap().unwrap();
         assert_eq!(msg, reply);
-
-        // mimic message reception on moderator side
-        cm.on_message(msg).await;
-
-        // nothing should happen except that the participant
-        // is removed by the group
-        assert_eq!(cm.channel_list.len(), 1);
-        assert!(cm.channel_list.contains(&moderator));
-        assert!(!cm.channel_list.contains(&participant));
-        assert_eq!(cm.pending_requests.len(), 0);
     }
-}*/
+}
