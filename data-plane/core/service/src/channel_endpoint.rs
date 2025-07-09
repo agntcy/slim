@@ -964,7 +964,6 @@ mod tests {
             SimpleGroup::new("moderator", "group"),
             SimpleGroup::new("moderator", "group"),
         ))))
-        .await
         .unwrap();
 
         let participant_mls = MlsState::new(Arc::new(Mutex::new(Mls::new(
@@ -972,7 +971,6 @@ mod tests {
             SimpleGroup::new("participant", "group"),
             SimpleGroup::new("participant", "group"),
         ))))
-        .await
         .unwrap();
 
         let mut cm = ChannelModerator::new(
