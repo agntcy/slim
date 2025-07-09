@@ -3,11 +3,11 @@
 
 use slim_auth::traits::{TokenProvider, Verifier};
 use std::{collections::HashMap, sync::Arc, time::Duration};
-use tokio::sync::{Mutex, mpsc};
+use tokio::sync::mpsc;
 
 use crate::{
     MessageDirection, SessionMessage,
-    channel_endpoint::{ChannelEndpoint, ChannelModerator, ChannelParticipant},
+    channel_endpoint::{ChannelEndpoint, ChannelModerator, ChannelParticipant, MlsState},
     errors::SessionError,
     producer_buffer, receiver_buffer,
     session::{
@@ -214,7 +214,6 @@ where
     T: SessionTransmitter + Send + Sync + Clone + 'static,
 {
     common: Common<P, V, T>,
-    channel_endpoint: Arc<Mutex<ChannelEndpoint<P, V, T>>>,
     tx: mpsc::Sender<Result<(Message, MessageDirection), Status>>,
 }
 
@@ -230,7 +229,6 @@ where
         session_config: StreamingConfiguration,
         session_direction: SessionDirection,
         agent: Agent,
-        conn_id: u64,
         tx_slim_app: T,
         identity_provider: P,
         identity_verifier: V,
@@ -251,35 +249,7 @@ where
             mls_enabled,
         );
 
-        let channel_endpoint: ChannelEndpoint<P, V, T> = if session_config.moderator {
-            let cm = ChannelModerator::new(
-                &agent,
-                &session_config.channel_name,
-                id,
-                conn_id,
-                60,
-                Duration::from_secs(1),
-                common.mls(),
-                tx_slim_app.clone(),
-            );
-            ChannelEndpoint::ChannelModerator(cm)
-        } else {
-            let cp = ChannelParticipant::new(
-                &agent,
-                &session_config.channel_name,
-                id,
-                conn_id,
-                common.mls(),
-                tx_slim_app.clone(),
-            );
-            ChannelEndpoint::ChannelParticipant(cp)
-        };
-
-        let stream = Streaming {
-            common,
-            channel_endpoint: Arc::new(Mutex::new(channel_endpoint)),
-            tx,
-        };
+        let stream = Streaming { common, tx };
         stream.process_message(rx, session_direction);
         stream
     }
@@ -290,8 +260,6 @@ where
         session_direction: SessionDirection,
     ) {
         let session_id = self.common.id();
-        let tx = self.common.tx();
-        let source = self.common.source().clone();
 
         let (max_retries, timeout) = match self.common.session_config() {
             SessionConfig::Streaming(streaming_configuration) => (
@@ -355,10 +323,58 @@ where
 
         let mut rtx_timer_rx_closed = false;
         let mut prod_timer_rx_closed = false;
-        let channel_endpoint = self.channel_endpoint.clone();
 
+        // get session config
+        let session_config = match self.common.session_config() {
+            SessionConfig::Streaming(config) => config,
+            _ => {
+                // this shohuld never happen
+                unreachable!("invalid session config type: expected Streaming");
+            }
+        };
+
+        let mls = self.common.mls();
+        let tx = self.common.tx();
+        let source = self.common.source().clone();
+        let id = self.common.id();
         tokio::spawn(async move {
             debug!("starting message processing on session {}", session_id);
+
+            let mls = match mls {
+                Some(mls) => Some(
+                    MlsState::new(mls)
+                        .await
+                        .expect("failed to create MLS state"),
+                ),
+                None => None,
+            };
+
+            // create the channel endpoint
+            let mut channel_endpoint = match session_config.moderator {
+                true => {
+                    let cm = ChannelModerator::new(
+                        &source,
+                        &session_config.channel_name,
+                        id,
+                        60,
+                        Duration::from_secs(1),
+                        mls,
+                        tx.clone(),
+                    );
+                    ChannelEndpoint::ChannelModerator(cm)
+                }
+                false => {
+                    let cp = ChannelParticipant::new(
+                        &source,
+                        &session_config.channel_name,
+                        id,
+                        mls,
+                        tx.clone(),
+                    );
+                    ChannelEndpoint::ChannelParticipant(cp)
+                }
+            };
+
             loop {
                 tokio::select! {
                     next = rx.recv() => {
@@ -417,8 +433,7 @@ where
                                                     SessionHeaderType::ChannelMlsWelcome |
                                                     SessionHeaderType::ChannelMlsCommit |
                                                     SessionHeaderType::ChannelMlsAck => {
-                                                        let mut lock = channel_endpoint.lock().await;
-                                                        lock.on_message(msg).await;
+                                                        channel_endpoint.on_message(msg).await;
                                                     }
                                                     SessionHeaderType::RtxRequest => {
                                                         // handle RTX request
@@ -434,8 +449,7 @@ where
                                                 match msg.get_session_header().header_type() {
                                                     SessionHeaderType::ChannelDiscoveryRequest |
                                                     SessionHeaderType::ChannelLeaveRequest => {
-                                                        let mut lock = channel_endpoint.lock().await;
-                                                        lock.on_message(msg).await;
+                                                        channel_endpoint.on_message(msg).await;
                                                     }
                                                     _ => {
                                                         process_message_from_app(msg, session_id, &mut state.producer, true, &tx).await;
@@ -1028,7 +1042,6 @@ mod tests {
         };
 
         let source = Agent::from_strings("cisco", "default", "local_agent", 0);
-        let conn_id = 1;
 
         let session_config: StreamingConfiguration =
             StreamingConfiguration::new(SessionDirection::Sender, None, false, None, None);
@@ -1038,7 +1051,6 @@ mod tests {
             session_config.clone(),
             SessionDirection::Sender,
             source.clone(),
-            conn_id,
             tx.clone(),
             SimpleGroup::new("a", "group"),
             SimpleGroup::new("a", "group"),
@@ -1065,7 +1077,6 @@ mod tests {
             session_config.clone(),
             SessionDirection::Receiver,
             source.clone(),
-            conn_id,
             tx,
             SimpleGroup::new("a", "group"),
             SimpleGroup::new("a", "group"),
@@ -1109,8 +1120,6 @@ mod tests {
             Some(Duration::from_millis(500)),
         );
 
-        let conn_id = 1;
-
         let send = Agent::from_strings("cisco", "default", "sender", 0);
         let recv = Agent::from_strings("cisco", "default", "receiver", 0);
 
@@ -1119,7 +1128,6 @@ mod tests {
             session_config_sender,
             SessionDirection::Sender,
             send.clone(),
-            conn_id,
             tx_sender,
             SimpleGroup::new("a", "group"),
             SimpleGroup::new("a", "group"),
@@ -1130,7 +1138,6 @@ mod tests {
             session_config_receiver,
             SessionDirection::Receiver,
             recv.clone(),
-            conn_id,
             tx_receiver,
             SimpleGroup::new("a", "group"),
             SimpleGroup::new("a", "group"),
@@ -1193,7 +1200,6 @@ mod tests {
             Some(5),
             Some(Duration::from_millis(500)),
         );
-        let conn_id = 1;
 
         let agent = Agent::from_strings("cisco", "default", "sender", 0);
 
@@ -1202,7 +1208,6 @@ mod tests {
             session_config,
             SessionDirection::Receiver,
             agent.clone(),
-            conn_id,
             tx,
             SimpleGroup::new("a", "group"),
             SimpleGroup::new("a", "group"),
@@ -1279,8 +1284,6 @@ mod tests {
             Some(Duration::from_millis(500)),
         );
 
-        let conn_id = 1;
-
         let agent = Agent::from_strings("cisco", "default", "receiver", 0);
 
         let session = Streaming::new(
@@ -1288,7 +1291,6 @@ mod tests {
             session_config,
             SessionDirection::Sender,
             agent.clone(),
-            conn_id,
             tx,
             SimpleGroup::new("a", "group"),
             SimpleGroup::new("a", "group"),
@@ -1397,8 +1399,6 @@ mod tests {
                                               // otherwise we don't know which message will be received first
         );
 
-        let conn_id = 1;
-
         let send = Agent::from_strings("cisco", "default", "sender", 0);
         let recv = Agent::from_strings("cisco", "default", "receiver", 0);
 
@@ -1407,7 +1407,6 @@ mod tests {
             session_config_sender,
             SessionDirection::Sender,
             send.clone(),
-            conn_id,
             tx_sender,
             SimpleGroup::new("a", "group"),
             SimpleGroup::new("a", "group"),
@@ -1418,7 +1417,6 @@ mod tests {
             session_config_receiver,
             SessionDirection::Receiver,
             recv.clone(),
-            conn_id,
             tx_receiver,
             SimpleGroup::new("a", "group"),
             SimpleGroup::new("a", "group"),
@@ -1610,8 +1608,6 @@ mod tests {
 
         let tx: MockTransmitter = MockTransmitter { tx_slim, tx_app };
 
-        let conn_id = 1;
-
         let source = Agent::from_strings("cisco", "default", "local_agent", 0);
 
         let session_config: StreamingConfiguration =
@@ -1623,7 +1619,6 @@ mod tests {
                 session_config.clone(),
                 SessionDirection::Sender,
                 source.clone(),
-                conn_id,
                 tx,
                 SimpleGroup::new("a", "group"),
                 SimpleGroup::new("a", "group"),
