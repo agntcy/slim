@@ -22,6 +22,10 @@ message ControlMessage {
     SubscriptionListResponse subscription_list_response = 5;
     ConnectionListRequest connection_list_request = 6;
     ConnectionListResponse connection_list_response = 7;
+    RegisterNodeRequest register_node_request = 8;
+    RegisterNodeResponse register_node_response = 9;
+    DeregisterNodeRequest deregister_node_request = 10;
+    DeregisterNodeResponse deregister_node_response = 11;
   }
 }
 
@@ -80,4 +84,25 @@ message ConnectionListRequest {}
 
 message ConnectionListResponse {
   repeated ConnectionEntry entries = 1;
+}
+
+message Node { string id = 1; }
+
+message NodeConnectionConfiguration { string configJson = 1; }
+
+message RegisterNodeRequest {
+  string nodeId = 1;
+  NodeConnectionConfiguration configuration = 2;
+}
+
+message RegisterNodeResponse {
+  bool success = 1;
+}
+
+message DeregisterNodeRequest {
+  Node node = 1;
+}
+
+message DeregisterNodeResponse {
+  bool success = 1;
 }
