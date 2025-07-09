@@ -3,7 +3,7 @@
 pub struct ControlMessage {
     #[prost(string, tag = "1")]
     pub message_id: ::prost::alloc::string::String,
-    #[prost(oneof = "control_message::Payload", tags = "2, 3, 4, 5, 6, 7")]
+    #[prost(oneof = "control_message::Payload", tags = "2, 3, 4, 5, 6, 7, 8, 9, 10, 11")]
     pub payload: ::core::option::Option<control_message::Payload>,
 }
 /// Nested message and enum types in `ControlMessage`.
@@ -22,6 +22,14 @@ pub mod control_message {
         ConnectionListRequest(super::ConnectionListRequest),
         #[prost(message, tag = "7")]
         ConnectionListResponse(super::ConnectionListResponse),
+        #[prost(message, tag = "8")]
+        RegisterNodeRequest(super::RegisterNodeRequest),
+        #[prost(message, tag = "9")]
+        RegisterNodeResponse(super::RegisterNodeResponse),
+        #[prost(message, tag = "10")]
+        DeregisterNodeRequest(super::DeregisterNodeRequest),
+        #[prost(message, tag = "11")]
+        DeregisterNodeResponse(super::DeregisterNodeResponse),
     }
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -99,6 +107,38 @@ pub struct ConnectionListRequest {}
 pub struct ConnectionListResponse {
     #[prost(message, repeated, tag = "1")]
     pub entries: ::prost::alloc::vec::Vec<ConnectionEntry>,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct Node {
+    #[prost(string, tag = "1")]
+    pub id: ::prost::alloc::string::String,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct NodeConnectionConfiguration {
+    #[prost(string, tag = "1")]
+    pub config_json: ::prost::alloc::string::String,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct RegisterNodeRequest {
+    #[prost(string, tag = "1")]
+    pub node_id: ::prost::alloc::string::String,
+    #[prost(message, optional, tag = "2")]
+    pub configuration: ::core::option::Option<NodeConnectionConfiguration>,
+}
+#[derive(Clone, Copy, PartialEq, ::prost::Message)]
+pub struct RegisterNodeResponse {
+    #[prost(bool, tag = "1")]
+    pub success: bool,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct DeregisterNodeRequest {
+    #[prost(message, optional, tag = "1")]
+    pub node: ::core::option::Option<Node>,
+}
+#[derive(Clone, Copy, PartialEq, ::prost::Message)]
+pub struct DeregisterNodeResponse {
+    #[prost(bool, tag = "1")]
+    pub success: bool,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]
