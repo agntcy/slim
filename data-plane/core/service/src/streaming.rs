@@ -214,7 +214,7 @@ where
     T: SessionTransmitter + Send + Sync + Clone + 'static,
 {
     common: Common<P, V, T>,
-    channel_endpoint: Arc<Mutex<ChannelEndpoint<T>>>,
+    channel_endpoint: Arc<Mutex<ChannelEndpoint<P, V, T>>>,
     tx: mpsc::Sender<Result<(Message, MessageDirection), Status>>,
 }
 
@@ -251,7 +251,7 @@ where
             mls_enabled,
         );
 
-        let channel_endpoint: ChannelEndpoint<T> = if session_config.moderator {
+        let channel_endpoint: ChannelEndpoint<P, V, T> = if session_config.moderator {
             let cm = ChannelModerator::new(
                 &agent,
                 &session_config.channel_name,
