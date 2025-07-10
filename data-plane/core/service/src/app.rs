@@ -9,6 +9,7 @@ use rand::Rng;
 use tokio::sync::RwLock as AsyncRwLock;
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::error::SendError;
+use tracing::info;
 use tracing::{debug, error, warn};
 
 use crate::errors::SessionError;
@@ -791,7 +792,7 @@ where
                 let msg =
                     Message::new_publish_with_headers(slim_header, session_header, "", vec![]);
 
-                debug!("Received discovery request, reply to the msg source");
+                info!("Received discovery request, reply to the msg source");
 
                 match self.transmitter.send_to_slim(Ok(msg)).await {
                     Ok(_) => Ok(true),
