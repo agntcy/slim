@@ -374,6 +374,17 @@ where
         self.set_route(&self.channel_name, None).await;
     }
 
+    async fn leave(&self) {
+        // unsubscribe for the channel
+        let header = Some(SlimHeaderFlags::default().with_forward_to(self.conn.unwrap()));
+        let unsub = Message::new_unsubscribe(&self.name, &self.channel_name, None, header);
+
+        self.send(unsub).await;
+
+        // remove route for the channel
+        self.delete_route(&self.channel_name, None).await;
+    }
+
     async fn set_route(&self, route_name: &AgentType, route_id: Option<u64>) {
         // send a message with subscription from
         let msg = Message::new_subscribe(
@@ -386,12 +397,16 @@ where
         self.send(msg).await;
     }
 
-    async fn leave(&self) {
-        // unsubscribe for the channel
-        let header = Some(SlimHeaderFlags::default().with_forward_to(self.conn.unwrap()));
-        let unsub = Message::new_unsubscribe(&self.name, &self.channel_name, None, header);
+    async fn delete_route(&self, route_name: &AgentType, route_id: Option<u64>) {
+        // send a message with subscription from
+        let msg = Message::new_unsubscribe(
+            &self.name,
+            route_name,
+            route_id,
+            Some(SlimHeaderFlags::default().with_recv_from(self.conn.unwrap())),
+        );
 
-        self.send(unsub).await;
+        self.send(msg).await;
     }
 
     async fn send(&self, msg: Message) {
@@ -414,6 +429,7 @@ where
     V: Verifier + Send + Sync + Clone + 'static,
     T: SessionTransmitter + Send + Sync + Clone + 'static,
 {
+    moderator_name: Option<Agent>,
     endpoint: Endpoint<P, V, T>,
 }
 
@@ -431,7 +447,10 @@ where
         tx: T,
     ) -> Self {
         let endpoint = Endpoint::new(name, channel_name, session_id, mls, tx);
-        ChannelParticipant { endpoint }
+        ChannelParticipant {
+            moderator_name: None,
+            endpoint,
+        }
     }
 
     async fn on_join_request(&mut self, msg: Message) {
@@ -471,6 +490,9 @@ where
                 names.moderator_name.agent_id_option(),
             )
             .await;
+
+        // set the moderator name after the set route
+        self.moderator_name = Some(names.moderator_name);
 
         // send reply to the moderator
         let src = msg.get_source();
@@ -601,9 +623,7 @@ where
                 self.on_mls_commit(msg).await;
             }
             SessionHeaderType::ChannelLeaveRequest => {
-                debug!("Received leave request message");
-                // leave the channell
-                self.endpoint.leave().await;
+                info!("Received leave request message");
 
                 // reply to the request
                 let src = msg.get_source();
@@ -617,6 +637,20 @@ where
                 );
 
                 self.endpoint.send(reply).await;
+
+                // leave the channel
+                self.endpoint.leave().await;
+
+                match &self.moderator_name {
+                    Some(m) => {
+                        self.endpoint
+                            .delete_route(m.agent_type(), m.agent_id_option())
+                            .await;
+                    }
+                    None => {
+                        error!("moderator name is not set, cannot route");
+                    }
+                };
             }
             _ => {
                 error!("received unexpected packet type");
@@ -904,10 +938,13 @@ where
             SessionHeaderType::ChannelLeaveRequest => {
                 // leave message coming from the application
                 info!("Received leave request message");
-                //self.forward(msg).await;
+                self.forward(msg).await;
+
+                // TODO
+                // if MLS create commit and send it
             }
             SessionHeaderType::ChannelLeaveReply => {
-                debug!("Received leave reply message");
+                info!("Received leave reply message");
                 let src = msg.get_slim_header().get_source();
                 let msg_id = msg.get_id();
 

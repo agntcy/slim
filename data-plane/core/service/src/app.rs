@@ -9,6 +9,7 @@ use rand::Rng;
 use tokio::sync::RwLock as AsyncRwLock;
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::error::SendError;
+use tracing::info;
 use tracing::{debug, error, warn};
 
 use crate::errors::SessionError;
@@ -868,7 +869,16 @@ where
                 .tx_ref()
                 .on_msg_from_slim_interceptors(&mut message.message)
                 .await?;
-            return session.on_message(message, direction).await;
+
+            session.on_message(message, direction).await?;
+
+            // if the message is a ChannelLeaveRequest delete the session
+            if session_type == SessionHeaderType::ChannelLeaveRequest {
+                info!("received channel leave requst in app remove the session");
+                self.remove_session(id).await;
+            }
+
+            return Ok(());
         }
 
         let new_session_id = match session_type {
@@ -909,6 +919,8 @@ where
             SessionHeaderType::ChannelDiscoveryRequest
             | SessionHeaderType::ChannelDiscoveryReply
             | SessionHeaderType::ChannelJoinReply
+            | SessionHeaderType::ChannelLeaveRequest
+            | SessionHeaderType::ChannelLeaveReply
             | SessionHeaderType::ChannelMlsCommit
             | SessionHeaderType::ChannelMlsWelcome
             | SessionHeaderType::ChannelMlsAck => {

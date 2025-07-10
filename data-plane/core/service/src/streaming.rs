@@ -26,7 +26,7 @@ use slim_datapath::{
 };
 
 use tonic::{Status, async_trait};
-use tracing::{debug, error, trace, warn};
+use tracing::{debug, error, info, trace, warn};
 
 // this must be a number > 1
 const STREAM_BROADCAST: u32 = 50;
@@ -114,7 +114,7 @@ struct RtxTimerObserver {
 #[async_trait]
 impl timer::TimerObserver for RtxTimerObserver {
     async fn on_timeout(&self, timer_id: u32, timeouts: u32) {
-        trace!("timeout number {} for rtx {}, retry", timeouts, timer_id);
+        info!("timeout number {} for rtx {}, retry", timeouts, timer_id);
 
         // notify the process loop
         if self
@@ -128,7 +128,7 @@ impl timer::TimerObserver for RtxTimerObserver {
     }
 
     async fn on_failure(&self, timer_id: u32, timeouts: u32) {
-        trace!(
+        info!(
             "timeout number {} for rtx {}, stop retry",
             timeouts, timer_id
         );
@@ -145,7 +145,7 @@ impl timer::TimerObserver for RtxTimerObserver {
     }
 
     async fn on_stop(&self, timer_id: u32) {
-        trace!("timer for rtx {} cancelled", timer_id);
+        info!("timer for rtx {} cancelled", timer_id);
         // nothing to do
     }
 }
@@ -157,7 +157,7 @@ struct ProducerTimerObserver {
 #[async_trait]
 impl timer::TimerObserver for ProducerTimerObserver {
     async fn on_timeout(&self, _timer_id: u32, timeouts: u32) {
-        trace!(
+        info!(
             "timeout number {} for producer timer, send beacon",
             timeouts
         );
@@ -173,7 +173,7 @@ impl timer::TimerObserver for ProducerTimerObserver {
     }
 
     async fn on_stop(&self, _timer_id: u32) {
-        trace!("producer timer cancelled");
+        info!("producer timer cancelled");
         // nothing to do
     }
 }

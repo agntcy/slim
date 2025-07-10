@@ -42,6 +42,16 @@ pub struct Args {
     )]
     is_attacker: bool,
 
+    /// Runs the endpoint with MLS disabled.
+    #[arg(
+        short,
+        long,
+        value_name = "MSL_DISABLED",
+        required = false,
+        default_value_t = false
+    )]
+    mls_disabled: bool,
+
     // List of paticipants types to add to the channel in the form org/ns/type. used only in moderator mode
     #[clap(short, long, value_name = "PARITICIPANTS", num_args = 1.., value_delimiter = ' ', required = false)]
     participants: Vec<String>,
@@ -86,6 +96,10 @@ impl Args {
 
     pub fn is_attacker(&self) -> &bool {
         &self.is_attacker
+    }
+
+    pub fn mls_disabled(&self) -> &bool {
+        &self.mls_disabled
     }
 
     pub fn moderator_name(&self) -> &String {
@@ -136,6 +150,7 @@ async fn main() {
     let frequency = *args.frequency();
     let is_moderator = *args.is_moderator();
     let is_attacker = *args.is_attacker();
+    let msl_enabled = !*args.mls_disabled();
     let moderator_name = args.moderator_name().clone();
     let max_packets = args.max_packets;
     let participants_str = args.participants().clone();
@@ -218,7 +233,7 @@ async fn main() {
                     Some(Duration::from_secs(1)),
                 )),
                 Some(12345),
-                true,
+                msl_enabled,
             )
             .await
             .expect("error creating session");
@@ -232,14 +247,6 @@ async fn main() {
 
             tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
         }
-        tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
-
-        // remove all participants
-        info!("Remove participant");
-        app.remove_participant(&Agent::from_strings("org", "ns",  "t1", 1), info.clone())
-            .await
-            .expect("error sending invite message");
-
         tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
 
         // listen for messages
@@ -290,6 +297,16 @@ async fn main() {
             }
             if frequency != 0 {
                 tokio::time::sleep(tokio::time::Duration::from_millis(frequency as u64)).await;
+            }
+
+            if i == 10 {
+                // remove all participants
+                info!("Remove participant");
+                app.remove_participant(&Agent::from_strings("org", "ns", "t1", 1), info.clone())
+                    .await
+                    .expect("error sending invite message");
+
+                tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
             }
         }
     } else {
