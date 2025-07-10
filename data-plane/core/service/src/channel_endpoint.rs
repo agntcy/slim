@@ -123,6 +123,11 @@ where
 
     /// last commit id
     last_commit_id: u32,
+
+    /// map of the particpants with package keys
+    /// this is used only by the moderator to remove
+    /// participants from the channel
+    particpants: HashMap<Agent, Vec<u8>>,
 }
 
 impl<P, V> MlsState<P, V>
@@ -139,6 +144,7 @@ where
             mls,
             group: vec![],
             last_commit_id: 0,
+            particpants: HashMap::new(),
         })
     }
 
@@ -234,7 +240,7 @@ where
     }
 
     async fn add_participant(
-        &self,
+        &mut self,
         msg: &Message,
     ) -> Result<(Vec<u8>, Vec<u8>), ChannelEndpointError> {
         let payload = match msg.get_payload() {
@@ -246,12 +252,31 @@ where
         };
 
         match self.mls.lock().add_member(payload) {
-            Ok((commit_payload, welcome_payload)) => Ok((commit_payload, welcome_payload)),
+            Ok(ret) => {
+                // add participant to the list
+                self.particpants.insert(msg.get_source(), ret.member_identity);
+                Ok((ret.commit_message, ret.welcome_message))
+            }
             Err(e) => {
                 error!("error adding new endpoint {}", e.to_string());
                 Err(ChannelEndpointError::AddParticipant)
             }
         }
+    }
+
+    async fn remove_participant(&mut self, msg: &Message) {
+        println!("----remove participant");
+        let name = msg.get_name_as_agent();
+        let id = match self.particpants.get(&name) {
+            Some(id) => id,
+            None => {
+                error!("the name does not exists in the group");
+                return;
+            }
+        };
+
+        println!("----call mls");
+        let _ = self.mls.lock().remove_member(id);
     }
 }
 
@@ -669,7 +694,7 @@ where
     endpoint: Endpoint<P, V, T>,
 
     /// list of endpoint names in the channel
-    channel_list: HashSet<Agent>,
+    // channel_list: HashSet<Agent>,
 
     /// list of pending requests and related timers
     /// for each timer store also the number of packets that we expect
@@ -713,7 +738,7 @@ where
         let endpoint = Endpoint::new(name, channel_name, session_id, mls, tx);
         ChannelModerator {
             endpoint,
-            channel_list: HashSet::new(),
+            //channel_list: HashSet::new(),
             pending_requests: HashMap::new(),
             max_retries,
             retries_interval,
@@ -744,7 +769,7 @@ where
             }
 
             // add the moderator to the channel
-            self.channel_list.insert(self.endpoint.name.clone());
+            // self.channel_list.insert(self.endpoint.name.clone());
         }
     }
 
@@ -845,7 +870,7 @@ where
             let (commit_payload, welcome_payload) = match self
                 .endpoint
                 .mls_state
-                .as_ref()
+                .as_mut()
                 .unwrap()
                 .add_participant(&msg)
                 .await
@@ -888,19 +913,20 @@ where
             self.create_timer(welcome_id, 1, welcome);
 
             // send commit message if needed
-            if self.channel_list.len() > 1 {
+            let len = self.endpoint.mls_state.as_ref().unwrap().particpants.len();
+            if len > 1 {
                 debug!("Send MLS Commit Message to the channel");
                 self.endpoint.send(commit.clone()).await;
                 self.create_timer(
                     commit_id,
-                    (self.channel_list.len() - 1).try_into().unwrap(),
+                    (len - 1).try_into().unwrap(),
                     commit,
                 );
             }
         };
 
         // track source in the channel list
-        self.channel_list.insert(src);
+        // self.channel_list.insert(src);
     }
 
     async fn on_msl_ack(&mut self, msg: Message) {
@@ -938,10 +964,24 @@ where
             SessionHeaderType::ChannelLeaveRequest => {
                 // leave message coming from the application
                 info!("Received leave request message");
+
+                self.endpoint.mls_state.as_mut().unwrap().remove_participant(&msg).await;
+
                 self.forward(msg).await;
 
                 // TODO
                 // if MLS create commit and send it
+                //let name = msg.get_name_as_agent();
+                /*let id = match self.endpoint.mls_state.as_ref().unwrap().particpants.get(&name) {
+                    Some(id) => id,
+                    None => {
+                        error!("the name does not exists in the group");
+                        return;
+                    }
+                };*/
+
+                
+
             }
             SessionHeaderType::ChannelLeaveReply => {
                 info!("Received leave reply message");
@@ -952,7 +992,7 @@ where
                 self.delete_timer(msg_id);
 
                 // remove from the channel list
-                self.channel_list.remove(&src);
+                self.endpoint.mls_state.as_mut().unwrap().particpants.remove(&src);
             }
             _ => {
                 error!("received unexpected packet type");

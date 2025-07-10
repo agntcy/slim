@@ -308,6 +308,16 @@ async fn main() {
 
                 tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
             }
+
+            if i == 20 {
+                // remove all participants
+                info!("Remove participant");
+                app.remove_participant(&Agent::from_strings("org", "ns", "t2", 1), info.clone())
+                    .await
+                    .expect("error sending invite message");
+
+                tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
+            }
         }
     } else {
         // participant
