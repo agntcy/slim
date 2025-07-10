@@ -10,7 +10,6 @@ use std::{
 use async_trait::async_trait;
 use bincode::{Decode, Encode};
 use parking_lot::Mutex;
-use slim_mls::mls::Mls;
 use tracing::{debug, error, trace};
 
 use crate::{
@@ -18,7 +17,7 @@ use crate::{
     interceptor_mls::{METADATA_MLS_ENABLED, METADATA_MLS_INIT_COMMIT_ID},
     session::{Id, SessionTransmitter},
 };
-
+use slim_mls::mls::Mls;
 use slim_auth::traits::{TokenProvider, Verifier};
 use slim_datapath::{
     api::{
