@@ -12,7 +12,7 @@ use slim_mls::mls::Mls;
 
 use async_trait::async_trait;
 use parking_lot::Mutex;
-use tracing::{debug, error, trace};
+use tracing::{debug, error, info, trace};
 
 use crate::{
     errors::{ChannelEndpointError, SessionError},
@@ -903,8 +903,8 @@ where
             }
             SessionHeaderType::ChannelLeaveRequest => {
                 // leave message coming from the application
-                debug!("Received leave request message");
-                self.forward(msg).await;
+                info!("Received leave request message");
+                //self.forward(msg).await;
             }
             SessionHeaderType::ChannelLeaveReply => {
                 debug!("Received leave reply message");

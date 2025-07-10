@@ -226,12 +226,20 @@ async fn main() {
         // invite all participants
         for p in participants {
             info!("Invite participant {}", p);
-            app.invite(&p, info.clone())
+            app.invite_participant(&p, info.clone())
                 .await
                 .expect("error sending invite message");
 
             tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
         }
+        tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
+
+        // remove all participants
+        info!("Remove participant");
+        app.remove_participant(&Agent::from_strings("org", "ns",  "t1", 1), info.clone())
+            .await
+            .expect("error sending invite message");
+
         tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
 
         // listen for messages
