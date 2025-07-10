@@ -416,49 +416,6 @@ where
         ChannelParticipant { endpoint }
     }
 
-    async fn on_discovery_request(&mut self, msg: Message) -> Result<(), SessionError> {
-        // set local state according to the info in the message
-        self.endpoint.conn = Some(msg.get_incoming_conn());
-        self.endpoint.session_id = msg.get_session_header().get_session_id();
-
-        // get the source (with strings) from the packet payload
-        let source_name = msg
-            .get_payload()
-            .map_or_else(
-                || {
-                    error!("missing payload in a Join Channel request, ignore the message");
-                    Err(SessionError::Processing(
-                        "missing payload in a Join Channel request".to_string(),
-                    ))
-                },
-                |content| -> Result<(Agent, usize), SessionError> {
-                    bincode::decode_from_slice(&content.blob, bincode::config::standard())
-                        .map_err(|e| SessionError::JoinChannelPayload(e.to_string()))
-                },
-            )?
-            .0;
-
-        // set route in order to be able to send packets to the moderator
-        self.endpoint
-            .set_route(source_name.agent_type(), source_name.agent_id_option())
-            .await?;
-
-        // set the connection id equal to the connection from where we received the message
-        let src = msg.get_source();
-
-        // create reply message
-        let reply = self.endpoint.create_channel_message(
-            src.agent_type(),
-            src.agent_id_option(),
-            false,
-            SessionHeaderType::ChannelDiscoveryReply,
-            msg.get_id(),
-            vec![],
-        );
-
-        self.endpoint.send(reply).await
-    }
-
     async fn on_join_request(&mut self, msg: Message) -> Result<(), SessionError> {
         // get the payload
         let names = msg
@@ -703,12 +660,9 @@ where
             self.endpoint.join().await?;
 
             // create mls group if needed
-            self.endpoint
-                .mls_state
-                .as_mut()
-                .ok_or(SessionError::NoMls)?
-                .init_moderator()
-                .await?;
+            if let Some(mls) = self.endpoint.mls_state.as_mut() {
+                mls.init_moderator().await?;
+            }
 
             // add the moderator to the channel
             self.channel_list.insert(self.endpoint.name.clone());
