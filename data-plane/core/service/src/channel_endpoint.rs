@@ -10,7 +10,6 @@ use std::{
 use async_trait::async_trait;
 use bincode::{Decode, Encode};
 use parking_lot::Mutex;
-use slim_mls::mls::Mls;
 use tracing::{debug, error, trace};
 
 use crate::{
@@ -18,7 +17,6 @@ use crate::{
     interceptor_mls::{METADATA_MLS_ENABLED, METADATA_MLS_INIT_COMMIT_ID},
     session::{Id, SessionTransmitter},
 };
-
 use slim_auth::traits::{TokenProvider, Verifier};
 use slim_datapath::{
     api::{
@@ -27,6 +25,7 @@ use slim_datapath::{
     },
     messages::{Agent, AgentType, utils::SlimHeaderFlags},
 };
+use slim_mls::mls::Mls;
 
 struct RequestTimerObserver<T>
 where
@@ -165,7 +164,11 @@ where
                 "received welcome message without commit id, drop it".to_string(),
             ))?
             .parse::<u32>()
-            .unwrap();
+            .map_err(|_| {
+                SessionError::WelcomeMessage(
+                    "received welcome message with invalid commit id, drop it".to_string(),
+                )
+            })?;
 
         let welcome = &msg
             .get_payload()
@@ -264,9 +267,6 @@ where
     /// channel name
     channel_name: AgentType,
 
-    /// channel id, used to exchange messages with a single endpoint
-    channel_id: Option<u64>,
-
     /// id of the current session
     session_id: Id,
 
@@ -292,15 +292,13 @@ where
     pub fn new(
         name: Agent,
         channel_name: AgentType,
-        channel_id: Option<u64>,
         session_id: Id,
         mls_state: Option<MlsState<P, V>>,
         tx: T,
     ) -> Self {
         Endpoint {
-            name: name,
-            channel_name: channel_name,
-            channel_id,
+            name,
+            channel_name,
             session_id,
             conn: None,
             subscribed: false,
@@ -406,56 +404,12 @@ where
     pub fn new(
         name: Agent,
         channel_name: AgentType,
-        channel_id: Option<u64>,
         session_id: Id,
         mls: Option<MlsState<P, V>>,
         tx: T,
     ) -> Self {
-        let endpoint = Endpoint::new(name, channel_name, channel_id, session_id, mls, tx);
+        let endpoint = Endpoint::new(name, channel_name, session_id, mls, tx);
         ChannelParticipant { endpoint }
-    }
-
-    async fn on_discovery_request(&mut self, msg: Message) -> Result<(), SessionError> {
-        // set local state according to the info in the message
-        self.endpoint.conn = Some(msg.get_incoming_conn());
-        self.endpoint.session_id = msg.get_session_header().get_session_id();
-
-        // get the source (with strings) from the packet payload
-        let source_name = msg
-            .get_payload()
-            .map_or_else(
-                || {
-                    error!("missing payload in a Join Channel request, ignore the message");
-                    Err(SessionError::Processing(
-                        "missing payload in a Join Channel request".to_string(),
-                    ))
-                },
-                |content| -> Result<(Agent, usize), SessionError> {
-                    bincode::decode_from_slice(&content.blob, bincode::config::standard())
-                        .map_err(|e| SessionError::JoinChannelPayload(e.to_string()))
-                },
-            )?
-            .0;
-
-        // set route in order to be able to send packets to the moderator
-        self.endpoint
-            .set_route(source_name.agent_type(), source_name.agent_id_option())
-            .await?;
-
-        // set the connection id equal to the connection from where we received the message
-        let src = msg.get_source();
-
-        // create reply message
-        let reply = self.endpoint.create_channel_message(
-            src.agent_type(),
-            src.agent_id_option(),
-            false,
-            SessionHeaderType::ChannelDiscoveryReply,
-            msg.get_id(),
-            vec![],
-        );
-
-        self.endpoint.send(reply).await
     }
 
     async fn on_join_request(&mut self, msg: Message) -> Result<(), SessionError> {
@@ -531,7 +485,7 @@ where
         debug!("Welcome message correctly processed, MLS state initialized");
 
         // set route for the channel name
-        self.endpoint.join().await;
+        self.endpoint.join().await?;
 
         // send an ack back to the moderator
         let src = msg.get_source();
@@ -673,7 +627,6 @@ where
     pub fn new(
         name: Agent,
         channel_name: AgentType,
-        channel_id: Option<u64>,
         session_id: Id,
         max_retries: u32,
         retries_interval: Duration,
@@ -684,7 +637,7 @@ where
         let invite_payload: Vec<u8> = bincode::encode_to_vec(p, bincode::config::standard())
             .expect("unable to parse channel name as payload");
 
-        let endpoint = Endpoint::new(name, channel_name, channel_id, session_id, mls, tx);
+        let endpoint = Endpoint::new(name, channel_name, session_id, mls, tx);
         ChannelModerator {
             endpoint,
             channel_list: HashSet::new(),
@@ -702,12 +655,9 @@ where
             self.endpoint.join().await?;
 
             // create mls group if needed
-            self.endpoint
-                .mls_state
-                .as_mut()
-                .ok_or(SessionError::NoMls)?
-                .init_moderator()
-                .await?;
+            if let Some(mls) = self.endpoint.mls_state.as_mut() {
+                mls.init_moderator().await?;
+            }
 
             // add the moderator to the channel
             self.channel_list.insert(self.endpoint.name.clone());
@@ -801,7 +751,7 @@ where
         }
 
         // remove the timer for the discovery message
-        self.delete_timer(recv_msg_id);
+        self.delete_timer(recv_msg_id)?;
 
         // add a new one for the join message
         self.create_timer(new_msg_id, 1, join.clone());
@@ -974,7 +924,6 @@ mod tests {
         let moderator = Agent::from_strings("org", "default", "moderator", 12345);
         let participant = Agent::from_strings("org", "default", "participant", 5120);
         let channel_name = AgentType::from_strings("channel", "channel", "channel");
-        let channel_id = Some(1234 as u64);
         let conn = 1;
 
         let moderator_mls = MlsState::new(Arc::new(Mutex::new(Mls::new(
@@ -994,7 +943,6 @@ mod tests {
         let mut cm = ChannelModerator::new(
             moderator.clone(),
             channel_name.clone(),
-            channel_id,
             SESSION_ID,
             3,
             Duration::from_millis(100),
@@ -1004,7 +952,6 @@ mod tests {
         let mut cp = ChannelParticipant::new(
             participant.clone(),
             channel_name.clone(),
-            channel_id,
             SESSION_ID,
             Some(participant_mls),
             participant_tx,
@@ -1030,7 +977,7 @@ mod tests {
         let request = Message::new_publish_with_headers(slim_header, session_header, "", payload);
 
         // receive the request at the session layer
-        cm.on_message(request.clone()).await;
+        cm.on_message(request.clone()).await.unwrap();
 
         // the request is forwarded to slim
         let msg = moderator_rx.recv().await.unwrap().unwrap();
@@ -1059,7 +1006,7 @@ mod tests {
 
         // message reception on moderator side
         msg.set_incoming_conn(Some(conn));
-        cm.on_message(msg).await;
+        cm.on_message(msg).await.unwrap();
 
         // the first message is the subscription for the channel name
         let header = Some(SlimHeaderFlags::default().with_forward_to(conn));
@@ -1098,7 +1045,7 @@ mod tests {
 
         msg.set_incoming_conn(Some(conn));
         let msg_id = msg.get_id();
-        cp.on_message(msg).await;
+        cp.on_message(msg).await.unwrap();
 
         // the first message is the set route for moderator name
         let header = Some(SlimHeaderFlags::default().with_recv_from(conn));
@@ -1128,7 +1075,7 @@ mod tests {
         assert_eq!(msg.get_session_header(), reply.get_session_header());
 
         msg.set_incoming_conn(Some(conn));
-        cm.on_message(msg).await;
+        cm.on_message(msg).await.unwrap();
 
         // create a reply to compare with the output of on_message
         let mut reply = cm.endpoint.create_channel_message(
@@ -1150,7 +1097,7 @@ mod tests {
         // receive the message on the participant side
         msg.set_incoming_conn(Some(conn));
         let msg_id = msg.get_id();
-        cp.on_message(msg).await;
+        cp.on_message(msg).await.unwrap();
 
         // the first message generated is a subscription for the channel name
         let header = Some(SlimHeaderFlags::default().with_forward_to(conn));

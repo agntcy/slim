@@ -1,6 +1,7 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
+use bincode::config;
 use slim_auth::traits::{TokenProvider, Verifier};
 use std::{collections::HashMap, sync::Arc, time::Duration};
 use tokio::sync::mpsc;
@@ -39,6 +40,7 @@ pub struct StreamingConfiguration {
     pub moderator: bool,
     pub max_retries: u32,
     pub timeout: std::time::Duration,
+    pub mls_enabled: bool,
 }
 
 impl SessionConfigTrait for StreamingConfiguration {
@@ -71,6 +73,7 @@ impl Default for StreamingConfiguration {
             moderator: false,
             max_retries: 10,
             timeout: std::time::Duration::from_millis(1000),
+            mls_enabled: false,
         }
     }
 }
@@ -95,6 +98,7 @@ impl StreamingConfiguration {
         moderator: bool,
         max_retries: Option<u32>,
         timeout: Option<std::time::Duration>,
+        mls_enabled: bool,
     ) -> Self {
         StreamingConfiguration {
             direction,
@@ -102,6 +106,7 @@ impl StreamingConfiguration {
             moderator,
             max_retries: max_retries.unwrap_or(0),
             timeout: timeout.unwrap_or(std::time::Duration::from_millis(0)),
+            mls_enabled,
         }
     }
 }
@@ -232,7 +237,6 @@ where
         tx_slim_app: T,
         identity_provider: P,
         identity_verifier: V,
-        mls_enabled: bool,
     ) -> Self {
         let (tx, rx) = mpsc::channel(128);
 
@@ -246,7 +250,7 @@ where
             tx_slim_app.clone(),
             identity_provider,
             identity_verifier,
-            mls_enabled,
+            session_config.mls_enabled,
         );
 
         let stream = Streaming { common, tx };
@@ -348,7 +352,6 @@ where
                     let cm = ChannelModerator::new(
                         source.clone(),
                         session_config.channel_name.clone(),
-                        None,
                         id,
                         60,
                         Duration::from_secs(1),
@@ -361,7 +364,6 @@ where
                     let cp = ChannelParticipant::new(
                         source.clone(),
                         session_config.channel_name.clone(),
-                        None,
                         id,
                         mls,
                         tx.clone(),
@@ -428,7 +430,12 @@ where
                                                     SessionHeaderType::ChannelMlsWelcome |
                                                     SessionHeaderType::ChannelMlsCommit |
                                                     SessionHeaderType::ChannelMlsAck => {
-                                                        channel_endpoint.on_message(msg).await;
+                                                        match channel_endpoint.on_message(msg).await {
+                                                            Ok(_) => {},
+                                                            Err(e) => {
+                                                                error!("error processing channel message: {}", e);
+                                                            },
+                                                        }
                                                     }
                                                     SessionHeaderType::RtxRequest => {
                                                         // handle RTX request
@@ -444,7 +451,12 @@ where
                                                 match msg.get_session_header().header_type() {
                                                     SessionHeaderType::ChannelDiscoveryRequest |
                                                     SessionHeaderType::ChannelLeaveRequest => {
-                                                        channel_endpoint.on_message(msg).await;
+                                                        match channel_endpoint.on_message(msg).await {
+                                                            Ok(_) => {},
+                                                            Err(e) => {
+                                                                error!("error processing channel message: {}", e);
+                                                            },
+                                                        }
                                                     }
                                                     _ => {
                                                         process_message_from_app(msg, session_id, &mut state.producer, true, &tx).await;
@@ -1039,7 +1051,7 @@ mod tests {
         let source = Agent::from_strings("cisco", "default", "local_agent", 0);
 
         let session_config: StreamingConfiguration =
-            StreamingConfiguration::new(SessionDirection::Sender, None, false, None, None);
+            StreamingConfiguration::new(SessionDirection::Sender, None, false, None, None, false);
 
         let session = Streaming::new(
             0,
@@ -1049,7 +1061,6 @@ mod tests {
             tx.clone(),
             SimpleGroup::new("a", "group"),
             SimpleGroup::new("a", "group"),
-            false,
         );
 
         assert_eq!(session.id(), 0);
@@ -1065,6 +1076,7 @@ mod tests {
             false,
             Some(10),
             Some(Duration::from_millis(1000)),
+            false,
         );
 
         let session = Streaming::new(
@@ -1075,7 +1087,6 @@ mod tests {
             tx,
             SimpleGroup::new("a", "group"),
             SimpleGroup::new("a", "group"),
-            false,
         );
 
         assert_eq!(session.id(), 1);
@@ -1106,13 +1117,14 @@ mod tests {
         };
 
         let session_config_sender: StreamingConfiguration =
-            StreamingConfiguration::new(SessionDirection::Sender, None, false, None, None);
+            StreamingConfiguration::new(SessionDirection::Sender, None, false, None, None, false);
         let session_config_receiver: StreamingConfiguration = StreamingConfiguration::new(
             SessionDirection::Receiver,
             None,
             false,
             Some(5),
             Some(Duration::from_millis(500)),
+            false,
         );
 
         let send = Agent::from_strings("cisco", "default", "sender", 0);
@@ -1126,7 +1138,6 @@ mod tests {
             tx_sender,
             SimpleGroup::new("a", "group"),
             SimpleGroup::new("a", "group"),
-            false,
         );
         let receiver = Streaming::new(
             0,
@@ -1136,7 +1147,6 @@ mod tests {
             tx_receiver,
             SimpleGroup::new("a", "group"),
             SimpleGroup::new("a", "group"),
-            false,
         );
 
         let mut message = Message::new_publish(
@@ -1194,6 +1204,7 @@ mod tests {
             false,
             Some(5),
             Some(Duration::from_millis(500)),
+            false,
         );
 
         let agent = Agent::from_strings("cisco", "default", "sender", 0);
@@ -1206,7 +1217,6 @@ mod tests {
             tx,
             SimpleGroup::new("a", "group"),
             SimpleGroup::new("a", "group"),
-            false,
         );
 
         let mut message = Message::new_publish(
@@ -1277,6 +1287,7 @@ mod tests {
             false,
             Some(5),
             Some(Duration::from_millis(500)),
+            false,
         );
 
         let agent = Agent::from_strings("cisco", "default", "receiver", 0);
@@ -1289,7 +1300,6 @@ mod tests {
             tx,
             SimpleGroup::new("a", "group"),
             SimpleGroup::new("a", "group"),
-            false,
         );
 
         let mut message = Message::new_publish(
@@ -1384,14 +1394,15 @@ mod tests {
         };
 
         let session_config_sender: StreamingConfiguration =
-            StreamingConfiguration::new(SessionDirection::Sender, None, false, None, None);
+            StreamingConfiguration::new(SessionDirection::Sender, None, false, None, None, false);
         let session_config_receiver: StreamingConfiguration = StreamingConfiguration::new(
             SessionDirection::Receiver,
             None,
             false,
             Some(5),
             Some(Duration::from_millis(100)), // keep the timer shorter with respect to the beacon one
-                                              // otherwise we don't know which message will be received first
+            // otherwise we don't know which message will be received first
+            false,
         );
 
         let send = Agent::from_strings("cisco", "default", "sender", 0);
@@ -1405,7 +1416,6 @@ mod tests {
             tx_sender,
             SimpleGroup::new("a", "group"),
             SimpleGroup::new("a", "group"),
-            false,
         );
         let receiver = Streaming::new(
             0,
@@ -1415,7 +1425,6 @@ mod tests {
             tx_receiver,
             SimpleGroup::new("a", "group"),
             SimpleGroup::new("a", "group"),
-            false,
         );
 
         let mut message = Message::new_publish(
@@ -1606,7 +1615,7 @@ mod tests {
         let source = Agent::from_strings("cisco", "default", "local_agent", 0);
 
         let session_config: StreamingConfiguration =
-            StreamingConfiguration::new(SessionDirection::Sender, None, false, None, None);
+            StreamingConfiguration::new(SessionDirection::Sender, None, false, None, None, false);
 
         {
             let _session = Streaming::new(
@@ -1617,7 +1626,6 @@ mod tests {
                 tx,
                 SimpleGroup::new("a", "group"),
                 SimpleGroup::new("a", "group"),
-                false,
             );
         }
 

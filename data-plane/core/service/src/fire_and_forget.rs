@@ -31,6 +31,8 @@ pub struct FireAndForgetConfiguration {
     pub timeout: Option<std::time::Duration>,
     pub max_retries: Option<u32>,
     pub sticky: bool,
+    pub mls_enabled: bool,
+    pub(crate) initiator: bool,
 }
 
 impl SessionConfigTrait for FireAndForgetConfiguration {
@@ -87,8 +89,10 @@ enum InternalMessage {
     },
 }
 
-struct FireAndForgetState<T>
+struct FireAndForgetState<P, V, T>
 where
+    P: TokenProvider + Send + Sync + Clone + 'static,
+    V: Verifier + Send + Sync + Clone + 'static,
     T: SessionTransmitter + Send + Sync + Clone + 'static,
 {
     session_id: u32,
@@ -100,7 +104,7 @@ where
     sticky_connection: Option<u64>,
     sticky_session_status: StickySessionStatus,
     sticky_buffer: VecDeque<Message>,
-    channel_endpoint: ChannelEndpoint,
+    channel_endpoint: ChannelEndpoint<P, V, T>,
 }
 
 struct RtxTimerObserver {
@@ -108,11 +112,13 @@ struct RtxTimerObserver {
 }
 
 /// The internal part of the Fire and Forget session that handles message processing
-struct FireAndForgetProcessor<T>
+struct FireAndForgetProcessor<P, V, T>
 where
+    P: TokenProvider + Send + Sync + Clone + 'static,
+    V: Verifier + Send + Sync + Clone + 'static,
     T: SessionTransmitter + Send + Sync + Clone + 'static,
 {
-    state: FireAndForgetState<T>,
+    state: FireAndForgetState<P, V, T>,
     timer_observer: Arc<RtxTimerObserver>,
     rx: Receiver<InternalMessage>,
     cancellation_token: CancellationToken,
@@ -146,12 +152,14 @@ impl timer::TimerObserver for RtxTimerObserver {
     }
 }
 
-impl<T> FireAndForgetProcessor<T>
+impl<P, V, T> FireAndForgetProcessor<P, V, T>
 where
+    P: TokenProvider + Send + Sync + Clone + 'static,
+    V: Verifier + Send + Sync + Clone + 'static,
     T: SessionTransmitter + Send + Sync + Clone + 'static,
 {
     fn new(
-        state: FireAndForgetState<T>,
+        state: FireAndForgetState<P, V, T>,
         tx: Sender<InternalMessage>,
         rx: Receiver<InternalMessage>,
         cancellation_token: CancellationToken,
@@ -553,11 +561,10 @@ where
                 // Remove the timer and drop the message
                 self.stop_and_remove_timer(message_id)
             }
-            SessionHeaderType::ChannelDiscoveryRequest | SessionHeaderType::ChannelDiscoveryReply => {
+            SessionHeaderType::ChannelDiscoveryRequest
+            | SessionHeaderType::ChannelDiscoveryReply => {
                 // Handle sticky session discovery
-                self.state
-                    .channel_endpoint
-                    .on_message(message.message)
+                self.state.channel_endpoint.on_message(message.message)
             }
             _ => {
                 // Unexpected header
@@ -622,7 +629,6 @@ where
         tx_slim_app: T,
         identity_provider: P,
         identity_verifier: V,
-        msl_enabled: bool,
         initiator: bool,
     ) -> Self {
         let (tx, rx) = mpsc::channel(32);
@@ -636,7 +642,7 @@ where
             tx_slim_app.clone(),
             identity_provider,
             identity_verifier,
-            msl_enabled,
+            session_config.mls_enabled,
         );
 
         // Create mls state if needed
@@ -650,7 +656,6 @@ where
                 let cm = ChannelModerator::new(
                     common.source().clone(),
                     common.source().agent_type().clone(),
-                    None,
                     id,
                     60,
                     Duration::from_secs(1),
@@ -663,7 +668,6 @@ where
                 let cp = ChannelParticipant::new(
                     common.source().clone(),
                     common.source().agent_type().clone(),
-                    None,
                     id,
                     mls,
                     tx_slim_app.clone(),
@@ -970,6 +974,7 @@ mod tests {
                 timeout: Some(Duration::from_millis(500)),
                 max_retries: Some(5),
                 sticky: false,
+                mls_enabled: false,
             },
             SessionDirection::Bidirectional,
             source.clone(),
@@ -1044,6 +1049,7 @@ mod tests {
                 timeout: Some(Duration::from_millis(500)),
                 max_retries: Some(5),
                 sticky: false,
+                mls_enabled: false,
             },
             SessionDirection::Bidirectional,
             local.clone(),
@@ -1200,6 +1206,7 @@ mod tests {
                 timeout: Some(Duration::from_millis(500)),
                 max_retries: Some(5),
                 sticky: true,
+                mls_enabled: false,
             },
             SessionDirection::Bidirectional,
             local.clone(),
