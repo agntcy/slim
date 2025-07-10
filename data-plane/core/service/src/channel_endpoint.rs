@@ -7,19 +7,16 @@ use std::{
     time::Duration,
 };
 
-use bincode::{Decode, Encode};
-use slim_mls::mls::Mls;
-
 use async_trait::async_trait;
+use bincode::{Decode, Encode};
 use parking_lot::Mutex;
 use tracing::{debug, error, trace};
 
 use crate::{
-    errors::{ChannelEndpointError, SessionError},
+    errors::SessionError,
     interceptor_mls::{METADATA_MLS_ENABLED, METADATA_MLS_INIT_COMMIT_ID},
     session::{Id, SessionTransmitter},
 };
-
 use slim_auth::traits::{TokenProvider, Verifier};
 use slim_datapath::{
     api::{
@@ -28,6 +25,7 @@ use slim_datapath::{
     },
     messages::{Agent, AgentType, utils::SlimHeaderFlags},
 };
+use slim_mls::mls::Mls;
 
 struct RequestTimerObserver<T>
 where
@@ -75,7 +73,7 @@ where
 }
 
 trait OnMessageReceived {
-    async fn on_message(&mut self, msg: Message);
+    async fn on_message(&mut self, msg: Message) -> Result<(), SessionError>;
 }
 
 #[derive(Debug)]
@@ -95,14 +93,10 @@ where
     V: Verifier + Send + Sync + Clone + 'static,
     T: SessionTransmitter + Send + Sync + Clone + 'static,
 {
-    pub async fn on_message(&mut self, msg: Message) {
+    pub async fn on_message(&mut self, msg: Message) -> Result<(), SessionError> {
         match self {
-            ChannelEndpoint::ChannelParticipant(cp) => {
-                cp.on_message(msg).await;
-            }
-            ChannelEndpoint::ChannelModerator(cm) => {
-                cm.on_message(msg).await;
-            }
+            ChannelEndpoint::ChannelParticipant(cp) => cp.on_message(msg).await,
+            ChannelEndpoint::ChannelModerator(cm) => cm.on_message(msg).await,
         }
     }
 }
@@ -130,10 +124,10 @@ where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
 {
-    pub(crate) fn new(mls: Arc<Mutex<Mls<P, V>>>) -> Result<Self, ChannelEndpointError> {
+    pub(crate) fn new(mls: Arc<Mutex<Mls<P, V>>>) -> Result<Self, SessionError> {
         mls.lock()
             .initialize()
-            .map_err(|e| ChannelEndpointError::MLSInit(e.to_string()))?;
+            .map_err(|e| SessionError::MLSInit(e.to_string()))?;
 
         Ok(MlsState {
             mls,
@@ -142,66 +136,65 @@ where
         })
     }
 
-    async fn init_moderator(&mut self) -> Result<(), ChannelEndpointError> {
+    async fn init_moderator(&mut self) -> Result<(), SessionError> {
         self.mls
             .lock()
             .create_group()
             .map(|_| ())
-            .map_err(|e| ChannelEndpointError::MLSInit(e.to_string()))
+            .map_err(|e| SessionError::MLSInit(e.to_string()))
     }
 
-    async fn generate_key_package(&mut self) -> Result<Vec<u8>, ChannelEndpointError> {
+    async fn generate_key_package(&mut self) -> Result<Vec<u8>, SessionError> {
         self.mls
             .lock()
             .generate_key_package()
-            .map_err(|e| ChannelEndpointError::MLSInit(e.to_string()))
+            .map_err(|e| SessionError::MLSInit(e.to_string()))
     }
 
-    async fn process_welcome_message(&mut self, msg: &Message) -> Result<(), ChannelEndpointError> {
+    async fn process_welcome_message(&mut self, msg: &Message) -> Result<(), SessionError> {
         if self.last_commit_id != 0 {
             debug!("welcome message already received, drop");
             // we already got a welcome message, ignore this one
             return Ok(());
         }
 
-        match msg.get_metadata(METADATA_MLS_INIT_COMMIT_ID) {
-            Some(x) => {
-                debug!("received valid welcome message");
-                self.last_commit_id = x.parse::<u32>().unwrap();
-            }
-            None => {
-                error!("received welcome message without commit id, drop it");
-                return Err(ChannelEndpointError::WelcomeMessage);
-            }
-        }
+        self.last_commit_id = msg
+            .get_metadata(METADATA_MLS_INIT_COMMIT_ID)
+            .ok_or(SessionError::WelcomeMessage(
+                "received welcome message without commit id, drop it".to_string(),
+            ))?
+            .parse::<u32>()
+            .map_err(|_| {
+                SessionError::WelcomeMessage(
+                    "received welcome message with invalid commit id, drop it".to_string(),
+                )
+            })?;
 
-        let welcome = match msg.get_payload() {
-            Some(content) => &content.blob,
-            None => {
-                error!("missing payload in MLS welcome, cannot join the group");
-                return Err(ChannelEndpointError::WelcomeMessage);
-            }
-        };
+        let welcome = &msg
+            .get_payload()
+            .ok_or(SessionError::WelcomeMessage(
+                "missing payload in MLS welcome, cannot join the group".to_string(),
+            ))?
+            .blob;
 
-        match self.mls.lock().process_welcome(welcome) {
-            Ok(id) => {
-                self.group = id;
-                Ok(())
-            }
-            Err(e) => {
-                error!("error parsing welcome message {}", e.to_string());
-                Err(ChannelEndpointError::WelcomeMessage)
-            }
-        }
+        self.group = self
+            .mls
+            .lock()
+            .process_welcome(welcome)
+            .map_err(|e| SessionError::WelcomeMessage(e.to_string()))?;
+
+        Ok(())
     }
 
-    async fn process_commit_message(&mut self, msg: &Message) -> Result<(), ChannelEndpointError> {
+    async fn process_commit_message(&mut self, msg: &Message) -> Result<(), SessionError> {
         // the first message to be received should be a welcome message
         // this message will init the last_commit_id. so if last_commit_id = 0
         // drop the commits
         if self.last_commit_id == 0 {
             error!("welcome message not received yet, drop commit");
-            return Err(ChannelEndpointError::CommitMessage);
+            return Err(SessionError::CommitMessage(
+                "welcome message not received yet, drop commit".to_string(),
+            ));
         }
 
         // the only valid commit that we can accepet it the commit with id
@@ -213,45 +206,36 @@ where
             self.last_commit_id += 1;
         } else {
             error!("unexpected commit id, drop message");
-            return Err(ChannelEndpointError::CommitMessage);
+            return Err(SessionError::CommitMessage(
+                "unexpected commit id, drop message".to_string(),
+            ));
         }
 
-        let commit = match msg.get_payload() {
-            Some(content) => &content.blob,
-            None => {
-                error!("missing payload in MLS welcome, cannot join the group");
-                return Err(ChannelEndpointError::CommitMessage);
-            }
-        };
+        let commit = &msg
+            .get_payload()
+            .ok_or(SessionError::CommitMessage(
+                "missing payload in MLS commit, cannot process the commit".to_string(),
+            ))?
+            .blob;
 
-        match self.mls.lock().process_commit(commit) {
-            Ok(_) => Ok(()),
-            Err(e) => {
-                error!("error processing commit message {}", e.to_string());
-                Err(ChannelEndpointError::CommitMessage)
-            }
-        }
+        self.mls
+            .lock()
+            .process_commit(commit)
+            .map_err(|e| SessionError::CommitMessage(e.to_string()))
     }
 
-    async fn add_participant(
-        &self,
-        msg: &Message,
-    ) -> Result<(Vec<u8>, Vec<u8>), ChannelEndpointError> {
-        let payload = match msg.get_payload() {
-            Some(p) => &p.blob,
-            None => {
-                error!("The key package is missing. the end point cannot be added to the channel");
-                return Err(ChannelEndpointError::AddParticipant);
-            }
-        };
+    fn add_participant(&self, msg: &Message) -> Result<(Vec<u8>, Vec<u8>), SessionError> {
+        let payload = &msg
+            .get_payload()
+            .ok_or(SessionError::AddParticipant(
+                "key package is missing. the end point cannot be added to the channel".to_string(),
+            ))?
+            .blob;
 
-        match self.mls.lock().add_member(payload) {
-            Ok((commit_payload, welcome_payload)) => Ok((commit_payload, welcome_payload)),
-            Err(e) => {
-                error!("error adding new endpoint {}", e.to_string());
-                Err(ChannelEndpointError::AddParticipant)
-            }
-        }
+        self.mls.lock().add_member(payload).map_err(|e| {
+            error!("error adding participant to the channel: {}", e);
+            SessionError::AddParticipant(e.to_string())
+        })
     }
 }
 
@@ -271,7 +255,6 @@ impl JoinMessagePayload {
 }
 
 #[derive(Debug)]
-
 struct Endpoint<P, V, T>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
@@ -283,6 +266,10 @@ where
 
     /// channel name
     channel_name: AgentType,
+
+    /// channel id, used to exchange messages with a single endpoint
+    #[allow(dead_code)]
+    channel_id: Option<u64>,
 
     /// id of the current session
     session_id: Id,
@@ -307,15 +294,17 @@ where
     T: SessionTransmitter + Send + Sync + Clone + 'static,
 {
     pub fn new(
-        name: &Agent,
-        channel_name: &AgentType,
+        name: Agent,
+        channel_name: AgentType,
+        channel_id: Option<u64>,
         session_id: Id,
         mls_state: Option<MlsState<P, V>>,
         tx: T,
     ) -> Self {
         Endpoint {
-            name: name.clone(),
-            channel_name: channel_name.clone(),
+            name,
+            channel_name,
+            channel_id,
             session_id,
             conn: None,
             subscribed: false,
@@ -334,8 +323,7 @@ where
         payload: Vec<u8>,
     ) -> Message {
         let flags = if broadcast {
-            let f = SlimHeaderFlags::new(10, None, None, None, None);
-            Some(f)
+            Some(SlimHeaderFlags::new(10, None, None, None, None))
         } else {
             None
         };
@@ -356,10 +344,10 @@ where
         Message::new_publish_with_headers(slim_header, session_header, "", payload)
     }
 
-    async fn join(&mut self) {
+    async fn join(&mut self) -> Result<(), SessionError> {
         // subscribe only once to the channel
         if self.subscribed {
-            return;
+            return Ok(());
         }
 
         self.subscribed = true;
@@ -368,13 +356,17 @@ where
         let header = Some(SlimHeaderFlags::default().with_forward_to(self.conn.unwrap()));
         let sub = Message::new_subscribe(&self.name, &self.channel_name, None, header);
 
-        self.send(sub).await;
+        self.send(sub).await?;
 
         // set rout for the channel
-        self.set_route(&self.channel_name, None).await;
+        self.set_route(&self.channel_name, None).await
     }
 
-    async fn set_route(&self, route_name: &AgentType, route_id: Option<u64>) {
+    async fn set_route(
+        &self,
+        route_name: &AgentType,
+        route_id: Option<u64>,
+    ) -> Result<(), SessionError> {
         // send a message with subscription from
         let msg = Message::new_subscribe(
             &self.name,
@@ -383,27 +375,19 @@ where
             Some(SlimHeaderFlags::default().with_recv_from(self.conn.unwrap())),
         );
 
-        self.send(msg).await;
+        self.send(msg).await
     }
 
-    async fn leave(&self) {
+    async fn leave(&self) -> Result<(), SessionError> {
         // unsubscribe for the channel
         let header = Some(SlimHeaderFlags::default().with_forward_to(self.conn.unwrap()));
         let unsub = Message::new_unsubscribe(&self.name, &self.channel_name, None, header);
 
-        self.send(unsub).await;
+        self.send(unsub).await
     }
 
-    async fn send(&self, msg: Message) {
-        if self.tx.send_to_slim(Ok(msg)).await.is_err() {
-            error!("error sending message to slim from channel manager");
-            self.tx
-                .send_to_app(Err(SessionError::Processing(
-                    "error sending message to local slim instance".to_string(),
-                )))
-                .await
-                .expect("error notifying app");
-        }
+    async fn send(&self, msg: Message) -> Result<(), SessionError> {
+        self.tx.send_to_slim(Ok(msg)).await
     }
 }
 
@@ -424,40 +408,34 @@ where
     T: SessionTransmitter + Send + Sync + Clone + 'static,
 {
     pub fn new(
-        name: &Agent,
-        channel_name: &AgentType,
+        name: Agent,
+        channel_name: AgentType,
+        channel_id: Option<u64>,
         session_id: Id,
         mls: Option<MlsState<P, V>>,
         tx: T,
     ) -> Self {
-        let endpoint = Endpoint::new(name, channel_name, session_id, mls, tx);
+        let endpoint = Endpoint::new(name, channel_name, channel_id, session_id, mls, tx);
         ChannelParticipant { endpoint }
     }
 
-    async fn on_join_request(&mut self, msg: Message) {
+    async fn on_join_request(&mut self, msg: Message) -> Result<(), SessionError> {
         // get the payload
-        let names = match msg.get_payload() {
-            Some(content) => {
-                let c: JoinMessagePayload = match bincode::decode_from_slice(
-                    &content.blob,
-                    bincode::config::standard(),
-                ) {
-                    Ok(c) => c.0,
-                    Err(_) => {
-                        error!(
-                            "error decoding payload in a Join Channel request, ignore the message"
-                        );
-                        return;
-                    }
-                };
-                // channel name
-                c
-            }
-            None => {
-                error!("missing payload in a Join Channel request, ignore the message");
-                return;
-            }
-        };
+        let names = msg
+            .get_payload()
+            .map_or_else(
+                || {
+                    error!("missing payload in a Join Channel request, ignore the message");
+                    Err(SessionError::Processing(
+                        "missing payload in a Join Channel request".to_string(),
+                    ))
+                },
+                |content| -> Result<(JoinMessagePayload, usize), SessionError> {
+                    bincode::decode_from_slice(&content.blob, bincode::config::standard())
+                        .map_err(|e| SessionError::JoinChannelPayload(e.to_string()))
+                },
+            )?
+            .0;
 
         // set local state according to the info in the message
         self.endpoint.conn = Some(msg.get_incoming_conn());
@@ -470,30 +448,23 @@ where
                 names.moderator_name.agent_type(),
                 names.moderator_name.agent_id_option(),
             )
-            .await;
+            .await?;
 
         // send reply to the moderator
         let src = msg.get_source();
         let payload: Vec<u8> = if msg.contains_metadata(METADATA_MLS_ENABLED) {
             // if mls we need to provide the key package
-            match self.endpoint.mls_state.as_mut() {
-                Some(mls_state) => match mls_state.generate_key_package().await {
-                    Ok(key_package) => key_package,
-                    Err(_) => {
-                        error!("error generating key package, drop join request");
-                        return;
-                    }
-                },
-                None => {
-                    error!("MLS not initialized, cannot generate key package");
-                    return;
-                }
-            }
+            self.endpoint
+                .mls_state
+                .as_mut()
+                .ok_or(SessionError::NoMls)?
+                .generate_key_package()
+                .await?
         } else {
             // without MLS we can set the state for the channel
             // otherwise the endpoint needs to receive a
             // welcome message first
-            self.endpoint.join().await;
+            self.endpoint.join().await?;
             vec![]
         };
 
@@ -507,28 +478,21 @@ where
             payload,
         );
 
-        self.endpoint.send(reply).await;
+        self.endpoint.send(reply).await
     }
 
-    async fn on_mls_welcome(&mut self, msg: Message) {
-        match self.endpoint.mls_state.as_mut() {
-            Some(mls_state) => match mls_state.process_welcome_message(&msg).await {
-                Ok(()) => {}
-                Err(_) => {
-                    // error processing welcome message, drop it
-                    return;
-                }
-            },
-            None => {
-                error!("MLS not initialized, cannot process welcome message");
-                return;
-            }
-        }
+    async fn on_mls_welcome(&mut self, msg: Message) -> Result<(), SessionError> {
+        self.endpoint
+            .mls_state
+            .as_mut()
+            .ok_or(SessionError::NoMls)?
+            .process_welcome_message(&msg)
+            .await?;
 
         debug!("Welcome message correctly processed, MLS state initialized");
 
         // set route for the channel name
-        self.endpoint.join().await;
+        self.endpoint.join().await?;
 
         // send an ack back to the moderator
         let src = msg.get_source();
@@ -540,23 +504,17 @@ where
             msg.get_id(),
             vec![],
         );
-        self.endpoint.send(ack).await;
+
+        self.endpoint.send(ack).await
     }
 
-    async fn on_mls_commit(&mut self, msg: Message) {
-        match self.endpoint.mls_state.as_mut() {
-            Some(mls_state) => match mls_state.process_commit_message(&msg).await {
-                Ok(()) => {}
-                Err(_) => {
-                    // error processing commit message, drop it
-                    return;
-                }
-            },
-            None => {
-                error!("MLS not initialized, cannot process commit message");
-                return;
-            }
-        }
+    async fn on_mls_commit(&mut self, msg: Message) -> Result<(), SessionError> {
+        self.endpoint
+            .mls_state
+            .as_mut()
+            .ok_or(SessionError::NoMls)?
+            .process_commit_message(&msg)
+            .await?;
 
         debug!("Commit message correctly processed, MLS state updated");
 
@@ -570,7 +528,8 @@ where
             msg.get_id(),
             vec![],
         );
-        self.endpoint.send(ack).await;
+
+        self.endpoint.send(ack).await
     }
 }
 
@@ -580,30 +539,34 @@ where
     V: Verifier + Send + Sync + Clone + 'static,
     T: SessionTransmitter + Send + Sync + Clone + 'static,
 {
-    async fn on_message(&mut self, msg: Message) {
+    async fn on_message(&mut self, msg: Message) -> Result<(), SessionError> {
         let msg_type = msg.get_session_header().header_type();
         match msg_type {
             SessionHeaderType::ChannelDiscoveryRequest => {
                 error!(
                     "Received discovery request message, this should not happen. drop the message"
                 );
+
+                Err(SessionError::Processing(
+                    "Received discovery request message, this should not happen".to_string(),
+                ))
             }
             SessionHeaderType::ChannelJoinRequest => {
                 debug!("Received join request message");
-                self.on_join_request(msg).await;
+                self.on_join_request(msg).await
             }
             SessionHeaderType::ChannelMlsWelcome => {
                 debug!("Received mls welcome message");
-                self.on_mls_welcome(msg).await;
+                self.on_mls_welcome(msg).await
             }
             SessionHeaderType::ChannelMlsCommit => {
                 debug!("Received mls commit message");
-                self.on_mls_commit(msg).await;
+                self.on_mls_commit(msg).await
             }
             SessionHeaderType::ChannelLeaveRequest => {
                 debug!("Received leave request message");
                 // leave the channell
-                self.endpoint.leave().await;
+                self.endpoint.leave().await?;
 
                 // reply to the request
                 let src = msg.get_source();
@@ -616,10 +579,15 @@ where
                     vec![],
                 );
 
-                self.endpoint.send(reply).await;
+                self.endpoint.send(reply).await
             }
             _ => {
-                error!("received unexpected packet type");
+                debug!("Received message of type {:?}, drop it", msg_type);
+
+                Err(SessionError::Processing(format!(
+                    "Received message of type {:?}, drop it",
+                    msg_type
+                )))
             }
         }
     }
@@ -664,8 +632,9 @@ where
     T: SessionTransmitter + Send + Sync + Clone + 'static,
 {
     pub fn new(
-        name: &Agent,
-        channel_name: &AgentType,
+        name: Agent,
+        channel_name: AgentType,
+        channel_id: Option<u64>,
         session_id: Id,
         max_retries: u32,
         retries_interval: Duration,
@@ -676,7 +645,7 @@ where
         let invite_payload: Vec<u8> = bincode::encode_to_vec(p, bincode::config::standard())
             .expect("unable to parse channel name as payload");
 
-        let endpoint = Endpoint::new(name, channel_name, session_id, mls, tx);
+        let endpoint = Endpoint::new(name, channel_name, channel_id, session_id, mls, tx);
         ChannelModerator {
             endpoint,
             channel_list: HashSet::new(),
@@ -688,41 +657,34 @@ where
         }
     }
 
-    pub async fn join(&mut self) {
+    pub async fn join(&mut self) -> Result<(), SessionError> {
         if !self.endpoint.subscribed {
             // join the channel
-            self.endpoint.join().await;
+            self.endpoint.join().await?;
 
             // create mls group if needed
-            match self.endpoint.mls_state.as_mut() {
-                Some(mls_state) => match mls_state.init_moderator().await {
-                    Ok(()) => {
-                        debug!("MLS group created successfully");
-                    }
-                    Err(e) => {
-                        error!("error creating MLS group: {}", e);
-                        return;
-                    }
-                },
-                None => {
-                    debug!("MLS is disabled, do not create any group");
-                }
+            if let Some(mls) = self.endpoint.mls_state.as_mut() {
+                mls.init_moderator().await?;
             }
 
             // add the moderator to the channel
             self.channel_list.insert(self.endpoint.name.clone());
         }
+
+        Ok(())
     }
 
-    async fn forward(&mut self, msg: Message) {
+    async fn forward(&mut self, msg: Message) -> Result<(), SessionError> {
         // forward message received from the app and set a timer
         let msg_id = msg.get_id();
-        self.endpoint.send(msg.clone()).await;
+        self.endpoint.send(msg.clone()).await?;
         // create a timer for this request
         self.create_timer(msg_id, 1, msg);
+
+        Ok(())
     }
 
-    fn create_timer(&mut self, key: u32, pending_mesasges: u32, msg: Message) {
+    fn create_timer(&mut self, key: u32, pending_messages: u32, msg: Message) {
         let observer = Arc::new(RequestTimerObserver {
             message: msg,
             tx: self.endpoint.tx.clone(),
@@ -737,24 +699,30 @@ where
         );
         timer.start(observer);
 
-        self.pending_requests.insert(key, (timer, pending_mesasges));
+        self.pending_requests.insert(key, (timer, pending_messages));
     }
 
-    fn delete_timer(&mut self, key: u32) -> bool {
-        match self.pending_requests.get_mut(&key) {
-            Some((t, p)) => {
-                *p -= 1;
-                if *p == 0 {
-                    t.stop();
-                    self.pending_requests.remove(&key);
-                    return true;
+    fn delete_timer(&mut self, key: u32) -> Result<bool, SessionError> {
+        let ret = self.pending_requests.get_mut(&key).map_or_else(
+            || Err(SessionError::TimerNotFound(key.to_string())),
+            |(timer, pending)| {
+                if *pending > 0 {
+                    *pending -= 1;
                 }
-            }
-            None => {
-                error!("received a reply from unknown agent, drop message");
-            }
+                if *pending == 0 {
+                    timer.stop();
+                    Ok(true)
+                } else {
+                    Ok(false)
+                }
+            },
+        )?;
+
+        if ret {
+            self.pending_requests.remove(&key);
         }
-        false
+
+        Ok(ret)
     }
 
     fn get_next_mls_mgs_id(&mut self) -> u32 {
@@ -762,12 +730,12 @@ where
         self.mls_msg_id
     }
 
-    async fn on_discovery_reply(&mut self, msg: Message) {
+    async fn on_discovery_reply(&mut self, msg: Message) -> Result<(), SessionError> {
         // set the local state and join the channel
         self.endpoint.conn = Some(msg.get_incoming_conn());
-        self.join().await;
+        self.join().await?;
 
-        // an endpoint replyed to the discovery message
+        // an endpoint replied to the discovery message
         // send a join message
         let src = msg.get_slim_header().get_source();
         let recv_msg_id = msg.get_id();
@@ -790,38 +758,36 @@ where
             debug!("Reply with the join request, MLS is disabled");
         }
 
-        self.endpoint.send(join.clone()).await;
-
         // remove the timer for the discovery message
-        self.delete_timer(recv_msg_id);
+        self.delete_timer(recv_msg_id)?;
 
         // add a new one for the join message
-        self.create_timer(new_msg_id, 1, join);
+        self.create_timer(new_msg_id, 1, join.clone());
+
+        // send the message
+        self.endpoint.send(join).await
     }
 
-    async fn on_join_reply(&mut self, msg: Message) {
+    async fn on_join_reply(&mut self, msg: Message) -> Result<(), SessionError> {
         let src = msg.get_slim_header().get_source();
         let msg_id = msg.get_id();
 
         // cancel timer, there only one message pending here
-        self.delete_timer(msg_id);
+        let ret = self.delete_timer(msg_id)?;
+        debug_assert!(ret, "timer for join reply should be removed");
 
         // send MLS messages if needed
         if self.endpoint.mls_state.is_some() {
-            let (commit_payload, welcome_payload) = match self
+            let (commit_payload, welcome_payload) = self
                 .endpoint
                 .mls_state
                 .as_ref()
                 .unwrap()
                 .add_participant(&msg)
-                .await
-            {
-                Ok((commit_payload, welcome_payload)) => (commit_payload, welcome_payload),
-                Err(_) => {
-                    // error adding participant, drop message
-                    return;
-                }
-            };
+                .map_err(|e| {
+                    error!("error adding participant to the channel: {}", e);
+                    e
+                })?;
 
             // send the commit message to the channel
             let commit_id = self.get_next_mls_mgs_id();
@@ -850,13 +816,13 @@ where
 
             // send welcome message
             debug!("Send MLS Welcome Message to the new participant");
-            self.endpoint.send(welcome.clone()).await;
+            self.endpoint.send(welcome.clone()).await?;
             self.create_timer(welcome_id, 1, welcome);
 
             // send commit message if needed
             if self.channel_list.len() > 1 {
                 debug!("Send MLS Commit Message to the channel");
-                self.endpoint.send(commit.clone()).await;
+                self.endpoint.send(commit.clone()).await?;
                 self.create_timer(
                     commit_id,
                     (self.channel_list.len() - 1).try_into().unwrap(),
@@ -867,11 +833,16 @@ where
 
         // track source in the channel list
         self.channel_list.insert(src);
+
+        Ok(())
     }
 
-    async fn on_msl_ack(&mut self, msg: Message) {
+    async fn on_msl_ack(&mut self, msg: Message) -> Result<(), SessionError> {
         let recv_msg_id = msg.get_id();
-        self.delete_timer(recv_msg_id);
+        let ret = self.delete_timer(recv_msg_id)?;
+        debug_assert!(ret, "timer for mls ack should be removed");
+
+        Ok(())
     }
 }
 
@@ -881,30 +852,30 @@ where
     V: Verifier + Send + Sync + Clone + 'static,
     T: SessionTransmitter + Send + Sync + Clone + 'static,
 {
-    async fn on_message(&mut self, msg: Message) {
+    async fn on_message(&mut self, msg: Message) -> Result<(), SessionError> {
         let msg_type = msg.get_session_header().header_type();
         match msg_type {
             SessionHeaderType::ChannelDiscoveryRequest => {
                 debug!("Invite new participant to the channel, send discovery message");
                 // discovery message coming from the application
-                self.forward(msg).await;
+                self.forward(msg).await
             }
             SessionHeaderType::ChannelDiscoveryReply => {
                 debug!("Received discovery reply message");
-                self.on_discovery_reply(msg).await;
+                self.on_discovery_reply(msg).await
             }
             SessionHeaderType::ChannelJoinReply => {
                 debug!("Received join reply message");
-                self.on_join_reply(msg).await;
+                self.on_join_reply(msg).await
             }
             SessionHeaderType::ChannelMlsAck => {
                 debug!("Received mls ack message");
-                self.on_msl_ack(msg).await;
+                self.on_msl_ack(msg).await
             }
             SessionHeaderType::ChannelLeaveRequest => {
                 // leave message coming from the application
                 debug!("Received leave request message");
-                self.forward(msg).await;
+                self.forward(msg).await
             }
             SessionHeaderType::ChannelLeaveReply => {
                 debug!("Received leave reply message");
@@ -912,14 +883,19 @@ where
                 let msg_id = msg.get_id();
 
                 // cancel timer
-                self.delete_timer(msg_id);
+                let ret = self.delete_timer(msg_id)?;
+                debug_assert!(ret, "timer for leave reply should be removed");
 
                 // remove from the channel list
                 self.channel_list.remove(&src);
+
+                // all good
+                Ok(())
             }
-            _ => {
-                error!("received unexpected packet type");
-            }
+            _ => Err(SessionError::Processing(format!(
+                "received unexpected packet type: {:?}",
+                msg_type
+            ))),
         }
     }
 }
@@ -956,6 +932,7 @@ mod tests {
         let moderator = Agent::from_strings("org", "default", "moderator", 12345);
         let participant = Agent::from_strings("org", "default", "participant", 5120);
         let channel_name = AgentType::from_strings("channel", "channel", "channel");
+        let channel_id = Some(1234_u64);
         let conn = 1;
 
         let moderator_mls = MlsState::new(Arc::new(Mutex::new(Mls::new(
@@ -973,8 +950,9 @@ mod tests {
         .unwrap();
 
         let mut cm = ChannelModerator::new(
-            &moderator,
-            &channel_name,
+            moderator.clone(),
+            channel_name.clone(),
+            channel_id,
             SESSION_ID,
             3,
             Duration::from_millis(100),
@@ -982,8 +960,9 @@ mod tests {
             moderator_tx,
         );
         let mut cp = ChannelParticipant::new(
-            &participant,
-            &channel_name,
+            participant.clone(),
+            channel_name.clone(),
+            channel_id,
             SESSION_ID,
             Some(participant_mls),
             participant_tx,
@@ -1009,7 +988,7 @@ mod tests {
         let request = Message::new_publish_with_headers(slim_header, session_header, "", payload);
 
         // receive the request at the session layer
-        cm.on_message(request.clone()).await;
+        cm.on_message(request.clone()).await.unwrap();
 
         // the request is forwarded to slim
         let msg = moderator_rx.recv().await.unwrap().unwrap();
@@ -1038,7 +1017,7 @@ mod tests {
 
         // message reception on moderator side
         msg.set_incoming_conn(Some(conn));
-        cm.on_message(msg).await;
+        cm.on_message(msg).await.unwrap();
 
         // the first message is the subscription for the channel name
         let header = Some(SlimHeaderFlags::default().with_forward_to(conn));
@@ -1077,7 +1056,7 @@ mod tests {
 
         msg.set_incoming_conn(Some(conn));
         let msg_id = msg.get_id();
-        cp.on_message(msg).await;
+        cp.on_message(msg).await.unwrap();
 
         // the first message is the set route for moderator name
         let header = Some(SlimHeaderFlags::default().with_recv_from(conn));
@@ -1107,7 +1086,7 @@ mod tests {
         assert_eq!(msg.get_session_header(), reply.get_session_header());
 
         msg.set_incoming_conn(Some(conn));
-        cm.on_message(msg).await;
+        cm.on_message(msg).await.unwrap();
 
         // create a reply to compare with the output of on_message
         let mut reply = cm.endpoint.create_channel_message(
@@ -1129,7 +1108,7 @@ mod tests {
         // receive the message on the participant side
         msg.set_incoming_conn(Some(conn));
         let msg_id = msg.get_id();
-        cp.on_message(msg).await;
+        cp.on_message(msg).await.unwrap();
 
         // the first message generated is a subscription for the channel name
         let header = Some(SlimHeaderFlags::default().with_forward_to(conn));

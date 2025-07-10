@@ -99,20 +99,22 @@ pub enum SessionError {
     IdentityError(String),
     #[error("error pushing identity to the message: {0}")]
     IdentityPushError(String),
-}
 
-#[derive(Error, Debug, PartialEq)]
-pub enum ChannelEndpointError {
+    // Channel Endpoint errors
     #[error("error initializing MLS: {0}")]
     MLSInit(String),
     #[error("msl state is None")]
     NoMls,
     #[error("error generating key package: {0}")]
     MLSKeyPackage(String),
-    #[error("error processing welcome message")]
-    WelcomeMessage,
-    #[error("error processing commit message")]
-    CommitMessage,
-    #[error("error adding a new participant")]
-    AddParticipant,
+    #[error("error processing welcome message: {0}")]
+    WelcomeMessage(String),
+    #[error("error processing commit message: {0}")]
+    CommitMessage(String),
+    #[error("error adding a new participant: {0}")]
+    AddParticipant(String),
+    #[error("no pending requests for the given key: {0}")]
+    TimerNotFound(String),
+    #[error("error processing payload of Join Channel request: {0}")]
+    JoinChannelPayload(String),
 }
