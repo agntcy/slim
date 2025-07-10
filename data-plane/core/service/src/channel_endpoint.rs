@@ -18,6 +18,7 @@ use crate::{
     interceptor_mls::{METADATA_MLS_ENABLED, METADATA_MLS_INIT_COMMIT_ID},
     session::{Id, SessionTransmitter},
 };
+
 use slim_auth::traits::{TokenProvider, Verifier};
 use slim_datapath::{
     api::{
@@ -95,12 +96,8 @@ where
 {
     pub async fn on_message(&mut self, msg: Message) -> Result<(), SessionError> {
         match self {
-            ChannelEndpoint::ChannelParticipant(cp) => {
-                cp.on_message(msg).await
-            }
-            ChannelEndpoint::ChannelModerator(cm) => {
-                cm.on_message(msg).await
-            }
+            ChannelEndpoint::ChannelParticipant(cp) => cp.on_message(msg).await,
+            ChannelEndpoint::ChannelModerator(cm) => cm.on_message(msg).await,
         }
     }
 }
@@ -705,15 +702,12 @@ where
             self.endpoint.join().await?;
 
             // create mls group if needed
-            match self.endpoint.mls_state.as_mut() {
-                Some(mls_state) => {
-                    mls_state.init_moderator().await?;
-                    debug!("MLS group created successfully");
-                }
-                None => {
-                    return Err(SessionError::NoMls);
-                }
-            }
+            self.endpoint
+                .mls_state
+                .as_mut()
+                .ok_or(SessionError::NoMls)?
+                .init_moderator()
+                .await?;
 
             // add the moderator to the channel
             self.channel_list.insert(self.endpoint.name.clone());
@@ -751,22 +745,26 @@ where
     }
 
     fn delete_timer(&mut self, key: u32) -> Result<bool, SessionError> {
-        if let Some((t, p)) = self.pending_requests.get_mut(&key) {
-            *p -= 1;
-            if *p == 0 {
-                t.stop();
-                self.pending_requests.remove(&key);
+        let ret = self.pending_requests.get_mut(&key).map_or_else(
+            || Err(SessionError::TimerNotFound(key.to_string())),
+            |(timer, pending)| {
+                if *pending > 0 {
+                    *pending -= 1;
+                }
+                if *pending == 0 {
+                    timer.stop();
+                    Ok(true)
+                } else {
+                    Ok(false)
+                }
+            },
+        )?;
 
-                trace!(%key, "timer stopped and removed, pending messages is 0");
-                return Ok(true);
-            } else {
-                // just decrease the number of pending messages
-                trace!(%key, %p, "decrease pending messages");
-                return Ok(false);
-            }
+        if ret {
+            self.pending_requests.remove(&key);
         }
 
-        Err(SessionError::TimerNotFound(key.to_string()))
+        Ok(ret)
     }
 
     fn get_next_mls_mgs_id(&mut self) -> u32 {
