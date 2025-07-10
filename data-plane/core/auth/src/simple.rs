@@ -35,13 +35,8 @@ impl SimpleGroup {
     }
 }
 
-#[async_trait::async_trait]
 impl TokenProvider for SimpleGroup {
-    async fn get_token(&self) -> Result<String, AuthError> {
-        self.try_get_token()
-    }
-
-    fn try_get_token(&self) -> Result<String, crate::errors::AuthError> {
+    fn get_token(&self) -> Result<String, AuthError> {
         if self.group.is_empty() {
             Err(AuthError::TokenInvalid("group is empty".to_string()))
         } else {
