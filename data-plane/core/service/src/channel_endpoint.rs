@@ -226,10 +226,7 @@ where
             .map_err(|e| SessionError::CommitMessage(e.to_string()))
     }
 
-    async fn add_participant(
-        &mut self,
-        msg: &Message,
-    ) -> Result<(Vec<u8>, Vec<u8>), SessionError> {
+    async fn add_participant(&mut self, msg: &Message) -> Result<(Vec<u8>, Vec<u8>), SessionError> {
         let payload = &msg
             .get_payload()
             .ok_or(SessionError::AddParticipant(
@@ -242,6 +239,11 @@ where
                 // add participant to the list
                 self.participants
                     .insert(msg.get_source(), ret.member_identity);
+
+                println!(
+                    "------------------------------- {}",
+                    self.participants.len()
+                );
                 Ok((ret.commit_message, ret.welcome_message))
             }
             Err(e) => {
@@ -251,19 +253,28 @@ where
         }
     }
 
-    async fn remove_participant(&mut self, msg: &Message) {
-        println!("----remove participant");
+    async fn remove_participant(&mut self, msg: &Message) -> Result<Vec<u8>, SessionError> {
+        info!("remove participant from the MLS group");
         let name = msg.get_name_as_agent();
         let id = match self.participants.get(&name) {
             Some(id) => id,
             None => {
                 error!("the name does not exists in the group");
-                return;
+                return Err(SessionError::RemoveParticipant(
+                    "participant does not exists".to_owned(),
+                ));
             }
         };
+        let ret = self
+            .mls
+            .lock()
+            .remove_member(id)
+            .map_err(|e| SessionError::RemoveParticipant(e.to_string()))?;
 
-        println!("----call mls");
-        let _ = self.mls.lock().remove_member(id);
+        // remove the participant from the list
+        self.participants.remove(&name);
+
+        Ok(ret)
     }
 }
 
@@ -406,7 +417,11 @@ where
         self.send(msg).await
     }
 
-    async fn delete_route(&self, route_name: &AgentType, route_id: Option<u64>) -> Result<(), SessionError> {
+    async fn delete_route(
+        &self,
+        route_name: &AgentType,
+        route_id: Option<u64>,
+    ) -> Result<(), SessionError> {
         // send a message with subscription from
         let msg = Message::new_unsubscribe(
             &self.name,
@@ -459,7 +474,7 @@ where
         mls: Option<MlsState<P, V>>,
         tx: T,
     ) -> Self {
-        let endpoint = Endpoint::new(name, channel_name, channel_id,  session_id, mls, tx);
+        let endpoint = Endpoint::new(name, channel_name, channel_id, session_id, mls, tx);
         ChannelParticipant {
             moderator_name: None,
             endpoint,
@@ -616,7 +631,6 @@ where
             SessionHeaderType::ChannelLeaveRequest => {
                 info!("Received leave request message");
 
-
                 // reply to the request
                 let src = msg.get_source();
                 let reply = self.endpoint.create_channel_message(
@@ -645,7 +659,6 @@ where
                 };
 
                 Ok(())
-
             }
             _ => {
                 debug!("Received message of type {:?}, drop it", msg_type);
@@ -822,7 +835,8 @@ where
         }
 
         // remove the timer for the discovery message
-        self.delete_timer(recv_msg_id)?;
+        let ret = self.delete_timer(recv_msg_id)?;
+        debug_assert!(ret, "timer for discovery reply should be removed");
 
         // add a new one for the join message
         self.create_timer(new_msg_id, 1, join.clone());
@@ -846,7 +860,8 @@ where
                 .mls_state
                 .as_mut()
                 .unwrap()
-                .add_participant(&msg).await?;
+                .add_participant(&msg)
+                .await?;
 
             // send the commit message to the channel
             let commit_id = self.get_next_mls_mgs_id();
@@ -892,8 +907,49 @@ where
 
     async fn on_msl_ack(&mut self, msg: Message) -> Result<(), SessionError> {
         let recv_msg_id = msg.get_id();
-        let ret = self.delete_timer(recv_msg_id)?;
-        debug_assert!(ret, "timer for mls ack should be removed");
+        let _ = self.delete_timer(recv_msg_id)?;
+
+        Ok(())
+    }
+
+    async fn on_leave_request(&mut self, msg: Message) -> Result<(), SessionError> {
+        if self.endpoint.mls_state.is_some() {
+            // create the commit message to update the MLS group
+            let commit_payload = self
+                .endpoint
+                .mls_state
+                .as_mut()
+                .unwrap()
+                .remove_participant(&msg)
+                .await?;
+
+            let commit_id = self.get_next_mls_mgs_id();
+            let commit = self.endpoint.create_channel_message(
+                &self.endpoint.channel_name,
+                None,
+                true,
+                SessionHeaderType::ChannelMlsCommit,
+                commit_id,
+                commit_payload,
+            );
+
+            // send commit message if needed
+            debug!("Send MLS Commit Message to the channel");
+            self.endpoint.send(commit.clone()).await?;
+            let len = self.endpoint.mls_state.as_ref().unwrap().participants.len();
+            self.create_timer(commit_id, (len).try_into().unwrap(), commit);
+        }
+
+        // forward the leave request to the endpoint
+        self.forward(msg).await
+    }
+
+    async fn on_leave_replay(&mut self, msg: Message) -> Result<(), SessionError> {
+        let msg_id = msg.get_id();
+
+        // cancel timer
+        let ret = self.delete_timer(msg_id)?;
+        debug_assert!(ret, "timer for leave reply should be removed");
 
         Ok(())
     }
@@ -922,52 +978,17 @@ where
                 self.on_join_reply(msg).await
             }
             SessionHeaderType::ChannelMlsAck => {
-                debug!("Received mls ack message");
+                info!("Received mls ack message");
                 self.on_msl_ack(msg).await
             }
             SessionHeaderType::ChannelLeaveRequest => {
                 // leave message coming from the application
                 info!("Received leave request message");
-
-                self.endpoint
-                    .mls_state
-                    .as_mut()
-                    .unwrap()
-                    .remove_participant(&msg)
-                    .await;
-
-                self.forward(msg).await
-
-                // TODO
-                // if MLS create commit and send it
-                //let name = msg.get_name_as_agent();
-                /*let id = match self.endpoint.mls_state.as_ref().unwrap().participants.get(&name) {
-                    Some(id) => id,
-                    None => {
-                        error!("the name does not exists in the group");
-                        return;
-                    }
-                };*/
+                self.on_leave_request(msg).await
             }
             SessionHeaderType::ChannelLeaveReply => {
                 info!("Received leave reply message");
-                let src = msg.get_slim_header().get_source();
-                let msg_id = msg.get_id();
-
-                // cancel timer
-                let ret = self.delete_timer(msg_id)?;
-                debug_assert!(ret, "timer for leave reply should be removed");
-
-                // remove from the channel list
-                self.endpoint
-                    .mls_state
-                    .as_mut()
-                    .unwrap()
-                    .participants
-                    .remove(&src);
-
-                // all good
-                Ok(())
+                self.on_leave_replay(msg).await
             }
             _ => Err(SessionError::Processing(format!(
                 "received unexpected packet type: {:?}",

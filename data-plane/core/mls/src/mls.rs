@@ -285,7 +285,7 @@ where
     pub fn remove_member(&mut self, identity: &[u8]) -> Result<Vec<u8>, MlsError> {
         info!("Removing member from the  MLS group");
         let group = self.group.as_mut().ok_or(MlsError::GroupNotExists)?;
-    
+
         let m = Self::map_mls_error(group.member_with_identity(identity))?;
 
         let commit = Self::map_mls_error(
