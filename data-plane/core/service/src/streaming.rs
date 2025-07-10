@@ -346,8 +346,9 @@ where
             let mut channel_endpoint = match session_config.moderator {
                 true => {
                     let cm = ChannelModerator::new(
-                        &source,
-                        &session_config.channel_name,
+                        source.clone(),
+                        session_config.channel_name.clone(),
+                        None,
                         id,
                         60,
                         Duration::from_secs(1),
@@ -358,8 +359,9 @@ where
                 }
                 false => {
                     let cp = ChannelParticipant::new(
-                        &source,
-                        &session_config.channel_name,
+                        source.clone(),
+                        session_config.channel_name.clone(),
+                        None,
                         id,
                         mls,
                         tx.clone(),
@@ -426,7 +428,12 @@ where
                                                     SessionHeaderType::ChannelMlsWelcome |
                                                     SessionHeaderType::ChannelMlsCommit |
                                                     SessionHeaderType::ChannelMlsAck => {
-                                                        channel_endpoint.on_message(msg).await;
+                                                        match channel_endpoint.on_message(msg).await {
+                                                            Ok(_) => {},
+                                                            Err(e) => {
+                                                                error!("error processing channel message: {}", e);
+                                                            },
+                                                        }
                                                     }
                                                     SessionHeaderType::RtxRequest => {
                                                         // handle RTX request
@@ -442,7 +449,12 @@ where
                                                 match msg.get_session_header().header_type() {
                                                     SessionHeaderType::ChannelDiscoveryRequest |
                                                     SessionHeaderType::ChannelLeaveRequest => {
-                                                        channel_endpoint.on_message(msg).await;
+                                                        match channel_endpoint.on_message(msg).await {
+                                                            Ok(_) => {},
+                                                            Err(e) => {
+                                                                error!("error processing channel message: {}", e);
+                                                            },
+                                                        }
                                                     }
                                                     _ => {
                                                         process_message_from_app(msg, session_id, &mut state.producer, true, &tx).await;
