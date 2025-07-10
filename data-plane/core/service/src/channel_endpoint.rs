@@ -17,7 +17,6 @@ use crate::{
     interceptor_mls::{METADATA_MLS_ENABLED, METADATA_MLS_INIT_COMMIT_ID},
     session::{Id, SessionTransmitter},
 };
-use slim_mls::mls::Mls;
 use slim_auth::traits::{TokenProvider, Verifier};
 use slim_datapath::{
     api::{
@@ -26,6 +25,7 @@ use slim_datapath::{
     },
     messages::{Agent, AgentType, utils::SlimHeaderFlags},
 };
+use slim_mls::mls::Mls;
 
 struct RequestTimerObserver<T>
 where
@@ -164,7 +164,11 @@ where
                 "received welcome message without commit id, drop it".to_string(),
             ))?
             .parse::<u32>()
-            .unwrap();
+            .map_err(|_| {
+                SessionError::WelcomeMessage(
+                    "received welcome message with invalid commit id, drop it".to_string(),
+                )
+            })?;
 
         let welcome = &msg
             .get_payload()
