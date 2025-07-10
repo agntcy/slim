@@ -874,7 +874,7 @@ where
 
             // if the message is a ChannelLeaveRequest delete the session
             if session_type == SessionHeaderType::ChannelLeaveRequest {
-                info!("received channel leave requst in app remove the session");
+                info!("received channel leave request in app remove the session");
                 self.remove_session(id).await;
             }
 

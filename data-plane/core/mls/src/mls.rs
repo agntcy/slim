@@ -3,10 +3,15 @@
 
 use crate::errors::MlsError;
 use crate::identity_provider::SlimIdentityProvider;
-use mls_rs::group::Roster;
 use mls_rs::IdentityProvider;
 use mls_rs::{
-    crypto::{SignaturePublicKey, SignatureSecretKey}, group::ReceivedMessage, identity::{basic::{self, BasicCredential}, SigningIdentity}, mls_rs_codec::MlsEncode, CipherSuite, CipherSuiteProvider, Client, CryptoProvider, ExtensionList, Group, MlsMessage
+    CipherSuite, CipherSuiteProvider, Client, CryptoProvider, ExtensionList, Group, MlsMessage,
+    crypto::{SignaturePublicKey, SignatureSecretKey},
+    group::ReceivedMessage,
+    identity::{
+        SigningIdentity,
+        basic::{self, BasicCredential},
+    },
 };
 use mls_rs_crypto_awslc::AwsLcCryptoProvider;
 use serde::{Deserialize, Serialize};
@@ -264,7 +269,10 @@ where
 
         let binding = group.roster().members();
         let member = binding.last().unwrap();
-        let identifier = Self::map_mls_error(basic::BasicIdentityProvider::new().identity(&member.signing_identity, &member.extensions))?;
+        let identifier = Self::map_mls_error(
+            basic::BasicIdentityProvider::new()
+                .identity(&member.signing_identity, &member.extensions),
+        )?;
 
         let ret = MlsAddMemberResult {
             welcome_message: welcome,
@@ -272,56 +280,27 @@ where
             member_identity: identifier,
         };
         Ok(ret)
-
-
-        //key_package.as_key_package()
-
-        //group.member_with_identity(identity)
-        /*for m in group.roster().members() {
-            println!("m------ {:?}", m);
-
-            //let identifier = basic::BasicIdentityProvider::new().identity(&key_package.as_key_package(), &mls_rs::ExtensionList::new()).unwrap();
-            let identifier = basic::BasicIdentityProvider::new().identity(&m.signing_identity, &m.extensions).unwrap();
-            
-        //.await
-        //.map_err(|err| err.into_any_error())?;
-
-            //let id = &m.signing_identity.credential.mls_encode_to_vec().unwrap();
-            let x = group.member_with_identity(&identifier);
-            //member_with_identity(id).unwrap();
-            println!("x------ {:?}", x);
-        }*/
-
-
-        
-        //let m = group.member_with_identity(key_package);
-
-        //Ok((commit_msg, welcome))
     }
 
     pub fn remove_member(&mut self, identity: &[u8]) -> Result<Vec<u8>, MlsError> {
         info!("Removing member from the  MLS group");
         let group = self.group.as_mut().ok_or(MlsError::GroupNotExists)?;
-        //let key_package = Self::map_mls_error(MlsMessage::from_bytes(key_package_bytes))?;
+    
+        let m = Self::map_mls_error(group.member_with_identity(identity))?;
 
-        //let identifier = Self::map_mls_error(basic::BasicIdentityProvider::new().identity(&key_package.as_key_package()., &mls_rs::ExtensionList::new()))?;
-        let m = Self::map_mls_error(group.member_with_identity(&identity))?;
+        let commit = Self::map_mls_error(
+            group
+                .commit_builder()
+                .remove_member(m.index)
+                .and_then(|builder| builder.build()),
+        )?;
 
-        let commit = Self::map_mls_error(group.commit_builder().remove_member(m.index).and_then(|builder| builder.build()))?;
-        
         let commit_msg = Self::map_mls_error(commit.commit_message.to_bytes())?;
 
         Self::map_mls_error(group.apply_pending_commit())?;
 
         Ok(commit_msg)
     }
-
-    /*pub fn remove_member(&mut self) {
-        let g = self.group.as_mut().ok_or(MlsError::GroupNotExists)?;
-        //g.member_with_identity(identity)
-        let r = g.roster();
-        r.
-    }*/
 
     pub fn process_commit(&mut self, commit_message: &[u8]) -> Result<(), MlsError> {
         let group = self.group.as_mut().ok_or(MlsError::GroupNotExists)?;
@@ -457,7 +436,6 @@ mod tests {
         let daniel_agent =
             slim_datapath::messages::Agent::from_strings("org", "default", "daniel", 0);
 
-
         // alice will work as moderator
         let mut alice = Mls::new(
             alice_agent,
@@ -543,7 +521,6 @@ mod tests {
         assert_eq!(original_message, decrypted_1.as_slice());
         assert_eq!(original_message, decrypted_2.as_slice());
 
-
         // remove bob
         let remove_msg = alice.remove_member(&bob_add_res.member_identity)?;
         charlie.process_commit(&remove_msg)?;
@@ -575,7 +552,10 @@ mod tests {
         assert_eq!(group_id, daniel_group_id);
         assert_eq!(alice.get_epoch().unwrap(), charlie.get_epoch().unwrap());
         assert_eq!(alice.get_epoch().unwrap(), daniel.get_epoch().unwrap());
-        assert_eq!(alice.get_group_id().unwrap(), daniel.get_group_id().unwrap());
+        assert_eq!(
+            alice.get_group_id().unwrap(),
+            daniel.get_group_id().unwrap()
+        );
         assert_eq!(
             alice.get_group_id().unwrap(),
             charlie.get_group_id().unwrap()
@@ -585,7 +565,10 @@ mod tests {
 
         daniel.process_commit(&commit)?;
         assert_eq!(alice.get_epoch().unwrap(), daniel.get_epoch().unwrap());
-        assert_eq!(alice.get_group_id().unwrap(), daniel.get_group_id().unwrap());
+        assert_eq!(
+            alice.get_group_id().unwrap(),
+            daniel.get_group_id().unwrap()
+        );
 
         // test encrypt decrypt
         let original_message = b"Hello from Alice 1!";
