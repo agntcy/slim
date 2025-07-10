@@ -129,7 +129,7 @@ where
         result.map_err(|e| MlsError::Mls(e.to_string()))
     }
 
-    pub async fn initialize(&mut self) -> Result<(), MlsError> {
+    pub fn initialize(&mut self) -> Result<(), MlsError> {
         info!("Initializing MLS client for agent: {}", self.agent);
         let storage_path = self.get_storage_path();
         info!("Using storage path for MLS: {}", storage_path.display());
@@ -179,7 +179,6 @@ where
         let token = self
             .identity_provider
             .get_token()
-            .await
             .map_err(|e| MlsError::TokenRetrievalFailed(e.to_string()))?;
         let credential_data = token.as_bytes().to_vec();
         let basic_cred = BasicCredential::new(credential_data);
@@ -345,7 +344,7 @@ mod tests {
         );
         mls.set_storage_path("/tmp/mls_test_creation");
 
-        mls.initialize().await?;
+        mls.initialize()?;
         assert!(mls.client.is_some());
         assert!(mls.group.is_none());
         Ok(())
@@ -361,7 +360,7 @@ mod tests {
         );
         mls.set_storage_path("/tmp/mls_test_group_creation");
 
-        mls.initialize().await?;
+        mls.initialize()?;
         let _group_id = mls.create_group()?;
         assert!(mls.client.is_some());
         assert!(mls.group.is_some());
@@ -378,7 +377,7 @@ mod tests {
         );
         mls.set_storage_path("/tmp/mls_test_key_package");
 
-        mls.initialize().await?;
+        mls.initialize()?;
         let key_package = mls.generate_key_package()?;
         assert!(!key_package.is_empty());
         Ok(())
@@ -412,9 +411,9 @@ mod tests {
         );
         charlie.set_storage_path("/tmp/mls_test_messaging_charlie");
 
-        alice.initialize().await?;
-        bob.initialize().await?;
-        charlie.initialize().await?;
+        alice.initialize()?;
+        bob.initialize()?;
+        charlie.initialize()?;
 
         let group_id = alice.create_group()?;
 
@@ -492,8 +491,8 @@ mod tests {
         );
         bob.set_storage_path("/tmp/mls_test_decrypt_bob");
 
-        alice.initialize().await?;
-        bob.initialize().await?;
+        alice.initialize()?;
+        bob.initialize()?;
         let _group_id = alice.create_group()?;
 
         let bob_key_package = bob.generate_key_package()?;

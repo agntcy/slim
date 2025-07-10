@@ -479,25 +479,15 @@ impl Signer for SignerJwt {
     }
 }
 
-#[async_trait]
 impl TokenProvider for SignerJwt {
-    fn try_get_token(&self) -> Result<String, AuthError> {
+    fn get_token(&self) -> Result<String, AuthError> {
         self.sign_internal_claims()
-    }
-
-    async fn get_token(&self) -> Result<String, AuthError> {
-        panic!("signerjwt has no support for async token retrieval")
     }
 }
 
-#[async_trait]
 impl TokenProvider for StaticTokenProvider {
-    fn try_get_token(&self) -> Result<String, AuthError> {
+    fn get_token(&self) -> Result<String, AuthError> {
         self.get_token()
-    }
-
-    async fn get_token(&self) -> Result<String, AuthError> {
-        panic!("static token provider has no support for async token retrieval")
     }
 }
 
