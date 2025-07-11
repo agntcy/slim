@@ -179,7 +179,7 @@ where
     pub fn initialize(&mut self) -> Result<(), MlsError> {
         info!("Initializing MLS client for agent: {}", self.agent);
         let storage_path = self.get_storage_path();
-        info!("Using storage path: {}", storage_path.display());
+        debug!("Using storage path: {}", storage_path.display());
         std::fs::create_dir_all(&storage_path).map_err(MlsError::StorageDirectoryCreation)?;
 
         let token = self
@@ -390,7 +390,6 @@ where
         &mut self,
         new_credential: String,
     ) -> Result<Vec<u8>, MlsError> {
-        info!("Create credential rotation proposal");
         let group = self.group.as_mut().ok_or(MlsError::GroupNotExists)?;
 
         let credential_data = new_credential.as_bytes().to_vec();
@@ -407,7 +406,7 @@ where
             vec![],
         ))?;
 
-        info!("Cedential rotation proposal created");
+        info!("Created credential rotation proposal");
 
         let storage_path = self.get_storage_path();
         if let Some(stored) = self.stored_identity.as_mut() {
@@ -729,12 +728,27 @@ mod tests {
     async fn test_full_credential_rotation_flow() -> Result<(), Box<dyn std::error::Error>> {
         let alice_path = "/tmp/mls_test_full_rotation_alice";
         let bob_path = "/tmp/mls_test_full_rotation_bob";
+        let moderator_path = "/tmp/mls_test_full_rotation_moderator";
         let _ = std::fs::remove_dir_all(alice_path);
         let _ = std::fs::remove_dir_all(bob_path);
+        let _ = std::fs::remove_dir_all(moderator_path);
 
         let alice_agent =
             slim_datapath::messages::Agent::from_strings("org", "default", "alice", 0);
         let bob_agent = slim_datapath::messages::Agent::from_strings("org", "default", "bob", 1);
+        let moderator_agent =
+            slim_datapath::messages::Agent::from_strings("org", "default", "moderator", 2);
+
+        let mut moderator = Mls::new(
+            moderator_agent.clone(),
+            SimpleGroup::new("moderator", "secret_v1"),
+            SimpleGroup::new("moderator", "secret_v1"),
+        );
+        moderator.set_storage_path(moderator_path);
+        moderator.initialize()?;
+
+        // Moderator creates the group
+        let _group_id = moderator.create_group()?;
 
         let mut alice = Mls::new(
             alice_agent.clone(),
@@ -742,6 +756,7 @@ mod tests {
             SimpleGroup::new("alice", "secret_v1"),
         );
         alice.set_storage_path(alice_path);
+        alice.initialize()?;
 
         let mut bob = Mls::new(
             bob_agent.clone(),
@@ -749,14 +764,20 @@ mod tests {
             SimpleGroup::new("bob", "secret_v1"),
         );
         bob.set_storage_path(bob_path);
-
-        alice.initialize()?;
         bob.initialize()?;
-        let _group_id = alice.create_group()?;
 
+        // Moderator adds Alice to the group
+        let alice_key_package = alice.generate_key_package()?;
+        let (_commit_alice, welcome_alice) = moderator.add_member(&alice_key_package)?;
+        let _alice_group_id = alice.process_welcome(&welcome_alice)?;
+
+        // Moderator adds Bob to the group
         let bob_key_package = bob.generate_key_package()?;
-        let (_, welcome_message) = alice.add_member(&bob_key_package)?;
-        let _bob_group_id = bob.process_welcome(&welcome_message)?;
+        let (commit_bob, welcome_bob) = moderator.add_member(&bob_key_package)?;
+        let _bob_group_id = bob.process_welcome(&welcome_bob)?;
+
+        // Only Alice needs to process Bob's addition (Bob wasn't in the group when Alice was added)
+        alice.process_commit(&commit_bob)?;
 
         let message1 = b"Message before rotation";
         let encrypted1 = alice.encrypt_message(message1)?;
@@ -765,54 +786,77 @@ mod tests {
 
         let initial_version = alice.stored_identity.as_ref().unwrap().credential_version;
 
+        // Alice rotates her credential
         alice.identity_provider = SimpleGroup::new("alice", "secret_v2");
         alice.identity_verifier = SimpleGroup::new("alice", "secret_v2");
 
+        // Alice should detect credential rotation and create a proposal
         let rotation_proposal = alice.check_credential_rotation()?;
         assert!(
             rotation_proposal.is_some(),
             "Should detect credential rotation"
         );
 
-        let _proposal_bytes = rotation_proposal.unwrap();
+        let proposal_bytes = rotation_proposal.unwrap();
 
-        let group = alice.group.as_mut().unwrap();
-        let commit = group
+        // Alice sends the proposal to the moderator
+        let proposal_message = MlsMessage::from_bytes(&proposal_bytes)
+            .map_err(|e| format!("Failed to parse proposal: {}", e))?;
+        // Moderator processes the proposal
+        let moderator_group = moderator.group.as_mut().unwrap();
+        moderator_group
+            .process_incoming_message(proposal_message)
+            .map_err(|e| format!("Failed to process proposal: {}", e))?;
+
+        // Moderator creates and applies the commit
+        let commit = moderator_group
             .commit_builder()
             .build()
             .map_err(|e| format!("Commit build failed: {}", e))?;
-
-        group
+        moderator_group
             .apply_pending_commit()
             .map_err(|e| format!("Apply commit failed: {}", e))?;
 
+        // Moderator sends the commit to Alice and Bob
         let commit_bytes = commit
             .commit_message
             .to_bytes()
             .map_err(|e| format!("Commit to bytes failed: {}", e))?;
+        alice.process_commit(&commit_bytes)?;
         bob.process_commit(&commit_bytes)?;
 
+        // Test messaging after rotation
+        // Bob can decrypt Alice's encrypted message
         let message2 = b"Message after rotation from alice";
         let encrypted2 = alice.encrypt_message(message2)?;
         let decrypted2 = bob.decrypt_message(&encrypted2)?;
         assert_eq!(decrypted2, message2);
 
+        // ... and Alice can decrypt Bob's encrypted message
         let message3 = b"Message after rotation from bob";
         let encrypted3 = bob.encrypt_message(message3)?;
         let decrypted3 = alice.decrypt_message(&encrypted3)?;
         assert_eq!(decrypted3, message3);
 
+        // Verify epochs are synchronized
         assert_eq!(
             alice.get_epoch(),
             bob.get_epoch(),
-            "Epochs should match after rotation"
+            "Alice and Bob epochs should match after rotation"
+        );
+        assert_eq!(
+            alice.get_epoch(),
+            moderator.get_epoch(),
+            "Alice and Moderator epochs should match after rotation"
         );
 
+        // Verify credential was updated
         if let Some(stored) = &alice.stored_identity {
             assert_eq!(stored.last_credential, Some("secret_v2:alice".to_string()));
             assert_eq!(stored.credential_version, initial_version + 1);
         }
 
+        // The end.
         Ok(())
     }
 }
