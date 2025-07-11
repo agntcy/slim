@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.3.7](https://github.com/agntcy/slim/compare/slim-bindings-v0.3.6...slim-bindings-v0.3.7) (2025-07-11)
+
+
+### Features
+
+* add auth support in sessions ([#382](https://github.com/agntcy/slim/issues/382)) ([242e38a](https://github.com/agntcy/slim/commit/242e38a96c9e8b3d9e4a69de3d35740a53fcf252))
+* add mls message types in slim messages ([#386](https://github.com/agntcy/slim/issues/386)) ([1623d0d](https://github.com/agntcy/slim/commit/1623d0d5c8088d236215f25552bf554319b3157a))
+* channel creation in session layer ([#374](https://github.com/agntcy/slim/issues/374)) ([88d1610](https://github.com/agntcy/slim/commit/88d16107e655a731176cbe7a29bb544c9d301b7c)), closes [#362](https://github.com/agntcy/slim/issues/362)
+* derive name id from provided identity ([#345](https://github.com/agntcy/slim/issues/345)) ([d73f6a3](https://github.com/agntcy/slim/commit/d73f6a36b0ea29599fa43d6e0fc3667d47665cf8)), closes [#327](https://github.com/agntcy/slim/issues/327)
+* push and verify identities in message headers ([#384](https://github.com/agntcy/slim/issues/384)) ([47bbd84](https://github.com/agntcy/slim/commit/47bbd842edd288b9d342a9de049420f6447f25cd))
+
+
+### Bug Fixes
+
+* **auth:** make simple identity usable for groups ([#387](https://github.com/agntcy/slim/issues/387)) ([ba2001f](https://github.com/agntcy/slim/commit/ba2001fc3dccb7e977e6627aa4289124717436f5))
+* **python-byndings:** fix examples and taskfile ([#340](https://github.com/agntcy/slim/issues/340)) ([785f6a9](https://github.com/agntcy/slim/commit/785f6a99f319784000c7c61a0b1dbf6d7fb5d97c)), closes [#339](https://github.com/agntcy/slim/issues/339)
+
 ## [0.3.6](https://github.com/agntcy/agp/compare/slim-bindings-v0.3.5...slim-bindings-v0.3.6) (2025-06-03)
 
 
