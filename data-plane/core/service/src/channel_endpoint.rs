@@ -10,7 +10,6 @@ use std::{
 use async_trait::async_trait;
 use bincode::{Decode, Encode};
 use parking_lot::Mutex;
-use tonic::transport::channel;
 use tracing::{debug, error, trace};
 
 use crate::{
