@@ -22,7 +22,7 @@ use crate::api::proto::api::v1::{
 };
 use crate::errors::ControllerError;
 use slim_config::grpc::client::ClientConfig;
-use slim_datapath::api::proto::pubsub::v1::Message as PubsubMessage;
+use slim_datapath::api::ProtoMessage as PubsubMessage;
 use slim_datapath::message_processing::MessageProcessor;
 use slim_datapath::messages::utils::SlimHeaderFlags;
 use slim_datapath::messages::{Agent, AgentType};

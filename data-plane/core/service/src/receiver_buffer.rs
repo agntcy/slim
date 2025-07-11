@@ -3,7 +3,7 @@
 
 use std::collections::HashSet;
 
-use slim_datapath::api::proto::pubsub::v1::Message;
+use slim_datapath::api::ProtoMessage as Message;
 
 use tracing::{debug, info, trace};
 
@@ -260,8 +260,9 @@ impl ReceiverBuffer {
 // tests
 #[cfg(test)]
 mod tests {
-    use slim_datapath::api::proto::pubsub::v1::SessionHeaderType;
-    use slim_datapath::api::{SessionHeader, SlimHeader};
+    use slim_datapath::api::{
+        ProtoSessionMessageType, ProtoSessionType, SessionHeader, SlimHeader,
+    };
     use slim_datapath::messages::encoder::{Agent, AgentType};
     use tracing_test::traced_test;
 
@@ -275,12 +276,42 @@ mod tests {
 
         let slim_header = SlimHeader::new(&src, &name_type, Some(1), None);
 
-        let h0 = SessionHeader::new(SessionHeaderType::Fnf.into(), 0, 0);
-        let h1 = SessionHeader::new(SessionHeaderType::Fnf.into(), 0, 1);
-        let h2 = SessionHeader::new(SessionHeaderType::Fnf.into(), 0, 2);
-        let h3 = SessionHeader::new(SessionHeaderType::Fnf.into(), 0, 3);
-        let h4 = SessionHeader::new(SessionHeaderType::Fnf.into(), 0, 4);
-        let h5 = SessionHeader::new(SessionHeaderType::Fnf.into(), 0, 5);
+        let h0 = SessionHeader::new(
+            ProtoSessionType::SessionFireForget.into(),
+            ProtoSessionMessageType::FnfMsg.into(),
+            0,
+            0,
+        );
+        let h1 = SessionHeader::new(
+            ProtoSessionType::SessionFireForget.into(),
+            ProtoSessionMessageType::FnfMsg.into(),
+            0,
+            1,
+        );
+        let h2 = SessionHeader::new(
+            ProtoSessionType::SessionFireForget.into(),
+            ProtoSessionMessageType::FnfMsg.into(),
+            0,
+            2,
+        );
+        let h3 = SessionHeader::new(
+            ProtoSessionType::SessionFireForget.into(),
+            ProtoSessionMessageType::FnfMsg.into(),
+            0,
+            3,
+        );
+        let h4 = SessionHeader::new(
+            ProtoSessionType::SessionFireForget.into(),
+            ProtoSessionMessageType::FnfMsg.into(),
+            0,
+            4,
+        );
+        let h5 = SessionHeader::new(
+            ProtoSessionType::SessionFireForget.into(),
+            ProtoSessionMessageType::FnfMsg.into(),
+            0,
+            5,
+        );
 
         let p0 = Message::new_publish_with_headers(Some(slim_header), Some(h0), "", vec![]);
         let p1 = Message::new_publish_with_headers(Some(slim_header), Some(h1), "", vec![]);

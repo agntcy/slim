@@ -43,7 +43,7 @@ use slim_config::grpc::client::ClientConfig;
 use slim_config::grpc::server::ServerConfig;
 use slim_controller::api::proto::api::v1::controller_service_server::ControllerServiceServer;
 use slim_controller::service::ControllerService;
-use slim_datapath::api::proto::pubsub::v1::pub_sub_service_server::PubSubServiceServer;
+use slim_datapath::api::PubSubServiceServer;
 use slim_datapath::message_processing::MessageProcessor;
 
 use crate::app::App;

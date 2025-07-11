@@ -16,8 +16,8 @@ use crate::{
 use slim_auth::traits::{TokenProvider, Verifier};
 use slim_datapath::{
     api::{
-        SessionHeader, SlimHeader,
-        proto::pubsub::v1::{Message, SessionHeaderType},
+        ProtoMessage as Message, ProtoSessionMessageType, ProtoSessionType, SessionHeader,
+        SlimHeader,
     },
     messages::{Agent, AgentType, utils::SlimHeaderFlags},
 };
@@ -309,6 +309,9 @@ where
     /// id of the current session
     session_id: Id,
 
+    /// Session Type associated to this endpoint
+    session_type: ProtoSessionType,
+
     /// connection id to the next hop SLIM
     conn: Option<u64>,
 
@@ -333,6 +336,7 @@ where
         channel_name: AgentType,
         channel_id: Option<u64>,
         session_id: Id,
+        session_type: ProtoSessionType,
         mls_state: Option<MlsState<P, V>>,
         tx: T,
     ) -> Self {
@@ -341,6 +345,7 @@ where
             channel_name,
             channel_id,
             session_id,
+            session_type,
             conn: None,
             subscribed: false,
             mls_state,
@@ -353,7 +358,7 @@ where
         destination: &AgentType,
         destination_id: Option<u64>,
         broadcast: bool,
-        request_type: SessionHeaderType,
+        request_type: ProtoSessionMessageType,
         message_id: u32,
         payload: Vec<u8>,
     ) -> Message {
@@ -371,6 +376,7 @@ where
         ));
 
         let session_header = Some(SessionHeader::new(
+            self.session_type.into(),
             request_type.into(),
             self.session_id,
             message_id,
@@ -467,10 +473,19 @@ where
         channel_name: AgentType,
         channel_id: Option<u64>,
         session_id: Id,
+        session_type: ProtoSessionType,
         mls: Option<MlsState<P, V>>,
         tx: T,
     ) -> Self {
-        let endpoint = Endpoint::new(name, channel_name, channel_id, session_id, mls, tx);
+        let endpoint = Endpoint::new(
+            name,
+            channel_name,
+            channel_id,
+            session_id,
+            session_type,
+            mls,
+            tx,
+        );
         ChannelParticipant {
             moderator_name: None,
             endpoint,
@@ -534,7 +549,7 @@ where
             src.agent_type(),
             src.agent_id_option(),
             false,
-            SessionHeaderType::ChannelJoinReply,
+            ProtoSessionMessageType::ChannelJoinReply,
             msg.get_id(),
             payload,
         );
@@ -561,7 +576,7 @@ where
             src.agent_type(),
             src.agent_id_option(),
             false,
-            SessionHeaderType::ChannelMlsAck,
+            ProtoSessionMessageType::ChannelMlsAck,
             msg.get_id(),
             vec![],
         );
@@ -585,7 +600,7 @@ where
             src.agent_type(),
             src.agent_id_option(),
             false,
-            SessionHeaderType::ChannelMlsAck,
+            ProtoSessionMessageType::ChannelMlsAck,
             msg.get_id(),
             vec![],
         );
@@ -603,7 +618,7 @@ where
             src.agent_type(),
             src.agent_id_option(),
             false,
-            SessionHeaderType::ChannelLeaveReply,
+            ProtoSessionMessageType::ChannelLeaveReply,
             msg.get_id(),
             vec![],
         );
@@ -632,9 +647,9 @@ where
     T: SessionTransmitter + Send + Sync + Clone + 'static,
 {
     async fn on_message(&mut self, msg: Message) -> Result<(), SessionError> {
-        let msg_type = msg.get_session_header().header_type();
+        let msg_type = msg.get_session_header().session_message_type();
         match msg_type {
-            SessionHeaderType::ChannelDiscoveryRequest => {
+            ProtoSessionMessageType::ChannelDiscoveryRequest => {
                 error!(
                     "Received discovery request message, this should not happen. drop the message"
                 );
@@ -643,19 +658,19 @@ where
                     "Received discovery request message, this should not happen".to_string(),
                 ))
             }
-            SessionHeaderType::ChannelJoinRequest => {
+            ProtoSessionMessageType::ChannelJoinRequest => {
                 debug!("Received join request message");
                 self.on_join_request(msg).await
             }
-            SessionHeaderType::ChannelMlsWelcome => {
+            ProtoSessionMessageType::ChannelMlsWelcome => {
                 debug!("Received mls welcome message");
                 self.on_mls_welcome(msg).await
             }
-            SessionHeaderType::ChannelMlsCommit => {
+            ProtoSessionMessageType::ChannelMlsCommit => {
                 debug!("Received mls commit message");
                 self.on_mls_commit(msg).await
             }
-            SessionHeaderType::ChannelLeaveRequest => {
+            ProtoSessionMessageType::ChannelLeaveRequest => {
                 debug!("Received leave request message");
                 self.on_leave_request(msg).await
             }
@@ -727,6 +742,7 @@ where
         channel_name: AgentType,
         channel_id: Option<u64>,
         session_id: Id,
+        session_type: ProtoSessionType,
         max_retries: u32,
         retries_interval: Duration,
         mls: Option<MlsState<P, V>>,
@@ -736,7 +752,15 @@ where
         let invite_payload: Vec<u8> = bincode::encode_to_vec(p, bincode::config::standard())
             .expect("unable to parse channel name as payload");
 
-        let endpoint = Endpoint::new(name, channel_name, channel_id, session_id, mls, tx);
+        let endpoint = Endpoint::new(
+            name,
+            channel_name,
+            channel_id,
+            session_id,
+            session_type,
+            mls,
+            tx,
+        );
         ChannelModerator {
             endpoint,
             //channel_list: HashSet::new(),
@@ -851,7 +875,7 @@ where
             src.agent_type(),
             src.agent_id_option(),
             false,
-            SessionHeaderType::ChannelJoinRequest,
+            ProtoSessionMessageType::ChannelJoinRequest,
             new_msg_id,
             self.invite_payload.clone(),
         );
@@ -900,7 +924,7 @@ where
                 &self.endpoint.channel_name,
                 None,
                 true,
-                SessionHeaderType::ChannelMlsCommit,
+                ProtoSessionMessageType::ChannelMlsCommit,
                 commit_id,
                 commit_payload,
             );
@@ -908,7 +932,7 @@ where
                 src.agent_type(),
                 src.agent_id_option(),
                 false,
-                SessionHeaderType::ChannelMlsWelcome,
+                ProtoSessionMessageType::ChannelMlsWelcome,
                 welcome_id,
                 welcome_payload,
             );
@@ -954,7 +978,7 @@ where
                     &self.endpoint.channel_name,
                     None,
                     true,
-                    SessionHeaderType::ChannelMlsCommit,
+                    ProtoSessionMessageType::ChannelMlsCommit,
                     commit_id,
                     commit_payload,
                 );
@@ -996,31 +1020,31 @@ where
     T: SessionTransmitter + Send + Sync + Clone + 'static,
 {
     async fn on_message(&mut self, msg: Message) -> Result<(), SessionError> {
-        let msg_type = msg.get_session_header().header_type();
+        let msg_type = msg.get_session_header().session_message_type();
         match msg_type {
-            SessionHeaderType::ChannelDiscoveryRequest => {
+            ProtoSessionMessageType::ChannelDiscoveryRequest => {
                 debug!("Invite new participant to the channel, send discovery message");
                 // discovery message coming from the application
                 self.forward(msg).await
             }
-            SessionHeaderType::ChannelDiscoveryReply => {
+            ProtoSessionMessageType::ChannelDiscoveryReply => {
                 debug!("Received discovery reply message");
                 self.on_discovery_reply(msg).await
             }
-            SessionHeaderType::ChannelJoinReply => {
+            ProtoSessionMessageType::ChannelJoinReply => {
                 debug!("Received join reply message");
                 self.on_join_reply(msg).await
             }
-            SessionHeaderType::ChannelMlsAck => {
+            ProtoSessionMessageType::ChannelMlsAck => {
                 debug!("Received mls ack message");
                 self.on_msl_ack(msg).await
             }
-            SessionHeaderType::ChannelLeaveRequest => {
+            ProtoSessionMessageType::ChannelLeaveRequest => {
                 // leave message coming from the application
                 debug!("Received leave request message");
                 self.on_leave_request(msg).await
             }
-            SessionHeaderType::ChannelLeaveReply => {
+            ProtoSessionMessageType::ChannelLeaveReply => {
                 debug!("Received leave reply message");
                 self.on_leave_reply(msg).await
             }
@@ -1086,6 +1110,7 @@ mod tests {
             channel_name.clone(),
             channel_id,
             SESSION_ID,
+            ProtoSessionType::SessionUnknown,
             3,
             Duration::from_millis(100),
             Some(moderator_mls),
@@ -1096,6 +1121,7 @@ mod tests {
             channel_name.clone(),
             channel_id,
             SESSION_ID,
+            ProtoSessionType::SessionUnknown,
             Some(participant_mls),
             participant_tx,
         );
@@ -1111,7 +1137,8 @@ mod tests {
         ));
 
         let session_header = Some(SessionHeader::new(
-            SessionHeaderType::ChannelDiscoveryRequest.into(),
+            ProtoSessionType::SessionUnknown.into(),
+            ProtoSessionMessageType::ChannelDiscoveryRequest.into(),
             SESSION_ID,
             rand::random::<u32>(),
         ));
@@ -1140,7 +1167,8 @@ mod tests {
         ));
 
         let session_header = Some(SessionHeader::new(
-            SessionHeaderType::ChannelDiscoveryReply.into(),
+            ProtoSessionType::SessionUnknown.into(),
+            ProtoSessionMessageType::ChannelDiscoveryReply.into(),
             session_id,
             msg_id,
         ));
@@ -1174,7 +1202,7 @@ mod tests {
             participant.agent_type(),
             participant.agent_id_option(),
             false,
-            SessionHeaderType::ChannelJoinRequest,
+            ProtoSessionMessageType::ChannelJoinRequest,
             0,
             payload,
         );
@@ -1206,7 +1234,7 @@ mod tests {
             moderator.agent_type(),
             moderator.agent_id_option(),
             false,
-            SessionHeaderType::ChannelJoinReply,
+            ProtoSessionMessageType::ChannelJoinReply,
             msg_id,
             vec![],
         );
@@ -1225,7 +1253,7 @@ mod tests {
             participant.agent_type(),
             participant.agent_id_option(),
             false,
-            SessionHeaderType::ChannelMlsWelcome,
+            ProtoSessionMessageType::ChannelMlsWelcome,
             0,
             vec![],
         );
@@ -1260,7 +1288,7 @@ mod tests {
             moderator.agent_type(),
             moderator.agent_id_option(),
             false,
-            SessionHeaderType::ChannelMlsAck,
+            ProtoSessionMessageType::ChannelMlsAck,
             msg_id,
             vec![],
         );

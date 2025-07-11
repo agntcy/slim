@@ -8,9 +8,9 @@ use tracing::debug;
 
 use super::encoder::{Agent, AgentType, DEFAULT_AGENT_ID};
 use crate::api::{
-    Content, MessageType, ProtoAgent, ProtoMessage, ProtoPublish, ProtoPublishType, ProtoSubscribe,
-    ProtoSubscribeType, ProtoUnsubscribe, ProtoUnsubscribeType, SessionHeader, SlimHeader,
-    proto::pubsub::v1::SessionHeaderType,
+    Content, MessageType, ProtoAgent, ProtoMessage, ProtoPublish, ProtoPublishType,
+    ProtoSessionType, ProtoSubscribe, ProtoSubscribeType, ProtoUnsubscribe, ProtoUnsubscribeType,
+    SessionHeader, SlimHeader, proto::pubsub::v1::SessionMessageType,
 };
 
 use thiserror::Error;
@@ -285,9 +285,15 @@ impl SlimHeader {
 /// This header is used to identify the session and the message
 /// and to manage session state
 impl SessionHeader {
-    pub fn new(header_type: i32, session_id: u32, message_id: u32) -> Self {
+    pub fn new(
+        session_type: i32,
+        session_message_type: i32,
+        session_id: u32,
+        message_id: u32,
+    ) -> Self {
         Self {
-            header_type,
+            session_type,
+            session_message_type,
             session_id,
             message_id,
         }
@@ -715,9 +721,9 @@ impl ProtoMessage {
         }
     }
 
-    pub fn get_header_type(&self) -> SessionHeaderType {
+    pub fn get_session_message_type(&self) -> SessionMessageType {
         self.get_session_header()
-            .header_type
+            .session_message_type
             .try_into()
             .unwrap_or_default()
     }
@@ -750,8 +756,13 @@ impl ProtoMessage {
         self.get_slim_header_mut().set_error_flag(error);
     }
 
-    pub fn set_header_type(&mut self, header_type: SessionHeaderType) {
-        self.get_session_header_mut().set_header_type(header_type);
+    pub fn set_session_message_type(&mut self, message_type: SessionMessageType) {
+        self.get_session_header_mut()
+            .set_session_message_type(message_type);
+    }
+
+    pub fn set_session_type(&mut self, session_type: ProtoSessionType) {
+        self.get_session_header_mut().set_session_type(session_type);
     }
 
     pub fn set_message_id(&mut self, message_id: u32) {
@@ -783,7 +794,7 @@ impl AsRef<ProtoPublish> for ProtoMessage {
 #[cfg(test)]
 mod tests {
     use crate::{
-        api::proto::pubsub::v1::SessionHeaderType,
+        api::proto::pubsub::v1::SessionMessageType,
         messages::encoder::{Agent, AgentType},
     };
 
@@ -1129,11 +1140,7 @@ mod tests {
     #[test]
     fn test_panic_session_header() {
         // create a unusual session header
-        let header = SessionHeader {
-            header_type: 0,
-            session_id: 0,
-            message_id: 0,
-        };
+        let header = SessionHeader::new(0, 0, 0, 0);
 
         // the operations to retrieve session_id and message_id should not fail with panic
         let result = std::panic::catch_unwind(|| header.get_session_id());
@@ -1177,18 +1184,18 @@ mod tests {
     #[test]
     fn test_service_type_to_int() {
         // Get total number of service types
-        let total_service_types = SessionHeaderType::ChannelMlsAck as i32;
+        let total_service_types = SessionMessageType::ChannelMlsAck as i32;
 
         for i in 0..total_service_types {
             // int -> ServiceType
             let service_type =
-                SessionHeaderType::try_from(i).expect("failed to convert int to service type");
+                SessionMessageType::try_from(i).expect("failed to convert int to service type");
             let service_type_int = i32::from(service_type);
             assert_eq!(service_type_int, i32::from(service_type),);
         }
 
         // Test invalid conversion
-        let invalid_service_type = SessionHeaderType::try_from(total_service_types + 1);
+        let invalid_service_type = SessionMessageType::try_from(total_service_types + 1);
         assert!(invalid_service_type.is_err());
     }
 }

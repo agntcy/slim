@@ -7,7 +7,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use rand::Rng;
 use slim_auth::traits::{TokenProvider, Verifier};
-use slim_datapath::api::{SessionHeader, SlimHeader};
+use slim_datapath::api::{ProtoSessionType, SessionHeader, SlimHeader};
 use slim_datapath::messages::AgentType;
 use tokio::sync::mpsc::{self, Receiver, Sender};
 use tokio_util::sync::CancellationToken;
@@ -19,7 +19,7 @@ use crate::session::{
     SessionDirection, SessionMessage, SessionTransmitter, State,
 };
 use crate::timer;
-use slim_datapath::api::proto::pubsub::v1::{Message, SessionHeaderType};
+use slim_datapath::api::{ProtoMessage as Message, ProtoSessionMessageType};
 use slim_datapath::messages::encoder::Agent;
 use slim_datapath::messages::utils::SlimHeaderFlags;
 
@@ -266,7 +266,8 @@ where
         );
 
         let session_header = probe_message.get_session_header_mut();
-        session_header.set_header_type(SessionHeaderType::FnfDiscovery);
+        session_header.set_session_type(ProtoSessionType::SessionFireForget);
+        session_header.set_session_message_type(ProtoSessionMessageType::FnfDiscovery);
         session_header.set_session_id(self.state.session_id);
 
         self.state.sticky_session_status = StickySessionStatus::Discovering;
@@ -305,7 +306,8 @@ where
 
         // Set the session header type to FnfDiscoveryReply
         let session_header = sticky_session_reply.get_session_header_mut();
-        session_header.set_header_type(SessionHeaderType::FnfDiscoveryReply);
+        session_header.set_session_message_type(ProtoSessionMessageType::FnfDiscoveryReply);
+        session_header.set_session_type(ProtoSessionType::SessionFireForget);
 
         // Let's also make this session sticky
         self.state.sticky_name = Some(source.clone());
@@ -432,10 +434,11 @@ where
     ) -> Result<(), SessionError> {
         // Set the session type
         let header = message.message.get_session_header_mut();
+        header.set_session_type(ProtoSessionType::SessionFireForget);
         if self.state.config.timeout.is_some() {
-            header.set_header_type(SessionHeaderType::FnfReliable);
+            header.set_session_message_type(ProtoSessionMessageType::FnfReliable);
         } else {
-            header.set_header_type(SessionHeaderType::Fnf);
+            header.set_session_message_type(ProtoSessionMessageType::FnfMsg);
         }
 
         // If session is sticky, and we have a sticky name, set the destination
@@ -508,12 +511,12 @@ where
             }
         }
 
-        match message.message.get_header_type() {
-            SessionHeaderType::Fnf => {
+        match message.message.get_session_message_type() {
+            ProtoSessionMessageType::FnfMsg => {
                 // Simply send the message to the application
                 self.send_message_to_app(message).await
             }
-            SessionHeaderType::FnfReliable => {
+            ProtoSessionMessageType::FnfReliable => {
                 // Send an ack back as reply and forward the incoming message to the app
                 // Create ack message
                 let src = message.message.get_source();
@@ -528,7 +531,8 @@ where
                 ));
 
                 let session_header = Some(SessionHeader::new(
-                    SessionHeaderType::FnfAck.into(),
+                    ProtoSessionType::SessionFireForget.into(),
+                    ProtoSessionMessageType::FnfAck.into(),
                     message.info.id,
                     message_id,
                 ));
@@ -546,15 +550,15 @@ where
                 // Forward the message to the app
                 self.send_message_to_app(message).await
             }
-            SessionHeaderType::FnfAck => {
+            ProtoSessionMessageType::FnfAck => {
                 // Remove the timer and drop the message
                 self.stop_and_remove_timer(message_id)
             }
-            SessionHeaderType::FnfDiscovery => {
+            ProtoSessionMessageType::FnfDiscovery => {
                 // Handle sticky session discovery
                 self.handle_sticky_session_discovery(message).await
             }
-            SessionHeaderType::FnfDiscoveryReply => {
+            ProtoSessionMessageType::FnfDiscoveryReply => {
                 // Handle sticky session discovery reply
                 self.handle_sticky_session_discovery_reply(message).await
             }
@@ -562,7 +566,7 @@ where
                 // Unexpected header
                 Err(SessionError::AppTransmission(format!(
                     "invalid session header {}",
-                    message.message.get_header_type() as u32
+                    message.message.get_session_message_type() as u32
                 )))
             }
         }
@@ -837,7 +841,7 @@ mod tests {
         // set the session id in the message
         let header = message.get_session_header_mut();
         header.session_id = 1;
-        header.header_type = i32::from(SessionHeaderType::Fnf);
+        header.set_session_message_type(ProtoSessionMessageType::FnfMsg);
 
         let res = session
             .on_message(
@@ -889,7 +893,7 @@ mod tests {
         let header = message.get_session_header_mut();
         header.session_id = 0;
         header.message_id = 12345;
-        header.header_type = i32::from(SessionHeaderType::FnfReliable);
+        header.set_session_message_type(ProtoSessionMessageType::FnfReliable);
 
         let res = session
             .on_message(
@@ -915,7 +919,10 @@ mod tests {
             .expect("error");
 
         let header = msg.get_session_header();
-        assert_eq!(header.header_type, i32::from(SessionHeaderType::FnfAck));
+        assert_eq!(
+            header.session_message_type(),
+            ProtoSessionMessageType::FnfAck
+        );
         assert_eq!(header.get_message_id(), 12345);
     }
 
@@ -963,7 +970,8 @@ mod tests {
         // set the session id in the message for the comparison inside the for loop
         let header = message.get_session_header_mut();
         header.session_id = 0;
-        header.header_type = i32::from(SessionHeaderType::FnfReliable);
+        header.set_session_message_type(ProtoSessionMessageType::FnfReliable);
+        header.set_session_type(ProtoSessionType::SessionFireForget);
 
         for _i in 0..6 {
             let mut msg = rx_slim
@@ -1041,7 +1049,8 @@ mod tests {
         // set the session id in the message
         let header = message.get_session_header_mut();
         header.set_session_id(0);
-        header.set_header_type(SessionHeaderType::FnfReliable);
+        header.set_session_type(ProtoSessionType::SessionFireForget);
+        header.set_session_message_type(ProtoSessionMessageType::FnfReliable);
 
         let res = session_sender
             .on_message(
@@ -1093,7 +1102,10 @@ mod tests {
             .expect("no message received")
             .expect("error");
         let header = ack.get_session_header();
-        assert_eq!(header.header_type, i32::from(SessionHeaderType::FnfAck));
+        assert_eq!(
+            header.session_message_type(),
+            ProtoSessionMessageType::FnfAck
+        );
 
         // Check that the ack is sent back to the sender
         assert_eq!(message.get_source(), ack.get_name_as_agent());
@@ -1197,7 +1209,7 @@ mod tests {
         // set the session id in the message
         let header = message.get_session_header_mut();
         header.set_session_id(0);
-        header.set_header_type(SessionHeaderType::FnfReliable);
+        header.set_session_message_type(ProtoSessionMessageType::FnfReliable);
 
         // set a fake incoming connection id
         let slim_header = message.get_slim_header_mut();
@@ -1218,11 +1230,8 @@ mod tests {
             .await
             .expect("no message received")
             .expect("error");
-        let header = msg.get_session_header();
-        assert_eq!(
-            header.header_type,
-            i32::from(SessionHeaderType::FnfDiscovery)
-        );
+        let header = msg.get_session_header_mut();
+        header.set_session_message_type(ProtoSessionMessageType::FnfDiscovery);
 
         // set a fake incoming connection id
         let slim_header = msg.get_slim_header_mut();
@@ -1243,8 +1252,8 @@ mod tests {
 
         let header = msg.get_session_header();
         assert_eq!(
-            header.header_type,
-            i32::from(SessionHeaderType::FnfDiscoveryReply)
+            header.session_message_type(),
+            ProtoSessionMessageType::FnfDiscoveryReply
         );
 
         // set a fake incoming connection id
@@ -1265,8 +1274,8 @@ mod tests {
             .expect("error");
         let header = msg.get_session_header();
         assert_eq!(
-            header.header_type,
-            i32::from(SessionHeaderType::FnfReliable)
+            header.session_message_type(),
+            ProtoSessionMessageType::FnfReliable
         );
 
         // Check the payload
