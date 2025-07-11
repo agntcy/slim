@@ -58,11 +58,13 @@ pub struct Agent {
 }
 #[derive(Clone, Copy, PartialEq, ::prost::Message)]
 pub struct SessionHeader {
-    #[prost(enumeration = "SessionHeaderType", tag = "1")]
-    pub header_type: i32,
-    #[prost(uint32, tag = "2")]
-    pub session_id: u32,
+    #[prost(enumeration = "SessionType", tag = "1")]
+    pub session_type: i32,
+    #[prost(enumeration = "SessionMessageType", tag = "2")]
+    pub session_message_type: i32,
     #[prost(uint32, tag = "3")]
+    pub session_id: u32,
+    #[prost(uint32, tag = "4")]
     pub message_id: u32,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -96,17 +98,52 @@ pub mod message {
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]
-pub enum SessionHeaderType {
+pub enum SessionType {
+    SessionUnknown = 0,
+    SessionFireForget = 1,
+    SessionRequestReply = 2,
+    SessionStreaming = 3,
+    SessionPubSub = 4,
+}
+impl SessionType {
+    /// String value of the enum field names used in the ProtoBuf definition.
+    ///
+    /// The values are not transformed in any way and thus are considered stable
+    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+    pub fn as_str_name(&self) -> &'static str {
+        match self {
+            Self::SessionUnknown => "SESSION_UNKNOWN",
+            Self::SessionFireForget => "SESSION_FIRE_FORGET",
+            Self::SessionRequestReply => "SESSION_REQUEST_REPLY",
+            Self::SessionStreaming => "SESSION_STREAMING",
+            Self::SessionPubSub => "SESSION_PUB_SUB",
+        }
+    }
+    /// Creates an enum from field names used in the ProtoBuf definition.
+    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+        match value {
+            "SESSION_UNKNOWN" => Some(Self::SessionUnknown),
+            "SESSION_FIRE_FORGET" => Some(Self::SessionFireForget),
+            "SESSION_REQUEST_REPLY" => Some(Self::SessionRequestReply),
+            "SESSION_STREAMING" => Some(Self::SessionStreaming),
+            "SESSION_PUB_SUB" => Some(Self::SessionPubSub),
+            _ => None,
+        }
+    }
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+#[repr(i32)]
+pub enum SessionMessageType {
     Unspecified = 0,
-    Fnf = 1,
+    FnfMsg = 1,
     FnfReliable = 2,
     FnfAck = 3,
     FnfDiscovery = 4,
     FnfDiscoveryReply = 5,
     Request = 6,
     Reply = 7,
-    Stream = 8,
-    PubSub = 9,
+    StreamMsg = 8,
+    PubSubMsg = 9,
     RtxRequest = 10,
     RtxReply = 11,
     BeaconStream = 12,
@@ -121,7 +158,7 @@ pub enum SessionHeaderType {
     ChannelMlsWelcome = 21,
     ChannelMlsAck = 22,
 }
-impl SessionHeaderType {
+impl SessionMessageType {
     /// String value of the enum field names used in the ProtoBuf definition.
     ///
     /// The values are not transformed in any way and thus are considered stable
@@ -129,15 +166,15 @@ impl SessionHeaderType {
     pub fn as_str_name(&self) -> &'static str {
         match self {
             Self::Unspecified => "UNSPECIFIED",
-            Self::Fnf => "FNF",
+            Self::FnfMsg => "FNF_MSG",
             Self::FnfReliable => "FNF_RELIABLE",
             Self::FnfAck => "FNF_ACK",
             Self::FnfDiscovery => "FNF_DISCOVERY",
             Self::FnfDiscoveryReply => "FNF_DISCOVERY_REPLY",
             Self::Request => "REQUEST",
             Self::Reply => "REPLY",
-            Self::Stream => "STREAM",
-            Self::PubSub => "PUB_SUB",
+            Self::StreamMsg => "STREAM_MSG",
+            Self::PubSubMsg => "PUB_SUB_MSG",
             Self::RtxRequest => "RTX_REQUEST",
             Self::RtxReply => "RTX_REPLY",
             Self::BeaconStream => "BEACON_STREAM",
@@ -157,15 +194,15 @@ impl SessionHeaderType {
     pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
         match value {
             "UNSPECIFIED" => Some(Self::Unspecified),
-            "FNF" => Some(Self::Fnf),
+            "FNF_MSG" => Some(Self::FnfMsg),
             "FNF_RELIABLE" => Some(Self::FnfReliable),
             "FNF_ACK" => Some(Self::FnfAck),
             "FNF_DISCOVERY" => Some(Self::FnfDiscovery),
             "FNF_DISCOVERY_REPLY" => Some(Self::FnfDiscoveryReply),
             "REQUEST" => Some(Self::Request),
             "REPLY" => Some(Self::Reply),
-            "STREAM" => Some(Self::Stream),
-            "PUB_SUB" => Some(Self::PubSub),
+            "STREAM_MSG" => Some(Self::StreamMsg),
+            "PUB_SUB_MSG" => Some(Self::PubSubMsg),
             "RTX_REQUEST" => Some(Self::RtxRequest),
             "RTX_REPLY" => Some(Self::RtxReply),
             "BEACON_STREAM" => Some(Self::BeaconStream),
