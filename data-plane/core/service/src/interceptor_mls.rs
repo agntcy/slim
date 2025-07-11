@@ -218,8 +218,8 @@ mod tests {
 
         let _group_id = alice_mls.create_group().unwrap();
         let bob_key_package = bob_mls.generate_key_package().unwrap();
-        let (_, welcome_message) = alice_mls.add_member(&bob_key_package).unwrap();
-        bob_mls.process_welcome(&welcome_message).unwrap();
+        let ret = alice_mls.add_member(&bob_key_package).unwrap();
+        bob_mls.process_welcome(&ret.welcome_message).unwrap();
 
         let alice_interceptor = MlsInterceptor::new(Arc::new(Mutex::new(alice_mls)));
         let bob_interceptor = MlsInterceptor::new(Arc::new(Mutex::new(bob_mls)));

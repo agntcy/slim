@@ -132,10 +132,10 @@ async fn main() {
             };
 
             // Add client to group and generate welcome message
-            let (_, welcome_message) = server_mls.add_member(&key_package).unwrap();
+            let ret = server_mls.add_member(&key_package).unwrap();
 
             // Save welcome message for client
-            std::fs::write(&welcome_path, &welcome_message).unwrap();
+            std::fs::write(&welcome_path, &ret.welcome_message).unwrap();
             info!("Server saved welcome message to: {}", welcome_path);
 
             Some((server_mls, group_id))
