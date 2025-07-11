@@ -3,6 +3,7 @@
 
 use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
+use std::time::Duration;
 
 use async_trait::async_trait;
 use rand::Rng;
@@ -13,6 +14,7 @@ use tokio::sync::mpsc::{self, Receiver, Sender};
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, error};
 
+use crate::channel_endpoint::{ChannelEndpoint, ChannelModerator, ChannelParticipant, MlsState};
 use crate::errors::SessionError;
 use crate::session::{
     Common, CommonSession, Id, MessageDirection, MessageHandler, SessionConfig, SessionConfigTrait,
@@ -29,6 +31,25 @@ pub struct FireAndForgetConfiguration {
     pub timeout: Option<std::time::Duration>,
     pub max_retries: Option<u32>,
     pub sticky: bool,
+    pub mls_enabled: bool,
+    pub(crate) initiator: bool,
+}
+
+impl FireAndForgetConfiguration {
+    pub fn new(
+        timeout: Option<Duration>,
+        max_retries: Option<u32>,
+        sticky: bool,
+        mls_enabled: bool,
+    ) -> Self {
+        FireAndForgetConfiguration {
+            timeout,
+            max_retries,
+            sticky,
+            mls_enabled,
+            initiator: true,
+        }
+    }
 }
 
 impl SessionConfigTrait for FireAndForgetConfiguration {
@@ -85,8 +106,10 @@ enum InternalMessage {
     },
 }
 
-struct FireAndForgetState<T>
+struct FireAndForgetState<P, V, T>
 where
+    P: TokenProvider + Send + Sync + Clone + 'static,
+    V: Verifier + Send + Sync + Clone + 'static,
     T: SessionTransmitter + Send + Sync + Clone + 'static,
 {
     session_id: u32,
@@ -98,6 +121,7 @@ where
     sticky_connection: Option<u64>,
     sticky_session_status: StickySessionStatus,
     sticky_buffer: VecDeque<Message>,
+    channel_endpoint: ChannelEndpoint<P, V, T>,
 }
 
 struct RtxTimerObserver {
@@ -105,11 +129,13 @@ struct RtxTimerObserver {
 }
 
 /// The internal part of the Fire and Forget session that handles message processing
-struct FireAndForgetProcessor<T>
+struct FireAndForgetProcessor<P, V, T>
 where
+    P: TokenProvider + Send + Sync + Clone + 'static,
+    V: Verifier + Send + Sync + Clone + 'static,
     T: SessionTransmitter + Send + Sync + Clone + 'static,
 {
-    state: FireAndForgetState<T>,
+    state: FireAndForgetState<P, V, T>,
     timer_observer: Arc<RtxTimerObserver>,
     rx: Receiver<InternalMessage>,
     cancellation_token: CancellationToken,
@@ -143,12 +169,14 @@ impl timer::TimerObserver for RtxTimerObserver {
     }
 }
 
-impl<T> FireAndForgetProcessor<T>
+impl<P, V, T> FireAndForgetProcessor<P, V, T>
 where
+    P: TokenProvider + Send + Sync + Clone + 'static,
+    V: Verifier + Send + Sync + Clone + 'static,
     T: SessionTransmitter + Send + Sync + Clone + 'static,
 {
     fn new(
-        state: FireAndForgetState<T>,
+        state: FireAndForgetState<P, V, T>,
         tx: Sender<InternalMessage>,
         rx: Receiver<InternalMessage>,
         cancellation_token: CancellationToken,
@@ -284,39 +312,22 @@ where
         &mut self,
         message: SessionMessage,
     ) -> Result<(), SessionError> {
-        // Received a sticky session discovery message! Let's reply back with a
-        // sticky session discovery reply and set the sticky name!
-
+        // Save source and incoming connection
         let source = message.message.get_source();
+        let incoming_conn = message.message.get_incoming_conn();
 
-        debug!(
-            "received sticky session discovery from {} and incoming conn {}",
-            source,
-            message.message.get_incoming_conn()
-        );
+        // pass the message to the channel endpoint
+        self.state
+            .channel_endpoint
+            .on_message(message.message)
+            .await?;
 
-        let mut sticky_session_reply = Message::new_publish(
-            &self.state.source,
-            source.agent_type(),
-            Some(source.agent_id()),
-            Some(SlimHeaderFlags::default().with_forward_to(message.message.get_incoming_conn())),
-            "sticky_session_discovery_reply",
-            vec![],
-        );
-
-        // Set the session header type to FnfDiscoveryReply
-        let session_header = sticky_session_reply.get_session_header_mut();
-        session_header.set_session_message_type(ProtoSessionMessageType::FnfDiscoveryReply);
-        session_header.set_session_type(ProtoSessionType::SessionFireForget);
-
-        // Let's also make this session sticky
-        self.state.sticky_name = Some(source.clone());
-        self.state.sticky_connection = Some(message.message.get_incoming_conn());
+        // No error - this session is sticky
+        self.state.sticky_name = Some(source);
+        self.state.sticky_connection = Some(incoming_conn);
         self.state.sticky_session_status = StickySessionStatus::Established;
 
-        // Send the sticky session discovery reply to the source
-        self.send_message(sticky_session_reply).await?;
-
+        // All good
         Ok(())
     }
 
@@ -326,6 +337,7 @@ where
     ) -> Result<(), SessionError> {
         // Check if the sticky session is established
         let source = message.message.get_source();
+        let incoming_conn = message.message.get_incoming_conn();
         let status = self.state.sticky_session_status.clone();
 
         debug!(
@@ -334,13 +346,19 @@ where
             message.message.get_incoming_conn()
         );
 
+        // send message to channel endpoint
+        self.state
+            .channel_endpoint
+            .on_message(message.message)
+            .await?;
+
         match status {
             StickySessionStatus::Discovering => {
                 debug!("sticky session discovery established with {}", source);
 
                 // If we are still discovering, set the sticky name
-                self.state.sticky_name = Some(source.clone());
-                self.state.sticky_connection = Some(message.message.get_incoming_conn());
+                self.state.sticky_name = Some(source);
+                self.state.sticky_connection = Some(incoming_conn);
                 self.state.sticky_session_status = StickySessionStatus::Established;
 
                 // Collect messages first to avoid multiple mutable borrows
@@ -554,13 +572,24 @@ where
                 // Remove the timer and drop the message
                 self.stop_and_remove_timer(message_id)
             }
-            ProtoSessionMessageType::FnfDiscovery => {
+            ProtoSessionMessageType::ChannelDiscoveryReply => {
                 // Handle sticky session discovery
                 self.handle_sticky_session_discovery(message).await
             }
-            ProtoSessionMessageType::FnfDiscoveryReply => {
+            ProtoSessionMessageType::ChannelJoinReply => {
                 // Handle sticky session discovery reply
                 self.handle_sticky_session_discovery_reply(message).await
+            }
+            ProtoSessionMessageType::ChannelLeaveRequest
+            | ProtoSessionMessageType::ChannelLeaveReply
+            | ProtoSessionMessageType::ChannelMlsWelcome
+            | ProtoSessionMessageType::ChannelMlsCommit
+            | ProtoSessionMessageType::ChannelMlsAck => {
+                // Handle mls stuff
+                self.state
+                    .channel_endpoint
+                    .on_message(message.message)
+                    .await
             }
             _ => {
                 // Unexpected header
@@ -625,7 +654,7 @@ where
         tx_slim_app: T,
         identity_provider: P,
         identity_verifier: V,
-        msl_enabled: bool,
+        initiator: bool,
     ) -> Self {
         let (tx, rx) = mpsc::channel(32);
 
@@ -638,8 +667,43 @@ where
             tx_slim_app.clone(),
             identity_provider,
             identity_verifier,
-            msl_enabled,
+            session_config.mls_enabled,
         );
+
+        // Create mls state if needed
+        let mls = common
+            .mls()
+            .map(|mls| MlsState::new(mls).expect("failed to create MLS state"));
+
+        // Create channel endpoint to handle sticky sessions and encryption
+        let channel_endpoint = match initiator {
+            true => {
+                let cm = ChannelModerator::new(
+                    common.source().clone(),
+                    common.source().agent_type().clone(),
+                    common.source().agent_id_option(),
+                    id,
+                    ProtoSessionType::SessionFireForget,
+                    60,
+                    Duration::from_secs(1),
+                    mls,
+                    tx_slim_app.clone(),
+                );
+                ChannelEndpoint::ChannelModerator(cm)
+            }
+            false => {
+                let cp = ChannelParticipant::new(
+                    common.source().clone(),
+                    common.source().agent_type().clone(),
+                    common.source().agent_id_option(),
+                    id,
+                    ProtoSessionType::SessionFireForget,
+                    mls,
+                    tx_slim_app.clone(),
+                );
+                ChannelEndpoint::ChannelParticipant(cp)
+            }
+        };
 
         // FireAndForget internal state
         let state = FireAndForgetState {
@@ -652,6 +716,7 @@ where
             sticky_connection: None,
             sticky_session_status: StickySessionStatus::Uninitialized,
             sticky_buffer: VecDeque::new(),
+            channel_endpoint,
         };
 
         // Cancellation token
@@ -941,6 +1006,8 @@ mod tests {
                 timeout: Some(Duration::from_millis(500)),
                 max_retries: Some(5),
                 sticky: false,
+                mls_enabled: false,
+                initiator: true,
             },
             SessionDirection::Bidirectional,
             source.clone(),
@@ -1016,6 +1083,8 @@ mod tests {
                 timeout: Some(Duration::from_millis(500)),
                 max_retries: Some(5),
                 sticky: false,
+                mls_enabled: false,
+                initiator: true,
             },
             SessionDirection::Bidirectional,
             local.clone(),
@@ -1176,6 +1245,8 @@ mod tests {
                 timeout: Some(Duration::from_millis(500)),
                 max_retries: Some(5),
                 sticky: true,
+                mls_enabled: false,
+                initiator: true,
             },
             SessionDirection::Bidirectional,
             local.clone(),

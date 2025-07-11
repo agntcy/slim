@@ -14,7 +14,7 @@ use crate::session::{
     Common, CommonSession, Id, MessageDirection, SessionConfigTrait, SessionDirection, State,
 };
 use crate::session::{MessageHandler, SessionConfig, SessionTransmitter};
-use crate::{SessionMessage, timer};
+use crate::{timer, FireAndForgetConfiguration, SessionMessage};
 use slim_datapath::api::{ProtoSessionMessageType, ProtoSessionType};
 use slim_datapath::messages::encoder::Agent;
 
@@ -22,6 +22,7 @@ use slim_datapath::messages::encoder::Agent;
 /// This configuration is used to set the maximum number of retries and the timeout
 #[derive(Debug, Clone, PartialEq)]
 pub struct RequestResponseConfiguration {
+    pub ff_conf: FireAndForgetConfiguration,
     pub timeout: std::time::Duration,
 }
 
@@ -43,6 +44,7 @@ impl SessionConfigTrait for RequestResponseConfiguration {
 impl Default for RequestResponseConfiguration {
     fn default() -> Self {
         RequestResponseConfiguration {
+            ff_conf: FireAndForgetConfiguration::default(),
             timeout: std::time::Duration::from_millis(1000),
         }
     }
@@ -132,7 +134,6 @@ where
         tx: T,
         identity_provider: P,
         identity_verifier: V,
-        mls_enabled: bool,
     ) -> Self {
         let internal = RequestResponseInternal {
             common: Common::new(
@@ -143,7 +144,7 @@ where
                 tx,
                 identity_provider,
                 identity_verifier,
-                mls_enabled,
+                false,
             ),
             timers: RwLock::new(HashMap::new()),
         };
@@ -365,9 +366,7 @@ mod tests {
 
         let tx = MockTransmitter { tx_app, tx_slim };
 
-        let session_config = RequestResponseConfiguration {
-            timeout: std::time::Duration::from_millis(1000),
-        };
+        let session_config = RequestResponseConfiguration::default();
 
         let source = Agent::from_strings("cisco", "default", "local_agent", 0);
 
@@ -379,7 +378,6 @@ mod tests {
             tx,
             SimpleGroup::new("a", "group"),
             SimpleGroup::new("a", "group"),
-            false,
         );
 
         assert_eq!(session.id(), 0);
@@ -397,9 +395,7 @@ mod tests {
 
         let tx = MockTransmitter { tx_app, tx_slim };
 
-        let session_config = RequestResponseConfiguration {
-            timeout: std::time::Duration::from_millis(1000),
-        };
+        let session_config = RequestResponseConfiguration::default();
 
         let source = Agent::from_strings("cisco", "default", "local_agent", 0);
 
@@ -411,7 +407,6 @@ mod tests {
             tx,
             SimpleGroup::new("a", "group"),
             SimpleGroup::new("a", "group"),
-            false,
         );
 
         let payload = vec![0x1, 0x2, 0x3, 0x4];
@@ -473,9 +468,7 @@ mod tests {
 
         let tx = MockTransmitter { tx_app, tx_slim };
 
-        let session_config = RequestResponseConfiguration {
-            timeout: std::time::Duration::from_millis(1000),
-        };
+        let session_config = RequestResponseConfiguration::default();
 
         let source = Agent::from_strings("cisco", "default", "local_agent", 0);
 
@@ -488,7 +481,6 @@ mod tests {
                 tx,
                 SimpleGroup::new("a", "group"),
                 SimpleGroup::new("a", "group"),
-                false,
             );
         }
     }

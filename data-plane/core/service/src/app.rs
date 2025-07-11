@@ -238,11 +238,10 @@ where
         &self,
         session_config: SessionConfig,
         id: Option<Id>,
-        mls_enabled: bool,
     ) -> Result<Info, SessionError> {
         let ret = self
             .session_layer
-            .create_session(session_config, id, mls_enabled)
+            .create_session(session_config, id)
             .await?;
 
         // return the session info
@@ -619,7 +618,6 @@ where
         &self,
         session_config: SessionConfig,
         id: Option<Id>,
-        mls_enabled: bool,
     ) -> Result<Info, SessionError> {
         // TODO(msardara): the session identifier should be a combination of the
         // session ID and the agent ID, to prevent collisions.
@@ -667,7 +665,7 @@ where
                     tx,
                     self.identity_provider.clone(),
                     self.identity_verifier.clone(),
-                    mls_enabled,
+                    true, // initiator
                 ))
             }
             SessionConfig::RequestResponse(conf) => Session::RequestResponse(RequestResponse::new(
@@ -678,7 +676,6 @@ where
                 tx,
                 self.identity_provider.clone(),
                 self.identity_verifier.clone(),
-                mls_enabled,
             )),
             SessionConfig::Streaming(conf) => {
                 let direction = conf.direction.clone();
@@ -691,7 +688,6 @@ where
                     tx,
                     self.identity_provider.clone(),
                     self.identity_verifier.clone(),
-                    mls_enabled,
                 ))
             }
         };
@@ -854,39 +850,61 @@ where
         }
 
         let new_session_id = match session_type {
-            ProtoSessionMessageType::FnfMsg
-            | ProtoSessionMessageType::FnfReliable
-            | ProtoSessionMessageType::FnfDiscovery => {
-                let conf = self.default_ff_conf.read().clone();
+            ProtoSessionMessageType::FnfMsg | ProtoSessionMessageType::FnfReliable => {
+                let mut conf = self.default_ff_conf.read().clone();
+
+                // Set that the session was initiated by another agent
+                conf.initiator = false;
+
                 // TODO check if MLS is on (it should be in the received packet). Put false for the moment
-                self.create_session(SessionConfig::FireAndForget(conf), Some(id), false)
+                self.create_session(SessionConfig::FireAndForget(conf), Some(id))
                     .await?
             }
             ProtoSessionMessageType::Request => {
                 let conf = self.default_rr_conf.read().clone();
                 // TODO check if MLS is on (it should be in the received packet). Put false for the moment
-                self.create_session(SessionConfig::RequestResponse(conf), Some(id), false)
+                self.create_session(SessionConfig::RequestResponse(conf), Some(id))
                     .await?
             }
             ProtoSessionMessageType::StreamMsg | ProtoSessionMessageType::BeaconStream => {
                 let conf = self.default_stream_conf.read().clone();
                 // TODO check if MLS is on (it should be in the received packet). Put false for the moment
-                self.create_session(session::SessionConfig::Streaming(conf), Some(id), false)
+                self.create_session(session::SessionConfig::Streaming(conf), Some(id))
                     .await?
             }
             ProtoSessionMessageType::ChannelJoinRequest => {
-                let mut conf = self.default_stream_conf.read().clone();
-                conf.direction = SessionDirection::Bidirectional;
-                let mut mls_enable = false;
-                if message.message.contains_metadata(METADATA_MLS_ENABLED) {
-                    mls_enable = true;
+                // Create a new session based on the SessionType contained in the message
+
+                match message.message.get_session_header().session_type() {
+                    ProtoSessionType::SessionFireForget => {
+                        let mut conf = self.default_ff_conf.read().clone();
+                        conf.initiator = false;
+                        conf.mls_enabled = message.message.contains_metadata(METADATA_MLS_ENABLED);
+
+                        self.create_session(SessionConfig::FireAndForget(conf), Some(id))
+                            .await?
+                    }
+                    ProtoSessionType::SessionRequestReply => {
+                        let mut conf = self.default_rr_conf.read().clone();
+                        conf.ff_conf.initiator = false;
+                        conf.ff_conf.mls_enabled = message.message.contains_metadata(METADATA_MLS_ENABLED);
+                        self.create_session(SessionConfig::RequestResponse(conf), Some(id))
+                            .await?
+                    }
+                    ProtoSessionType::SessionPubSub => {
+                        let mut conf = self.default_stream_conf.read().clone();
+                        conf.direction = SessionDirection::Bidirectional;
+                        conf.mls_enabled = message.message.contains_metadata(METADATA_MLS_ENABLED);
+                        self.create_session(SessionConfig::Streaming(conf), Some(id))
+                            .await?
+                    }
+                    _ => {
+                        warn!("received channel join request with unknown session type: {}", session_type.as_str_name());
+                        return Err(SessionError::SessionUnknown(
+                            session_type.as_str_name().to_string(),
+                        ));
+                    }
                 }
-                self.create_session(
-                    session::SessionConfig::Streaming(conf),
-                    Some(id),
-                    mls_enable,
-                )
-                .await?
             }
             ProtoSessionMessageType::ChannelDiscoveryRequest
             | ProtoSessionMessageType::ChannelDiscoveryReply
@@ -1072,7 +1090,7 @@ mod tests {
         let session_config = FireAndForgetConfiguration::default();
 
         let ret = app
-            .create_session(SessionConfig::FireAndForget(session_config), Some(1), false)
+            .create_session(SessionConfig::FireAndForget(session_config), Some(1))
             .await;
 
         assert!(ret.is_ok());
@@ -1099,7 +1117,6 @@ mod tests {
             .create_session(
                 SessionConfig::FireAndForget(FireAndForgetConfiguration::default()),
                 None,
-                false,
             )
             .await;
         assert!(res.is_ok());
@@ -1124,7 +1141,6 @@ mod tests {
             .create_session(
                 SessionConfig::FireAndForget(FireAndForgetConfiguration::default()),
                 Some(1),
-                false,
             )
             .await;
         assert!(res.is_ok());
@@ -1157,7 +1173,7 @@ mod tests {
 
         // create a new session
         let res = app
-            .create_session(SessionConfig::FireAndForget(session_config), Some(1), false)
+            .create_session(SessionConfig::FireAndForget(session_config), Some(1))
             .await;
         assert!(res.is_ok());
 
@@ -1232,7 +1248,7 @@ mod tests {
 
         // create a new session
         let res = app
-            .create_session(SessionConfig::FireAndForget(session_config), Some(1), false)
+            .create_session(SessionConfig::FireAndForget(session_config), Some(1))
             .await;
         assert!(res.is_ok());
 

@@ -620,7 +620,6 @@ mod tests {
             .create_session(
                 SessionConfig::FireAndForget(FireAndForgetConfiguration::default()),
                 None,
-                false,
             )
             .await
             .unwrap();
@@ -698,7 +697,7 @@ mod tests {
         //////////////////////////// ff session ////////////////////////////////////////////////////////////////////////
         let session_config = SessionConfig::FireAndForget(FireAndForgetConfiguration::default());
         let session_info = app
-            .create_session(session_config.clone(), None, false)
+            .create_session(session_config.clone(), None)
             .await
             .expect("failed to create session");
 
@@ -750,7 +749,7 @@ mod tests {
             timeout: Duration::from_secs(20000),
         });
         let session_info = app
-            .create_session(session_config.clone(), None, false)
+            .create_session(session_config.clone(), None)
             .await
             .expect("failed to create session");
 
@@ -808,9 +807,10 @@ mod tests {
             false,
             Some(1000),
             Some(time::Duration::from_secs(123)),
+            false,
         ));
         let session_info = app
-            .create_session(session_config.clone(), None, false)
+            .create_session(session_config.clone(), None)
             .await
             .expect("failed to create session");
         // get session config
@@ -830,6 +830,7 @@ mod tests {
             false,
             Some(2000),
             Some(time::Duration::from_secs(1234)),
+            false,
         ));
 
         app.set_session_config(&session_config, Some(session_info.id))
@@ -842,6 +843,7 @@ mod tests {
             false,
             Some(2000),
             Some(time::Duration::from_secs(1234)),
+            false,
         ));
 
         app.set_session_config(&session_config, Some(session_info.id))
@@ -866,6 +868,7 @@ mod tests {
             false,
             Some(20000),
             Some(time::Duration::from_secs(12345)),
+            false,
         ));
 
         app.set_session_config(&session_config, None)
@@ -878,6 +881,7 @@ mod tests {
             false,
             Some(20000),
             Some(time::Duration::from_secs(123456)),
+            false,
         ));
 
         app.set_session_config(&session_config, None)
