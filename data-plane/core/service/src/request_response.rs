@@ -14,7 +14,7 @@ use crate::session::{
     Common, CommonSession, Id, MessageDirection, SessionConfigTrait, SessionDirection, State,
 };
 use crate::session::{MessageHandler, SessionConfig, SessionTransmitter};
-use crate::{SessionMessage, timer};
+use crate::{timer, FireAndForgetConfiguration, SessionMessage};
 use slim_datapath::api::{ProtoSessionMessageType, ProtoSessionType};
 use slim_datapath::messages::encoder::Agent;
 
@@ -22,6 +22,7 @@ use slim_datapath::messages::encoder::Agent;
 /// This configuration is used to set the maximum number of retries and the timeout
 #[derive(Debug, Clone, PartialEq)]
 pub struct RequestResponseConfiguration {
+    pub ff_conf: FireAndForgetConfiguration,
     pub timeout: std::time::Duration,
 }
 
@@ -43,6 +44,7 @@ impl SessionConfigTrait for RequestResponseConfiguration {
 impl Default for RequestResponseConfiguration {
     fn default() -> Self {
         RequestResponseConfiguration {
+            ff_conf: FireAndForgetConfiguration::default(),
             timeout: std::time::Duration::from_millis(1000),
         }
     }
@@ -364,9 +366,7 @@ mod tests {
 
         let tx = MockTransmitter { tx_app, tx_slim };
 
-        let session_config = RequestResponseConfiguration {
-            timeout: std::time::Duration::from_millis(1000),
-        };
+        let session_config = RequestResponseConfiguration::default();
 
         let source = Agent::from_strings("cisco", "default", "local_agent", 0);
 
@@ -395,9 +395,7 @@ mod tests {
 
         let tx = MockTransmitter { tx_app, tx_slim };
 
-        let session_config = RequestResponseConfiguration {
-            timeout: std::time::Duration::from_millis(1000),
-        };
+        let session_config = RequestResponseConfiguration::default();
 
         let source = Agent::from_strings("cisco", "default", "local_agent", 0);
 
@@ -470,9 +468,7 @@ mod tests {
 
         let tx = MockTransmitter { tx_app, tx_slim };
 
-        let session_config = RequestResponseConfiguration {
-            timeout: std::time::Duration::from_millis(1000),
-        };
+        let session_config = RequestResponseConfiguration::default();
 
         let source = Agent::from_strings("cisco", "default", "local_agent", 0);
 

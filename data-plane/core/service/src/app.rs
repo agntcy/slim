@@ -873,13 +873,38 @@ where
                     .await?
             }
             ProtoSessionMessageType::ChannelJoinRequest => {
-                let mut conf = self.default_stream_conf.read().clone();
-                conf.direction = SessionDirection::Bidirectional;
-                let mls_enable = message.message.contains_metadata(METADATA_MLS_ENABLED);
+                // Create a new session based on the SessionType contained in the message
 
-                conf.mls_enabled = mls_enable;
-                self.create_session(session::SessionConfig::Streaming(conf), Some(id))
-                    .await?
+                match message.message.get_session_header().session_type() {
+                    ProtoSessionType::SessionFireForget => {
+                        let mut conf = self.default_ff_conf.read().clone();
+                        conf.initiator = false;
+                        conf.mls_enabled = message.message.contains_metadata(METADATA_MLS_ENABLED);
+
+                        self.create_session(SessionConfig::FireAndForget(conf), Some(id))
+                            .await?
+                    }
+                    ProtoSessionType::SessionRequestReply => {
+                        let mut conf = self.default_rr_conf.read().clone();
+                        conf.ff_conf.initiator = false;
+                        conf.ff_conf.mls_enabled = message.message.contains_metadata(METADATA_MLS_ENABLED);
+                        self.create_session(SessionConfig::RequestResponse(conf), Some(id))
+                            .await?
+                    }
+                    ProtoSessionType::SessionPubSub => {
+                        let mut conf = self.default_stream_conf.read().clone();
+                        conf.direction = SessionDirection::Bidirectional;
+                        conf.mls_enabled = message.message.contains_metadata(METADATA_MLS_ENABLED);
+                        self.create_session(SessionConfig::Streaming(conf), Some(id))
+                            .await?
+                    }
+                    _ => {
+                        warn!("received channel join request with unknown session type: {}", session_type.as_str_name());
+                        return Err(SessionError::SessionUnknown(
+                            session_type.as_str_name().to_string(),
+                        ));
+                    }
+                }
             }
             ProtoSessionMessageType::ChannelDiscoveryRequest
             | ProtoSessionMessageType::ChannelDiscoveryReply
