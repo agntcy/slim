@@ -292,8 +292,6 @@ pub(crate) trait MessageHandler {
         message: SessionMessage,
         direction: MessageDirection,
     ) -> Result<(), SessionError>;
-
-    async fn stop_message_handler(&self);
 }
 
 /// Common session data
@@ -354,15 +352,6 @@ where
             Session::Streaming(session) => session.on_message(message, direction).await,
         }
     }
-
-    async fn stop_message_handler(&self) {
-        match self {
-            Session::FireAndForget(session) => session.stop_message_handler().await,
-            Session::RequestResponse(session) => session.stop_message_handler().await,
-            Session::Streaming(session) => session.stop_message_handler().await,
-        }
-    }
-
 }
 
 impl<P, V, T> SessionInterceptorProvider for Session<P, V, T>

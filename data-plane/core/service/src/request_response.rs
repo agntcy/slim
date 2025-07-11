@@ -344,8 +344,6 @@ where
             }
         }
     }
-
-    async fn stop_message_handler(&self) {}
 }
 
 #[cfg(test)]

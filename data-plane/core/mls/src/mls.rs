@@ -245,8 +245,6 @@ where
         let group = self.group.as_mut().ok_or(MlsError::GroupNotExists)?;
         let key_package = Self::map_mls_error(MlsMessage::from_bytes(key_package_bytes))?;
 
-        //println!("{:?}", key_package);
-
         let commit = Self::map_mls_error(
             group
                 .commit_builder()

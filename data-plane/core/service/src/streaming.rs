@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use slim_auth::traits::{TokenProvider, Verifier};
-use tokio_util::sync::CancellationToken;
 use std::{collections::HashMap, sync::Arc, time::Duration};
 use tokio::sync::mpsc;
 
@@ -27,7 +26,7 @@ use slim_datapath::{
 };
 
 use tonic::{Status, async_trait};
-use tracing::{debug, error, info, trace, warn};
+use tracing::{debug, error, trace, warn};
 
 // this must be a number > 1
 const STREAM_BROADCAST: u32 = 50;
@@ -115,7 +114,7 @@ struct RtxTimerObserver {
 #[async_trait]
 impl timer::TimerObserver for RtxTimerObserver {
     async fn on_timeout(&self, timer_id: u32, timeouts: u32) {
-        info!("timeout number {} for rtx {}, retry", timeouts, timer_id);
+        trace!("timeout number {} for rtx {}, retry", timeouts, timer_id);
 
         // notify the process loop
         if self
@@ -129,7 +128,7 @@ impl timer::TimerObserver for RtxTimerObserver {
     }
 
     async fn on_failure(&self, timer_id: u32, timeouts: u32) {
-        info!(
+        trace!(
             "timeout number {} for rtx {}, stop retry",
             timeouts, timer_id
         );
@@ -146,7 +145,7 @@ impl timer::TimerObserver for RtxTimerObserver {
     }
 
     async fn on_stop(&self, timer_id: u32) {
-        info!("timer for rtx {} cancelled", timer_id);
+        trace!("timer for rtx {} cancelled", timer_id);
         // nothing to do
     }
 }
@@ -158,7 +157,7 @@ struct ProducerTimerObserver {
 #[async_trait]
 impl timer::TimerObserver for ProducerTimerObserver {
     async fn on_timeout(&self, _timer_id: u32, timeouts: u32) {
-        info!(
+        trace!(
             "timeout number {} for producer timer, send beacon",
             timeouts
         );
@@ -174,7 +173,7 @@ impl timer::TimerObserver for ProducerTimerObserver {
     }
 
     async fn on_stop(&self, _timer_id: u32) {
-        info!("producer timer cancelled");
+        trace!("producer timer cancelled");
         // nothing to do
     }
 }
@@ -216,7 +215,6 @@ where
 {
     common: Common<P, V, T>,
     tx: mpsc::Sender<Result<(Message, MessageDirection), Status>>,
-    cancellation_token: CancellationToken,
 }
 
 impl<P, V, T> Streaming<P, V, T>
@@ -251,7 +249,7 @@ where
             mls_enabled,
         );
 
-        let stream = Streaming { common, tx, cancellation_token: CancellationToken::new() };
+        let stream = Streaming { common, tx };
         stream.process_message(rx, session_direction);
         stream
     }
@@ -339,7 +337,6 @@ where
         let tx = self.common.tx();
         let source = self.common.source().clone();
         let id = self.common.id();
-        let token = self.cancellation_token.clone();
         tokio::spawn(async move {
             debug!("starting message processing on session {}", session_id);
 
@@ -378,13 +375,13 @@ where
                     next = rx.recv() => {
                         match next {
                             None => {
-                                info!("--------no more messages to process on session {}", session_id);
+                                debug!("no more messages to process on session {}", session_id);
                                 break;
                             }
                             Some(result) => {
                                 debug!("got a message in process message");
                                 if result.is_err() {
-                                    error!("-----------error receiving a message on session {}, drop it", session_id);
+                                    error!("error receiving a message on session {}, drop it", session_id);
                                     continue;
                                 }
                                 let (msg, direction) = result.unwrap();
@@ -473,13 +470,13 @@ where
                     next_rtx_timer = rtx_timer_rx.recv(), if !rtx_timer_rx_closed => {
                         match next_rtx_timer {
                             None => {
-                                info!("------------------no more rtx timers to process");
+                                debug!("no more rtx timers to process");
                                 // close the timer channel
                                 rtx_timer_rx_closed = true;
                             },
                             Some(result) => {
                                 if result.is_err() {
-                                    error!("-------------------------------error receiving an RTX timer, skip it");
+                                    error!("error receiving an RTX timer, skip it");
                                     continue;
                                 }
 
@@ -510,7 +507,7 @@ where
                     next_prod_timer = prod_timer_rx.recv(), if !prod_timer_rx_closed => {
                         match next_prod_timer {
                             None => {
-                                debug!("--------------------------no more prod timers to process");
+                                debug!("no more prod timers to process");
                                 // close the timer channel
                                 prod_timer_rx_closed = true;
                             },
@@ -542,15 +539,11 @@ where
                             },
                         }
                     }
-                    _ = token.cancelled() => {
-                        info!("------- shutting down streaming session");
-                        break;
-                    } 
                 }
             }
 
-            info!(
-                "------------------- stopping message processing on streaming session {}",
+            debug!(
+                "stopping message processing on streaming session {}",
                 session_id
             );
         });
@@ -981,11 +974,6 @@ where
             .send(Ok((message.message, direction)))
             .await
             .map_err(|e| SessionError::Processing(e.to_string()))
-    }
-
-    async fn stop_message_handler(&self) {
-        println!("-------------- stop");
-        self.cancellation_token.cancel();
     }
 }
 

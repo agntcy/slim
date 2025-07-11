@@ -9,7 +9,6 @@ use rand::Rng;
 use tokio::sync::RwLock as AsyncRwLock;
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::error::SendError;
-use tracing::info;
 use tracing::{debug, error, warn};
 
 use crate::errors::SessionError;
@@ -721,22 +720,9 @@ where
 
     /// Remove a session from the pool
     pub(crate) async fn remove_session(&self, id: Id) -> bool {
-        println!("------ in remove session");
         // get the write lock
         let mut pool = self.pool.write().await;
-        println!("------ in remove session 2");
         pool.remove(&id).is_some()
-        /*match pool.remove(&id) {
-            Some(s) => {
-                println!("------- call stop");
-                s.stop_message_handler().await;
-                true
-            }
-            None => {
-                println!("------- Don't stop me now!");
-                false
-            }
-        }*/
     }
 
     /// Handle a message and pass it to the corresponding session
@@ -885,14 +871,16 @@ where
                     .await?;
                 session.on_message(message, direction).await?;
             } else {
-                warn!("received Channel Leave Request message with unknown session id, drop the message");
+                warn!(
+                    "received Channel Leave Request message with unknown session id, drop the message"
+                );
                 return Err(SessionError::SessionUnknown(
                     session_type.as_str_name().to_string(),
                 ));
             }
             // remove the session
             self.remove_session(id).await;
-            return Ok(())
+            return Ok(());
         }
 
         if let Some(session) = self.pool.read().await.get(&id) {
@@ -903,7 +891,6 @@ where
                 .await?;
             return session.on_message(message, direction).await;
         }
-
 
         let new_session_id = match session_type {
             SessionHeaderType::Fnf
