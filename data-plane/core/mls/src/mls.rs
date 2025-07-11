@@ -179,7 +179,7 @@ where
     pub fn initialize(&mut self) -> Result<(), MlsError> {
         info!("Initializing MLS client for agent: {}", self.agent);
         let storage_path = self.get_storage_path();
-        debug!("Using storage path: {}", storage_path.display());
+        info!("Using storage path: {}", storage_path.display());
         std::fs::create_dir_all(&storage_path).map_err(MlsError::StorageDirectoryCreation)?;
 
         let token = self
@@ -391,6 +391,7 @@ where
         &mut self,
         new_credential: String,
     ) -> Result<Vec<u8>, MlsError> {
+        info!("Create credential rotation proposal");
         let group = self.group.as_mut().ok_or(MlsError::GroupNotExists)?;
 
         let credential_data = new_credential.as_bytes().to_vec();
@@ -407,7 +408,7 @@ where
             vec![],
         ))?;
 
-        info!("Created credential rotation proposal");
+        info!("Cedential rotation proposal created");
 
         let storage_path = self.get_storage_path();
         if let Some(stored) = self.stored_identity.as_mut() {
