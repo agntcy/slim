@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0](https://github.com/agntcy/slim/compare/slim-service-v0.4.2...slim-service-v0.5.0) - 2025-07-11
+
+### Added
+
+- *(proto)* introduce SessionType in message header ([#410](https://github.com/agntcy/slim/pull/410))
+- *(channel_endpoint)* add error handling ([#409](https://github.com/agntcy/slim/pull/409))
+- do no create session on discovery request ([#402](https://github.com/agntcy/slim/pull/402))
+- integrate MLS with auth ([#385](https://github.com/agntcy/slim/pull/385))
+- add mls message types in slim messages ([#386](https://github.com/agntcy/slim/pull/386))
+- push and verify identities in message headers ([#384](https://github.com/agntcy/slim/pull/384))
+- add auth support in sessions ([#382](https://github.com/agntcy/slim/pull/382))
+- channel creation in session layer ([#374](https://github.com/agntcy/slim/pull/374))
+- add the ability to drop messages from the interceptor ([#371](https://github.com/agntcy/slim/pull/371))
+- implement MLS ([#307](https://github.com/agntcy/slim/pull/307))
+- add identity into the SLIM message ([#342](https://github.com/agntcy/slim/pull/342))
+- *(data-plane)* upgrade to rust 1.87 ([#317](https://github.com/agntcy/slim/pull/317))
+
+### Fixed
+
+- *(auth)* make simple identity usable for groups ([#387](https://github.com/agntcy/slim/pull/387))
+
+### Other
+
+- *(session)* use parking_lot to sync access to MlsState ([#401](https://github.com/agntcy/slim/pull/401))
+- fix test channel endpoint ([#405](https://github.com/agntcy/slim/pull/405))
+- *(streaming)* remove lock from channel_endpoint ([#399](https://github.com/agntcy/slim/pull/399))
+
 ## [0.4.2](https://github.com/agntcy/slim/compare/slim-service-v0.4.1...slim-service-v0.4.2) - 2025-05-14
 
 ### Other

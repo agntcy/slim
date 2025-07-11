@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0](https://github.com/agntcy/slim/compare/slim-controller-v0.1.1...slim-controller-v0.2.0) - 2025-07-11
+
+### Added
+
+- *(proto)* introduce SessionType in message header ([#410](https://github.com/agntcy/slim/pull/410))
+- *(control-plane)* handle all configuration parameters when creating a new connection ([#360](https://github.com/agntcy/slim/pull/360))
+
 ## [0.1.1](https://github.com/agntcy/slim/compare/slim-controller-v0.1.0...slim-controller-v0.1.1) - 2025-05-14
 
 ### Other
