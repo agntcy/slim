@@ -42,8 +42,8 @@ impl TokenProvider for SimpleGroup {
                 "shared_secret is empty".to_string(),
             ))
         } else {
-            // Join the group and id to create a token
-            Ok(format!("{}:{}", self.id, self.shared_secret))
+            // Join the shared secret and id to create a token
+            Ok(format!("{}:{}", self.shared_secret, self.id))
         }
     }
 }
@@ -66,13 +66,13 @@ impl Verifier for SimpleGroup {
     {
         let token = token.into();
 
-        // Split the token into group and id
+        // Split the token into shared_secret and id
         let parts: Vec<&str> = token.split(':').collect();
         if parts.len() != 2 {
             return Err(AuthError::TokenInvalid("invalid token format".to_string()));
         }
 
-        if parts[1] == self.shared_secret {
+        if parts[0] == self.shared_secret {
             Ok(serde_json::from_str(r#"{"exp":0}"#).unwrap())
         } else {
             Err(AuthError::TokenInvalid(
