@@ -1,7 +1,6 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
-use bincode::config;
 use slim_auth::traits::{TokenProvider, Verifier};
 use std::{collections::HashMap, sync::Arc, time::Duration};
 use tokio::sync::mpsc;
@@ -352,6 +351,7 @@ where
                     let cm = ChannelModerator::new(
                         source.clone(),
                         session_config.channel_name.clone(),
+                        None,
                         id,
                         60,
                         Duration::from_secs(1),
@@ -364,6 +364,7 @@ where
                     let cp = ChannelParticipant::new(
                         source.clone(),
                         session_config.channel_name.clone(),
+                        None,
                         id,
                         mls,
                         tx.clone(),

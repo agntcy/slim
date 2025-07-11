@@ -35,6 +35,23 @@ pub struct FireAndForgetConfiguration {
     pub(crate) initiator: bool,
 }
 
+impl FireAndForgetConfiguration {
+    pub fn new(
+        timeout: Option<Duration>,
+        max_retries: Option<u32>,
+        sticky: bool,
+        mls_enabled: bool,
+    ) -> Self {
+        FireAndForgetConfiguration {
+            timeout,
+            max_retries,
+            sticky,
+            mls_enabled,
+            initiator: true,
+        }
+    }
+}
+
 impl SessionConfigTrait for FireAndForgetConfiguration {
     fn replace(&mut self, session_config: &SessionConfig) -> Result<(), SessionError> {
         match session_config {
@@ -294,38 +311,22 @@ where
         &mut self,
         message: SessionMessage,
     ) -> Result<(), SessionError> {
-        // Received a sticky session discovery message! Let's reply back with a
-        // sticky session discovery reply and set the sticky name!
-
+        // Save source and incoming connection
         let source = message.message.get_source();
+        let incoming_conn = message.message.get_incoming_conn();
 
-        debug!(
-            "received sticky session discovery from {} and incoming conn {}",
-            source,
-            message.message.get_incoming_conn()
-        );
+        // pass the message to the channel endpoint
+        self.state
+            .channel_endpoint
+            .on_message(message.message)
+            .await?;
 
-        let mut sticky_session_reply = Message::new_publish(
-            &self.state.source,
-            source.agent_type(),
-            Some(source.agent_id()),
-            Some(SlimHeaderFlags::default().with_forward_to(message.message.get_incoming_conn())),
-            "sticky_session_discovery_reply",
-            vec![],
-        );
-
-        // Set the session header type to FnfDiscoveryReply
-        let session_header = sticky_session_reply.get_session_header_mut();
-        session_header.set_header_type(SessionHeaderType::FnfDiscoveryReply);
-
-        // Let's also make this session sticky
-        self.state.sticky_name = Some(source.clone());
-        self.state.sticky_connection = Some(message.message.get_incoming_conn());
+        // No error - this session is sticky
+        self.state.sticky_name = Some(source);
+        self.state.sticky_connection = Some(incoming_conn);
         self.state.sticky_session_status = StickySessionStatus::Established;
 
-        // Send the sticky session discovery reply to the source
-        self.send_message(sticky_session_reply).await?;
-
+        // All good
         Ok(())
     }
 
@@ -335,6 +336,7 @@ where
     ) -> Result<(), SessionError> {
         // Check if the sticky session is established
         let source = message.message.get_source();
+        let incoming_conn = message.message.get_incoming_conn();
         let status = self.state.sticky_session_status.clone();
 
         debug!(
@@ -343,13 +345,19 @@ where
             message.message.get_incoming_conn()
         );
 
+        // send message to channel endpoint
+        self.state
+            .channel_endpoint
+            .on_message(message.message)
+            .await?;
+
         match status {
             StickySessionStatus::Discovering => {
                 debug!("sticky session discovery established with {}", source);
 
                 // If we are still discovering, set the sticky name
-                self.state.sticky_name = Some(source.clone());
-                self.state.sticky_connection = Some(message.message.get_incoming_conn());
+                self.state.sticky_name = Some(source);
+                self.state.sticky_connection = Some(incoming_conn);
                 self.state.sticky_session_status = StickySessionStatus::Established;
 
                 // Collect messages first to avoid multiple mutable borrows
@@ -561,10 +569,24 @@ where
                 // Remove the timer and drop the message
                 self.stop_and_remove_timer(message_id)
             }
-            SessionHeaderType::ChannelDiscoveryRequest
-            | SessionHeaderType::ChannelDiscoveryReply => {
+            SessionHeaderType::ChannelDiscoveryReply => {
                 // Handle sticky session discovery
-                self.state.channel_endpoint.on_message(message.message)
+                self.handle_sticky_session_discovery(message).await
+            }
+            SessionHeaderType::ChannelJoinReply => {
+                // Handle sticky session discovery reply
+                self.handle_sticky_session_discovery_reply(message).await
+            }
+            SessionHeaderType::ChannelLeaveRequest
+            | SessionHeaderType::ChannelLeaveReply
+            | SessionHeaderType::ChannelMlsWelcome
+            | SessionHeaderType::ChannelMlsCommit
+            | SessionHeaderType::ChannelMlsAck => {
+                // Handle mls stuff
+                self.state
+                    .channel_endpoint
+                    .on_message(message.message)
+                    .await
             }
             _ => {
                 // Unexpected header
@@ -656,6 +678,7 @@ where
                 let cm = ChannelModerator::new(
                     common.source().clone(),
                     common.source().agent_type().clone(),
+                    common.source().agent_id_option(),
                     id,
                     60,
                     Duration::from_secs(1),
@@ -668,6 +691,7 @@ where
                 let cp = ChannelParticipant::new(
                     common.source().clone(),
                     common.source().agent_type().clone(),
+                    common.source().agent_id_option(),
                     id,
                     mls,
                     tx_slim_app.clone(),
@@ -975,6 +999,7 @@ mod tests {
                 max_retries: Some(5),
                 sticky: false,
                 mls_enabled: false,
+                initiator: true,
             },
             SessionDirection::Bidirectional,
             source.clone(),
@@ -1050,6 +1075,7 @@ mod tests {
                 max_retries: Some(5),
                 sticky: false,
                 mls_enabled: false,
+                initiator: true,
             },
             SessionDirection::Bidirectional,
             local.clone(),
@@ -1207,6 +1233,7 @@ mod tests {
                 max_retries: Some(5),
                 sticky: true,
                 mls_enabled: false,
+                initiator: true,
             },
             SessionDirection::Bidirectional,
             local.clone(),

@@ -879,12 +879,12 @@ where
                     .await?
             }
             SessionHeaderType::ChannelJoinRequest => {
+                // Check what kind of session it is
+                if message.message.get_slim_header()
+
                 let mut conf = self.default_stream_conf.read().clone();
                 conf.direction = SessionDirection::Bidirectional;
-                let mut mls_enable = false;
-                if message.message.contains_metadata(METADATA_MLS_ENABLED) {
-                    mls_enable = true;
-                }
+                let mls_enable = message.message.contains_metadata(METADATA_MLS_ENABLED);
 
                 conf.mls_enabled = mls_enable;
                 self.create_session(session::SessionConfig::Streaming(conf), Some(id))

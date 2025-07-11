@@ -190,9 +190,9 @@ async fn main() {
                 false,
                 Some(10),
                 Some(Duration::from_millis(1000)),
+                false,
             )),
             None,
-            false,
         )
         .await;
     if res.is_err() {
