@@ -16,7 +16,7 @@ use crate::interceptor::{SessionInterceptor, SessionInterceptorProvider};
 use crate::interceptor_mls::MlsInterceptor;
 use crate::request_response::{RequestResponse, RequestResponseConfiguration};
 use crate::streaming::{Streaming, StreamingConfiguration};
-use slim_datapath::api::proto::pubsub::v1::{Message, SessionHeaderType};
+use slim_datapath::api::{ProtoMessage as Message, ProtoSessionMessageType};
 use slim_datapath::messages::encoder::Agent;
 
 /// Session ID
@@ -96,7 +96,7 @@ pub struct Info {
     /// The message nonce used to identify the message
     pub message_id: Option<u32>,
     /// The Message Type
-    pub session_header_type: SessionHeaderType,
+    pub session_message_type: ProtoSessionMessageType,
     /// The identifier of the agent that sent the message
     pub message_source: Option<Agent>,
     /// The input connection id
@@ -109,7 +109,7 @@ impl Info {
         Info {
             id,
             message_id: None,
-            session_header_type: SessionHeaderType::Unspecified,
+            session_message_type: ProtoSessionMessageType::Unspecified,
             message_source: None,
             input_connection: None,
         }
@@ -119,8 +119,8 @@ impl Info {
         self.message_id = Some(message_id);
     }
 
-    pub fn set_session_header_type(&mut self, session_header_type: SessionHeaderType) {
-        self.session_header_type = session_header_type;
+    pub fn set_session_header_type(&mut self, session_header_type: ProtoSessionMessageType) {
+        self.session_message_type = session_header_type;
     }
 
     pub fn set_message_source(&mut self, message_source: Agent) {
@@ -135,8 +135,8 @@ impl Info {
         self.message_id
     }
 
-    pub fn get_session_header_type(&self) -> SessionHeaderType {
-        self.session_header_type
+    pub fn get_session_message_type(&self) -> ProtoSessionMessageType {
+        self.session_message_type
     }
 
     pub fn get_message_source(&self) -> Option<Agent> {
@@ -157,13 +157,12 @@ impl From<&Message> for Info {
         let message_id = session_header.message_id;
         let message_source = message.get_source();
         let input_connection = slim_header.incoming_conn;
-        let session_header_type = session_header.header_type;
+        let session_message_type = session_header.session_message_type();
 
         Info {
             id,
             message_id: Some(message_id),
-            session_header_type: SessionHeaderType::try_from(session_header_type)
-                .unwrap_or(SessionHeaderType::Unspecified),
+            session_message_type,
             message_source: Some(message_source),
             input_connection,
         }

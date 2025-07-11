@@ -24,9 +24,9 @@ use crate::streaming::{self, StreamingConfiguration};
 use crate::{ServiceError, fire_and_forget, session};
 use slim_auth::traits::{TokenProvider, Verifier};
 use slim_datapath::Status;
-use slim_datapath::api::proto::pubsub::v1::Message;
-use slim_datapath::api::proto::pubsub::v1::SessionHeaderType;
+use slim_datapath::api::ProtoMessage as Message;
 use slim_datapath::api::{MessageType, SessionHeader, SlimHeader};
+use slim_datapath::api::{ProtoSessionMessageType, ProtoSessionType};
 use slim_datapath::messages::AgentType;
 use slim_datapath::messages::encoder::Agent;
 use slim_datapath::messages::utils::SlimHeaderFlags;
@@ -345,7 +345,8 @@ where
         ));
 
         let session_header = Some(SessionHeader::new(
-            SessionHeaderType::ChannelDiscoveryRequest.into(),
+            ProtoSessionType::SessionUnknown.into(),
+            ProtoSessionMessageType::ChannelDiscoveryRequest.into(),
             session_info.id,
             rand::random::<u32>(),
         ));
@@ -762,11 +763,11 @@ where
     async fn handle_message_from_slim_without_session(
         &self,
         message: &Message,
-        session_type: SessionHeaderType,
+        session_type: ProtoSessionMessageType,
         session_id: u32,
     ) -> Result<bool, SessionError> {
         match session_type {
-            SessionHeaderType::ChannelDiscoveryRequest => {
+            ProtoSessionMessageType::ChannelDiscoveryRequest => {
                 // reply direcetly without creating any new Session
                 let destination = message.get_source();
                 let msg_id = message.get_id();
@@ -779,7 +780,8 @@ where
                 ));
 
                 let session_header = Some(SessionHeader::new(
-                    SessionHeaderType::ChannelDiscoveryReply.into(),
+                    ProtoSessionType::SessionUnknown.into(),
+                    ProtoSessionMessageType::ChannelDiscoveryReply.into(),
                     session_id,
                     msg_id,
                 ));
@@ -810,15 +812,7 @@ where
             let header = message.message.get_session_header();
 
             // get the session type from the header
-            let session_type = match SessionHeaderType::try_from(header.header_type) {
-                Ok(session_type) => session_type,
-                Err(e) => {
-                    return Err(SessionError::ValidationError(format!(
-                        "session type is not valid: {}",
-                        e
-                    )));
-                }
-            };
+            let session_type = header.session_message_type();
 
             // get the session ID
             let id = header.session_id;
@@ -856,7 +850,7 @@ where
         }
 
         let new_session_id = match session_type {
-            SessionHeaderType::Fnf | SessionHeaderType::FnfReliable => {
+            ProtoSessionMessageType::FnfMsg | ProtoSessionMessageType::FnfReliable => {
                 let mut conf = self.default_ff_conf.read().clone();
 
                 // Set that the session was initiated by another agent
@@ -866,22 +860,19 @@ where
                 self.create_session(SessionConfig::FireAndForget(conf), Some(id))
                     .await?
             }
-            SessionHeaderType::Request => {
+            ProtoSessionMessageType::Request => {
                 let conf = self.default_rr_conf.read().clone();
                 // TODO check if MLS is on (it should be in the received packet). Put false for the moment
                 self.create_session(SessionConfig::RequestResponse(conf), Some(id))
                     .await?
             }
-            SessionHeaderType::Stream | SessionHeaderType::BeaconStream => {
+            ProtoSessionMessageType::StreamMsg | ProtoSessionMessageType::BeaconStream => {
                 let conf = self.default_stream_conf.read().clone();
                 // TODO check if MLS is on (it should be in the received packet). Put false for the moment
                 self.create_session(session::SessionConfig::Streaming(conf), Some(id))
                     .await?
             }
-            SessionHeaderType::ChannelJoinRequest => {
-                // Check what kind of session it is
-                if message.message.get_slim_header()
-
+            ProtoSessionMessageType::ChannelJoinRequest => {
                 let mut conf = self.default_stream_conf.read().clone();
                 conf.direction = SessionDirection::Bidirectional;
                 let mls_enable = message.message.contains_metadata(METADATA_MLS_ENABLED);
@@ -890,24 +881,24 @@ where
                 self.create_session(session::SessionConfig::Streaming(conf), Some(id))
                     .await?
             }
-            SessionHeaderType::ChannelDiscoveryRequest
-            | SessionHeaderType::ChannelDiscoveryReply
-            | SessionHeaderType::ChannelJoinReply
-            | SessionHeaderType::ChannelMlsCommit
-            | SessionHeaderType::ChannelMlsWelcome
-            | SessionHeaderType::ChannelMlsAck => {
+            ProtoSessionMessageType::ChannelDiscoveryRequest
+            | ProtoSessionMessageType::ChannelDiscoveryReply
+            | ProtoSessionMessageType::ChannelJoinReply
+            | ProtoSessionMessageType::ChannelMlsCommit
+            | ProtoSessionMessageType::ChannelMlsWelcome
+            | ProtoSessionMessageType::ChannelMlsAck => {
                 warn!("received channel message with unknown session id");
                 return Err(SessionError::SessionUnknown(
                     session_type.as_str_name().to_string(),
                 ));
             }
-            SessionHeaderType::PubSub => {
+            ProtoSessionMessageType::PubSubMsg => {
                 warn!("received pub/sub message with unknown session id");
                 return Err(SessionError::SessionUnknown(
                     session_type.as_str_name().to_string(),
                 ));
             }
-            SessionHeaderType::BeaconPubSub => {
+            ProtoSessionMessageType::BeaconPubSub => {
                 warn!("received beacon pub/sub message with unknown session id");
                 return Err(SessionError::SessionUnknown(
                     session_type.as_str_name().to_string(),
@@ -1173,7 +1164,8 @@ mod tests {
         // set the session id in the message
         let header = message.get_session_header_mut();
         header.session_id = 1;
-        header.header_type = i32::from(SessionHeaderType::Fnf);
+        header.set_session_type(ProtoSessionType::SessionFireForget);
+        header.set_session_message_type(ProtoSessionMessageType::FnfMsg);
 
         let res = app
             .session_layer
@@ -1249,7 +1241,8 @@ mod tests {
         // set the session id in the message
         let header = message.get_session_header_mut();
         header.session_id = 1;
-        header.header_type = i32::from(SessionHeaderType::Fnf);
+        header.set_session_type(ProtoSessionType::SessionFireForget);
+        header.set_session_message_type(ProtoSessionMessageType::FnfMsg);
 
         let res = app
             .session_layer

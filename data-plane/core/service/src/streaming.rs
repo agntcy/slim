@@ -1,9 +1,11 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
-use slim_auth::traits::{TokenProvider, Verifier};
 use std::{collections::HashMap, sync::Arc, time::Duration};
+
+use async_trait::async_trait;
 use tokio::sync::mpsc;
+use tracing::{debug, error, trace, warn};
 
 use crate::{
     MessageDirection, SessionMessage,
@@ -18,15 +20,15 @@ use crate::{
 };
 use producer_buffer::ProducerBuffer;
 use receiver_buffer::ReceiverBuffer;
-
-use slim_datapath::messages::{AgentType, utils::SlimHeaderFlags};
+use slim_auth::traits::{TokenProvider, Verifier};
 use slim_datapath::{
-    api::proto::pubsub::v1::{Message, SessionHeader, SessionHeaderType, SlimHeader},
-    messages::Agent,
+    Status,
+    api::{
+        ProtoMessage as Message, ProtoSessionMessageType, ProtoSessionType, SessionHeader,
+        SlimHeader,
+    },
+    messages::{Agent, AgentType, utils::SlimHeaderFlags},
 };
-
-use tonic::{Status, async_trait};
-use tracing::{debug, error, trace, warn};
 
 // this must be a number > 1
 const STREAM_BROADCAST: u32 = 50;
@@ -353,6 +355,7 @@ where
                         session_config.channel_name.clone(),
                         None,
                         id,
+                        ProtoSessionType::SessionPubSub,
                         60,
                         Duration::from_secs(1),
                         mls,
@@ -366,6 +369,7 @@ where
                         session_config.channel_name.clone(),
                         None,
                         id,
+                        ProtoSessionType::SessionPubSub,
                         mls,
                         tx.clone(),
                     );
@@ -395,8 +399,8 @@ where
                                                 trace!("received message from the gataway on producer session {}", session_id);
                                                 // received a message from the SLIM
                                                 // this must be an RTX message otherwise drop it
-                                                match msg.get_session_header().header_type() {
-                                                    SessionHeaderType::RtxRequest => {}
+                                                match msg.get_session_header().session_message_type() {
+                                                    ProtoSessionMessageType::RtxRequest => {}
                                                     _ => {
                                                         error!("received invalid packet type on producer session {}: not RTX request", session_id);
                                                         continue;
@@ -421,16 +425,16 @@ where
                                                 // in this case the message can be a stream message to send to the app, a rtx request,
                                                 // or a channel control message to handle in the channel endpoint
                                                 trace!("received message from the gataway on bidirectional session {}", session_id);
-                                                match msg.get_session_header().header_type() {
-                                                    SessionHeaderType::ChannelDiscoveryRequest |
-                                                    SessionHeaderType::ChannelDiscoveryReply |
-                                                    SessionHeaderType::ChannelJoinRequest |
-                                                    SessionHeaderType::ChannelJoinReply |
-                                                    SessionHeaderType::ChannelLeaveRequest |
-                                                    SessionHeaderType::ChannelLeaveReply |
-                                                    SessionHeaderType::ChannelMlsWelcome |
-                                                    SessionHeaderType::ChannelMlsCommit |
-                                                    SessionHeaderType::ChannelMlsAck => {
+                                                match msg.get_session_header().session_message_type() {
+                                                    ProtoSessionMessageType::ChannelDiscoveryRequest |
+                                                    ProtoSessionMessageType::ChannelDiscoveryReply |
+                                                    ProtoSessionMessageType::ChannelJoinRequest |
+                                                    ProtoSessionMessageType::ChannelJoinReply |
+                                                    ProtoSessionMessageType::ChannelLeaveRequest |
+                                                    ProtoSessionMessageType::ChannelLeaveReply |
+                                                    ProtoSessionMessageType::ChannelMlsWelcome |
+                                                    ProtoSessionMessageType::ChannelMlsCommit |
+                                                    ProtoSessionMessageType::ChannelMlsAck => {
                                                         match channel_endpoint.on_message(msg).await {
                                                             Ok(_) => {},
                                                             Err(e) => {
@@ -438,7 +442,7 @@ where
                                                             },
                                                         }
                                                     }
-                                                    SessionHeaderType::RtxRequest => {
+                                                    ProtoSessionMessageType::RtxRequest => {
                                                         // handle RTX request
                                                         process_incoming_rtx_request(msg, session_id, &state.producer, &source, &tx).await;
                                                     }
@@ -449,9 +453,9 @@ where
                                             }
                                             MessageDirection::South => {
                                                 // received a message from the APP
-                                                match msg.get_session_header().header_type() {
-                                                    SessionHeaderType::ChannelDiscoveryRequest |
-                                                    SessionHeaderType::ChannelLeaveRequest => {
+                                                match msg.get_session_header().session_message_type() {
+                                                    ProtoSessionMessageType::ChannelDiscoveryRequest |
+                                                    ProtoSessionMessageType::ChannelLeaveRequest => {
                                                         match channel_endpoint.on_message(msg).await {
                                                             Ok(_) => {},
                                                             Err(e) => {
@@ -521,13 +525,13 @@ where
                                             let last_msg_id = producer.next_id - 1;
                                             debug!("received producer timer, last packet = {}", last_msg_id);
 
-                                            send_beacon_msg(&source, producer.buffer.get_destination_name(), SessionHeaderType::BeaconStream, last_msg_id, session_id, &tx).await;
+                                            send_beacon_msg(&source, producer.buffer.get_destination_name(), ProtoSessionMessageType::BeaconStream, last_msg_id, session_id, &tx).await;
                                         }
                                         Endpoint::Bidirectional(state) => {
                                             let last_msg_id = state.producer.next_id - 1;
                                             debug!("received producer timer, last packet = {}", last_msg_id);
 
-                                            send_beacon_msg(&source, state.producer.buffer.get_destination_name(), SessionHeaderType::BeaconPubSub, last_msg_id, session_id, &tx).await;
+                                            send_beacon_msg(&source, state.producer.buffer.get_destination_name(), ProtoSessionMessageType::BeaconPubSub, last_msg_id, session_id, &tx).await;
                                         }
                                         _ => {
                                             error!("received producer timer on a non producer buffer");
@@ -600,7 +604,8 @@ async fn process_incoming_rtx_request<T>(
             ));
 
             let session_header = Some(SessionHeader::new(
-                SessionHeaderType::RtxReply.into(),
+                ProtoSessionType::SessionStreaming.into(),
+                ProtoSessionMessageType::RtxReply.into(),
                 session_id,
                 msg_rtx_id,
             ));
@@ -631,7 +636,8 @@ async fn process_incoming_rtx_request<T>(
             ));
 
             let session_header = Some(SessionHeader::new(
-                SessionHeaderType::RtxReply.into(),
+                ProtoSessionType::SessionStreaming.into(),
+                ProtoSessionMessageType::RtxReply.into(),
                 session_id,
                 msg_rtx_id,
             ));
@@ -659,9 +665,11 @@ async fn process_message_from_app<T>(
     trace!("received message from the app on session {}", session_id);
 
     if is_bidirectional {
-        msg.set_header_type(SessionHeaderType::PubSub);
+        msg.set_session_type(ProtoSessionType::SessionPubSub);
+        msg.set_session_message_type(ProtoSessionMessageType::PubSubMsg);
     } else {
-        msg.set_header_type(SessionHeaderType::Stream);
+        msg.set_session_type(ProtoSessionType::SessionStreaming);
+        msg.set_session_message_type(ProtoSessionMessageType::StreamMsg);
     }
     msg.set_message_id(producer.next_id);
     msg.set_fanout(STREAM_BROADCAST);
@@ -736,17 +744,17 @@ async fn process_message_from_slim<T>(
 
     let mut recv = Vec::new();
     let mut rtx = Vec::new();
-    let header_type = msg.get_header_type();
+    let header_type = msg.get_session_message_type();
     let msg_id = msg.get_id();
 
     match header_type {
-        SessionHeaderType::Stream => {
+        ProtoSessionMessageType::StreamMsg => {
             (recv, rtx) = receiver.buffer.on_received_message(msg);
         }
-        SessionHeaderType::PubSub => {
+        ProtoSessionMessageType::PubSubMsg => {
             (recv, rtx) = receiver.buffer.on_received_message(msg);
         }
-        SessionHeaderType::RtxReply => {
+        ProtoSessionMessageType::RtxReply => {
             if msg.get_error().is_some() && msg.get_error().unwrap() {
                 recv = receiver.buffer.on_lost_message(msg_id);
             } else {
@@ -767,11 +775,11 @@ async fn process_message_from_slim<T>(
                 }
             }
         }
-        SessionHeaderType::BeaconStream => {
+        ProtoSessionMessageType::BeaconStream => {
             debug!("received stream beacon for message {}", msg_id);
             rtx = receiver.buffer.on_beacon_message(msg_id);
         }
-        SessionHeaderType::BeaconPubSub => {
+        ProtoSessionMessageType::BeaconPubSub => {
             debug!("received pubsub beacon for message {}", msg_id);
             rtx = receiver.buffer.on_beacon_message(msg_id);
         }
@@ -805,7 +813,8 @@ async fn process_message_from_slim<T>(
         ));
 
         let session_header = Some(SessionHeader::new(
-            SessionHeaderType::RtxRequest.into(),
+            ProtoSessionType::SessionStreaming.into(),
+            ProtoSessionMessageType::RtxRequest.into(),
             session_id,
             r,
         ));
@@ -908,7 +917,7 @@ async fn handle_rtx_failure<T>(
 async fn send_beacon_msg<T>(
     source: &Agent,
     topic: &AgentType,
-    beacon_type: SessionHeaderType,
+    beacon_type: ProtoSessionMessageType,
     last_msg_id: u32,
     session_id: u32,
     tx: &T,
@@ -923,6 +932,7 @@ async fn send_beacon_msg<T>(
     ));
 
     let session_header = Some(SessionHeader::new(
+        ProtoSessionType::SessionStreaming.into(),
         beacon_type.into(),
         session_id,
         last_msg_id,
@@ -1165,7 +1175,8 @@ mod tests {
 
         // set session header type for test check
         let mut expected_msg = message.clone();
-        expected_msg.set_header_type(SessionHeaderType::Stream);
+        expected_msg.set_session_message_type(ProtoSessionMessageType::StreamMsg);
+        expected_msg.set_session_type(ProtoSessionType::SessionStreaming);
         expected_msg.set_fanout(STREAM_BROADCAST);
 
         let session_msg = SessionMessage::new(message.clone(), Info::new(0));
@@ -1231,7 +1242,7 @@ mod tests {
 
         // set the session type
         let header = message.get_session_header_mut();
-        header.header_type = SessionHeaderType::Stream.into();
+        header.set_session_message_type(ProtoSessionMessageType::StreamMsg);
 
         let session_msg: SessionMessage = SessionMessage::new(message.clone(), Info::new(0));
 
@@ -1261,8 +1272,8 @@ mod tests {
             assert_eq!(rtx_header.session_id, 0);
             assert_eq!(rtx_header.message_id, 1);
             assert_eq!(
-                rtx_header.header_type,
-                i32::from(SessionHeaderType::RtxRequest)
+                rtx_header.session_message_type(),
+                ProtoSessionMessageType::RtxRequest,
             );
         }
 
@@ -1332,7 +1343,10 @@ mod tests {
             let msg_header = msg.get_session_header();
             assert_eq!(msg_header.session_id, 120);
             assert_eq!(msg_header.message_id, i);
-            assert_eq!(msg_header.header_type, i32::from(SessionHeaderType::Stream));
+            assert_eq!(
+                msg_header.session_message_type(),
+                ProtoSessionMessageType::StreamMsg
+            );
         }
 
         let slim_header = Some(SlimHeader::new(
@@ -1347,7 +1361,8 @@ mod tests {
         ));
 
         let session_header = Some(SessionHeader::new(
-            SessionHeaderType::RtxRequest.into(),
+            ProtoSessionType::SessionStreaming.into(),
+            ProtoSessionMessageType::RtxRequest.into(),
             1,
             2,
         ));
@@ -1369,8 +1384,8 @@ mod tests {
         assert_eq!(msg_header.session_id, 120);
         assert_eq!(msg_header.message_id, 2);
         assert_eq!(
-            msg_header.header_type,
-            i32::from(SessionHeaderType::RtxReply)
+            msg_header.session_message_type(),
+            ProtoSessionMessageType::RtxReply
         );
         assert_eq!(msg.get_payload().unwrap().blob, vec![0x1, 0x2, 0x3, 0x4]);
     }
@@ -1455,7 +1470,10 @@ mod tests {
             let msg_header = msg.get_session_header();
             assert_eq!(msg_header.session_id, 0);
             assert_eq!(msg_header.message_id, i);
-            assert_eq!(msg_header.header_type, i32::from(SessionHeaderType::Stream));
+            assert_eq!(
+                msg_header.session_message_type(),
+                ProtoSessionMessageType::StreamMsg
+            );
 
             // the receiver should detect a loss for packet 1
             if i != 1 {
@@ -1474,7 +1492,10 @@ mod tests {
         let msg_header = msg.message.get_session_header();
         assert_eq!(msg_header.session_id, 0);
         assert_eq!(msg_header.message_id, 0);
-        assert_eq!(msg_header.header_type, i32::from(SessionHeaderType::Stream));
+        assert_eq!(
+            msg_header.session_message_type(),
+            ProtoSessionMessageType::StreamMsg
+        );
         assert_eq!(
             msg.message.get_source(),
             Agent::from_strings("cisco", "default", "sender", 0)
@@ -1493,8 +1514,8 @@ mod tests {
         assert_eq!(msg_header.session_id, 0);
         assert_eq!(msg_header.message_id, 1);
         assert_eq!(
-            msg_header.header_type,
-            i32::from(SessionHeaderType::RtxRequest)
+            msg_header.session_message_type(),
+            ProtoSessionMessageType::RtxRequest,
         );
         assert_eq!(
             msg.get_source(),
@@ -1513,8 +1534,8 @@ mod tests {
         assert_eq!(msg_header.session_id, 0);
         assert_eq!(msg_header.message_id, 1);
         assert_eq!(
-            msg_header.header_type,
-            i32::from(SessionHeaderType::RtxRequest)
+            msg_header.session_message_type(),
+            ProtoSessionMessageType::RtxRequest
         );
         assert_eq!(
             msg.get_source(),
@@ -1543,8 +1564,8 @@ mod tests {
         assert_eq!(msg_header.session_id, 0);
         assert_eq!(msg_header.message_id, 1);
         assert_eq!(
-            msg_header.header_type,
-            i32::from(SessionHeaderType::RtxReply)
+            msg_header.session_message_type(),
+            ProtoSessionMessageType::RtxReply
         );
         assert_eq!(
             msg.get_source(),
@@ -1572,8 +1593,8 @@ mod tests {
         assert_eq!(msg_header.session_id, 0);
         assert_eq!(msg_header.message_id, 1);
         assert_eq!(
-            msg_header.header_type,
-            i32::from(SessionHeaderType::RtxReply)
+            msg_header.session_message_type(),
+            ProtoSessionMessageType::RtxReply,
         );
         assert_eq!(
             msg.message.get_source(),
@@ -1591,7 +1612,10 @@ mod tests {
         let msg_header = msg.message.get_session_header();
         assert_eq!(msg_header.session_id, 0);
         assert_eq!(msg_header.message_id, 2);
-        assert_eq!(msg_header.header_type, i32::from(SessionHeaderType::Stream));
+        assert_eq!(
+            msg_header.session_message_type(),
+            ProtoSessionMessageType::StreamMsg
+        );
         assert_eq!(
             msg.message.get_source(),
             Agent::from_strings("cisco", "default", "sender", 0)

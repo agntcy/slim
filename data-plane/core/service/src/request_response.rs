@@ -15,7 +15,7 @@ use crate::session::{
 };
 use crate::session::{MessageHandler, SessionConfig, SessionTransmitter};
 use crate::{SessionMessage, timer};
-use slim_datapath::api::proto::pubsub::v1::SessionHeaderType;
+use slim_datapath::api::{ProtoSessionMessageType, ProtoSessionType};
 use slim_datapath::messages::encoder::Agent;
 
 /// Configuration for the Request Response session
@@ -266,8 +266,8 @@ where
         // clone tx
         match direction {
             MessageDirection::North => {
-                match message.info.session_header_type {
-                    SessionHeaderType::Reply => {
+                match message.info.session_message_type {
+                    ProtoSessionMessageType::Reply => {
                         // this is a reply - remove the timer
                         let message_id = session_header.message_id;
                         match self.internal.timers.write().remove(&message_id) {
@@ -283,14 +283,14 @@ where
                             }
                         }
                     }
-                    SessionHeaderType::Request => {
+                    ProtoSessionMessageType::Request => {
                         // this is a request - set the session_type of the session
                         // info to reply to allow the app to reply using this session info
-                        message.info.session_header_type = SessionHeaderType::Reply;
+                        message.info.session_message_type = ProtoSessionMessageType::Reply;
                     }
                     _ => Err(SessionError::AppTransmission(format!(
                         "request/reply session: unsupported session type: {:?}",
-                        message.info.session_header_type
+                        message.info.session_message_type
                     )))?,
                 }
 
@@ -307,13 +307,14 @@ where
                 session_header.session_id = self.internal.common.id();
                 message.info.id = self.internal.common.id();
 
-                match message.info.session_header_type {
-                    SessionHeaderType::Reply => {
+                match message.info.session_message_type {
+                    ProtoSessionMessageType::Reply => {
                         // this is a reply - make sure the message_id matches the request
                         match message.info.message_id {
                             Some(message_id) => {
                                 session_header.message_id = message_id;
-                                session_header.header_type = i32::from(SessionHeaderType::Reply);
+                                session_header
+                                    .set_session_message_type(ProtoSessionMessageType::Reply);
 
                                 self.internal
                                     .common
@@ -333,7 +334,8 @@ where
                         // In any other case, we are sending a request
                         // set the message id to something random
                         session_header.set_message_id(rand::random::<u32>());
-                        session_header.set_header_type(SessionHeaderType::Request);
+                        session_header.set_session_message_type(ProtoSessionMessageType::Request);
+                        session_header.set_session_type(ProtoSessionType::SessionRequestReply);
 
                         message.info.set_message_id(session_header.message_id);
 
@@ -422,7 +424,7 @@ mod tests {
 
         // set the session type to request
         let header = msg.get_session_header_mut();
-        header.header_type = i32::from(SessionHeaderType::Request);
+        header.set_session_message_type(ProtoSessionMessageType::Request);
 
         // set the session id in the message
         header.session_id = 1;
