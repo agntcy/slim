@@ -11,7 +11,7 @@ use crate::{
     session::{AppChannelSender, SessionTransmitter, SlimChannelSender},
 };
 use slim_datapath::Status;
-use slim_datapath::api::proto::pubsub::v1::Message;
+use slim_datapath::api::ProtoMessage as Message;
 
 #[derive(Clone)]
 pub(crate) struct MockTransmitter {

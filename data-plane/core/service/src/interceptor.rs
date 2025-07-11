@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use slim_auth::traits::StandardClaims;
 use slim_auth::traits::{TokenProvider, Verifier};
-use slim_datapath::api::proto::pubsub::v1::Message;
+use slim_datapath::api::ProtoMessage as Message;
 use slim_datapath::messages::utils::SLIM_IDENTITY;
 
 use crate::errors::SessionError;
