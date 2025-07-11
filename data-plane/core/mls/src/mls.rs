@@ -189,8 +189,7 @@ where
 
         let stored_identity = if StoredIdentity::exists(&storage_path) {
             debug!("Loading existing identity from file");
-            let stored = StoredIdentity::load_from_storage(&storage_path)?;
-            stored
+            StoredIdentity::load_from_storage(&storage_path)?
         } else {
             info!("Creating new identity for agent");
             let (private_key, public_key) = Self::generate_key_pair()?;
