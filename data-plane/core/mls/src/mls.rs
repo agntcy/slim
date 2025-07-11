@@ -507,4 +507,56 @@ mod tests {
 
         Ok(())
     }
+
+    #[tokio::test]
+    async fn test_shared_secret_rotation_same_identity() -> Result<(), Box<dyn std::error::Error>> {
+        let alice_agent =
+            slim_datapath::messages::Agent::from_strings("org", "default", "alice", 0);
+        let bob_agent = slim_datapath::messages::Agent::from_strings("org", "default", "bob", 1);
+
+        let mut alice = Mls::new(
+            alice_agent.clone(),
+            SimpleGroup::new("alice", "secret_v1"),
+            SimpleGroup::new("alice", "secret_v1"),
+        );
+        alice.set_storage_path("/tmp/mls_test_secret_rotation_alice");
+        let mut bob = Mls::new(
+            bob_agent.clone(),
+            SimpleGroup::new("bob", "secret_v1"),
+            SimpleGroup::new("bob", "secret_v1"),
+        );
+        bob.set_storage_path("/tmp/mls_test_secret_rotation_bob");
+
+        alice.initialize()?;
+        bob.initialize()?;
+        let _group_id = alice.create_group()?;
+
+        let bob_key_package = bob.generate_key_package()?;
+        let (_, welcome_message) = alice.add_member(&bob_key_package)?;
+        let _bob_group_id = bob.process_welcome(&welcome_message)?;
+
+        let message1 = b"Message with secret_v1";
+        let encrypted1 = alice.encrypt_message(message1)?;
+        let decrypted1 = bob.decrypt_message(&encrypted1)?;
+        assert_eq!(decrypted1, message1);
+
+        let mut alice_rotated_secret = Mls::new(
+            alice_agent,
+            SimpleGroup::new("alice", "secret_v2"),
+            SimpleGroup::new("alice", "secret_v2"),
+        );
+        alice_rotated_secret.set_storage_path("/tmp/mls_test_secret_rotation_alice_v2");
+        alice_rotated_secret.initialize()?;
+
+        let message2 = b"Message with rotated secret";
+        let encrypted2_result = alice_rotated_secret.encrypt_message(message2);
+        assert!(encrypted2_result.is_err());
+
+        let message3 = b"Message from original alice after secret rotation";
+        let encrypted3 = alice.encrypt_message(message3)?;
+        let decrypted3 = bob.decrypt_message(&encrypted3)?;
+        assert_eq!(decrypted3, message3);
+
+        Ok(())
+    }
 }
