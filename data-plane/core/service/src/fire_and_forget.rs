@@ -762,6 +762,8 @@ where
             .await
             .map_err(|e| SessionError::SessionClosed(e.to_string()))
     }
+
+    async fn stop_message_handler(&self) {}
 }
 
 #[cfg(test)]

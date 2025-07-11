@@ -299,7 +299,7 @@ async fn main() {
                 tokio::time::sleep(tokio::time::Duration::from_millis(frequency as u64)).await;
             }
 
-            if i == 10 {
+            if i == 5 {
                 // remove all participants
                 info!("Remove participant");
                 app.remove_participant(&Agent::from_strings("org", "ns", "t1", 1), info.clone())

@@ -155,7 +155,7 @@ where
 
     async fn process_welcome_message(&mut self, msg: &Message) -> Result<(), SessionError> {
         if self.last_commit_id != 0 {
-            debug!("welcome message already received, drop");
+            info!("welcome message already received, drop");
             // we already got a welcome message, ignore this one
             return Ok(());
         }
@@ -204,7 +204,7 @@ where
         // the moderator will keep sending them if needed
         let msg_id = msg.get_id();
         if msg_id == self.last_commit_id + 1 {
-            debug!("received valid commit with id {}", msg_id);
+            info!("received valid commit with id {}", msg_id);
             self.last_commit_id += 1;
         } else {
             error!("unexpected commit id, drop message");
@@ -554,7 +554,7 @@ where
             .process_welcome_message(&msg)
             .await?;
 
-        debug!("Welcome message correctly processed, MLS state initialized");
+        info!("Welcome message correctly processed, MLS state initialized");
 
         // set route for the channel name
         self.endpoint.join().await?;
@@ -581,7 +581,7 @@ where
             .process_commit_message(&msg)
             .await?;
 
-        debug!("Commit message correctly processed, MLS state updated");
+        info!("Commit message correctly processed, MLS state updated");
 
         // send an ack back to the moderator
         let src = msg.get_source();
@@ -617,19 +617,21 @@ where
                 ))
             }
             SessionHeaderType::ChannelJoinRequest => {
-                debug!("Received join request message");
+                info!("Received join request message");
                 self.on_join_request(msg).await
             }
             SessionHeaderType::ChannelMlsWelcome => {
-                debug!("Received mls welcome message");
+                info!("Received mls welcome message");
                 self.on_mls_welcome(msg).await
             }
             SessionHeaderType::ChannelMlsCommit => {
-                debug!("Received mls commit message");
+                info!("Received mls commit message");
                 self.on_mls_commit(msg).await
             }
             SessionHeaderType::ChannelLeaveRequest => {
                 info!("Received leave request message");
+                // leave the channel
+                self.endpoint.leave().await?;
 
                 // reply to the request
                 let src = msg.get_source();
@@ -644,9 +646,6 @@ where
 
                 self.endpoint.send(reply).await?;
 
-                // leave the channel
-                self.endpoint.leave().await?;
-
                 match &self.moderator_name {
                     Some(m) => {
                         self.endpoint
@@ -654,14 +653,14 @@ where
                             .await?
                     }
                     None => {
-                        error!("moderator name is not set, cannot route");
+                        error!("moderator name is not set, cannot remove the route");
                     }
                 };
 
                 Ok(())
             }
             _ => {
-                debug!("Received message of type {:?}, drop it", msg_type);
+                info!("Received message of type {:?}, drop it", msg_type);
 
                 Err(SessionError::Processing(format!(
                     "Received message of type {:?}, drop it",
@@ -829,9 +828,9 @@ where
 
         if self.endpoint.mls_state.is_some() {
             join.insert_metadata(METADATA_MLS_ENABLED.to_string(), "true".to_owned());
-            debug!("Reply with the join request, MLS is enabled");
+            info!("Reply with the join request, MLS is enabled");
         } else {
-            debug!("Reply with the join request, MLS is disabled");
+            info!("Reply with the join request, MLS is disabled");
         }
 
         // remove the timer for the discovery message
@@ -889,14 +888,14 @@ where
             );
 
             // send welcome message
-            debug!("Send MLS Welcome Message to the new participant");
+            info!("Send MLS Welcome Message to the new participant");
             self.endpoint.send(welcome.clone()).await?;
             self.create_timer(welcome_id, 1, welcome);
 
             // send commit message if needed
             let len = self.endpoint.mls_state.as_ref().unwrap().participants.len();
             if len > 1 {
-                debug!("Send MLS Commit Message to the channel");
+                info!("Send MLS Commit Message to the channel");
                 self.endpoint.send(commit.clone()).await?;
                 self.create_timer(commit_id, (len - 1).try_into().unwrap(), commit);
             }
@@ -913,6 +912,19 @@ where
     }
 
     async fn on_leave_request(&mut self, msg: Message) -> Result<(), SessionError> {
+        // forward the leave request to the endpoint
+        // the MLS state will be updated on the reception
+        // of the leave reply if needed
+        self.forward(msg).await
+    }
+
+    async fn on_leave_replay(&mut self, msg: Message) -> Result<(), SessionError> {
+        let msg_id = msg.get_id();
+
+        // cancel timer
+        let ret = self.delete_timer(msg_id)?;
+        debug_assert!(ret, "timer for leave reply should be removed");
+
         if self.endpoint.mls_state.is_some() {
             // create the commit message to update the MLS group
             let commit_payload = self
@@ -934,22 +946,12 @@ where
             );
 
             // send commit message if needed
-            debug!("Send MLS Commit Message to the channel");
+            info!("Send MLS Commit Message to the channel");
             self.endpoint.send(commit.clone()).await?;
             let len = self.endpoint.mls_state.as_ref().unwrap().participants.len();
+            println!("-----------wait for {} acks, commit id {}", len, commit_id);
             self.create_timer(commit_id, (len).try_into().unwrap(), commit);
         }
-
-        // forward the leave request to the endpoint
-        self.forward(msg).await
-    }
-
-    async fn on_leave_replay(&mut self, msg: Message) -> Result<(), SessionError> {
-        let msg_id = msg.get_id();
-
-        // cancel timer
-        let ret = self.delete_timer(msg_id)?;
-        debug_assert!(ret, "timer for leave reply should be removed");
 
         Ok(())
     }
@@ -965,16 +967,16 @@ where
         let msg_type = msg.get_session_header().header_type();
         match msg_type {
             SessionHeaderType::ChannelDiscoveryRequest => {
-                debug!("Invite new participant to the channel, send discovery message");
+                info!("Invite new participant to the channel, send discovery message");
                 // discovery message coming from the application
                 self.forward(msg).await
             }
             SessionHeaderType::ChannelDiscoveryReply => {
-                debug!("Received discovery reply message");
+                info!("Received discovery reply message");
                 self.on_discovery_reply(msg).await
             }
             SessionHeaderType::ChannelJoinReply => {
-                debug!("Received join reply message");
+                info!("Received join reply message");
                 self.on_join_reply(msg).await
             }
             SessionHeaderType::ChannelMlsAck => {

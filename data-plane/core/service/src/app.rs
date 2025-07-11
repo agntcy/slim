@@ -721,9 +721,22 @@ where
 
     /// Remove a session from the pool
     pub(crate) async fn remove_session(&self, id: Id) -> bool {
+        println!("------ in remove session");
         // get the write lock
         let mut pool = self.pool.write().await;
+        println!("------ in remove session 2");
         pool.remove(&id).is_some()
+        /*match pool.remove(&id) {
+            Some(s) => {
+                println!("------- call stop");
+                s.stop_message_handler().await;
+                true
+            }
+            None => {
+                println!("------- Don't stop me now!");
+                false
+            }
+        }*/
     }
 
     /// Handle a message and pass it to the corresponding session
@@ -862,24 +875,35 @@ where
             }
         }
 
-        // check if pool contains the session
+        if session_type == SessionHeaderType::ChannelLeaveRequest {
+            // send message to the session and delete it after
+            if let Some(session) = self.pool.read().await.get(&id) {
+                // pass the message to the session
+                session
+                    .tx_ref()
+                    .on_msg_from_slim_interceptors(&mut message.message)
+                    .await?;
+                session.on_message(message, direction).await?;
+            } else {
+                warn!("received Channel Leave Request message with unknown session id, drop the message");
+                return Err(SessionError::SessionUnknown(
+                    session_type.as_str_name().to_string(),
+                ));
+            }
+            // remove the session
+            self.remove_session(id).await;
+            return Ok(())
+        }
+
         if let Some(session) = self.pool.read().await.get(&id) {
             // pass the message to the session
             session
                 .tx_ref()
                 .on_msg_from_slim_interceptors(&mut message.message)
                 .await?;
-
-            session.on_message(message, direction).await?;
-
-            // if the message is a ChannelLeaveRequest delete the session
-            if session_type == SessionHeaderType::ChannelLeaveRequest {
-                info!("received channel leave request in app remove the session");
-                self.remove_session(id).await;
-            }
-
-            return Ok(());
+            return session.on_message(message, direction).await;
         }
+
 
         let new_session_id = match session_type {
             SessionHeaderType::Fnf

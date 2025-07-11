@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use slim_auth::traits::{TokenProvider, Verifier};
+use tokio_util::sync::CancellationToken;
 use std::{collections::HashMap, sync::Arc, time::Duration};
 use tokio::sync::mpsc;
 
@@ -215,6 +216,7 @@ where
 {
     common: Common<P, V, T>,
     tx: mpsc::Sender<Result<(Message, MessageDirection), Status>>,
+    cancellation_token: CancellationToken,
 }
 
 impl<P, V, T> Streaming<P, V, T>
@@ -249,7 +251,7 @@ where
             mls_enabled,
         );
 
-        let stream = Streaming { common, tx };
+        let stream = Streaming { common, tx, cancellation_token: CancellationToken::new() };
         stream.process_message(rx, session_direction);
         stream
     }
@@ -337,6 +339,7 @@ where
         let tx = self.common.tx();
         let source = self.common.source().clone();
         let id = self.common.id();
+        let token = self.cancellation_token.clone();
         tokio::spawn(async move {
             debug!("starting message processing on session {}", session_id);
 
@@ -375,13 +378,13 @@ where
                     next = rx.recv() => {
                         match next {
                             None => {
-                                debug!("no more messages to process on session {}", session_id);
+                                info!("--------no more messages to process on session {}", session_id);
                                 break;
                             }
                             Some(result) => {
                                 debug!("got a message in process message");
                                 if result.is_err() {
-                                    error!("error receiving a message on session {}, drop it", session_id);
+                                    error!("-----------error receiving a message on session {}, drop it", session_id);
                                     continue;
                                 }
                                 let (msg, direction) = result.unwrap();
@@ -470,13 +473,13 @@ where
                     next_rtx_timer = rtx_timer_rx.recv(), if !rtx_timer_rx_closed => {
                         match next_rtx_timer {
                             None => {
-                                debug!("no more rtx timers to process");
+                                info!("------------------no more rtx timers to process");
                                 // close the timer channel
                                 rtx_timer_rx_closed = true;
                             },
                             Some(result) => {
                                 if result.is_err() {
-                                    error!("error receiving an RTX timer, skip it");
+                                    error!("-------------------------------error receiving an RTX timer, skip it");
                                     continue;
                                 }
 
@@ -507,7 +510,7 @@ where
                     next_prod_timer = prod_timer_rx.recv(), if !prod_timer_rx_closed => {
                         match next_prod_timer {
                             None => {
-                                debug!("no more prod timers to process");
+                                debug!("--------------------------no more prod timers to process");
                                 // close the timer channel
                                 prod_timer_rx_closed = true;
                             },
@@ -539,11 +542,15 @@ where
                             },
                         }
                     }
+                    _ = token.cancelled() => {
+                        info!("------- shutting down streaming session");
+                        break;
+                    } 
                 }
             }
 
-            debug!(
-                "stopping message processing on streaming session {}",
+            info!(
+                "------------------- stopping message processing on streaming session {}",
                 session_id
             );
         });
@@ -974,6 +981,11 @@ where
             .send(Ok((message.message, direction)))
             .await
             .map_err(|e| SessionError::Processing(e.to_string()))
+    }
+
+    async fn stop_message_handler(&self) {
+        println!("-------------- stop");
+        self.cancellation_token.cancel();
     }
 }
 
