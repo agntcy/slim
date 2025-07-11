@@ -13,7 +13,7 @@ use rmcp::{
 use slim::config::ConfigResult;
 use slim_auth::simple::SimpleGroup;
 use slim_datapath::{
-    api::proto::pubsub::v1::Message,
+    api::ProtoMessage as Message,
     messages::{Agent, AgentType},
 };
 use slim_service::{

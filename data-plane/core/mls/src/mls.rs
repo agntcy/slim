@@ -22,10 +22,14 @@ use tracing::{debug, info};
 
 const CIPHERSUITE: CipherSuite = CipherSuite::CURVE25519_AES128;
 
+pub type CommitMsg = Vec<u8>;
+pub type WelcomeMsg = Vec<u8>;
+pub type KeyPackageMsg = Vec<u8>;
+pub type MlsIdentity = Vec<u8>;
 pub struct MlsAddMemberResult {
-    pub welcome_message: Vec<u8>,
-    pub commit_message: Vec<u8>,
-    pub member_identity: Vec<u8>,
+    pub welcome_message: WelcomeMsg,
+    pub commit_message: CommitMsg,
+    pub member_identity: MlsIdentity,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -228,7 +232,7 @@ where
         Ok(group_id)
     }
 
-    pub fn generate_key_package(&self) -> Result<Vec<u8>, MlsError> {
+    pub fn generate_key_package(&self) -> Result<KeyPackageMsg, MlsError> {
         debug!("Generating key package");
         let client = self.client.as_ref().ok_or(MlsError::ClientNotInitialized)?;
 
@@ -241,7 +245,7 @@ where
     }
 
     pub fn add_member(&mut self, key_package_bytes: &[u8]) -> Result<MlsAddMemberResult, MlsError> {
-        info!("Adding member to the MLS group");
+        debug!("Adding member to the MLS group");
         let group = self.group.as_mut().ok_or(MlsError::GroupNotExists)?;
         let key_package = Self::map_mls_error(MlsMessage::from_bytes(key_package_bytes))?;
 
@@ -280,8 +284,8 @@ where
         Ok(ret)
     }
 
-    pub fn remove_member(&mut self, identity: &[u8]) -> Result<Vec<u8>, MlsError> {
-        info!("Removing member from the  MLS group");
+    pub fn remove_member(&mut self, identity: &[u8]) -> Result<CommitMsg, MlsError> {
+        debug!("Removing member from the  MLS group");
         let group = self.group.as_mut().ok_or(MlsError::GroupNotExists)?;
 
         let m = Self::map_mls_error(group.member_with_identity(identity))?;
