@@ -746,9 +746,10 @@ mod tests {
         ////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
         /////////////request response session //////////////////////////////////////////////////////////////////////////
-        let session_config = SessionConfig::RequestResponse(RequestResponseConfiguration {
-            timeout: Duration::from_secs(20000),
-        });
+        let session_config = SessionConfig::RequestReply(RequestResponseConfiguration::new(
+            Duration::from_secs(20000),
+            false,
+        ));
         let session_info = app
             .create_session(session_config.clone(), None, false)
             .await
@@ -765,9 +766,10 @@ mod tests {
             "session config mismatch"
         );
 
-        let session_config = SessionConfig::RequestResponse(RequestResponseConfiguration {
-            timeout: Duration::from_secs(21345),
-        });
+        let session_config = SessionConfig::RequestReply(RequestResponseConfiguration::new(
+            Duration::from_secs(21345),
+            false,
+        ));
 
         app.set_session_config(&session_config, Some(session_info.id))
             .await
@@ -785,9 +787,10 @@ mod tests {
         );
 
         // set default session config
-        let session_config = SessionConfig::RequestResponse(RequestResponseConfiguration {
-            timeout: Duration::from_secs(213456),
-        });
+        let session_config = SessionConfig::RequestReply(RequestResponseConfiguration::new(
+            Duration::from_secs(213456),
+            false,
+        ));
         app.set_session_config(&session_config, None)
             .await
             .expect("failed to set default session config");

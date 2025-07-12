@@ -7,6 +7,7 @@ use async_trait::async_trait;
 use parking_lot::Mutex;
 use parking_lot::RwLock;
 use slim_auth::traits::{TokenProvider, Verifier};
+use slim_datapath::api::ProtoSessionType;
 use slim_mls::mls::Mls;
 use tonic::Status;
 
@@ -97,6 +98,8 @@ pub struct Info {
     pub message_id: Option<u32>,
     /// The Message Type
     pub session_message_type: ProtoSessionMessageType,
+    // The session Type
+    pub session_type: ProtoSessionType,
     /// The identifier of the agent that sent the message
     pub message_source: Option<Agent>,
     /// The input connection id
@@ -110,6 +113,7 @@ impl Info {
             id,
             message_id: None,
             session_message_type: ProtoSessionMessageType::Unspecified,
+            session_type: ProtoSessionType::SessionUnknown,
             message_source: None,
             input_connection: None,
         }
@@ -119,8 +123,12 @@ impl Info {
         self.message_id = Some(message_id);
     }
 
-    pub fn set_session_header_type(&mut self, session_header_type: ProtoSessionMessageType) {
+    pub fn set_session_message_type(&mut self, session_header_type: ProtoSessionMessageType) {
         self.session_message_type = session_header_type;
+    }
+
+    pub fn set_session_type(&mut self, session_type: ProtoSessionType) {
+        self.session_type = session_type;
     }
 
     pub fn set_message_source(&mut self, message_source: Agent) {
@@ -135,8 +143,20 @@ impl Info {
         self.message_id
     }
 
+    pub fn session_message_type_unset(&self) -> bool {
+        self.session_message_type == ProtoSessionMessageType::Unspecified
+    }
+
     pub fn get_session_message_type(&self) -> ProtoSessionMessageType {
         self.session_message_type
+    }
+
+    pub fn session_type_unset(&self) -> bool {
+        self.session_type == ProtoSessionType::SessionUnknown
+    }
+
+    pub fn get_session_type(&self) -> ProtoSessionType {
+        self.session_type
     }
 
     pub fn get_message_source(&self) -> Option<Agent> {
@@ -158,11 +178,13 @@ impl From<&Message> for Info {
         let message_source = message.get_source();
         let input_connection = slim_header.incoming_conn;
         let session_message_type = session_header.session_message_type();
+        let session_type = session_header.session_type();
 
         Info {
             id,
             message_id: Some(message_id),
             session_message_type,
+            session_type,
             message_source: Some(message_source),
             input_connection,
         }
@@ -213,7 +235,7 @@ impl std::fmt::Display for SessionType {
 #[derive(Clone, PartialEq, Debug)]
 pub enum SessionConfig {
     FireAndForget(FireAndForgetConfiguration),
-    RequestResponse(RequestResponseConfiguration),
+    RequestReply(RequestResponseConfiguration),
     Streaming(StreamingConfiguration),
 }
 
@@ -225,7 +247,7 @@ impl std::fmt::Display for SessionConfig {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             SessionConfig::FireAndForget(ff) => write!(f, "{}", ff),
-            SessionConfig::RequestResponse(rr) => write!(f, "{}", rr),
+            SessionConfig::RequestReply(rr) => write!(f, "{}", rr),
             SessionConfig::Streaming(s) => write!(f, "{}", s),
         }
     }
@@ -494,7 +516,7 @@ where
             SessionConfig::FireAndForget(ref mut config) => {
                 config.replace(session_config)?;
             }
-            SessionConfig::RequestResponse(ref mut config) => {
+            SessionConfig::RequestReply(ref mut config) => {
                 config.replace(session_config)?;
             }
             SessionConfig::Streaming(ref mut config) => {

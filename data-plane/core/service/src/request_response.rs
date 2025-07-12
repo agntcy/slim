@@ -10,11 +10,12 @@ use slim_auth::traits::{TokenProvider, Verifier};
 use tracing::debug;
 
 use crate::errors::SessionError;
+use crate::fire_and_forget::FireAndForget;
 use crate::session::{
-    Common, CommonSession, Id, MessageDirection, SessionConfigTrait, SessionDirection, State,
+    CommonSession, Id, MessageDirection, SessionConfigTrait, SessionDirection, State,
 };
 use crate::session::{MessageHandler, SessionConfig, SessionTransmitter};
-use crate::{SessionMessage, timer};
+use crate::{FireAndForgetConfiguration, SessionMessage, timer};
 use slim_datapath::api::{ProtoSessionMessageType, ProtoSessionType};
 use slim_datapath::messages::encoder::Agent;
 
@@ -22,13 +23,13 @@ use slim_datapath::messages::encoder::Agent;
 /// This configuration is used to set the maximum number of retries and the timeout
 #[derive(Debug, Clone, PartialEq)]
 pub struct RequestResponseConfiguration {
-    pub timeout: std::time::Duration,
+    ff_conf: FireAndForgetConfiguration,
 }
 
 impl SessionConfigTrait for RequestResponseConfiguration {
     fn replace(&mut self, session_config: &SessionConfig) -> Result<(), SessionError> {
         match session_config {
-            SessionConfig::RequestResponse(config) => {
+            SessionConfig::RequestReply(config) => {
                 *self = config.clone();
                 Ok(())
             }
@@ -43,8 +44,32 @@ impl SessionConfigTrait for RequestResponseConfiguration {
 impl Default for RequestResponseConfiguration {
     fn default() -> Self {
         RequestResponseConfiguration {
-            timeout: std::time::Duration::from_millis(1000),
+            ff_conf: FireAndForgetConfiguration {
+                timeout: Some(std::time::Duration::from_millis(333)),
+                max_retries: Some(1), // we only retry once
+                sticky: false,        // we do not want to keep the session alive
+            },
         }
+    }
+}
+
+impl RequestResponseConfiguration {
+    pub fn new(timeout: std::time::Duration, sticky: bool) -> Self {
+        RequestResponseConfiguration {
+            ff_conf: FireAndForgetConfiguration {
+                timeout: Some(timeout / 3),
+                max_retries: Some(1), // we only retry once
+                sticky,               // we want to keep the session alive
+            },
+        }
+    }
+
+    pub fn timeout(&self) -> std::time::Duration {
+        self.ff_conf.timeout.unwrap() * 3
+    }
+
+    pub fn sticky(&self) -> bool {
+        self.ff_conf.sticky
     }
 }
 
@@ -52,8 +77,8 @@ impl std::fmt::Display for RequestResponseConfiguration {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "RequestResponseConfiguration: timeout: {} ms",
-            self.timeout.as_millis()
+            "RequestResponseConfiguration: {}",
+            self.ff_conf
         )
     }
 }
@@ -65,7 +90,7 @@ where
     V: Verifier + Send + Sync + Clone + 'static,
     T: SessionTransmitter + Send + Sync + Clone + 'static,
 {
-    common: Common<P, V, T>,
+    ff_session: FireAndForget<P, V, T>,
     timers: RwLock<HashMap<u32, (timer::Timer, SessionMessage)>>,
 }
 
@@ -91,10 +116,10 @@ where
             .expect("timer not found");
 
         let _ = self
-            .common
+            .ff_session
             .tx_ref()
             .send_to_app(Err(SessionError::Timeout {
-                session_id: self.common.id(),
+                session_id: self.ff_session.id(),
                 message_id,
                 message: Box::new(message),
             }))
@@ -134,22 +159,26 @@ where
         identity_verifier: V,
         mls_enabled: bool,
     ) -> Self {
-        let internal = RequestResponseInternal {
-            common: Common::new(
-                id,
-                session_direction,
-                SessionConfig::RequestResponse(session_config),
-                source,
-                tx,
-                identity_provider,
-                identity_verifier,
-                mls_enabled,
-            ),
-            timers: RwLock::new(HashMap::new()),
-        };
+        debug!("creating new RequestResponse session with id: {}", id);
 
+        // create the FireAndForget session
+        let ff_session = FireAndForget::new(
+            id,
+            session_config.ff_conf,
+            session_direction,
+            source,
+            tx,
+            identity_provider.clone(),
+            identity_verifier.clone(),
+            mls_enabled,
+        );
+
+        // return the RequestResponse session
         RequestResponse {
-            internal: Arc::new(internal),
+            internal: Arc::new(RequestResponseInternal {
+                ff_session,
+                timers: RwLock::new(HashMap::new()),
+            }),
         }
     }
 
@@ -161,8 +190,8 @@ where
         let message_id = message.info.message_id.expect("message id not found");
 
         // get session config
-        let session_config = match self.session_config() {
-            SessionConfig::RequestResponse(config) => config,
+        let session_config = match self.internal.ff_session.session_config() {
+            SessionConfig::FireAndForget(config) => config,
             _ => {
                 return Err(SessionError::AppTransmission(
                     "invalid session config".to_string(),
@@ -171,7 +200,7 @@ where
         };
 
         // get duration from configuration
-        let duration = session_config.timeout;
+        let duration = session_config.timeout.unwrap() * 3;
 
         // create new timer
         let timer = timer::Timer::new(
@@ -184,11 +213,9 @@ where
 
         // send message
         self.internal
-            .common
-            .tx_ref()
-            .send_to_slim(Ok(message.message.clone()))
-            .await
-            .map_err(|e| SessionError::SlimTransmission(e.to_string()))?;
+            .ff_session
+            .on_message(message.clone(), MessageDirection::South)
+            .await?;
 
         // start timer
         timer.start(self.internal.clone());
@@ -213,39 +240,61 @@ where
 {
     fn id(&self) -> Id {
         // concat the token stream
-        self.internal.common.id()
+        self.internal.ff_session.id()
     }
 
     fn state(&self) -> &State {
-        self.internal.common.state()
+        self.internal.ff_session.state()
     }
 
     fn session_config(&self) -> SessionConfig {
-        self.internal.common.session_config()
+        // Extract the FireAndForgetConfiguration from the FireAndForget session
+        let ff_config = match self.internal.ff_session.session_config() {
+            SessionConfig::FireAndForget(config) => config.clone(),
+            _ => {
+                panic!("RequestResponse session expected FireAndForget configuration");
+            }
+        };
+
+        SessionConfig::RequestReply(RequestResponseConfiguration {
+            ff_conf: ff_config,
+        })
     }
 
     fn set_session_config(&self, session_config: &SessionConfig) -> Result<(), SessionError> {
-        self.internal.common.set_session_config(session_config)
+        // Set the session configuration for the FireAndForget session
+        match session_config {
+            SessionConfig::RequestReply(config) => {
+                self.internal
+                    .ff_session
+                    .set_session_config(&SessionConfig::FireAndForget(config.ff_conf.clone()))?;
+                Ok(())
+            }
+            _ => Err(SessionError::ConfigurationError(format!(
+                "invalid session config type: expected RequestResponse, got {:?}",
+                session_config
+            ))),
+        }
     }
 
     fn source(&self) -> &Agent {
-        self.internal.common.source()
+        self.internal.ff_session.source()
     }
 
     fn identity_provider(&self) -> P {
-        self.internal.common.identity_provider().clone()
+        self.internal.ff_session.identity_provider().clone()
     }
 
     fn identity_verifier(&self) -> V {
-        self.internal.common.identity_verifier().clone()
+        self.internal.ff_session.identity_verifier().clone()
     }
 
     fn tx(&self) -> T {
-        self.internal.common.tx().clone()
+        self.internal.ff_session.tx().clone()
     }
 
     fn tx_ref(&self) -> &T {
-        self.internal.common.tx_ref()
+        self.internal.ff_session.tx_ref()
     }
 }
 
@@ -267,7 +316,10 @@ where
         // clone tx
         match direction {
             MessageDirection::North => {
-                match message.info.session_message_type {
+                // Get the message type
+                let session_message_type = message.info.get_session_message_type();
+
+                match session_message_type {
                     ProtoSessionMessageType::Reply => {
                         // this is a reply - remove the timer
                         let message_id = session_header.message_id;
@@ -287,52 +339,55 @@ where
                     ProtoSessionMessageType::Request => {
                         // this is a request - set the session_type of the session
                         // info to reply to allow the app to reply using this session info
-                        message.info.session_message_type = ProtoSessionMessageType::Reply;
-                    }
-                    _ => Err(SessionError::AppTransmission(format!(
-                        "request/reply session: unsupported session type: {:?}",
-                        message.info.session_message_type
-                    )))?,
-                }
-
-                self.internal
-                    .common
-                    .tx_ref()
-                    .send_to_app(Ok(message))
-                    .await
-                    .map_err(|e| SessionError::AppTransmission(e.to_string()))
-            }
-            MessageDirection::South => {
-                // we are sending the message over slim.
-                // Let's start setting the session header
-                session_header.session_id = self.internal.common.id();
-                message.info.id = self.internal.common.id();
-
-                match message.info.session_message_type {
-                    ProtoSessionMessageType::Reply => {
-                        // this is a reply - make sure the message_id matches the request
-                        match message.info.message_id {
-                            Some(message_id) => {
-                                session_header.message_id = message_id;
-                                session_header
-                                    .set_session_message_type(ProtoSessionMessageType::Reply);
-
-                                self.internal
-                                    .common
-                                    .tx_ref()
-                                    .send_to_slim(Ok(message.message.clone()))
-                                    .await
-                                    .map_err(|e| SessionError::SlimTransmission(e.to_string()))
-                            }
-                            None => {
-                                return Err(SessionError::SlimTransmission(
-                                    "missing message id for reply".to_string(),
-                                ));
-                            }
-                        }
+                        message
+                            .info
+                            .set_session_message_type(ProtoSessionMessageType::Reply);
                     }
                     _ => {
-                        // In any other case, we are sending a request
+                        // we just send the message up to the fire&forget session
+                        // if they need to be dropped, they will be dropped there
+                    }
+                }
+
+                // Forward message to underlying fire and forget session
+                // This will handle the message and send it to the app
+                self.internal
+                    .ff_session
+                    .on_message(message, direction)
+                    .await
+            }
+            MessageDirection::South => {
+                // Get the message type
+                let session_message_type = message.info.get_session_message_type();
+
+                // we are sending the message over slim.
+                // Let's start setting the session header
+                session_header.session_id = self.internal.ff_session.id();
+                message.info.id = self.internal.ff_session.id();
+
+                match session_message_type {
+                    ProtoSessionMessageType::Reply => {
+                        // this is a reply - make sure the message_id matches the request
+                        message.info.message_id.ok_or_else(|| {
+                            SessionError::SlimTransmission(
+                                "message id not set for reply".to_string(),
+                            )
+                        })?;
+
+                        message
+                            .info
+                            .set_session_message_type(ProtoSessionMessageType::Reply);
+                        message
+                            .info
+                            .set_session_type(ProtoSessionType::SessionRequestReply);
+
+                        self.internal
+                            .ff_session
+                            .on_message(message, direction)
+                            .await
+                    }
+                    _ => {
+                        // In this case, we are sending a request
                         // set the message id to something random
                         session_header.set_message_id(rand::random::<u32>());
                         session_header.set_session_message_type(ProtoSessionMessageType::Request);
@@ -365,9 +420,8 @@ mod tests {
 
         let tx = MockTransmitter { tx_app, tx_slim };
 
-        let session_config = RequestResponseConfiguration {
-            timeout: std::time::Duration::from_millis(1000),
-        };
+        let session_config =
+            RequestResponseConfiguration::new(std::time::Duration::from_secs(5), false);
 
         let source = Agent::from_strings("cisco", "default", "local_agent", 0);
 
@@ -386,7 +440,7 @@ mod tests {
         assert_eq!(session.state(), &State::Active);
         assert_eq!(
             session.session_config(),
-            SessionConfig::RequestResponse(session_config)
+            SessionConfig::RequestReply(session_config)
         );
     }
 
@@ -397,9 +451,8 @@ mod tests {
 
         let tx = MockTransmitter { tx_app, tx_slim };
 
-        let session_config = RequestResponseConfiguration {
-            timeout: std::time::Duration::from_millis(1000),
-        };
+        let session_config =
+            RequestResponseConfiguration::new(std::time::Duration::from_secs(5), false);
 
         let source = Agent::from_strings("cisco", "default", "local_agent", 0);
 
@@ -473,9 +526,8 @@ mod tests {
 
         let tx = MockTransmitter { tx_app, tx_slim };
 
-        let session_config = RequestResponseConfiguration {
-            timeout: std::time::Duration::from_millis(1000),
-        };
+        let session_config =
+            RequestResponseConfiguration::new(std::time::Duration::from_secs(5), false);
 
         let source = Agent::from_strings("cisco", "default", "local_agent", 0);
 

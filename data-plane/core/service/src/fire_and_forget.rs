@@ -315,7 +315,7 @@ where
         self.state.sticky_session_status = StickySessionStatus::Established;
 
         // Send the sticky session discovery reply to the source
-        self.send_message(sticky_session_reply).await?;
+        self.send_message(sticky_session_reply, None).await?;
 
         Ok(())
     }
@@ -348,7 +348,7 @@ where
 
                 // Send all buffered messages to the sticky name
                 for msg in messages {
-                    self.send_message(msg).await?;
+                    self.send_message(msg, None).await?;
                 }
 
                 Ok(())
@@ -375,9 +375,13 @@ where
         }
     }
 
-    async fn send_message(&mut self, mut message: Message) -> Result<(), SessionError> {
+    async fn send_message(
+        &mut self,
+        mut message: Message,
+        message_id: Option<u32>,
+    ) -> Result<(), SessionError> {
         // Set the message id to a random value
-        let message_id = rand::rng().random_range(0..u32::MAX);
+        let message_id = message_id.unwrap_or_else(|| rand::rng().random_range(0..u32::MAX));
 
         // Get a mutable reference to the message header
         let header = message.get_session_header_mut();
@@ -432,13 +436,28 @@ where
         &mut self,
         mut message: SessionMessage,
     ) -> Result<(), SessionError> {
+        // Reference to session info
+        let info = &message.info;
+
         // Set the session type
         let header = message.message.get_session_header_mut();
-        header.set_session_type(ProtoSessionType::SessionFireForget);
-        if self.state.config.timeout.is_some() {
-            header.set_session_message_type(ProtoSessionMessageType::FnfReliable);
+        header.set_session_type(if info.session_type_unset() {
+            ProtoSessionType::SessionFireForget
         } else {
-            header.set_session_message_type(ProtoSessionMessageType::FnfMsg);
+            info.get_session_type()
+        });
+        if self.state.config.timeout.is_some() {
+            header.set_session_message_type(if info.session_message_type_unset() {
+                ProtoSessionMessageType::FnfReliable
+            } else {
+                info.get_session_message_type()
+            });
+        } else {
+            header.set_session_message_type(if info.session_message_type_unset() {
+                ProtoSessionMessageType::FnfMsg
+            } else {
+                info.get_session_message_type()
+            });
         }
 
         // If session is sticky, and we have a sticky name, set the destination
@@ -483,7 +502,8 @@ where
             }
         }
 
-        self.send_message(message.message).await
+        self.send_message(message.message, message.info.message_id)
+            .await
     }
 
     pub(crate) async fn handle_message_to_app(

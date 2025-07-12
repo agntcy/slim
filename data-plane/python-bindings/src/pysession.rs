@@ -130,8 +130,11 @@ pub(crate) enum PySessionConfiguration {
         max_retries: Option<u32>,
         sticky: bool,
     },
-    #[pyo3(constructor = (timeout=std::time::Duration::from_millis(1000)))]
-    RequestResponse { timeout: std::time::Duration },
+    #[pyo3(constructor = (timeout=std::time::Duration::from_millis(1000), sticky=false))]
+    RequestResponse {
+        timeout: std::time::Duration,
+        sticky: bool,
+    },
     #[pyo3(constructor = (session_direction, topic=None, moderator=false, max_retries=0, timeout=std::time::Duration::from_millis(1000)))]
     Streaming {
         session_direction: PySessionDirection,
@@ -152,9 +155,10 @@ impl From<session::SessionConfig> for PySessionConfiguration {
                     sticky: config.sticky,
                 }
             }
-            session::SessionConfig::RequestResponse(config) => {
+            session::SessionConfig::RequestReply(config) => {
                 PySessionConfiguration::RequestResponse {
-                    timeout: config.timeout,
+                    timeout: config.timeout(),
+                    sticky: config.sticky(),
                 }
             }
             session::SessionConfig::Streaming(config) => PySessionConfiguration::Streaming {
@@ -180,8 +184,10 @@ impl From<PySessionConfiguration> for session::SessionConfig {
                 max_retries,
                 sticky,
             }),
-            PySessionConfiguration::RequestResponse { timeout } => {
-                session::SessionConfig::RequestResponse(RequestResponseConfiguration { timeout })
+            PySessionConfiguration::RequestResponse { timeout, sticky } => {
+                session::SessionConfig::RequestReply(RequestResponseConfiguration::new(
+                    timeout, sticky,
+                ))
             }
             PySessionConfiguration::Streaming {
                 session_direction,

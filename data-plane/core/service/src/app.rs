@@ -767,10 +767,11 @@ where
     async fn handle_message_from_slim_without_session(
         &self,
         message: &Message,
-        session_type: ProtoSessionMessageType,
+        session_type: ProtoSessionType,
+        session_message_type: ProtoSessionMessageType,
         session_id: u32,
     ) -> Result<bool, SessionError> {
-        match session_type {
+        match session_message_type {
             ProtoSessionMessageType::ChannelDiscoveryRequest => {
                 // reply direcetly without creating any new Session
                 let destination = message.get_source();
@@ -784,7 +785,7 @@ where
                 ));
 
                 let session_header = Some(SessionHeader::new(
-                    ProtoSessionType::SessionUnknown.into(),
+                    session_type.into(),
                     ProtoSessionMessageType::ChannelDiscoveryReply.into(),
                     session_id,
                     msg_id,
@@ -811,21 +812,29 @@ where
         mut message: SessionMessage,
         direction: MessageDirection,
     ) -> Result<(), SessionError> {
-        let (id, session_type) = {
+        let (id, session_type, session_message_type) = {
             // get the session type and the session id from the message
             let header = message.message.get_session_header();
 
             // get the session type from the header
-            let session_type = header.session_message_type();
+            let session_type = header.session_type();
+
+            // get the session message type
+            let session_message_type = header.session_message_type();
 
             // get the session ID
             let id = header.session_id;
 
-            (id, session_type)
+            (id, session_type, session_message_type)
         };
 
         match self
-            .handle_message_from_slim_without_session(&message.message, session_type, id)
+            .handle_message_from_slim_without_session(
+                &message.message,
+                session_type,
+                session_message_type,
+                id,
+            )
             .await
         {
             Ok(done) => {
@@ -853,7 +862,7 @@ where
             return session.on_message(message, direction).await;
         }
 
-        let new_session_id = match session_type {
+        let new_session_id = match session_message_type {
             ProtoSessionMessageType::FnfMsg
             | ProtoSessionMessageType::FnfReliable
             | ProtoSessionMessageType::FnfDiscovery => {
