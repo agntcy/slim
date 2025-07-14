@@ -1,0 +1,33 @@
+# Copyright AGNTCY Contributors (https://github.com/agntcy)
+# SPDX-License-Identifier: Apache-2.0
+
+# Minimal SLIM configuration for AuthZEN integration demo
+
+# Tracing configuration
+tracing:
+  log_level: info
+  display_thread_names: true
+  display_thread_ids: false
+
+# Runtime configuration
+runtime:
+  n_cores: 0
+  thread_name: "authzen-demo"
+  drain_timeout: 5s
+
+# Services configuration
+services:
+  # Main SLIM service for AuthZEN demo
+  slim/0:
+    # PubSub API configuration  
+    pubsub:
+      servers:
+        - endpoint: "127.0.0.1:46357"
+          # Disable TLS for demo simplicity
+          tls:
+            insecure: true
+          auth:
+            # Basic auth for demo simplicity
+            basic:
+              username: "demo"
+              password: "authzen-demo" 

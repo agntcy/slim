@@ -17,7 +17,7 @@ use tracing::{info, warn, error};
 use slim::config;
 use slim_service::{
     FireAndForgetConfiguration,
-    session::{self, SessionConfig},
+    session::SessionConfig,
     authzen_integration::{AuthZenService, AuthZenServiceConfig},
 };
 
@@ -80,7 +80,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 /// Demonstrate agent creation with authorization context
 async fn demo_agent_creation(
     svc: &mut slim_service::Service,
-    authzen_service: &AuthZenService,
+    _authzen_service: &AuthZenService,
 ) -> Result<(), Box<dyn std::error::Error>> {
     info!("\n📋 === AGENT CREATION DEMO ===");
 

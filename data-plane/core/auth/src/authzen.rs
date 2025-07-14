@@ -11,6 +11,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use reqwest::Client;
+use rustls;
 use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
 
@@ -130,6 +131,9 @@ pub struct AuthZenAuthorizer {
 impl AuthZenAuthorizer {
     /// Create a new AuthZEN authorizer
     pub fn new(config: AuthZenConfig) -> Result<Self, AuthError> {
+        // Ensure crypto provider is set up for rustls
+        let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
+        
         let client = Client::builder()
             .timeout(config.timeout)
             .build()
