@@ -55,6 +55,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     info!("🔐 AuthZEN Integration: {}", 
         if authzen_service.is_enabled() { "ENABLED" } else { "DISABLED" });
+    
+    if authzen_service.is_enabled() {
+        info!("🏠 PDP Endpoint: {}", args.pdp_endpoint());
+        info!("🛡️  Fallback Policy: {}", 
+            if args.fallback_allow() { "ALLOW (fail-open)" } else { "DENY (fail-closed)" });
+        
+        if !args.fallback_allow() {
+            info!("ℹ️  Note: Since no PDP is running, all operations will be DENIED (fail-closed security)");
+        }
+    }
 
     // Start the service
     svc.run().await?;
@@ -138,10 +148,11 @@ async fn demo_route_authorization(
             info!("🛣️  Route established successfully");
         }
         Ok(false) => {
-            warn!("❌ Route authorization DENIED");
+            info!("❌ Route authorization DENIED by policy");
         }
         Err(e) => {
-            error!("🚨 Route authorization ERROR: {}", e);
+            warn!("⚠️  Route authorization failed: {}", e);
+            info!("   This is expected when no PDP is running and fallback_allow=false");
         }
     }
 
@@ -199,10 +210,11 @@ async fn demo_publish_authorization(
             info!("📤 Message published successfully");
         }
         Ok(false) => {
-            warn!("❌ Publish authorization DENIED");
+            info!("❌ Publish authorization DENIED by policy");
         }
         Err(e) => {
-            error!("🚨 Publish authorization ERROR: {}", e);
+            warn!("⚠️  Publish authorization failed: {}", e);
+            info!("   This is expected when no PDP is running and fallback_allow=false");
         }
     }
 
@@ -218,8 +230,11 @@ async fn demo_publish_authorization(
         large_message_size,
     ).await {
         Ok(true) => warn!("⚠️  Large message was GRANTED (check policy limits)"),
-        Ok(false) => info!("✅ Correctly DENIED large message"),
-        Err(e) => warn!("🚨 Large message authorization ERROR: {}", e),
+        Ok(false) => info!("✅ Correctly DENIED large message by policy"),
+        Err(e) => {
+            warn!("⚠️  Large message authorization failed: {}", e);
+            info!("   This is expected when no PDP is running and fallback_allow=false");
+        }
     }
 
     Ok(())
@@ -253,10 +268,11 @@ async fn demo_subscribe_authorization(
             info!("📥 Subscription created successfully");
         }
         Ok(false) => {
-            warn!("❌ Subscribe authorization DENIED");
+            info!("❌ Subscribe authorization DENIED by policy");
         }
         Err(e) => {
-            error!("🚨 Subscribe authorization ERROR: {}", e);
+            warn!("⚠️  Subscribe authorization failed: {}", e);
+            info!("   This is expected when no PDP is running and fallback_allow=false");
         }
     }
 
@@ -271,8 +287,11 @@ async fn demo_subscribe_authorization(
         None,
     ).await {
         Ok(true) => warn!("⚠️  Cross-org subscription was GRANTED"),
-        Ok(false) => info!("✅ Correctly DENIED cross-org subscription"),
-        Err(e) => warn!("🚨 Cross-org subscription ERROR: {}", e),
+        Ok(false) => info!("✅ Correctly DENIED cross-org subscription by policy"),
+        Err(e) => {
+            warn!("⚠️  Cross-org subscription failed: {}", e);
+            info!("   This is expected when no PDP is running and fallback_allow=false");
+        }
     }
 
     // Demonstrate cache performance

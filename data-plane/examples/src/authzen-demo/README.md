@@ -52,17 +52,17 @@ cargo run --bin authzen-demo -- --help
 ### Basic Usage
 
 ```bash
-# Run with default settings (mock PDP)
+# Run with default settings (fail-open for demo)
 cargo run --bin authzen-demo
 
-# Run with a real AuthZEN PDP
-cargo run --bin authzen-demo --pdp-endpoint http://your-pdp:8080
+# Test fail-closed security behavior
+cargo run --bin authzen-demo -- --fail-closed
 
-# Enable fallback allow for unavailable PDP
-cargo run --bin authzen-demo --fallback-allow
+# Run with a real AuthZEN PDP
+cargo run --bin authzen-demo -- --pdp-endpoint http://your-pdp:8080
 
 # Disable AuthZEN (JWT-only mode)
-cargo run --bin authzen-demo --authzen-enabled false
+cargo run --bin authzen-demo -- --authzen-enabled false
 ```
 
 ### Command Line Options
@@ -72,7 +72,8 @@ Options:
   -c, --config <CONFIG>                SLIM configuration file [default: config/slim.yml]
       --authzen-enabled <BOOLEAN>      Enable AuthZEN authorization [default: true]
       --pdp-endpoint <ENDPOINT>        AuthZEN PDP endpoint URL [default: http://localhost:8080]
-      --fallback-allow                 Allow operations when PDP is unavailable [default: false]
+      --fallback-allow                 Allow operations when PDP is unavailable [default: true]
+      --fail-closed                    Test fail-closed security (deny when PDP unavailable)
       --demo-mode                      Run comprehensive demo scenarios [default: true]
   -v, --verbose                        Enable verbose authorization logging [default: false]
   -h, --help                           Print help information
@@ -82,10 +83,13 @@ Options:
 
 When running the example, you'll see output like:
 
+**Fail-Open Mode (Default):**
 ```
 🚀 Starting SLIM AuthZEN Integration Example
 📄 Config file: config/slim.yml
 🔐 AuthZEN Integration: ENABLED
+🏠 PDP Endpoint: http://localhost:8080
+🛡️  Fallback Policy: ALLOW (fail-open)
 
 📋 === AGENT CREATION DEMO ===
 👤 Creating publisher agent: cisco.demo.publisher.1
@@ -95,28 +99,54 @@ When running the example, you'll see output like:
 
 🛣️ === ROUTE AUTHORIZATION DEMO ===
 🔍 Testing route authorization for: cisco.demo.publisher.1 -> cisco.demo.subscriber
+⚠️  Falling back to ALLOW due to AuthZEN unavailability
 ✅ Route authorization GRANTED
 🛣️ Route established successfully
+
+📤 === PUBLISH AUTHORIZATION DEMO ===
+🔍 Testing publish authorization: cisco.demo.publisher.1 -> cisco.demo.subscriber (size: Some(1024))
+⚠️  Falling back to ALLOW due to AuthZEN unavailability
+✅ Publish authorization GRANTED
+📤 Message published successfully
+
+📥 === SUBSCRIBE AUTHORIZATION DEMO ===
+🔍 Testing subscribe authorization: cisco.demo.subscriber.2 -> cisco.demo.publisher
+⚠️  Falling back to ALLOW due to AuthZEN unavailability
+✅ Subscribe authorization GRANTED
+📥 Subscription created successfully
+
+📊 Cache performance test completed
+✅ AuthZEN Integration Example completed successfully
+🛑 Service shutdown completed
+```
+
+**Fail-Closed Mode (--fail-closed):**
+```
+🚀 Starting SLIM AuthZEN Integration Example
+🔐 AuthZEN Integration: ENABLED
+🏠 PDP Endpoint: http://localhost:8080
+🛡️  Fallback Policy: DENY (fail-closed)
+ℹ️  Note: Since no PDP is running, all operations will be DENIED (fail-closed security)
+
+🛣️ === ROUTE AUTHORIZATION DEMO ===
+🔍 Testing route authorization for: cisco.demo.publisher.1 -> cisco.demo.subscriber
+❌ Route authorization DENIED by policy
 🔍 Testing unauthorized route: cisco.demo.publisher.1 -> external.demo.service
 ✅ Correctly DENIED unauthorized route
 
 📤 === PUBLISH AUTHORIZATION DEMO ===
 🔍 Testing publish authorization: cisco.demo.publisher.1 -> cisco.demo.subscriber (size: Some(1024))
-✅ Publish authorization GRANTED
-📤 Message published successfully
+❌ Publish authorization DENIED by policy
 🔍 Testing large message publish: cisco.demo.publisher.1 -> cisco.demo.subscriber (size: Some(10000000))
-✅ Correctly DENIED large message
+✅ Correctly DENIED large message by policy
 
 📥 === SUBSCRIBE AUTHORIZATION DEMO ===
 🔍 Testing subscribe authorization: cisco.demo.subscriber.2 -> cisco.demo.publisher
-✅ Subscribe authorization GRANTED
-📥 Subscription created successfully
+❌ Subscribe authorization DENIED by policy
 🔍 Testing cross-org subscription: cisco.demo.subscriber.2 -> external.public.broadcast
-✅ Correctly DENIED cross-org subscription
+✅ Correctly DENIED cross-org subscription by policy
 
-📊 Cache performance test completed
 ✅ AuthZEN Integration Example completed successfully
-🛑 Service shutdown completed
 ```
 
 ## Integration Guide

@@ -55,10 +55,17 @@ pub struct Args {
     /// Enable fallback allow policy
     #[arg(
         long,
-        default_value = "false",
+        default_value = "true",
         help = "Allow operations when AuthZEN PDP is unavailable (fail-open vs fail-closed)"
     )]
     fallback_allow: bool,
+
+    /// Test fail-closed behavior (deny when PDP unavailable)
+    #[arg(
+        long,
+        help = "Test fail-closed security (equivalent to --fallback-allow=false)"
+    )]
+    fail_closed: bool,
 
     /// Demo mode (run through all scenarios)
     #[arg(
@@ -96,7 +103,12 @@ impl Args {
 
     /// Check if fallback allow is enabled
     pub fn fallback_allow(&self) -> bool {
-        self.fallback_allow
+        // If fail_closed is set, override fallback_allow to false
+        if self.fail_closed {
+            false
+        } else {
+            self.fallback_allow
+        }
     }
 
     /// Check if demo mode is enabled
