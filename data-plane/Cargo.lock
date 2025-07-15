@@ -3671,8 +3671,11 @@ dependencies = [
  "agntcy-slim-signal",
  "clap",
  "parking_lot",
+ "serde",
+ "serde_json",
  "tokio",
  "tracing",
+ "wiremock",
 ]
 
 [[package]]

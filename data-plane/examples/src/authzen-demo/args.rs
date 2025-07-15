@@ -67,6 +67,21 @@ pub struct Args {
     )]
     fail_closed: bool,
 
+    /// Use mock PDP server for testing
+    #[arg(
+        long,
+        default_value = "true",
+        help = "Create a local mock PDP server for testing (recommended for demos)"
+    )]
+    mock_pdp: bool,
+
+    /// Disable mock PDP server (convenience flag)
+    #[arg(
+        long,
+        help = "Disable mock PDP server (equivalent to --mock-pdp=false)"
+    )]
+    no_mock_pdp: bool,
+
     /// Demo mode (run through all scenarios)
     #[arg(
         long,
@@ -108,6 +123,16 @@ impl Args {
             false
         } else {
             self.fallback_allow
+        }
+    }
+
+    /// Check if mock PDP should be used
+    pub fn mock_pdp(&self) -> bool {
+        // If no_mock_pdp is set, override mock_pdp to false
+        if self.no_mock_pdp {
+            false
+        } else {
+            self.mock_pdp
         }
     }
 

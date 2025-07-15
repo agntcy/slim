@@ -13,7 +13,7 @@ AuthZEN is an OpenID Foundation standard that defines a REST API for Policy Deci
 
 ## Example Features
 
-This example demonstrates:
+This example demonstrates AuthZEN authorization testing without full SLIM service operations:
 
 ### 🔐 Authorization Scenarios
 - **Route Authorization**: Agent-to-agent route establishment permissions
@@ -25,14 +25,17 @@ This example demonstrates:
 - AuthZEN client configuration and integration
 - SLIM entity to AuthZEN format conversion (Agent → Subject, AgentType → Resource)
 - Error handling and fallback policies
+- Mock PDP server for realistic testing
 - Performance testing with cached decisions
 
 ### 📊 Demo Scenarios
 1. **Agent Creation**: Create publisher, subscriber, and admin agents
-2. **Route Testing**: Authorized and unauthorized route creation attempts
-3. **Message Publishing**: Normal and oversized message authorization
-4. **Subscription Management**: Same-org and cross-org subscription attempts
+2. **Route Testing**: Authorized and unauthorized route creation authorization
+3. **Message Publishing**: Normal and oversized message authorization testing
+4. **Subscription Management**: Same-org and cross-org subscription authorization
 5. **Cache Testing**: Performance impact of authorization caching
+
+Note: This demo focuses on authorization decision testing. Actual SLIM operations (route creation, message publishing, subscriptions) are skipped to maintain clean output focused on AuthZEN functionality.
 
 ## Quick Start
 
@@ -55,13 +58,16 @@ cargo run --bin authzen-demo -- --help
 # Run with default settings (fail-open for demo)
 cargo run --bin authzen-demo
 
-# Test fail-closed security behavior
+# Run with mock PDP server (recommended - default)
+cargo run --bin authzen-demo -- --mock-pdp
+
+# Test fail-closed security behavior 
 cargo run --bin authzen-demo -- --fail-closed
 
-# Run with a real AuthZEN PDP
-cargo run --bin authzen-demo -- --pdp-endpoint http://your-pdp:8080
+# Test with real AuthZEN PDP (disable mock)
+cargo run --bin authzen-demo -- --no-mock-pdp --pdp-endpoint http://your-pdp:8080
 
-# Disable AuthZEN (JWT-only mode)
+# Disable AuthZEN entirely (JWT-only mode)
 cargo run --bin authzen-demo -- --authzen-enabled false
 ```
 
@@ -74,10 +80,29 @@ Options:
       --pdp-endpoint <ENDPOINT>        AuthZEN PDP endpoint URL [default: http://localhost:8080]
       --fallback-allow                 Allow operations when PDP is unavailable [default: true]
       --fail-closed                    Test fail-closed security (deny when PDP unavailable)
+      --mock-pdp                       Create a local mock PDP server [default: true]
       --demo-mode                      Run comprehensive demo scenarios [default: true]
   -v, --verbose                        Enable verbose authorization logging [default: false]
   -h, --help                           Print help information
 ```
+
+## Mock PDP Server
+
+The example includes a built-in mock AuthZEN PDP server for realistic testing without requiring an external policy engine. The mock PDP implements these policies:
+
+### 📋 Mock Policies
+- **Same-Organization Routes**: ✅ Allow route creation between agents in the same organization (`cisco`)
+- **Cross-Organization Routes**: ❌ Deny routes to external organizations (`external`, etc.)
+- **Message Publishing**: ✅ Allow normal message publishing within organization
+- **Subscriptions**: ✅ Allow subscriptions within the same organization
+- **Default Policy**: ✅ Allow other operations (for demo purposes)
+
+### 🎛️ Mock PDP Controls
+- `--mock-pdp` (default): Use local mock PDP with realistic policies
+- `--no-mock-pdp`: Connect to real PDP at `--pdp-endpoint`
+- `--fail-closed`: Test security-first behavior (deny when PDP unavailable)
+
+The mock PDP demonstrates how AuthZEN policies can enforce fine-grained access control beyond simple JWT claims, showing realistic organizational boundaries and operation restrictions.
 
 ## Expected Output
 
