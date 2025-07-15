@@ -14,6 +14,7 @@ require (
 )
 
 require (
+	github.com/agntcy/slim/control-plane/common v0.0.0-00010101000000-000000000000 // indirect
 	github.com/fsnotify/fsnotify v1.8.0 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/kr/pretty v0.3.1 // indirect
@@ -30,3 +31,5 @@ require (
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20250115164207-1a7da9e5054f // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
+
+replace github.com/agntcy/slim/control-plane/common => ../common
