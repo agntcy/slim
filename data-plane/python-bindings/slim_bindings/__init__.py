@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import asyncio
+import datetime
 from typing import Optional
 
 from ._slim_bindings import (  # type: ignore[attr-defined]
@@ -567,6 +568,7 @@ class Slim:
         namespace: str,
         agent: str,
         agent_id: Optional[int] = None,
+        timeout: Optional[datetime.timedelta] = None,
     ) -> tuple[PySessionInfo, Optional[bytes]]:
         """
         Publish a message and wait for the first response.
@@ -590,8 +592,13 @@ class Slim:
         dest = PyAgentType(organization, namespace, agent)
         await publish(self.svc, session, 1, msg, dest, agent_id)
 
-        # Wait for a reply in the corresponding session queue
-        session_info, message = await self.receive(session.id)
+        # Wait for a reply in the corresponding session queue with timeout
+        if timeout is not None:
+            session_info, message = await asyncio.wait_for(
+                self.receive(session.id), timeout=timeout.total_seconds()
+            )
+        else:
+            session_info, message = await self.receive(session.id)
 
         return session_info, message
 

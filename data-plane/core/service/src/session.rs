@@ -7,6 +7,7 @@ use async_trait::async_trait;
 use parking_lot::Mutex;
 use parking_lot::RwLock;
 use slim_auth::traits::{TokenProvider, Verifier};
+use slim_datapath::api::ProtoSessionType;
 use slim_mls::mls::Mls;
 use tonic::Status;
 
@@ -14,7 +15,6 @@ use crate::errors::SessionError;
 use crate::fire_and_forget::{FireAndForget, FireAndForgetConfiguration};
 use crate::interceptor::{SessionInterceptor, SessionInterceptorProvider};
 use crate::interceptor_mls::MlsInterceptor;
-use crate::request_response::{RequestResponse, RequestResponseConfiguration};
 use crate::streaming::{Streaming, StreamingConfiguration};
 use slim_datapath::api::{ProtoMessage as Message, ProtoSessionMessageType};
 use slim_datapath::messages::encoder::Agent;
@@ -35,8 +35,6 @@ where
 {
     /// Fire and forget session
     FireAndForget(FireAndForget<P, V, T>),
-    /// Request response session
-    RequestResponse(RequestResponse<P, V, T>),
     /// Streaming session
     Streaming(Streaming<P, V, T>),
 }
@@ -97,6 +95,8 @@ pub struct Info {
     pub message_id: Option<u32>,
     /// The Message Type
     pub session_message_type: ProtoSessionMessageType,
+    // The session Type
+    pub session_type: ProtoSessionType,
     /// The identifier of the agent that sent the message
     pub message_source: Option<Agent>,
     /// The input connection id
@@ -110,6 +110,7 @@ impl Info {
             id,
             message_id: None,
             session_message_type: ProtoSessionMessageType::Unspecified,
+            session_type: ProtoSessionType::SessionUnknown,
             message_source: None,
             input_connection: None,
         }
@@ -119,8 +120,12 @@ impl Info {
         self.message_id = Some(message_id);
     }
 
-    pub fn set_session_header_type(&mut self, session_header_type: ProtoSessionMessageType) {
+    pub fn set_session_message_type(&mut self, session_header_type: ProtoSessionMessageType) {
         self.session_message_type = session_header_type;
+    }
+
+    pub fn set_session_type(&mut self, session_type: ProtoSessionType) {
+        self.session_type = session_type;
     }
 
     pub fn set_message_source(&mut self, message_source: Agent) {
@@ -135,8 +140,20 @@ impl Info {
         self.message_id
     }
 
+    pub fn session_message_type_unset(&self) -> bool {
+        self.session_message_type == ProtoSessionMessageType::Unspecified
+    }
+
     pub fn get_session_message_type(&self) -> ProtoSessionMessageType {
         self.session_message_type
+    }
+
+    pub fn session_type_unset(&self) -> bool {
+        self.session_type == ProtoSessionType::SessionUnknown
+    }
+
+    pub fn get_session_type(&self) -> ProtoSessionType {
+        self.session_type
     }
 
     pub fn get_message_source(&self) -> Option<Agent> {
@@ -158,11 +175,13 @@ impl From<&Message> for Info {
         let message_source = message.get_source();
         let input_connection = slim_header.incoming_conn;
         let session_message_type = session_header.session_message_type();
+        let session_type = session_header.session_type();
 
         Info {
             id,
             message_id: Some(message_id),
             session_message_type,
+            session_type,
             message_source: Some(message_source),
             input_connection,
         }
@@ -196,7 +215,6 @@ pub(crate) enum MessageDirection {
 #[derive(Clone, PartialEq, Debug)]
 pub enum SessionType {
     FireAndForget,
-    RequestResponse,
     Streaming,
 }
 
@@ -204,7 +222,6 @@ impl std::fmt::Display for SessionType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             SessionType::FireAndForget => write!(f, "FireAndForget"),
-            SessionType::RequestResponse => write!(f, "RequestResponse"),
             SessionType::Streaming => write!(f, "Streaming"),
         }
     }
@@ -213,7 +230,6 @@ impl std::fmt::Display for SessionType {
 #[derive(Clone, PartialEq, Debug)]
 pub enum SessionConfig {
     FireAndForget(FireAndForgetConfiguration),
-    RequestResponse(RequestResponseConfiguration),
     Streaming(StreamingConfiguration),
 }
 
@@ -225,7 +241,6 @@ impl std::fmt::Display for SessionConfig {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             SessionConfig::FireAndForget(ff) => write!(f, "{}", ff),
-            SessionConfig::RequestResponse(rr) => write!(f, "{}", rr),
             SessionConfig::Streaming(s) => write!(f, "{}", s),
         }
     }
@@ -347,7 +362,6 @@ where
     ) -> Result<(), SessionError> {
         match self {
             Session::FireAndForget(session) => session.on_message(message, direction).await,
-            Session::RequestResponse(session) => session.on_message(message, direction).await,
             Session::Streaming(session) => session.on_message(message, direction).await,
         }
     }
@@ -362,7 +376,6 @@ where
     fn add_interceptor(&self, interceptor: Arc<dyn SessionInterceptor + Send + Sync + 'static>) {
         match self {
             Session::FireAndForget(session) => session.tx_ref().add_interceptor(interceptor),
-            Session::RequestResponse(session) => session.tx_ref().add_interceptor(interceptor),
             Session::Streaming(session) => session.tx_ref().add_interceptor(interceptor),
         }
     }
@@ -370,7 +383,6 @@ where
     fn get_interceptors(&self) -> Vec<Arc<dyn SessionInterceptor + Send + Sync + 'static>> {
         match self {
             Session::FireAndForget(session) => session.tx_ref().get_interceptors(),
-            Session::RequestResponse(session) => session.tx_ref().get_interceptors(),
             Session::Streaming(session) => session.tx_ref().get_interceptors(),
         }
     }
@@ -386,7 +398,6 @@ where
     fn id(&self) -> Id {
         match self {
             Session::FireAndForget(session) => session.id(),
-            Session::RequestResponse(session) => session.id(),
             Session::Streaming(session) => session.id(),
         }
     }
@@ -394,7 +405,6 @@ where
     fn state(&self) -> &State {
         match self {
             Session::FireAndForget(session) => session.state(),
-            Session::RequestResponse(session) => session.state(),
             Session::Streaming(session) => session.state(),
         }
     }
@@ -402,7 +412,6 @@ where
     fn identity_provider(&self) -> P {
         match self {
             Session::FireAndForget(session) => session.identity_provider(),
-            Session::RequestResponse(session) => session.identity_provider(),
             Session::Streaming(session) => session.identity_provider(),
         }
     }
@@ -410,7 +419,6 @@ where
     fn identity_verifier(&self) -> V {
         match self {
             Session::FireAndForget(session) => session.identity_verifier(),
-            Session::RequestResponse(session) => session.identity_verifier(),
             Session::Streaming(session) => session.identity_verifier(),
         }
     }
@@ -418,7 +426,6 @@ where
     fn source(&self) -> &Agent {
         match self {
             Session::FireAndForget(session) => session.source(),
-            Session::RequestResponse(session) => session.source(),
             Session::Streaming(session) => session.source(),
         }
     }
@@ -426,7 +433,6 @@ where
     fn session_config(&self) -> SessionConfig {
         match self {
             Session::FireAndForget(session) => session.session_config(),
-            Session::RequestResponse(session) => session.session_config(),
             Session::Streaming(session) => session.session_config(),
         }
     }
@@ -434,7 +440,6 @@ where
     fn set_session_config(&self, session_config: &SessionConfig) -> Result<(), SessionError> {
         match self {
             Session::FireAndForget(session) => session.set_session_config(session_config),
-            Session::RequestResponse(session) => session.set_session_config(session_config),
             Session::Streaming(session) => session.set_session_config(session_config),
         }
     }
@@ -442,7 +447,6 @@ where
     fn tx(&self) -> T {
         match self {
             Session::FireAndForget(session) => session.tx(),
-            Session::RequestResponse(session) => session.tx(),
             Session::Streaming(session) => session.tx(),
         }
     }
@@ -450,7 +454,6 @@ where
     fn tx_ref(&self) -> &T {
         match self {
             Session::FireAndForget(session) => session.tx_ref(),
-            Session::RequestResponse(session) => session.tx_ref(),
             Session::Streaming(session) => session.tx_ref(),
         }
     }
@@ -492,9 +495,6 @@ where
 
         match *conf {
             SessionConfig::FireAndForget(ref mut config) => {
-                config.replace(session_config)?;
-            }
-            SessionConfig::RequestResponse(ref mut config) => {
                 config.replace(session_config)?;
             }
             SessionConfig::Streaming(ref mut config) => {

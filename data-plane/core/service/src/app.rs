@@ -14,7 +14,6 @@ use tracing::{debug, error, warn};
 use crate::errors::SessionError;
 use crate::fire_and_forget::FireAndForgetConfiguration;
 use crate::interceptor::{IdentityInterceptor, SessionInterceptor, SessionInterceptorProvider};
-use crate::request_response::{RequestResponse, RequestResponseConfiguration};
 use crate::session::{
     AppChannelSender, CommonSession, Id, Info, MessageDirection, MessageHandler, SESSION_RANGE,
     Session, SessionConfig, SessionConfigTrait, SessionDirection, SessionMessage,
@@ -137,7 +136,6 @@ where
 
     /// Default configuration for the session
     default_ff_conf: SyncRwLock<FireAndForgetConfiguration>,
-    default_rr_conf: SyncRwLock<RequestResponseConfiguration>,
     default_stream_conf: SyncRwLock<StreamingConfiguration>,
 }
 
@@ -190,7 +188,6 @@ where
     ) -> Self {
         // Create default configurations
         let default_ff_conf = SyncRwLock::new(FireAndForgetConfiguration::default());
-        let default_rr_conf = SyncRwLock::new(RequestResponseConfiguration::default());
         let default_stream_conf = SyncRwLock::new(StreamingConfiguration::default());
 
         // Create identity interceptor
@@ -220,7 +217,6 @@ where
             tx_app,
             transmitter,
             default_ff_conf,
-            default_rr_conf,
             default_stream_conf,
         });
 
@@ -670,16 +666,6 @@ where
                     mls_enabled,
                 ))
             }
-            SessionConfig::RequestResponse(conf) => Session::RequestResponse(RequestResponse::new(
-                id,
-                conf,
-                SessionDirection::Bidirectional,
-                self.agent_name().clone(),
-                tx,
-                self.identity_provider.clone(),
-                self.identity_verifier.clone(),
-                mls_enabled,
-            )),
             SessionConfig::Streaming(conf) => {
                 let direction = conf.direction.clone();
 
@@ -767,10 +753,11 @@ where
     async fn handle_message_from_slim_without_session(
         &self,
         message: &Message,
-        session_type: ProtoSessionMessageType,
+        session_type: ProtoSessionType,
+        session_message_type: ProtoSessionMessageType,
         session_id: u32,
     ) -> Result<bool, SessionError> {
-        match session_type {
+        match session_message_type {
             ProtoSessionMessageType::ChannelDiscoveryRequest => {
                 // reply direcetly without creating any new Session
                 let destination = message.get_source();
@@ -784,7 +771,7 @@ where
                 ));
 
                 let session_header = Some(SessionHeader::new(
-                    ProtoSessionType::SessionUnknown.into(),
+                    session_type.into(),
                     ProtoSessionMessageType::ChannelDiscoveryReply.into(),
                     session_id,
                     msg_id,
@@ -811,21 +798,29 @@ where
         mut message: SessionMessage,
         direction: MessageDirection,
     ) -> Result<(), SessionError> {
-        let (id, session_type) = {
+        let (id, session_type, session_message_type) = {
             // get the session type and the session id from the message
             let header = message.message.get_session_header();
 
             // get the session type from the header
-            let session_type = header.session_message_type();
+            let session_type = header.session_type();
+
+            // get the session message type
+            let session_message_type = header.session_message_type();
 
             // get the session ID
             let id = header.session_id;
 
-            (id, session_type)
+            (id, session_type, session_message_type)
         };
 
         match self
-            .handle_message_from_slim_without_session(&message.message, session_type, id)
+            .handle_message_from_slim_without_session(
+                &message.message,
+                session_type,
+                session_message_type,
+                id,
+            )
             .await
         {
             Ok(done) => {
@@ -853,19 +848,18 @@ where
             return session.on_message(message, direction).await;
         }
 
-        let new_session_id = match session_type {
+        let new_session_id = match session_message_type {
             ProtoSessionMessageType::FnfMsg
             | ProtoSessionMessageType::FnfReliable
             | ProtoSessionMessageType::FnfDiscovery => {
-                let conf = self.default_ff_conf.read().clone();
-                // TODO check if MLS is on (it should be in the received packet). Put false for the moment
+                // create a new Fire and Forget session
+                let mut conf = self.default_ff_conf.read().clone();
+
+                if session_message_type == ProtoSessionMessageType::FnfReliable {
+                    conf.timeout = Some(std::time::Duration::from_secs(5));
+                }
+
                 self.create_session(SessionConfig::FireAndForget(conf), Some(id), false)
-                    .await?
-            }
-            ProtoSessionMessageType::Request => {
-                let conf = self.default_rr_conf.read().clone();
-                // TODO check if MLS is on (it should be in the received packet). Put false for the moment
-                self.create_session(SessionConfig::RequestResponse(conf), Some(id), false)
                     .await?
             }
             ProtoSessionMessageType::StreamMsg | ProtoSessionMessageType::BeaconStream => {
@@ -949,9 +943,6 @@ where
                     SessionConfig::FireAndForget(_) => {
                         return self.default_ff_conf.write().replace(session_config);
                     }
-                    SessionConfig::RequestResponse(_) => {
-                        return self.default_rr_conf.write().replace(session_config);
-                    }
                     SessionConfig::Streaming(_) => {
                         return self.default_stream_conf.write().replace(session_config);
                     }
@@ -995,9 +986,6 @@ where
         match session_type {
             SessionType::FireAndForget => Ok(SessionConfig::FireAndForget(
                 self.default_ff_conf.read().clone(),
-            )),
-            SessionType::RequestResponse => Ok(SessionConfig::RequestResponse(
-                self.default_rr_conf.read().clone(),
             )),
             SessionType::Streaming => Ok(SessionConfig::Streaming(
                 self.default_stream_conf.read().clone(),
