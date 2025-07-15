@@ -204,7 +204,10 @@ impl PyService {
         session_info: session::Info,
         name: PyAgentType,
     ) -> Result<(), ServiceError> {
-        self.sdk.app.invite(&name.into(), session_info).await
+        self.sdk
+            .app
+            .invite_participant(&name.into(), session_info)
+            .await
     }
 
     async fn receive(&self) -> Result<(PySessionInfo, Vec<u8>), ServiceError> {

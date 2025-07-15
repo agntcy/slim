@@ -135,6 +135,7 @@ pub enum SessionMessageType {
     FnfMsg = 1,
     FnfReliable = 2,
     FnfAck = 3,
+<<<<<<< HEAD
     StreamMsg = 4,
     PubSubMsg = 5,
     RtxRequest = 6,
@@ -150,6 +151,25 @@ pub enum SessionMessageType {
     ChannelMlsCommit = 16,
     ChannelMlsWelcome = 17,
     ChannelMlsAck = 18,
+=======
+    FnfDiscovery = 4,
+    FnfDiscoveryReply = 5,
+    StreamMsg = 6,
+    PubSubMsg = 7,
+    RtxRequest = 8,
+    RtxReply = 9,
+    BeaconStream = 10,
+    BeaconPubSub = 11,
+    ChannelDiscoveryRequest = 12,
+    ChannelDiscoveryReply = 13,
+    ChannelJoinRequest = 14,
+    ChannelJoinReply = 15,
+    ChannelLeaveRequest = 16,
+    ChannelLeaveReply = 17,
+    ChannelMlsCommit = 18,
+    ChannelMlsWelcome = 19,
+    ChannelMlsAck = 20,
+>>>>>>> main
 }
 impl SessionMessageType {
     /// String value of the enum field names used in the ProtoBuf definition.
@@ -162,6 +182,11 @@ impl SessionMessageType {
             Self::FnfMsg => "FNF_MSG",
             Self::FnfReliable => "FNF_RELIABLE",
             Self::FnfAck => "FNF_ACK",
+<<<<<<< HEAD
+=======
+            Self::FnfDiscovery => "FNF_DISCOVERY",
+            Self::FnfDiscoveryReply => "FNF_DISCOVERY_REPLY",
+>>>>>>> main
             Self::StreamMsg => "STREAM_MSG",
             Self::PubSubMsg => "PUB_SUB_MSG",
             Self::RtxRequest => "RTX_REQUEST",
@@ -186,6 +211,11 @@ impl SessionMessageType {
             "FNF_MSG" => Some(Self::FnfMsg),
             "FNF_RELIABLE" => Some(Self::FnfReliable),
             "FNF_ACK" => Some(Self::FnfAck),
+<<<<<<< HEAD
+=======
+            "FNF_DISCOVERY" => Some(Self::FnfDiscovery),
+            "FNF_DISCOVERY_REPLY" => Some(Self::FnfDiscoveryReply),
+>>>>>>> main
             "STREAM_MSG" => Some(Self::StreamMsg),
             "PUB_SUB_MSG" => Some(Self::PubSubMsg),
             "RTX_REQUEST" => Some(Self::RtxRequest),

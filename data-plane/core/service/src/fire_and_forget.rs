@@ -358,7 +358,6 @@ where
         self.state.sticky_connection = Some(incoming_conn);
         self.state.sticky_session_status = StickySessionStatus::Established;
 
-        // All good
         Ok(())
     }
 
@@ -485,13 +484,28 @@ where
         &mut self,
         mut message: SessionMessage,
     ) -> Result<(), SessionError> {
+        // Reference to session info
+        let info = &message.info;
+
         // Set the session type
         let header = message.message.get_session_header_mut();
-        header.set_session_type(ProtoSessionType::SessionFireForget);
-        if self.state.config.timeout.is_some() {
-            header.set_session_message_type(ProtoSessionMessageType::FnfReliable);
+        header.set_session_type(if info.session_type_unset() {
+            ProtoSessionType::SessionFireForget
         } else {
-            header.set_session_message_type(ProtoSessionMessageType::FnfMsg);
+            info.get_session_type()
+        });
+        if self.state.config.timeout.is_some() {
+            header.set_session_message_type(if info.session_message_type_unset() {
+                ProtoSessionMessageType::FnfReliable
+            } else {
+                info.get_session_message_type()
+            });
+        } else {
+            header.set_session_message_type(if info.session_message_type_unset() {
+                ProtoSessionMessageType::FnfMsg
+            } else {
+                info.get_session_message_type()
+            });
         }
 
         // If session is sticky, and we have a sticky name, set the destination
