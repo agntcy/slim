@@ -8,7 +8,6 @@ use pyo3_stub_gen::derive::gen_stub_pymethods;
 
 use crate::utils::PyAgentType;
 use slim_service::FireAndForgetConfiguration;
-use slim_service::RequestResponseConfiguration;
 use slim_service::StreamingConfiguration;
 use slim_service::session;
 pub use slim_service::session::SESSION_UNSPECIFIED;
@@ -82,8 +81,6 @@ impl From<session::SessionDirection> for PySessionDirection {
 pub(crate) enum PySessionType {
     #[pyo3(name = "FIRE_AND_FORGET")]
     FireAndForget = session::SessionType::FireAndForget as isize,
-    #[pyo3(name = "REQUEST_RESPONSE")]
-    RequestResponse = session::SessionType::RequestResponse as isize,
     #[pyo3(name = "STREAMING")]
     Streaming = session::SessionType::Streaming as isize,
 }
@@ -92,30 +89,7 @@ impl From<PySessionType> for session::SessionType {
     fn from(value: PySessionType) -> Self {
         match value {
             PySessionType::FireAndForget => session::SessionType::FireAndForget,
-            PySessionType::RequestResponse => session::SessionType::RequestResponse,
             PySessionType::Streaming => session::SessionType::Streaming,
-        }
-    }
-}
-
-/// request response session config
-#[gen_stub_pyclass]
-#[pyclass(eq)]
-#[derive(Clone, Default, PartialEq)]
-pub(crate) struct PyRequestResponseConfiguration {
-    pub request_response_configuration: slim_service::RequestResponseConfiguration,
-}
-
-impl From<PyRequestResponseConfiguration> for slim_service::RequestResponseConfiguration {
-    fn from(value: PyRequestResponseConfiguration) -> slim_service::RequestResponseConfiguration {
-        value.request_response_configuration
-    }
-}
-
-impl From<slim_service::RequestResponseConfiguration> for PyRequestResponseConfiguration {
-    fn from(request_response_configuration: slim_service::RequestResponseConfiguration) -> Self {
-        PyRequestResponseConfiguration {
-            request_response_configuration,
         }
     }
 }
@@ -128,11 +102,6 @@ pub(crate) enum PySessionConfiguration {
     FireAndForget {
         timeout: Option<std::time::Duration>,
         max_retries: Option<u32>,
-        sticky: bool,
-    },
-    #[pyo3(constructor = (timeout=std::time::Duration::from_millis(1000), sticky=false))]
-    RequestResponse {
-        timeout: std::time::Duration,
         sticky: bool,
     },
     #[pyo3(constructor = (session_direction, topic=None, moderator=false, max_retries=0, timeout=std::time::Duration::from_millis(1000)))]
@@ -153,12 +122,6 @@ impl From<session::SessionConfig> for PySessionConfiguration {
                     timeout: config.timeout,
                     max_retries: config.max_retries,
                     sticky: config.sticky,
-                }
-            }
-            session::SessionConfig::RequestReply(config) => {
-                PySessionConfiguration::RequestResponse {
-                    timeout: config.timeout(),
-                    sticky: config.sticky(),
                 }
             }
             session::SessionConfig::Streaming(config) => PySessionConfiguration::Streaming {
@@ -184,11 +147,6 @@ impl From<PySessionConfiguration> for session::SessionConfig {
                 max_retries,
                 sticky,
             }),
-            PySessionConfiguration::RequestResponse { timeout, sticky } => {
-                session::SessionConfig::RequestReply(RequestResponseConfiguration::new(
-                    timeout, sticky,
-                ))
-            }
             PySessionConfiguration::Streaming {
                 session_direction,
                 topic,

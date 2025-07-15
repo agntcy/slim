@@ -539,6 +539,11 @@ where
             ProtoSessionMessageType::FnfReliable => {
                 // Send an ack back as reply and forward the incoming message to the app
                 // Create ack message
+                tracing::info!(
+                    "received FnfReliable message with id {} from {}",
+                    message_id,
+                    message.message.get_source()
+                );
                 let src = message.message.get_source();
                 let slim_header = Some(SlimHeader::new(
                     &self.state.source,
@@ -571,6 +576,12 @@ where
                 self.send_message_to_app(message).await
             }
             ProtoSessionMessageType::FnfAck => {
+                tracing::info!(
+                    "received FnfAck message with id {} from {}",
+                    message_id,
+                    message.message.get_source()
+                );
+
                 // Remove the timer and drop the message
                 self.stop_and_remove_timer(message_id)
             }
