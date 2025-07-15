@@ -8,10 +8,8 @@ use parking_lot::RwLock as SyncRwLock;
 use rand::Rng;
 use tokio::sync::RwLock as AsyncRwLock;
 use tokio::sync::mpsc;
-use tokio::sync::mpsc::error::SendError;
 use tracing::{debug, error, warn};
 
-use crate::channel_endpoint::ChannelParticipant;
 use crate::channel_endpoint::handle_channel_discovery_message;
 use crate::errors::SessionError;
 use crate::fire_and_forget::FireAndForgetConfiguration;
@@ -22,6 +20,7 @@ use crate::session::{
     SessionTransmitter, SessionType, SlimChannelSender,
 };
 use crate::streaming::{self, StreamingConfiguration};
+use crate::transmitter::Transmitter;
 use crate::{ServiceError, fire_and_forget, session};
 use slim_auth::traits::{TokenProvider, Verifier};
 use slim_datapath::Status;
@@ -33,75 +32,6 @@ use slim_datapath::messages::encoder::Agent;
 use slim_datapath::messages::utils::SlimHeaderFlags;
 
 use crate::interceptor_mls::METADATA_MLS_ENABLED;
-
-/// Transmitter used to intercept messages sent from sessions and apply interceptors on them
-#[derive(Clone)]
-struct Transmitter {
-    /// SLIM tx
-    slim_tx: SlimChannelSender,
-
-    /// Application tx
-    app_tx: AppChannelSender,
-
-    // Interceptors to be called on message reception/send
-    interceptors: Arc<SyncRwLock<Vec<Arc<dyn SessionInterceptor + Send + Sync>>>>,
-}
-
-impl SessionInterceptorProvider for Transmitter {
-    fn add_interceptor(&self, interceptor: Arc<dyn SessionInterceptor + Send + Sync + 'static>) {
-        self.interceptors.write().push(interceptor);
-    }
-
-    fn get_interceptors(&self) -> Vec<Arc<dyn SessionInterceptor + Send + Sync + 'static>> {
-        self.interceptors.read().clone()
-    }
-}
-
-impl SessionTransmitter for Transmitter {
-    fn send_to_app(
-        &self,
-        message: Result<SessionMessage, SessionError>,
-    ) -> impl Future<Output = Result<(), SessionError>> + Send + 'static {
-        let tx = self.app_tx.clone();
-        async move {
-            tx.send(message)
-                .await
-                .map_err(|e: SendError<Result<SessionMessage, SessionError>>| {
-                    SessionError::AppTransmission(e.to_string())
-                })
-        }
-    }
-
-    fn send_to_slim(
-        &self,
-        mut message: Result<Message, Status>,
-    ) -> impl Future<Output = Result<(), SessionError>> + Send + 'static {
-        let tx = self.slim_tx.clone();
-
-        // Interceptors
-        let interceptors = match &message {
-            Ok(_) => self.interceptors.read().clone(),
-            Err(_) => Vec::new(),
-        };
-
-        async move {
-            if let Ok(msg) = message.as_mut() {
-                // Apply interceptors on the message
-                for interceptor in interceptors {
-                    if let Err(e) = interceptor.on_msg_from_app(msg).await {
-                        warn!("error applying interceptor on message: {}", e);
-                    }
-                }
-            }
-
-            tx.send(message)
-                .await
-                .map_err(|e: SendError<Result<Message, Status>>| {
-                    SessionError::SlimTransmission(e.to_string())
-                })
-        }
-    }
-}
 
 /// SessionLayer
 struct SessionLayer<P, V, T>
@@ -121,10 +51,6 @@ where
 
     /// Identity verifier
     identity_verifier: V,
-
-    /// Identity interceptor
-    #[allow(dead_code)]
-    identity_interceptor: Arc<dyn SessionInterceptor + Send + Sync>,
 
     /// ID of the local connection
     conn_id: u64,
@@ -205,7 +131,7 @@ where
             interceptors: Arc::new(SyncRwLock::new(Vec::new())),
         };
 
-        transmitter.add_interceptor(identity_interceptor.clone());
+        transmitter.add_interceptor(identity_interceptor);
 
         // Create the session layer
         let session_layer = Arc::new(SessionLayer {
@@ -213,7 +139,6 @@ where
             agent_name: agent_name.clone(),
             identity_provider,
             identity_verifier,
-            identity_interceptor,
             conn_id,
             tx_slim,
             tx_app,
@@ -723,7 +648,7 @@ where
             return Err(SessionError::ValidationError(e.to_string()));
         }
 
-        // Also make sure the message is a publication
+        // Make sure the message is a publication
         if !message.message.is_publish() {
             return Err(SessionError::ValidationError(
                 "message is not a publish".to_string(),
@@ -797,7 +722,7 @@ where
     /// corresponding session
     async fn handle_message_from_slim(
         &self,
-        mut message: SessionMessage,
+        message: SessionMessage,
         direction: MessageDirection,
     ) -> Result<(), SessionError> {
         let (id, session_type, session_message_type) = {
@@ -843,11 +768,6 @@ where
         if session_message_type == ProtoSessionMessageType::ChannelLeaveRequest {
             // send message to the session and delete it after
             if let Some(session) = self.pool.read().await.get(&id) {
-                // pass the message to the session
-                session
-                    .tx_ref()
-                    .on_msg_from_slim_interceptors(&mut message.message)
-                    .await?;
                 session.on_message(message, direction).await?;
             } else {
                 warn!(
@@ -864,10 +784,6 @@ where
 
         if let Some(session) = self.pool.read().await.get(&id) {
             // pass the message to the session
-            session
-                .tx_ref()
-                .on_msg_from_slim_interceptors(&mut message.message)
-                .await?;
             return session.on_message(message, direction).await;
         }
 
@@ -901,7 +817,6 @@ where
                         let mut conf = self.default_ff_conf.read().clone();
                         conf.initiator = false;
                         conf.mls_enabled = message.message.contains_metadata(METADATA_MLS_ENABLED);
-
                         self.create_session(SessionConfig::FireAndForget(conf), Some(id))
                             .await?
                     }
@@ -960,10 +875,6 @@ where
         // retry the match
         if let Some(session) = self.pool.read().await.get(&new_session_id.id) {
             // pass the message
-            session
-                .tx_ref()
-                .on_msg_from_slim_interceptors(&mut message.message)
-                .await?;
             return session.on_message(message, direction).await;
         }
 
@@ -1205,30 +1116,33 @@ mod tests {
         header.set_session_type(ProtoSessionType::SessionFireForget);
         header.set_session_message_type(ProtoSessionMessageType::FnfMsg);
 
-        let res = app
-            .session_layer
+        app.session_layer
             .handle_message(
                 SessionMessage::from(message.clone()),
                 MessageDirection::North,
             )
-            .await;
+            .await
+            .unwrap();
 
-        // This should fail, as message has no identity
-        assert!(res.is_err());
+        // sleep to allow the message to be processed
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+
+        // As there is no identity, we should not get any message in the app
+        rx_app
+            .try_recv()
+            .expect_err("message received when it should not have been");
 
         // Add identity to message
         message.insert_metadata(SLIM_IDENTITY.to_string(), identity.get_token().unwrap());
 
         // Try again
-        let res = app
-            .session_layer
+        app.session_layer
             .handle_message(
                 SessionMessage::from(message.clone()),
                 MessageDirection::North,
             )
-            .await;
-
-        assert!(res.is_ok());
+            .await
+            .unwrap();
 
         // message should have been delivered to the app
         let msg = rx_app

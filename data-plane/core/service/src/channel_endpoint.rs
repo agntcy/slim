@@ -53,7 +53,7 @@ where
     }
 
     async fn on_failure(&self, _timer_id: u32, _timeouts: u32) {
-        error!("unable to send message {:?}, stop retrying", self.message);
+        error!(?self.message, "unable to send message, stop retrying");
         self.tx
             .send_to_app(Err(SessionError::Processing(
                 "timer failed on channel endpoint. Stop sending messages".to_string(),
@@ -63,7 +63,7 @@ where
     }
 
     async fn on_stop(&self, timer_id: u32) {
-        trace!("timer for rtx {} cancelled", timer_id);
+        trace!(%timer_id, "timer for rtx cancelled");
         // nothing to do
     }
 }
@@ -204,7 +204,7 @@ where
         // the moderator will keep sending them if needed
         let msg_id = msg.get_id();
         if msg_id == self.last_commit_id + 1 {
-            debug!("received valid commit with id {}", msg_id);
+            debug!(%msg_id, "received valid commit with id");
             self.last_commit_id += 1;
         } else {
             error!("unexpected commit id, drop message");
@@ -246,7 +246,7 @@ where
                 Ok((ret.commit_message, ret.welcome_message))
             }
             Err(e) => {
-                error!("error adding new endpoint {}", e.to_string());
+                error!(%e, "error adding new endpoint");
                 Err(SessionError::AddParticipant(e.to_string()))
             }
         }
@@ -564,7 +564,6 @@ where
 
         // set the moderator name after the set route
         self.moderator_name = Some(names.moderator_name);
-
 
         // send reply to the moderator
         let src = msg.get_source();
@@ -904,7 +903,7 @@ where
         let recv_msg_id = msg.get_id();
 
         // If recv_msg_id is not in the pending requests, this will fail with an error
-        self.delete_timer(recv_msg_id)?;
+        self.delete_timer(recv_msg_id).await?;
 
         // set the local state and join the channel
         self.endpoint.conn = Some(msg.get_incoming_conn());
@@ -933,7 +932,7 @@ where
         }
 
         // add a new timer for the join message
-       self.create_timer(new_msg_id, 1, join.clone(), None);
+        self.create_timer(new_msg_id, 1, join.clone(), None);
 
         // send the message
         self.endpoint.send(join).await

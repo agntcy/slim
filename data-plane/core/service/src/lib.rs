@@ -15,6 +15,7 @@ pub mod timer;
 
 mod fire_and_forget;
 mod testutils;
+mod transmitter;
 
 mod channel_endpoint;
 
