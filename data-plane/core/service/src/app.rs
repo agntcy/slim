@@ -851,7 +851,7 @@ where
             }
         }
 
-        if session_type == ProtoSessionMessageType::ChannelLeaveRequest {
+        if session_message_type == ProtoSessionMessageType::ChannelLeaveRequest {
             // send message to the session and delete it after
             if let Some(session) = self.pool.read().await.get(&id) {
                 // pass the message to the session
