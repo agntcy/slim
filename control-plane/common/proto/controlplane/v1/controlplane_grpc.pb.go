@@ -28,8 +28,9 @@ const (
 	ControlPlaneService_CreateSubscription_FullMethodName  = "/controlplane.proto.v1.ControlPlaneService/CreateSubscription"
 	ControlPlaneService_ListSubscriptions_FullMethodName   = "/controlplane.proto.v1.ControlPlaneService/ListSubscriptions"
 	ControlPlaneService_ListConnections_FullMethodName     = "/controlplane.proto.v1.ControlPlaneService/ListConnections"
-	ControlPlaneService_ListNodes_FullMethodName           = "/controlplane.proto.v1.ControlPlaneService/ListNodes"
 	ControlPlaneService_DeleteSubscription_FullMethodName  = "/controlplane.proto.v1.ControlPlaneService/DeleteSubscription"
+	ControlPlaneService_ListNodes_FullMethodName           = "/controlplane.proto.v1.ControlPlaneService/ListNodes"
+	ControlPlaneService_DeregisterNode_FullMethodName      = "/controlplane.proto.v1.ControlPlaneService/DeregisterNode"
 )
 
 // ControlPlaneServiceClient is the client API for ControlPlaneService service.
@@ -41,8 +42,9 @@ type ControlPlaneServiceClient interface {
 	CreateSubscription(ctx context.Context, in *CreateSubscriptionRequest, opts ...grpc.CallOption) (*CreateSubscriptionResponse, error)
 	ListSubscriptions(ctx context.Context, in *Node, opts ...grpc.CallOption) (*v1.SubscriptionListResponse, error)
 	ListConnections(ctx context.Context, in *Node, opts ...grpc.CallOption) (*v1.ConnectionListResponse, error)
-	ListNodes(ctx context.Context, in *NodeListRequest, opts ...grpc.CallOption) (*NodeListResponse, error)
 	DeleteSubscription(ctx context.Context, in *DeleteSubscriptionRequest, opts ...grpc.CallOption) (*DeleteSubscriptionResponse, error)
+	ListNodes(ctx context.Context, in *NodeListRequest, opts ...grpc.CallOption) (*NodeListResponse, error)
+	DeregisterNode(ctx context.Context, in *Node, opts ...grpc.CallOption) (*DeregisterNodeResponse, error)
 }
 
 type controlPlaneServiceClient struct {
@@ -103,6 +105,16 @@ func (c *controlPlaneServiceClient) ListConnections(ctx context.Context, in *Nod
 	return out, nil
 }
 
+func (c *controlPlaneServiceClient) DeleteSubscription(ctx context.Context, in *DeleteSubscriptionRequest, opts ...grpc.CallOption) (*DeleteSubscriptionResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(DeleteSubscriptionResponse)
+	err := c.cc.Invoke(ctx, ControlPlaneService_DeleteSubscription_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *controlPlaneServiceClient) ListNodes(ctx context.Context, in *NodeListRequest, opts ...grpc.CallOption) (*NodeListResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(NodeListResponse)
@@ -113,10 +125,10 @@ func (c *controlPlaneServiceClient) ListNodes(ctx context.Context, in *NodeListR
 	return out, nil
 }
 
-func (c *controlPlaneServiceClient) DeleteSubscription(ctx context.Context, in *DeleteSubscriptionRequest, opts ...grpc.CallOption) (*DeleteSubscriptionResponse, error) {
+func (c *controlPlaneServiceClient) DeregisterNode(ctx context.Context, in *Node, opts ...grpc.CallOption) (*DeregisterNodeResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(DeleteSubscriptionResponse)
-	err := c.cc.Invoke(ctx, ControlPlaneService_DeleteSubscription_FullMethodName, in, out, cOpts...)
+	out := new(DeregisterNodeResponse)
+	err := c.cc.Invoke(ctx, ControlPlaneService_DeregisterNode_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -132,8 +144,9 @@ type ControlPlaneServiceServer interface {
 	CreateSubscription(context.Context, *CreateSubscriptionRequest) (*CreateSubscriptionResponse, error)
 	ListSubscriptions(context.Context, *Node) (*v1.SubscriptionListResponse, error)
 	ListConnections(context.Context, *Node) (*v1.ConnectionListResponse, error)
-	ListNodes(context.Context, *NodeListRequest) (*NodeListResponse, error)
 	DeleteSubscription(context.Context, *DeleteSubscriptionRequest) (*DeleteSubscriptionResponse, error)
+	ListNodes(context.Context, *NodeListRequest) (*NodeListResponse, error)
+	DeregisterNode(context.Context, *Node) (*DeregisterNodeResponse, error)
 	mustEmbedUnimplementedControlPlaneServiceServer()
 }
 
@@ -156,11 +169,14 @@ func (UnimplementedControlPlaneServiceServer) ListSubscriptions(context.Context,
 func (UnimplementedControlPlaneServiceServer) ListConnections(context.Context, *Node) (*v1.ConnectionListResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ListConnections not implemented")
 }
+func (UnimplementedControlPlaneServiceServer) DeleteSubscription(context.Context, *DeleteSubscriptionRequest) (*DeleteSubscriptionResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method DeleteSubscription not implemented")
+}
 func (UnimplementedControlPlaneServiceServer) ListNodes(context.Context, *NodeListRequest) (*NodeListResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ListNodes not implemented")
 }
-func (UnimplementedControlPlaneServiceServer) DeleteSubscription(context.Context, *DeleteSubscriptionRequest) (*DeleteSubscriptionResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method DeleteSubscription not implemented")
+func (UnimplementedControlPlaneServiceServer) DeregisterNode(context.Context, *Node) (*DeregisterNodeResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method DeregisterNode not implemented")
 }
 func (UnimplementedControlPlaneServiceServer) mustEmbedUnimplementedControlPlaneServiceServer() {}
 
@@ -265,6 +281,24 @@ func _ControlPlaneService_ListConnections_Handler(srv interface{}, ctx context.C
 	return interceptor(ctx, in, info, handler)
 }
 
+func _ControlPlaneService_DeleteSubscription_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(DeleteSubscriptionRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ControlPlaneServiceServer).DeleteSubscription(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ControlPlaneService_DeleteSubscription_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ControlPlaneServiceServer).DeleteSubscription(ctx, req.(*DeleteSubscriptionRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _ControlPlaneService_ListNodes_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(NodeListRequest)
 	if err := dec(in); err != nil {
@@ -283,20 +317,20 @@ func _ControlPlaneService_ListNodes_Handler(srv interface{}, ctx context.Context
 	return interceptor(ctx, in, info, handler)
 }
 
-func _ControlPlaneService_DeleteSubscription_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(DeleteSubscriptionRequest)
+func _ControlPlaneService_DeregisterNode_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(Node)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(ControlPlaneServiceServer).DeleteSubscription(ctx, in)
+		return srv.(ControlPlaneServiceServer).DeregisterNode(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: ControlPlaneService_DeleteSubscription_FullMethodName,
+		FullMethod: ControlPlaneService_DeregisterNode_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(ControlPlaneServiceServer).DeleteSubscription(ctx, req.(*DeleteSubscriptionRequest))
+		return srv.(ControlPlaneServiceServer).DeregisterNode(ctx, req.(*Node))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -329,12 +363,16 @@ var ControlPlaneService_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _ControlPlaneService_ListConnections_Handler,
 		},
 		{
+			MethodName: "DeleteSubscription",
+			Handler:    _ControlPlaneService_DeleteSubscription_Handler,
+		},
+		{
 			MethodName: "ListNodes",
 			Handler:    _ControlPlaneService_ListNodes_Handler,
 		},
 		{
-			MethodName: "DeleteSubscription",
-			Handler:    _ControlPlaneService_DeleteSubscription_Handler,
+			MethodName: "DeregisterNode",
+			Handler:    _ControlPlaneService_DeregisterNode_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

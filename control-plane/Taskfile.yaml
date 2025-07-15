@@ -2,7 +2,6 @@
 # SPDX-License-Identifier: Apache-2.0
 
 ---
-
 version: "3"
 
 silent: true
@@ -123,11 +122,11 @@ tasks:
     cmds:
       - >
         {{.REPO_ROOT}}/.tools/protoc --proto_path=../proto \
-          --go_out=paths=source_relative:./slimctl/internal/proto \
-          --go-grpc_out=paths=source_relative:./slimctl/internal/proto \
+          --go_out=paths=source_relative:./common/proto \
+          --go-grpc_out=paths=source_relative:./common/proto \
           --plugin={{.REPO_ROOT}}/.tools/protoc-gen-go \
           --plugin={{.REPO_ROOT}}/.tools/protoc-gen-go-grpc \
-          controller/v1/controller.proto
+          controller/v1/controller.proto controlplane/v1/controlplane.proto
 
   control-plane:slimctl:build:
     desc: Build slimctl
