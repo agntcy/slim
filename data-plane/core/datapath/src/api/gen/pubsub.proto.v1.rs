@@ -101,9 +101,8 @@ pub mod message {
 pub enum SessionType {
     SessionUnknown = 0,
     SessionFireForget = 1,
-    SessionRequestReply = 2,
-    SessionStreaming = 3,
-    SessionPubSub = 4,
+    SessionStreaming = 2,
+    SessionPubSub = 3,
 }
 impl SessionType {
     /// String value of the enum field names used in the ProtoBuf definition.
@@ -114,7 +113,6 @@ impl SessionType {
         match self {
             Self::SessionUnknown => "SESSION_UNKNOWN",
             Self::SessionFireForget => "SESSION_FIRE_FORGET",
-            Self::SessionRequestReply => "SESSION_REQUEST_REPLY",
             Self::SessionStreaming => "SESSION_STREAMING",
             Self::SessionPubSub => "SESSION_PUB_SUB",
         }
@@ -124,7 +122,6 @@ impl SessionType {
         match value {
             "SESSION_UNKNOWN" => Some(Self::SessionUnknown),
             "SESSION_FIRE_FORGET" => Some(Self::SessionFireForget),
-            "SESSION_REQUEST_REPLY" => Some(Self::SessionRequestReply),
             "SESSION_STREAMING" => Some(Self::SessionStreaming),
             "SESSION_PUB_SUB" => Some(Self::SessionPubSub),
             _ => None,

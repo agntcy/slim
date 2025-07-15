@@ -8,7 +8,6 @@ use pyo3_stub_gen::derive::gen_stub_pymethods;
 
 use crate::utils::PyAgentType;
 use slim_service::FireAndForgetConfiguration;
-use slim_service::RequestResponseConfiguration;
 use slim_service::StreamingConfiguration;
 use slim_service::session;
 pub use slim_service::session::SESSION_UNSPECIFIED;
@@ -82,8 +81,6 @@ impl From<session::SessionDirection> for PySessionDirection {
 pub(crate) enum PySessionType {
     #[pyo3(name = "FIRE_AND_FORGET")]
     FireAndForget = session::SessionType::FireAndForget as isize,
-    #[pyo3(name = "REQUEST_RESPONSE")]
-    RequestResponse = session::SessionType::RequestResponse as isize,
     #[pyo3(name = "STREAMING")]
     Streaming = session::SessionType::Streaming as isize,
 }
@@ -92,30 +89,7 @@ impl From<PySessionType> for session::SessionType {
     fn from(value: PySessionType) -> Self {
         match value {
             PySessionType::FireAndForget => session::SessionType::FireAndForget,
-            PySessionType::RequestResponse => session::SessionType::RequestResponse,
             PySessionType::Streaming => session::SessionType::Streaming,
-        }
-    }
-}
-
-/// request response session config
-#[gen_stub_pyclass]
-#[pyclass(eq)]
-#[derive(Clone, Default, PartialEq)]
-pub(crate) struct PyRequestResponseConfiguration {
-    pub request_response_configuration: slim_service::RequestResponseConfiguration,
-}
-
-impl From<PyRequestResponseConfiguration> for slim_service::RequestResponseConfiguration {
-    fn from(value: PyRequestResponseConfiguration) -> slim_service::RequestResponseConfiguration {
-        value.request_response_configuration
-    }
-}
-
-impl From<slim_service::RequestResponseConfiguration> for PyRequestResponseConfiguration {
-    fn from(request_response_configuration: slim_service::RequestResponseConfiguration) -> Self {
-        PyRequestResponseConfiguration {
-            request_response_configuration,
         }
     }
 }
@@ -131,9 +105,7 @@ pub(crate) enum PySessionConfiguration {
         sticky: bool,
         mls_enabled: bool,
     },
-    #[pyo3(constructor = (timeout=std::time::Duration::from_millis(1000)))]
-    RequestResponse { timeout: std::time::Duration },
-    #[pyo3(constructor = (session_direction, topic=None, moderator=false, max_retries=0, timeout=std::time::Duration::from_millis(1000), mls_enabled=false))]
+    #[pyo3(constructor = (session_direction, topic=None, moderator=false, max_retries=0, timeout=std::time::Duration::from_millis(1000)))]
     Streaming {
         session_direction: PySessionDirection,
         topic: Option<PyAgentType>,
@@ -153,11 +125,6 @@ impl From<session::SessionConfig> for PySessionConfiguration {
                     max_retries: config.max_retries,
                     sticky: config.sticky,
                     mls_enabled: config.mls_enabled,
-                }
-            }
-            session::SessionConfig::RequestResponse(config) => {
-                PySessionConfiguration::RequestResponse {
-                    timeout: config.timeout,
                 }
             }
             session::SessionConfig::Streaming(config) => PySessionConfiguration::Streaming {
@@ -184,11 +151,15 @@ impl From<PySessionConfiguration> for session::SessionConfig {
                 timeout,
                 max_retries,
                 sticky,
+<<<<<<< HEAD
                 mls_enabled,
             )),
             PySessionConfiguration::RequestResponse { timeout } => {
                 session::SessionConfig::RequestResponse(RequestResponseConfiguration { timeout })
             }
+=======
+            }),
+>>>>>>> feat/rr-on-ff
             PySessionConfiguration::Streaming {
                 session_direction,
                 topic,

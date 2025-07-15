@@ -47,9 +47,8 @@ message Agent {
 enum SessionType {
   SESSION_UNKNOWN = 0;
   SESSION_FIRE_FORGET = 1;
-  SESSION_REQUEST_REPLY = 2;
-  SESSION_STREAMING = 3;
-  SESSION_PUB_SUB = 4;
+  SESSION_STREAMING = 2;
+  SESSION_PUB_SUB = 3;
 }
 
 enum SessionMessageType {

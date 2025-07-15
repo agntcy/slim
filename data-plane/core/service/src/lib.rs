@@ -14,13 +14,11 @@ pub mod streaming;
 pub mod timer;
 
 mod fire_and_forget;
-mod request_response;
 mod testutils;
 
 mod channel_endpoint;
 
 pub use fire_and_forget::FireAndForgetConfiguration;
-pub use request_response::RequestResponseConfiguration;
 pub use session::SessionMessage;
 pub use slim_datapath::messages::utils::SlimHeaderFlags;
 pub use streaming::StreamingConfiguration;
@@ -744,6 +742,7 @@ mod tests {
         assert_eq!(session_config, session_config_ret);
         ////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
+<<<<<<< HEAD
         /////////////request response session //////////////////////////////////////////////////////////////////////////
         let session_config = SessionConfig::RequestResponse(RequestResponseConfiguration {
             timeout: Duration::from_secs(20000),
@@ -800,6 +799,8 @@ mod tests {
         assert_eq!(session_config, session_config_ret);
         ////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
+=======
+>>>>>>> feat/rr-on-ff
         ////////////// stream session //////////////////////////////////////////////////////////////////////////////////
         let session_config = SessionConfig::Streaming(StreamingConfiguration::new(
             session::SessionDirection::Receiver,
