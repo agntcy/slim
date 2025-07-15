@@ -241,7 +241,7 @@ async fn main() {
         // invite all participants
         for p in participants {
             info!("Invite participant {}", p);
-            app.invite(&p, info.clone())
+            app.invite_participant(&p, info.clone())
                 .await
                 .expect("error sending invite message");
 
@@ -319,7 +319,7 @@ async fn main() {
                         Some(Duration::from_secs(1)),
                     )),
                     Some(12345),
-                    true,
+                    false,
                 )
                 .await
                 .expect("error creating session");
@@ -342,9 +342,14 @@ async fn main() {
                         let publisher = msg.message.get_slim_header().get_source();
                         let payload = match msg.message.get_payload() {
                             Some(c) => {
-                                let p = &c.blob;
-                                String::from_utf8(p.to_vec())
-                                    .expect("error while parsing received message")
+                                let blob = &c.blob;
+                                match String::from_utf8(blob.to_vec()) {
+                                    Ok(p) => p,
+                                    Err(e) => {
+                                        error!("error while parsing the message {}", e.to_string());
+                                        continue;
+                                    }
+                                }
                             }
                             None => "".to_string(),
                         };

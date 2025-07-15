@@ -328,8 +328,8 @@ where
         }
     }
 
-    /// Invite someone to a session
-    pub async fn invite(
+    /// Invite a new participant to a session
+    pub async fn invite_participant(
         &self,
         destination: &AgentType,
         session_info: session::Info,
@@ -348,19 +348,32 @@ where
             rand::random::<u32>(),
         ));
 
-        let payload = match bincode::encode_to_vec(
-            self.session_layer.agent_name(),
-            bincode::config::standard(),
-        ) {
-            Ok(payload) => payload,
-            Err(_) => {
-                return Err(ServiceError::PublishError(
-                    "error while parsing the payload".to_string(),
-                ));
-            }
-        };
+        let msg = Message::new_publish_with_headers(slim_header, session_header, "", vec![]);
 
-        let msg = Message::new_publish_with_headers(slim_header, session_header, "", payload);
+        self.send_message(msg, Some(session_info)).await
+    }
+
+    /// Remove a participant from a session
+    pub async fn remove_participant(
+        &self,
+        destination: &Agent,
+        session_info: session::Info,
+    ) -> Result<(), ServiceError> {
+        let slim_header = Some(SlimHeader::new(
+            self.session_layer.agent_name(),
+            destination.agent_type(),
+            destination.agent_id_option(),
+            None,
+        ));
+
+        let session_header = Some(SessionHeader::new(
+            ProtoSessionType::SessionUnknown.into(),
+            ProtoSessionMessageType::ChannelLeaveRequest.into(),
+            session_info.id,
+            rand::random::<u32>(),
+        ));
+
+        let msg = Message::new_publish_with_headers(slim_header, session_header, "", vec![]);
 
         self.send_message(msg, Some(session_info)).await
     }
@@ -838,7 +851,28 @@ where
             }
         }
 
-        // check if pool contains the session
+        if session_type == ProtoSessionMessageType::ChannelLeaveRequest {
+            // send message to the session and delete it after
+            if let Some(session) = self.pool.read().await.get(&id) {
+                // pass the message to the session
+                session
+                    .tx_ref()
+                    .on_msg_from_slim_interceptors(&mut message.message)
+                    .await?;
+                session.on_message(message, direction).await?;
+            } else {
+                warn!(
+                    "received Channel Leave Request message with unknown session id, drop the message"
+                );
+                return Err(SessionError::SessionUnknown(
+                    session_type.as_str_name().to_string(),
+                ));
+            }
+            // remove the session
+            self.remove_session(id).await;
+            return Ok(());
+        }
+
         if let Some(session) = self.pool.read().await.get(&id) {
             // pass the message to the session
             session
@@ -885,6 +919,8 @@ where
             ProtoSessionMessageType::ChannelDiscoveryRequest
             | ProtoSessionMessageType::ChannelDiscoveryReply
             | ProtoSessionMessageType::ChannelJoinReply
+            | ProtoSessionMessageType::ChannelLeaveRequest
+            | ProtoSessionMessageType::ChannelLeaveReply
             | ProtoSessionMessageType::ChannelMlsCommit
             | ProtoSessionMessageType::ChannelMlsWelcome
             | ProtoSessionMessageType::ChannelMlsAck => {

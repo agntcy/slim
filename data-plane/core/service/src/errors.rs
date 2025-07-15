@@ -113,6 +113,8 @@ pub enum SessionError {
     CommitMessage(String),
     #[error("error adding a new participant: {0}")]
     AddParticipant(String),
+    #[error("error removing a participant: {0}")]
+    RemoveParticipant(String),
     #[error("no pending requests for the given key: {0}")]
     TimerNotFound(String),
     #[error("error processing payload of Join Channel request: {0}")]
