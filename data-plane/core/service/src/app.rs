@@ -11,6 +11,8 @@ use tokio::sync::mpsc;
 use tokio::sync::mpsc::error::SendError;
 use tracing::{debug, error, warn};
 
+use crate::channel_endpoint::ChannelParticipant;
+use crate::channel_endpoint::handle_channel_discovery_message;
 use crate::errors::SessionError;
 use crate::fire_and_forget::FireAndForgetConfiguration;
 use crate::interceptor::{IdentityInterceptor, SessionInterceptor, SessionInterceptorProvider};
@@ -661,7 +663,6 @@ where
                     tx,
                     self.identity_provider.clone(),
                     self.identity_verifier.clone(),
-                    true, // initiator
                 ))
             }
             SessionConfig::Streaming(conf) => {
@@ -757,32 +758,23 @@ where
         match session_message_type {
             ProtoSessionMessageType::ChannelDiscoveryRequest => {
                 // reply direcetly without creating any new Session
-                let destination = message.get_source();
-                let msg_id = message.get_id();
-
-                let slim_header = Some(SlimHeader::new(
+                let msg = handle_channel_discovery_message(
+                    message,
                     self.agent_name(),
-                    destination.agent_type(),
-                    destination.agent_id_option(),
-                    Some(SlimHeaderFlags::default().with_forward_to(message.get_incoming_conn())),
-                ));
-
-                let session_header = Some(SessionHeader::new(
-                    session_type.into(),
-                    ProtoSessionMessageType::ChannelDiscoveryReply.into(),
                     session_id,
-                    msg_id,
-                ));
+                    session_type,
+                );
 
-                let msg =
-                    Message::new_publish_with_headers(slim_header, session_header, "", vec![]);
-
-                debug!("Received discovery request, reply to the msg source");
-
-                match self.transmitter.send_to_slim(Ok(msg)).await {
-                    Ok(_) => Ok(true),
-                    Err(e) => Err(e),
-                }
+                self.transmitter
+                    .send_to_slim(Ok(msg))
+                    .await
+                    .map(|_| true)
+                    .map_err(|e| {
+                        SessionError::SlimTransmission(format!(
+                            "error sending discovery reply: {}",
+                            e
+                        ))
+                    })
             }
             _ => Ok(false),
         }
@@ -845,7 +837,7 @@ where
             return session.on_message(message, direction).await;
         }
 
-        let new_session_id = match session_type {
+        let new_session_id = match session_message_type {
             ProtoSessionMessageType::FnfMsg | ProtoSessionMessageType::FnfReliable => {
                 let mut conf = self.default_ff_conf.read().clone();
 
@@ -882,7 +874,10 @@ where
                             .await?
                     }
                     _ => {
-                        warn!("received channel join request with unknown session type: {}", session_type.as_str_name());
+                        warn!(
+                            "received channel join request with unknown session type: {}",
+                            session_type.as_str_name()
+                        );
                         return Err(SessionError::SessionUnknown(
                             session_type.as_str_name().to_string(),
                         ));

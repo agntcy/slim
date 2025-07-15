@@ -742,65 +742,6 @@ mod tests {
         assert_eq!(session_config, session_config_ret);
         ////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-<<<<<<< HEAD
-        /////////////request response session //////////////////////////////////////////////////////////////////////////
-        let session_config = SessionConfig::RequestResponse(RequestResponseConfiguration {
-            timeout: Duration::from_secs(20000),
-        });
-        let session_info = app
-            .create_session(session_config.clone(), None)
-            .await
-            .expect("failed to create session");
-
-        // get session config
-        let session_config_ret = app
-            .get_session_config(session_info.id)
-            .await
-            .expect("failed to get session config");
-
-        assert_eq!(
-            session_config, session_config_ret,
-            "session config mismatch"
-        );
-
-        let session_config = SessionConfig::RequestResponse(RequestResponseConfiguration {
-            timeout: Duration::from_secs(21345),
-        });
-
-        app.set_session_config(&session_config, Some(session_info.id))
-            .await
-            .expect("failed to set session config");
-
-        // get session config
-        let session_config_ret = app
-            .get_session_config(session_info.id)
-            .await
-            .expect("failed to get session config");
-
-        assert_eq!(
-            session_config, session_config_ret,
-            "session config mismatch"
-        );
-
-        // set default session config
-        let session_config = SessionConfig::RequestResponse(RequestResponseConfiguration {
-            timeout: Duration::from_secs(213456),
-        });
-        app.set_session_config(&session_config, None)
-            .await
-            .expect("failed to set default session config");
-
-        // get default session config
-        let session_config_ret = app
-            .get_default_session_config(session::SessionType::RequestResponse)
-            .await
-            .expect("failed to get default session config");
-
-        assert_eq!(session_config, session_config_ret);
-        ////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-
-=======
->>>>>>> feat/rr-on-ff
         ////////////// stream session //////////////////////////////////////////////////////////////////////////////////
         let session_config = SessionConfig::Streaming(StreamingConfiguration::new(
             session::SessionDirection::Receiver,

@@ -95,6 +95,8 @@ pub struct Info {
     pub message_id: Option<u32>,
     /// The Message Type
     pub session_message_type: ProtoSessionMessageType,
+    // The session Type
+    pub session_type: ProtoSessionType,
     /// The identifier of the agent that sent the message
     pub message_source: Option<Agent>,
     /// The input connection id
@@ -108,6 +110,7 @@ impl Info {
             id,
             message_id: None,
             session_message_type: ProtoSessionMessageType::Unspecified,
+            session_type: ProtoSessionType::SessionUnknown,
             message_source: None,
             input_connection: None,
         }
@@ -172,11 +175,13 @@ impl From<&Message> for Info {
         let message_source = message.get_source();
         let input_connection = slim_header.incoming_conn;
         let session_message_type = session_header.session_message_type();
+        let session_type = session_header.session_type();
 
         Info {
             id,
             message_id: Some(message_id),
             session_message_type,
+            session_type,
             message_source: Some(message_source),
             input_connection,
         }

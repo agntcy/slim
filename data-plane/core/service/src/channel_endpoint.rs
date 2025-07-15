@@ -410,6 +410,34 @@ where
     endpoint: Endpoint<P, V, T>,
 }
 
+pub fn handle_channel_discovery_message(
+    message: &Message,
+    source: &Agent,
+    session_id: Id,
+    session_type: ProtoSessionType,
+) -> Message {
+    let destination = message.get_source();
+    let msg_id = message.get_id();
+
+    let slim_header = Some(SlimHeader::new(
+        source,
+        destination.agent_type(),
+        destination.agent_id_option(),
+        Some(SlimHeaderFlags::default().with_forward_to(message.get_incoming_conn())),
+    ));
+
+    let session_header = Some(SessionHeader::new(
+        session_type.into(),
+        ProtoSessionMessageType::ChannelDiscoveryReply.into(),
+        session_id,
+        msg_id,
+    ));
+
+    debug!("Received discovery request, reply to the msg source");
+
+    Message::new_publish_with_headers(slim_header, session_header, "", vec![])
+}
+
 impl<P, V, T> ChannelParticipant<P, V, T>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
@@ -469,9 +497,9 @@ where
             .await?;
 
         // If names.moderator_name and names.channel_name are the same, skip the join
-        self.endpoint.subscribed = names.channel_id.is_some_and(|id| {
-            names.moderator_name == Agent::new(names.channel_name, id)
-        });
+        self.endpoint.subscribed = names
+            .channel_id
+            .is_some_and(|id| names.moderator_name == Agent::new(names.channel_name, id));
 
         // send reply to the moderator
         let src = msg.get_source();

@@ -320,7 +320,6 @@ async fn main() {
                         true,
                     )),
                     Some(12345),
-                    
                 )
                 .await
                 .expect("error creating session");
