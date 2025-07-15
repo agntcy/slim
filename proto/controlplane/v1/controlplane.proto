@@ -2,48 +2,38 @@
 // SPDX-License-Identifier: Apache-2.0
 
 syntax = "proto3";
-package controller.proto.v1;
+package controlplane.proto.v1;
 
 import "controller/v1/controller.proto";
 
-option go_package = "github.com/agntcy/slim/control-plane-go/slimctl/internal/proto/controlplane/v1;controlplanev1";
+option go_package = "github.com/agntcy/slim/control-plane/common/proto/controlplane/v1;controlplanev1";
 
 service ControlPlaneService {
-    rpc OpenControlChannel(ControPlaneMessage) returns (ControPlaneMessage) {}
-  }
-  
-message ControPlaneMessage {
-    string message_id = 1;
-  
-    oneof payload {
-      ControlPlaneConfigurationCommand config_command = 2;
-      Ack ack = 3;
-      ControlPlaneSubscriptionListRequest subscription_list_request = 4;
-      SubscriptionListResponse subscription_list_response = 5;
-      ControlPlaneConnectionListRequest connection_list_request = 6;
-      ConnectionListResponse connection_list_response = 7;
-      NodeListRequest node_list_request = 8;
-      NodeListResponse node_list_response = 9;
-    }
-  }
+  rpc ModifyConfiguration(ConfigurationCommand) returns (controller.proto.v1.Ack) {}
 
-message ControlPlaneConfigurationCommand {
-    ConfigurationCommand configuration_command = 1;
-    string nodeId = 2;
+  rpc CreateConnection(CreateConnectionRequest) returns (CreateConnectionResponse){}
+  rpc CreateSubscription(CreateSubscriptionRequest) returns (CreateSubscriptionResponse);
+  rpc ListSubscriptions(Node) returns (controller.proto.v1.SubscriptionListResponse) {}
+  rpc ListConnections(Node) returns (controller.proto.v1.ConnectionListResponse) {}
+  rpc DeleteSubscription(DeleteSubscriptionRequest) returns (DeleteSubscriptionResponse);
+
+  rpc ListNodes(NodeListRequest) returns (NodeListResponse) {}
+  rpc DeregisterNode(Node) returns (DeregisterNodeResponse);
 }
 
-message ControlPlaneSubscriptionListRequest {
-    string nodeId = 1;
+message ConfigurationCommand {
+  controller.proto.v1.ConfigurationCommand configuration_command = 1;
+  string nodeId = 2;
 }
 
-message ControlPlaneConnectionListRequest {
-    string nodeId = 1;
-}
+message Node { 
+  string id = 1;
+ }
 
 message NodeListRequest {}
 
 message NodeEntry {
-    uint64 id = 1;
+    string id = 1;
     string host = 2;
     uint32 port = 3;
 }
@@ -51,4 +41,37 @@ message NodeEntry {
 message NodeListResponse {
     repeated NodeEntry entries = 1;
 }
-  
+
+message CreateConnectionRequest {
+  controller.proto.v1.Connection connection = 1;
+  string nodeId = 2;
+}
+
+message CreateConnectionResponse {
+  bool success = 1;
+  string connectionId = 2;
+}
+
+message CreateSubscriptionRequest {
+  controller.proto.v1.Subscription subscription = 1;
+  string nodeId = 2;
+}
+
+message CreateSubscriptionResponse {
+  bool success = 1;
+  string subscriptionId = 2;
+
+}
+
+message DeleteSubscriptionRequest {
+  string subscriptionId = 1;
+  string nodeId = 2;
+}
+
+message DeleteSubscriptionResponse {
+  bool success = 1;
+}
+
+message DeregisterNodeResponse {
+  bool success = 1;
+}
