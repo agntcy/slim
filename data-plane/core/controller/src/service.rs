@@ -301,10 +301,10 @@ impl ControllerService {
                     }
                     crate::api::proto::api::v1::control_message::Payload::DeregisterNodeRequest(_) => {
                         panic!("this should not happen");
-                    }                    
+                    }
                     crate::api::proto::api::v1::control_message::Payload::DeregisterNodeResponse(_) => {
                         // received a deregister node response, do nothing
-                    }                    
+                    }
 
                 }
             }
