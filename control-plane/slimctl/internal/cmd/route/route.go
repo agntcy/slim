@@ -16,9 +16,9 @@ import (
 	"github.com/spf13/cobra"
 	"google.golang.org/protobuf/types/known/wrapperspb"
 
-	"github.com/agntcy/slim/control-plane/slimctl/internal/controller"
-	"github.com/agntcy/slim/control-plane/slimctl/internal/options"
-	grpcapi "github.com/agntcy/slim/control-plane/slimctl/internal/proto/controller/v1"
+	"github.com/agntcy/slim/control-plane/common/controller"
+	"github.com/agntcy/slim/control-plane/common/options"
+	grpcapi "github.com/agntcy/slim/control-plane/common/proto/controller/v1"
 )
 
 func NewRouteCmd(opts *options.CommonOptions) *cobra.Command {

@@ -19,10 +19,10 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 
+	"github.com/agntcy/slim/control-plane/common/options"
 	connectionCmd "github.com/agntcy/slim/control-plane/slimctl/internal/cmd/connection"
 	routeCmd "github.com/agntcy/slim/control-plane/slimctl/internal/cmd/route"
 	versionCmd "github.com/agntcy/slim/control-plane/slimctl/internal/cmd/version"
-	"github.com/agntcy/slim/control-plane/slimctl/internal/options"
 )
 
 var k = koanf.New(".")
