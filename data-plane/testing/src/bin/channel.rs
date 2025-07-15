@@ -1,14 +1,15 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
-use std::time::Duration;
+use std::{collections::HashSet, sync::Arc, time::Duration};
 
 use clap::Parser;
+use parking_lot::RwLock;
 use slim::config;
 use tracing::{error, info};
 
 use slim_auth::simple::SimpleGroup;
-use slim_datapath::messages::{Agent, AgentType, utils::SlimHeaderFlags};
+use slim_datapath::messages::{encoder::DEFAULT_AGENT_ID, utils::SlimHeaderFlags, Agent, AgentType};
 use slim_service::streaming::StreamingConfiguration;
 
 #[derive(Parser, Debug)]
@@ -238,16 +239,30 @@ async fn main() {
             .await
             .expect("error creating session");
 
-        // invite all participants
-        for p in participants {
+        // invite all participants but the last
+        for i in 0..participants.len()-1 {
+            let p = &participants[i];
             info!("Invite participant {}", p);
             app.invite_participant(&p, info.clone())
                 .await
                 .expect("error sending invite message");
+        /*for p in participants {
+            info!("Invite participant {}", p);
+            app.invite_participant(&p, info.clone())
+                .await
+                .expect("error sending invite message");*/
 
             tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
         }
+
+        // add the last participant to the list to add
+        let mut to_be_added = Agent::new(participants.last().unwrap().clone(), DEFAULT_AGENT_ID);
+
         tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
+
+        let participant_list = Arc::new(RwLock::new(HashSet::new()));
+        let participant_list_reception_clone  = participant_list.clone();
+        let participant_list_churn_clone  = participant_list.clone();
 
         // listen for messages
         tokio::spawn(async move {
@@ -269,6 +284,10 @@ async fn main() {
                             };
 
                             info!("received message: {}", payload);
+
+                            // add source to participant_list
+                            let src = msg.message.get_source();
+                            participant_list_reception_clone.write().insert(src);
                         }
                         Err(e) => {
                             error!("received an error message {:?}", e);
@@ -277,6 +296,48 @@ async fn main() {
                 }
             }
         });
+
+
+        tokio::spawn(async move {
+            loop {
+
+                // every interval time add to_be_added to the gruop and remove another one
+
+                //let mut to_add_list = HashSet::new();
+                // sleep 10 sec
+                println!("------------ sleep 10");
+                tokio::time::sleep(tokio::time::Duration::from_millis(10000)).await;
+
+                {
+                    // pick a random partipant from the list and remove it
+                    let mut lock = participant_list_churn_clone.write();
+                    let len: u32 = lock.len().try_into().unwrap();
+                    let rand: u32 = rand::random_range(0..len);
+                    let mut i: u32 = 0;
+                    for p in lock.iter() {
+                        println!("try to remove {}, rand {}:", i, rand);
+                        if rand == i {
+                            // remove p
+                            println!("remove particpant {}: {:?}", i, p);
+                            app.remove_participant(p, info.clone());
+                            lock.remove(p);
+                            
+                            // add the new participant
+                            app.invite_participant(to_be_added.agent_type(), info.clone());
+                            to_be_added = p.clone();
+
+                            //to_add_list.insert(p.agent_type());
+                            break;
+                        }
+                        i += 1;
+                    }
+                }
+
+                // you can add someone from the to_add_list
+            }     
+        });
+
+
 
         for i in 0..max_packets.unwrap_or(u64::MAX) {
             info!("moderator: send message {}", i);
