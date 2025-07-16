@@ -799,19 +799,16 @@ where
                     conf.timeout = Some(std::time::Duration::from_secs(5));
                 }
 
-                // TODO check if MLS is on (it should be in the received packet). Put false for the moment
                 self.create_session(SessionConfig::FireAndForget(conf), Some(id))
                     .await?
             }
             ProtoSessionMessageType::StreamMsg | ProtoSessionMessageType::BeaconStream => {
                 let conf = self.default_stream_conf.read().clone();
-                // TODO check if MLS is on (it should be in the received packet). Put false for the moment
                 self.create_session(session::SessionConfig::Streaming(conf), Some(id))
                     .await?
             }
             ProtoSessionMessageType::ChannelJoinRequest => {
                 // Create a new session based on the SessionType contained in the message
-
                 match message.message.get_session_header().session_type() {
                     ProtoSessionType::SessionFireForget => {
                         let mut conf = self.default_ff_conf.read().clone();
