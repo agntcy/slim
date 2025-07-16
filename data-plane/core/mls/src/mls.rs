@@ -123,7 +123,6 @@ where
         identity_verifier: V,
         storage_path: std::path::PathBuf,
     ) -> Self {
-        // Create MLS-specific storage directory within the provided path
         let mls_storage_path = Some(storage_path.join("mls"));
 
         Self {
