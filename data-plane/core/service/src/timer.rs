@@ -161,6 +161,10 @@ impl Timer {
         self.stop();
         self.start(observer);
     }
+
+    pub fn get_id(&self) -> u32{
+        self.timer_id
+    }
 }
 
 impl Drop for Timer {

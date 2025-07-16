@@ -119,4 +119,6 @@ pub enum SessionError {
     TimerNotFound(String),
     #[error("error processing payload of Join Channel request: {0}")]
     JoinChannelPayload(String),
+    #[error("key rotation pending")]
+    KeyRotationPending,
 }

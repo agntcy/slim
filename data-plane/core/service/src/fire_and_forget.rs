@@ -757,6 +757,8 @@ where
                     common.source().agent_id_option(),
                     id,
                     ProtoSessionType::SessionFireForget,
+                    60,
+                    Duration::from_secs(1),
                     mls,
                     tx_slim_app.clone(),
                 );

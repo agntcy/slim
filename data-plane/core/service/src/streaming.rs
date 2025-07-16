@@ -370,6 +370,8 @@ where
                         None,
                         id,
                         ProtoSessionType::SessionPubSub,
+                        60,
+                        Duration::from_secs(1),
                         mls,
                         tx.clone(),
                     );
