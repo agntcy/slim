@@ -30,7 +30,7 @@ func main() {
 	}
 	fmt.Printf("Received connection list response: %v\n", len(connectionListResponse.Entries))
 	for _, entry := range connectionListResponse.Entries {
-		fmt.Printf("Connection ID: %v, Connection type: %v,Host: %v, Port: %d\n", entry.Id, entry.ConnectionType, entry.Ip, entry.Port)
+		fmt.Printf("Connection ID: %v, Connection type: %v, ConfigData %v\n", entry.Id, entry.ConnectionType, entry.ConfigData)
 	}
 	fmt.Printf("Received connection list response: %v\n", connectionListResponse)
 
