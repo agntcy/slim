@@ -231,9 +231,9 @@ async fn main() {
                     true,
                     Some(10),
                     Some(Duration::from_secs(1)),
+                    msl_enabled,
                 )),
                 Some(12345),
-                msl_enabled,
             )
             .await
             .expect("error creating session");
@@ -317,9 +317,9 @@ async fn main() {
                         true,
                         Some(10),
                         Some(Duration::from_secs(1)),
+                        true,
                     )),
                     Some(12345),
-                    false,
                 )
                 .await
                 .expect("error creating session");

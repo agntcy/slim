@@ -3,6 +3,7 @@
 
 use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
+use std::time::Duration;
 
 use async_trait::async_trait;
 use rand::Rng;
@@ -13,6 +14,9 @@ use tokio::sync::mpsc::{self, Receiver, Sender};
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, error};
 
+use crate::channel_endpoint::{
+    ChannelEndpoint, ChannelModerator, ChannelParticipant, MlsEndpoint, MlsState,
+};
 use crate::errors::SessionError;
 use crate::session::{
     Common, CommonSession, Id, MessageDirection, MessageHandler, SessionConfig, SessionConfigTrait,
@@ -24,11 +28,42 @@ use slim_datapath::messages::encoder::Agent;
 use slim_datapath::messages::utils::SlimHeaderFlags;
 
 /// Configuration for the Fire and Forget session
-#[derive(Debug, Clone, PartialEq, Default)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct FireAndForgetConfiguration {
     pub timeout: Option<std::time::Duration>,
     pub max_retries: Option<u32>,
     pub sticky: bool,
+    pub mls_enabled: bool,
+    pub(crate) initiator: bool,
+}
+
+impl Default for FireAndForgetConfiguration {
+    fn default() -> Self {
+        FireAndForgetConfiguration {
+            timeout: Some(Duration::from_secs(5)),
+            max_retries: Some(3),
+            sticky: false,
+            mls_enabled: false,
+            initiator: true,
+        }
+    }
+}
+
+impl FireAndForgetConfiguration {
+    pub fn new(
+        timeout: Option<Duration>,
+        max_retries: Option<u32>,
+        sticky: bool,
+        mls_enabled: bool,
+    ) -> Self {
+        FireAndForgetConfiguration {
+            timeout,
+            max_retries,
+            sticky,
+            mls_enabled,
+            initiator: true,
+        }
+    }
 }
 
 impl SessionConfigTrait for FireAndForgetConfiguration {
@@ -85,8 +120,10 @@ enum InternalMessage {
     },
 }
 
-struct FireAndForgetState<T>
+struct FireAndForgetState<P, V, T>
 where
+    P: TokenProvider + Send + Sync + Clone + 'static,
+    V: Verifier + Send + Sync + Clone + 'static,
     T: SessionTransmitter + Send + Sync + Clone + 'static,
 {
     session_id: u32,
@@ -98,6 +135,7 @@ where
     sticky_connection: Option<u64>,
     sticky_session_status: StickySessionStatus,
     sticky_buffer: VecDeque<Message>,
+    channel_endpoint: ChannelEndpoint<P, V, T>,
 }
 
 struct RtxTimerObserver {
@@ -105,11 +143,13 @@ struct RtxTimerObserver {
 }
 
 /// The internal part of the Fire and Forget session that handles message processing
-struct FireAndForgetProcessor<T>
+struct FireAndForgetProcessor<P, V, T>
 where
+    P: TokenProvider + Send + Sync + Clone + 'static,
+    V: Verifier + Send + Sync + Clone + 'static,
     T: SessionTransmitter + Send + Sync + Clone + 'static,
 {
-    state: FireAndForgetState<T>,
+    state: FireAndForgetState<P, V, T>,
     timer_observer: Arc<RtxTimerObserver>,
     rx: Receiver<InternalMessage>,
     cancellation_token: CancellationToken,
@@ -143,12 +183,14 @@ impl timer::TimerObserver for RtxTimerObserver {
     }
 }
 
-impl<T> FireAndForgetProcessor<T>
+impl<P, V, T> FireAndForgetProcessor<P, V, T>
 where
+    P: TokenProvider + Send + Sync + Clone + 'static,
+    V: Verifier + Send + Sync + Clone + 'static,
     T: SessionTransmitter + Send + Sync + Clone + 'static,
 {
     fn new(
-        state: FireAndForgetState<T>,
+        state: FireAndForgetState<P, V, T>,
         tx: Sender<InternalMessage>,
         rx: Receiver<InternalMessage>,
         cancellation_token: CancellationToken,
@@ -255,6 +297,10 @@ where
     ) -> Result<(), SessionError> {
         debug!("starting sticky session discovery");
 
+        // Set payload
+        let payload = bincode::encode_to_vec(&self.state.source, bincode::config::standard())
+            .map_err(|e| SessionError::Processing(e.to_string()))?;
+
         // Create a probe message to discover the sticky session
         let mut probe_message = Message::new_publish(
             &self.state.source,
@@ -262,70 +308,59 @@ where
             None,
             None,
             "sticky_session_discovery",
-            vec![],
+            payload,
         );
 
         let session_header = probe_message.get_session_header_mut();
         session_header.set_session_type(ProtoSessionType::SessionFireForget);
-        session_header.set_session_message_type(ProtoSessionMessageType::FnfDiscovery);
+        session_header.set_session_message_type(ProtoSessionMessageType::ChannelDiscoveryRequest);
         session_header.set_session_id(self.state.session_id);
+        session_header.set_message_id(rand::rng().random_range(0..u32::MAX));
 
         self.state.sticky_session_status = StickySessionStatus::Discovering;
 
-        // Send the probe message to slim
-        self.state
-            .tx
-            .send_to_slim(Ok(probe_message))
-            .await
-            .map_err(|e| SessionError::SlimTransmission(e.to_string()))
+        self.state.channel_endpoint.on_message(probe_message).await
     }
 
-    async fn handle_sticky_session_discovery(
+    async fn handle_channel_discovery_reply(
         &mut self,
         message: SessionMessage,
     ) -> Result<(), SessionError> {
-        // Received a sticky session discovery message! Let's reply back with a
-        // sticky session discovery reply and set the sticky name!
+        self.state
+            .channel_endpoint
+            .on_message(message.message)
+            .await
+    }
 
+    async fn handle_channel_join_request(
+        &mut self,
+        message: SessionMessage,
+    ) -> Result<(), SessionError> {
+        // Save source and incoming connection
         let source = message.message.get_source();
+        let incoming_conn = message.message.get_incoming_conn();
 
-        debug!(
-            "received sticky session discovery from {} and incoming conn {}",
-            source,
-            message.message.get_incoming_conn()
-        );
+        // pass the message to the channel endpoint
+        self.state
+            .channel_endpoint
+            .on_message(message.message)
+            .await?;
 
-        let mut sticky_session_reply = Message::new_publish(
-            &self.state.source,
-            source.agent_type(),
-            Some(source.agent_id()),
-            Some(SlimHeaderFlags::default().with_forward_to(message.message.get_incoming_conn())),
-            "sticky_session_discovery_reply",
-            vec![],
-        );
-
-        // Set the session header type to FnfDiscoveryReply
-        let session_header = sticky_session_reply.get_session_header_mut();
-        session_header.set_session_message_type(ProtoSessionMessageType::FnfDiscoveryReply);
-        session_header.set_session_type(ProtoSessionType::SessionFireForget);
-
-        // Let's also make this session sticky
-        self.state.sticky_name = Some(source.clone());
-        self.state.sticky_connection = Some(message.message.get_incoming_conn());
+        // No error - this session is sticky
+        self.state.sticky_name = Some(source);
+        self.state.sticky_connection = Some(incoming_conn);
         self.state.sticky_session_status = StickySessionStatus::Established;
-
-        // Send the sticky session discovery reply to the source
-        self.send_message(sticky_session_reply, None).await?;
 
         Ok(())
     }
 
-    async fn handle_sticky_session_discovery_reply(
+    async fn handle_channel_join_reply(
         &mut self,
         message: SessionMessage,
     ) -> Result<(), SessionError> {
         // Check if the sticky session is established
         let source = message.message.get_source();
+        let incoming_conn = message.message.get_incoming_conn();
         let status = self.state.sticky_session_status.clone();
 
         debug!(
@@ -334,21 +369,30 @@ where
             message.message.get_incoming_conn()
         );
 
+        // send message to channel endpoint
+        self.state
+            .channel_endpoint
+            .on_message(message.message)
+            .await?;
+
         match status {
             StickySessionStatus::Discovering => {
                 debug!("sticky session discovery established with {}", source);
 
                 // If we are still discovering, set the sticky name
-                self.state.sticky_name = Some(source.clone());
-                self.state.sticky_connection = Some(message.message.get_incoming_conn());
+                self.state.sticky_name = Some(source);
+                self.state.sticky_connection = Some(incoming_conn);
                 self.state.sticky_session_status = StickySessionStatus::Established;
 
-                // Collect messages first to avoid multiple mutable borrows
-                let messages: Vec<Message> = self.state.sticky_buffer.drain(..).collect();
+                // If MLS is not enabled, send all buffered messages
+                if !self.state.config.mls_enabled {
+                    // Collect messages first to avoid multiple mutable borrows
+                    let messages: Vec<Message> = self.state.sticky_buffer.drain(..).collect();
 
-                // Send all buffered messages to the sticky name
-                for msg in messages {
-                    self.send_message(msg, None).await?;
+                    // Send all buffered messages to the sticky name
+                    for msg in messages {
+                        self.send_message(msg, None).await?;
+                    }
                 }
 
                 Ok(())
@@ -511,11 +555,9 @@ where
         message: SessionMessage,
     ) -> Result<(), SessionError> {
         let message_id = message.info.message_id.expect("message id not found");
-
+        let source = message.message.get_source();
         debug!(
-            "received message slim: {} with id {}",
-            message.message.get_source(),
-            message_id
+            %source, %message_id, "received message from slim",
         );
 
         // If session is sticky, check if the source matches the sticky name
@@ -560,27 +602,54 @@ where
                 let ack =
                     Message::new_publish_with_headers(slim_header, session_header, "", vec![]);
 
+                // Forward the message to the app
+                self.send_message_to_app(message).await?;
+
                 // Send the ack
                 self.state
                     .tx
                     .send_to_slim(Ok(ack))
                     .await
-                    .map_err(|e| SessionError::SlimTransmission(e.to_string()))?;
-
-                // Forward the message to the app
-                self.send_message_to_app(message).await
+                    .map_err(|e| SessionError::SlimTransmission(e.to_string()))
             }
             ProtoSessionMessageType::FnfAck => {
                 // Remove the timer and drop the message
                 self.stop_and_remove_timer(message_id)
             }
-            ProtoSessionMessageType::FnfDiscovery => {
+            ProtoSessionMessageType::ChannelDiscoveryReply => {
                 // Handle sticky session discovery
-                self.handle_sticky_session_discovery(message).await
+                self.handle_channel_discovery_reply(message).await
             }
-            ProtoSessionMessageType::FnfDiscoveryReply => {
+            ProtoSessionMessageType::ChannelJoinRequest => {
+                // Handle sticky session discovery
+                self.handle_channel_join_request(message).await
+            }
+            ProtoSessionMessageType::ChannelJoinReply => {
                 // Handle sticky session discovery reply
-                self.handle_sticky_session_discovery_reply(message).await
+                self.handle_channel_join_reply(message).await
+            }
+            ProtoSessionMessageType::ChannelLeaveRequest
+            | ProtoSessionMessageType::ChannelLeaveReply
+            | ProtoSessionMessageType::ChannelMlsWelcome
+            | ProtoSessionMessageType::ChannelMlsCommit
+            | ProtoSessionMessageType::ChannelMlsAck => {
+                // Handle mls stuff
+                self.state
+                    .channel_endpoint
+                    .on_message(message.message)
+                    .await?;
+
+                // Flush the sticky buffer if MLS is enabled
+                if self.state.channel_endpoint.is_mls_up()? {
+                    // If MLS is up, send all buffered messages
+                    let messages: Vec<Message> = self.state.sticky_buffer.drain(..).collect();
+
+                    for msg in messages {
+                        self.send_message(msg, None).await?;
+                    }
+                }
+
+                Ok(())
             }
             _ => {
                 // Unexpected header
@@ -645,7 +714,6 @@ where
         tx_slim_app: T,
         identity_provider: P,
         identity_verifier: V,
-        msl_enabled: bool,
         storage_path: std::path::PathBuf,
     ) -> Self {
         let (tx, rx) = mpsc::channel(32);
@@ -659,9 +727,44 @@ where
             tx_slim_app.clone(),
             identity_provider,
             identity_verifier,
-            msl_enabled,
+            session_config.mls_enabled,
             storage_path,
         );
+
+        // Create mls state if needed
+        let mls = common
+            .mls()
+            .map(|mls| MlsState::new(mls).expect("failed to create MLS state"));
+
+        // Create channel endpoint to handle sticky sessions and encryption
+        let channel_endpoint = match session_config.initiator {
+            true => {
+                let cm = ChannelModerator::new(
+                    common.source().clone(),
+                    common.source().agent_type().clone(),
+                    common.source().agent_id_option(),
+                    id,
+                    ProtoSessionType::SessionFireForget,
+                    60,
+                    Duration::from_secs(1),
+                    mls,
+                    tx_slim_app.clone(),
+                );
+                ChannelEndpoint::ChannelModerator(cm)
+            }
+            false => {
+                let cp = ChannelParticipant::new(
+                    common.source().clone(),
+                    common.source().agent_type().clone(),
+                    common.source().agent_id_option(),
+                    id,
+                    ProtoSessionType::SessionFireForget,
+                    mls,
+                    tx_slim_app.clone(),
+                );
+                ChannelEndpoint::ChannelParticipant(cp)
+            }
+        };
 
         // FireAndForget internal state
         let state = FireAndForgetState {
@@ -674,6 +777,7 @@ where
             sticky_connection: None,
             sticky_session_status: StickySessionStatus::Uninitialized,
             sticky_buffer: VecDeque::new(),
+            channel_endpoint,
         };
 
         // Cancellation token
@@ -792,12 +896,16 @@ where
 
 #[cfg(test)]
 mod tests {
+    use parking_lot::RwLock;
     use slim_auth::simple::SimpleGroup;
     use std::time::Duration;
     use tracing_test::traced_test;
 
     use super::*;
-    use crate::testutils::MockTransmitter;
+    use crate::{
+        channel_endpoint::handle_channel_discovery_message, testutils::MockTransmitter,
+        transmitter::Transmitter,
+    };
     use slim_datapath::{
         api::ProtoMessage,
         messages::{Agent, AgentType},
@@ -820,7 +928,6 @@ mod tests {
             tx,
             SimpleGroup::new("a", "group"),
             SimpleGroup::new("a", "group"),
-            false,
             std::path::PathBuf::from("/tmp/test_session"),
         );
 
@@ -849,7 +956,6 @@ mod tests {
             tx,
             SimpleGroup::new("a", "group"),
             SimpleGroup::new("a", "group"),
-            false,
             std::path::PathBuf::from("/tmp/test_session"),
         );
 
@@ -901,7 +1007,6 @@ mod tests {
             tx,
             SimpleGroup::new("a", "group"),
             SimpleGroup::new("a", "group"),
-            false,
             std::path::PathBuf::from("/tmp/test_session"),
         );
 
@@ -966,13 +1071,14 @@ mod tests {
                 timeout: Some(Duration::from_millis(500)),
                 max_retries: Some(5),
                 sticky: false,
+                mls_enabled: false,
+                initiator: true,
             },
             SessionDirection::Bidirectional,
             source.clone(),
             tx,
             SimpleGroup::new("a", "group"),
             SimpleGroup::new("a", "group"),
-            false,
             std::path::PathBuf::from("/tmp/test_session"),
         );
 
@@ -1042,13 +1148,14 @@ mod tests {
                 timeout: Some(Duration::from_millis(500)),
                 max_retries: Some(5),
                 sticky: false,
+                mls_enabled: false,
+                initiator: true,
             },
             SessionDirection::Bidirectional,
             local.clone(),
             tx_sender,
             SimpleGroup::new("a", "group"),
             SimpleGroup::new("a", "group"),
-            false,
             std::path::PathBuf::from("/tmp/test_session"),
         );
 
@@ -1061,7 +1168,6 @@ mod tests {
             tx_receiver,
             SimpleGroup::new("a", "group"),
             SimpleGroup::new("a", "group"),
-            false,
             std::path::PathBuf::from("/tmp/test_session"),
         );
 
@@ -1164,7 +1270,6 @@ mod tests {
                 tx,
                 SimpleGroup::new("a", "group"),
                 SimpleGroup::new("a", "group"),
-                false,
                 std::path::PathBuf::from("/tmp/test_session"),
             );
         }
@@ -1178,22 +1283,23 @@ mod tests {
         // ));
     }
 
-    #[tokio::test]
-    async fn test_fire_and_forget_sticky_session() {
+    async fn template_test_fire_and_forget_sticky_session(mls_enabled: bool) {
         let (sender_tx_slim, mut sender_rx_slim) = tokio::sync::mpsc::channel(1);
         let (sender_tx_app, _sender_rx_app) = tokio::sync::mpsc::channel(1);
 
-        let sender_tx = MockTransmitter {
-            tx_app: sender_tx_app,
-            tx_slim: sender_tx_slim,
+        let sender_tx = Transmitter {
+            slim_tx: sender_tx_slim,
+            app_tx: sender_tx_app,
+            interceptors: Arc::new(RwLock::new(Vec::new())),
         };
 
         let (receiver_tx_slim, mut receiver_rx_slim) = tokio::sync::mpsc::channel(1);
-        let (receiver_tx_app, mut _receiver_rx_app) = tokio::sync::mpsc::channel(1);
+        let (receiver_tx_app, mut receiver_rx_app) = tokio::sync::mpsc::channel(1);
 
-        let receiver_tx = MockTransmitter {
-            tx_app: receiver_tx_app,
-            tx_slim: receiver_tx_slim,
+        let receiver_tx = Transmitter {
+            slim_tx: receiver_tx_slim,
+            app_tx: receiver_tx_app,
+            interceptors: Arc::new(RwLock::new(Vec::new())),
         };
 
         let local = Agent::from_strings("cisco", "default", "local_agent", 0);
@@ -1205,25 +1311,31 @@ mod tests {
                 timeout: Some(Duration::from_millis(500)),
                 max_retries: Some(5),
                 sticky: true,
+                mls_enabled,
+                initiator: true,
             },
             SessionDirection::Bidirectional,
             local.clone(),
             sender_tx,
             SimpleGroup::new("a", "group"),
             SimpleGroup::new("a", "group"),
-            false,
             std::path::PathBuf::from("/tmp/test_sender"),
         );
 
         let receiver_session = FireAndForget::new(
             0,
-            FireAndForgetConfiguration::default(),
+            FireAndForgetConfiguration {
+                timeout: Some(Duration::from_millis(500)),
+                max_retries: Some(5),
+                sticky: false,
+                mls_enabled,
+                initiator: false,
+            },
             SessionDirection::Bidirectional,
             remote.clone(),
             receiver_tx,
-            SimpleGroup::new("a", "group"),
-            SimpleGroup::new("a", "group"),
-            false,
+            SimpleGroup::new("b", "group"),
+            SimpleGroup::new("b", "group"),
             std::path::PathBuf::from("/tmp/test_receiver"),
         );
 
@@ -1247,13 +1359,13 @@ mod tests {
         slim_header.set_incoming_conn(Some(0));
 
         // Send the message
-        let res = sender_session
+        sender_session
             .on_message(
                 SessionMessage::from(message.clone()),
                 MessageDirection::South,
             )
-            .await;
-        assert!(res.is_ok());
+            .await
+            .expect("failed to send message");
 
         // We should now get a sticky session discovery message
         let mut msg = sender_rx_slim
@@ -1261,20 +1373,85 @@ mod tests {
             .await
             .expect("no message received")
             .expect("error");
+
+        // Set fake incoming connection id
+        msg.set_incoming_conn(Some(0));
+
         let header = msg.get_session_header_mut();
-        header.set_session_message_type(ProtoSessionMessageType::FnfDiscovery);
+        header.set_session_message_type(ProtoSessionMessageType::ChannelDiscoveryRequest);
 
-        // set a fake incoming connection id
-        let slim_header = msg.get_slim_header_mut();
-        slim_header.set_incoming_conn(Some(0));
+        // assert something
+        assert_eq!(
+            header.session_message_type(),
+            ProtoSessionMessageType::ChannelDiscoveryRequest,
+        );
 
-        // Pass the discovery message to the receiver session
-        let res = receiver_session
+        assert_eq!(msg.get_session_type(), ProtoSessionType::SessionFireForget);
+
+        // create a discovery reply message. this is normally originated by the session layer
+        let mut discovery_reply = handle_channel_discovery_message(
+            &msg,
+            &remote,
+            receiver_session.id(),
+            ProtoSessionType::SessionFireForget,
+        );
+        discovery_reply.set_incoming_conn(Some(0));
+
+        // Pass discovery reply message to the sender session
+        sender_session
+            .on_message(
+                SessionMessage::from(discovery_reply),
+                MessageDirection::North,
+            )
+            .await
+            .expect("failed to handle discovery reply");
+
+        // Sender should now issue a subscribe and a set route message - ignore them
+        let _ = sender_rx_slim
+            .recv()
+            .await
+            .expect("no message received")
+            .expect("error");
+
+        let _ = sender_rx_slim
+            .recv()
+            .await
+            .expect("no message received")
+            .expect("error");
+
+        // Sender should then issue a channel join request message
+        let mut msg = sender_rx_slim
+            .recv()
+            .await
+            .expect("no message received")
+            .expect("error");
+
+        let header = msg.get_session_header();
+
+        assert_eq!(
+            header.session_message_type(),
+            ProtoSessionMessageType::ChannelJoinRequest
+        );
+
+        assert_eq!(header.session_type(), ProtoSessionType::SessionFireForget);
+
+        // Set a fake incoming connection id
+        msg.set_incoming_conn(Some(0));
+
+        // Pass the channel join request message to the receiver session
+        receiver_session
             .on_message(SessionMessage::from(msg.clone()), MessageDirection::North)
-            .await;
-        assert!(res.is_ok());
+            .await
+            .expect("failed to handle channel join request");
 
-        // The receiver session should now send a sticky session discovery reply
+        // We should get first the set route message
+        let _ = receiver_rx_slim
+            .recv()
+            .await
+            .expect("no message received")
+            .expect("error");
+
+        // And then the channel join reply message
         let mut msg = receiver_rx_slim
             .recv()
             .await
@@ -1282,35 +1459,138 @@ mod tests {
             .expect("error");
 
         let header = msg.get_session_header();
+
         assert_eq!(
             header.session_message_type(),
-            ProtoSessionMessageType::FnfDiscoveryReply
+            ProtoSessionMessageType::ChannelJoinReply
         );
 
-        // set a fake incoming connection id
-        let slim_header = msg.get_slim_header_mut();
-        slim_header.set_incoming_conn(Some(0));
+        assert_eq!(header.session_type(), ProtoSessionType::SessionFireForget);
 
-        // Pass the discovery reply message to the sender session
-        let res = sender_session
-            .on_message(SessionMessage::from(msg.clone()), MessageDirection::North)
-            .await;
-        assert!(res.is_ok());
-
-        // The sender session should now send the original message to the receiver
-        let msg = sender_rx_slim
-            .recv()
+        // Pass the channel join reply message to the sender session
+        msg.set_incoming_conn(Some(0));
+        sender_session
+            .on_message(SessionMessage::from(msg), MessageDirection::North)
             .await
-            .expect("no message received")
-            .expect("error");
-        let header = msg.get_session_header();
-        assert_eq!(
-            header.session_message_type(),
-            ProtoSessionMessageType::FnfReliable
-        );
+            .expect("failed to handle channel join reply");
 
         // Check the payload
-        let payload = msg.get_payload();
-        assert_eq!(payload, message.get_payload());
+        if mls_enabled {
+            // If MLS is enabled, the sender session should now send an MlsWelcome message
+            let mut msg = sender_rx_slim
+                .recv()
+                .await
+                .expect("no message received")
+                .expect("error");
+
+            let header = msg.get_session_header();
+
+            assert_eq!(
+                header.session_message_type(),
+                ProtoSessionMessageType::ChannelMlsWelcome
+            );
+
+            assert_eq!(header.session_type(), ProtoSessionType::SessionFireForget);
+
+            // Set a fake incoming connection id
+            msg.set_incoming_conn(Some(0));
+
+            // Pass the MlsWelcome message to the receiver session
+            receiver_session
+                .on_message(SessionMessage::from(msg), MessageDirection::North)
+                .await
+                .expect("failed to handle mls welcome");
+
+            // We should now get an ack message back
+            let mut msg = receiver_rx_slim
+                .recv()
+                .await
+                .expect("no message received")
+                .expect("error");
+
+            let header = msg.get_session_header();
+            assert_eq!(
+                header.session_message_type(),
+                ProtoSessionMessageType::ChannelMlsAck
+            );
+
+            assert_eq!(header.session_type(), ProtoSessionType::SessionFireForget);
+
+            // Send the ack to the sender session
+            msg.set_incoming_conn(Some(0));
+            sender_session
+                .on_message(SessionMessage::from(msg), MessageDirection::North)
+                .await
+                .expect("failed to handle mls ack");
+
+            // Now we should get the original message
+            let mut msg = sender_rx_slim
+                .recv()
+                .await
+                .expect("no message received")
+                .expect("error");
+
+            let header = msg.get_session_header();
+
+            assert_eq!(
+                header.session_message_type(),
+                ProtoSessionMessageType::FnfReliable
+            );
+
+            assert_eq!(header.session_type(), ProtoSessionType::SessionFireForget);
+
+            // As MLS is enabled, the payload should be encrypted
+            tracing::info!(
+                "Checking if payload is encrypted {}",
+                msg.get_payload().unwrap().blob.len()
+            );
+            assert!(!msg.get_payload().unwrap().blob.is_empty());
+            assert_ne!(msg.get_payload(), message.get_payload());
+
+            // Pass message to the receiver session
+            msg.set_incoming_conn(Some(0));
+            receiver_session
+                .on_message(SessionMessage::from(msg), MessageDirection::North)
+                .await
+                .expect("failed to handle message");
+
+            // Get message from the receiver app
+            let msg = receiver_rx_app
+                .recv()
+                .await
+                .expect("no message received")
+                .expect("error");
+
+            // Check that the payload is decrypted
+            assert_eq!(msg.message.get_payload(), message.get_payload());
+        } else {
+            // The sender session should now send the original message to the receiver
+            let mut msg = sender_rx_slim
+                .recv()
+                .await
+                .expect("no message received")
+                .expect("error");
+            let header = msg.get_session_header();
+            assert_eq!(
+                header.session_message_type(),
+                ProtoSessionMessageType::FnfReliable
+            );
+
+            msg.set_incoming_conn(Some(0));
+
+            assert_eq!(msg.get_payload(), message.get_payload());
+        }
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_fire_and_forget_sticky_session_no_mls() {
+        template_test_fire_and_forget_sticky_session(false).await;
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_fire_and_forget_sticky_session_mls() {
+        template_test_fire_and_forget_sticky_session(true).await;
     }
 }

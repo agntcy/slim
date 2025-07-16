@@ -765,6 +765,10 @@ impl ProtoMessage {
         self.get_session_header_mut().set_session_type(session_type);
     }
 
+    pub fn get_session_type(&self) -> ProtoSessionType {
+        self.get_session_header().session_type()
+    }
+
     pub fn set_message_id(&mut self, message_id: u32) {
         self.get_session_header_mut().set_message_id(message_id);
     }
