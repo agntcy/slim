@@ -37,8 +37,10 @@ pub enum ServiceError {
     ClientAlreadyConnected(String),
     #[error("server not found: {0}")]
     ServerNotFound(String),
-    #[error("error sendinfg message: {0}")]
+    #[error("error sending message: {0}")]
     MessageSendingError(String),
+    #[error("error in controller: {0}")]
+    ControllerError(String),
     #[error("unknown error")]
     Unknown,
 }

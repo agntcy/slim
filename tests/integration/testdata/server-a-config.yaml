@@ -21,7 +21,7 @@ services:
 
       clients: []
     controller:
-      server:
-        endpoint: "0.0.0.0:46358"
-        tls:
-          insecure: true
+      servers:
+        - endpoint: "0.0.0.0:46358"
+          tls:
+            insecure: true
