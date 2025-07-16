@@ -46,7 +46,7 @@ runs:
       uses: actions/cache@v4
       with:
         path: ~/.local
-        key: venv-${{ runner.os }}-${{ steps.setup-python.outputs.python-version }}-${{ inputs.poetry-version }}
+        key: venv-${{ runner.os }}-${{ runner.arch }}-${{ steps.setup-python.outputs.python-version }}-${{ inputs.poetry-version }}
 
     - name: Install Poetry
       if: ${{ inputs.poetry-install }}
