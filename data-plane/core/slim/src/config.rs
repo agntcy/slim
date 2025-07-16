@@ -159,9 +159,9 @@ mod tests {
     use super::*;
     use tracing_test::traced_test;
 
-    #[tokio::test]
+    #[test]
     #[traced_test]
-    async fn test_load_config() {
+    fn test_load_config() {
         let testdata_path: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/testdata");
 
         debug!("Testdata path: {}", testdata_path);
