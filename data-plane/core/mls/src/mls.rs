@@ -121,27 +121,14 @@ where
         agent: slim_datapath::messages::Agent,
         identity_provider: P,
         identity_verifier: V,
+        storage_path: std::path::PathBuf,
     ) -> Self {
-        // hash the agent for storage path
-        use std::collections::hash_map::DefaultHasher;
-        use std::hash::{Hash, Hasher};
-
-        let mut hasher = DefaultHasher::new();
-        agent.to_string().hash(&mut hasher);
-        let hashed_agent = hasher.finish();
-
-        let home_dir = dirs::home_dir().unwrap_or_else(|| std::path::PathBuf::from("/tmp"));
-        let slim_dir = home_dir.join(".slim").join("mls");
-        std::fs::create_dir_all(&slim_dir)
-            .map_err(|e| {
-                tracing::warn!("Failed to create .slim/mls directory: {}", e);
-            })
-            .ok();
-        let storage_path = Some(slim_dir.join(hashed_agent.to_string()));
+        // Create MLS-specific storage directory within the provided path
+        let mls_storage_path = Some(storage_path.join("mls"));
 
         Self {
             agent,
-            storage_path,
+            storage_path: mls_storage_path,
             stored_identity: None,
             client: None,
             group: None,
@@ -320,7 +307,6 @@ where
 
     pub fn encrypt_message(&mut self, message: &[u8]) -> Result<Vec<u8>, MlsError> {
         debug!("Encrypting MLS message");
-        self.check_credential_rotation()?;
 
         let group = self.group.as_mut().ok_or(MlsError::GroupNotExists)?;
 
@@ -333,7 +319,6 @@ where
 
     pub fn decrypt_message(&mut self, encrypted_message: &[u8]) -> Result<Vec<u8>, MlsError> {
         debug!("Decrypting MLS message");
-        self.check_credential_rotation()?;
 
         let group = self.group.as_mut().ok_or(MlsError::GroupNotExists)?;
 
@@ -362,6 +347,7 @@ where
     }
 
     // TODO(zkacsand): this needs to be triggered from the auth crate
+    #[allow(dead_code)]
     fn check_credential_rotation(&mut self) -> Result<Option<Vec<u8>>, MlsError> {
         let stored_identity = self
             .stored_identity
@@ -437,8 +423,8 @@ mod tests {
             agent,
             SimpleGroup::new("alice", "group"),
             SimpleGroup::new("alice", "group"),
+            std::path::PathBuf::from("/tmp/mls_test_creation"),
         );
-        mls.set_storage_path("/tmp/mls_test_creation");
 
         mls.initialize()?;
         assert!(mls.client.is_some());
@@ -453,8 +439,8 @@ mod tests {
             agent,
             SimpleGroup::new("alice", "group"),
             SimpleGroup::new("alice", "group"),
+            std::path::PathBuf::from("/tmp/mls_test_group_creation"),
         );
-        mls.set_storage_path("/tmp/mls_test_group_creation");
 
         mls.initialize()?;
         let _group_id = mls.create_group()?;
@@ -470,8 +456,8 @@ mod tests {
             agent,
             SimpleGroup::new("alice", "group"),
             SimpleGroup::new("alice", "group"),
+            std::path::PathBuf::from("/tmp/mls_test_key_package"),
         );
-        mls.set_storage_path("/tmp/mls_test_key_package");
 
         mls.initialize()?;
         let key_package = mls.generate_key_package()?;
@@ -492,20 +478,20 @@ mod tests {
             alice_agent,
             SimpleGroup::new("alice", "group"),
             SimpleGroup::new("alice", "group"),
+            std::path::PathBuf::from("/tmp/mls_test_messaging_alice"),
         );
-        alice.set_storage_path("/tmp/mls_test_messaging_alice");
         let mut bob = Mls::new(
             bob_agent,
             SimpleGroup::new("bob", "group"),
             SimpleGroup::new("bob", "group"),
+            std::path::PathBuf::from("/tmp/mls_test_messaging_bob"),
         );
-        bob.set_storage_path("/tmp/mls_test_messaging_bob");
         let mut charlie = Mls::new(
             charlie_agent,
             SimpleGroup::new("charlie", "group"),
             SimpleGroup::new("charlie", "group"),
+            std::path::PathBuf::from("/tmp/mls_test_messaging_charlie"),
         );
-        charlie.set_storage_path("/tmp/mls_test_messaging_charlie");
 
         alice.initialize()?;
         bob.initialize()?;
@@ -578,21 +564,21 @@ mod tests {
             alice_agent,
             SimpleGroup::new("alice", "group"),
             SimpleGroup::new("alice", "group"),
+            std::path::PathBuf::from("/tmp/mls_test_decrypt_alice"),
         );
-        alice.set_storage_path("/tmp/mls_test_decrypt_alice");
         let mut bob = Mls::new(
             bob_agent,
             SimpleGroup::new("bob", "group"),
             SimpleGroup::new("bob", "group"),
+            std::path::PathBuf::from("/tmp/mls_test_decrypt_bob"),
         );
-        bob.set_storage_path("/tmp/mls_test_decrypt_bob");
 
         alice.initialize()?;
         bob.initialize()?;
         let _group_id = alice.create_group()?;
 
         let bob_key_package = bob.generate_key_package()?;
-        let (_, welcome_message) = alice.add_member(&bob_key_package)?;
+        let (_commit_message, welcome_message) = alice.add_member(&bob_key_package)?;
         let _bob_group_id = bob.process_welcome(&welcome_message)?;
 
         let message = b"Test message";
@@ -614,21 +600,21 @@ mod tests {
             alice_agent.clone(),
             SimpleGroup::new("alice", "secret_v1"),
             SimpleGroup::new("alice", "secret_v1"),
+            std::path::PathBuf::from("/tmp/mls_test_rotation_alice"),
         );
-        alice.set_storage_path("/tmp/mls_test_secret_rotation_alice");
         let mut bob = Mls::new(
             bob_agent.clone(),
             SimpleGroup::new("bob", "secret_v1"),
             SimpleGroup::new("bob", "secret_v1"),
+            std::path::PathBuf::from("/tmp/mls_test_rotation_bob"),
         );
-        bob.set_storage_path("/tmp/mls_test_secret_rotation_bob");
 
         alice.initialize()?;
         bob.initialize()?;
         let _group_id = alice.create_group()?;
 
         let bob_key_package = bob.generate_key_package()?;
-        let (_, welcome_message) = alice.add_member(&bob_key_package)?;
+        let (_commit_message, welcome_message) = alice.add_member(&bob_key_package)?;
         let _bob_group_id = bob.process_welcome(&welcome_message)?;
 
         let message1 = b"Message with secret_v1";
@@ -640,8 +626,8 @@ mod tests {
             alice_agent,
             SimpleGroup::new("alice", "secret_v2"),
             SimpleGroup::new("alice", "secret_v2"),
+            std::path::PathBuf::from("/tmp/mls_test_rotation_alice_v2"),
         );
-        alice_rotated_secret.set_storage_path("/tmp/mls_test_secret_rotation_alice_v2");
         alice_rotated_secret.initialize()?;
 
         let message2 = b"Message with rotated secret";
@@ -672,15 +658,15 @@ mod tests {
             alice_agent.clone(),
             SimpleGroup::new("alice", "secret_v1"),
             SimpleGroup::new("alice", "secret_v1"),
+            alice_path.into(),
         );
-        alice.set_storage_path(alice_path);
 
         let mut bob = Mls::new(
             bob_agent.clone(),
             SimpleGroup::new("bob", "secret_v1"),
             SimpleGroup::new("bob", "secret_v1"),
+            bob_path.into(),
         );
-        bob.set_storage_path(bob_path);
 
         alice.initialize()?;
         bob.initialize()?;
@@ -743,8 +729,8 @@ mod tests {
             moderator_agent.clone(),
             SimpleGroup::new("moderator", "secret_v1"),
             SimpleGroup::new("moderator", "secret_v1"),
+            std::path::PathBuf::from("/tmp/mls_test_moderator"),
         );
-        moderator.set_storage_path(moderator_path);
         moderator.initialize()?;
 
         // Moderator creates the group
@@ -754,16 +740,16 @@ mod tests {
             alice_agent.clone(),
             SimpleGroup::new("alice", "secret_v1"),
             SimpleGroup::new("alice", "secret_v1"),
+            alice_path.into(),
         );
-        alice.set_storage_path(alice_path);
         alice.initialize()?;
 
         let mut bob = Mls::new(
             bob_agent.clone(),
             SimpleGroup::new("bob", "secret_v1"),
             SimpleGroup::new("bob", "secret_v1"),
+            bob_path.into(),
         );
-        bob.set_storage_path(bob_path);
         bob.initialize()?;
 
         // Moderator adds Alice to the group

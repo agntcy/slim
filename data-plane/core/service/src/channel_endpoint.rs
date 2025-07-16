@@ -939,6 +939,7 @@ mod tests {
             moderator.clone(),
             SimpleGroup::new("moderator", "group"),
             SimpleGroup::new("moderator", "group"),
+            std::path::PathBuf::from("/tmp/test_moderator_mls"),
         ))))
         .unwrap();
 
@@ -946,6 +947,7 @@ mod tests {
             participant.clone(),
             SimpleGroup::new("participant", "group"),
             SimpleGroup::new("participant", "group"),
+            std::path::PathBuf::from("/tmp/test_participant_mls"),
         ))))
         .unwrap();
 

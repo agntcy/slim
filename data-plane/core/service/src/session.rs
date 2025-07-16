@@ -530,9 +530,15 @@ where
         identity_provider: P,
         verifier: V,
         mls_enabled: bool,
+        storage_path: std::path::PathBuf,
     ) -> Self {
         let mls = if mls_enabled {
-            let mls = Mls::new(source.clone(), identity_provider.clone(), verifier.clone());
+            let mls = Mls::new(
+                source.clone(),
+                identity_provider.clone(),
+                verifier.clone(),
+                storage_path,
+            );
             Some(Arc::new(Mutex::new(mls)))
         } else {
             None

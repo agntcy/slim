@@ -139,6 +139,9 @@ where
     default_ff_conf: SyncRwLock<FireAndForgetConfiguration>,
     default_rr_conf: SyncRwLock<RequestResponseConfiguration>,
     default_stream_conf: SyncRwLock<StreamingConfiguration>,
+
+    /// Storage path for app data
+    storage_path: std::path::PathBuf,
 }
 
 pub struct App<P, V>
@@ -187,6 +190,7 @@ where
         conn_id: u64,
         tx_slim: SlimChannelSender,
         tx_app: AppChannelSender,
+        storage_path: std::path::PathBuf,
     ) -> Self {
         // Create default configurations
         let default_ff_conf = SyncRwLock::new(FireAndForgetConfiguration::default());
@@ -222,6 +226,7 @@ where
             default_ff_conf,
             default_rr_conf,
             default_stream_conf,
+            storage_path,
         });
 
         // Create a new cancellation token for the app receiver loop
@@ -667,6 +672,7 @@ where
                     self.identity_provider.clone(),
                     self.identity_verifier.clone(),
                     mls_enabled,
+                    self.storage_path.clone(),
                 ))
             }
             SessionConfig::RequestResponse(conf) => Session::RequestResponse(RequestResponse::new(
@@ -678,6 +684,7 @@ where
                 self.identity_provider.clone(),
                 self.identity_verifier.clone(),
                 mls_enabled,
+                self.storage_path.clone(),
             )),
             SessionConfig::Streaming(conf) => {
                 let direction = conf.direction.clone();
@@ -691,6 +698,7 @@ where
                     self.identity_provider.clone(),
                     self.identity_verifier.clone(),
                     mls_enabled,
+                    self.storage_path.clone(),
                 ))
             }
         };
@@ -1051,6 +1059,7 @@ mod tests {
             0,
             tx_slim,
             tx_app,
+            std::path::PathBuf::from("/tmp/test_storage"),
         )
     }
 
@@ -1074,6 +1083,7 @@ mod tests {
             0,
             tx_slim.clone(),
             tx_app.clone(),
+            std::path::PathBuf::from("/tmp/test_storage"),
         );
         let session_config = FireAndForgetConfiguration::default();
 
@@ -1099,6 +1109,7 @@ mod tests {
             0,
             tx_slim.clone(),
             tx_app.clone(),
+            std::path::PathBuf::from("/tmp/test_storage"),
         );
 
         let res = session_layer
@@ -1124,6 +1135,7 @@ mod tests {
             0,
             tx_slim.clone(),
             tx_app.clone(),
+            std::path::PathBuf::from("/tmp/test_storage"),
         );
 
         let res = session_layer
@@ -1157,6 +1169,7 @@ mod tests {
             0,
             tx_slim.clone(),
             tx_app.clone(),
+            std::path::PathBuf::from("/tmp/test_storage"),
         );
 
         let session_config = FireAndForgetConfiguration::default();
@@ -1231,6 +1244,7 @@ mod tests {
             0,
             tx_slim.clone(),
             tx_app.clone(),
+            std::path::PathBuf::from("/tmp/test_storage"),
         );
 
         let session_config = FireAndForgetConfiguration::default();

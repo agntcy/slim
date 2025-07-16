@@ -622,6 +622,7 @@ where
         identity_provider: P,
         identity_verifier: V,
         msl_enabled: bool,
+        storage_path: std::path::PathBuf,
     ) -> Self {
         let (tx, rx) = mpsc::channel(32);
 
@@ -635,6 +636,7 @@ where
             identity_provider,
             identity_verifier,
             msl_enabled,
+            storage_path,
         );
 
         // FireAndForget internal state
@@ -795,6 +797,7 @@ mod tests {
             SimpleGroup::new("a", "group"),
             SimpleGroup::new("a", "group"),
             false,
+            std::path::PathBuf::from("/tmp/test_session"),
         );
 
         assert_eq!(session.id(), 0);
@@ -823,6 +826,7 @@ mod tests {
             SimpleGroup::new("a", "group"),
             SimpleGroup::new("a", "group"),
             false,
+            std::path::PathBuf::from("/tmp/test_session"),
         );
 
         let mut message = ProtoMessage::new_publish(
@@ -874,6 +878,7 @@ mod tests {
             SimpleGroup::new("a", "group"),
             SimpleGroup::new("a", "group"),
             false,
+            std::path::PathBuf::from("/tmp/test_session"),
         );
 
         let mut message = ProtoMessage::new_publish(
@@ -941,6 +946,7 @@ mod tests {
             SimpleGroup::new("a", "group"),
             SimpleGroup::new("a", "group"),
             false,
+            std::path::PathBuf::from("/tmp/test_session"),
         );
 
         let mut message = ProtoMessage::new_publish(
@@ -1015,6 +1021,7 @@ mod tests {
             SimpleGroup::new("a", "group"),
             SimpleGroup::new("a", "group"),
             false,
+            std::path::PathBuf::from("/tmp/test_session"),
         );
 
         // this can be a standard fnf session
@@ -1027,6 +1034,7 @@ mod tests {
             SimpleGroup::new("a", "group"),
             SimpleGroup::new("a", "group"),
             false,
+            std::path::PathBuf::from("/tmp/test_session"),
         );
 
         let mut message = ProtoMessage::new_publish(
@@ -1125,6 +1133,7 @@ mod tests {
                 SimpleGroup::new("a", "group"),
                 SimpleGroup::new("a", "group"),
                 false,
+                std::path::PathBuf::from("/tmp/test_session"),
             );
         }
 
@@ -1171,6 +1180,7 @@ mod tests {
             SimpleGroup::new("a", "group"),
             SimpleGroup::new("a", "group"),
             false,
+            std::path::PathBuf::from("/tmp/test_sender"),
         );
 
         let receiver_session = FireAndForget::new(
@@ -1182,6 +1192,7 @@ mod tests {
             SimpleGroup::new("a", "group"),
             SimpleGroup::new("a", "group"),
             false,
+            std::path::PathBuf::from("/tmp/test_receiver"),
         );
 
         // Create a message to send

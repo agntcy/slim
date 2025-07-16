@@ -133,6 +133,7 @@ where
         identity_provider: P,
         identity_verifier: V,
         mls_enabled: bool,
+        storage_path: std::path::PathBuf,
     ) -> Self {
         let internal = RequestResponseInternal {
             common: Common::new(
@@ -144,6 +145,7 @@ where
                 identity_provider,
                 identity_verifier,
                 mls_enabled,
+                storage_path,
             ),
             timers: RwLock::new(HashMap::new()),
         };
@@ -378,6 +380,7 @@ mod tests {
             SimpleGroup::new("a", "group"),
             SimpleGroup::new("a", "group"),
             false,
+            std::path::PathBuf::from("/tmp/test_session"),
         );
 
         assert_eq!(session.id(), 0);
@@ -410,6 +413,7 @@ mod tests {
             SimpleGroup::new("a", "group"),
             SimpleGroup::new("a", "group"),
             false,
+            std::path::PathBuf::from("/tmp/test_session"),
         );
 
         let payload = vec![0x1, 0x2, 0x3, 0x4];
@@ -487,6 +491,7 @@ mod tests {
                 SimpleGroup::new("a", "group"),
                 SimpleGroup::new("a", "group"),
                 false,
+                std::path::PathBuf::from("/tmp/test_session"),
             );
         }
     }

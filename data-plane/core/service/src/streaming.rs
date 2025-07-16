@@ -233,6 +233,7 @@ where
         identity_provider: P,
         identity_verifier: V,
         mls_enabled: bool,
+        storage_path: std::path::PathBuf,
     ) -> Self {
         let (tx, rx) = mpsc::channel(128);
 
@@ -247,6 +248,7 @@ where
             identity_provider,
             identity_verifier,
             mls_enabled,
+            storage_path,
         );
 
         let stream = Streaming { common, tx };
@@ -1060,6 +1062,7 @@ mod tests {
             SimpleGroup::new("a", "group"),
             SimpleGroup::new("a", "group"),
             false,
+            std::path::PathBuf::from("/tmp/test_session"),
         );
 
         assert_eq!(session.id(), 0);
@@ -1086,6 +1089,7 @@ mod tests {
             SimpleGroup::new("a", "group"),
             SimpleGroup::new("a", "group"),
             false,
+            std::path::PathBuf::from("/tmp/test_session"),
         );
 
         assert_eq!(session.id(), 1);
@@ -1137,6 +1141,7 @@ mod tests {
             SimpleGroup::new("a", "group"),
             SimpleGroup::new("a", "group"),
             false,
+            std::path::PathBuf::from("/tmp/test_session_sender"),
         );
         let receiver = Streaming::new(
             0,
@@ -1147,6 +1152,7 @@ mod tests {
             SimpleGroup::new("a", "group"),
             SimpleGroup::new("a", "group"),
             false,
+            std::path::PathBuf::from("/tmp/test_session_receiver"),
         );
 
         let mut message = Message::new_publish(
@@ -1217,6 +1223,7 @@ mod tests {
             SimpleGroup::new("a", "group"),
             SimpleGroup::new("a", "group"),
             false,
+            std::path::PathBuf::from("/tmp/test_session"),
         );
 
         let mut message = Message::new_publish(
@@ -1300,6 +1307,7 @@ mod tests {
             SimpleGroup::new("a", "group"),
             SimpleGroup::new("a", "group"),
             false,
+            std::path::PathBuf::from("/tmp/test_session"),
         );
 
         let mut message = Message::new_publish(
@@ -1416,6 +1424,7 @@ mod tests {
             SimpleGroup::new("a", "group"),
             SimpleGroup::new("a", "group"),
             false,
+            std::path::PathBuf::from("/tmp/test_session_sender"),
         );
         let receiver = Streaming::new(
             0,
@@ -1426,6 +1435,7 @@ mod tests {
             SimpleGroup::new("a", "group"),
             SimpleGroup::new("a", "group"),
             false,
+            std::path::PathBuf::from("/tmp/test_session_receiver"),
         );
 
         let mut message = Message::new_publish(
@@ -1628,6 +1638,7 @@ mod tests {
                 SimpleGroup::new("a", "group"),
                 SimpleGroup::new("a", "group"),
                 false,
+                std::path::PathBuf::from("/tmp/test_session"),
             );
         }
 

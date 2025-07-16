@@ -179,7 +179,6 @@ version = "0.1.0"
 dependencies = [
  "agntcy-slim-auth",
  "agntcy-slim-datapath",
- "dirs",
  "hex",
  "mls-rs",
  "mls-rs-core",
@@ -212,6 +211,7 @@ dependencies = [
  "agntcy-slim-mls",
  "async-trait",
  "bincode",
+ "dirs",
  "drain",
  "parking_lot",
  "rand 0.9.1",
