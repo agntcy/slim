@@ -17,6 +17,10 @@ path = "src/bin/subscriber.rs"
 name = "publisher"
 path = "src/bin/publisher.rs"
 
+[[bin]]
+name = "channel"
+path = "src/bin/channel.rs"
+
 [dependencies]
 agntcy-slim = { workspace = true }
 agntcy-slim-auth = { workspace = true }
