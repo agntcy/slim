@@ -8,6 +8,10 @@ publish = false
 name = "sdk-mock"
 path = "src/sdk-mock/main.rs"
 
+[[bin]]
+name = "authzen-demo"
+path = "src/authzen-demo/main.rs"
+
 [dependencies]
 agntcy-slim = { workspace = true }
 agntcy-slim-auth = { workspace = true }
@@ -20,3 +24,6 @@ clap = { workspace = true }
 parking_lot = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
+wiremock = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
