@@ -722,7 +722,8 @@ mod tests {
         let _group_id = alice.create_group()?;
 
         let bob_key_package = bob.generate_key_package()?;
-        let (_commit_message, welcome_message) = alice.add_member(&bob_key_package)?;
+        let result = alice.add_member(&bob_key_package)?;
+        let welcome_message = result.welcome_message;
         let _bob_group_id = bob.process_welcome(&welcome_message)?;
 
         let message1 = b"Message with secret_v1";
@@ -781,7 +782,8 @@ mod tests {
         let _group_id = alice.create_group()?;
 
         let bob_key_package = bob.generate_key_package()?;
-        let (_, welcome_message) = alice.add_member(&bob_key_package)?;
+        let result = alice.add_member(&bob_key_package)?;
+        let welcome_message = result.welcome_message;
         let _bob_group_id = bob.process_welcome(&welcome_message)?;
 
         let message1 = b"Initial message";
@@ -862,12 +864,15 @@ mod tests {
 
         // Moderator adds Alice to the group
         let alice_key_package = alice.generate_key_package()?;
-        let (_commit_alice, welcome_alice) = moderator.add_member(&alice_key_package)?;
+        let result = moderator.add_member(&alice_key_package)?;
+        let welcome_alice = result.welcome_message;
         let _alice_group_id = alice.process_welcome(&welcome_alice)?;
 
         // Moderator adds Bob to the group
         let bob_key_package = bob.generate_key_package()?;
-        let (commit_bob, welcome_bob) = moderator.add_member(&bob_key_package)?;
+        let result = moderator.add_member(&bob_key_package)?;
+        let commit_bob = result.commit_message;
+        let welcome_bob = result.welcome_message;
         let _bob_group_id = bob.process_welcome(&welcome_bob)?;
 
         // Only Alice needs to process Bob's addition (Bob wasn't in the group when Alice was added)
