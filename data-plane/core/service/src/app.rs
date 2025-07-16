@@ -268,7 +268,7 @@ where
         ));
 
         let session_header = Some(SessionHeader::new(
-            ProtoSessionType::SessionUnknown.into(),
+            session_info.get_session_type().into(),
             ProtoSessionMessageType::ChannelDiscoveryRequest.into(),
             session_info.id,
             rand::random::<u32>(),
@@ -820,6 +820,13 @@ where
                     ProtoSessionType::SessionPubSub => {
                         let mut conf = self.default_stream_conf.read().clone();
                         conf.direction = SessionDirection::Bidirectional;
+                        conf.mls_enabled = message.message.contains_metadata(METADATA_MLS_ENABLED);
+                        self.create_session(SessionConfig::Streaming(conf), Some(id))
+                            .await?
+                    }
+                    ProtoSessionType::SessionStreaming => {
+                        let mut conf = self.default_stream_conf.read().clone();
+                        conf.direction = SessionDirection::Receiver;
                         conf.mls_enabled = message.message.contains_metadata(METADATA_MLS_ENABLED);
                         self.create_session(SessionConfig::Streaming(conf), Some(id))
                             .await?

@@ -392,6 +392,29 @@ where
                                     continue;
                                 }
                                 let (msg, direction) = result.unwrap();
+
+                                // process the messages for the channel endpoint first
+                                match msg.get_session_header().session_message_type() {
+                                    ProtoSessionMessageType::ChannelDiscoveryRequest |
+                                    ProtoSessionMessageType::ChannelDiscoveryReply |
+                                    ProtoSessionMessageType::ChannelJoinRequest |
+                                    ProtoSessionMessageType::ChannelJoinReply |
+                                    ProtoSessionMessageType::ChannelLeaveRequest |
+                                    ProtoSessionMessageType::ChannelLeaveReply |
+                                    ProtoSessionMessageType::ChannelMlsWelcome |
+                                    ProtoSessionMessageType::ChannelMlsCommit |
+                                    ProtoSessionMessageType::ChannelMlsAck => {
+                                        match channel_endpoint.on_message(msg).await {
+                                            Ok(_) => {},
+                                            Err(e) => {
+                                                error!("error processing channel message: {}", e);
+                                            },
+                                        }
+                                        continue;
+                                    }
+                                    _ => {}
+                                }
+
                                 match &mut endpoint {
                                     Endpoint::Producer(producer) => {
                                         match direction {
@@ -426,22 +449,6 @@ where
                                                 // or a channel control message to handle in the channel endpoint
                                                 trace!("received message from SLIM on bidirectional session {}", session_id);
                                                 match msg.get_session_header().session_message_type() {
-                                                    ProtoSessionMessageType::ChannelDiscoveryRequest |
-                                                    ProtoSessionMessageType::ChannelDiscoveryReply |
-                                                    ProtoSessionMessageType::ChannelJoinRequest |
-                                                    ProtoSessionMessageType::ChannelJoinReply |
-                                                    ProtoSessionMessageType::ChannelLeaveRequest |
-                                                    ProtoSessionMessageType::ChannelLeaveReply |
-                                                    ProtoSessionMessageType::ChannelMlsWelcome |
-                                                    ProtoSessionMessageType::ChannelMlsCommit |
-                                                    ProtoSessionMessageType::ChannelMlsAck => {
-                                                        match channel_endpoint.on_message(msg).await {
-                                                            Ok(_) => {},
-                                                            Err(e) => {
-                                                                error!("error processing channel message: {}", e);
-                                                            },
-                                                        }
-                                                    }
                                                     ProtoSessionMessageType::RtxRequest => {
                                                         // handle RTX request
                                                         process_incoming_rtx_request(msg, session_id, &state.producer, &source, &tx).await;
@@ -453,20 +460,7 @@ where
                                             }
                                             MessageDirection::South => {
                                                 // received a message from the APP
-                                                match msg.get_session_header().session_message_type() {
-                                                    ProtoSessionMessageType::ChannelDiscoveryRequest |
-                                                    ProtoSessionMessageType::ChannelLeaveRequest => {
-                                                        match channel_endpoint.on_message(msg).await {
-                                                            Ok(_) => {},
-                                                            Err(e) => {
-                                                                error!("error processing channel message: {}", e);
-                                                            },
-                                                        }
-                                                    }
-                                                    _ => {
-                                                        process_message_from_app(msg, session_id, &mut state.producer, true, &tx).await;
-                                                    }
-                                                }
+                                                process_message_from_app(msg, session_id, &mut state.producer, true, &tx).await;
                                             }
                                         };
                                     }
