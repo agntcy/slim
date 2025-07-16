@@ -460,8 +460,8 @@ mod tests {
     use slim_auth::simple::SimpleGroup;
     use std::thread;
 
-    #[tokio::test]
-    async fn test_mls_creation() -> Result<(), Box<dyn std::error::Error>> {
+    #[test]
+    fn test_mls_creation() -> Result<(), Box<dyn std::error::Error>> {
         let agent = slim_datapath::messages::Agent::from_strings("org", "default", "alice", 0);
         let mut mls = Mls::new(
             agent,
@@ -476,8 +476,8 @@ mod tests {
         Ok(())
     }
 
-    #[tokio::test]
-    async fn test_group_creation() -> Result<(), Box<dyn std::error::Error>> {
+    #[test]
+    fn test_group_creation() -> Result<(), Box<dyn std::error::Error>> {
         let agent = slim_datapath::messages::Agent::from_strings("org", "default", "alice", 0);
         let mut mls = Mls::new(
             agent,
@@ -493,8 +493,8 @@ mod tests {
         Ok(())
     }
 
-    #[tokio::test]
-    async fn test_key_package_generation() -> Result<(), Box<dyn std::error::Error>> {
+    #[test]
+    fn test_key_package_generation() -> Result<(), Box<dyn std::error::Error>> {
         let agent = slim_datapath::messages::Agent::from_strings("org", "default", "alice", 0);
         let mut mls = Mls::new(
             agent,
@@ -509,8 +509,8 @@ mod tests {
         Ok(())
     }
 
-    #[tokio::test]
-    async fn test_messaging() -> Result<(), Box<dyn std::error::Error>> {
+    #[test]
+    fn test_messaging() -> Result<(), Box<dyn std::error::Error>> {
         let alice_agent =
             slim_datapath::messages::Agent::from_strings("org", "default", "alice", 0);
         let bob_agent = slim_datapath::messages::Agent::from_strings("org", "default", "bob", 0);
@@ -662,8 +662,8 @@ mod tests {
         Ok(())
     }
 
-    #[tokio::test]
-    async fn test_decrypt_message() -> Result<(), Box<dyn std::error::Error>> {
+    #[test]
+    fn test_decrypt_message() -> Result<(), Box<dyn std::error::Error>> {
         let alice_agent =
             slim_datapath::messages::Agent::from_strings("org", "default", "alice", 0);
         let bob_agent = slim_datapath::messages::Agent::from_strings("org", "default", "bob", 1);
@@ -698,8 +698,8 @@ mod tests {
         Ok(())
     }
 
-    #[tokio::test]
-    async fn test_shared_secret_rotation_same_identity() -> Result<(), Box<dyn std::error::Error>> {
+    #[test]
+    fn test_shared_secret_rotation_same_identity() -> Result<(), Box<dyn std::error::Error>> {
         let alice_agent =
             slim_datapath::messages::Agent::from_strings("org", "default", "alice", 0);
         let bob_agent = slim_datapath::messages::Agent::from_strings("org", "default", "bob", 1);
@@ -751,9 +751,8 @@ mod tests {
         Ok(())
     }
 
-    #[tokio::test]
-    async fn test_credential_rotation_detection_and_proposal()
-    -> Result<(), Box<dyn std::error::Error>> {
+    #[test]
+    fn test_credential_rotation_detection_and_proposal() -> Result<(), Box<dyn std::error::Error>> {
         let alice_path = "/tmp/mls_test_credential_rotation_alice";
         let bob_path = "/tmp/mls_test_credential_rotation_bob";
         let _ = std::fs::remove_dir_all(alice_path);
@@ -820,8 +819,8 @@ mod tests {
         Ok(())
     }
 
-    #[tokio::test]
-    async fn test_full_credential_rotation_flow() -> Result<(), Box<dyn std::error::Error>> {
+    #[test]
+    fn test_full_credential_rotation_flow() -> Result<(), Box<dyn std::error::Error>> {
         let alice_path = "/tmp/mls_test_full_rotation_alice";
         let bob_path = "/tmp/mls_test_full_rotation_bob";
         let moderator_path = "/tmp/mls_test_full_rotation_moderator";
