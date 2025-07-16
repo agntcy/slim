@@ -807,6 +807,7 @@ where
         // XXX 
         // is it enough to apply the commit of should I apply the pending changes on the node?
         // for the moment I assume that the commit is enoguh so simply stop the timer here
+        // TODO
         let msg_id = msg.get_id();
 
         match self.timer {
@@ -1224,19 +1225,69 @@ where
 
     async fn on_mls_proposal(&mut self, msg: Message) -> Result<(), SessionError> {
         // check if the proposal is valid
-        // TODO
-        Ok(())
-        /*let src = msg.get_source();
         let msg_id = msg.get_id();
-        match self.proposal_ids.get_mut(&src) {
-            Some(id) => {
-                if msg_id != (id + 1) {
-                    debug!("unexpected proposal id, drop the packet");
-
-                } 
+        let source = msg.get_source();
+        match self.mls_state {
+            Some(ref mut state) => {
+                match state.proposal_ids.get(&source) {
+                    Some(id) => {
+                        let expected = *id + 1;
+                        if msg_id != expected {
+                            debug!("invalid proposal id, drop it");
+                            return Err(SessionError::ProposalMessage("wrong proposa id".to_string()));
+                        }
+                        state.proposal_ids.insert(source.clone(), msg_id);
+                    }
+                    None => {
+                        // this is the first message from this participant
+                        // add it to the map
+                        state.proposal_ids.insert(source.clone(), msg_id);
+                    }
+                }
             }
-            None => todo!(),
-        }*/
+            None => {
+                debug!("received an mls proposal but mls is off, drop the message");
+                return Err(SessionError::NoMls);
+            }
+        }
+
+        // ack the MLS proposal
+        let ack = self.endpoint.create_channel_message(
+            source.agent_type(),
+            source.agent_id_option(),
+            false,
+            ProtoSessionMessageType::ChannelMlsAck,
+            msg_id,
+            vec![],
+        );
+
+        self.endpoint.send(ack).await?;
+
+        // TODO: update the local MLS state and create a commit
+        let payload = vec![];
+        let commit_id = self
+            . mls_state
+            .as_mut()
+            .unwrap()
+            .get_next_mls_mgs_id();
+
+        let commit = self.endpoint.create_channel_message(
+            &self.endpoint.channel_name,
+            None,
+            true,
+            ProtoSessionMessageType::ChannelMlsCommit,
+            commit_id,
+            payload,
+        );
+
+        // send commit message and set timers
+        let len = self.mls_state.as_ref().unwrap().participants.len();
+        debug!("Send MLS Commit Message to the channel (key rotation)");
+        self.endpoint.send(commit.clone()).await?;
+        self.create_timer(commit_id, (len - 1).try_into().unwrap(), commit, None);
+
+        // all done
+        Ok(())
     }
 
     async fn on_leave_request(&mut self, msg: Message) -> Result<(), SessionError> {
@@ -1329,7 +1380,11 @@ where
     }
     
     fn is_mls_up(&self) -> Result<bool, SessionError> {
-        todo!()
+        self
+            .mls_state
+            .as_ref()
+            .ok_or(SessionError::NoMls)?
+            .is_mls_up()
     }
 }
 

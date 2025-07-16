@@ -111,6 +111,8 @@ pub enum SessionError {
     WelcomeMessage(String),
     #[error("error processing commit message: {0}")]
     CommitMessage(String),
+    #[error("error processing proposal message: {0}")]
+    ProposalMessage(String),
     #[error("error adding a new participant: {0}")]
     AddParticipant(String),
     #[error("error removing a participant: {0}")]
