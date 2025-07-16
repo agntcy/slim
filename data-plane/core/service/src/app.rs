@@ -8,9 +8,9 @@ use parking_lot::RwLock as SyncRwLock;
 use rand::Rng;
 use tokio::sync::RwLock as AsyncRwLock;
 use tokio::sync::mpsc;
-use tokio::sync::mpsc::error::SendError;
 use tracing::{debug, error, warn};
 
+use crate::channel_endpoint::handle_channel_discovery_message;
 use crate::errors::SessionError;
 use crate::fire_and_forget::FireAndForgetConfiguration;
 use crate::interceptor::{IdentityInterceptor, SessionInterceptor, SessionInterceptorProvider};
@@ -20,6 +20,7 @@ use crate::session::{
     SessionTransmitter, SessionType, SlimChannelSender,
 };
 use crate::streaming::{self, StreamingConfiguration};
+use crate::transmitter::Transmitter;
 use crate::{ServiceError, fire_and_forget, session};
 use slim_auth::traits::{TokenProvider, Verifier};
 use slim_datapath::Status;
@@ -31,75 +32,6 @@ use slim_datapath::messages::encoder::Agent;
 use slim_datapath::messages::utils::SlimHeaderFlags;
 
 use crate::interceptor_mls::METADATA_MLS_ENABLED;
-
-/// Transmitter used to intercept messages sent from sessions and apply interceptors on them
-#[derive(Clone)]
-struct Transmitter {
-    /// SLIM tx
-    slim_tx: SlimChannelSender,
-
-    /// Application tx
-    app_tx: AppChannelSender,
-
-    // Interceptors to be called on message reception/send
-    interceptors: Arc<SyncRwLock<Vec<Arc<dyn SessionInterceptor + Send + Sync>>>>,
-}
-
-impl SessionInterceptorProvider for Transmitter {
-    fn add_interceptor(&self, interceptor: Arc<dyn SessionInterceptor + Send + Sync + 'static>) {
-        self.interceptors.write().push(interceptor);
-    }
-
-    fn get_interceptors(&self) -> Vec<Arc<dyn SessionInterceptor + Send + Sync + 'static>> {
-        self.interceptors.read().clone()
-    }
-}
-
-impl SessionTransmitter for Transmitter {
-    fn send_to_app(
-        &self,
-        message: Result<SessionMessage, SessionError>,
-    ) -> impl Future<Output = Result<(), SessionError>> + Send + 'static {
-        let tx = self.app_tx.clone();
-        async move {
-            tx.send(message)
-                .await
-                .map_err(|e: SendError<Result<SessionMessage, SessionError>>| {
-                    SessionError::AppTransmission(e.to_string())
-                })
-        }
-    }
-
-    fn send_to_slim(
-        &self,
-        mut message: Result<Message, Status>,
-    ) -> impl Future<Output = Result<(), SessionError>> + Send + 'static {
-        let tx = self.slim_tx.clone();
-
-        // Interceptors
-        let interceptors = match &message {
-            Ok(_) => self.interceptors.read().clone(),
-            Err(_) => Vec::new(),
-        };
-
-        async move {
-            if let Ok(msg) = message.as_mut() {
-                // Apply interceptors on the message
-                for interceptor in interceptors {
-                    if let Err(e) = interceptor.on_msg_from_app(msg).await {
-                        warn!("error applying interceptor on message: {}", e);
-                    }
-                }
-            }
-
-            tx.send(message)
-                .await
-                .map_err(|e: SendError<Result<Message, Status>>| {
-                    SessionError::SlimTransmission(e.to_string())
-                })
-        }
-    }
-}
 
 /// SessionLayer
 struct SessionLayer<P, V, T>
@@ -119,10 +51,6 @@ where
 
     /// Identity verifier
     identity_verifier: V,
-
-    /// Identity interceptor
-    #[allow(dead_code)]
-    identity_interceptor: Arc<dyn SessionInterceptor + Send + Sync>,
 
     /// ID of the local connection
     conn_id: u64,
@@ -203,7 +131,7 @@ where
             interceptors: Arc::new(SyncRwLock::new(Vec::new())),
         };
 
-        transmitter.add_interceptor(identity_interceptor.clone());
+        transmitter.add_interceptor(identity_interceptor);
 
         // Create the session layer
         let session_layer = Arc::new(SessionLayer {
@@ -211,7 +139,6 @@ where
             agent_name: agent_name.clone(),
             identity_provider,
             identity_verifier,
-            identity_interceptor,
             conn_id,
             tx_slim,
             tx_app,
@@ -234,11 +161,10 @@ where
         &self,
         session_config: SessionConfig,
         id: Option<Id>,
-        mls_enabled: bool,
     ) -> Result<Info, SessionError> {
         let ret = self
             .session_layer
-            .create_session(session_config, id, mls_enabled)
+            .create_session(session_config, id)
             .await?;
 
         // return the session info
@@ -342,7 +268,7 @@ where
         ));
 
         let session_header = Some(SessionHeader::new(
-            ProtoSessionType::SessionUnknown.into(),
+            session_info.get_session_type().into(),
             ProtoSessionMessageType::ChannelDiscoveryRequest.into(),
             session_info.id,
             rand::random::<u32>(),
@@ -628,7 +554,6 @@ where
         &self,
         session_config: SessionConfig,
         id: Option<Id>,
-        mls_enabled: bool,
     ) -> Result<Info, SessionError> {
         // TODO(msardara): the session identifier should be a combination of the
         // session ID and the agent ID, to prevent collisions.
@@ -676,7 +601,6 @@ where
                     tx,
                     self.identity_provider.clone(),
                     self.identity_verifier.clone(),
-                    mls_enabled,
                 ))
             }
             SessionConfig::Streaming(conf) => {
@@ -690,7 +614,6 @@ where
                     tx,
                     self.identity_provider.clone(),
                     self.identity_verifier.clone(),
-                    mls_enabled,
                 ))
             }
         };
@@ -725,7 +648,7 @@ where
             return Err(SessionError::ValidationError(e.to_string()));
         }
 
-        // Also make sure the message is a publication
+        // Make sure the message is a publication
         if !message.message.is_publish() {
             return Err(SessionError::ValidationError(
                 "message is not a publish".to_string(),
@@ -773,32 +696,23 @@ where
         match session_message_type {
             ProtoSessionMessageType::ChannelDiscoveryRequest => {
                 // reply direcetly without creating any new Session
-                let destination = message.get_source();
-                let msg_id = message.get_id();
-
-                let slim_header = Some(SlimHeader::new(
+                let msg = handle_channel_discovery_message(
+                    message,
                     self.agent_name(),
-                    destination.agent_type(),
-                    destination.agent_id_option(),
-                    Some(SlimHeaderFlags::default().with_forward_to(message.get_incoming_conn())),
-                ));
-
-                let session_header = Some(SessionHeader::new(
-                    session_type.into(),
-                    ProtoSessionMessageType::ChannelDiscoveryReply.into(),
                     session_id,
-                    msg_id,
-                ));
+                    session_type,
+                );
 
-                let msg =
-                    Message::new_publish_with_headers(slim_header, session_header, "", vec![]);
-
-                debug!("Received discovery request, reply to the msg source");
-
-                match self.transmitter.send_to_slim(Ok(msg)).await {
-                    Ok(_) => Ok(true),
-                    Err(e) => Err(e),
-                }
+                self.transmitter
+                    .send_to_slim(Ok(msg))
+                    .await
+                    .map(|_| true)
+                    .map_err(|e| {
+                        SessionError::SlimTransmission(format!(
+                            "error sending discovery reply: {}",
+                            e
+                        ))
+                    })
             }
             _ => Ok(false),
         }
@@ -808,7 +722,7 @@ where
     /// corresponding session
     async fn handle_message_from_slim(
         &self,
-        mut message: SessionMessage,
+        message: SessionMessage,
         direction: MessageDirection,
     ) -> Result<(), SessionError> {
         let (id, session_type, session_message_type) = {
@@ -854,11 +768,6 @@ where
         if session_message_type == ProtoSessionMessageType::ChannelLeaveRequest {
             // send message to the session and delete it after
             if let Some(session) = self.pool.read().await.get(&id) {
-                // pass the message to the session
-                session
-                    .tx_ref()
-                    .on_msg_from_slim_interceptors(&mut message.message)
-                    .await?;
                 session.on_message(message, direction).await?;
             } else {
                 warn!(
@@ -875,46 +784,63 @@ where
 
         if let Some(session) = self.pool.read().await.get(&id) {
             // pass the message to the session
-            session
-                .tx_ref()
-                .on_msg_from_slim_interceptors(&mut message.message)
-                .await?;
             return session.on_message(message, direction).await;
         }
 
         let new_session_id = match session_message_type {
-            ProtoSessionMessageType::FnfMsg
-            | ProtoSessionMessageType::FnfReliable
-            | ProtoSessionMessageType::FnfDiscovery => {
-                // create a new Fire and Forget session
+            ProtoSessionMessageType::FnfMsg | ProtoSessionMessageType::FnfReliable => {
                 let mut conf = self.default_ff_conf.read().clone();
 
+                // Set that the session was initiated by another agent
+                conf.initiator = false;
+
+                // If other session is reliable, set the timeout
                 if session_message_type == ProtoSessionMessageType::FnfReliable {
                     conf.timeout = Some(std::time::Duration::from_secs(5));
                 }
 
-                self.create_session(SessionConfig::FireAndForget(conf), Some(id), false)
+                self.create_session(SessionConfig::FireAndForget(conf), Some(id))
                     .await?
             }
             ProtoSessionMessageType::StreamMsg | ProtoSessionMessageType::BeaconStream => {
                 let conf = self.default_stream_conf.read().clone();
-                // TODO check if MLS is on (it should be in the received packet). Put false for the moment
-                self.create_session(session::SessionConfig::Streaming(conf), Some(id), false)
+                self.create_session(session::SessionConfig::Streaming(conf), Some(id))
                     .await?
             }
             ProtoSessionMessageType::ChannelJoinRequest => {
-                let mut conf = self.default_stream_conf.read().clone();
-                conf.direction = SessionDirection::Bidirectional;
-                let mut mls_enable = false;
-                if message.message.contains_metadata(METADATA_MLS_ENABLED) {
-                    mls_enable = true;
+                // Create a new session based on the SessionType contained in the message
+                match message.message.get_session_header().session_type() {
+                    ProtoSessionType::SessionFireForget => {
+                        let mut conf = self.default_ff_conf.read().clone();
+                        conf.initiator = false;
+                        conf.mls_enabled = message.message.contains_metadata(METADATA_MLS_ENABLED);
+                        self.create_session(SessionConfig::FireAndForget(conf), Some(id))
+                            .await?
+                    }
+                    ProtoSessionType::SessionPubSub => {
+                        let mut conf = self.default_stream_conf.read().clone();
+                        conf.direction = SessionDirection::Bidirectional;
+                        conf.mls_enabled = message.message.contains_metadata(METADATA_MLS_ENABLED);
+                        self.create_session(SessionConfig::Streaming(conf), Some(id))
+                            .await?
+                    }
+                    ProtoSessionType::SessionStreaming => {
+                        let mut conf = self.default_stream_conf.read().clone();
+                        conf.direction = SessionDirection::Receiver;
+                        conf.mls_enabled = message.message.contains_metadata(METADATA_MLS_ENABLED);
+                        self.create_session(SessionConfig::Streaming(conf), Some(id))
+                            .await?
+                    }
+                    _ => {
+                        warn!(
+                            "received channel join request with unknown session type: {}",
+                            session_type.as_str_name()
+                        );
+                        return Err(SessionError::SessionUnknown(
+                            session_type.as_str_name().to_string(),
+                        ));
+                    }
                 }
-                self.create_session(
-                    session::SessionConfig::Streaming(conf),
-                    Some(id),
-                    mls_enable,
-                )
-                .await?
             }
             ProtoSessionMessageType::ChannelDiscoveryRequest
             | ProtoSessionMessageType::ChannelDiscoveryReply
@@ -953,10 +879,6 @@ where
         // retry the match
         if let Some(session) = self.pool.read().await.get(&new_session_id.id) {
             // pass the message
-            session
-                .tx_ref()
-                .on_msg_from_slim_interceptors(&mut message.message)
-                .await?;
             return session.on_message(message, direction).await;
         }
 
@@ -1096,7 +1018,7 @@ mod tests {
         let session_config = FireAndForgetConfiguration::default();
 
         let ret = app
-            .create_session(SessionConfig::FireAndForget(session_config), Some(1), false)
+            .create_session(SessionConfig::FireAndForget(session_config), Some(1))
             .await;
 
         assert!(ret.is_ok());
@@ -1123,7 +1045,6 @@ mod tests {
             .create_session(
                 SessionConfig::FireAndForget(FireAndForgetConfiguration::default()),
                 None,
-                false,
             )
             .await;
         assert!(res.is_ok());
@@ -1148,7 +1069,6 @@ mod tests {
             .create_session(
                 SessionConfig::FireAndForget(FireAndForgetConfiguration::default()),
                 Some(1),
-                false,
             )
             .await;
         assert!(res.is_ok());
@@ -1181,7 +1101,7 @@ mod tests {
 
         // create a new session
         let res = app
-            .create_session(SessionConfig::FireAndForget(session_config), Some(1), false)
+            .create_session(SessionConfig::FireAndForget(session_config), Some(1))
             .await;
         assert!(res.is_ok());
 
@@ -1200,30 +1120,33 @@ mod tests {
         header.set_session_type(ProtoSessionType::SessionFireForget);
         header.set_session_message_type(ProtoSessionMessageType::FnfMsg);
 
-        let res = app
-            .session_layer
+        app.session_layer
             .handle_message(
                 SessionMessage::from(message.clone()),
                 MessageDirection::North,
             )
-            .await;
+            .await
+            .unwrap();
 
-        // This should fail, as message has no identity
-        assert!(res.is_err());
+        // sleep to allow the message to be processed
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+
+        // As there is no identity, we should not get any message in the app
+        rx_app
+            .try_recv()
+            .expect_err("message received when it should not have been");
 
         // Add identity to message
         message.insert_metadata(SLIM_IDENTITY.to_string(), identity.get_token().unwrap());
 
         // Try again
-        let res = app
-            .session_layer
+        app.session_layer
             .handle_message(
                 SessionMessage::from(message.clone()),
                 MessageDirection::North,
             )
-            .await;
-
-        assert!(res.is_ok());
+            .await
+            .unwrap();
 
         // message should have been delivered to the app
         let msg = rx_app
@@ -1256,7 +1179,7 @@ mod tests {
 
         // create a new session
         let res = app
-            .create_session(SessionConfig::FireAndForget(session_config), Some(1), false)
+            .create_session(SessionConfig::FireAndForget(session_config), Some(1))
             .await;
         assert!(res.is_ok());
 

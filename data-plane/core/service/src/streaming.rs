@@ -41,6 +41,7 @@ pub struct StreamingConfiguration {
     pub moderator: bool,
     pub max_retries: u32,
     pub timeout: std::time::Duration,
+    pub mls_enabled: bool,
 }
 
 impl SessionConfigTrait for StreamingConfiguration {
@@ -73,6 +74,7 @@ impl Default for StreamingConfiguration {
             moderator: false,
             max_retries: 10,
             timeout: std::time::Duration::from_millis(1000),
+            mls_enabled: false,
         }
     }
 }
@@ -97,6 +99,7 @@ impl StreamingConfiguration {
         moderator: bool,
         max_retries: Option<u32>,
         timeout: Option<std::time::Duration>,
+        mls_enabled: bool,
     ) -> Self {
         StreamingConfiguration {
             direction,
@@ -104,6 +107,7 @@ impl StreamingConfiguration {
             moderator,
             max_retries: max_retries.unwrap_or(0),
             timeout: timeout.unwrap_or(std::time::Duration::from_millis(0)),
+            mls_enabled,
         }
     }
 }
@@ -234,7 +238,6 @@ where
         tx_slim_app: T,
         identity_provider: P,
         identity_verifier: V,
-        mls_enabled: bool,
     ) -> Self {
         let (tx, rx) = mpsc::channel(128);
 
@@ -248,7 +251,7 @@ where
             tx_slim_app.clone(),
             identity_provider,
             identity_verifier,
-            mls_enabled,
+            session_config.mls_enabled,
         );
 
         let stream = Streaming { common, tx };
@@ -385,15 +388,38 @@ where
                             Some(result) => {
                                 debug!("got a message in process message");
                                 if result.is_err() {
-                                    error!("error receiving a message on session {}, drop it", session_id);
+                                    error!(%session_id, "error receiving a message on session, drop it");
                                     continue;
                                 }
                                 let (msg, direction) = result.unwrap();
+
+                                // process the messages for the channel endpoint first
+                                match msg.get_session_header().session_message_type() {
+                                    ProtoSessionMessageType::ChannelDiscoveryRequest |
+                                    ProtoSessionMessageType::ChannelDiscoveryReply |
+                                    ProtoSessionMessageType::ChannelJoinRequest |
+                                    ProtoSessionMessageType::ChannelJoinReply |
+                                    ProtoSessionMessageType::ChannelLeaveRequest |
+                                    ProtoSessionMessageType::ChannelLeaveReply |
+                                    ProtoSessionMessageType::ChannelMlsWelcome |
+                                    ProtoSessionMessageType::ChannelMlsCommit |
+                                    ProtoSessionMessageType::ChannelMlsAck => {
+                                        match channel_endpoint.on_message(msg).await {
+                                            Ok(_) => {},
+                                            Err(e) => {
+                                                error!("error processing channel message: {}", e);
+                                            },
+                                        }
+                                        continue;
+                                    }
+                                    _ => {}
+                                }
+
                                 match &mut endpoint {
                                     Endpoint::Producer(producer) => {
                                         match direction {
                                             MessageDirection::North => {
-                                                trace!("received message from the gataway on producer session {}", session_id);
+                                                trace!("received message from SLIM on producer session {}", session_id);
                                                 // received a message from the SLIM
                                                 // this must be an RTX message otherwise drop it
                                                 match msg.get_session_header().session_message_type() {
@@ -413,7 +439,7 @@ where
                                         }
                                     }
                                     Endpoint::Receiver(receiver) => {
-                                        trace!("received message from the gataway on receiver session {}", session_id);
+                                        trace!("received message from SLIM on receiver session {}", session_id);
                                         process_message_from_slim(msg, session_id, receiver, &source, max_retries, timeout, &rtx_timer_tx, &tx).await;
                                     }
                                     Endpoint::Bidirectional(state) => {
@@ -421,24 +447,8 @@ where
                                             MessageDirection::North => {
                                                 // in this case the message can be a stream message to send to the app, a rtx request,
                                                 // or a channel control message to handle in the channel endpoint
-                                                trace!("received message from the gataway on bidirectional session {}", session_id);
+                                                trace!("received message from SLIM on bidirectional session {}", session_id);
                                                 match msg.get_session_header().session_message_type() {
-                                                    ProtoSessionMessageType::ChannelDiscoveryRequest |
-                                                    ProtoSessionMessageType::ChannelDiscoveryReply |
-                                                    ProtoSessionMessageType::ChannelJoinRequest |
-                                                    ProtoSessionMessageType::ChannelJoinReply |
-                                                    ProtoSessionMessageType::ChannelLeaveRequest |
-                                                    ProtoSessionMessageType::ChannelLeaveReply |
-                                                    ProtoSessionMessageType::ChannelMlsWelcome |
-                                                    ProtoSessionMessageType::ChannelMlsCommit |
-                                                    ProtoSessionMessageType::ChannelMlsAck => {
-                                                        match channel_endpoint.on_message(msg).await {
-                                                            Ok(_) => {},
-                                                            Err(e) => {
-                                                                error!("error processing channel message: {}", e);
-                                                            },
-                                                        }
-                                                    }
                                                     ProtoSessionMessageType::RtxRequest => {
                                                         // handle RTX request
                                                         process_incoming_rtx_request(msg, session_id, &state.producer, &source, &tx).await;
@@ -450,20 +460,7 @@ where
                                             }
                                             MessageDirection::South => {
                                                 // received a message from the APP
-                                                match msg.get_session_header().session_message_type() {
-                                                    ProtoSessionMessageType::ChannelDiscoveryRequest |
-                                                    ProtoSessionMessageType::ChannelLeaveRequest => {
-                                                        match channel_endpoint.on_message(msg).await {
-                                                            Ok(_) => {},
-                                                            Err(e) => {
-                                                                error!("error processing channel message: {}", e);
-                                                            },
-                                                        }
-                                                    }
-                                                    _ => {
-                                                        process_message_from_app(msg, session_id, &mut state.producer, true, &tx).await;
-                                                    }
-                                                }
+                                                process_message_from_app(msg, session_id, &mut state.producer, true, &tx).await;
                                             }
                                         };
                                     }
@@ -1059,7 +1056,7 @@ mod tests {
         let source = Agent::from_strings("cisco", "default", "local_agent", 0);
 
         let session_config: StreamingConfiguration =
-            StreamingConfiguration::new(SessionDirection::Sender, None, false, None, None);
+            StreamingConfiguration::new(SessionDirection::Sender, None, false, None, None, false);
 
         let session = Streaming::new(
             0,
@@ -1069,7 +1066,6 @@ mod tests {
             tx.clone(),
             SimpleGroup::new("a", "group"),
             SimpleGroup::new("a", "group"),
-            false,
         );
 
         assert_eq!(session.id(), 0);
@@ -1085,6 +1081,7 @@ mod tests {
             false,
             Some(10),
             Some(Duration::from_millis(1000)),
+            false,
         );
 
         let session = Streaming::new(
@@ -1095,7 +1092,6 @@ mod tests {
             tx,
             SimpleGroup::new("a", "group"),
             SimpleGroup::new("a", "group"),
-            false,
         );
 
         assert_eq!(session.id(), 1);
@@ -1126,13 +1122,14 @@ mod tests {
         };
 
         let session_config_sender: StreamingConfiguration =
-            StreamingConfiguration::new(SessionDirection::Sender, None, false, None, None);
+            StreamingConfiguration::new(SessionDirection::Sender, None, false, None, None, false);
         let session_config_receiver: StreamingConfiguration = StreamingConfiguration::new(
             SessionDirection::Receiver,
             None,
             false,
             Some(5),
             Some(Duration::from_millis(500)),
+            false,
         );
 
         let send = Agent::from_strings("cisco", "default", "sender", 0);
@@ -1146,7 +1143,6 @@ mod tests {
             tx_sender,
             SimpleGroup::new("a", "group"),
             SimpleGroup::new("a", "group"),
-            false,
         );
         let receiver = Streaming::new(
             0,
@@ -1156,7 +1152,6 @@ mod tests {
             tx_receiver,
             SimpleGroup::new("a", "group"),
             SimpleGroup::new("a", "group"),
-            false,
         );
 
         let mut message = Message::new_publish(
@@ -1215,6 +1210,7 @@ mod tests {
             false,
             Some(5),
             Some(Duration::from_millis(500)),
+            false,
         );
 
         let agent = Agent::from_strings("cisco", "default", "sender", 0);
@@ -1227,7 +1223,6 @@ mod tests {
             tx,
             SimpleGroup::new("a", "group"),
             SimpleGroup::new("a", "group"),
-            false,
         );
 
         let mut message = Message::new_publish(
@@ -1298,6 +1293,7 @@ mod tests {
             false,
             Some(5),
             Some(Duration::from_millis(500)),
+            false,
         );
 
         let agent = Agent::from_strings("cisco", "default", "receiver", 0);
@@ -1310,7 +1306,6 @@ mod tests {
             tx,
             SimpleGroup::new("a", "group"),
             SimpleGroup::new("a", "group"),
-            false,
         );
 
         let mut message = Message::new_publish(
@@ -1409,14 +1404,15 @@ mod tests {
         };
 
         let session_config_sender: StreamingConfiguration =
-            StreamingConfiguration::new(SessionDirection::Sender, None, false, None, None);
+            StreamingConfiguration::new(SessionDirection::Sender, None, false, None, None, false);
         let session_config_receiver: StreamingConfiguration = StreamingConfiguration::new(
             SessionDirection::Receiver,
             None,
             false,
             Some(5),
             Some(Duration::from_millis(100)), // keep the timer shorter with respect to the beacon one
-                                              // otherwise we don't know which message will be received first
+            // otherwise we don't know which message will be received first
+            false,
         );
 
         let send = Agent::from_strings("cisco", "default", "sender", 0);
@@ -1430,7 +1426,6 @@ mod tests {
             tx_sender,
             SimpleGroup::new("a", "group"),
             SimpleGroup::new("a", "group"),
-            false,
         );
         let receiver = Streaming::new(
             0,
@@ -1440,7 +1435,6 @@ mod tests {
             tx_receiver,
             SimpleGroup::new("a", "group"),
             SimpleGroup::new("a", "group"),
-            false,
         );
 
         let mut message = Message::new_publish(
@@ -1640,7 +1634,7 @@ mod tests {
         let source = Agent::from_strings("cisco", "default", "local_agent", 0);
 
         let session_config: StreamingConfiguration =
-            StreamingConfiguration::new(SessionDirection::Sender, None, false, None, None);
+            StreamingConfiguration::new(SessionDirection::Sender, None, false, None, None, false);
 
         {
             let _session = Streaming::new(
@@ -1651,7 +1645,6 @@ mod tests {
                 tx,
                 SimpleGroup::new("a", "group"),
                 SimpleGroup::new("a", "group"),
-                false,
             );
         }
 

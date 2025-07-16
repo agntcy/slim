@@ -98,19 +98,21 @@ impl From<PySessionType> for session::SessionType {
 #[derive(Clone, PartialEq)]
 #[pyclass(eq)]
 pub(crate) enum PySessionConfiguration {
-    #[pyo3(constructor = (timeout=None, max_retries=None, sticky=false))]
+    #[pyo3(constructor = (timeout=None, max_retries=None, sticky=false, mls_enabled=false))]
     FireAndForget {
         timeout: Option<std::time::Duration>,
         max_retries: Option<u32>,
         sticky: bool,
+        mls_enabled: bool,
     },
-    #[pyo3(constructor = (session_direction, topic=None, moderator=false, max_retries=0, timeout=std::time::Duration::from_millis(1000)))]
+    #[pyo3(constructor = (session_direction, topic=None, moderator=false, max_retries=0, timeout=std::time::Duration::from_millis(1000), mls_enabled=false))]
     Streaming {
         session_direction: PySessionDirection,
         topic: Option<PyAgentType>,
         moderator: bool,
         max_retries: u32,
         timeout: std::time::Duration,
+        mls_enabled: bool,
     },
 }
 
@@ -122,6 +124,7 @@ impl From<session::SessionConfig> for PySessionConfiguration {
                     timeout: config.timeout,
                     max_retries: config.max_retries,
                     sticky: config.sticky,
+                    mls_enabled: config.mls_enabled,
                 }
             }
             session::SessionConfig::Streaming(config) => PySessionConfiguration::Streaming {
@@ -130,6 +133,7 @@ impl From<session::SessionConfig> for PySessionConfiguration {
                 moderator: config.moderator,
                 max_retries: config.max_retries,
                 timeout: config.timeout,
+                mls_enabled: config.mls_enabled,
             },
         }
     }
@@ -142,23 +146,27 @@ impl From<PySessionConfiguration> for session::SessionConfig {
                 timeout,
                 max_retries,
                 sticky,
-            } => session::SessionConfig::FireAndForget(FireAndForgetConfiguration {
+                mls_enabled,
+            } => session::SessionConfig::FireAndForget(FireAndForgetConfiguration::new(
                 timeout,
                 max_retries,
                 sticky,
-            }),
+                mls_enabled,
+            )),
             PySessionConfiguration::Streaming {
                 session_direction,
                 topic,
                 moderator,
                 max_retries,
                 timeout,
+                mls_enabled,
             } => session::SessionConfig::Streaming(StreamingConfiguration::new(
                 session_direction.into(),
                 topic.map(|topic| topic.into()),
                 moderator,
                 Some(max_retries),
                 Some(timeout),
+                mls_enabled,
             )),
         }
     }
