@@ -388,7 +388,7 @@ where
                             Some(result) => {
                                 debug!("got a message in process message");
                                 if result.is_err() {
-                                    error!("error receiving a message on session {}, drop it", session_id);
+                                    error!(%session_id, "error receiving a message on session, drop it");
                                     continue;
                                 }
                                 let (msg, direction) = result.unwrap();
@@ -396,7 +396,7 @@ where
                                     Endpoint::Producer(producer) => {
                                         match direction {
                                             MessageDirection::North => {
-                                                trace!("received message from the gataway on producer session {}", session_id);
+                                                trace!("received message from SLIM on producer session {}", session_id);
                                                 // received a message from the SLIM
                                                 // this must be an RTX message otherwise drop it
                                                 match msg.get_session_header().session_message_type() {
@@ -416,7 +416,7 @@ where
                                         }
                                     }
                                     Endpoint::Receiver(receiver) => {
-                                        trace!("received message from the gataway on receiver session {}", session_id);
+                                        trace!("received message from SLIM on receiver session {}", session_id);
                                         process_message_from_slim(msg, session_id, receiver, &source, max_retries, timeout, &rtx_timer_tx, &tx).await;
                                     }
                                     Endpoint::Bidirectional(state) => {
@@ -424,7 +424,7 @@ where
                                             MessageDirection::North => {
                                                 // in this case the message can be a stream message to send to the app, a rtx request,
                                                 // or a channel control message to handle in the channel endpoint
-                                                trace!("received message from the gataway on bidirectional session {}", session_id);
+                                                trace!("received message from SLIM on bidirectional session {}", session_id);
                                                 match msg.get_session_header().session_message_type() {
                                                     ProtoSessionMessageType::ChannelDiscoveryRequest |
                                                     ProtoSessionMessageType::ChannelDiscoveryReply |

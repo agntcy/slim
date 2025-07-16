@@ -14,7 +14,9 @@ use tokio::sync::mpsc::{self, Receiver, Sender};
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, error};
 
-use crate::channel_endpoint::{ChannelEndpoint, ChannelModerator, ChannelParticipant, MlsState};
+use crate::channel_endpoint::{
+    ChannelEndpoint, ChannelModerator, ChannelParticipant, MlsEndpoint, MlsState,
+};
 use crate::errors::SessionError;
 use crate::session::{
     Common, CommonSession, Id, MessageDirection, MessageHandler, SessionConfig, SessionConfigTrait,
@@ -320,16 +322,6 @@ where
         self.state.channel_endpoint.on_message(probe_message).await
     }
 
-    async fn handle_channel_discovery_request(
-        &mut self,
-        message: SessionMessage,
-    ) -> Result<(), SessionError> {
-        self.state
-            .channel_endpoint
-            .on_message(message.message)
-            .await
-    }
-
     async fn handle_channel_discovery_reply(
         &mut self,
         message: SessionMessage,
@@ -392,12 +384,15 @@ where
                 self.state.sticky_connection = Some(incoming_conn);
                 self.state.sticky_session_status = StickySessionStatus::Established;
 
-                // Collect messages first to avoid multiple mutable borrows
-                let messages: Vec<Message> = self.state.sticky_buffer.drain(..).collect();
+                // If MLS is not enabled, send all buffered messages
+                if !self.state.config.mls_enabled {
+                    // Collect messages first to avoid multiple mutable borrows
+                    let messages: Vec<Message> = self.state.sticky_buffer.drain(..).collect();
 
-                // Send all buffered messages to the sticky name
-                for msg in messages {
-                    self.send_message(msg, None).await?;
+                    // Send all buffered messages to the sticky name
+                    for msg in messages {
+                        self.send_message(msg, None).await?;
+                    }
                 }
 
                 Ok(())
@@ -621,10 +616,6 @@ where
                 // Remove the timer and drop the message
                 self.stop_and_remove_timer(message_id)
             }
-            ProtoSessionMessageType::ChannelDiscoveryRequest => {
-                // Handle sticky session discovery
-                self.handle_channel_discovery_request(message).await
-            }
             ProtoSessionMessageType::ChannelDiscoveryReply => {
                 // Handle sticky session discovery
                 self.handle_channel_discovery_reply(message).await
@@ -646,7 +637,19 @@ where
                 self.state
                     .channel_endpoint
                     .on_message(message.message)
-                    .await
+                    .await?;
+
+                // Flush the sticky buffer if MLS is enabled
+                if self.state.channel_endpoint.is_mls_up()? {
+                    // If MLS is up, send all buffered messages
+                    let messages: Vec<Message> = self.state.sticky_buffer.drain(..).collect();
+
+                    for msg in messages {
+                        self.send_message(msg, None).await?;
+                    }
+                }
+
+                Ok(())
             }
             _ => {
                 // Unexpected header
@@ -1487,6 +1490,28 @@ mod tests {
                 .await
                 .expect("failed to handle mls welcome");
 
+            // We should now get an ack message back
+            let mut msg = receiver_rx_slim
+                .recv()
+                .await
+                .expect("no message received")
+                .expect("error");
+
+            let header = msg.get_session_header();
+            assert_eq!(
+                header.session_message_type(),
+                ProtoSessionMessageType::ChannelMlsAck
+            );
+
+            assert_eq!(header.session_type(), ProtoSessionType::SessionFireForget);
+
+            // Send the ack to the sender session
+            msg.set_incoming_conn(Some(0));
+            sender_session
+                .on_message(SessionMessage::from(msg), MessageDirection::North)
+                .await
+                .expect("failed to handle mls ack");
+
             // Now we should get the original message
             let mut msg = sender_rx_slim
                 .recv()
@@ -1517,8 +1542,6 @@ mod tests {
                 .on_message(SessionMessage::from(msg), MessageDirection::North)
                 .await
                 .expect("failed to handle message");
-
-            tokio::time::sleep(Duration::from_millis(1000)).await;
 
             // Get message from the receiver app
             let msg = receiver_rx_app

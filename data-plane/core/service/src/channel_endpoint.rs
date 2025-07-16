@@ -72,6 +72,31 @@ trait OnMessageReceived {
     async fn on_message(&mut self, msg: Message) -> Result<(), SessionError>;
 }
 
+pub(crate) trait MlsEndpoint {
+    /// check whether MLS is up
+    fn is_mls_up(&self) -> Result<bool, SessionError>;
+}
+
+impl<P, V, T> MlsEndpoint for ChannelEndpoint<P, V, T>
+where
+    P: TokenProvider + Send + Sync + Clone + 'static,
+    V: Verifier + Send + Sync + Clone + 'static,
+    T: SessionTransmitter + Send + Sync + Clone + 'static,
+{
+    fn is_mls_up(&self) -> Result<bool, SessionError> {
+        let endpoint = match self {
+            ChannelEndpoint::ChannelParticipant(cp) => &cp.endpoint,
+            ChannelEndpoint::ChannelModerator(cm) => &cm.endpoint,
+        };
+
+        endpoint
+            .mls_state
+            .as_ref()
+            .ok_or(SessionError::NoMls)?
+            .is_mls_up()
+    }
+}
+
 #[derive(Debug)]
 pub(crate) enum ChannelEndpoint<P, V, T>
 where
@@ -118,6 +143,11 @@ where
     /// this is used only by the moderator to remove
     /// participants from the channel
     participants: HashMap<Agent, MlsIdentity>,
+
+    /// track if MLS is UP. For moderator this is true as soon as at least one participant
+    /// has sent back an ack after the welcome message, while for participant
+    /// this is true as soon as the welcome message is received and correctly processed
+    mls_up: bool,
 }
 
 impl<P, V> MlsState<P, V>
@@ -135,6 +165,7 @@ where
             group: vec![],
             last_commit_id: 0,
             participants: HashMap::new(),
+            mls_up: false,
         })
     }
 
@@ -184,6 +215,8 @@ where
             .lock()
             .process_welcome(welcome)
             .map_err(|e| SessionError::WelcomeMessage(e.to_string()))?;
+
+        self.mls_up = true;
 
         Ok(())
     }
@@ -274,6 +307,18 @@ where
         self.participants.remove(&name);
 
         Ok(ret)
+    }
+
+    fn on_mls_ack(&mut self) -> Result<(), SessionError> {
+        // this is called by the moderator when the participant
+        // sends back an ack after the welcome message
+        self.mls_up = true;
+
+        Ok(())
+    }
+
+    fn is_mls_up(&self) -> Result<bool, SessionError> {
+        Ok(self.mls_up)
     }
 }
 
@@ -1002,7 +1047,12 @@ where
         let recv_msg_id = msg.get_id();
         let _ = self.delete_timer(recv_msg_id).await?;
 
-        Ok(())
+        // notify mls state that an ack was received
+        self.endpoint
+            .mls_state
+            .as_mut()
+            .ok_or(SessionError::NoMls)?
+            .on_mls_ack()
     }
 
     async fn on_leave_request(&mut self, msg: Message) -> Result<(), SessionError> {
