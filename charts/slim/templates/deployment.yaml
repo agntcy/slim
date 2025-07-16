@@ -64,6 +64,9 @@ spec:
             - name: messenger
               containerPort: {{ .Values.slim.service.port }}
               protocol: TCP
+            - name: controller
+              containerPort: 46358
+              protocol: TCP
           resources:
             {{- toYaml .Values.slim.resources | nindent 12 }}
           volumeMounts:
