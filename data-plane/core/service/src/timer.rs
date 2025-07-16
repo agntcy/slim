@@ -162,7 +162,7 @@ impl Timer {
         self.start(observer);
     }
 
-    pub fn get_id(&self) -> u32{
+    pub fn get_id(&self) -> u32 {
         self.timer_id
     }
 }

@@ -1,7 +1,7 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
-use std::{collections::HashMap, hash::Hash, sync::Arc, thread, time::Duration};
+use std::{collections::HashMap, sync::Arc, time::Duration};
 
 use async_trait::async_trait;
 use bincode::{Decode, Encode};
@@ -94,10 +94,12 @@ where
     }
 
     async fn update_mls_keys(&mut self) -> Result<(), SessionError> {
-        match self {
-            ChannelEndpoint::ChannelParticipant(cp) => cp.update_mls_keys().await,
-            ChannelEndpoint::ChannelModerator(cm) => cm.update_mls_keys().await,
-        }
+        println!("update keyss!");
+        Ok(())
+        //match self {
+        //    ChannelEndpoint::ChannelParticipant(cp) => cp.update_mls_keys().await,
+        //    ChannelEndpoint::ChannelModerator(cm) => cm.update_mls_keys().await,
+        //}
     }
 }
 
@@ -294,7 +296,6 @@ where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
 {
-
     pub(crate) fn new(mls: MlsState<P, V>) -> Self {
         MlsModeratorState {
             common: mls,
@@ -363,16 +364,29 @@ where
         Ok(ret)
     }
 
-    async fn generate_key_package(&mut self) -> Result<KeyPackageMsg, SessionError> {
-        self.common.generate_key_package().await
-    }
+    async fn process_proposal_message(&mut self, msg: &Message) -> Result<(), SessionError> {
+        let msg_id = msg.get_id();
+        let source = msg.get_source();
 
-    async fn process_welcome_message(&mut self, msg: &Message) -> Result<(), SessionError> {
-        self.common.process_welcome_message(msg).await
-    }
+        match self.proposal_ids.get(&source) {
+            Some(id) => {
+                let expected = *id + 1;
+                if msg_id != expected {
+                    debug!("invalid proposal id, drop it");
+                    return Err(SessionError::ProposalMessage(
+                        "wrong proposa id".to_string(),
+                    ));
+                }
+                self.proposal_ids.insert(source.clone(), msg_id);
+            }
+            None => {
+                // this is the first message from this participant
+                // add it to the map
+                self.proposal_ids.insert(source.clone(), msg_id);
+            }
+        }
 
-    async fn process_commit_message(&mut self, msg: &Message) -> Result<(), SessionError> {
-        self.common.process_commit_message(msg).await
+        Ok(())
     }
 
     fn get_next_mls_mgs_id(&mut self) -> u32 {
@@ -446,6 +460,7 @@ impl<T> Endpoint<T>
 where
     T: SessionTransmitter + Send + Sync + Clone + 'static,
 {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         name: Agent,
         channel_name: AgentType,
@@ -569,8 +584,6 @@ where
     }
 }
 
-
-
 pub fn handle_channel_discovery_message(
     message: &Message,
     source: &Agent,
@@ -612,7 +625,7 @@ where
     /// timer used for retransmission of mls proposal messages
     timer: Option<crate::timer::Timer>,
 
-    /// endpoint 
+    /// endpoint
     endpoint: Endpoint<T>,
 
     /// mls state
@@ -625,6 +638,7 @@ where
     V: Verifier + Send + Sync + Clone + 'static,
     T: SessionTransmitter + Send + Sync + Clone + 'static,
 {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         name: Agent,
         channel_name: AgentType,
@@ -804,9 +818,9 @@ where
     }
 
     async fn on_mls_ack(&mut self, msg: Message) -> Result<(), SessionError> {
-        // XXX 
+        // XXX
         // is it enough to apply the commit of should I apply the pending changes on the node?
-        // for the moment I assume that the commit is enoguh so simply stop the timer here
+        // for the moment I assume that the commit is enough so simply stop the timer here
         // TODO
         let msg_id = msg.get_id();
 
@@ -837,7 +851,6 @@ where
     V: Verifier + Send + Sync + Clone + 'static,
     T: SessionTransmitter + Send + Sync + Clone + 'static,
 {
-
     async fn update_mls_keys(&mut self) -> Result<(), SessionError> {
         if self.mls_state.is_none() || self.moderator_name.is_none() {
             return Err(SessionError::NoMls);
@@ -885,16 +898,14 @@ where
         self.timer = Some(timer);
         Ok(())
     }
-    
+
     fn is_mls_up(&self) -> Result<bool, SessionError> {
-        self
-            .mls_state
+        self.mls_state
             .as_ref()
             .ok_or(SessionError::NoMls)?
             .is_mls_up()
     }
 }
-
 
 impl<P, V, T> OnMessageReceived for ChannelParticipant<P, V, T>
 where
@@ -1003,14 +1014,10 @@ where
         let invite_payload: Vec<u8> = bincode::encode_to_vec(p, bincode::config::standard())
             .expect("unable to parse channel name as payload");
 
-
-        let mls_state = match mls {
-            Some(m) => Some(MlsModeratorState::new(m)),
-            None => None,
-        };
+        let mls_state = mls.map(MlsModeratorState::new);
 
         let endpoint = Endpoint::new(
-            name, 
+            name,
             channel_name,
             channel_id,
             session_id,
@@ -1167,11 +1174,7 @@ where
                 .await?;
 
             // send the commit message to the channel
-            let commit_id = self
-                . mls_state
-                .as_mut()
-                .unwrap()
-                .get_next_mls_mgs_id();
+            let commit_id = self.mls_state.as_mut().unwrap().get_next_mls_mgs_id();
             let welcome_id = rand::random::<u32>();
 
             let commit = self.endpoint.create_channel_message(
@@ -1224,32 +1227,14 @@ where
     }
 
     async fn on_mls_proposal(&mut self, msg: Message) -> Result<(), SessionError> {
-        // check if the proposal is valid
-        let msg_id = msg.get_id();
+        self.mls_state
+            .as_mut()
+            .ok_or(SessionError::NoMls)?
+            .process_proposal_message(&msg)
+            .await?;
+
         let source = msg.get_source();
-        match self.mls_state {
-            Some(ref mut state) => {
-                match state.proposal_ids.get(&source) {
-                    Some(id) => {
-                        let expected = *id + 1;
-                        if msg_id != expected {
-                            debug!("invalid proposal id, drop it");
-                            return Err(SessionError::ProposalMessage("wrong proposa id".to_string()));
-                        }
-                        state.proposal_ids.insert(source.clone(), msg_id);
-                    }
-                    None => {
-                        // this is the first message from this participant
-                        // add it to the map
-                        state.proposal_ids.insert(source.clone(), msg_id);
-                    }
-                }
-            }
-            None => {
-                debug!("received an mls proposal but mls is off, drop the message");
-                return Err(SessionError::NoMls);
-            }
-        }
+        let msg_id = msg.get_id();
 
         // ack the MLS proposal
         let ack = self.endpoint.create_channel_message(
@@ -1265,11 +1250,7 @@ where
 
         // TODO: update the local MLS state and create a commit
         let payload = vec![];
-        let commit_id = self
-            . mls_state
-            .as_mut()
-            .unwrap()
-            .get_next_mls_mgs_id();
+        let commit_id = self.mls_state.as_mut().unwrap().get_next_mls_mgs_id();
 
         let commit = self.endpoint.create_channel_message(
             &self.endpoint.channel_name,
@@ -1298,11 +1279,7 @@ where
             Some(state) => {
                 let commit_payload = state.remove_participant(&msg).await?;
 
-                let commit_id = self
-                .mls_state
-                .as_mut()
-                .unwrap()
-                .get_next_mls_mgs_id();
+                let commit_id = self.mls_state.as_mut().unwrap().get_next_mls_mgs_id();
 
                 let commit = self.endpoint.create_channel_message(
                     &self.endpoint.channel_name,
@@ -1356,11 +1333,7 @@ where
         // TODO: get message from MLS. this must be a commit not a proposal
 
         let payload = vec![];
-        let commit_id = self
-                .mls_state
-                .as_mut()
-                .unwrap()
-                .get_next_mls_mgs_id();
+        let commit_id = self.mls_state.as_mut().unwrap().get_next_mls_mgs_id();
 
         let commit = self.endpoint.create_channel_message(
             &self.endpoint.channel_name,
@@ -1375,13 +1348,12 @@ where
         debug!("Send MLS Commit Message to the channel (moderator key update)");
         self.endpoint.send(commit.clone()).await?;
         self.create_timer(commit_id, len.try_into().unwrap(), commit, None);
-        
+
         Ok(())
     }
-    
+
     fn is_mls_up(&self) -> Result<bool, SessionError> {
-        self
-            .mls_state
+        self.mls_state
             .as_ref()
             .ok_or(SessionError::NoMls)?
             .is_mls_up()
@@ -1413,6 +1385,10 @@ where
             ProtoSessionMessageType::ChannelMlsAck => {
                 debug!("Received mls ack message");
                 self.on_msl_ack(msg).await
+            }
+            ProtoSessionMessageType::ChannelMlsProposal => {
+                debug!("Received mls proposal message");
+                self.on_mls_proposal(msg).await
             }
             ProtoSessionMessageType::ChannelLeaveRequest => {
                 // leave message coming from the application
