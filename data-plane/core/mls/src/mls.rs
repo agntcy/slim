@@ -3,12 +3,15 @@
 
 use crate::errors::MlsError;
 use crate::identity_provider::SlimIdentityProvider;
+use mls_rs::IdentityProvider;
 use mls_rs::{
     CipherSuite, CipherSuiteProvider, Client, CryptoProvider, ExtensionList, Group, MlsMessage,
     crypto::{SignaturePublicKey, SignatureSecretKey},
     group::ReceivedMessage,
-    identity::SigningIdentity,
-    identity::basic::BasicCredential,
+    identity::{
+        SigningIdentity,
+        basic::{self, BasicCredential},
+    },
 };
 use mls_rs_crypto_awslc::AwsLcCryptoProvider;
 use serde::{Deserialize, Serialize};
@@ -19,6 +22,16 @@ use tracing::{debug, info};
 
 const CIPHERSUITE: CipherSuite = CipherSuite::CURVE25519_AES128;
 const IDENTITY_FILENAME: &str = "identity.json";
+
+pub type CommitMsg = Vec<u8>;
+pub type WelcomeMsg = Vec<u8>;
+pub type KeyPackageMsg = Vec<u8>;
+pub type MlsIdentity = Vec<u8>;
+pub struct MlsAddMemberResult {
+    pub welcome_message: WelcomeMsg,
+    pub commit_message: CommitMsg,
+    pub member_identity: MlsIdentity,
+}
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 struct StoredIdentity {
@@ -237,7 +250,7 @@ where
         Ok(group_id)
     }
 
-    pub fn generate_key_package(&self) -> Result<Vec<u8>, MlsError> {
+    pub fn generate_key_package(&self) -> Result<KeyPackageMsg, MlsError> {
         debug!("Generating key package");
         let client = self.client.as_ref().ok_or(MlsError::ClientNotInitialized)?;
 
@@ -249,8 +262,8 @@ where
         Self::map_mls_error(key_package.to_bytes())
     }
 
-    pub fn add_member(&mut self, key_package_bytes: &[u8]) -> Result<(Vec<u8>, Vec<u8>), MlsError> {
-        info!("Adding member to MLS group");
+    pub fn add_member(&mut self, key_package_bytes: &[u8]) -> Result<MlsAddMemberResult, MlsError> {
+        debug!("Adding member to the MLS group");
         let group = self.group.as_mut().ok_or(MlsError::GroupNotExists)?;
         let key_package = Self::map_mls_error(MlsMessage::from_bytes(key_package_bytes))?;
 
@@ -274,7 +287,39 @@ where
         // apply the commit locally
         Self::map_mls_error(group.apply_pending_commit())?;
 
-        Ok((commit_msg, welcome))
+        let binding = group.roster().members();
+        let member = binding.last().unwrap();
+        let identifier = Self::map_mls_error(
+            basic::BasicIdentityProvider::new()
+                .identity(&member.signing_identity, &member.extensions),
+        )?;
+
+        let ret = MlsAddMemberResult {
+            welcome_message: welcome,
+            commit_message: commit_msg,
+            member_identity: identifier,
+        };
+        Ok(ret)
+    }
+
+    pub fn remove_member(&mut self, identity: &[u8]) -> Result<CommitMsg, MlsError> {
+        debug!("Removing member from the  MLS group");
+        let group = self.group.as_mut().ok_or(MlsError::GroupNotExists)?;
+
+        let m = Self::map_mls_error(group.member_with_identity(identity))?;
+
+        let commit = Self::map_mls_error(
+            group
+                .commit_builder()
+                .remove_member(m.index)
+                .and_then(|builder| builder.build()),
+        )?;
+
+        let commit_msg = Self::map_mls_error(commit.commit_message.to_bytes())?;
+
+        Self::map_mls_error(group.apply_pending_commit())?;
+
+        Ok(commit_msg)
     }
 
     pub fn process_commit(&mut self, commit_message: &[u8]) -> Result<(), MlsError> {
@@ -468,9 +513,11 @@ mod tests {
     async fn test_messaging() -> Result<(), Box<dyn std::error::Error>> {
         let alice_agent =
             slim_datapath::messages::Agent::from_strings("org", "default", "alice", 0);
-        let bob_agent = slim_datapath::messages::Agent::from_strings("org", "default", "bob", 1);
+        let bob_agent = slim_datapath::messages::Agent::from_strings("org", "default", "bob", 0);
         let charlie_agent =
-            slim_datapath::messages::Agent::from_strings("org", "default", "charlie", 2);
+            slim_datapath::messages::Agent::from_strings("org", "default", "charlie", 0);
+        let daniel_agent =
+            slim_datapath::messages::Agent::from_strings("org", "default", "daniel", 0);
 
         // alice will work as moderator
         let mut alice = Mls::new(
@@ -491,18 +538,25 @@ mod tests {
             SimpleGroup::new("charlie", "group"),
             std::path::PathBuf::from("/tmp/mls_test_messaging_charlie"),
         );
+        let mut daniel = Mls::new(
+            daniel_agent,
+            SimpleGroup::new("daniel", "group"),
+            SimpleGroup::new("daniel", "group"),
+            std::path::PathBuf::from("/tmp/mls_test_messaging_daniel"),
+        );
 
         alice.initialize()?;
         bob.initialize()?;
         charlie.initialize()?;
+        daniel.initialize()?;
 
         let group_id = alice.create_group()?;
 
         // add bob to the group
         let bob_key_package = bob.generate_key_package()?;
-        let (_, welcome_message) = alice.add_member(&bob_key_package)?;
+        let bob_add_res = alice.add_member(&bob_key_package)?;
 
-        let bob_group_id = bob.process_welcome(&welcome_message)?;
+        let bob_group_id = bob.process_welcome(&bob_add_res.welcome_message)?;
         assert_eq!(group_id, bob_group_id);
 
         // test encrypt decrypt
@@ -520,11 +574,11 @@ mod tests {
 
         // add charlie
         let charlie_key_package = charlie.generate_key_package()?;
-        let (commit_message, welcome_message) = alice.add_member(&charlie_key_package)?;
+        let charlie_add_res = alice.add_member(&charlie_key_package)?;
 
-        bob.process_commit(&commit_message)?;
+        bob.process_commit(&charlie_add_res.commit_message)?;
 
-        let charlie_group_id = charlie.process_welcome(&welcome_message)?;
+        let charlie_group_id = charlie.process_welcome(&charlie_add_res.welcome_message)?;
         assert_eq!(group_id, charlie_group_id);
 
         assert_eq!(alice.get_epoch().unwrap(), bob.get_epoch().unwrap());
@@ -549,6 +603,61 @@ mod tests {
         let decrypted_2 = alice.decrypt_message(&encrypted)?;
         assert_eq!(original_message, decrypted_1.as_slice());
         assert_eq!(original_message, decrypted_2.as_slice());
+
+        // remove bob
+        let remove_msg = alice.remove_member(&bob_add_res.member_identity)?;
+        charlie.process_commit(&remove_msg)?;
+        bob.process_commit(&remove_msg)?;
+        assert_eq!(alice.get_epoch().unwrap(), charlie.get_epoch().unwrap());
+        assert_eq!(
+            alice.get_group_id().unwrap(),
+            charlie.get_group_id().unwrap()
+        );
+
+        // test encrypt decrypt
+        let original_message = b"Hello from Alice 1!";
+        let encrypted = alice.encrypt_message(original_message)?;
+        let decrypted = charlie.decrypt_message(&encrypted)?;
+        assert_eq!(original_message, decrypted.as_slice());
+
+        let original_message = b"Hello from Charlie!";
+        let encrypted = charlie.encrypt_message(original_message)?;
+        let decrypted = alice.decrypt_message(&encrypted)?;
+        assert_eq!(original_message, decrypted.as_slice());
+
+        // add daniel and remove charlie
+        let daniel_key_package = daniel.generate_key_package()?;
+        let daniel_add_res = alice.add_member(&daniel_key_package)?;
+
+        charlie.process_commit(&daniel_add_res.commit_message)?;
+
+        let daniel_group_id = daniel.process_welcome(&daniel_add_res.welcome_message)?;
+        assert_eq!(group_id, daniel_group_id);
+        assert_eq!(alice.get_epoch().unwrap(), charlie.get_epoch().unwrap());
+        assert_eq!(alice.get_epoch().unwrap(), daniel.get_epoch().unwrap());
+        assert_eq!(
+            alice.get_group_id().unwrap(),
+            daniel.get_group_id().unwrap()
+        );
+        assert_eq!(
+            alice.get_group_id().unwrap(),
+            charlie.get_group_id().unwrap()
+        );
+
+        let commit = alice.remove_member(&charlie_add_res.member_identity)?;
+
+        daniel.process_commit(&commit)?;
+        assert_eq!(alice.get_epoch().unwrap(), daniel.get_epoch().unwrap());
+        assert_eq!(
+            alice.get_group_id().unwrap(),
+            daniel.get_group_id().unwrap()
+        );
+
+        // test encrypt decrypt
+        let original_message = b"Hello from Alice 1!";
+        let encrypted = alice.encrypt_message(original_message)?;
+        let decrypted = daniel.decrypt_message(&encrypted)?;
+        assert_eq!(original_message, decrypted.as_slice());
 
         Ok(())
     }
@@ -577,8 +686,8 @@ mod tests {
         let _group_id = alice.create_group()?;
 
         let bob_key_package = bob.generate_key_package()?;
-        let (_commit_message, welcome_message) = alice.add_member(&bob_key_package)?;
-        let _bob_group_id = bob.process_welcome(&welcome_message)?;
+        let res = alice.add_member(&bob_key_package)?;
+        let _bob_group_id = bob.process_welcome(&res.welcome_message)?;
 
         let message = b"Test message";
         let encrypted = alice.encrypt_message(message)?;

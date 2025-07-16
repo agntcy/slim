@@ -44,34 +44,39 @@ message Agent {
   optional uint64 agent_id = 4;
 }
 
-enum SessionHeaderType {
+enum SessionType {
+  SESSION_UNKNOWN = 0;
+  SESSION_FIRE_FORGET = 1;
+  SESSION_STREAMING = 2;
+  SESSION_PUB_SUB = 3;
+}
+
+enum SessionMessageType {
   UNSPECIFIED = 0;
-  FNF = 1;
+  FNF_MSG = 1;
   FNF_RELIABLE = 2;
   FNF_ACK = 3;
   FNF_DISCOVERY = 4;
   FNF_DISCOVERY_REPLY = 5;
-  REQUEST = 6;
-  REPLY = 7;
-  STREAM = 8;
-  PUB_SUB = 9;
-  RTX_REQUEST = 10;
-  RTX_REPLY = 11;
-  BEACON_STREAM = 12;
-  BEACON_PUB_SUB = 13;
-  CHANNEL_DISCOVERY_REQUEST = 14;
-  CHANNEL_DISCOVERY_REPLY = 15;
-  CHANNEL_JOIN_REQUEST = 16;
-  CHANNEL_JOIN_REPLY = 17;
-  CHANNEL_LEAVE_REQUEST = 18;
-  CHANNEL_LEAVE_REPLY = 19;
-  CHANNEL_MLS_COMMIT = 20;
-  CHANNEL_MLS_WELCOME = 21;
-  CHANNEL_MLS_ACK = 22;
+  STREAM_MSG = 6;
+  PUB_SUB_MSG = 7;
+  RTX_REQUEST = 8;
+  RTX_REPLY = 9;
+  BEACON_STREAM = 10;
+  BEACON_PUB_SUB = 11;
+  CHANNEL_DISCOVERY_REQUEST = 12;
+  CHANNEL_DISCOVERY_REPLY = 13;
+  CHANNEL_JOIN_REQUEST = 14;
+  CHANNEL_JOIN_REPLY = 15;
+  CHANNEL_LEAVE_REQUEST = 16;
+  CHANNEL_LEAVE_REPLY = 17;
+  CHANNEL_MLS_COMMIT = 18;
+  CHANNEL_MLS_WELCOME = 19;
+  CHANNEL_MLS_ACK = 20;
 }
 // Session.session_id is the ID of the session
 
-// Session.message_id meaning according to the SessionHeaderType
+// Session.message_id meaning according to the SessionMessageType
 // FNF = nonce
 // FNF_RELIABLE = nonce
 // FNF_ACK = nonce of the received FNF_RELIABLE message
@@ -89,9 +94,10 @@ enum SessionHeaderType {
 // LEAVE_REPLY = nonce of the associated LEAVE_REQUEST
 
 message SessionHeader {
-  SessionHeaderType header_type = 1;
-  uint32 session_id = 2;
-  uint32 message_id = 3;
+  SessionType session_type = 1;
+  SessionMessageType session_message_type = 2;
+  uint32 session_id = 3;
+  uint32 message_id = 4;
 }
 
 message Content {

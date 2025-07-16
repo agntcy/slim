@@ -17,9 +17,9 @@ use tonic::{Request, Response, Status};
 use tracing::{Span, debug, error, info};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 
-use crate::api::proto::pubsub::v1::message::MessageType::Publish as PublishType;
-use crate::api::proto::pubsub::v1::message::MessageType::Subscribe as SubscribeType;
-use crate::api::proto::pubsub::v1::message::MessageType::Unsubscribe as UnsubscribeType;
+use crate::api::ProtoPublishType as PublishType;
+use crate::api::ProtoSubscribeType as SubscribeType;
+use crate::api::ProtoUnsubscribeType as UnsubscribeType;
 use crate::api::proto::pubsub::v1::pub_sub_service_client::PubSubServiceClient;
 use crate::api::proto::pubsub::v1::{Message, pub_sub_service_server::PubSubService};
 use crate::connection::{Channel, Connection, Type as ConnectionType};
@@ -87,7 +87,7 @@ fn create_span(function: &str, out_conn: u64, msg: &Message) -> Span {
     );
 
     if let PublishType(_) = msg.get_type() {
-        span.set_attribute("session_type", msg.get_header_type().as_str_name());
+        span.set_attribute("session_type", msg.get_session_message_type().as_str_name());
         span.set_attribute(
             "session_id",
             msg.get_session_header().get_session_id().to_string(),

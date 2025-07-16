@@ -78,6 +78,26 @@ Options:
   -V, --version                 Print version
 ```
 
+### Channel
+```channel``` is an application that tests streaming sessions with MLS encryption support. It can run in moderator mode (creates and manages the channel) or participant mode (joins an existing channel). It supports both MLS-enabled and MLS-disabled modes for testing purposes. It can be run as follow:
+```
+$ cargo run --release --bin channel -- --help
+Usage: channel [OPTIONS] --config <CONFIGURATION> --name <ENDOPOINT>
+
+Options:
+  -c, --config <CONFIGURATION>     Slim config file
+  -n, --name <ENDOPOINT>           Local endpoint name in the form org/ns/type/id
+  -i, --is-moderator               Runs the endpoint in moderator mode
+  -a, --is-attacker                Runs the endpoint in attacker mode
+  -m, --mls-disabled               Runs the endpoint with MLS disabled
+  -p, --participants <PARITICIPANTS>... List of participant types to add to the channel (moderator mode only)
+  -o, --moderator-name <MODERATOR_NAME> Moderator name (participant mode only)
+  -f, --frequency <FREQUENCY>      Time between publications in milliseconds [default: 1000]
+      --max-packets <MAX_PACKETS>  Maximum number of packets to send (moderator only)
+  -h, --help                       Print help
+  -V, --version                    Print version
+```
+
 #### Message format and test verification
 The payload of a publication message has this format
 ```

@@ -1,11 +1,7 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
-use std::{
-    collections::{HashMap, HashSet},
-    sync::Arc,
-    time::Duration,
-};
+use std::{collections::HashMap, sync::Arc, time::Duration};
 
 use async_trait::async_trait;
 use bincode::{Decode, Encode};
@@ -20,12 +16,12 @@ use crate::{
 use slim_auth::traits::{TokenProvider, Verifier};
 use slim_datapath::{
     api::{
-        SessionHeader, SlimHeader,
-        proto::pubsub::v1::{Message, SessionHeaderType},
+        ProtoMessage as Message, ProtoSessionMessageType, ProtoSessionType, SessionHeader,
+        SlimHeader,
     },
     messages::{Agent, AgentType, utils::SlimHeaderFlags},
 };
-use slim_mls::mls::Mls;
+use slim_mls::mls::{CommitMsg, KeyPackageMsg, Mls, MlsIdentity, WelcomeMsg};
 
 struct RequestTimerObserver<T>
 where
@@ -117,6 +113,11 @@ where
 
     /// last commit id
     last_commit_id: u32,
+
+    /// map of the participants with package keys
+    /// this is used only by the moderator to remove
+    /// participants from the channel
+    participants: HashMap<Agent, MlsIdentity>,
 }
 
 impl<P, V> MlsState<P, V>
@@ -133,6 +134,7 @@ where
             mls,
             group: vec![],
             last_commit_id: 0,
+            participants: HashMap::new(),
         })
     }
 
@@ -144,7 +146,7 @@ where
             .map_err(|e| SessionError::MLSInit(e.to_string()))
     }
 
-    async fn generate_key_package(&mut self) -> Result<Vec<u8>, SessionError> {
+    async fn generate_key_package(&mut self) -> Result<KeyPackageMsg, SessionError> {
         self.mls
             .lock()
             .generate_key_package()
@@ -224,7 +226,10 @@ where
             .map_err(|e| SessionError::CommitMessage(e.to_string()))
     }
 
-    fn add_participant(&self, msg: &Message) -> Result<(Vec<u8>, Vec<u8>), SessionError> {
+    async fn add_participant(
+        &mut self,
+        msg: &Message,
+    ) -> Result<(CommitMsg, WelcomeMsg), SessionError> {
         let payload = &msg
             .get_payload()
             .ok_or(SessionError::AddParticipant(
@@ -232,10 +237,43 @@ where
             ))?
             .blob;
 
-        self.mls.lock().add_member(payload).map_err(|e| {
-            error!("error adding participant to the channel: {}", e);
-            SessionError::AddParticipant(e.to_string())
-        })
+        match self.mls.lock().add_member(payload) {
+            Ok(ret) => {
+                // add participant to the list
+                self.participants
+                    .insert(msg.get_source(), ret.member_identity);
+
+                Ok((ret.commit_message, ret.welcome_message))
+            }
+            Err(e) => {
+                error!("error adding new endpoint {}", e.to_string());
+                Err(SessionError::AddParticipant(e.to_string()))
+            }
+        }
+    }
+
+    async fn remove_participant(&mut self, msg: &Message) -> Result<CommitMsg, SessionError> {
+        debug!("remove participant from the MLS group");
+        let name = msg.get_name_as_agent();
+        let id = match self.participants.get(&name) {
+            Some(id) => id,
+            None => {
+                error!("the name does not exists in the group");
+                return Err(SessionError::RemoveParticipant(
+                    "participant does not exists".to_owned(),
+                ));
+            }
+        };
+        let ret = self
+            .mls
+            .lock()
+            .remove_member(id)
+            .map_err(|e| SessionError::RemoveParticipant(e.to_string()))?;
+
+        // remove the participant from the list
+        self.participants.remove(&name);
+
+        Ok(ret)
     }
 }
 
@@ -274,6 +312,9 @@ where
     /// id of the current session
     session_id: Id,
 
+    /// Session Type associated to this endpoint
+    session_type: ProtoSessionType,
+
     /// connection id to the next hop SLIM
     conn: Option<u64>,
 
@@ -298,6 +339,7 @@ where
         channel_name: AgentType,
         channel_id: Option<u64>,
         session_id: Id,
+        session_type: ProtoSessionType,
         mls_state: Option<MlsState<P, V>>,
         tx: T,
     ) -> Self {
@@ -306,6 +348,7 @@ where
             channel_name,
             channel_id,
             session_id,
+            session_type,
             conn: None,
             subscribed: false,
             mls_state,
@@ -318,7 +361,7 @@ where
         destination: &AgentType,
         destination_id: Option<u64>,
         broadcast: bool,
-        request_type: SessionHeaderType,
+        request_type: ProtoSessionMessageType,
         message_id: u32,
         payload: Vec<u8>,
     ) -> Message {
@@ -336,6 +379,7 @@ where
         ));
 
         let session_header = Some(SessionHeader::new(
+            self.session_type.into(),
             request_type.into(),
             self.session_id,
             message_id,
@@ -378,12 +422,31 @@ where
         self.send(msg).await
     }
 
+    async fn delete_route(
+        &self,
+        route_name: &AgentType,
+        route_id: Option<u64>,
+    ) -> Result<(), SessionError> {
+        // send a message with subscription from
+        let msg = Message::new_unsubscribe(
+            &self.name,
+            route_name,
+            route_id,
+            Some(SlimHeaderFlags::default().with_recv_from(self.conn.unwrap())),
+        );
+
+        self.send(msg).await
+    }
+
     async fn leave(&self) -> Result<(), SessionError> {
         // unsubscribe for the channel
         let header = Some(SlimHeaderFlags::default().with_forward_to(self.conn.unwrap()));
         let unsub = Message::new_unsubscribe(&self.name, &self.channel_name, None, header);
 
-        self.send(unsub).await
+        self.send(unsub).await?;
+
+        // remove route for the channel
+        self.delete_route(&self.channel_name, None).await
     }
 
     async fn send(&self, msg: Message) -> Result<(), SessionError> {
@@ -398,6 +461,7 @@ where
     V: Verifier + Send + Sync + Clone + 'static,
     T: SessionTransmitter + Send + Sync + Clone + 'static,
 {
+    moderator_name: Option<Agent>,
     endpoint: Endpoint<P, V, T>,
 }
 
@@ -412,11 +476,23 @@ where
         channel_name: AgentType,
         channel_id: Option<u64>,
         session_id: Id,
+        session_type: ProtoSessionType,
         mls: Option<MlsState<P, V>>,
         tx: T,
     ) -> Self {
-        let endpoint = Endpoint::new(name, channel_name, channel_id, session_id, mls, tx);
-        ChannelParticipant { endpoint }
+        let endpoint = Endpoint::new(
+            name,
+            channel_name,
+            channel_id,
+            session_id,
+            session_type,
+            mls,
+            tx,
+        );
+        ChannelParticipant {
+            moderator_name: None,
+            endpoint,
+        }
     }
 
     async fn on_join_request(&mut self, msg: Message) -> Result<(), SessionError> {
@@ -450,6 +526,9 @@ where
             )
             .await?;
 
+        // set the moderator name after the set route
+        self.moderator_name = Some(names.moderator_name);
+
         // send reply to the moderator
         let src = msg.get_source();
         let payload: Vec<u8> = if msg.contains_metadata(METADATA_MLS_ENABLED) {
@@ -473,7 +552,7 @@ where
             src.agent_type(),
             src.agent_id_option(),
             false,
-            SessionHeaderType::ChannelJoinReply,
+            ProtoSessionMessageType::ChannelJoinReply,
             msg.get_id(),
             payload,
         );
@@ -500,7 +579,7 @@ where
             src.agent_type(),
             src.agent_id_option(),
             false,
-            SessionHeaderType::ChannelMlsAck,
+            ProtoSessionMessageType::ChannelMlsAck,
             msg.get_id(),
             vec![],
         );
@@ -524,12 +603,43 @@ where
             src.agent_type(),
             src.agent_id_option(),
             false,
-            SessionHeaderType::ChannelMlsAck,
+            ProtoSessionMessageType::ChannelMlsAck,
             msg.get_id(),
             vec![],
         );
 
         self.endpoint.send(ack).await
+    }
+
+    async fn on_leave_request(&mut self, msg: Message) -> Result<(), SessionError> {
+        // leave the channel
+        self.endpoint.leave().await?;
+
+        // reply to the request
+        let src = msg.get_source();
+        let reply = self.endpoint.create_channel_message(
+            src.agent_type(),
+            src.agent_id_option(),
+            false,
+            ProtoSessionMessageType::ChannelLeaveReply,
+            msg.get_id(),
+            vec![],
+        );
+
+        self.endpoint.send(reply).await?;
+
+        match &self.moderator_name {
+            Some(m) => {
+                self.endpoint
+                    .delete_route(m.agent_type(), m.agent_id_option())
+                    .await?
+            }
+            None => {
+                error!("moderator name is not set, cannot remove the route");
+            }
+        };
+
+        Ok(())
     }
 }
 
@@ -540,9 +650,9 @@ where
     T: SessionTransmitter + Send + Sync + Clone + 'static,
 {
     async fn on_message(&mut self, msg: Message) -> Result<(), SessionError> {
-        let msg_type = msg.get_session_header().header_type();
+        let msg_type = msg.get_session_header().session_message_type();
         match msg_type {
-            SessionHeaderType::ChannelDiscoveryRequest => {
+            ProtoSessionMessageType::ChannelDiscoveryRequest => {
                 error!(
                     "Received discovery request message, this should not happen. drop the message"
                 );
@@ -551,35 +661,21 @@ where
                     "Received discovery request message, this should not happen".to_string(),
                 ))
             }
-            SessionHeaderType::ChannelJoinRequest => {
+            ProtoSessionMessageType::ChannelJoinRequest => {
                 debug!("Received join request message");
                 self.on_join_request(msg).await
             }
-            SessionHeaderType::ChannelMlsWelcome => {
+            ProtoSessionMessageType::ChannelMlsWelcome => {
                 debug!("Received mls welcome message");
                 self.on_mls_welcome(msg).await
             }
-            SessionHeaderType::ChannelMlsCommit => {
+            ProtoSessionMessageType::ChannelMlsCommit => {
                 debug!("Received mls commit message");
                 self.on_mls_commit(msg).await
             }
-            SessionHeaderType::ChannelLeaveRequest => {
+            ProtoSessionMessageType::ChannelLeaveRequest => {
                 debug!("Received leave request message");
-                // leave the channell
-                self.endpoint.leave().await?;
-
-                // reply to the request
-                let src = msg.get_source();
-                let reply = self.endpoint.create_channel_message(
-                    src.agent_type(),
-                    src.agent_id_option(),
-                    false,
-                    SessionHeaderType::ChannelLeaveReply,
-                    msg.get_id(),
-                    vec![],
-                );
-
-                self.endpoint.send(reply).await
+                self.on_leave_request(msg).await
             }
             _ => {
                 debug!("Received message of type {:?}, drop it", msg_type);
@@ -594,6 +690,22 @@ where
 }
 
 #[derive(Debug)]
+/// structure to store timers for pending requests
+struct ChannelTimer {
+    /// the timer itself
+    timer: crate::timer::Timer,
+
+    /// number of expected acks before stop the timer
+    /// this is used for broadcast messages
+    expected_acks: u32,
+
+    /// message to forward once the timer is deleted
+    /// because all the acks are received and so the
+    /// request succeeded (e.g. used for leave request msg)
+    to_forward: Option<Message>,
+}
+
+#[derive(Debug)]
 pub struct ChannelModerator<P, V, T>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
@@ -603,13 +715,10 @@ where
     endpoint: Endpoint<P, V, T>,
 
     /// list of endpoint names in the channel
-    channel_list: HashSet<Agent>,
+    // channel_list: HashSet<Agent>,
 
     /// list of pending requests and related timers
-    /// for each timer store also the number of packets that we expect
-    /// get back before cancel the timer.
-    /// this is needed for broadcast messages.
-    pending_requests: HashMap<u32, (crate::timer::Timer, u32)>,
+    pending_requests: HashMap<u32, ChannelTimer>,
 
     /// number or maximum retries before give up with a control message
     max_retries: u32,
@@ -636,6 +745,7 @@ where
         channel_name: AgentType,
         channel_id: Option<u64>,
         session_id: Id,
+        session_type: ProtoSessionType,
         max_retries: u32,
         retries_interval: Duration,
         mls: Option<MlsState<P, V>>,
@@ -645,10 +755,18 @@ where
         let invite_payload: Vec<u8> = bincode::encode_to_vec(p, bincode::config::standard())
             .expect("unable to parse channel name as payload");
 
-        let endpoint = Endpoint::new(name, channel_name, channel_id, session_id, mls, tx);
+        let endpoint = Endpoint::new(
+            name,
+            channel_name,
+            channel_id,
+            session_id,
+            session_type,
+            mls,
+            tx,
+        );
         ChannelModerator {
             endpoint,
-            channel_list: HashSet::new(),
+            //channel_list: HashSet::new(),
             pending_requests: HashMap::new(),
             max_retries,
             retries_interval,
@@ -666,9 +784,6 @@ where
             if let Some(mls) = self.endpoint.mls_state.as_mut() {
                 mls.init_moderator().await?;
             }
-
-            // add the moderator to the channel
-            self.channel_list.insert(self.endpoint.name.clone());
         }
 
         Ok(())
@@ -679,12 +794,18 @@ where
         let msg_id = msg.get_id();
         self.endpoint.send(msg.clone()).await?;
         // create a timer for this request
-        self.create_timer(msg_id, 1, msg);
+        self.create_timer(msg_id, 1, msg, None);
 
         Ok(())
     }
 
-    fn create_timer(&mut self, key: u32, pending_messages: u32, msg: Message) {
+    fn create_timer(
+        &mut self,
+        key: u32,
+        pending_messages: u32,
+        msg: Message,
+        to_forward: Option<Message>,
+    ) {
         let observer = Arc::new(RequestTimerObserver {
             message: msg,
             tx: self.endpoint.tx.clone(),
@@ -699,30 +820,41 @@ where
         );
         timer.start(observer);
 
-        self.pending_requests.insert(key, (timer, pending_messages));
+        let t = ChannelTimer {
+            timer,
+            expected_acks: pending_messages,
+            to_forward,
+        };
+
+        self.pending_requests.insert(key, t);
     }
 
-    fn delete_timer(&mut self, key: u32) -> Result<bool, SessionError> {
-        let ret = self.pending_requests.get_mut(&key).map_or_else(
-            || Err(SessionError::TimerNotFound(key.to_string())),
-            |(timer, pending)| {
-                if *pending > 0 {
-                    *pending -= 1;
+    async fn delete_timer(&mut self, key: u32) -> Result<bool, SessionError> {
+        let to_forward;
+        match self.pending_requests.get_mut(&key) {
+            Some(timer) => {
+                if timer.expected_acks > 0 {
+                    timer.expected_acks -= 1;
                 }
-                if *pending == 0 {
-                    timer.stop();
-                    Ok(true)
+                if timer.expected_acks == 0 {
+                    timer.timer.stop();
+                    to_forward = timer.to_forward.clone();
+                    self.pending_requests.remove(&key);
                 } else {
-                    Ok(false)
+                    return Ok(false);
                 }
-            },
-        )?;
-
-        if ret {
-            self.pending_requests.remove(&key);
+            }
+            None => {
+                return Err(SessionError::TimerNotFound(key.to_string()));
+            }
         }
 
-        Ok(ret)
+        if to_forward.is_some() {
+            debug!("timer cancelled, send message to forward");
+            self.forward(to_forward.unwrap()).await?;
+        }
+
+        Ok(true)
     }
 
     fn get_next_mls_mgs_id(&mut self) -> u32 {
@@ -746,7 +878,7 @@ where
             src.agent_type(),
             src.agent_id_option(),
             false,
-            SessionHeaderType::ChannelJoinRequest,
+            ProtoSessionMessageType::ChannelJoinRequest,
             new_msg_id,
             self.invite_payload.clone(),
         );
@@ -759,10 +891,11 @@ where
         }
 
         // remove the timer for the discovery message
-        self.delete_timer(recv_msg_id)?;
+        let ret = self.delete_timer(recv_msg_id).await?;
+        debug_assert!(ret, "timer for discovery reply should be removed");
 
         // add a new one for the join message
-        self.create_timer(new_msg_id, 1, join.clone());
+        self.create_timer(new_msg_id, 1, join.clone(), None);
 
         // send the message
         self.endpoint.send(join).await
@@ -773,7 +906,7 @@ where
         let msg_id = msg.get_id();
 
         // cancel timer, there only one message pending here
-        let ret = self.delete_timer(msg_id)?;
+        let ret = self.delete_timer(msg_id).await?;
         debug_assert!(ret, "timer for join reply should be removed");
 
         // send MLS messages if needed
@@ -781,13 +914,10 @@ where
             let (commit_payload, welcome_payload) = self
                 .endpoint
                 .mls_state
-                .as_ref()
+                .as_mut()
                 .unwrap()
                 .add_participant(&msg)
-                .map_err(|e| {
-                    error!("error adding participant to the channel: {}", e);
-                    e
-                })?;
+                .await?;
 
             // send the commit message to the channel
             let commit_id = self.get_next_mls_mgs_id();
@@ -797,7 +927,7 @@ where
                 &self.endpoint.channel_name,
                 None,
                 true,
-                SessionHeaderType::ChannelMlsCommit,
+                ProtoSessionMessageType::ChannelMlsCommit,
                 commit_id,
                 commit_payload,
             );
@@ -805,7 +935,7 @@ where
                 src.agent_type(),
                 src.agent_id_option(),
                 false,
-                SessionHeaderType::ChannelMlsWelcome,
+                ProtoSessionMessageType::ChannelMlsWelcome,
                 welcome_id,
                 welcome_payload,
             );
@@ -817,31 +947,71 @@ where
             // send welcome message
             debug!("Send MLS Welcome Message to the new participant");
             self.endpoint.send(welcome.clone()).await?;
-            self.create_timer(welcome_id, 1, welcome);
+            self.create_timer(welcome_id, 1, welcome, None);
 
             // send commit message if needed
-            if self.channel_list.len() > 1 {
+            let len = self.endpoint.mls_state.as_ref().unwrap().participants.len();
+            if len > 1 {
                 debug!("Send MLS Commit Message to the channel");
                 self.endpoint.send(commit.clone()).await?;
-                self.create_timer(
-                    commit_id,
-                    (self.channel_list.len() - 1).try_into().unwrap(),
-                    commit,
-                );
+                self.create_timer(commit_id, (len - 1).try_into().unwrap(), commit, None);
             }
         };
-
-        // track source in the channel list
-        self.channel_list.insert(src);
 
         Ok(())
     }
 
     async fn on_msl_ack(&mut self, msg: Message) -> Result<(), SessionError> {
         let recv_msg_id = msg.get_id();
-        let ret = self.delete_timer(recv_msg_id)?;
-        debug_assert!(ret, "timer for mls ack should be removed");
+        let _ = self.delete_timer(recv_msg_id).await?;
 
+        Ok(())
+    }
+
+    async fn on_leave_request(&mut self, msg: Message) -> Result<(), SessionError> {
+        // If MLS is on send the MLS commit and wait for all the
+        // acks before send the leave request. If MLS is of forward
+        // the message
+        match self.endpoint.mls_state.as_mut() {
+            Some(state) => {
+                let commit_payload = state.remove_participant(&msg).await?;
+
+                let commit_id = self.get_next_mls_mgs_id();
+                let commit = self.endpoint.create_channel_message(
+                    &self.endpoint.channel_name,
+                    None,
+                    true,
+                    ProtoSessionMessageType::ChannelMlsCommit,
+                    commit_id,
+                    commit_payload,
+                );
+
+                // send commit message if needed
+                debug!("Send MLS Commit Message to the channel");
+                self.endpoint.send(commit.clone()).await?;
+
+                // wait for len + 1 acks because the participant list does not contains
+                // the removed participant anymore
+                let len = self.endpoint.mls_state.as_ref().unwrap().participants.len() + 1;
+
+                // the leave request will be forwarded after all acks are received
+                self.create_timer(commit_id, (len).try_into().unwrap(), commit, Some(msg));
+
+                Ok(())
+            }
+            None => {
+                // just send the leave request
+                self.forward(msg).await
+            }
+        }
+    }
+
+    async fn on_leave_reply(&mut self, msg: Message) -> Result<(), SessionError> {
+        let msg_id = msg.get_id();
+
+        // cancel timer
+        let ret = self.delete_timer(msg_id).await?;
+        debug_assert!(ret, "timer for leave reply should be removed");
         Ok(())
     }
 }
@@ -853,44 +1023,33 @@ where
     T: SessionTransmitter + Send + Sync + Clone + 'static,
 {
     async fn on_message(&mut self, msg: Message) -> Result<(), SessionError> {
-        let msg_type = msg.get_session_header().header_type();
+        let msg_type = msg.get_session_header().session_message_type();
         match msg_type {
-            SessionHeaderType::ChannelDiscoveryRequest => {
+            ProtoSessionMessageType::ChannelDiscoveryRequest => {
                 debug!("Invite new participant to the channel, send discovery message");
                 // discovery message coming from the application
                 self.forward(msg).await
             }
-            SessionHeaderType::ChannelDiscoveryReply => {
+            ProtoSessionMessageType::ChannelDiscoveryReply => {
                 debug!("Received discovery reply message");
                 self.on_discovery_reply(msg).await
             }
-            SessionHeaderType::ChannelJoinReply => {
+            ProtoSessionMessageType::ChannelJoinReply => {
                 debug!("Received join reply message");
                 self.on_join_reply(msg).await
             }
-            SessionHeaderType::ChannelMlsAck => {
+            ProtoSessionMessageType::ChannelMlsAck => {
                 debug!("Received mls ack message");
                 self.on_msl_ack(msg).await
             }
-            SessionHeaderType::ChannelLeaveRequest => {
+            ProtoSessionMessageType::ChannelLeaveRequest => {
                 // leave message coming from the application
                 debug!("Received leave request message");
-                self.forward(msg).await
+                self.on_leave_request(msg).await
             }
-            SessionHeaderType::ChannelLeaveReply => {
+            ProtoSessionMessageType::ChannelLeaveReply => {
                 debug!("Received leave reply message");
-                let src = msg.get_slim_header().get_source();
-                let msg_id = msg.get_id();
-
-                // cancel timer
-                let ret = self.delete_timer(msg_id)?;
-                debug_assert!(ret, "timer for leave reply should be removed");
-
-                // remove from the channel list
-                self.channel_list.remove(&src);
-
-                // all good
-                Ok(())
+                self.on_leave_reply(msg).await
             }
             _ => Err(SessionError::Processing(format!(
                 "received unexpected packet type: {:?}",
@@ -956,6 +1115,7 @@ mod tests {
             channel_name.clone(),
             channel_id,
             SESSION_ID,
+            ProtoSessionType::SessionUnknown,
             3,
             Duration::from_millis(100),
             Some(moderator_mls),
@@ -966,6 +1126,7 @@ mod tests {
             channel_name.clone(),
             channel_id,
             SESSION_ID,
+            ProtoSessionType::SessionUnknown,
             Some(participant_mls),
             participant_tx,
         );
@@ -981,7 +1142,8 @@ mod tests {
         ));
 
         let session_header = Some(SessionHeader::new(
-            SessionHeaderType::ChannelDiscoveryRequest.into(),
+            ProtoSessionType::SessionUnknown.into(),
+            ProtoSessionMessageType::ChannelDiscoveryRequest.into(),
             SESSION_ID,
             rand::random::<u32>(),
         ));
@@ -1010,7 +1172,8 @@ mod tests {
         ));
 
         let session_header = Some(SessionHeader::new(
-            SessionHeaderType::ChannelDiscoveryReply.into(),
+            ProtoSessionType::SessionUnknown.into(),
+            ProtoSessionMessageType::ChannelDiscoveryReply.into(),
             session_id,
             msg_id,
         ));
@@ -1044,7 +1207,7 @@ mod tests {
             participant.agent_type(),
             participant.agent_id_option(),
             false,
-            SessionHeaderType::ChannelJoinRequest,
+            ProtoSessionMessageType::ChannelJoinRequest,
             0,
             payload,
         );
@@ -1076,7 +1239,7 @@ mod tests {
             moderator.agent_type(),
             moderator.agent_id_option(),
             false,
-            SessionHeaderType::ChannelJoinReply,
+            ProtoSessionMessageType::ChannelJoinReply,
             msg_id,
             vec![],
         );
@@ -1095,7 +1258,7 @@ mod tests {
             participant.agent_type(),
             participant.agent_id_option(),
             false,
-            SessionHeaderType::ChannelMlsWelcome,
+            ProtoSessionMessageType::ChannelMlsWelcome,
             0,
             vec![],
         );
@@ -1130,7 +1293,7 @@ mod tests {
             moderator.agent_type(),
             moderator.agent_id_option(),
             false,
-            SessionHeaderType::ChannelMlsAck,
+            ProtoSessionMessageType::ChannelMlsAck,
             msg_id,
             vec![],
         );

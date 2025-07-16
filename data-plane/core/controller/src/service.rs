@@ -22,7 +22,7 @@ use crate::api::proto::api::v1::{
 };
 use crate::errors::ControllerError;
 use slim_config::grpc::client::ClientConfig;
-use slim_datapath::api::proto::pubsub::v1::Message as PubsubMessage;
+use slim_datapath::api::ProtoMessage as PubsubMessage;
 use slim_datapath::message_processing::MessageProcessor;
 use slim_datapath::messages::utils::SlimHeaderFlags;
 use slim_datapath::messages::{Agent, AgentType};
@@ -293,6 +293,19 @@ impl ControllerService {
                     crate::api::proto::api::v1::control_message::Payload::ConnectionListResponse(_) => {
                         // received a connection list response, do nothing - this should not happen
                     }
+                    crate::api::proto::api::v1::control_message::Payload::RegisterNodeRequest(_) => {
+                        panic!("this should not happen");
+                    }
+                    crate::api::proto::api::v1::control_message::Payload::RegisterNodeResponse(_) => {
+                        // received a register node response, do nothing
+                    }
+                    crate::api::proto::api::v1::control_message::Payload::DeregisterNodeRequest(_) => {
+                        panic!("this should not happen");
+                    }
+                    crate::api::proto::api::v1::control_message::Payload::DeregisterNodeResponse(_) => {
+                        // received a deregister node response, do nothing
+                    }
+
                 }
             }
             None => {

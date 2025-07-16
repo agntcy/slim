@@ -3,8 +3,8 @@
 
 use crate::{errors::SessionError, interceptor::SessionInterceptor};
 use parking_lot::Mutex;
-use slim_datapath::api::proto::pubsub::v1::Message;
-use slim_datapath::api::{MessageType, proto::pubsub::v1::SessionHeaderType};
+use slim_datapath::api::ProtoMessage as Message;
+use slim_datapath::api::{MessageType, ProtoSessionMessageType};
 use slim_mls::mls::Mls;
 use std::sync::Arc;
 use tracing::{debug, error, warn};
@@ -45,16 +45,16 @@ where
             return Ok(());
         }
 
-        match msg.get_session_header().header_type() {
-            SessionHeaderType::ChannelDiscoveryRequest
-            | SessionHeaderType::ChannelDiscoveryReply
-            | SessionHeaderType::ChannelJoinRequest
-            | SessionHeaderType::ChannelJoinReply
-            | SessionHeaderType::ChannelLeaveRequest
-            | SessionHeaderType::ChannelLeaveReply
-            | SessionHeaderType::ChannelMlsCommit
-            | SessionHeaderType::ChannelMlsWelcome
-            | SessionHeaderType::ChannelMlsAck => {
+        match msg.get_session_header().session_message_type() {
+            ProtoSessionMessageType::ChannelDiscoveryRequest
+            | ProtoSessionMessageType::ChannelDiscoveryReply
+            | ProtoSessionMessageType::ChannelJoinRequest
+            | ProtoSessionMessageType::ChannelJoinReply
+            | ProtoSessionMessageType::ChannelLeaveRequest
+            | ProtoSessionMessageType::ChannelLeaveReply
+            | ProtoSessionMessageType::ChannelMlsCommit
+            | ProtoSessionMessageType::ChannelMlsWelcome
+            | ProtoSessionMessageType::ChannelMlsAck => {
                 debug!("Skipping channel messages type in encryption path");
                 return Ok(());
             }
@@ -100,16 +100,16 @@ where
             return Ok(());
         }
 
-        match msg.get_session_header().header_type() {
-            SessionHeaderType::ChannelDiscoveryRequest
-            | SessionHeaderType::ChannelDiscoveryReply
-            | SessionHeaderType::ChannelJoinRequest
-            | SessionHeaderType::ChannelJoinReply
-            | SessionHeaderType::ChannelLeaveRequest
-            | SessionHeaderType::ChannelLeaveReply
-            | SessionHeaderType::ChannelMlsCommit
-            | SessionHeaderType::ChannelMlsWelcome
-            | SessionHeaderType::ChannelMlsAck => {
+        match msg.get_session_header().session_message_type() {
+            ProtoSessionMessageType::ChannelDiscoveryRequest
+            | ProtoSessionMessageType::ChannelDiscoveryReply
+            | ProtoSessionMessageType::ChannelJoinRequest
+            | ProtoSessionMessageType::ChannelJoinReply
+            | ProtoSessionMessageType::ChannelLeaveRequest
+            | ProtoSessionMessageType::ChannelLeaveReply
+            | ProtoSessionMessageType::ChannelMlsCommit
+            | ProtoSessionMessageType::ChannelMlsWelcome
+            | ProtoSessionMessageType::ChannelMlsAck => {
                 debug!("Skipping channel messages type in decryption path");
                 return Ok(());
             }
@@ -218,8 +218,8 @@ mod tests {
 
         let _group_id = alice_mls.create_group().unwrap();
         let bob_key_package = bob_mls.generate_key_package().unwrap();
-        let (_, welcome_message) = alice_mls.add_member(&bob_key_package).unwrap();
-        bob_mls.process_welcome(&welcome_message).unwrap();
+        let ret = alice_mls.add_member(&bob_key_package).unwrap();
+        bob_mls.process_welcome(&ret.welcome_message).unwrap();
 
         let alice_interceptor = MlsInterceptor::new(Arc::new(Mutex::new(alice_mls)));
         let bob_interceptor = MlsInterceptor::new(Arc::new(Mutex::new(bob_mls)));
