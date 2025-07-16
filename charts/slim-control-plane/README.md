@@ -4,7 +4,7 @@ This Helm chart deploys the SLIM Control Plane components to a Kubernetes cluste
 
 ## Components
 
-- **Token Service**: Manages authentication tokens for SLIM agents
+- **Token Service**: Manages authentication tokens for SLIM agents (currently in early development)
 
 ## Prerequisites
 
@@ -20,6 +20,8 @@ The token-service image needs to be built separately before deploying this chart
 # From the repository root
 docker build -t ghcr.io/agntcy/slim/token-service:latest -f control-plane/token-service/Dockerfile .
 ```
+
+**Note**: The token-service is currently in early development and only supports the `version` command. Future versions will include server functionality.
 
 ## Installing the Chart
 

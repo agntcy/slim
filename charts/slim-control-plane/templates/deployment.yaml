@@ -37,6 +37,9 @@ spec:
             {{- toYaml .Values.securityContext | nindent 12 }}
           image: "{{ .Values.tokenService.image.repository }}:{{ .Values.tokenService.image.tag | default .Chart.AppVersion }}"
           imagePullPolicy: {{ .Values.tokenService.image.pullPolicy }}
+          # Note: The token-service is currently in early development and only supports the version command
+          # This will be updated to run a server command when it becomes available
+          command: ["/slim-tks", "version", "--log-level=debug"]
           ports:
             - name: http
               containerPort: {{ .Values.tokenService.service.port }}
