@@ -151,7 +151,8 @@ pub enum SessionMessageType {
     ChannelLeaveReply = 17,
     ChannelMlsCommit = 18,
     ChannelMlsWelcome = 19,
-    ChannelMlsAck = 20,
+    ChannelMlsProposal = 20,
+    ChannelMlsAck = 21,
 }
 impl SessionMessageType {
     /// String value of the enum field names used in the ProtoBuf definition.
@@ -180,6 +181,7 @@ impl SessionMessageType {
             Self::ChannelLeaveReply => "CHANNEL_LEAVE_REPLY",
             Self::ChannelMlsCommit => "CHANNEL_MLS_COMMIT",
             Self::ChannelMlsWelcome => "CHANNEL_MLS_WELCOME",
+            Self::ChannelMlsProposal => "CHANNEL_MLS_PROPOSAL",
             Self::ChannelMlsAck => "CHANNEL_MLS_ACK",
         }
     }
@@ -206,6 +208,7 @@ impl SessionMessageType {
             "CHANNEL_LEAVE_REPLY" => Some(Self::ChannelLeaveReply),
             "CHANNEL_MLS_COMMIT" => Some(Self::ChannelMlsCommit),
             "CHANNEL_MLS_WELCOME" => Some(Self::ChannelMlsWelcome),
+            "CHANNEL_MLS_PROPOSAL" => Some(Self::ChannelMlsProposal),
             "CHANNEL_MLS_ACK" => Some(Self::ChannelMlsAck),
             _ => None,
         }

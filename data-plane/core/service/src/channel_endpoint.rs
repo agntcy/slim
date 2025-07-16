@@ -1,7 +1,7 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
-use std::{collections::HashMap, sync::Arc, time::Duration};
+use std::{collections::HashMap, sync::Arc, thread, time::Duration};
 
 use async_trait::async_trait;
 use bincode::{Decode, Encode};
@@ -72,6 +72,11 @@ trait OnMessageReceived {
     async fn on_message(&mut self, msg: Message) -> Result<(), SessionError>;
 }
 
+trait MlsEndpoint {
+    //fn set_key_rotation_timer(&mut self, interval: Duration) -> impl Future<Output = Result<(), SessionError>> + 'static;
+    async fn update_mls_keys(&mut self) -> Result<(), SessionError>;
+}
+
 #[derive(Debug)]
 pub(crate) enum ChannelEndpoint<P, V, T>
 where
@@ -93,6 +98,21 @@ where
         match self {
             ChannelEndpoint::ChannelParticipant(cp) => cp.on_message(msg).await,
             ChannelEndpoint::ChannelModerator(cm) => cm.on_message(msg).await,
+        }
+    }
+}
+
+
+impl<P, V, T> MlsEndpoint for ChannelEndpoint<P, V, T>
+where
+    P: TokenProvider + Send + Sync + Clone + 'static,
+    V: Verifier + Send + Sync + Clone + 'static,
+    T: SessionTransmitter + Send + Sync + Clone + 'static,
+{
+    async fn update_mls_keys(&mut self) -> Result<(), SessionError> {
+        match self {
+            ChannelEndpoint::ChannelParticipant(cp) => cp.update_mls_keys().await,
+            ChannelEndpoint::ChannelModerator(cm) => cm.update_mls_keys().await,
         }
     }
 }
@@ -643,6 +663,39 @@ where
     }
 }
 
+impl<P, V, T> MlsEndpoint for ChannelParticipant<P, V, T>
+where
+    P: TokenProvider + Send + Sync + Clone + 'static,
+    V: Verifier + Send + Sync + Clone + 'static,
+    T: SessionTransmitter + Send + Sync + Clone + 'static,
+{
+
+    async fn update_mls_keys(&mut self) -> Result<(), SessionError> {
+        if self.endpoint.mls_state.is_some() {
+            return Err(SessionError::NoMls);
+        }
+
+        // TODO: get message from MLS. this must be a proposal message not a commit
+
+        let payload = vec![];
+        let proposal_id = rand::random::<u32>();
+        let proposal = self.endpoint.create_channel_message(
+            &self.endpoint.channel_name,
+            None,
+            true,
+            ProtoSessionMessageType::ChannelMlsProposal,
+            proposal_id,
+            payload,
+        );
+
+        // TODO:
+        // add timer
+        // process MLS_ACK
+        Ok(())
+    }
+}
+
+
 impl<P, V, T> OnMessageReceived for ChannelParticipant<P, V, T>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
@@ -952,7 +1005,7 @@ where
             // send commit message if needed
             let len = self.endpoint.mls_state.as_ref().unwrap().participants.len();
             if len > 1 {
-                debug!("Send MLS Commit Message to the channel");
+                debug!("Send MLS Commit Message to the channel (new group member)");
                 self.endpoint.send(commit.clone()).await?;
                 self.create_timer(commit_id, (len - 1).try_into().unwrap(), commit, None);
             }
@@ -987,7 +1040,7 @@ where
                 );
 
                 // send commit message if needed
-                debug!("Send MLS Commit Message to the channel");
+                debug!("Send MLS Commit Message to the channel (remove group member)");
                 self.endpoint.send(commit.clone()).await?;
 
                 // wait for len + 1 acks because the participant list does not contains
@@ -1012,6 +1065,38 @@ where
         // cancel timer
         let ret = self.delete_timer(msg_id).await?;
         debug_assert!(ret, "timer for leave reply should be removed");
+        Ok(())
+    }
+}
+
+impl<P, V, T> MlsEndpoint for ChannelModerator<P, V, T>
+where
+    P: TokenProvider + Send + Sync + Clone + 'static,
+    V: Verifier + Send + Sync + Clone + 'static,
+    T: SessionTransmitter + Send + Sync + Clone + 'static,
+{
+    async fn update_mls_keys(&mut self) -> Result<(), SessionError> {
+        if self.endpoint.mls_state.is_some() {
+            return Err(SessionError::NoMls);
+        }
+        // TODO: get message from MLS. this must be a commit not a proposal
+
+        let payload = vec![];
+        let commit_id = self.get_next_mls_mgs_id();
+        let commit = self.endpoint.create_channel_message(
+            &self.endpoint.channel_name,
+            None,
+            true,
+            ProtoSessionMessageType::ChannelMlsCommit,
+            commit_id,
+            payload,
+        );
+
+        let len = self.endpoint.mls_state.as_ref().unwrap().participants.len();
+        debug!("Send MLS Commit Message to the channel (moderator key update)");
+        self.endpoint.send(commit.clone()).await?;
+        self.create_timer(commit_id, len.try_into().unwrap(), commit, None);
+        
         Ok(())
     }
 }
