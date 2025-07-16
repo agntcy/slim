@@ -7,7 +7,7 @@ import (
 	"github.com/xeipuuv/gojsonschema"
 )
 
-//go:generate cp ../../../../data-plane/core/config/src/grpc/schema/client-config.schema.json ./schema.json
+//go:generate cp ../../../data-plane/core/config/src/grpc/schema/client-config.schema.json ./schema.json
 //go:embed schema.json
 var schemaData []byte
 

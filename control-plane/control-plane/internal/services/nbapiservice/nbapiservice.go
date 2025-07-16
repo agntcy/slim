@@ -103,40 +103,54 @@ func (s *nbAPIService) CreateSubscription(ctx context.Context, createSubscriptio
 	if err != nil {
 		return nil, fmt.Errorf("failed to get node by ID: %v", err)
 	}
-	endpoint := fmt.Sprintf("%s:%d", nodeEntry.Host, nodeEntry.Port)
+	slimEndpoint := fmt.Sprintf("%s:%d", nodeEntry.Host, nodeEntry.Port)
 	opts := options.NewOptions()
-	opts.Server = endpoint
+	opts.Server = slimEndpoint
 	opts.TLSInsecure = true
 	connectionID := createSubscriptionRequest.Subscription.ConnectionId
-	host, port, err := s.nodeService.GetConnectionDetails(createSubscriptionRequest.NodeId, connectionID)
+	endpoint, _, err := s.nodeService.GetConnectionDetails(createSubscriptionRequest.NodeId, connectionID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get node by ID: %v", err)
 	}
-	connID := fmt.Sprintf("%s:%d", host, port)
-	conn := &controllerapi.Connection{
-		ConnectionId:  connID,
-		RemoteAddress: host,
-		RemotePort:    port,
-	}
-	createSubscriptionRequest.Subscription.ConnectionId = connID
 
-	err = s.routeService.CreateSubscription(ctx, createSubscriptionRequest.Subscription, conn, opts)
+	createSubscriptionRequest.Subscription.ConnectionId = endpoint
+
+	err = s.routeService.CreateSubscription(ctx, createSubscriptionRequest.Subscription, opts)
 	if err != nil {
+		fmt.Printf("router error: %v\n", err.Error())
 		return nil, fmt.Errorf("failed to create subscription: %v", err)
 	}
 	subscriptionID, err := s.nodeService.SaveSubscription(createSubscriptionRequest.NodeId, createSubscriptionRequest.Subscription)
 	if err != nil {
+		fmt.Printf("save error: %v\n", err.Error())
+
 		return nil, fmt.Errorf("failed to save subscription: %v", err)
 	}
 	response := &controlplaneApi.CreateSubscriptionResponse{
-		Success:        false,
+		Success:        true,
 		SubscriptionId: subscriptionID,
 	}
 	return response, nil
 }
 
-func (s *nbAPIService) DeleteSubscription(context.Context, *controlplaneApi.DeleteSubscriptionRequest) (*controlplaneApi.DeleteSubscriptionResponse, error) {
+func (s *nbAPIService) DeleteSubscription(ctx context.Context, deleteSubscriptionRequest *controlplaneApi.DeleteSubscriptionRequest) (*controlplaneApi.DeleteSubscriptionResponse, error) {
+	nodeEntry, err := s.nodeService.GetNodeByID(deleteSubscriptionRequest.NodeId)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get node by ID: %v", err)
+	}
+	slimEndpoint := fmt.Sprintf("%s:%d", nodeEntry.Host, nodeEntry.Port)
+	opts := options.NewOptions()
+	opts.Server = slimEndpoint
+	opts.TLSInsecure = true
 
+	subscription, err := s.nodeService.GetSubscription(deleteSubscriptionRequest.NodeId, deleteSubscriptionRequest.SubscriptionId)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get subscription: %v", err)
+	}
+	err = s.routeService.DeleteSubscription(ctx, subscription, opts)
+	if err != nil {
+		return nil, fmt.Errorf("failed to delete subscription: %v", err)
+	}
 	return &controlplaneApi.DeleteSubscriptionResponse{
 		Success: true,
 	}, nil

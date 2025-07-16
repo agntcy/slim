@@ -2,11 +2,14 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
+	"os"
 	"strconv"
 	"strings"
 
+	"github.com/agntcy/slim/control-plane/common/controller"
 	controllerapi "github.com/agntcy/slim/control-plane/common/proto/controller/v1"
 	controlplaneApi "github.com/agntcy/slim/control-plane/common/proto/controlplane/v1"
 
@@ -85,4 +88,42 @@ func parseRoute(route string) (
 	}
 
 	return
+}
+
+func parseConfigFile(configFile string) (*controllerapi.Connection, error) {
+	if configFile == "" {
+		return nil, fmt.Errorf("config file path cannot be empty")
+	}
+	if !strings.HasSuffix(configFile, ".json") {
+		return nil, fmt.Errorf("config file '%s' must be a JSON file", configFile)
+	}
+
+	// Read the file content as a string
+	data, err := os.ReadFile(configFile)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read config file: %w", err)
+	}
+	// validate the json data against the ConfigClient Schema
+	if !controller.Validate(data) {
+		return nil, fmt.Errorf("failed to validate config data")
+	}
+
+	configData := string(data)
+
+	// Parse the JSON and extract the endpoint value
+	var jsonObj map[string]interface{}
+	if err := json.Unmarshal(data, &jsonObj); err != nil {
+		return nil, fmt.Errorf("invalid JSON in config file: %w", err)
+	}
+	endpoint, ok := jsonObj["endpoint"].(string)
+	if !ok || endpoint == "" {
+		return nil, fmt.Errorf("'endpoint' key not found in config data")
+	}
+
+	conn := &controllerapi.Connection{
+		ConnectionId: endpoint,
+		ConfigData:   configData,
+	}
+
+	return conn, nil
 }

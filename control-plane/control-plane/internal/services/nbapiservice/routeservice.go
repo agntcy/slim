@@ -44,13 +44,13 @@ func (s *routeService) ListSubscriptions(ctx context.Context, opts *options.Comm
 		if listResp := resp.GetSubscriptionListResponse(); listResp != nil {
 			for _, e := range listResp.Entries {
 				var localNames, remoteNames []string
-				for _, c := range e.GetLocalConnections() {
+				for _, lc := range e.GetLocalConnections() {
 					localNames = append(localNames,
-						fmt.Sprintf("local:%d", c.GetId()))
+						fmt.Sprintf("local:%d:%s", lc.GetId(), lc.GetConfigData()))
 				}
-				for _, c := range e.GetRemoteConnections() {
+				for _, rc := range e.GetRemoteConnections() {
 					remoteNames = append(remoteNames,
-						fmt.Sprintf("remote:%s:%d:%d", c.GetIp(), c.GetPort(), c.GetId()))
+						fmt.Sprintf("remote:%d:%s", rc.GetId(), rc.GetConfigData()))
 				}
 				fmt.Printf("%s/%s/%s id=%d local=%v remote=%v\n",
 					e.GetOrganization(), e.GetNamespace(), e.GetAgentType(),
@@ -92,8 +92,7 @@ func (s *routeService) ListConnections(ctx context.Context, opts *options.Common
 			for _, e := range listResp.Entries {
 				fmt.Printf("id=%d %s:%d\n",
 					e.GetId(),
-					e.GetIp(),
-					e.GetPort(),
+					e.GetConfigData(),
 				)
 			}
 			return listResp, nil
@@ -138,9 +137,9 @@ func (s *routeService) CreateConnection(ctx context.Context, connection *control
 	return nil
 }
 
-func (s *routeService) CreateSubscription(ctx context.Context, subscription *controllerapi.Subscription, connection *controllerapi.Connection, opts *options.CommonOptions) error {
+func (s *routeService) CreateSubscription(ctx context.Context, subscription *controllerapi.Subscription, opts *options.CommonOptions) error {
 	controllerConfigCommand := &controllerapi.ConfigurationCommand{
-		ConnectionsToCreate:   []*controllerapi.Connection{connection},
+		ConnectionsToCreate:   []*controllerapi.Connection{},
 		SubscriptionsToSet:    []*controllerapi.Subscription{subscription},
 		SubscriptionsToDelete: []*controllerapi.Subscription{},
 	}
@@ -170,6 +169,54 @@ func (s *routeService) CreateSubscription(ctx context.Context, subscription *con
 	a := ack.GetAck()
 	if a == nil {
 		return fmt.Errorf("unexpected response type received (not an ACK): %v", ack)
+	}
+	return nil
+}
+
+func (s *routeService) DeleteSubscription(ctx context.Context, subscription *controllerapi.Subscription, opts *options.CommonOptions) error {
+	msg := &controllerapi.ControlMessage{
+		MessageId: uuid.NewString(),
+		Payload: &controllerapi.ControlMessage_ConfigCommand{
+			ConfigCommand: &controllerapi.ConfigurationCommand{
+				ConnectionsToCreate:   []*controllerapi.Connection{},
+				SubscriptionsToSet:    []*controllerapi.Subscription{},
+				SubscriptionsToDelete: []*controllerapi.Subscription{subscription},
+			},
+		},
+	}
+
+	stream, err := controller.OpenControlChannel(ctx, opts)
+	if err != nil {
+		return fmt.Errorf("failed to open control channel: %w", err)
+	}
+
+	if err = stream.Send(msg); err != nil {
+		return fmt.Errorf("failed to send control message: %w", err)
+	}
+
+	if err = stream.CloseSend(); err != nil {
+		return fmt.Errorf("failed to close send: %w", err)
+	}
+
+	ack, err := stream.Recv()
+	if err != nil {
+		return fmt.Errorf("error receiving ack via stream: %w", err)
+	}
+
+	a := ack.GetAck()
+	if a == nil {
+		return fmt.Errorf("unexpected response type received (not an ACK): %v", ack)
+	}
+
+	fmt.Printf(
+		"ACK received for %s: success=%t\n",
+		a.OriginalMessageId,
+		a.Success,
+	)
+	if len(a.Messages) > 0 {
+		for i, ackMsg := range a.Messages {
+			fmt.Printf("    [%d] %s\n", i+1, ackMsg)
+		}
 	}
 	return nil
 }

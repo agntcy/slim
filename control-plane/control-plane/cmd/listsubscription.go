@@ -37,7 +37,7 @@ func main() {
 		}
 		for _, c := range e.RemoteConnections {
 			remoteNames = append(remoteNames,
-				fmt.Sprintf("remote:%s:%d:%d", c.Ip, c.Port, c.Id))
+				fmt.Sprintf("remote:%s:%d:%d", c.ConnectionType, c.ConfigData, c.Id))
 		}
 		fmt.Printf("%s/%s/%s id=%d local=%v remote=%v\n",
 			e.Organization, e.Namespace, e.AgentType,

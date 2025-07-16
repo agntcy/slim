@@ -6,6 +6,7 @@ import (
 	controllerapi "github.com/agntcy/slim/control-plane/common/proto/controller/v1"
 	controlplaneApi "github.com/agntcy/slim/control-plane/common/proto/controlplane/v1"
 	"github.com/agntcy/slim/control-plane/control-plane/internal/db"
+	"google.golang.org/protobuf/types/known/wrapperspb"
 )
 
 type nodeService struct {
@@ -56,10 +57,20 @@ func (s *nodeService) SaveConnection(nodeEntry *controlplaneApi.NodeEntry, conne
 	return "a81bc81b-dead-4e5d-abff-90865d1e13b1", nil
 }
 
-func (s *nodeService) GetConnectionDetails(nodeID string, connectionID string) (string, int32, error) {
-	return "127.0.0.1", 46357, nil
+func (s *nodeService) GetConnectionDetails(nodeID string, connectionID string) (string, string, error) {
+	return "http://127.0.0.1:46357", `{"endpoint": "http://127.0.0.1:46357"}`, nil
 }
 
 func (s *nodeService) SaveSubscription(nodeID string, subscription *controllerapi.Subscription) (string, error) {
 	return "6a39545c-00ef-460d-8223-be4816126ef6", nil
+}
+
+func (s *nodeService) GetSubscription(nodeID string, subscriptionId string) (*controllerapi.Subscription, error) {
+	return &controllerapi.Subscription{
+		Organization: "org",
+		Namespace:    "default",
+		AgentType:    "a",
+		ConnectionId: "http://127.0.0.1:46357",
+		AgentId:      wrapperspb.UInt64(0),
+	}, nil
 }
