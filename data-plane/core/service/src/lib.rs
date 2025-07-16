@@ -28,6 +28,8 @@ use serde::Deserialize;
 use session::{AppChannelReceiver, MessageDirection};
 use slim_datapath::messages::Agent;
 use std::collections::HashMap;
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
@@ -275,6 +277,19 @@ impl Service {
     {
         debug!(%app_name, "creating app");
 
+        // Create storage path for the app
+        let mut hasher = DefaultHasher::new();
+        app_name.to_string().hash(&mut hasher);
+        let hashed_agent = hasher.finish();
+
+        let home_dir = dirs::home_dir().ok_or_else(|| {
+            ServiceError::StorageError("Unable to determine home directory".to_string())
+        })?;
+        let storage_path = home_dir.join(".slim").join(hashed_agent.to_string());
+        std::fs::create_dir_all(&storage_path).map_err(|e| {
+            ServiceError::StorageError(format!("Failed to create storage directory: {}", e))
+        })?;
+
         // Channels to communicate with SLIM
         let (conn_id, tx_slim, rx_slim) = self.message_processor.register_local_connection();
 
@@ -290,6 +305,7 @@ impl Service {
             conn_id,
             tx_slim,
             tx_app,
+            storage_path,
         );
 
         // start message processing using the rx channel

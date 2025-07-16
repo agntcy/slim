@@ -14,15 +14,15 @@ pub struct SimpleGroup {
     /// Unique identifier for the entity
     id: String,
 
-    /// The group this identity belongs to
-    group: String,
+    /// Shared secret
+    shared_secret: String,
 }
 
 impl SimpleGroup {
-    pub fn new(id: &str, group: &str) -> Self {
+    pub fn new(id: &str, shared_secret: &str) -> Self {
         Self {
             id: id.to_owned(),
-            group: group.to_owned(),
+            shared_secret: shared_secret.to_owned(),
         }
     }
 
@@ -30,18 +30,20 @@ impl SimpleGroup {
         &self.id
     }
 
-    pub fn group(&self) -> &str {
-        &self.group
+    pub fn shared_secret(&self) -> &str {
+        &self.shared_secret
     }
 }
 
 impl TokenProvider for SimpleGroup {
     fn get_token(&self) -> Result<String, AuthError> {
-        if self.group.is_empty() {
-            Err(AuthError::TokenInvalid("group is empty".to_string()))
+        if self.shared_secret.is_empty() {
+            Err(AuthError::TokenInvalid(
+                "shared_secret is empty".to_string(),
+            ))
         } else {
-            // Join the group and id to create a token
-            Ok(format!("{}:{}", self.group, self.id))
+            // Join the shared secret and id to create a token
+            Ok(format!("{}:{}", self.shared_secret, self.id))
         }
     }
 }
@@ -64,16 +66,18 @@ impl Verifier for SimpleGroup {
     {
         let token = token.into();
 
-        // Split the token into group and id
+        // Split the token into shared_secret and id
         let parts: Vec<&str> = token.split(':').collect();
         if parts.len() != 2 {
             return Err(AuthError::TokenInvalid("invalid token format".to_string()));
         }
 
-        if parts[0] == self.group {
+        if parts[0] == self.shared_secret {
             Ok(serde_json::from_str(r#"{"exp":0}"#).unwrap())
         } else {
-            Err(AuthError::TokenInvalid("invalid token".to_string()))
+            Err(AuthError::TokenInvalid(
+                "shared secret mismatch".to_string(),
+            ))
         }
     }
 }

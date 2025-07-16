@@ -21,6 +21,7 @@ use std::io::{Read, Write};
 use tracing::{debug, info};
 
 const CIPHERSUITE: CipherSuite = CipherSuite::CURVE25519_AES128;
+const IDENTITY_FILENAME: &str = "identity.json";
 
 pub type CommitMsg = Vec<u8>;
 pub type WelcomeMsg = Vec<u8>;
@@ -37,6 +38,35 @@ struct StoredIdentity {
     identifier: String,
     public_key_bytes: Vec<u8>,
     private_key_bytes: Vec<u8>,
+    last_credential: Option<String>,
+    #[serde(default)]
+    credential_version: u64,
+}
+
+impl StoredIdentity {
+    fn exists(storage_path: &std::path::Path) -> bool {
+        storage_path.join(IDENTITY_FILENAME).exists()
+    }
+
+    fn load_from_storage(storage_path: &std::path::Path) -> Result<Self, MlsError> {
+        let identity_file = storage_path.join(IDENTITY_FILENAME);
+        let mut file = File::open(&identity_file).map_err(|e| MlsError::Io(e.to_string()))?;
+        let mut buf = Vec::new();
+        file.read_to_end(&mut buf)
+            .map_err(|e| MlsError::Io(e.to_string()))?;
+        serde_json::from_slice(&buf).map_err(|e| MlsError::Serde(e.to_string()))
+    }
+
+    fn save_to_storage(&self, storage_path: &std::path::Path) -> Result<(), MlsError> {
+        let identity_file = storage_path.join(IDENTITY_FILENAME);
+        let json = serde_json::to_vec_pretty(self).map_err(|e| MlsError::Serde(e.to_string()))?;
+        let mut file = File::create(&identity_file).map_err(|e| MlsError::Io(e.to_string()))?;
+        file.write_all(&json)
+            .map_err(|e| MlsError::Io(e.to_string()))?;
+        file.sync_all()
+            .map_err(|e| MlsError::FileSyncFailed(e.to_string()))?;
+        Ok(())
+    }
 }
 
 pub struct Mls<P, V>
@@ -46,6 +76,7 @@ where
 {
     agent: slim_datapath::messages::Agent,
     storage_path: Option<std::path::PathBuf>,
+    stored_identity: Option<StoredIdentity>,
     client: Option<
         Client<
             mls_rs::client_builder::WithIdentityProvider<
@@ -103,23 +134,14 @@ where
         agent: slim_datapath::messages::Agent,
         identity_provider: P,
         identity_verifier: V,
+        storage_path: std::path::PathBuf,
     ) -> Self {
-        // hash the agent for storage path
-        use std::collections::hash_map::DefaultHasher;
-        use std::hash::{Hash, Hasher};
-
-        let mut hasher = DefaultHasher::new();
-        agent.to_string().hash(&mut hasher);
-        let hashed_agent = hasher.finish();
-
-        let storage_path = Some(std::path::PathBuf::from(format!(
-            "/tmp/mls_identities_{}",
-            hashed_agent
-        )));
+        let mls_storage_path = Some(storage_path.join("mls"));
 
         Self {
             agent,
-            storage_path,
+            storage_path: mls_storage_path,
+            stored_identity: None,
             client: None,
             group: None,
             identity_provider,
@@ -142,57 +164,53 @@ where
         result.map_err(|e| MlsError::Mls(e.to_string()))
     }
 
+    fn generate_key_pair() -> Result<(SignatureSecretKey, SignaturePublicKey), MlsError> {
+        let crypto_provider = AwsLcCryptoProvider::default();
+        let cipher_suite_provider = crypto_provider
+            .cipher_suite_provider(CIPHERSUITE)
+            .ok_or(MlsError::CiphersuiteUnavailable)?;
+
+        cipher_suite_provider
+            .signature_key_generate()
+            .map_err(|e| MlsError::Mls(e.to_string()))
+    }
+
     pub fn initialize(&mut self) -> Result<(), MlsError> {
         info!("Initializing MLS client for agent: {}", self.agent);
         let storage_path = self.get_storage_path();
-        info!("Using storage path for MLS: {}", storage_path.display());
+        debug!("Using storage path: {}", storage_path.display());
         std::fs::create_dir_all(&storage_path).map_err(MlsError::StorageDirectoryCreation)?;
 
-        let identity_file = storage_path.join("identity.json");
+        let token = self
+            .identity_provider
+            .get_token()
+            .map_err(|e| MlsError::TokenRetrievalFailed(e.to_string()))?;
 
-        let stored_identity = if identity_file.exists() {
+        let stored_identity = if StoredIdentity::exists(&storage_path) {
             debug!("Loading existing identity from file");
-            let mut file = File::open(&identity_file).map_err(|e| MlsError::Io(e.to_string()))?;
-            let mut buf = Vec::new();
-            file.read_to_end(&mut buf)
-                .map_err(|e| MlsError::Io(e.to_string()))?;
-            serde_json::from_slice(&buf).map_err(|e| MlsError::Serde(e.to_string()))?
+            StoredIdentity::load_from_storage(&storage_path)?
         } else {
             info!("Creating new identity for agent");
-            let crypto_provider = AwsLcCryptoProvider::default();
-            let cipher_suite_provider = crypto_provider
-                .cipher_suite_provider(CIPHERSUITE)
-                .ok_or(MlsError::CiphersuiteUnavailable)?;
-
-            let (private_key, public_key) = cipher_suite_provider
-                .signature_key_generate()
-                .map_err(|e| MlsError::Mls(e.to_string()))?;
+            let (private_key, public_key) = Self::generate_key_pair()?;
 
             let stored = StoredIdentity {
                 identifier: self.agent.to_string(),
                 public_key_bytes: public_key.as_bytes().to_vec(),
                 private_key_bytes: private_key.as_bytes().to_vec(),
+                last_credential: Some(token.clone()),
+                credential_version: 1,
             };
 
-            let json =
-                serde_json::to_vec_pretty(&stored).map_err(|e| MlsError::Serde(e.to_string()))?;
-            let mut file = File::create(&identity_file).map_err(|e| MlsError::Io(e.to_string()))?;
-            file.write_all(&json)
-                .map_err(|e| MlsError::Io(e.to_string()))?;
-            file.sync_all()
-                .map_err(|e| MlsError::FileSyncFailed(e.to_string()))?;
+            stored.save_to_storage(&storage_path)?;
 
             stored
         };
 
-        let public_key = SignaturePublicKey::new(stored_identity.public_key_bytes);
-        let private_key = SignatureSecretKey::new(stored_identity.private_key_bytes);
+        let public_key = SignaturePublicKey::new(stored_identity.public_key_bytes.clone());
+        let private_key = SignatureSecretKey::new(stored_identity.private_key_bytes.clone());
 
-        // get the token from the identity provider
-        let token = self
-            .identity_provider
-            .get_token()
-            .map_err(|e| MlsError::TokenRetrievalFailed(e.to_string()))?;
+        self.stored_identity = Some(stored_identity);
+
         let credential_data = token.as_bytes().to_vec();
         let basic_cred = BasicCredential::new(credential_data);
         let signing_identity = SigningIdentity::new(basic_cred.into_credential(), public_key);
@@ -333,6 +351,7 @@ where
 
     pub fn encrypt_message(&mut self, message: &[u8]) -> Result<Vec<u8>, MlsError> {
         debug!("Encrypting MLS message");
+
         let group = self.group.as_mut().ok_or(MlsError::GroupNotExists)?;
 
         let encrypted_msg =
@@ -344,6 +363,7 @@ where
 
     pub fn decrypt_message(&mut self, encrypted_message: &[u8]) -> Result<Vec<u8>, MlsError> {
         debug!("Decrypting MLS message");
+
         let group = self.group.as_mut().ok_or(MlsError::GroupNotExists)?;
 
         let message = Self::map_mls_error(MlsMessage::from_bytes(encrypted_message))?;
@@ -369,6 +389,67 @@ where
     pub fn get_epoch(&self) -> Option<u64> {
         self.group.as_ref().map(|g| g.current_epoch())
     }
+
+    // TODO(zkacsand): this needs to be triggered from the auth crate
+    #[allow(dead_code)]
+    fn check_credential_rotation(&mut self) -> Result<Option<Vec<u8>>, MlsError> {
+        let stored_identity = self
+            .stored_identity
+            .as_ref()
+            .ok_or(MlsError::ClientNotInitialized)?;
+
+        let current_token = self
+            .identity_provider
+            .get_token()
+            .map_err(|e| MlsError::TokenRetrievalFailed(e.to_string()))?;
+
+        if let Some(last_credential) = &stored_identity.last_credential {
+            if last_credential != &current_token && self.group.is_some() {
+                info!(
+                    "Credential rotation detected: {} -> {}",
+                    last_credential, current_token
+                );
+                return self.create_rotation_proposal(current_token).map(Some);
+            }
+        }
+
+        Ok(None)
+    }
+
+    pub fn create_rotation_proposal(
+        &mut self,
+        new_credential: String,
+    ) -> Result<Vec<u8>, MlsError> {
+        let group = self.group.as_mut().ok_or(MlsError::GroupNotExists)?;
+
+        let credential_data = new_credential.as_bytes().to_vec();
+        let new_basic_cred = BasicCredential::new(credential_data);
+
+        let (new_private_key, new_public_key) = Self::generate_key_pair()?;
+
+        let new_signing_identity =
+            SigningIdentity::new(new_basic_cred.into_credential(), new_public_key.clone());
+
+        let update_proposal = Self::map_mls_error(group.propose_update_with_identity(
+            new_private_key.clone(),
+            new_signing_identity,
+            vec![],
+        ))?;
+
+        info!("Created credential rotation proposal");
+
+        let storage_path = self.get_storage_path();
+        if let Some(stored) = self.stored_identity.as_mut() {
+            stored.last_credential = Some(new_credential);
+            stored.credential_version = stored.credential_version.saturating_add(1);
+            stored.public_key_bytes = new_public_key.as_bytes().to_vec();
+            stored.private_key_bytes = new_private_key.as_bytes().to_vec();
+
+            stored.save_to_storage(&storage_path)?;
+        }
+
+        Self::map_mls_error(update_proposal.to_bytes())
+    }
 }
 
 #[cfg(test)]
@@ -379,15 +460,15 @@ mod tests {
     use slim_auth::simple::SimpleGroup;
     use std::thread;
 
-    #[tokio::test]
-    async fn test_mls_creation() -> Result<(), Box<dyn std::error::Error>> {
+    #[test]
+    fn test_mls_creation() -> Result<(), Box<dyn std::error::Error>> {
         let agent = slim_datapath::messages::Agent::from_strings("org", "default", "alice", 0);
         let mut mls = Mls::new(
             agent,
             SimpleGroup::new("alice", "group"),
             SimpleGroup::new("alice", "group"),
+            std::path::PathBuf::from("/tmp/mls_test_creation"),
         );
-        mls.set_storage_path("/tmp/mls_test_creation");
 
         mls.initialize()?;
         assert!(mls.client.is_some());
@@ -395,15 +476,15 @@ mod tests {
         Ok(())
     }
 
-    #[tokio::test]
-    async fn test_group_creation() -> Result<(), Box<dyn std::error::Error>> {
+    #[test]
+    fn test_group_creation() -> Result<(), Box<dyn std::error::Error>> {
         let agent = slim_datapath::messages::Agent::from_strings("org", "default", "alice", 0);
         let mut mls = Mls::new(
             agent,
             SimpleGroup::new("alice", "group"),
             SimpleGroup::new("alice", "group"),
+            std::path::PathBuf::from("/tmp/mls_test_group_creation"),
         );
-        mls.set_storage_path("/tmp/mls_test_group_creation");
 
         mls.initialize()?;
         let _group_id = mls.create_group()?;
@@ -412,15 +493,15 @@ mod tests {
         Ok(())
     }
 
-    #[tokio::test]
-    async fn test_key_package_generation() -> Result<(), Box<dyn std::error::Error>> {
+    #[test]
+    fn test_key_package_generation() -> Result<(), Box<dyn std::error::Error>> {
         let agent = slim_datapath::messages::Agent::from_strings("org", "default", "alice", 0);
         let mut mls = Mls::new(
             agent,
             SimpleGroup::new("alice", "group"),
             SimpleGroup::new("alice", "group"),
+            std::path::PathBuf::from("/tmp/mls_test_key_package"),
         );
-        mls.set_storage_path("/tmp/mls_test_key_package");
 
         mls.initialize()?;
         let key_package = mls.generate_key_package()?;
@@ -428,8 +509,8 @@ mod tests {
         Ok(())
     }
 
-    #[tokio::test]
-    async fn test_messaging() -> Result<(), Box<dyn std::error::Error>> {
+    #[test]
+    fn test_messaging() -> Result<(), Box<dyn std::error::Error>> {
         let alice_agent =
             slim_datapath::messages::Agent::from_strings("org", "default", "alice", 0);
         let bob_agent = slim_datapath::messages::Agent::from_strings("org", "default", "bob", 0);
@@ -443,26 +524,26 @@ mod tests {
             alice_agent,
             SimpleGroup::new("alice", "group"),
             SimpleGroup::new("alice", "group"),
+            std::path::PathBuf::from("/tmp/mls_test_messaging_alice"),
         );
-        alice.set_storage_path("/tmp/mls_test_messaging_alice");
         let mut bob = Mls::new(
             bob_agent,
             SimpleGroup::new("bob", "group"),
             SimpleGroup::new("bob", "group"),
+            std::path::PathBuf::from("/tmp/mls_test_messaging_bob"),
         );
-        bob.set_storage_path("/tmp/mls_test_messaging_bob");
         let mut charlie = Mls::new(
             charlie_agent,
             SimpleGroup::new("charlie", "group"),
             SimpleGroup::new("charlie", "group"),
+            std::path::PathBuf::from("/tmp/mls_test_messaging_charlie"),
         );
-        charlie.set_storage_path("/tmp/mls_test_messaging_charlie");
         let mut daniel = Mls::new(
             daniel_agent,
             SimpleGroup::new("daniel", "group"),
             SimpleGroup::new("daniel", "group"),
+            std::path::PathBuf::from("/tmp/mls_test_messaging_daniel"),
         );
-        daniel.set_storage_path("/tmp/mls_test_messaging_daniel");
 
         alice.initialize()?;
         bob.initialize()?;
@@ -581,8 +662,8 @@ mod tests {
         Ok(())
     }
 
-    #[tokio::test]
-    async fn test_decrypt_message() -> Result<(), Box<dyn std::error::Error>> {
+    #[test]
+    fn test_decrypt_message() -> Result<(), Box<dyn std::error::Error>> {
         let alice_agent =
             slim_datapath::messages::Agent::from_strings("org", "default", "alice", 0);
         let bob_agent = slim_datapath::messages::Agent::from_strings("org", "default", "bob", 1);
@@ -591,14 +672,14 @@ mod tests {
             alice_agent,
             SimpleGroup::new("alice", "group"),
             SimpleGroup::new("alice", "group"),
+            std::path::PathBuf::from("/tmp/mls_test_decrypt_alice"),
         );
-        alice.set_storage_path("/tmp/mls_test_decrypt_alice");
         let mut bob = Mls::new(
             bob_agent,
             SimpleGroup::new("bob", "group"),
             SimpleGroup::new("bob", "group"),
+            std::path::PathBuf::from("/tmp/mls_test_decrypt_bob"),
         );
-        bob.set_storage_path("/tmp/mls_test_decrypt_bob");
 
         alice.initialize()?;
         bob.initialize()?;
@@ -614,6 +695,266 @@ mod tests {
         let decrypted = bob.decrypt_message(&encrypted)?;
         assert_eq!(decrypted, message);
 
+        Ok(())
+    }
+
+    #[test]
+    fn test_shared_secret_rotation_same_identity() -> Result<(), Box<dyn std::error::Error>> {
+        let alice_agent =
+            slim_datapath::messages::Agent::from_strings("org", "default", "alice", 0);
+        let bob_agent = slim_datapath::messages::Agent::from_strings("org", "default", "bob", 1);
+
+        let mut alice = Mls::new(
+            alice_agent.clone(),
+            SimpleGroup::new("alice", "secret_v1"),
+            SimpleGroup::new("alice", "secret_v1"),
+            std::path::PathBuf::from("/tmp/mls_test_rotation_alice"),
+        );
+        let mut bob = Mls::new(
+            bob_agent.clone(),
+            SimpleGroup::new("bob", "secret_v1"),
+            SimpleGroup::new("bob", "secret_v1"),
+            std::path::PathBuf::from("/tmp/mls_test_rotation_bob"),
+        );
+
+        alice.initialize()?;
+        bob.initialize()?;
+        let _group_id = alice.create_group()?;
+
+        let bob_key_package = bob.generate_key_package()?;
+        let result = alice.add_member(&bob_key_package)?;
+        let welcome_message = result.welcome_message;
+        let _bob_group_id = bob.process_welcome(&welcome_message)?;
+
+        let message1 = b"Message with secret_v1";
+        let encrypted1 = alice.encrypt_message(message1)?;
+        let decrypted1 = bob.decrypt_message(&encrypted1)?;
+        assert_eq!(decrypted1, message1);
+
+        let mut alice_rotated_secret = Mls::new(
+            alice_agent,
+            SimpleGroup::new("alice", "secret_v2"),
+            SimpleGroup::new("alice", "secret_v2"),
+            std::path::PathBuf::from("/tmp/mls_test_rotation_alice_v2"),
+        );
+        alice_rotated_secret.initialize()?;
+
+        let message2 = b"Message with rotated secret";
+        let encrypted2_result = alice_rotated_secret.encrypt_message(message2);
+        assert!(encrypted2_result.is_err());
+
+        let message3 = b"Message from original alice after secret rotation";
+        let encrypted3 = alice.encrypt_message(message3)?;
+        let decrypted3 = bob.decrypt_message(&encrypted3)?;
+        assert_eq!(decrypted3, message3);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_credential_rotation_detection_and_proposal() -> Result<(), Box<dyn std::error::Error>> {
+        let alice_path = "/tmp/mls_test_credential_rotation_alice";
+        let bob_path = "/tmp/mls_test_credential_rotation_bob";
+        let _ = std::fs::remove_dir_all(alice_path);
+        let _ = std::fs::remove_dir_all(bob_path);
+
+        let alice_agent =
+            slim_datapath::messages::Agent::from_strings("org", "default", "alice", 0);
+        let bob_agent = slim_datapath::messages::Agent::from_strings("org", "default", "bob", 1);
+
+        let mut alice = Mls::new(
+            alice_agent.clone(),
+            SimpleGroup::new("alice", "secret_v1"),
+            SimpleGroup::new("alice", "secret_v1"),
+            alice_path.into(),
+        );
+
+        let mut bob = Mls::new(
+            bob_agent.clone(),
+            SimpleGroup::new("bob", "secret_v1"),
+            SimpleGroup::new("bob", "secret_v1"),
+            bob_path.into(),
+        );
+
+        alice.initialize()?;
+        bob.initialize()?;
+        let _group_id = alice.create_group()?;
+
+        let bob_key_package = bob.generate_key_package()?;
+        let result = alice.add_member(&bob_key_package)?;
+        let welcome_message = result.welcome_message;
+        let _bob_group_id = bob.process_welcome(&welcome_message)?;
+
+        let message1 = b"Initial message";
+        let encrypted1 = alice.encrypt_message(message1)?;
+        let decrypted1 = bob.decrypt_message(&encrypted1)?;
+        assert_eq!(decrypted1, message1);
+
+        let initial_version = alice.stored_identity.as_ref().unwrap().credential_version;
+
+        alice.identity_provider = SimpleGroup::new("alice", "secret_v2");
+
+        let rotation_proposal = alice.check_credential_rotation()?;
+        assert!(
+            rotation_proposal.is_some(),
+            "Should detect credential rotation"
+        );
+
+        let proposal_bytes = rotation_proposal.unwrap();
+        assert!(!proposal_bytes.is_empty(), "Proposal should contain data");
+
+        if let Some(stored) = &alice.stored_identity {
+            assert_eq!(stored.last_credential, Some("secret_v2:alice".to_string()));
+            assert_eq!(stored.credential_version, initial_version + 1);
+        } else {
+            panic!("Stored identity should exist after rotation");
+        }
+
+        let new_proposal = alice.check_credential_rotation()?;
+        assert!(
+            new_proposal.is_none(),
+            "Should not detect rotation again with same credential"
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_full_credential_rotation_flow() -> Result<(), Box<dyn std::error::Error>> {
+        let alice_path = "/tmp/mls_test_full_rotation_alice";
+        let bob_path = "/tmp/mls_test_full_rotation_bob";
+        let moderator_path = "/tmp/mls_test_full_rotation_moderator";
+        let _ = std::fs::remove_dir_all(alice_path);
+        let _ = std::fs::remove_dir_all(bob_path);
+        let _ = std::fs::remove_dir_all(moderator_path);
+
+        let alice_agent =
+            slim_datapath::messages::Agent::from_strings("org", "default", "alice", 0);
+        let bob_agent = slim_datapath::messages::Agent::from_strings("org", "default", "bob", 1);
+        let moderator_agent =
+            slim_datapath::messages::Agent::from_strings("org", "default", "moderator", 2);
+
+        let mut moderator = Mls::new(
+            moderator_agent.clone(),
+            SimpleGroup::new("moderator", "secret_v1"),
+            SimpleGroup::new("moderator", "secret_v1"),
+            std::path::PathBuf::from("/tmp/mls_test_moderator"),
+        );
+        moderator.initialize()?;
+
+        // Moderator creates the group
+        let _group_id = moderator.create_group()?;
+
+        let mut alice = Mls::new(
+            alice_agent.clone(),
+            SimpleGroup::new("alice", "secret_v1"),
+            SimpleGroup::new("alice", "secret_v1"),
+            alice_path.into(),
+        );
+        alice.initialize()?;
+
+        let mut bob = Mls::new(
+            bob_agent.clone(),
+            SimpleGroup::new("bob", "secret_v1"),
+            SimpleGroup::new("bob", "secret_v1"),
+            bob_path.into(),
+        );
+        bob.initialize()?;
+
+        // Moderator adds Alice to the group
+        let alice_key_package = alice.generate_key_package()?;
+        let result = moderator.add_member(&alice_key_package)?;
+        let welcome_alice = result.welcome_message;
+        let _alice_group_id = alice.process_welcome(&welcome_alice)?;
+
+        // Moderator adds Bob to the group
+        let bob_key_package = bob.generate_key_package()?;
+        let result = moderator.add_member(&bob_key_package)?;
+        let commit_bob = result.commit_message;
+        let welcome_bob = result.welcome_message;
+        let _bob_group_id = bob.process_welcome(&welcome_bob)?;
+
+        // Only Alice needs to process Bob's addition (Bob wasn't in the group when Alice was added)
+        alice.process_commit(&commit_bob)?;
+
+        let message1 = b"Message before rotation";
+        let encrypted1 = alice.encrypt_message(message1)?;
+        let decrypted1 = bob.decrypt_message(&encrypted1)?;
+        assert_eq!(decrypted1, message1);
+
+        let initial_version = alice.stored_identity.as_ref().unwrap().credential_version;
+
+        // Alice rotates her credential
+        alice.identity_provider = SimpleGroup::new("alice", "secret_v2");
+        alice.identity_verifier = SimpleGroup::new("alice", "secret_v2");
+
+        // Alice should detect credential rotation and create a proposal
+        let rotation_proposal = alice.check_credential_rotation()?;
+        assert!(
+            rotation_proposal.is_some(),
+            "Should detect credential rotation"
+        );
+
+        let proposal_bytes = rotation_proposal.unwrap();
+
+        // Alice sends the proposal to the moderator
+        let proposal_message = MlsMessage::from_bytes(&proposal_bytes)
+            .map_err(|e| format!("Failed to parse proposal: {}", e))?;
+        // Moderator processes the proposal
+        let moderator_group = moderator.group.as_mut().unwrap();
+        moderator_group
+            .process_incoming_message(proposal_message)
+            .map_err(|e| format!("Failed to process proposal: {}", e))?;
+
+        // Moderator creates and applies the commit
+        let commit = moderator_group
+            .commit_builder()
+            .build()
+            .map_err(|e| format!("Commit build failed: {}", e))?;
+        moderator_group
+            .apply_pending_commit()
+            .map_err(|e| format!("Apply commit failed: {}", e))?;
+
+        // Moderator sends the commit to Alice and Bob
+        let commit_bytes = commit
+            .commit_message
+            .to_bytes()
+            .map_err(|e| format!("Commit to bytes failed: {}", e))?;
+        alice.process_commit(&commit_bytes)?;
+        bob.process_commit(&commit_bytes)?;
+
+        // Test messaging after rotation
+        // Bob can decrypt Alice's encrypted message
+        let message2 = b"Message after rotation from alice";
+        let encrypted2 = alice.encrypt_message(message2)?;
+        let decrypted2 = bob.decrypt_message(&encrypted2)?;
+        assert_eq!(decrypted2, message2);
+
+        // ... and Alice can decrypt Bob's encrypted message
+        let message3 = b"Message after rotation from bob";
+        let encrypted3 = bob.encrypt_message(message3)?;
+        let decrypted3 = alice.decrypt_message(&encrypted3)?;
+        assert_eq!(decrypted3, message3);
+
+        // Verify epochs are synchronized
+        assert_eq!(
+            alice.get_epoch(),
+            bob.get_epoch(),
+            "Alice and Bob epochs should match after rotation"
+        );
+        assert_eq!(
+            alice.get_epoch(),
+            moderator.get_epoch(),
+            "Alice and Moderator epochs should match after rotation"
+        );
+
+        // Verify credential was updated
+        if let Some(stored) = &alice.stored_identity {
+            assert_eq!(stored.last_credential, Some("secret_v2:alice".to_string()));
+            assert_eq!(stored.credential_version, initial_version + 1);
+        }
+
+        // The end.
         Ok(())
     }
 }
