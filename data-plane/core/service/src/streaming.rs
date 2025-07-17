@@ -354,7 +354,6 @@ where
 
             let mls = mls.map(|mls| MlsState::new(mls).expect("failed to create MLS state"));
 
-            // TODO replicate this in the fnf session
             let mls_enable = mls.is_some();
             let sleep = time::sleep(Duration::from_millis(10000));
             tokio::pin!(sleep);

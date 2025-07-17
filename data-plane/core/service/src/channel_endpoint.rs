@@ -213,31 +213,7 @@ where
     }
 
     async fn process_commit_message(&mut self, msg: &Message) -> Result<(), SessionError> {
-        // TODO this checks should become a functions
-
-        // the first message to be received should be a welcome message
-        // this message will init the last_mls_msg_id. so if last_mls_msg_id = 0
-        // drop the commits
-        if self.last_mls_msg_id == 0 {
-            error!("welcome message not received yet, drop commit");
-            return Err(SessionError::CommitMessage(
-                "welcome message not received yet, drop commit".to_string(),
-            ));
-        }
-
-        // the only valid commit that we can accepet is the commit with id
-        // last_mls_msg_id + 1. We can safely drop all the others because
-        // the moderator will keep sending them if needed
-        let msg_id = msg.get_id();
-        if msg_id == self.last_mls_msg_id + 1 {
-            debug!(%msg_id, "received valid commit with id");
-            self.last_mls_msg_id += 1;
-        } else {
-            error!("unexpected commit id, drop message");
-            return Err(SessionError::CommitMessage(
-                "unexpected commit id, drop message".to_string(),
-            ));
-        }
+        self.is_valid_msg_id(msg)?;
 
         let commit = &msg
             .get_payload()
@@ -257,25 +233,7 @@ where
         msg: &Message,
         local_name: &Agent,
     ) -> Result<(), SessionError> {
-        // if last_mls_msg_id this is not a valid message
-        if self.last_mls_msg_id == 0 {
-            error!("welcome message not received yet, drop proposal");
-            return Err(SessionError::ParseProposalMessage(
-                "welcome message not received yet, drop proposal".to_string(),
-            ));
-        }
-
-        // the only valid proposal that we can accepet is last_mls_msg_id + 1
-        let msg_id = msg.get_id();
-        if msg_id == self.last_mls_msg_id + 1 {
-            debug!(%msg_id, "received valid proposal with id");
-            self.last_mls_msg_id += 1;
-        } else {
-            error!("unexpected proposal id, drop message");
-            return Err(SessionError::ParseProposalMessage(
-                "unexpected commit id, drop message".to_string(),
-            ));
-        }
+        self.is_valid_msg_id(msg)?;
 
         let content = msg
             .get_payload()
@@ -308,6 +266,33 @@ where
         Ok(())
     }
 
+    fn is_valid_msg_id(&mut self, msg: &Message) -> Result<(), SessionError> {
+        // the first message to be received should be a welcome message
+        // this message will init the last_mls_msg_id. so if last_mls_msg_id = 0
+        // drop the commits
+        if self.last_mls_msg_id == 0 {
+            error!("welcome message not received yet, drop mls message");
+            return Err(SessionError::MLSIdMessage(
+                "welcome message not received yet, drop mls message".to_string(),
+            ));
+        }
+
+        // the only valid commit that we can accepet is the commit with id
+        // last_mls_msg_id + 1. We can safely drop all the others because
+        // the moderator will keep sending them if needed
+        let msg_id = msg.get_id();
+        if msg_id == self.last_mls_msg_id + 1 {
+            debug!(%msg_id, "received valid commit with id");
+            self.last_mls_msg_id += 1;
+            return Ok(());
+        } else {
+            error!("unexpected message id, drop message");
+            return Err(SessionError::MLSIdMessage(
+                "unexpected message id, drop message".to_string(),
+            ));
+        }
+    }
+
     fn on_mls_ack(&mut self) -> Result<(), SessionError> {
         // this is called by the moderator when the participant
         // sends back an ack after the welcome message
@@ -333,10 +318,6 @@ where
     /// map of the participants with package keys
     /// used to remove participants from the channel
     participants: HashMap<Agent, MlsIdentity>,
-
-    /// list of proposal ids received by each participant.
-    /// the moderator will drop messages that are not in order
-    //proposal_ids: HashMap<Agent, u32>,
 
     /// message id of the next msl message to send
     next_msg_id: u32,
@@ -436,46 +417,6 @@ where
 
         Ok(commit)
     }
-
-    /*async fn process_proposal_message(&mut self, msg: &Message) -> Result<CommitMsg, SessionError> {
-        let msg_id = msg.get_id();
-        let source = msg.get_source();
-
-        let proposal = &msg
-            .get_payload()
-            .ok_or(SessionError::ParseProposalMessage(
-                "missing payload in MLS proposal, cannot process the message".to_string(),
-            ))?
-            .blob;
-
-        match self.proposal_ids.get(&source) {
-            Some(id) => {
-                let expected = *id + 1;
-                if msg_id != expected {
-                    debug!("invalid proposal id, drop it");
-                    return Err(SessionError::ParseProposalMessage(
-                        "wrong proposa id".to_string(),
-                    ));
-                }
-                self.proposal_ids.insert(source.clone(), msg_id);
-            }
-            None => {
-                // this is the first message from this participant
-                // add it to the map
-                self.proposal_ids.insert(source.clone(), msg_id);
-            }
-        }
-
-        // process proposal message
-        let ret = self
-            .common
-            .mls
-            .lock()
-            .process_proposal(proposal)
-            .map_err(|e| SessionError::ParseProposalMessage(e.to_string()))?;
-
-        Ok(ret)
-    }*/
 
     fn get_next_mls_mgs_id(&mut self) -> u32 {
         self.next_msg_id += 1;
@@ -946,9 +887,8 @@ where
     }
 
     async fn on_mls_ack(&mut self, msg: Message) -> Result<(), SessionError> {
-        // XXX
-        // is it enough to apply the commit or should I apply the pending changes on the node?
-        // for the moment I assume that the commit is enough so simply stop the timer here
+        // this is the ack for the proposal message
+        // wait for the commit to apply it
         let msg_id = msg.get_id();
 
         match self.timer {
@@ -967,7 +907,7 @@ where
         }
 
         info!("participant remove the timer for MLS proposal");
-        // rest the timer and return
+        // reset the timer and return
         self.timer = None;
         Ok(())
     }
@@ -980,13 +920,6 @@ where
     T: SessionTransmitter + Send + Sync + Clone + 'static,
 {
     async fn update_mls_keys(&mut self) -> Result<(), SessionError> {
-        //if self.endpoint.name.to_string()
-        //    == "873e580376ea963b/eef9769a4c6990d1/fce202f8552b1181/1".to_string()
-        //{
-            println!("------------------ skip update");
-            return Ok(());
-        //}
-
         if self.mls_state.is_none() || self.moderator_name.is_none() {
             return Err(SessionError::NoMls);
         }
@@ -1318,7 +1251,7 @@ where
 
                     let commit = self.endpoint.create_channel_message(
                         &self.endpoint.channel_name,
-                        None,
+                        self.endpoint.channel_id,
                         true,
                         ProtoSessionMessageType::ChannelMlsCommit,
                         commit_id,
@@ -1477,7 +1410,7 @@ where
         let broadcast_msg_id = self.mls_state.as_mut().unwrap().get_next_mls_mgs_id();
         let broadcast_msg = self.endpoint.create_channel_message(
             &self.endpoint.channel_name,
-            None,
+            self.endpoint.channel_id,
             true,
             ProtoSessionMessageType::ChannelMlsProposal,
             broadcast_msg_id,
@@ -1496,52 +1429,7 @@ where
             Some(broadcast_msg),
         );
 
-        // TODO when all the acks are received pross the message proposal and send the commit
-
         Ok(())
-
-        /*let commit_payload = self.mls_state
-            .as_mut()
-            .ok_or(SessionError::NoMls)?
-            .process_proposal_message(&msg)
-            .await?;
-
-        info!("received valid MLS proposal");
-
-        let source = msg.get_source();
-        let msg_id = msg.get_id();
-
-        // ack the MLS proposal
-        let ack = self.endpoint.create_channel_message(
-            source.agent_type(),
-            source.agent_id_option(),
-            false,
-            ProtoSessionMessageType::ChannelMlsAck,
-            msg_id,
-            vec![],
-        );
-
-        self.endpoint.send(ack).await?;
-
-        let commit_id = self.mls_state.as_mut().unwrap().get_next_mls_mgs_id();
-
-        let commit = self.endpoint.create_channel_message(
-            &self.endpoint.channel_name,
-            None,
-            true,
-            ProtoSessionMessageType::ChannelMlsCommit,
-            commit_id,
-            commit_payload,
-        );
-
-        // send commit message and set timers
-        let len = self.mls_state.as_ref().unwrap().participants.len();
-        info!("Send MLS Commit Message to the channel (key rotation)");
-        self.endpoint.send(commit.clone()).await?;
-        self.create_timer(commit_id, len.try_into().unwrap(), commit, None);
-
-        // all done
-        Ok(())*/
     }
 
     async fn on_leave_request(&mut self, msg: Message) -> Result<(), SessionError> {
@@ -1556,7 +1444,7 @@ where
 
                 let commit = self.endpoint.create_channel_message(
                     &self.endpoint.channel_name,
-                    None,
+                    self.endpoint.channel_id,
                     true,
                     ProtoSessionMessageType::ChannelMlsCommit,
                     commit_id,
@@ -1621,7 +1509,7 @@ where
         let proposal_id = self.mls_state.as_mut().unwrap().get_next_mls_mgs_id();
         let proposal = self.endpoint.create_channel_message(
             &self.endpoint.channel_name,
-            None,
+            self.endpoint.channel_id,
             true,
             ProtoSessionMessageType::ChannelMlsProposal,
             proposal_id,
