@@ -5,17 +5,13 @@ package controlplane
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"net"
-	"os"
-	"strconv"
 	"strings"
 
+	"github.com/agntcy/slim/control-plane/slimctl/internal/cmd/util"
 	"github.com/spf13/cobra"
 	"google.golang.org/protobuf/types/known/wrapperspb"
 
-	"github.com/agntcy/slim/control-plane/common/controller"
 	cpApi "github.com/agntcy/slim/control-plane/common/controlplane"
 	"github.com/agntcy/slim/control-plane/common/options"
 	grpcapi "github.com/agntcy/slim/control-plane/common/proto/controller/v1"
@@ -112,55 +108,56 @@ func newAddCmd(opts *options.CommonOptions) *cobra.Command {
 				)
 			}
 
-			organization, namespace, agentType, agentID, err := parseRoute(routeID)
+			organization, namespace, agentType, agentID, err := util.ParseRoute(routeID)
 			if err != nil {
 				return err
 			}
 
-			conn, err := parseConfigFile(configFile)
+			conn, err := util.ParseConfigFile(configFile)
 			if err != nil {
 				return err
-			}
-
-			subscription := &grpcapi.Subscription{
-				Organization: organization,
-				Namespace:    namespace,
-				AgentType:    agentType,
-				ConnectionId: conn.ConnectionId,
-				AgentId:      wrapperspb.UInt64(agentID),
 			}
 
 			ctx, cancel := context.WithTimeout(cmd.Context(), opts.Timeout)
 			defer cancel()
 
-			cpCLient, err := cpApi.GetClient(ctx, opts)
+			cpClient, err := cpApi.GetClient(ctx, opts)
 			if err != nil {
 				return fmt.Errorf("failed to get control plane client: %w", err)
 			}
 
-			controllerConfigCommand := &grpcapi.ConfigurationCommand{
-				ConnectionsToCreate:   []*grpcapi.Connection{conn},
-				SubscriptionsToSet:    []*grpcapi.Subscription{subscription},
-				SubscriptionsToDelete: []*grpcapi.Subscription{},
-			}
-
-			returnedMessage, err := cpCLient.ModifyConfiguration(ctx, &controlplaneApi.ConfigurationCommand{
-				ConfigurationCommand: controllerConfigCommand,
-				NodeId:               nodeID,
+			createConnectionResponse, err := cpClient.CreateConnection(ctx, &controlplaneApi.CreateConnectionRequest{
+				NodeId:     nodeID,
+				Connection: conn,
 			})
 			if err != nil {
-				return fmt.Errorf("failed to add route: %w", err)
+				return fmt.Errorf("failed to create connection: %w", err)
+			}
+			connectionId := createConnectionResponse.ConnectionId
+			if !createConnectionResponse.Success {
+				return fmt.Errorf("failed to create connection")
+			}
+			fmt.Printf("Connection created successfully with ID: %v\n", connectionId)
+
+			subscription := &grpcapi.Subscription{
+				Organization: organization,
+				Namespace:    namespace,
+				AgentType:    agentType,
+				ConnectionId: connectionId,
+				AgentId:      wrapperspb.UInt64(agentID),
 			}
 
-			fmt.Printf(
-				"ACK received for : success=%t\n",
-				returnedMessage.Success,
-			)
-			if len(returnedMessage.Messages) > 0 {
-				for i, ackMsg := range returnedMessage.Messages {
-					fmt.Printf("    [%d] %s\n", i+1, ackMsg)
-				}
+			createSubscriptionResponse, err := cpClient.CreateSubscription(ctx, &controlplaneApi.CreateSubscriptionRequest{
+				NodeId:       nodeID,
+				Subscription: subscription,
+			})
+			if err != nil {
+				return fmt.Errorf("failed to create subscription: %w", err)
 			}
+			if !createSubscriptionResponse.Success {
+				return fmt.Errorf("failed to create subscription")
+			}
+			fmt.Printf("Subscrption created successfully with ID: %v\n", createSubscriptionResponse.SubscriptionId)
 
 			return nil
 		},
@@ -189,12 +186,12 @@ func newDelCmd(opts *options.CommonOptions) *cobra.Command {
 				)
 			}
 
-			organization, namespace, agentType, agentID, err := parseRoute(routeID)
+			organization, namespace, agentType, agentID, err := util.ParseRoute(routeID)
 			if err != nil {
 				return err
 			}
 
-			_, connID, err := parseEndpoint(endpoint)
+			_, connID, err := util.ParseEndpoint(endpoint)
 			if err != nil {
 				return fmt.Errorf("invalid endpoint format '%s': %w", endpoint, err)
 			}
@@ -244,123 +241,4 @@ func newDelCmd(opts *options.CommonOptions) *cobra.Command {
 		},
 	}
 	return cmd
-}
-
-func parseRoute(route string) (
-	organization,
-	namespace,
-	agentType string,
-	agentID uint64,
-	err error,
-) {
-	parts := strings.Split(route, "/")
-
-	if len(parts) != 4 {
-		err = fmt.Errorf(
-			"invalid route format '%s', expected 'company/namespace/agentname/agentid'",
-			route,
-		)
-		return
-	}
-
-	if parts[0] == "" || parts[1] == "" || parts[2] == "" || parts[3] == "" {
-		err = fmt.Errorf(
-			"invalid route format '%s', expected 'company/namespace/agentname/agentid'",
-			route,
-		)
-		return
-	}
-
-	organization = parts[0]
-	namespace = parts[1]
-	agentType = parts[2]
-
-	agentID, err = strconv.ParseUint(parts[3], 10, 64)
-	if err != nil {
-		err = fmt.Errorf("invalid agent ID %s", parts[3])
-		return
-	}
-
-	return
-}
-
-func parseEndpoint(endpoint string) (*grpcapi.Connection, string, error) {
-	host, portStr, err := net.SplitHostPort(endpoint)
-	if err != nil {
-		return nil, "", fmt.Errorf(
-			"cannot split endpoint '%s' into host:port: %w",
-			endpoint,
-			err,
-		)
-	}
-
-	if host == "" {
-		return nil, "", fmt.Errorf(
-			"invalid endpoint format '%s': host part is missing",
-			endpoint,
-		)
-	}
-
-	port, err := strconv.ParseInt(portStr, 10, 32)
-	if err != nil {
-		return nil, "", fmt.Errorf(
-			"invalid port '%s' in endpoint '%s': %w",
-			portStr,
-			endpoint,
-			err,
-		)
-	}
-	if port <= 0 || port > 65535 {
-		return nil, "", fmt.Errorf(
-			"port number '%d' in endpoint '%s' out of range (1-65535)",
-			port,
-			endpoint,
-		)
-	}
-
-	connID := endpoint
-	conn := &grpcapi.Connection{
-		ConnectionId: connID,
-		ConfigData:   "",
-	}
-
-	return conn, connID, nil
-}
-
-func parseConfigFile(configFile string) (*grpcapi.Connection, error) {
-	if configFile == "" {
-		return nil, fmt.Errorf("config file path cannot be empty")
-	}
-	if !strings.HasSuffix(configFile, ".json") {
-		return nil, fmt.Errorf("config file '%s' must be a JSON file", configFile)
-	}
-
-	// Read the file content as a string
-	data, err := os.ReadFile(configFile)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read config file: %w", err)
-	}
-	// validate the json data against the ConfigClient Schema
-	if !controller.Validate(data) {
-		return nil, fmt.Errorf("failed to validate config data")
-	}
-
-	configData := string(data)
-
-	// Parse the JSON and extract the endpoint value
-	var jsonObj map[string]interface{}
-	if err := json.Unmarshal(data, &jsonObj); err != nil {
-		return nil, fmt.Errorf("invalid JSON in config file: %w", err)
-	}
-	endpoint, ok := jsonObj["endpoint"].(string)
-	if !ok || endpoint == "" {
-		return nil, fmt.Errorf("'endpoint' key not found in config data")
-	}
-
-	conn := &grpcapi.Connection{
-		ConnectionId: endpoint,
-		ConfigData:   configData,
-	}
-
-	return conn, nil
 }
