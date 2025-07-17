@@ -6,6 +6,7 @@ type DataAccess interface {
 	ListNodes() ([]Node, error)
 	GetNode(id string) (*Node, error)
 	SaveNode(node Node) (string, error)
+	DeleteNode(id string) error
 
 	ListConnectionsByNodeID(nodeID string) ([]Connection, error)
 	SaveConnection(connection Connection) (string, error)
