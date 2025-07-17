@@ -6,10 +6,12 @@ import (
 	"log"
 	"net"
 
+	southboundApi "github.com/agntcy/slim/control-plane/common/proto/controller/v1"
 	controlplaneApi "github.com/agntcy/slim/control-plane/common/proto/controlplane/v1"
 	"github.com/agntcy/slim/control-plane/control-plane/internal/config"
 	"github.com/agntcy/slim/control-plane/control-plane/internal/db"
 	"github.com/agntcy/slim/control-plane/control-plane/internal/services/nbapiservice"
+	"github.com/agntcy/slim/control-plane/control-plane/internal/services/sbapiservice"
 	"google.golang.org/grpc"
 )
 
@@ -19,17 +21,35 @@ func main() {
 	config := config.DefaultConfig().OverrideFromFile(*configFile).OverrideFromEnv().Validate()
 
 	var opts []grpc.ServerOption
-	grpcServer := grpc.NewServer(opts...)
+
 	dbService := db.NewInMemoryDBService()
 	nodeService := nbapiservice.NewNodeService(dbService)
 	routeService := nbapiservice.NewRouteService()
 	configService := nbapiservice.NewConfigService()
-	cpServer := nbapiservice.NewNorthboundAPIServer(nodeService, routeService, configService)
-	controlplaneApi.RegisterControlPlaneServiceServer(grpcServer, cpServer)
-	listeningAddress := fmt.Sprintf("%s:%s", config.HttpHost, config.HttpPort)
-	lis, err := net.Listen("tcp", listeningAddress)
+
+	go func() {
+		cpServer := nbapiservice.NewNorthboundAPIServer(nodeService, routeService, configService)
+		grpcServer := grpc.NewServer(opts...)
+		controlplaneApi.RegisterControlPlaneServiceServer(grpcServer, cpServer)
+
+		listeningAddress := fmt.Sprintf("%s:%s", config.Northbound.HttpHost, config.Northbound.HttpPort)
+		lis, err := net.Listen("tcp", listeningAddress)
+		if err != nil {
+			log.Fatalf("failed to listen: %v", err)
+		}
+		fmt.Printf("Northbound API Service is listening on %s\n", lis.Addr())
+		grpcServer.Serve(lis)
+	}()
+
+	sbGrpcServer := grpc.NewServer(opts...)
+	sbApiSvc := sbapiservice.NewSBAPIService(dbService)
+	southboundApi.RegisterControllerServiceServer(sbGrpcServer, sbApiSvc)
+
+	sbListeningAddress := fmt.Sprintf("%s:%s", config.Southbound.HttpHost, config.Southbound.HttpPort)
+	lisSB, err := net.Listen("tcp", sbListeningAddress)
 	if err != nil {
 		log.Fatalf("failed to listen: %v", err)
 	}
-	grpcServer.Serve(lis)
+	fmt.Printf("Southbound API Service is Listening on %s\n", lisSB.Addr())
+	sbGrpcServer.Serve(lisSB)
 }

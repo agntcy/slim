@@ -1,2 +1,6 @@
-httpHost: localhost
-httpPort: 8080
+northbound:
+  httpHost: localhost
+  httpPort: 8080
+southbound:
+  httpHost: localhost
+  httpPort: 8081
