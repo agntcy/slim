@@ -41,6 +41,8 @@ pub enum ServiceError {
     MessageSendingError(String),
     #[error("error in controller: {0}")]
     ControllerError(String),
+    #[error("storage error: {0}")]
+    StorageError(String),
     #[error("unknown error")]
     Unknown,
 }

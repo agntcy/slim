@@ -168,8 +168,8 @@ mod tests {
             agent,
             SimpleGroup::new("test", "group"),
             SimpleGroup::new("test", "group"),
+            std::path::PathBuf::from("/tmp/mls_interceptor_test_without_group"),
         );
-        mls.set_storage_path("/tmp/mls_interceptor_test_without_group");
         mls.initialize().unwrap();
 
         let mls_arc = Arc::new(Mutex::new(mls));
@@ -204,14 +204,14 @@ mod tests {
             alice_agent,
             SimpleGroup::new("alice", "group"),
             SimpleGroup::new("alice", "group"),
+            std::path::PathBuf::from("/tmp/mls_interceptor_test_alice"),
         );
-        alice_mls.set_storage_path("/tmp/mls_interceptor_test_alice");
         let mut bob_mls = Mls::new(
             bob_agent,
             SimpleGroup::new("bob", "group"),
             SimpleGroup::new("bob", "group"),
+            std::path::PathBuf::from("/tmp/mls_interceptor_test_bob"),
         );
-        bob_mls.set_storage_path("/tmp/mls_interceptor_test_bob");
 
         alice_mls.initialize().unwrap();
         bob_mls.initialize().unwrap();
@@ -265,8 +265,8 @@ mod tests {
             agent,
             SimpleGroup::new("test", "group"),
             SimpleGroup::new("test", "group"),
+            std::path::PathBuf::from("/tmp/mls_interceptor_test_non_encrypted"),
         );
-        mls.set_storage_path("/tmp/mls_interceptor_test_non_encrypted");
         mls.initialize().unwrap();
         mls.create_group().unwrap();
 
