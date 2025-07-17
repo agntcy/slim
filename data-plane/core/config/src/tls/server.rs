@@ -94,6 +94,15 @@ impl TlsServerConfig {
         }
     }
 
+    /// Create insecure TlsServerConfig
+    /// This will disable TLS and allow all connections
+    pub fn insecure() -> Self {
+        TlsServerConfig {
+            insecure: true,
+            ..Default::default()
+        }
+    }
+
     /// Set insecure (disable TLS)
     pub fn with_insecure(self, insecure: bool) -> Self {
         TlsServerConfig { insecure, ..self }

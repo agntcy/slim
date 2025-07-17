@@ -39,6 +39,8 @@ pub enum ServiceError {
     ServerNotFound(String),
     #[error("error sending message: {0}")]
     MessageSendingError(String),
+    #[error("error in controller: {0}")]
+    ControllerError(String),
     #[error("storage error: {0}")]
     StorageError(String),
     #[error("unknown error")]

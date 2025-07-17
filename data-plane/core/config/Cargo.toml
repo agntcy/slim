@@ -14,6 +14,7 @@ path = "src/grpc/schema/generate_schema.rs"
 
 [dependencies]
 agntcy-slim-auth.workspace = true
+drain = { workspace = true }
 duration-str = { workspace = true }
 futures = { workspace = true }
 http = { workspace = true }
@@ -32,6 +33,7 @@ serde_json.workspace = true
 serde_yaml = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true }
+tokio-util = { workspace = true }
 tonic = { workspace = true }
 tonic-tls = { workspace = true }
 tower = { workspace = true }

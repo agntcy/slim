@@ -21,6 +21,7 @@ mod channel_endpoint;
 
 pub use fire_and_forget::FireAndForgetConfiguration;
 pub use session::SessionMessage;
+use slim_controller::config::Config as ControllerConfig;
 pub use slim_datapath::messages::utils::SlimHeaderFlags;
 pub use streaming::StreamingConfiguration;
 
@@ -42,8 +43,7 @@ use slim_config::component::id::{ID, Kind};
 use slim_config::component::{Component, ComponentBuilder, ComponentError};
 use slim_config::grpc::client::ClientConfig;
 use slim_config::grpc::server::ServerConfig;
-use slim_controller::api::proto::api::v1::controller_service_server::ControllerServiceServer;
-use slim_controller::service::ControllerService;
+use slim_controller::service::ControlPlane;
 use slim_datapath::api::PubSubServiceServer;
 use slim_datapath::message_processing::MessageProcessor;
 
@@ -61,17 +61,6 @@ pub struct PubsubConfig {
     /// Pubsub client config to connect to other services
     #[serde(default)]
     clients: Vec<ClientConfig>,
-}
-
-#[derive(Debug, Clone, Deserialize, Default)]
-pub struct ControllerConfig {
-    /// Controller GRPC server settings
-    #[serde(default)]
-    server: Option<ServerConfig>,
-
-    /// Controller client config to connect to control plane
-    #[serde(default)]
-    client: Option<ClientConfig>,
 }
 
 #[derive(Debug, Clone, Deserialize, Default)]
@@ -108,14 +97,6 @@ impl ServiceConfiguration {
         &self.pubsub.clients
     }
 
-    pub fn controller_server(&self) -> Option<&ServerConfig> {
-        self.controller.server.as_ref()
-    }
-
-    pub fn controller_client(&self) -> Option<&ClientConfig> {
-        self.controller.client.as_ref()
-    }
-
     pub fn build_server(&self, id: ID) -> Result<Service, ServiceError> {
         let service = Service::new(id).with_config(self.clone());
         Ok(service)
@@ -132,13 +113,8 @@ impl Configuration for ServiceConfiguration {
             client.validate()?;
         }
 
-        // Validate the control server and client
-        if let Some(server) = self.controller.server.as_ref() {
-            server.validate()?;
-        }
-        if let Some(client) = self.controller.client.as_ref() {
-            client.validate()?;
-        }
+        // Validate the controller
+        self.controller.validate()?;
 
         Ok(())
     }
@@ -153,10 +129,7 @@ pub struct Service {
     message_processor: Arc<MessageProcessor>,
 
     /// controller service
-    controller: Arc<ControllerService>,
-
-    /// cancellation tokens to stop the servers main loop
-    controller_cancellation_token: CancellationToken,
+    controller: Option<ControlPlane>,
 
     /// the configuration of the service
     config: ServiceConfiguration,
@@ -181,14 +154,10 @@ impl Service {
 
         let message_processor = Arc::new(MessageProcessor::with_drain_channel(watch.clone()));
 
-        // create the controller service
-        let controller = Arc::new(ControllerService::new(message_processor.clone()));
-
         Service {
             id,
             message_processor,
-            controller,
-            controller_cancellation_token: CancellationToken::new(),
+            controller: None,
             config: ServiceConfiguration::new(),
             watch,
             signal,
@@ -230,36 +199,32 @@ impl Service {
             ));
         }
 
+        // Run servers
         for server in self.config.pubsub.servers.iter() {
             info!("starting server {}", server.endpoint);
             self.run_server(server)?;
         }
 
+        // Run clients
         for client in self.config.pubsub.clients.iter() {
             info!("connecting client to {}", client.endpoint);
             _ = self.connect(client).await?;
         }
 
         // Controller service
-        if self.config.controller_server().is_some() {
-            info!("starting controller server");
-            self.serve_controller()?;
-        }
+        let mut controller = self.config.controller.into_service(
+            self.id.clone(),
+            self.watch.clone(),
+            self.message_processor.clone(),
+        );
 
-        if let Some(controller_client) = self.config.controller_client() {
-            info!(
-                "connecting controller client {}",
-                controller_client.endpoint
-            );
-            let channel = controller_client
-                .to_channel()
-                .map_err(|e| ServiceError::ConfigError(e.to_string()))?;
+        // run controller service
+        controller.run().await.map_err(|e| {
+            ServiceError::ControllerError(format!("failed to run controller service: {}", e))
+        })?;
 
-            self.controller
-                .connect(channel)
-                .await
-                .expect("error connecting controller client");
-        }
+        // save controller service
+        self.controller = Some(controller);
 
         Ok(())
     }
@@ -317,46 +282,19 @@ impl Service {
 
     pub fn run_server(&self, config: &ServerConfig) -> Result<(), ServiceError> {
         info!(%config, "server configured: setting it up");
-        let server_future = config
-            .to_server_future(&[PubSubServiceServer::from_arc(
-                self.message_processor.clone(),
-            )])
-            .map_err(|e| ServiceError::ConfigError(e.to_string()))?;
 
-        // clone the watcher to be notified when the service is shutting down
-        let drain_rx = self.watch.clone();
+        let cancellation_token = config
+            .run_server(
+                &[PubSubServiceServer::from_arc(
+                    self.message_processor.clone(),
+                )],
+                self.watch.clone(),
+            )
+            .map_err(|e| ServiceError::ConfigError(format!("failed to run server: {}", e)))?;
 
-        // create a new cancellation token
-        let token = CancellationToken::new();
         self.cancellation_tokens
             .write()
-            .insert(config.endpoint.clone(), token.clone());
-
-        // spawn server acceptor in a new task
-        tokio::spawn(async move {
-            debug!("starting server main loop");
-            let shutdown = drain_rx.signaled();
-
-            info!("running service");
-            tokio::select! {
-                res = server_future => {
-                    match res {
-                        Ok(_) => {
-                            info!("server shutdown");
-                        }
-                        Err(e) => {
-                            info!("server error: {:?}", e);
-                        }
-                    }
-                }
-                _ = shutdown => {
-                    info!("shutting down server");
-                }
-                _ = token.cancelled() => {
-                    info!("cancellation token triggered: shutting down server");
-                }
-            }
-        });
+            .insert(config.endpoint.clone(), cancellation_token);
 
         Ok(())
     }
@@ -423,51 +361,6 @@ impl Service {
 
     pub fn get_connection_id(&self, endpoint: &str) -> Option<u64> {
         self.clients.read().get(endpoint).cloned()
-    }
-
-    fn serve_controller(&self) -> Result<(), ServiceError> {
-        let controller_server_config = match self.config.controller_server() {
-            Some(s) => s.clone(),
-            None => {
-                error!("no controller server configured");
-                return Err(ServiceError::ConfigError(
-                    "no controller server configured".into(),
-                ));
-            }
-        };
-
-        info!("controller server configured: setting it up");
-
-        let server_future = controller_server_config
-            .to_server_future(&[ControllerServiceServer::from_arc(self.controller.clone())])
-            .map_err(|e| ServiceError::ConfigError(e.to_string()))?;
-
-        // clone the watcher to be notified when the service is shutting down
-        let drain_rx = self.watch.clone();
-
-        let token = self.controller_cancellation_token.clone();
-
-        tokio::spawn(async move {
-            info!("controller server running");
-            let shutdown = drain_rx.signaled();
-
-            tokio::select! {
-                res = server_future => {
-                    match res {
-                        Ok(_) => info!("controller server shutdown"),
-                        Err(e) => error!("controller server error: {:?}", e),
-                    }
-                }
-                _ = shutdown => {
-                    info!("shutting down controller server");
-                }
-                _ = token.cancelled() => {
-                    info!("Shutting down controller server (cancellation token triggered)");
-                }
-            }
-        });
-
-        Ok(())
     }
 }
 
