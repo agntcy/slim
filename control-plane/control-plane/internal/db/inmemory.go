@@ -195,8 +195,16 @@ func (d *dbService) ListSubscriptionsByNodeID(nodeID string) ([]Subscription, er
 }
 
 func NewInMemoryDBService() DataAccess {
+	// TODO: Remove temporary hardcoded node
+	nodes := make(map[string]Node)
+	nodes["node1"] = Node{
+		ID:   "node1",
+		Host: "127.0.0.1",
+		Port: 46368,
+	}
+
 	return &dbService{
-		nodes:         make(map[string]Node),
+		nodes:         nodes,
 		connections:   make(map[string]Connection),
 		subscriptions: make(map[string]Subscription),
 	}

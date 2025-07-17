@@ -108,6 +108,7 @@ func (s *nbAPIService) CreateSubscription(ctx context.Context, createSubscriptio
 	opts.Server = slimEndpoint
 	opts.TLSInsecure = true
 	connectionID := createSubscriptionRequest.Subscription.ConnectionId
+	// Instead of ID node should send endpoint as connection Id to the Node
 	endpoint, err := s.nodeService.GetConnectionDetails(createSubscriptionRequest.NodeId, connectionID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get connection by ID: %v", err)
@@ -120,6 +121,10 @@ func (s *nbAPIService) CreateSubscription(ctx context.Context, createSubscriptio
 		fmt.Printf("router error: %v\n", err.Error())
 		return nil, fmt.Errorf("failed to create subscription: %v", err)
 	}
+
+	// To properly save the subscription we restore the original connection ID making sure that db validation passes
+	createSubscriptionRequest.Subscription.ConnectionId = connectionID
+
 	subscriptionID, err := s.nodeService.SaveSubscription(createSubscriptionRequest.NodeId, createSubscriptionRequest.Subscription)
 	if err != nil {
 		fmt.Printf("save error: %v\n", err.Error())
