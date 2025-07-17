@@ -195,3 +195,13 @@ tasks:
       - |
         go build -o \
           {{.OUTPUT_DIR}}/bin/control-plane
+
+  control-plane:control-plane:run:
+    desc: Runs the control plane binary
+    deps:
+      - control-plane:control-plane:build
+    cmds:
+      - |
+        {{.OUTPUT_DIR}}/bin/control-plane \
+          --config {{.REPO_ROOT}}/control-plane/config.yaml \
+          --log-level debug
