@@ -10,7 +10,7 @@
 package controlplanev1
 
 import (
-	v1 "github.com/agntcy/slim/control-plane/common/proto/controller/v1"
+	v1 "github.com/agntcy/slim/control-plane/internal/proto/controller/v1"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	reflect "reflect"
