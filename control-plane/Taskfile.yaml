@@ -181,3 +181,17 @@ tasks:
     cmds:
       - task: control-plane:token-service:build
       - task: control-plane:slimctl:build
+
+
+  #  control plane related tasks
+  control-plane:control-plane:build:
+    desc: Builds the control plane binary
+    deps:
+      - control-plane:proto:generate
+    dir: control-plane/cmd
+    cmds:
+      - |
+        go generate ./../...
+      - |
+        go build -o \
+          {{.OUTPUT_DIR}}/bin/control-plane
