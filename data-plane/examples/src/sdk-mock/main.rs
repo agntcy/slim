@@ -104,8 +104,12 @@ async fn main() {
             // Server: create group and wait for client key package
             let identity_provider = SimpleGroup::new("server", "group");
             let identity_verifier = SimpleGroup::new("server", "group");
-            let mut server_mls =
-                slim_mls::mls::Mls::new(agent_name.clone(), identity_provider, identity_verifier);
+            let mut server_mls = slim_mls::mls::Mls::new(
+                agent_name.clone(),
+                identity_provider,
+                identity_verifier,
+                std::path::PathBuf::from("/tmp/server_mls"),
+            );
             server_mls.initialize().unwrap();
 
             // Create group
@@ -166,8 +170,12 @@ async fn main() {
             // Client: generate key package and wait for welcome message
             let identity_provider = SimpleGroup::new("client", "group");
             let identity_verifier = SimpleGroup::new("client", "group");
-            let mut client_mls =
-                slim_mls::mls::Mls::new(agent_name.clone(), identity_provider, identity_verifier);
+            let mut client_mls = slim_mls::mls::Mls::new(
+                agent_name.clone(),
+                identity_provider,
+                identity_verifier,
+                std::path::PathBuf::from("/tmp/client_mls"),
+            );
             client_mls.initialize().unwrap();
 
             // Generate and save key package for server to use
