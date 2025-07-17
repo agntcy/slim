@@ -5,8 +5,11 @@ package controlplane
 
 import (
 	"context"
+	"fmt"
 
-	"github.com/agntcy/slim/control-plane/slimctl/internal/options"
+	cpApi "github.com/agntcy/slim/control-plane/common/controlplane"
+	"github.com/agntcy/slim/control-plane/common/options"
+	controlplaneApi "github.com/agntcy/slim/control-plane/common/proto/controlplane/v1"
 	"github.com/spf13/cobra"
 )
 
@@ -29,8 +32,24 @@ func newListNodesCmd(opts *options.CommonOptions) *cobra.Command {
 		Long:  `List nodes connected to the control plane`,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 
-			_, cancel := context.WithTimeout(cmd.Context(), opts.Timeout)
+			ctx, cancel := context.WithTimeout(cmd.Context(), opts.Timeout)
 			defer cancel()
+
+			cpCLient, err := cpApi.GetClient(ctx, opts)
+			if err != nil {
+				return fmt.Errorf("failed to get control plane client: %w", err)
+			}
+			listResponse, err := cpCLient.ListNodes(ctx, &controlplaneApi.NodeListRequest{})
+			if err != nil {
+				return fmt.Errorf("failed to list nodes: %w", err)
+			}
+
+			// iterate through the nodes and print their details
+			for _, node := range listResponse.Entries {
+				fmt.Printf("Node ID: %s, Host: %s, Port: %s\n",
+					node.Id, node.Host, node.Port)
+			}
+
 			return nil
 		},
 	}

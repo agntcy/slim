@@ -4,7 +4,7 @@
 package controlplane
 
 import (
-	"github.com/agntcy/slim/control-plane/slimctl/internal/options"
+	"github.com/agntcy/slim/control-plane/common/options"
 	"github.com/spf13/cobra"
 )
 
@@ -14,7 +14,7 @@ func NewCpCmd(opts *options.CommonOptions) *cobra.Command {
 		Short: "Manage SLIM nodes through the control plane",
 		Long:  `Manage SLIM node routes etc. through the control plane`,
 	}
-	
+
 	cmd.AddCommand(NewRouteCmd(opts))
 	cmd.AddCommand(NewNodeCmd(opts))
 
