@@ -13,7 +13,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func NewNodeCmd(opts *options.CommonOptions) *cobra.Command {
+func newNodeCmd(opts *options.CommonOptions) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "node",
 		Short: "Manage SLIM nodes",
