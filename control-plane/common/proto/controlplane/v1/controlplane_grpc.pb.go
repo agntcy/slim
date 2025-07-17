@@ -11,7 +11,7 @@ package controlplanev1
 
 import (
 	context "context"
-	v1 "github.com/agntcy/slim/control-plane/internal/proto/controller/v1"
+	v1 "github.com/agntcy/slim/control-plane/common/proto/controller/v1"
 	grpc "google.golang.org/grpc"
 	codes "google.golang.org/grpc/codes"
 	status "google.golang.org/grpc/status"
