@@ -378,6 +378,25 @@ where
         Ok(commit_msg)
     }
 
+    pub fn process_local_pending_proposal(
+        &mut self,
+    ) -> Result<CommitMsg, MlsError> {
+        let group = self.group.as_mut().ok_or(MlsError::GroupNotExists)?;
+
+        // create commit message from proposal
+        let commit = Self::map_mls_error(group.commit_builder().build())?;
+
+        println!("------- commit from proposal message = {:?}", commit);
+
+        // apply the commit locally
+        Self::map_mls_error(group.apply_pending_commit())?;
+
+        // return the commit message
+        let commit_msg = Self::map_mls_error(commit.commit_message.to_bytes())?;
+        Ok(commit_msg)
+    }
+
+
     pub fn encrypt_message(&mut self, message: &[u8]) -> Result<Vec<u8>, MlsError> {
         debug!("Encrypting MLS message");
 

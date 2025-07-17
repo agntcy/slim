@@ -21,7 +21,7 @@ use slim_datapath::{
     },
     messages::{Agent, AgentType, utils::SlimHeaderFlags},
 };
-use slim_mls::mls::{CommitMsg, KeyPackageMsg, Mls, MlsIdentity, WelcomeMsg};
+use slim_mls::mls::{CommitMsg, KeyPackageMsg, Mls, MlsIdentity, ProposalMsg, WelcomeMsg};
 
 struct RequestTimerObserver<T>
 where
@@ -415,28 +415,23 @@ where
         Ok(ret)
     }
 
-    async fn process_proposal_message(&mut self, msg: &Message) -> Result<CommitMsg, SessionError> {
-        let content = msg
-            .get_payload()
-            .map_or_else(
-                || {
-                    error!("missing payload in a Mls Proposal, ignore the message");
-                    Err(SessionError::Processing(
-                        "missing payload in a Mls Proposal".to_string(),
-                    ))
-                },
-                |content| -> Result<(MlsProposalMessagePayload, usize), SessionError> {
-                    bincode::decode_from_slice(&content.blob, bincode::config::standard())
-                        .map_err(|e| SessionError::ParseProposalMessage(e.to_string()))
-                },
-            )?
-            .0;
-
+    async fn process_proposal_message(&mut self, proposal: &ProposalMsg) -> Result<CommitMsg, SessionError> {
         let commit = self
             .common
             .mls
             .lock()
-            .process_proposal(&content.mls_msg, true)
+            .process_proposal(proposal, true)
+            .map_err(|e| SessionError::CommitMessage(e.to_string()))?;
+
+        Ok(commit)
+    }
+
+    async fn process_local_pending_proposal(&mut self) -> Result<CommitMsg, SessionError> {
+        let commit = self
+            .common
+            .mls
+            .lock()
+            .process_local_pending_proposal()
             .map_err(|e| SessionError::CommitMessage(e.to_string()))?;
 
         Ok(commit)
@@ -985,12 +980,12 @@ where
     T: SessionTransmitter + Send + Sync + Clone + 'static,
 {
     async fn update_mls_keys(&mut self) -> Result<(), SessionError> {
-        if self.endpoint.name.to_string()
-            == "873e580376ea963b/eef9769a4c6990d1/fce202f8552b1181/1".to_string()
-        {
+        //if self.endpoint.name.to_string()
+        //    == "873e580376ea963b/eef9769a4c6990d1/fce202f8552b1181/1".to_string()
+        //{
             println!("------------------ skip update");
             return Ok(());
-        }
+        //}
 
         if self.mls_state.is_none() || self.moderator_name.is_none() {
             return Err(SessionError::NoMls);
@@ -1278,16 +1273,47 @@ where
                     self.forward(to_process.unwrap()).await?;
                 }
                 ProtoSessionMessageType::ChannelMlsProposal => {
-                    // TODO process message and create a commit message
-                    info!("recevied all the acks for the proposal message send the commit");
-                    let commit_payload = self
-                        .mls_state
-                        .as_mut()
-                        .unwrap()
-                        .process_proposal_message(&to_process.unwrap())
-                        .await?;
+                    // check the payload of the proposal message
+                    let content = &to_process.as_ref().unwrap()
+                        .get_payload()
+                        .map_or_else(
+                            || {
+                                error!("missing payload in a Mls Proposal, ignore the message");
+                                Err(SessionError::Processing(
+                                    "missing payload in a Mls Proposal".to_string(),
+                                ))
+                            },
+                            |content| -> Result<(MlsProposalMessagePayload, usize), SessionError> {
+                                bincode::decode_from_slice(&content.blob, bincode::config::standard())
+                                    .map_err(|e| SessionError::ParseProposalMessage(e.to_string()))
+                            },
+                        )?
+                        .0;
 
-                    // bradcast the commit
+                    let commit_payload;
+                    if content.source_name == self.endpoint.name {
+                        // this proposal was originated by the moderator itself
+                        // apply it and send the commit
+                        info!("recevied all the acks for the local proposal message send the commit");
+                        commit_payload = self
+                            .mls_state
+                            .as_mut()
+                            .unwrap()
+                            .process_local_pending_proposal()
+                            .await?;
+                    } else {
+                        // the proposal comes from a participant
+                        // process the content and send the commit
+                        info!("recevied all the acks for the proposal message send the commit");
+                        commit_payload = self
+                            .mls_state
+                            .as_mut()
+                            .unwrap()
+                            .process_proposal_message(&content.mls_msg)
+                            .await?;
+                    }
+        
+                    // brodcast the commit
                     let commit_id = self.mls_state.as_mut().unwrap().get_next_mls_mgs_id();
 
                     let commit = self.endpoint.create_channel_message(
@@ -1574,33 +1600,40 @@ where
     T: SessionTransmitter + Send + Sync + Clone + 'static,
 {
     async fn update_mls_keys(&mut self) -> Result<(), SessionError> {
-        println!("----- for the moderator do nothing at the moment");
-        return Ok(());
-
-        // TODO
-        /*if self.mls_state.is_some() {
+        if self.mls_state.is_none() {
             return Err(SessionError::NoMls);
         }
-        // TODO: get message from MLS. this must be a commit not a proposal
 
-        let payload = vec![];
-        let commit_id = self.mls_state.as_mut().unwrap().get_next_mls_mgs_id();
+        info!("start to update mls keys");
+        let mls = &self.mls_state.as_mut().unwrap().common;
+        let proposal_msg;
+        {
+            let mut lock = mls.mls.lock();
+            proposal_msg = lock
+                .create_rotation_proposal()
+                .map_err(|e| SessionError::NewProposalMessage(e.to_string()))?;
+        }
+        info!("proposal succesfully created");
 
-        let commit = self.endpoint.create_channel_message(
+        let content = MlsProposalMessagePayload::new(self.endpoint.name.clone(), proposal_msg);
+        let payload: Vec<u8> =
+            bincode::encode_to_vec(&content, bincode::config::standard()).unwrap();
+        let proposal_id = self.mls_state.as_mut().unwrap().get_next_mls_mgs_id();
+        let proposal = self.endpoint.create_channel_message(
             &self.endpoint.channel_name,
             None,
             true,
-            ProtoSessionMessageType::ChannelMlsCommit,
-            commit_id,
+            ProtoSessionMessageType::ChannelMlsProposal,
+            proposal_id,
             payload,
         );
 
+        info!("Send MLS Proposal Message to the channel (moderator key update)");
         let len = self.mls_state.as_ref().unwrap().participants.len();
-        debug!("Send MLS Commit Message to the channel (moderator key update)");
-        self.endpoint.send(commit.clone()).await?;
-        self.create_timer(commit_id, len.try_into().unwrap(), commit, None);
+        self.endpoint.send(proposal.clone()).await?;
+        self.create_timer(proposal_id, len.try_into().unwrap(), proposal.clone(), Some(proposal));
 
-        Ok(())*/
+        Ok(())
     }
 
     fn is_mls_up(&self) -> Result<bool, SessionError> {
