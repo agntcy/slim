@@ -350,21 +350,29 @@ where
         Ok(group_id)
     }
 
-    pub fn process_proposal(&mut self, proposal_message: &[u8]) -> Result<CommitMsg, MlsError> {
+    pub fn process_proposal(
+        &mut self,
+        proposal_message: &[u8],
+        create_commit: bool,
+    ) -> Result<CommitMsg, MlsError> {
         let group = self.group.as_mut().ok_or(MlsError::GroupNotExists)?;
         let proposal = Self::map_mls_error(MlsMessage::from_bytes(proposal_message))?;
 
         Self::map_mls_error(group.process_incoming_message(proposal))?;
 
+        if !create_commit {
+            println!("------- process proposal but do not create commit");
+            return Ok(vec![]);
+        }
+
         // create commit message from proposal
-        let commit = Self::map_mls_error(
-            group
-                .commit_builder()
-                .build())?;
-        
+        let commit = Self::map_mls_error(group.commit_builder().build())?;
+
+        println!("------- commit from proposal message = {:?}", commit);
+
         // apply the commit locally
         Self::map_mls_error(group.apply_pending_commit())?;
-        
+
         // return the commit message
         let commit_msg = Self::map_mls_error(commit.commit_message.to_bytes())?;
         Ok(commit_msg)
@@ -445,6 +453,8 @@ where
             .identity_provider
             .get_token()
             .map_err(|e| MlsError::TokenRetrievalFailed(e.to_string()))?;
+        //println!("----------- c_token {}", c_token);
+        //let token = "new_token".to_string();
 
         let credential_data = token.as_bytes().to_vec();
         let basic_cred = BasicCredential::new(credential_data);
@@ -472,6 +482,7 @@ where
             stored.save_to_storage(&storage_path)?;
         }
 
+        println!("------- proposal message = {:?}", update_proposal);
         Self::map_mls_error(update_proposal.to_bytes())
     }
 }
@@ -843,7 +854,7 @@ mod tests {
         Ok(())
     }*/
 
-    /*#[test]
+    #[test]
     fn test_full_credential_rotation_flow() -> Result<(), Box<dyn std::error::Error>> {
         let alice_path = "/tmp/mls_test_full_rotation_alice";
         let bob_path = "/tmp/mls_test_full_rotation_bob";
@@ -909,20 +920,20 @@ mod tests {
         let initial_version = alice.stored_identity.as_ref().unwrap().credential_version;
 
         // Alice rotates her credential
-        alice.identity_provider = SimpleGroup::new("alice", "secret_v2");
-        alice.identity_verifier = SimpleGroup::new("alice", "secret_v2");
+        //alice.identity_provider = SimpleGroup::new("alice", "secret_v2");
+        //alice.identity_verifier = SimpleGroup::new("alice", "secret_v2");
 
         // Alice should detect credential rotation and create a proposal
-        let rotation_proposal = alice.check_credential_rotation()?;
-        assert!(
-            rotation_proposal.is_some(),
-            "Should detect credential rotation"
-        );
+        let rotation_proposal = alice.create_rotation_proposal()?;
+        //assert!(
+        //    rotation_proposal.is_some(),
+        //    "Should detect credential rotation"
+        //);
 
-        let proposal_bytes = rotation_proposal.unwrap();
+        //let proposal_bytes = rotation_proposal.unwrap();
 
         // Alice sends the proposal to the moderator
-        let proposal_message = MlsMessage::from_bytes(&proposal_bytes)
+        let proposal_message = MlsMessage::from_bytes(&rotation_proposal)
             .map_err(|e| format!("Failed to parse proposal: {}", e))?;
         // Moderator processes the proposal
         let moderator_group = moderator.group.as_mut().unwrap();
@@ -980,5 +991,5 @@ mod tests {
 
         // The end.
         Ok(())
-    }*/
+    }
 }
