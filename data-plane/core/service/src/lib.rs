@@ -127,7 +127,7 @@ pub struct Service {
     message_processor: Arc<MessageProcessor>,
 
     /// controller service
-    controller: ControlPlane,
+    controller: Option<ControlPlane>,
 
     /// the configuration of the service
     config: ServiceConfiguration,
@@ -152,19 +152,10 @@ impl Service {
 
         let message_processor = Arc::new(MessageProcessor::with_drain_channel(watch.clone()));
 
-        // create the controller service
-        let controller = ControlPlane::new(
-            id.clone(),
-            vec![],
-            vec![],
-            watch.clone(),
-            message_processor.clone(),
-        );
-
         Service {
             id,
             message_processor,
-            controller,
+            controller: None,
             config: ServiceConfiguration::new(),
             watch,
             signal,
@@ -175,17 +166,7 @@ impl Service {
 
     /// Set the configuration of the service
     pub fn with_config(self, config: ServiceConfiguration) -> Self {
-        let controller = config.controller.clone().into_service(
-            self.id.clone(),
-            self.watch.clone(),
-            self.message_processor.clone(),
-        );
-
-        Service {
-            config,
-            controller,
-            ..self
-        }
+        Service { config, ..self }
     }
 
     /// Set the message processor of the service
@@ -216,20 +197,32 @@ impl Service {
             ));
         }
 
+        // Run servers
         for server in self.config.pubsub.servers.iter() {
             info!("starting server {}", server.endpoint);
             self.run_server(server)?;
         }
 
+        // Run clients
         for client in self.config.pubsub.clients.iter() {
             info!("connecting client to {}", client.endpoint);
             _ = self.connect(client).await?;
         }
 
         // Controller service
-        self.controller.run().await.map_err(|e| {
+        let mut controller = self.config.controller.into_service(
+            self.id.clone(),
+            self.watch.clone(),
+            self.message_processor.clone(),
+        );
+
+        // run controller service
+        controller.run().await.map_err(|e| {
             ServiceError::ControllerError(format!("failed to run controller service: {}", e))
         })?;
+
+        // save controller service
+        self.controller = Some(controller);
 
         Ok(())
     }

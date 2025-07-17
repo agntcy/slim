@@ -51,14 +51,19 @@ impl Config {
     }
 
     /// Create a ControlPlane service instance from this configuration
-    /// beware this call consumes the config and returns a service instance
     pub fn into_service(
-        self,
+        &self,
         id: ID,
         rx_drain: drain::Watch,
         message_processor: Arc<MessageProcessor>,
     ) -> ControlPlane {
-        ControlPlane::new(id, self.servers, self.clients, rx_drain, message_processor)
+        ControlPlane::new(
+            id,
+            self.servers.clone(),
+            self.clients.clone(),
+            rx_drain,
+            message_processor,
+        )
     }
 }
 

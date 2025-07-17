@@ -1,7 +1,6 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
-use core::error;
 use std::collections::HashMap;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -288,6 +287,7 @@ impl ControllerService {
                 match payload {
                     Payload::ConfigCommand(config) => {
                         for conn in &config.connections_to_create {
+                            error!("received a connection to create: {:?}", conn);
                             let client_config =
                                 serde_json::from_str::<ClientConfig>(&conn.config_data)
                                     .map_err(|e| ControllerError::ConfigError(e.to_string()))?;
@@ -429,7 +429,7 @@ impl ControllerService {
                         };
 
                         if let Err(e) = tx.send(Ok(reply)).await {
-                            eprintln!("failed to send ACK: {}", e);
+                            error!("failed to send ACK: {}", e);
                         }
                     }
                     Payload::SubscriptionListRequest(_) => {
@@ -553,7 +553,7 @@ impl ControllerService {
                 }
             }
             None => {
-                println!(
+                error!(
                     "received control message {} with no payload",
                     msg.message_id
                 );
@@ -598,10 +598,12 @@ impl ControllerService {
                 })),
             };
 
-            // send register request
-            if let Err(e) = tx.send(Ok(register_request)).await {
-                error!("failed to send register request: {}", e);
-                return;
+            // send register request if client
+            if config.is_some() {
+                if let Err(e) = tx.send(Ok(register_request)).await {
+                    error!("failed to send register request: {}", e);
+                    return;
+                }
             }
 
             // TODO; here we should wait for an ack
@@ -843,7 +845,7 @@ mod tests {
             "received a register node request, this should not happen"
         ));
 
-        // drop the server and the client. This shoul also cancel the running listeners
+        // drop the server and the client. This should also cancel the running listeners
         // and close the connections gracefully.
         drop(control_plane_server);
         drop(control_plane_client);

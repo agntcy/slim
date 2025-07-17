@@ -27,9 +27,9 @@ tonic = { workspace = true }
 tracing = { workspace = true }
 uuid = { workspace = true, features = ["v4"] }
 
-[dev-dependencies]
-tracing-test = { workspace = true }
-
 [build-dependencies]
 protoc-bin-vendored = { workspace = true }
 tonic-build = { workspace = true, features = ["prost"] }
+
+[dev-dependencies]
+tracing-test = { workspace = true }
