@@ -10,19 +10,35 @@ import (
 )
 
 // Application configuration
+type controlPlaneConfig struct {
+	Northbound nbAPIconfig `yaml:"northbound"`
+	Southbound sbAPIconfig `yaml:"southbound"`
+}
+
 type nbAPIconfig struct {
 	HttpHost string `yaml:"httpHost"`
 	HttpPort string `yaml:"httpPort"`
 }
 
-func DefaultConfig() *nbAPIconfig {
-	return &nbAPIconfig{
-		HttpHost: "localhost",
-		HttpPort: "50051",
+type sbAPIconfig struct {
+	HttpHost string `yaml:"httpHost"`
+	HttpPort string `yaml:"httpPort"`
+}
+
+func DefaultConfig() *controlPlaneConfig {
+	return &controlPlaneConfig{
+		nbAPIconfig{
+			HttpHost: "localhost",
+			HttpPort: "50051",
+		},
+		sbAPIconfig{
+			HttpHost: "localhost",
+			HttpPort: "50052",
+		},
 	}
 }
 
-func (c nbAPIconfig) OverrideFromFile(file string) *nbAPIconfig {
+func (c controlPlaneConfig) OverrideFromFile(file string) *controlPlaneConfig {
 	configFile := file
 	if configFile == "" {
 		configFile = "config.yaml"
@@ -43,20 +59,27 @@ func (c nbAPIconfig) OverrideFromFile(file string) *nbAPIconfig {
 	return &c
 }
 
-func (c nbAPIconfig) OverrideFromEnv() *nbAPIconfig {
-	c.HttpPort = getEnvStr("NB_API_HTTP_PORT", c.HttpPort)
-	c.HttpHost = getEnvStr("NB_API_HTTP_HOST", c.HttpHost)
+func (c controlPlaneConfig) OverrideFromEnv() *controlPlaneConfig {
+	c.Northbound.HttpPort = getEnvStr("NB_API_HTTP_PORT", c.Northbound.HttpPort)
+	c.Northbound.HttpHost = getEnvStr("NB_API_HTTP_HOST", c.Northbound.HttpHost)
+	c.Southbound.HttpPort = getEnvStr("SB_API_HTTP_PORT", c.Southbound.HttpPort)
+	c.Southbound.HttpHost = getEnvStr("SB_API_HTTP_HOST", c.Southbound.HttpHost)
 	return &c
 }
 
-func (c nbAPIconfig) Validate() *nbAPIconfig {
-	if c.HttpPort == "" {
+func (c controlPlaneConfig) Validate() *controlPlaneConfig {
+	if c.Northbound.HttpPort == "" {
 		panic("configuration invalid: HttpPort is required")
 	}
-	if c.HttpHost == "" {
+	if c.Northbound.HttpHost == "" {
 		panic("configuration invalid: HttpHost is required")
 	}
-
+	if c.Southbound.HttpPort == "" {
+		panic("configuration invalid: HttpPort is required")
+	}
+	if c.Southbound.HttpHost == "" {
+		panic("configuration invalid: HttpHost is required")
+	}
 	return &c
 }
 

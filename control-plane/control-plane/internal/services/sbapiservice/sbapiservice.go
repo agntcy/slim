@@ -1,6 +1,8 @@
 package sbapiservice
 
 import (
+	"log"
+
 	controllerapi "github.com/agntcy/slim/control-plane/common/proto/controller/v1"
 	"github.com/agntcy/slim/control-plane/control-plane/internal/db"
 )
@@ -44,6 +46,7 @@ func (s *sbAPIService) OpenControlChannel(stream controllerapi.ControllerService
 
 			case *controllerapi.ControlMessage_RegisterNodeRequest:
 				// Handle registration logic
+				log.Printf("Received RegisterNodeRequest: %v", payload)
 			}
 
 			if err := stream.Send(msg); err != nil {
