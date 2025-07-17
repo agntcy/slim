@@ -141,6 +141,33 @@ func (d *dbService) DeleteSubscription(subscriptionID string) error {
 	return nil
 }
 
+// DeleteNode implements DataAccess.
+func (d *dbService) DeleteNode(id string) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	if _, exists := d.nodes[id]; !exists {
+		return fmt.Errorf("node with ID %s not found", id)
+	}
+
+	delete(d.nodes, id)
+
+	// Remove all connections and subscriptions associated with this node
+	for connectionID, connection := range d.connections {
+		if connection.NodeID == id {
+			delete(d.connections, connectionID)
+		}
+	}
+
+	for subscriptionID, subscription := range d.subscriptions {
+		if subscription.NodeID == id {
+			delete(d.subscriptions, subscriptionID)
+		}
+	}
+
+	return nil
+}
+
 type dbService struct {
 	nodes         map[string]Node
 	connections   map[string]Connection
