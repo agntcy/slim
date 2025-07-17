@@ -1038,7 +1038,7 @@ mod tests {
     use crate::testutils::MockTransmitter;
 
     use super::*;
-    use slim_auth::simple::SimpleGroup;
+    use slim_auth::shared_secret::SharedSecret;
     use tokio::time;
     use tracing_test::traced_test;
 
@@ -1066,8 +1066,8 @@ mod tests {
             SessionDirection::Sender,
             source.clone(),
             tx.clone(),
-            SimpleGroup::new("a", "group"),
-            SimpleGroup::new("a", "group"),
+            SharedSecret::new("a", "group"),
+            SharedSecret::new("a", "group"),
             std::path::PathBuf::from("/tmp/test_session"),
         );
 
@@ -1093,8 +1093,8 @@ mod tests {
             SessionDirection::Receiver,
             source.clone(),
             tx,
-            SimpleGroup::new("a", "group"),
-            SimpleGroup::new("a", "group"),
+            SharedSecret::new("a", "group"),
+            SharedSecret::new("a", "group"),
             std::path::PathBuf::from("/tmp/test_session"),
         );
 
@@ -1145,8 +1145,8 @@ mod tests {
             SessionDirection::Sender,
             send.clone(),
             tx_sender,
-            SimpleGroup::new("a", "group"),
-            SimpleGroup::new("a", "group"),
+            SharedSecret::new("a", "group"),
+            SharedSecret::new("a", "group"),
             std::path::PathBuf::from("/tmp/test_session_sender"),
         );
         let receiver = Streaming::new(
@@ -1155,8 +1155,8 @@ mod tests {
             SessionDirection::Receiver,
             recv.clone(),
             tx_receiver,
-            SimpleGroup::new("a", "group"),
-            SimpleGroup::new("a", "group"),
+            SharedSecret::new("a", "group"),
+            SharedSecret::new("a", "group"),
             std::path::PathBuf::from("/tmp/test_session_receiver"),
         );
 
@@ -1227,8 +1227,8 @@ mod tests {
             SessionDirection::Receiver,
             agent.clone(),
             tx,
-            SimpleGroup::new("a", "group"),
-            SimpleGroup::new("a", "group"),
+            SharedSecret::new("a", "group"),
+            SharedSecret::new("a", "group"),
             std::path::PathBuf::from("/tmp/test_session"),
         );
 
@@ -1311,8 +1311,8 @@ mod tests {
             SessionDirection::Sender,
             agent.clone(),
             tx,
-            SimpleGroup::new("a", "group"),
-            SimpleGroup::new("a", "group"),
+            SharedSecret::new("a", "group"),
+            SharedSecret::new("a", "group"),
             std::path::PathBuf::from("/tmp/test_session"),
         );
 
@@ -1432,8 +1432,8 @@ mod tests {
             SessionDirection::Sender,
             send.clone(),
             tx_sender,
-            SimpleGroup::new("a", "group"),
-            SimpleGroup::new("a", "group"),
+            SharedSecret::new("a", "group"),
+            SharedSecret::new("a", "group"),
             std::path::PathBuf::from("/tmp/test_session_sender"),
         );
         let receiver = Streaming::new(
@@ -1442,8 +1442,8 @@ mod tests {
             SessionDirection::Receiver,
             recv.clone(),
             tx_receiver,
-            SimpleGroup::new("a", "group"),
-            SimpleGroup::new("a", "group"),
+            SharedSecret::new("a", "group"),
+            SharedSecret::new("a", "group"),
             std::path::PathBuf::from("/tmp/test_session_receiver"),
         );
 
@@ -1653,8 +1653,8 @@ mod tests {
                 SessionDirection::Sender,
                 source.clone(),
                 tx,
-                SimpleGroup::new("a", "group"),
-                SimpleGroup::new("a", "group"),
+                SharedSecret::new("a", "group"),
+                SharedSecret::new("a", "group"),
                 std::path::PathBuf::from("/tmp/test_session"),
             );
         }

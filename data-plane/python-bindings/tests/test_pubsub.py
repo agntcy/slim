@@ -5,6 +5,7 @@ import asyncio
 import datetime
 
 import pytest
+from common import create_slim
 
 import slim_bindings
 
@@ -29,7 +30,7 @@ async def test_streaming(server):  # noqa: C901
 
         print(f"Creating participant {name}...")
 
-        participant = await slim_bindings.Slim.new(org, ns, name)
+        participant = await create_slim(org, ns, name, "secret")
 
         # Connect to SLIM server
         _ = await participant.connect(

@@ -980,21 +980,21 @@ mod tests {
     use super::*;
     use crate::fire_and_forget::FireAndForgetConfiguration;
 
-    use slim_auth::simple::SimpleGroup;
+    use slim_auth::shared_secret::SharedSecret;
     use slim_datapath::{
         api::ProtoMessage,
         messages::{Agent, AgentType, utils::SLIM_IDENTITY},
     };
 
-    fn create_app() -> App<SimpleGroup, SimpleGroup> {
+    fn create_app() -> App<SharedSecret, SharedSecret> {
         let (tx_slim, _) = tokio::sync::mpsc::channel(128);
         let (tx_app, _) = tokio::sync::mpsc::channel(128);
         let agent = Agent::from_strings("org", "ns", "type", 0);
 
         App::new(
             &agent,
-            SimpleGroup::new("a", "group"),
-            SimpleGroup::new("a", "group"),
+            SharedSecret::new("a", "group"),
+            SharedSecret::new("a", "group"),
             0,
             tx_slim,
             tx_app,
@@ -1017,8 +1017,8 @@ mod tests {
 
         let app = App::new(
             &agent,
-            SimpleGroup::new("a", "group"),
-            SimpleGroup::new("a", "group"),
+            SharedSecret::new("a", "group"),
+            SharedSecret::new("a", "group"),
             0,
             tx_slim.clone(),
             tx_app.clone(),
@@ -1043,8 +1043,8 @@ mod tests {
 
         let session_layer = App::new(
             &agent,
-            SimpleGroup::new("a", "group"),
-            SimpleGroup::new("a", "group"),
+            SharedSecret::new("a", "group"),
+            SharedSecret::new("a", "group"),
             0,
             tx_slim.clone(),
             tx_app.clone(),
@@ -1068,8 +1068,8 @@ mod tests {
 
         let session_layer = App::new(
             &agent,
-            SimpleGroup::new("a", "group"),
-            SimpleGroup::new("a", "group"),
+            SharedSecret::new("a", "group"),
+            SharedSecret::new("a", "group"),
             0,
             tx_slim.clone(),
             tx_app.clone(),
@@ -1097,7 +1097,7 @@ mod tests {
         let (tx_app, mut rx_app) = tokio::sync::mpsc::channel(1);
         let agent = Agent::from_strings("org", "ns", "type", 0);
 
-        let identity = SimpleGroup::new("a", "group");
+        let identity = SharedSecret::new("a", "group");
 
         let app = App::new(
             &agent,
@@ -1176,7 +1176,7 @@ mod tests {
         let (tx_app, _) = tokio::sync::mpsc::channel(1);
         let agent = Agent::from_strings("org", "ns", "type", 0);
 
-        let identity = SimpleGroup::new("a", "group");
+        let identity = SharedSecret::new("a", "group");
 
         let app = App::new(
             &agent,
