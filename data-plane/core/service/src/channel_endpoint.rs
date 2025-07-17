@@ -291,10 +291,11 @@ where
         let id = match self.participants.get(&name) {
             Some(id) => id,
             None => {
-                error!("the name does not exists in the group");
-                return Err(SessionError::RemoveParticipant(
-                    "participant does not exists".to_owned(),
-                ));
+                debug!(
+                    "participant {} already removed or not part of the group",
+                    name.agent_id()
+                );
+                return Ok(vec![]);
             }
         };
         let ret = self
@@ -1063,28 +1064,34 @@ where
             Some(state) => {
                 let commit_payload = state.remove_participant(&msg).await?;
 
-                let commit_id = self.get_next_mls_mgs_id();
-                let commit = self.endpoint.create_channel_message(
-                    &self.endpoint.channel_name,
-                    None,
-                    true,
-                    ProtoSessionMessageType::ChannelMlsCommit,
-                    commit_id,
-                    commit_payload,
-                );
+                // Check if participant was already removed (empty commit payload)
+                if commit_payload.is_empty() {
+                    debug!("Participant already removed, skipping MLS commit and timer");
+                    self.forward(msg).await
+                } else {
+                    let commit_id = self.get_next_mls_mgs_id();
+                    let commit = self.endpoint.create_channel_message(
+                        &self.endpoint.channel_name,
+                        None,
+                        true,
+                        ProtoSessionMessageType::ChannelMlsCommit,
+                        commit_id,
+                        commit_payload,
+                    );
 
-                // send commit message if needed
-                debug!("Send MLS Commit Message to the channel");
-                self.endpoint.send(commit.clone()).await?;
+                    // send commit message if needed
+                    debug!("Send MLS Commit Message to the channel");
+                    self.endpoint.send(commit.clone()).await?;
 
-                // wait for len + 1 acks because the participant list does not contains
-                // the removed participant anymore
-                let len = self.endpoint.mls_state.as_ref().unwrap().participants.len() + 1;
+                    // wait for len + 1 acks because the participant list does not contains
+                    // the removed participant anymore
+                    let len = self.endpoint.mls_state.as_ref().unwrap().participants.len() + 1;
 
-                // the leave request will be forwarded after all acks are received
-                self.create_timer(commit_id, (len).try_into().unwrap(), commit, Some(msg));
+                    // the leave request will be forwarded after all acks are received
+                    self.create_timer(commit_id, (len).try_into().unwrap(), commit, Some(msg));
 
-                Ok(())
+                    Ok(())
+                }
             }
             None => {
                 // just send the leave request
