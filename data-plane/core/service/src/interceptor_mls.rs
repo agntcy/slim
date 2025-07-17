@@ -54,6 +54,7 @@ where
             | ProtoSessionMessageType::ChannelLeaveReply
             | ProtoSessionMessageType::ChannelMlsCommit
             | ProtoSessionMessageType::ChannelMlsWelcome
+            | ProtoSessionMessageType::ChannelMlsProposal
             | ProtoSessionMessageType::ChannelMlsAck => {
                 debug!("Skipping channel messages type in encryption path");
                 return Ok(());
@@ -109,6 +110,7 @@ where
             | ProtoSessionMessageType::ChannelLeaveReply
             | ProtoSessionMessageType::ChannelMlsCommit
             | ProtoSessionMessageType::ChannelMlsWelcome
+            | ProtoSessionMessageType::ChannelMlsProposal
             | ProtoSessionMessageType::ChannelMlsAck => {
                 debug!("Skipping channel messages type in decryption path");
                 return Ok(());
