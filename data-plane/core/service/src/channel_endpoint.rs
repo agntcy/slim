@@ -1,7 +1,11 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
-use std::{collections::HashMap, sync::Arc, time::Duration};
+use std::{
+    collections::{BTreeMap, HashMap},
+    sync::Arc,
+    time::Duration,
+};
 
 use async_trait::async_trait;
 use bincode::{Decode, Encode};
@@ -40,7 +44,7 @@ where
     T: SessionTransmitter + Send + Sync + Clone + 'static,
 {
     async fn on_timeout(&self, timer_id: u32, timeouts: u32) {
-        trace!("timeout number {} for request {}", timeouts, timer_id);
+        tracing::info!("timeout number {} for request {}", timeouts, timer_id);
 
         if self
             .tx
@@ -139,6 +143,9 @@ where
     /// last commit id
     last_commit_id: u32,
 
+    /// stored commits for later processing
+    stored_commits: BTreeMap<u32, Message>,
+
     /// map of the participants with package keys
     /// this is used only by the moderator to remove
     /// participants from the channel
@@ -164,6 +171,7 @@ where
             mls,
             group: vec![],
             last_commit_id: 0,
+            stored_commits: BTreeMap::new(),
             participants: HashMap::new(),
             mls_up: false,
         })
@@ -203,6 +211,11 @@ where
                 )
             })?;
 
+        tracing::info!(
+            "received welcome message with commit id {}, processing it",
+            self.last_commit_id
+        );
+
         let welcome = &msg
             .get_payload()
             .ok_or(SessionError::WelcomeMessage(
@@ -221,7 +234,7 @@ where
         Ok(())
     }
 
-    async fn process_commit_message(&mut self, msg: &Message) -> Result<(), SessionError> {
+    async fn process_commit_message(&mut self, msg: Message) -> Result<(), SessionError> {
         // the first message to be received should be a welcome message
         // this message will init the last_commit_id. so if last_commit_id = 0
         // drop the commits
@@ -232,31 +245,36 @@ where
             ));
         }
 
-        // the only valid commit that we can accepet it the commit with id
-        // last_commit_id + 1. We can safely drop all the others because
-        // the moderator will keep sending them if needed
-        let msg_id = msg.get_id();
-        if msg_id == self.last_commit_id + 1 {
-            debug!(%msg_id, "received valid commit with id");
-            self.last_commit_id += 1;
-        } else {
-            error!("unexpected commit id, drop message");
+        // store commit in hash map
+        if let Some(commit) = self.stored_commits.insert(msg.get_id(), msg) {
+            debug!(
+                "commit message with id {} already exists, drop it",
+                commit.get_id()
+            );
             return Err(SessionError::CommitMessage(
-                "unexpected commit id, drop message".to_string(),
+                "commit message already exists, drop it".to_string(),
             ));
         }
 
-        let commit = &msg
-            .get_payload()
-            .ok_or(SessionError::CommitMessage(
-                "missing payload in MLS commit, cannot process the commit".to_string(),
-            ))?
-            .blob;
+        // process all messages in map until the numbering is not continuous
+        while let Some(commit) = self.stored_commits.remove(&(self.last_commit_id + 1)) {
+            debug!("processing stored commit {}", commit.get_id());
+            self.last_commit_id += 1;
 
-        self.mls
-            .lock()
-            .process_commit(commit)
-            .map_err(|e| SessionError::CommitMessage(e.to_string()))
+            let commit = &commit
+                .get_payload()
+                .ok_or(SessionError::CommitMessage(
+                    "missing payload in MLS commit, cannot process the commit".to_string(),
+                ))?
+                .blob;
+
+            self.mls
+                .lock()
+                .process_commit(commit)
+                .map_err(|e| SessionError::CommitMessage(e.to_string()))?;
+        }
+
+        Ok(())
     }
 
     async fn add_participant(
@@ -381,6 +399,8 @@ where
     V: Verifier + Send + Sync + Clone + 'static,
     T: SessionTransmitter + Send + Sync + Clone + 'static,
 {
+    const MAX_FANOUT: u32 = 256;
+
     pub fn new(
         name: Agent,
         channel_name: AgentType,
@@ -413,7 +433,13 @@ where
         payload: Vec<u8>,
     ) -> Message {
         let flags = if broadcast {
-            Some(SlimHeaderFlags::new(10, None, None, None, None))
+            Some(SlimHeaderFlags::new(
+                Self::MAX_FANOUT,
+                None,
+                None,
+                None,
+                None,
+            ))
         } else {
             None
         };
@@ -669,23 +695,26 @@ where
     }
 
     async fn on_mls_commit(&mut self, msg: Message) -> Result<(), SessionError> {
+        // save source and id of the commit message
+        let msg_id = msg.get_id();
+        let msg_src = msg.get_source();
+
         self.endpoint
             .mls_state
             .as_mut()
             .ok_or(SessionError::NoMls)?
-            .process_commit_message(&msg)
+            .process_commit_message(msg)
             .await?;
 
         debug!("Commit message correctly processed, MLS state updated");
 
         // send an ack back to the moderator
-        let src = msg.get_source();
         let ack = self.endpoint.create_channel_message(
-            src.agent_type(),
-            src.agent_id_option(),
+            msg_src.agent_type(),
+            msg_src.agent_id_option(),
             false,
             ProtoSessionMessageType::ChannelMlsAck,
-            msg.get_id(),
+            msg_id,
             vec![],
         );
 
@@ -935,6 +964,7 @@ where
             self.forward(to_forward.unwrap()).await?;
         }
 
+        tracing::info!(%key, "timer cancelled, all messages acked");
         Ok(true)
     }
 
@@ -1034,9 +1064,9 @@ where
             // send commit message if needed
             let len = self.endpoint.mls_state.as_ref().unwrap().participants.len();
             if len > 1 {
-                debug!("Send MLS Commit Message to the channel");
+                tracing::info!(%commit_id, "Send MLS Commit Message to the channel");
                 self.endpoint.send(commit.clone()).await?;
-                self.create_timer(commit_id, (len - 1).try_into().unwrap(), commit, None);
+                self.create_timer(commit_id, (len - 1) as u32, commit, None);
             }
         };
 
@@ -1082,7 +1112,7 @@ where
                 let len = self.endpoint.mls_state.as_ref().unwrap().participants.len() + 1;
 
                 // the leave request will be forwarded after all acks are received
-                self.create_timer(commit_id, (len).try_into().unwrap(), commit, Some(msg));
+                self.create_timer(commit_id, (len - 1) as u32, commit, Some(msg));
 
                 Ok(())
             }
