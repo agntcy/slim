@@ -1,8 +1,21 @@
 package db
 
+import "google.golang.org/protobuf/types/known/wrapperspb"
+
 type DataAccess interface {
 	ListNodes() ([]Node, error)
-	GetNodeByID(id string) (*Node, error)
+	GetNode(id string) (*Node, error)
+	SaveNode(node Node) (string, error)
+
+	ListConnectionsByNodeID(nodeID string) ([]Connection, error)
+	SaveConnection(connection Connection) (string, error)
+	GetConnection(connectionID string) (Connection, error)
+	DeleteConnection(connectionID string) error
+
+	ListSubscriptionsByNodeID(nodeID string) ([]Subscription, error)
+	SaveSubscription(subscription Subscription) (string, error)
+	GetSubscription(subscriptionID string) (Subscription, error)
+	DeleteSubscription(subscriptionID string) error
 }
 
 type Node struct {
@@ -11,27 +24,19 @@ type Node struct {
 	Port uint32
 }
 
-type dbService struct{}
-
-func NewDBService() DataAccess {
-	return &dbService{}
+type Connection struct {
+	ID         string
+	NodeID     string
+	ConfigData string
 }
 
-var nodes = []Node{
-	{ID: "node1", Host: "127.0.0.1", Port: 46368},
-	{ID: "node2", Host: "127.0.0.1", Port: 46369},
-	{ID: "node3", Host: "127.0.0.1", Port: 46367},
-}
+type Subscription struct {
+	ID           string
+	NodeID       string
+	ConnectionID string
 
-func (d *dbService) ListNodes() ([]Node, error) {
-	return nodes, nil
-}
-
-func (d *dbService) GetNodeByID(id string) (*Node, error) {
-	for _, node := range nodes {
-		if node.ID == id {
-			return &node, nil
-		}
-	}
-	return nil, nil
+	Organization string
+	Namespace    string
+	AgentType    string
+	AgentID      *wrapperspb.UInt64Value
 }

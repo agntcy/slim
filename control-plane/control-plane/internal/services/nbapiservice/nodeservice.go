@@ -2,11 +2,12 @@ package nbapiservice
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 
 	controllerapi "github.com/agntcy/slim/control-plane/common/proto/controller/v1"
 	controlplaneApi "github.com/agntcy/slim/control-plane/common/proto/controlplane/v1"
 	"github.com/agntcy/slim/control-plane/control-plane/internal/db"
-	"google.golang.org/protobuf/types/known/wrapperspb"
 )
 
 type nodeService struct {
@@ -40,7 +41,7 @@ func (s *nodeService) ListNodes(context.Context, *controlplaneApi.NodeListReques
 }
 
 func (s *nodeService) GetNodeByID(nodeID string) (*controlplaneApi.NodeEntry, error) {
-	storedNode, err := s.dbService.GetNodeByID(nodeID)
+	storedNode, err := s.dbService.GetNode(nodeID)
 	if err != nil {
 		return nil, err
 	}
@@ -53,24 +54,102 @@ func (s *nodeService) GetNodeByID(nodeID string) (*controlplaneApi.NodeEntry, er
 }
 
 func (s *nodeService) SaveConnection(nodeEntry *controlplaneApi.NodeEntry, connection *controllerapi.Connection) (string, error) {
-	//connectionID := uuid.New().String()
-	return "a81bc81b-dead-4e5d-abff-90865d1e13b1", nil
+	// Check if the node exists
+	if nodeEntry == nil {
+		return "", fmt.Errorf("node entry is required")
+	}
+
+	if nodeEntry.Id == "" {
+		return "", fmt.Errorf("node ID is required")
+	}
+
+	_, err := s.dbService.GetNode(nodeEntry.Id)
+	if err != nil {
+		return "", fmt.Errorf("node with ID %s not found: %v", nodeEntry.Id, err)
+	}
+
+	connectionEntry := db.Connection{
+		NodeID:     nodeEntry.Id,
+		ConfigData: connection.ConfigData,
+	}
+
+	return s.dbService.SaveConnection(connectionEntry)
 }
 
-func (s *nodeService) GetConnectionDetails(nodeID string, connectionID string) (string, string, error) {
-	return "http://127.0.0.1:46357", `{"endpoint": "http://127.0.0.1:46357"}`, nil
+func (s *nodeService) GetConnectionDetails(nodeID string, connectionID string) (string, error) {
+	connection, err := s.dbService.GetConnection(connectionID)
+	if err != nil {
+		return "", fmt.Errorf("failed to get connection details: %v", err)
+	}
+	if connection.NodeID != nodeID {
+		return "", fmt.Errorf("connection with ID %s does not belong to node %s", connectionID, nodeID)
+	}
+
+	// Retrive endpoint details from the connection's config data
+
+	// Parse the JSON config data
+	var config map[string]interface{}
+	if err := json.Unmarshal([]byte(connection.ConfigData), &config); err != nil {
+		return "", fmt.Errorf("failed to parse config data: %v", err)
+	}
+
+	// Extract the endpoint value
+	endpoint, exists := config["endpoint"]
+	if !exists {
+		return "", fmt.Errorf("endpoint not found in config data")
+	}
+
+	endpointStr, ok := endpoint.(string)
+	if !ok {
+		return "", fmt.Errorf("endpoint is not a string")
+	}
+
+	return endpointStr, nil
 }
 
 func (s *nodeService) SaveSubscription(nodeID string, subscription *controllerapi.Subscription) (string, error) {
-	return "6a39545c-00ef-460d-8223-be4816126ef6", nil
+	// Check if the node exists
+	_, err := s.dbService.GetNode(nodeID)
+	if err != nil {
+		return "", fmt.Errorf("node with ID %s not found: %v", nodeID, err)
+	}
+
+	// Check if the connection exists
+	if subscription.ConnectionId == "" {
+		return "", fmt.Errorf("connection ID is required")
+	}
+	_, err = s.dbService.GetConnection(subscription.ConnectionId)
+	if err != nil {
+		return "", fmt.Errorf("connection with ID %s not found: %v", subscription.ConnectionId, err)
+	}
+
+	subscriptionEntry := db.Subscription{
+		NodeID:       nodeID,
+		ConnectionID: subscription.ConnectionId,
+		Organization: subscription.Organization,
+		Namespace:    subscription.Namespace,
+		AgentType:    subscription.AgentType,
+		AgentID:      subscription.AgentId,
+	}
+
+	return s.dbService.SaveSubscription(subscriptionEntry)
 }
 
 func (s *nodeService) GetSubscription(nodeID string, subscriptionId string) (*controllerapi.Subscription, error) {
+	subscription, err := s.dbService.GetSubscription(subscriptionId)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get subscription: %v", err)
+	}
+
+	if subscription.NodeID != nodeID {
+		return nil, fmt.Errorf("subscription with ID %s does not belong to node %s", subscriptionId, nodeID)
+	}
+
 	return &controllerapi.Subscription{
-		Organization: "org",
-		Namespace:    "default",
-		AgentType:    "a",
-		ConnectionId: "http://127.0.0.1:46357",
-		AgentId:      wrapperspb.UInt64(0),
+		ConnectionId: subscription.ConnectionID,
+		Organization: subscription.Organization,
+		Namespace:    subscription.Namespace,
+		AgentType:    subscription.AgentType,
+		AgentId:      subscription.AgentID,
 	}, nil
 }

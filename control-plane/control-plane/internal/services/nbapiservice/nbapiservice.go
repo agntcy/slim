@@ -108,9 +108,9 @@ func (s *nbAPIService) CreateSubscription(ctx context.Context, createSubscriptio
 	opts.Server = slimEndpoint
 	opts.TLSInsecure = true
 	connectionID := createSubscriptionRequest.Subscription.ConnectionId
-	endpoint, _, err := s.nodeService.GetConnectionDetails(createSubscriptionRequest.NodeId, connectionID)
+	endpoint, err := s.nodeService.GetConnectionDetails(createSubscriptionRequest.NodeId, connectionID)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get node by ID: %v", err)
+		return nil, fmt.Errorf("failed to get connection by ID: %v", err)
 	}
 
 	createSubscriptionRequest.Subscription.ConnectionId = endpoint

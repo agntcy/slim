@@ -20,7 +20,7 @@ func main() {
 
 	var opts []grpc.ServerOption
 	grpcServer := grpc.NewServer(opts...)
-	dbService := db.NewDBService()
+	dbService := db.NewInMemoryDBService()
 	nodeService := nbapiservice.NewNodeService(dbService)
 	routeService := nbapiservice.NewRouteService()
 	configService := nbapiservice.NewConfigService()
