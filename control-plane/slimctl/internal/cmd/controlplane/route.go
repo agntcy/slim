@@ -12,13 +12,14 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/google/uuid"
 	"github.com/spf13/cobra"
 	"google.golang.org/protobuf/types/known/wrapperspb"
 
-	"github.com/agntcy/slim/control-plane/slimctl/internal/controller"
-	"github.com/agntcy/slim/control-plane/slimctl/internal/options"
-	grpcapi "github.com/agntcy/slim/control-plane/slimctl/internal/proto/controller/v1"
+	"github.com/agntcy/slim/control-plane/common/controller"
+	cpApi "github.com/agntcy/slim/control-plane/common/controlplane"
+	"github.com/agntcy/slim/control-plane/common/options"
+	grpcapi "github.com/agntcy/slim/control-plane/common/proto/controller/v1"
+	controlplaneApi "github.com/agntcy/slim/control-plane/common/proto/controlplane/v1"
 )
 
 const nodeIdFlag = "node-id"
@@ -51,51 +52,37 @@ func newListCmd(opts *options.CommonOptions) *cobra.Command {
 			nodeID, _ := cmd.Flags().GetString(nodeIdFlag)
 			fmt.Printf("Listing routes for node ID: %s\n", nodeID)
 
-			msg := &grpcapi.ControlMessage{
-				MessageId: uuid.NewString(),
-				Payload:   &grpcapi.ControlMessage_SubscriptionListRequest{},
-			}
-
 			ctx, cancel := context.WithTimeout(cmd.Context(), opts.Timeout)
 			defer cancel()
 
-			stream, err := controller.OpenControlChannel(ctx, opts)
+			cpCLient, err := cpApi.GetClient(ctx, opts)
 			if err != nil {
-				return fmt.Errorf("failed to open control channel: %w", err)
+				return fmt.Errorf("failed to get control plane client: %w", err)
 			}
 
-			if err := stream.Send(msg); err != nil {
-				return fmt.Errorf("failed to send control message: %w", err)
+			subscriptionListResponse, err := cpCLient.ListSubscriptions(ctx, &controlplaneApi.Node{
+				Id: nodeID,
+			})
+			if err != nil {
+				return fmt.Errorf("failed to list subscriptions: %w", err)
 			}
 
-			if err := stream.CloseSend(); err != nil {
-				return fmt.Errorf("failed to close send: %w", err)
-			}
-
-			for {
-				resp, err := stream.Recv()
-				if err != nil {
-					break
+			fmt.Printf("Received connection list response: %v\n", len(subscriptionListResponse.Entries))
+			for _, e := range subscriptionListResponse.Entries {
+				var localNames, remoteNames []string
+				for _, c := range e.LocalConnections {
+					localNames = append(localNames,
+						fmt.Sprintf("local:%d", c.Id))
 				}
-
-				if listResp := resp.GetSubscriptionListResponse(); listResp != nil {
-					for _, e := range listResp.Entries {
-						var localNames, remoteNames []string
-						for _, lc := range e.GetLocalConnections() {
-							localNames = append(localNames,
-								fmt.Sprintf("local:%d:%s", lc.GetId(), lc.GetConfigData()))
-						}
-						for _, rc := range e.GetRemoteConnections() {
-							remoteNames = append(remoteNames,
-								fmt.Sprintf("remote:%d:%s", rc.GetId(), rc.GetConfigData()))
-						}
-						fmt.Printf("%s/%s/%s id=%d local=%v remote=%v\n",
-							e.GetOrganization(), e.GetNamespace(), e.GetAgentType(),
-							e.GetAgentId().GetValue(),
-							localNames, remoteNames,
-						)
-					}
+				for _, c := range e.RemoteConnections {
+					remoteNames = append(remoteNames,
+						fmt.Sprintf("remote:%s:%d:%d", c.ConnectionType, c.ConfigData, c.Id))
 				}
+				fmt.Printf("%s/%s/%s id=%d local=%v remote=%v\n",
+					e.Organization, e.Namespace, e.AgentType,
+					e.AgentId,
+					localNames, remoteNames,
+				)
 			}
 
 			return nil
@@ -143,50 +130,34 @@ func newAddCmd(opts *options.CommonOptions) *cobra.Command {
 				AgentId:      wrapperspb.UInt64(agentID),
 			}
 
-			msg := &grpcapi.ControlMessage{
-				MessageId: uuid.NewString(),
-				Payload: &grpcapi.ControlMessage_ConfigCommand{
-					ConfigCommand: &grpcapi.ConfigurationCommand{
-						ConnectionsToCreate:   []*grpcapi.Connection{conn},
-						SubscriptionsToSet:    []*grpcapi.Subscription{subscription},
-						SubscriptionsToDelete: []*grpcapi.Subscription{},
-					},
-				},
-			}
-
 			ctx, cancel := context.WithTimeout(cmd.Context(), opts.Timeout)
 			defer cancel()
 
-			stream, err := controller.OpenControlChannel(ctx, opts)
+			cpCLient, err := cpApi.GetClient(ctx, opts)
 			if err != nil {
-				return fmt.Errorf("failed to open control channel: %w", err)
+				return fmt.Errorf("failed to get control plane client: %w", err)
 			}
 
-			if err = stream.Send(msg); err != nil {
-				return fmt.Errorf("failed to send control message: %w", err)
+			controllerConfigCommand := &grpcapi.ConfigurationCommand{
+				ConnectionsToCreate:   []*grpcapi.Connection{conn},
+				SubscriptionsToSet:    []*grpcapi.Subscription{subscription},
+				SubscriptionsToDelete: []*grpcapi.Subscription{},
 			}
 
-			if err = stream.CloseSend(); err != nil {
-				return fmt.Errorf("failed to close send: %w", err)
-			}
-
-			ack, err := stream.Recv()
+			returnedMessage, err := cpCLient.ModifyConfiguration(ctx, &controlplaneApi.ConfigurationCommand{
+				ConfigurationCommand: controllerConfigCommand,
+				NodeId:               nodeID,
+			})
 			if err != nil {
-				return fmt.Errorf("error receiving ack via stream: %w", err)
-			}
-
-			a := ack.GetAck()
-			if a == nil {
-				return fmt.Errorf("unexpected response type received (not an ACK): %v", ack)
+				return fmt.Errorf("failed to add route: %w", err)
 			}
 
 			fmt.Printf(
-				"ACK received for %s: success=%t\n",
-				a.OriginalMessageId,
-				a.Success,
+				"ACK received for : success=%t\n",
+				returnedMessage.Success,
 			)
-			if len(a.Messages) > 0 {
-				for i, ackMsg := range a.Messages {
+			if len(returnedMessage.Messages) > 0 {
+				for i, ackMsg := range returnedMessage.Messages {
 					fmt.Printf("    [%d] %s\n", i+1, ackMsg)
 				}
 			}
@@ -236,50 +207,35 @@ func newDelCmd(opts *options.CommonOptions) *cobra.Command {
 				AgentId:      wrapperspb.UInt64(agentID),
 			}
 
-			msg := &grpcapi.ControlMessage{
-				MessageId: uuid.NewString(),
-				Payload: &grpcapi.ControlMessage_ConfigCommand{
-					ConfigCommand: &grpcapi.ConfigurationCommand{
-						ConnectionsToCreate:   []*grpcapi.Connection{},
-						SubscriptionsToSet:    []*grpcapi.Subscription{},
-						SubscriptionsToDelete: []*grpcapi.Subscription{subscription},
-					},
-				},
-			}
-
 			ctx, cancel := context.WithTimeout(cmd.Context(), opts.Timeout)
 			defer cancel()
 
-			stream, err := controller.OpenControlChannel(ctx, opts)
+			cpCLient, err := cpApi.GetClient(ctx, opts)
 			if err != nil {
-				return fmt.Errorf("failed to open control channel: %w", err)
+				return fmt.Errorf("failed to get control plane client: %w", err)
 			}
 
-			if err = stream.Send(msg); err != nil {
-				return fmt.Errorf("failed to send control message: %w", err)
+			controllerConfigCommand := &grpcapi.ConfigurationCommand{
+				ConnectionsToCreate:   []*grpcapi.Connection{},
+				SubscriptionsToSet:    []*grpcapi.Subscription{},
+				SubscriptionsToDelete: []*grpcapi.Subscription{subscription},
 			}
 
-			if err = stream.CloseSend(); err != nil {
-				return fmt.Errorf("failed to close send: %w", err)
-			}
-
-			ack, err := stream.Recv()
+			returnedMessage, err := cpCLient.ModifyConfiguration(ctx, &controlplaneApi.ConfigurationCommand{
+				ConfigurationCommand: controllerConfigCommand,
+				NodeId:               nodeID,
+			})
 			if err != nil {
-				return fmt.Errorf("error receiving ack via stream: %w", err)
-			}
-
-			a := ack.GetAck()
-			if a == nil {
-				return fmt.Errorf("unexpected response type received (not an ACK): %v", ack)
+				return fmt.Errorf("failed to delete route: %w", err)
 			}
 
 			fmt.Printf(
 				"ACK received for %s: success=%t\n",
-				a.OriginalMessageId,
-				a.Success,
+				returnedMessage.OriginalMessageId,
+				returnedMessage.Success,
 			)
-			if len(a.Messages) > 0 {
-				for i, ackMsg := range a.Messages {
+			if len(returnedMessage.Messages) > 0 {
+				for i, ackMsg := range returnedMessage.Messages {
 					fmt.Printf("    [%d] %s\n", i+1, ackMsg)
 				}
 			}
