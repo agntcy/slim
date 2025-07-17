@@ -24,7 +24,7 @@ import (
 
 const nodeIdFlag = "node-id"
 
-func NewRouteCmd(opts *options.CommonOptions) *cobra.Command {
+func newRouteCmd(opts *options.CommonOptions) *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "route",

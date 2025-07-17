@@ -15,8 +15,9 @@ func NewCpCmd(opts *options.CommonOptions) *cobra.Command {
 		Long:  `Manage SLIM node routes etc. through the control plane`,
 	}
 
-	cmd.AddCommand(NewRouteCmd(opts))
-	cmd.AddCommand(NewNodeCmd(opts))
+	cmd.AddCommand(newNodeCmd(opts))
+	cmd.AddCommand(newRouteCmd(opts))
+	cmd.AddCommand(newConnectionCmd(opts))
 
 	return cmd
 }
