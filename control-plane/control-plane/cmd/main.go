@@ -10,6 +10,7 @@ import (
 	controlplaneApi "github.com/agntcy/slim/control-plane/common/proto/controlplane/v1"
 	"github.com/agntcy/slim/control-plane/control-plane/internal/config"
 	"github.com/agntcy/slim/control-plane/control-plane/internal/db"
+	"github.com/agntcy/slim/control-plane/control-plane/internal/services/messagingservice"
 	"github.com/agntcy/slim/control-plane/control-plane/internal/services/nbapiservice"
 	"github.com/agntcy/slim/control-plane/control-plane/internal/services/sbapiservice"
 	"google.golang.org/grpc"
@@ -23,12 +24,13 @@ func main() {
 	var opts []grpc.ServerOption
 
 	dbService := db.NewInMemoryDBService()
+	messagingService := messagingservice.NewMessagingService()
 	nodeService := nbapiservice.NewNodeService(dbService)
 	routeService := nbapiservice.NewRouteService()
 	configService := nbapiservice.NewConfigService()
 
 	go func() {
-		cpServer := nbapiservice.NewNorthboundAPIServer(nodeService, routeService, configService)
+		cpServer := nbapiservice.NewNorthboundAPIServer(nodeService, routeService, configService, messagingService)
 		grpcServer := grpc.NewServer(opts...)
 		controlplaneApi.RegisterControlPlaneServiceServer(grpcServer, cpServer)
 
@@ -42,7 +44,7 @@ func main() {
 	}()
 
 	sbGrpcServer := grpc.NewServer(opts...)
-	sbApiSvc := sbapiservice.NewSBAPIService(dbService)
+	sbApiSvc := sbapiservice.NewSBAPIService(dbService, messagingService)
 	southboundApi.RegisterControllerServiceServer(sbGrpcServer, sbApiSvc)
 
 	sbListeningAddress := fmt.Sprintf("%s:%s", config.Southbound.HttpHost, config.Southbound.HttpPort)

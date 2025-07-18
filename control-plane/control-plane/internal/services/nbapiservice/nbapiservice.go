@@ -8,6 +8,7 @@ import (
 	"github.com/agntcy/slim/control-plane/common/options"
 	controllerapi "github.com/agntcy/slim/control-plane/common/proto/controller/v1"
 	controlplaneApi "github.com/agntcy/slim/control-plane/common/proto/controlplane/v1"
+	"github.com/agntcy/slim/control-plane/control-plane/internal/services/messagingservice"
 )
 
 type NorthboundAPIServer interface {
@@ -17,16 +18,23 @@ type NorthboundAPIServer interface {
 type nbAPIService struct {
 	controlplaneApi.UnimplementedControlPlaneServiceServer
 
-	nodeService   *nodeService
-	routeService  *routeService
-	configService *configService
+	nodeService      *nodeService
+	routeService     *routeService
+	configService    *configService
+	messagingService messagingservice.Messaging
 }
 
-func NewNorthboundAPIServer(nodeService *nodeService, routeService *routeService, configService *configService) NorthboundAPIServer {
+func NewNorthboundAPIServer(
+	nodeService *nodeService,
+	routeService *routeService,
+	configService *configService,
+	messagingService messagingservice.Messaging,
+) NorthboundAPIServer {
 	cpServer := &nbAPIService{
-		nodeService:   nodeService,
-		routeService:  routeService,
-		configService: configService,
+		nodeService:      nodeService,
+		routeService:     routeService,
+		configService:    configService,
+		messagingService: messagingService,
 	}
 	return cpServer
 }
@@ -85,10 +93,9 @@ func (s *nbAPIService) CreateConnection(ctx context.Context, createConnectionReq
 	opts := options.NewOptions()
 	opts.Server = endpoint
 	opts.TLSInsecure = true
-	err = s.routeService.CreateConnection(ctx, createConnectionRequest.Connection, opts)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create connection: %v", err)
-	}
+	createCommandMessage := s.routeService.CreateConnection(ctx, createConnectionRequest.Connection, opts)
+
+	s.messagingService.SendMessage(nodeEntry.Id, createCommandMessage)
 
 	connectionID, err := s.nodeService.SaveConnection(nodeEntry, createConnectionRequest.Connection)
 
