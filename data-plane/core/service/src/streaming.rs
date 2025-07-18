@@ -4,12 +4,17 @@
 use std::{collections::HashMap, sync::Arc, time::Duration};
 
 use async_trait::async_trait;
-use tokio::sync::mpsc;
+use tokio::{
+    sync::mpsc,
+    time::{self, Instant},
+};
 use tracing::{debug, error, trace, warn};
 
 use crate::{
     MessageDirection, SessionMessage,
-    channel_endpoint::{ChannelEndpoint, ChannelModerator, ChannelParticipant, MlsState},
+    channel_endpoint::{
+        ChannelEndpoint, ChannelModerator, ChannelParticipant, MlsEndpoint, MlsState,
+    },
     errors::SessionError,
     producer_buffer, receiver_buffer,
     session::{
@@ -349,6 +354,10 @@ where
 
             let mls = mls.map(|mls| MlsState::new(mls).expect("failed to create MLS state"));
 
+            let mls_enable = mls.is_some();
+            let sleep = time::sleep(Duration::from_secs(10));
+            tokio::pin!(sleep);
+
             // create the channel endpoint
             let mut channel_endpoint = match session_config.moderator {
                 true => {
@@ -372,6 +381,8 @@ where
                         None,
                         id,
                         ProtoSessionType::SessionPubSub,
+                        60,
+                        Duration::from_secs(1),
                         mls,
                         tx.clone(),
                     );
@@ -405,6 +416,7 @@ where
                                     ProtoSessionMessageType::ChannelLeaveReply |
                                     ProtoSessionMessageType::ChannelMlsWelcome |
                                     ProtoSessionMessageType::ChannelMlsCommit |
+                                    ProtoSessionMessageType::ChannelMlsProposal |
                                     ProtoSessionMessageType::ChannelMlsAck => {
                                         match channel_endpoint.on_message(msg).await {
                                             Ok(_) => {},
@@ -541,6 +553,10 @@ where
                                 }
                             },
                         }
+                    }
+                    () = &mut sleep, if mls_enable => {
+                        let _ = channel_endpoint.update_mls_keys().await;
+                        sleep.as_mut().reset(Instant::now() + Duration::from_secs(10));
                     }
                 }
             }

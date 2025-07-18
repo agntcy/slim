@@ -70,7 +70,8 @@ enum SessionMessageType {
   CHANNEL_LEAVE_REPLY = 15;
   CHANNEL_MLS_COMMIT = 16;
   CHANNEL_MLS_WELCOME = 17;
-  CHANNEL_MLS_ACK = 18;
+  CHANNEL_MLS_PROPOSAL = 18;
+  CHANNEL_MLS_ACK = 19;
 }
 // Session.session_id is the ID of the session
 
