@@ -1,8 +1,10 @@
 package sbapiservice
 
 import (
+	"fmt"
 	"log"
 	"sync"
+	"time"
 
 	controllerapi "github.com/agntcy/slim/control-plane/common/proto/controller/v1"
 	"github.com/agntcy/slim/control-plane/control-plane/internal/db"
@@ -14,8 +16,8 @@ type SouthboundAPIServer interface {
 
 type sbAPIService struct {
 	controllerapi.UnimplementedControllerServiceServer
-	dbService         db.DataAccess
-	nodeConnectionMap sync.Map
+	dbService               db.DataAccess
+	nodeConnectionMap       sync.Map
 	nodeConnectionStatusMap sync.Map
 }
 
@@ -23,9 +25,9 @@ type sbAPIService struct {
 type NodeStatus string
 
 const (
-	NodeStatusConnected   NodeStatus = "connected"
+	NodeStatusConnected    NodeStatus = "connected"
 	NodeStatusNotConnected NodeStatus = "not_connected"
-	NodeStatusUnknown  NodeStatus = "unknown"
+	NodeStatusUnknown      NodeStatus = "unknown"
 )
 
 func NewSBAPIService(dbService db.DataAccess) SouthboundAPIServer {
@@ -50,42 +52,61 @@ func (s *sbAPIService) GetNodeConnectionStatus(nodeID string) NodeStatus {
 
 func (s *sbAPIService) OpenControlChannel(stream controllerapi.ControllerService_OpenControlChannelServer) error {
 
-	// Handle the control channel opening logic here
-	// This is a placeholder implementation
-	for {
-		msg, err := stream.Recv()
-		if err != nil {
-			return err
+	type recvResult struct {
+		msg *controllerapi.ControlMessage
+		err error
+	}
+
+	recvChan := make(chan recvResult)
+
+	go func() {
+		for {
+			msg, err := stream.Recv()
+			recvChan <- recvResult{msg, err}
+			if err != nil {
+				close(recvChan)
+				return
+			}
 		}
-		// Process the received message
-		if msg != nil {
-			switch payload := msg.Payload.(type) {
-			case *controllerapi.ControlMessage_DeregisterNodeRequest:
-				// Handle deregistration logic
-				if payload.DeregisterNodeRequest.Node != nil {
-					nodeID := payload.DeregisterNodeRequest.Node.Id
-					log.Printf("Deregister node with ID: %v", nodeID)
-					// Update the node status to not connected
- 					s.nodeConnectionStatusMap.Store(nodeID, NodeStatusNotConnected)
-					s.nodeConnectionMap.Delete(nodeID)
-				}
+	}()
 
-			case *controllerapi.ControlMessage_RegisterNodeRequest:
-				// Handle registration logic
-				if payload.RegisterNodeRequest != nil {
-					nodeID := payload.RegisterNodeRequest.NodeId
-					log.Printf("Register node with ID: %v", nodeID)
-					s.dbService.SaveNode(db.Node{
-						ID: nodeID,
-					})
-					s.nodeConnectionStatusMap.Store(nodeID, NodeStatusConnected)
-					s.nodeConnectionMap.Store(nodeID, stream)
+	for {
+		select {
+		case res, _ := <-recvChan:
+			if res.err != nil {
+				fmt.Printf("Recv error: %v", res.err)
+				return res.err
+			}
+			if res.msg != nil {
+				switch payload := res.msg.Payload.(type) {
+				case *controllerapi.ControlMessage_DeregisterNodeRequest:
+					// Handle deregistration logic
+					if payload.DeregisterNodeRequest.Node != nil {
+						nodeID := payload.DeregisterNodeRequest.Node.Id
+						log.Printf("Deregister node with ID: %v", nodeID)
+						// Update the node status to not connected
+						s.nodeConnectionStatusMap.Store(nodeID, NodeStatusNotConnected)
+						s.nodeConnectionMap.Delete(nodeID)
+					}
+
+				case *controllerapi.ControlMessage_RegisterNodeRequest:
+					// Handle registration logic
+					if payload.RegisterNodeRequest != nil {
+						nodeID := payload.RegisterNodeRequest.NodeId
+						log.Printf("Register node with ID: %v", nodeID)
+						s.dbService.SaveNode(db.Node{
+							ID: nodeID,
+						})
+						s.nodeConnectionStatusMap.Store(nodeID, NodeStatusConnected)
+						s.nodeConnectionMap.Store(nodeID, stream)
+					}
+				default:
+					log.Printf("Unknown message: %v", res.msg)
 				}
 			}
-
-			if err := stream.Send(msg); err != nil {
-				return err
-			}
+		default:
+			fmt.Print("cica")
+			time.Sleep(10 * time.Millisecond) // Avoid busy loop
 		}
 	}
 }
