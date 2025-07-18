@@ -1,7 +1,11 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
-use std::{collections::HashMap, sync::Arc, time::Duration};
+use std::{
+    collections::{BTreeMap, HashMap, btree_map::Entry},
+    sync::Arc,
+    time::Duration,
+};
 
 use async_trait::async_trait;
 use bincode::{Decode, Encode};
@@ -143,6 +147,9 @@ where
     /// last mls message id
     last_mls_msg_id: u32,
 
+    /// map of stored commits and proposals
+    stored_commits_proposals: BTreeMap<u32, Message>,
+
     /// track if MLS is UP. For moderator this is true as soon as at least one participant
     /// has sent back an ack after the welcome message, while for participant
     /// this is true as soon as the welcome message is received and correctly processed
@@ -163,6 +170,7 @@ where
             mls,
             group: vec![],
             last_mls_msg_id: 0,
+            stored_commits_proposals: BTreeMap::new(),
             mls_up: false,
         })
     }
@@ -211,16 +219,55 @@ where
         Ok(())
     }
 
-    fn process_commit_message(&mut self, msg: &Message) -> Result<(), SessionError> {
+    fn process_control_message(
+        &mut self,
+        msg: Message,
+        local_name: &Agent,
+    ) -> Result<(), SessionError> {
         self.is_valid_msg_id(msg)?;
 
-        let commit = &msg
+        // process all messages in map until the numbering is not continuous
+        while let Some(msg) = self
+            .stored_commits_proposals
+            .remove(&(self.last_mls_msg_id + 1))
+        {
+            trace!("processing stored message {}", msg.get_id());
+
+            // increment the last mls message id
+            self.last_mls_msg_id += 1;
+
+            // base on the message type, process it
+            match msg.get_session_header().session_message_type() {
+                ProtoSessionMessageType::ChannelMlsProposal => {
+                    self.process_proposal_message(msg, local_name)?;
+                }
+                ProtoSessionMessageType::ChannelMlsCommit => {
+                    self.process_commit_message(msg)?;
+                }
+                _ => {
+                    error!("unknown control message type, drop it");
+                    return Err(SessionError::Processing(
+                        "unknown control message type".to_string(),
+                    ));
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    fn process_commit_message(&mut self, commit: Message) -> Result<(), SessionError> {
+        trace!("processing stored commit {}", commit.get_id());
+
+        // get the payload
+        let commit = &commit
             .get_payload()
             .ok_or(SessionError::CommitMessage(
                 "missing payload in MLS commit, cannot process the commit".to_string(),
             ))?
             .blob;
 
+        // process the commit message
         self.mls
             .lock()
             .process_commit(commit)
@@ -229,12 +276,12 @@ where
 
     fn process_proposal_message(
         &mut self,
-        msg: &Message,
+        proposal: Message,
         local_name: &Agent,
     ) -> Result<(), SessionError> {
-        self.is_valid_msg_id(msg)?;
+        trace!("processing stored proposal {}", proposal.get_id());
 
-        let content = msg
+        let content = proposal
             .get_payload()
             .map_or_else(
                 || {
@@ -264,7 +311,7 @@ where
         Ok(())
     }
 
-    fn is_valid_msg_id(&mut self, msg: &Message) -> Result<(), SessionError> {
+    fn is_valid_msg_id(&mut self, msg: Message) -> Result<(), SessionError> {
         // the first message to be received should be a welcome message
         // this message will init the last_mls_msg_id. so if last_mls_msg_id = 0
         // drop the commits
@@ -275,19 +322,26 @@ where
             ));
         }
 
-        // the only valid commit that we can accepet is the commit with id
-        // last_mls_msg_id + 1. We can safely drop all the others because
-        // the moderator will keep sending them if needed
-        let msg_id = msg.get_id();
-        if msg_id == self.last_mls_msg_id + 1 {
-            debug!(%msg_id, "received valid commit with id");
-            self.last_mls_msg_id += 1;
-            Ok(())
-        } else {
-            error!("unexpected message id, drop message");
-            Err(SessionError::MLSIdMessage(
-                "unexpected message id, drop message".to_string(),
-            ))
+        if msg.get_id() < self.last_mls_msg_id {
+            debug!(
+                "message with id {} already processed, drop it",
+                msg.get_id()
+            );
+            return Ok(());
+        }
+
+        // store commit in hash map
+        match self.stored_commits_proposals.entry(msg.get_id()) {
+            Entry::Occupied(_) => {
+                debug!("message with id {} already exists, drop it", msg.get_id());
+                Err(SessionError::CommitMessage(
+                    "commit message already exists, drop it".to_string(),
+                ))
+            }
+            Entry::Vacant(entry) => {
+                entry.insert(msg);
+                Ok(())
+            }
         }
     }
 
@@ -804,47 +858,28 @@ where
         self.endpoint.send(ack).await
     }
 
-    async fn on_mls_commit(&mut self, msg: Message) -> Result<(), SessionError> {
+    async fn on_mls_control_message(&mut self, msg: Message) -> Result<(), SessionError> {
+        let msg_source = msg.get_source();
+        let msg_id = msg.get_id();
+
+        // process the control message
         self.mls_state
             .as_mut()
             .ok_or(SessionError::NoMls)?
-            .process_commit_message(&msg)?;
+            .process_control_message(msg, &self.endpoint.name)?;
 
-        debug!("Commit message correctly processed, MLS state updated");
+        debug!("Control message correctly processed, MLS state updated");
 
         // send an ack back to the moderator
-        let src = msg.get_source();
         let ack = self.endpoint.create_channel_message(
-            src.agent_type(),
-            src.agent_id_option(),
+            msg_source.agent_type(),
+            msg_source.agent_id_option(),
             false,
             ProtoSessionMessageType::ChannelMlsAck,
-            msg.get_id(),
+            msg_id,
             vec![],
         );
 
-        self.endpoint.send(ack).await
-    }
-
-    async fn on_mls_proposal(&mut self, msg: Message) -> Result<(), SessionError> {
-        // process the proposal message from the moderator
-        self.mls_state
-            .as_mut()
-            .ok_or(SessionError::NoMls)?
-            .process_proposal_message(&msg, &self.endpoint.name)?;
-
-        // send an ack back to the moderator
-        let src = msg.get_source();
-        let ack = self.endpoint.create_channel_message(
-            src.agent_type(),
-            src.agent_id_option(),
-            false,
-            ProtoSessionMessageType::ChannelMlsAck,
-            msg.get_id(),
-            vec![],
-        );
-
-        debug!("MLS proposal correctly handled, send ack back to the moderator");
         self.endpoint.send(ack).await
     }
 
@@ -1006,11 +1041,11 @@ where
             }
             ProtoSessionMessageType::ChannelMlsCommit => {
                 debug!("Received mls commit message");
-                self.on_mls_commit(msg).await
+                self.on_mls_control_message(msg).await
             }
             ProtoSessionMessageType::ChannelMlsProposal => {
                 debug!("Received mls proposal message");
-                self.on_mls_proposal(msg).await
+                self.on_mls_control_message(msg).await
             }
             ProtoSessionMessageType::ChannelLeaveRequest => {
                 debug!("Received leave request message");
