@@ -5,6 +5,7 @@ import asyncio
 import datetime
 
 import pytest
+from common import create_slim
 
 import slim_bindings
 
@@ -21,7 +22,7 @@ async def test_streaming(server):
     pub_msg = "Hello from producer"
 
     # create new SLIM object
-    producer = await slim_bindings.Slim.new(org, ns, agent)
+    producer = await create_slim(org, ns, agent, "secret")
 
     # Connect to the service and subscribe for the local name
     _ = await producer.connect(
@@ -49,7 +50,7 @@ async def test_streaming(server):
 
         print(f"Creating consumer {name}...")
 
-        consumer = await slim_bindings.Slim.new(org, ns, name)
+        consumer = await create_slim(org, ns, name, "secret")
 
         # Connect to SLIM server
         _ = await consumer.connect(

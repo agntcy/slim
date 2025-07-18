@@ -160,7 +160,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use slim_auth::simple::SimpleGroup;
+    use slim_auth::shared_secret::SharedSecret;
     use std::sync::Arc;
 
     #[tokio::test]
@@ -168,8 +168,8 @@ mod tests {
         let agent = slim_datapath::messages::Agent::from_strings("org", "default", "test_user", 0);
         let mut mls = Mls::new(
             agent,
-            SimpleGroup::new("test", "group"),
-            SimpleGroup::new("test", "group"),
+            SharedSecret::new("test", "group"),
+            SharedSecret::new("test", "group"),
             std::path::PathBuf::from("/tmp/mls_interceptor_test_without_group"),
         );
         mls.initialize().unwrap();
@@ -204,14 +204,14 @@ mod tests {
 
         let mut alice_mls = Mls::new(
             alice_agent,
-            SimpleGroup::new("alice", "group"),
-            SimpleGroup::new("alice", "group"),
+            SharedSecret::new("alice", "group"),
+            SharedSecret::new("alice", "group"),
             std::path::PathBuf::from("/tmp/mls_interceptor_test_alice"),
         );
         let mut bob_mls = Mls::new(
             bob_agent,
-            SimpleGroup::new("bob", "group"),
-            SimpleGroup::new("bob", "group"),
+            SharedSecret::new("bob", "group"),
+            SharedSecret::new("bob", "group"),
             std::path::PathBuf::from("/tmp/mls_interceptor_test_bob"),
         );
 
@@ -265,8 +265,8 @@ mod tests {
         let agent = slim_datapath::messages::Agent::from_strings("org", "default", "test_user", 0);
         let mut mls = Mls::new(
             agent,
-            SimpleGroup::new("test", "group"),
-            SimpleGroup::new("test", "group"),
+            SharedSecret::new("test", "group"),
+            SharedSecret::new("test", "group"),
             std::path::PathBuf::from("/tmp/mls_interceptor_test_non_encrypted"),
         );
         mls.initialize().unwrap();

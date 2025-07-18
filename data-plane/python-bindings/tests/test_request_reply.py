@@ -5,6 +5,7 @@ import asyncio
 import datetime
 
 import pytest
+from common import create_slim
 
 import slim_bindings
 
@@ -17,7 +18,7 @@ async def test_request_reply(server):
     agent1 = "slim1"
 
     # create new slim object
-    slim1 = await slim_bindings.Slim.new(org, ns, agent1)
+    slim1 = await create_slim(org, ns, agent1, "secret")
 
     # Connect to the service and subscribe for the local name
     _ = await slim1.connect(
@@ -26,7 +27,7 @@ async def test_request_reply(server):
 
     # create second local agent
     agent2 = "slim2"
-    slim2 = await slim_bindings.Slim.new(org, ns, agent2)
+    slim2 = await create_slim(org, ns, agent2, "secret")
 
     # Connect to SLIM server
     _ = await slim2.connect(

@@ -4,6 +4,7 @@
 import asyncio
 
 import pytest
+from common import create_slim, create_svc
 
 import slim_bindings
 
@@ -12,8 +13,8 @@ import slim_bindings
 @pytest.mark.parametrize("server", ["127.0.0.1:12344"], indirect=True)
 async def test_end_to_end(server):
     # create 2 clients, Alice and Bob
-    svc_alice = await slim_bindings.create_pyservice("cisco", "default", "alice", 1234)
-    svc_bob = await slim_bindings.create_pyservice("cisco", "default", "bob", 1234)
+    svc_alice = await create_svc("org", "default", "alice", "secret")
+    svc_bob = await create_svc("org", "default", "bob", "secret")
 
     # connect to the service
     conn_id_alice = await slim_bindings.connect(
@@ -26,10 +27,10 @@ async def test_end_to_end(server):
     )
 
     # subscribe alice and bob
-    alice_class = slim_bindings.PyAgentType("cisco", "default", "alice")
-    bob_class = slim_bindings.PyAgentType("cisco", "default", "bob")
-    await slim_bindings.subscribe(svc_alice, conn_id_alice, alice_class, 1234)
-    await slim_bindings.subscribe(svc_bob, conn_id_bob, bob_class, None)
+    alice_class = slim_bindings.PyAgentType("org", "default", "alice")
+    bob_class = slim_bindings.PyAgentType("org", "default", "bob")
+    await slim_bindings.subscribe(svc_alice, conn_id_alice, alice_class, svc_alice.id)
+    await slim_bindings.subscribe(svc_bob, conn_id_bob, bob_class, svc_bob.id)
 
     await asyncio.sleep(1)
 
@@ -90,7 +91,7 @@ async def test_end_to_end(server):
 @pytest.mark.parametrize("server", ["127.0.0.1:12344"], indirect=True)
 async def test_session_config(server):
     # create svc
-    svc = await slim_bindings.create_pyservice("cisco", "default", "alice", 1234)
+    svc = await create_svc("org", "default", "alice", "secret")
 
     # create fire and forget session
     session_config = slim_bindings.PySessionConfiguration.FireAndForget()
@@ -181,12 +182,12 @@ async def test_session_config(server):
 @pytest.mark.asyncio
 @pytest.mark.parametrize("server", ["127.0.0.1:12345"], indirect=True)
 async def test_slim_wrapper(server):
-    org = "cisco"
+    org = "org"
     ns = "default"
     agent1 = "slim1"
 
     # create new slim object
-    slim1 = await slim_bindings.Slim.new(org, ns, agent1)
+    slim1 = await create_slim(org, ns, agent1, "secret")
 
     # Connect to the service and subscribe for the local name
     _ = await slim1.connect(
@@ -198,7 +199,7 @@ async def test_slim_wrapper(server):
 
     # create second local agent
     agent2 = "slim2"
-    slim2 = await slim_bindings.Slim.new(org, ns, agent2)
+    slim2 = await create_slim(org, ns, agent2, "secret")
 
     # Connect to SLIM server
     _ = await slim2.connect(
@@ -209,7 +210,7 @@ async def test_slim_wrapper(server):
     await asyncio.sleep(1)
 
     # set route
-    await slim2.set_route("cisco", "default", agent1)
+    await slim2.set_route(org, ns, agent1)
 
     # create session
     session_info = await slim2.create_session(
@@ -262,9 +263,8 @@ async def test_slim_wrapper(server):
 @pytest.mark.asyncio
 @pytest.mark.parametrize("server", ["127.0.0.1:12346"], indirect=True)
 async def test_auto_reconnect_after_server_restart(server):
-    svc_alice = await slim_bindings.create_pyservice("cisco", "default", "alice", 1234)
-
-    svc_bob = await slim_bindings.create_pyservice("cisco", "default", "bob", 1234)
+    svc_alice = await create_svc("org", "default", "alice", "secret")
+    svc_bob = await create_svc("org", "default", "bob", "secret")
 
     # connect clients and subscribe for messages
     conn_id_alice = await slim_bindings.connect(
@@ -276,10 +276,10 @@ async def test_auto_reconnect_after_server_restart(server):
         {"endpoint": "http://127.0.0.1:12346", "tls": {"insecure": True}},
     )
 
-    alice_class = slim_bindings.PyAgentType("cisco", "default", "alice")
-    bob_class = slim_bindings.PyAgentType("cisco", "default", "bob")
-    await slim_bindings.subscribe(svc_alice, conn_id_alice, alice_class, 1234)
-    await slim_bindings.subscribe(svc_bob, conn_id_bob, bob_class, 1234)
+    alice_class = slim_bindings.PyAgentType("org", "default", "alice")
+    bob_class = slim_bindings.PyAgentType("org", "default", "bob")
+    await slim_bindings.subscribe(svc_alice, conn_id_alice, alice_class, svc_alice.id)
+    await slim_bindings.subscribe(svc_bob, conn_id_bob, bob_class, svc_bob.id)
 
     # Wait for routes to propagate
     await asyncio.sleep(1)
@@ -323,15 +323,15 @@ async def test_auto_reconnect_after_server_restart(server):
 @pytest.mark.asyncio
 @pytest.mark.parametrize("server", ["127.0.0.1:12347"], indirect=True)
 async def test_error_on_nonexistent_subscription(server):
-    svc_alice = await slim_bindings.create_pyservice("cisco", "default", "alice", 1234)
+    svc_alice = await create_svc("org", "default", "alice", "secret")
 
     # connect client and subscribe for messages
     conn_id_alice = await slim_bindings.connect(
         svc_alice,
         {"endpoint": "http://127.0.0.1:12347", "tls": {"insecure": True}},
     )
-    alice_class = slim_bindings.PyAgentType("cisco", "default", "alice")
-    await slim_bindings.subscribe(svc_alice, conn_id_alice, alice_class, 1234)
+    alice_class = slim_bindings.PyAgentType("org", "default", "alice")
+    await slim_bindings.subscribe(svc_alice, conn_id_alice, alice_class, svc_alice.id)
 
     # create fire and forget session
     session_info = await slim_bindings.create_session(
@@ -339,7 +339,7 @@ async def test_error_on_nonexistent_subscription(server):
     )
 
     # create Bob's agent class, but do not instantiate or subscribe Bob
-    bob_class = slim_bindings.PyAgentType("cisco", "default", "bob")
+    bob_class = slim_bindings.PyAgentType("org", "default", "bob")
 
     # publish a message from Alice intended for Bob (who is not there)
     msg = [7, 8, 9]

@@ -18,7 +18,7 @@ use serde::{Deserialize, Serialize};
 use slim_auth::traits::{TokenProvider, Verifier};
 use std::fs::File;
 use std::io::{Read, Write};
-use tracing::{debug, info};
+use tracing::debug;
 
 const CIPHERSUITE: CipherSuite = CipherSuite::CURVE25519_AES128;
 const IDENTITY_FILENAME: &str = "identity.json";
@@ -177,7 +177,7 @@ where
     }
 
     pub fn initialize(&mut self) -> Result<(), MlsError> {
-        info!("Initializing MLS client for agent: {}", self.agent);
+        debug!("Initializing MLS client for agent: {}", self.agent);
         let storage_path = self.get_storage_path();
         debug!("Using storage path: {}", storage_path.display());
         std::fs::create_dir_all(&storage_path).map_err(MlsError::StorageDirectoryCreation)?;
@@ -191,7 +191,7 @@ where
             debug!("Loading existing identity from file");
             StoredIdentity::load_from_storage(&storage_path)?
         } else {
-            info!("Creating new identity for agent");
+            debug!("Creating new identity for agent");
             let (private_key, public_key) = Self::generate_key_pair()?;
 
             let stored = StoredIdentity {
@@ -227,12 +227,12 @@ where
             .build();
 
         self.client = Some(client);
-        info!("MLS client initialization completed successfully");
+        debug!("MLS client initialization completed successfully");
         Ok(())
     }
 
     pub fn create_group(&mut self) -> Result<Vec<u8>, MlsError> {
-        info!("Creating new MLS group");
+        debug!("Creating new MLS group");
         let client = self.client.as_ref().ok_or(MlsError::ClientNotInitialized)?;
 
         let group = Self::map_mls_error(client.create_group(
@@ -243,7 +243,7 @@ where
 
         let group_id = group.group_id().to_vec();
         self.group = Some(group);
-        info!(
+        debug!(
             "MLS group created successfully with ID: {:?}",
             hex::encode(&group_id)
         );
@@ -333,7 +333,7 @@ where
     }
 
     pub fn process_welcome(&mut self, welcome_message: &[u8]) -> Result<Vec<u8>, MlsError> {
-        info!("Processing welcome message and joining MLS group");
+        debug!("Processing welcome message and joining MLS group");
         let client = self.client.as_ref().ok_or(MlsError::ClientNotInitialized)?;
 
         // process the welcome message and connect to the group
@@ -342,7 +342,7 @@ where
 
         let group_id = group.group_id().to_vec();
         self.group = Some(group);
-        info!(
+        debug!(
             "Successfully joined MLS group with ID: {:?}",
             hex::encode(&group_id)
         );
@@ -477,7 +477,7 @@ mod tests {
     use tokio::time;
 
     use super::*;
-    use slim_auth::simple::SimpleGroup;
+    use slim_auth::shared_secret::SharedSecret;
     use std::thread;
 
     #[test]
@@ -485,8 +485,8 @@ mod tests {
         let agent = slim_datapath::messages::Agent::from_strings("org", "default", "alice", 0);
         let mut mls = Mls::new(
             agent,
-            SimpleGroup::new("alice", "group"),
-            SimpleGroup::new("alice", "group"),
+            SharedSecret::new("alice", "group"),
+            SharedSecret::new("alice", "group"),
             std::path::PathBuf::from("/tmp/mls_test_creation"),
         );
 
@@ -501,8 +501,8 @@ mod tests {
         let agent = slim_datapath::messages::Agent::from_strings("org", "default", "alice", 0);
         let mut mls = Mls::new(
             agent,
-            SimpleGroup::new("alice", "group"),
-            SimpleGroup::new("alice", "group"),
+            SharedSecret::new("alice", "group"),
+            SharedSecret::new("alice", "group"),
             std::path::PathBuf::from("/tmp/mls_test_group_creation"),
         );
 
@@ -518,8 +518,8 @@ mod tests {
         let agent = slim_datapath::messages::Agent::from_strings("org", "default", "alice", 0);
         let mut mls = Mls::new(
             agent,
-            SimpleGroup::new("alice", "group"),
-            SimpleGroup::new("alice", "group"),
+            SharedSecret::new("alice", "group"),
+            SharedSecret::new("alice", "group"),
             std::path::PathBuf::from("/tmp/mls_test_key_package"),
         );
 
@@ -542,26 +542,26 @@ mod tests {
         // alice will work as moderator
         let mut alice = Mls::new(
             alice_agent,
-            SimpleGroup::new("alice", "group"),
-            SimpleGroup::new("alice", "group"),
+            SharedSecret::new("alice", "group"),
+            SharedSecret::new("alice", "group"),
             std::path::PathBuf::from("/tmp/mls_test_messaging_alice"),
         );
         let mut bob = Mls::new(
             bob_agent,
-            SimpleGroup::new("bob", "group"),
-            SimpleGroup::new("bob", "group"),
+            SharedSecret::new("bob", "group"),
+            SharedSecret::new("bob", "group"),
             std::path::PathBuf::from("/tmp/mls_test_messaging_bob"),
         );
         let mut charlie = Mls::new(
             charlie_agent,
-            SimpleGroup::new("charlie", "group"),
-            SimpleGroup::new("charlie", "group"),
+            SharedSecret::new("charlie", "group"),
+            SharedSecret::new("charlie", "group"),
             std::path::PathBuf::from("/tmp/mls_test_messaging_charlie"),
         );
         let mut daniel = Mls::new(
             daniel_agent,
-            SimpleGroup::new("daniel", "group"),
-            SimpleGroup::new("daniel", "group"),
+            SharedSecret::new("daniel", "group"),
+            SharedSecret::new("daniel", "group"),
             std::path::PathBuf::from("/tmp/mls_test_messaging_daniel"),
         );
 
@@ -690,14 +690,14 @@ mod tests {
 
         let mut alice = Mls::new(
             alice_agent,
-            SimpleGroup::new("alice", "group"),
-            SimpleGroup::new("alice", "group"),
+            SharedSecret::new("alice", "group"),
+            SharedSecret::new("alice", "group"),
             std::path::PathBuf::from("/tmp/mls_test_decrypt_alice"),
         );
         let mut bob = Mls::new(
             bob_agent,
-            SimpleGroup::new("bob", "group"),
-            SimpleGroup::new("bob", "group"),
+            SharedSecret::new("bob", "group"),
+            SharedSecret::new("bob", "group"),
             std::path::PathBuf::from("/tmp/mls_test_decrypt_bob"),
         );
 
@@ -726,14 +726,14 @@ mod tests {
 
         let mut alice = Mls::new(
             alice_agent.clone(),
-            SimpleGroup::new("alice", "secret_v1"),
-            SimpleGroup::new("alice", "secret_v1"),
+            SharedSecret::new("alice", "secret_v1"),
+            SharedSecret::new("alice", "secret_v1"),
             std::path::PathBuf::from("/tmp/mls_test_rotation_alice"),
         );
         let mut bob = Mls::new(
             bob_agent.clone(),
-            SimpleGroup::new("bob", "secret_v1"),
-            SimpleGroup::new("bob", "secret_v1"),
+            SharedSecret::new("bob", "secret_v1"),
+            SharedSecret::new("bob", "secret_v1"),
             std::path::PathBuf::from("/tmp/mls_test_rotation_bob"),
         );
 
@@ -753,8 +753,8 @@ mod tests {
 
         let mut alice_rotated_secret = Mls::new(
             alice_agent,
-            SimpleGroup::new("alice", "secret_v2"),
-            SimpleGroup::new("alice", "secret_v2"),
+            SharedSecret::new("alice", "secret_v2"),
+            SharedSecret::new("alice", "secret_v2"),
             std::path::PathBuf::from("/tmp/mls_test_rotation_alice_v2"),
         );
         alice_rotated_secret.initialize()?;
@@ -788,8 +788,8 @@ mod tests {
 
         let mut moderator = Mls::new(
             moderator_agent.clone(),
-            SimpleGroup::new("moderator", "secret_v1"),
-            SimpleGroup::new("moderator", "secret_v1"),
+            SharedSecret::new("moderator", "secret_v1"),
+            SharedSecret::new("moderator", "secret_v1"),
             std::path::PathBuf::from("/tmp/mls_test_moderator"),
         );
         moderator.initialize()?;
@@ -799,16 +799,16 @@ mod tests {
 
         let mut alice = Mls::new(
             alice_agent.clone(),
-            SimpleGroup::new("alice", "secret_v1"),
-            SimpleGroup::new("alice", "secret_v1"),
+            SharedSecret::new("alice", "secret_v1"),
+            SharedSecret::new("alice", "secret_v1"),
             alice_path.into(),
         );
         alice.initialize()?;
 
         let mut bob = Mls::new(
             bob_agent.clone(),
-            SimpleGroup::new("bob", "secret_v1"),
-            SimpleGroup::new("bob", "secret_v1"),
+            SharedSecret::new("bob", "secret_v1"),
+            SharedSecret::new("bob", "secret_v1"),
             bob_path.into(),
         );
         bob.initialize()?;

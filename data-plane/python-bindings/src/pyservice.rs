@@ -1,3 +1,6 @@
+// Copyright AGNTCY Contributors (https://github.com/agntcy)
+// SPDX-License-Identifier: Apache-2.0
+
 use std::sync::Arc;
 
 use pyo3::exceptions::PyException;
@@ -6,8 +9,9 @@ use pyo3::types::PyDict;
 use pyo3_stub_gen::derive::gen_stub_pyclass;
 use pyo3_stub_gen::derive::gen_stub_pyfunction;
 use pyo3_stub_gen::derive::gen_stub_pymethods;
-use rand::Rng;
 use serde_pyobject::from_pyobject;
+use slim_auth::traits::TokenProvider;
+use slim_auth::traits::Verifier;
 use slim_datapath::messages::encoder::{Agent, AgentType};
 use slim_datapath::messages::utils::SlimHeaderFlags;
 use slim_service::app::App;
@@ -16,10 +20,13 @@ use slim_service::session;
 use slim_service::{Service, ServiceError};
 use tokio::sync::RwLock;
 
+use crate::pyidentity::IdentityProvider;
+use crate::pyidentity::IdentityVerifier;
+use crate::pyidentity::PyIdentityProvider;
+use crate::pyidentity::PyIdentityVerifier;
 use crate::pysession::PySessionType;
 use crate::pysession::{PySessionConfiguration, PySessionInfo};
 use crate::utils::PyAgentType;
-use slim_auth::simple::SimpleGroup;
 use slim_config::grpc::client::ClientConfig as PyGrpcClientConfig;
 use slim_config::grpc::server::ServerConfig as PyGrpcServerConfig;
 
@@ -27,11 +34,15 @@ use slim_config::grpc::server::ServerConfig as PyGrpcServerConfig;
 #[pyclass]
 #[derive(Clone)]
 pub struct PyService {
-    sdk: Arc<PyServiceInternal>,
+    sdk: Arc<PyServiceInternal<IdentityProvider, IdentityVerifier>>,
 }
 
-struct PyServiceInternal {
-    app: App<SimpleGroup, SimpleGroup>,
+struct PyServiceInternal<P, V>
+where
+    P: TokenProvider + Send + Sync + Clone + 'static,
+    V: Verifier + Send + Sync + Clone + 'static,
+{
+    app: App<P, V>,
     service: Service,
     agent: Agent,
     rx: RwLock<session::AppChannelReceiver>,
@@ -51,19 +62,22 @@ impl PyService {
         organization: String,
         namespace: String,
         agent_type: String,
-        identity: Option<String>,
-        id: Option<u64>,
+        provider: PyIdentityProvider,
+        verifier: PyIdentityVerifier,
     ) -> Result<Self, ServiceError> {
-        let id = match identity {
-            Some(i) => Agent::agent_id_from_identity(&i),
-            None => match id {
-                Some(v) => v,
-                None => {
-                    let mut rng = rand::rng();
-                    rng.random()
-                }
-            },
-        };
+        // Convert the PyIdentityProvider into IdentityProvider
+        let provider: IdentityProvider = provider.into();
+
+        // Convert the PyIdentityVerifier into IdentityVerifier
+        let verifier: IdentityVerifier = verifier.into();
+
+        let identity_token = provider.get_token().map_err(|e| {
+            ServiceError::ConfigError(format!("Failed to get token from provider: {}", e))
+        })?;
+
+        // TODO(msardara): we can likely get more information from the token here, like a global instance ID
+        let id =
+            Agent::agent_id_from_identity(&format!("{}-{}", identity_token, rand::random::<u32>()));
 
         // create local agent
         let agent = Agent::from_strings(&organization, &namespace, &agent_type, id);
@@ -75,13 +89,7 @@ impl PyService {
         let svc = Service::new(svc_id);
 
         // Get the rx channel
-        let (app, rx) = svc
-            .create_app(
-                &agent,
-                SimpleGroup::new("a", "group"),
-                SimpleGroup::new("a", "group"),
-            )
-            .await?;
+        let (app, rx) = svc.create_app(&agent, provider, verifier).await?;
 
         // create the service
         let sdk = Arc::new(PyServiceInternal {
@@ -208,6 +216,16 @@ impl PyService {
             .app
             .invite_participant(&name.into(), session_info)
             .await
+    }
+
+    async fn remove(
+        &self,
+        session_info: session::Info,
+        name: PyAgentType,
+        id: u64,
+    ) -> Result<(), ServiceError> {
+        let name = Agent::new(name.into(), id);
+        self.sdk.app.remove_participant(&name, session_info).await
     }
 
     async fn receive(&self) -> Result<(PySessionInfo, Vec<u8>), ServiceError> {
@@ -524,6 +542,23 @@ pub fn invite(
 
 #[gen_stub_pyfunction]
 #[pyfunction]
+#[pyo3(signature = (svc, session_info, name, id))]
+pub fn remove(
+    py: Python,
+    svc: PyService,
+    session_info: PySessionInfo,
+    name: PyAgentType,
+    id: u64,
+) -> PyResult<Bound<PyAny>> {
+    pyo3_async_runtimes::tokio::future_into_py(py, async move {
+        svc.remove(session_info.session_info, name, id)
+            .await
+            .map_err(|e| PyErr::new::<PyException, _>(e.to_string()))
+    })
+}
+
+#[gen_stub_pyfunction]
+#[pyfunction]
 #[pyo3(signature = (svc))]
 pub fn receive(py: Python, svc: PyService) -> PyResult<Bound<PyAny>> {
     pyo3_async_runtimes::tokio::future_into_py_with_locals(
@@ -539,17 +574,17 @@ pub fn receive(py: Python, svc: PyService) -> PyResult<Bound<PyAny>> {
 
 #[gen_stub_pyfunction]
 #[pyfunction]
-#[pyo3(signature = (organization, namespace, agent_type, id=None))]
+#[pyo3(signature = (organization, namespace, agent_type, provider, verifier))]
 pub fn create_pyservice(
     py: Python,
     organization: String,
     namespace: String,
     agent_type: String,
-    id: Option<u64>,
+    provider: PyIdentityProvider,
+    verifier: PyIdentityVerifier,
 ) -> PyResult<Bound<PyAny>> {
     pyo3_async_runtimes::tokio::future_into_py(py, async move {
-        // TODO (micpapal/msadara): add the identity here to derive the right id
-        PyService::create_pyservice(organization, namespace, agent_type, None, id)
+        PyService::create_pyservice(organization, namespace, agent_type, provider, verifier)
             .await
             .map_err(|e| PyErr::new::<PyException, _>(e.to_string()))
     })

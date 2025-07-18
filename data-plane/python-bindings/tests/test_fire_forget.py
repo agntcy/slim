@@ -5,6 +5,7 @@ import asyncio
 import datetime
 
 import pytest
+from common import create_slim
 
 import slim_bindings
 
@@ -17,7 +18,7 @@ async def test_sticky_session(server):
     sender = "sender"
 
     # create new slim object
-    sender = await slim_bindings.Slim.new(org, ns, sender)
+    sender = await create_slim(org, ns, sender, "secret")
 
     # Connect to the service and subscribe for the local name
     _ = await sender.connect(
@@ -32,7 +33,7 @@ async def test_sticky_session(server):
     # run 10 receivers concurrently
     async def run_receiver(i: int):
         # create new receiver object
-        receiver = await slim_bindings.Slim.new(org, ns, "receiver")
+        receiver = await create_slim(org, ns, "receiver", "secret")
 
         # Connect to the service and subscribe for the local name
         _ = await receiver.connect(

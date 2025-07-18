@@ -10,7 +10,7 @@ use crate::{
 struct EmptyClaims;
 
 #[derive(Debug, Clone)]
-pub struct SimpleGroup {
+pub struct SharedSecret {
     /// Unique identifier for the entity
     id: String,
 
@@ -18,7 +18,7 @@ pub struct SimpleGroup {
     shared_secret: String,
 }
 
-impl SimpleGroup {
+impl SharedSecret {
     pub fn new(id: &str, shared_secret: &str) -> Self {
         Self {
             id: id.to_owned(),
@@ -35,7 +35,7 @@ impl SimpleGroup {
     }
 }
 
-impl TokenProvider for SimpleGroup {
+impl TokenProvider for SharedSecret {
     fn get_token(&self) -> Result<String, AuthError> {
         if self.shared_secret.is_empty() {
             Err(AuthError::TokenInvalid(
@@ -49,7 +49,7 @@ impl TokenProvider for SimpleGroup {
 }
 
 #[async_trait::async_trait]
-impl Verifier for SimpleGroup {
+impl Verifier for SharedSecret {
     async fn verify<Claims>(&self, token: impl Into<String> + Send) -> Result<Claims, AuthError>
     where
         Claims: serde::de::DeserializeOwned + Send,

@@ -79,10 +79,12 @@ dependencies = [
  "agntcy-slim-datapath",
  "agntcy-slim-service",
  "agntcy-slim-tracing",
+ "async-trait",
  "pyo3",
  "pyo3-async-runtimes",
  "pyo3-stub-gen",
  "rand 0.9.1",
+ "serde",
  "serde-pyobject",
  "tokio",
 ]
