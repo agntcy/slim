@@ -114,16 +114,9 @@ pub struct Node {
     pub id: ::prost::alloc::string::String,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct NodeConnectionConfiguration {
-    #[prost(string, tag = "1")]
-    pub config_json: ::prost::alloc::string::String,
-}
-#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct RegisterNodeRequest {
     #[prost(string, tag = "1")]
     pub node_id: ::prost::alloc::string::String,
-    #[prost(message, optional, tag = "2")]
-    pub configuration: ::core::option::Option<NodeConnectionConfiguration>,
 }
 #[derive(Clone, Copy, PartialEq, ::prost::Message)]
 pub struct RegisterNodeResponse {

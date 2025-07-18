@@ -39,6 +39,8 @@ pub enum ServiceError {
     ServerNotFound(String),
     #[error("error sending message: {0}")]
     MessageSendingError(String),
+    #[error("error in controller: {0}")]
+    ControllerError(String),
     #[error("storage error: {0}")]
     StorageError(String),
     #[error("unknown error")]
@@ -109,10 +111,16 @@ pub enum SessionError {
     NoMls,
     #[error("error generating key package: {0}")]
     MLSKeyPackage(String),
+    #[error("invialid id message: {0}")]
+    MLSIdMessage(String),
     #[error("error processing welcome message: {0}")]
     WelcomeMessage(String),
     #[error("error processing commit message: {0}")]
     CommitMessage(String),
+    #[error("error processing proposal message: {0}")]
+    ParseProposalMessage(String),
+    #[error("error creating proposal message: {0}")]
+    NewProposalMessage(String),
     #[error("error adding a new participant: {0}")]
     AddParticipant(String),
     #[error("error removing a participant: {0}")]
@@ -121,4 +129,6 @@ pub enum SessionError {
     TimerNotFound(String),
     #[error("error processing payload of Join Channel request: {0}")]
     JoinChannelPayload(String),
+    #[error("key rotation pending")]
+    KeyRotationPending,
 }

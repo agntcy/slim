@@ -92,6 +92,7 @@ name = "agntcy-slim-config"
 version = "0.1.8"
 dependencies = [
  "agntcy-slim-auth",
+ "drain",
  "duration-str",
  "futures",
  "http 1.3.1",
@@ -111,6 +112,7 @@ dependencies = [
  "serde_yaml",
  "thiserror 2.0.12",
  "tokio",
+ "tokio-util",
  "tonic 0.13.1",
  "tonic-build",
  "tonic-tls",
@@ -128,11 +130,14 @@ version = "0.1.1"
 dependencies = [
  "agntcy-slim-config",
  "agntcy-slim-datapath",
- "bytes",
+ "agntcy-slim-signal",
+ "agntcy-slim-tracing",
+ "drain",
  "h2 0.4.10",
  "parking_lot",
  "prost",
  "protoc-bin-vendored",
+ "serde",
  "serde_json",
  "thiserror 2.0.12",
  "tokio",
@@ -141,6 +146,7 @@ dependencies = [
  "tonic 0.13.1",
  "tonic-build",
  "tracing",
+ "tracing-test",
  "uuid",
 ]
 

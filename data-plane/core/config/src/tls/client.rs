@@ -151,6 +151,13 @@ impl TlsClientConfig {
         TlsClientConfig::default()
     }
 
+    pub fn insecure() -> Self {
+        TlsClientConfig {
+            insecure: true,
+            ..Default::default()
+        }
+    }
+
     /// Set insecure (disable certificate verification)
     pub fn with_insecure_skip_verify(self, insecure_skip_verify: bool) -> Self {
         TlsClientConfig {

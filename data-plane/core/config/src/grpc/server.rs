@@ -10,7 +10,9 @@ use std::{net::SocketAddr, str::FromStr, time::Duration};
 use duration_str::deserialize_duration;
 use futures::{FutureExt, TryStreamExt};
 use serde::Deserialize;
+use tokio_util::sync::CancellationToken;
 use tonic::transport::server::TcpIncoming;
+use tracing::{debug, info};
 
 use super::errors::ConfigError;
 use crate::auth::ServerAuthenticator;
@@ -416,6 +418,60 @@ impl ServerConfig {
                 Ok(router.serve_with_incoming(incoming).boxed())
             }
         }
+    }
+
+    pub fn run_server<S>(
+        &self,
+        svc: &[S],
+        drain_rx: drain::Watch,
+    ) -> Result<tokio_util::sync::CancellationToken, ConfigError>
+    where
+        S: tower_service::Service<
+                http::Request<tonic::body::Body>,
+                Response = http::Response<tonic::body::Body>,
+                Error = Infallible,
+            >
+            + tonic::server::NamedService
+            + Clone
+            + Send
+            + 'static
+            + Sync,
+        S::Future: Send + 'static,
+    {
+        info!(%self, "server configured: setting it up");
+        let server_future = self.to_server_future(svc)?;
+
+        // create a new cancellation token
+        let token = CancellationToken::new();
+        let token_clone = token.clone();
+
+        // spawn server acceptor in a new task
+        tokio::spawn(async move {
+            debug!("starting server main loop");
+            let shutdown = drain_rx.signaled();
+
+            info!("running service");
+            tokio::select! {
+                res = server_future => {
+                    match res {
+                        Ok(_) => {
+                            info!("server shutdown");
+                        }
+                        Err(e) => {
+                            info!("server error: {:?}", e);
+                        }
+                    }
+                }
+                _ = shutdown => {
+                    info!("shutting down server");
+                }
+                _ = token.cancelled() => {
+                    info!("cancellation token triggered: shutting down server");
+                }
+            }
+        });
+
+        Ok(token_clone)
     }
 }
 

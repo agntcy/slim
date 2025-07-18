@@ -88,11 +88,8 @@ message ConnectionListResponse {
 
 message Node { string id = 1; }
 
-message NodeConnectionConfiguration { string configJson = 1; }
-
 message RegisterNodeRequest {
   string nodeId = 1;
-  NodeConnectionConfiguration configuration = 2;
 }
 
 message RegisterNodeResponse {
