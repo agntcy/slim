@@ -1,7 +1,11 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
-use std::{collections::HashMap, sync::Arc, time::Duration};
+use std::{
+    collections::{HashMap, VecDeque},
+    sync::Arc,
+    time::Duration,
+};
 
 use async_trait::async_trait;
 use bincode::{Decode, Encode};
@@ -9,9 +13,7 @@ use parking_lot::Mutex;
 use tracing::{debug, error, info, trace};
 
 use crate::{
-    errors::SessionError,
-    interceptor_mls::{METADATA_MLS_ENABLED, METADATA_MLS_INIT_COMMIT_ID},
-    session::{Id, SessionTransmitter},
+    errors::SessionError, interceptor_mls::{METADATA_MLS_ENABLED, METADATA_MLS_INIT_COMMIT_ID}, moderator_task::{AddParticipantMlsTask, AddParticipantTask, ModeratorTask, TaskUpdate}, session::{Id, SessionTransmitter}
 };
 use slim_auth::traits::{TokenProvider, Verifier};
 use slim_datapath::{
@@ -102,7 +104,7 @@ where
 }
 
 #[derive(Debug)]
-pub(crate) enum ChannelEndpoint<P, V, T>
+pub(crate) enum  ChannelEndpoint<P, V, T>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
@@ -1058,6 +1060,13 @@ where
 {
     endpoint: Endpoint<T>,
 
+    /// list of pending task to execute
+    tasks_todo: VecDeque<Message>,
+
+    /// the current task executed by the moderator
+    /// if it is None the moderator can acept a new task
+    current_task: Option<ModeratorTask>,
+
     /// list of pending requests and related timers
     pending_requests: HashMap<u32, ChannelTimer>,
 
@@ -1104,6 +1113,8 @@ where
         );
         ChannelModerator {
             endpoint,
+            tasks_todo: vec![].into(),
+            current_task: None,
             pending_requests: HashMap::new(),
             invite_payload,
             mls_state,
@@ -1130,6 +1141,8 @@ where
         self.endpoint.send(msg.clone()).await?;
         // create a timer for this request
         self.create_timer(msg_id, 1, msg, None);
+
+        self.current_task.as_mut().unwrap().discovery_start(msg_id)?;
 
         Ok(())
     }
@@ -1175,6 +1188,9 @@ where
                     timer.timer.stop();
                     to_process = timer.to_process.clone();
                     self.pending_requests.remove(&key);
+
+                    // remove timer frm the task timer list
+                    //self.task_timers.remove(msg_id);
                 } else {
                     return Ok(false);
                 }
@@ -1270,6 +1286,9 @@ where
         // If recv_msg_id is not in the pending requests, this will fail with an error
         self.delete_timer(recv_msg_id).await?;
 
+        // evolve the current task state
+        self.current_task.as_mut().unwrap().discovery_complete(recv_msg_id)?;
+
         // set the local state and join the channel
         self.endpoint.conn = Some(msg.get_incoming_conn());
         self.join().await?;
@@ -1299,6 +1318,9 @@ where
         // add a new timer for the join message
         self.create_timer(new_msg_id, 1, join.clone(), None);
 
+        // evolve the current task state
+        self.current_task.as_mut().unwrap().join_start(new_msg_id)?;
+
         // send the message
         self.endpoint.send(join).await
     }
@@ -1310,6 +1332,9 @@ where
         // cancel timer, there only one message pending here
         let ret = self.delete_timer(msg_id).await?;
         debug_assert!(ret, "timer for join reply should be removed");
+
+        // evolve the current task state
+        self.current_task.as_mut().unwrap().join_complete(msg_id)?;
 
         // send MLS messages if needed
         if self.mls_state.is_some() {
@@ -1346,27 +1371,55 @@ where
             self.endpoint.send(welcome.clone()).await?;
             self.create_timer(welcome_id, 1, welcome, None);
 
+            // evolve the current task state
+            self.current_task.as_mut().unwrap().welcome_start(welcome_id)?;
+
             // send commit message if needed
             let len = self.mls_state.as_ref().unwrap().participants.len();
             if len > 1 {
                 debug!("Send MLS Commit Message to the channel (new group member)");
                 self.endpoint.send(commit.clone()).await?;
                 self.create_timer(commit_id, (len - 1).try_into().unwrap(), commit, None);
+            } else {
+                // no commit message will be sent so update the task to consider the commit as received
+                // the timer id is not importat here, it just need to be consistent
+                self.current_task.as_mut().unwrap().commit_start(1)?;
+                self.current_task.as_mut().unwrap().mls_phase_completed(1)?;
             }
-        };
+        } else {
+            // MLS is disable so the current task should be completed
+            if self.current_task.as_ref().unwrap().task_complete() {
+                // TODO put this check in a function
+                // TODO do something here
+                println!("---- we are done!");
+                self.current_task = None;
+            }
+        }
 
         Ok(())
     }
 
     async fn on_msl_ack(&mut self, msg: Message) -> Result<(), SessionError> {
         let recv_msg_id = msg.get_id();
-        let _ = self.delete_timer(recv_msg_id).await?;
+        if self.delete_timer(recv_msg_id).await? {
+            // one mls phase was complited so update the current task state
+            self.current_task.as_mut().unwrap().mls_phase_completed(recv_msg_id)?;
+        }
 
         // notify mls state that an ack was received
         self.mls_state
             .as_mut()
             .ok_or(SessionError::NoMls)?
-            .on_mls_ack()
+            .on_mls_ack()?;
+
+        // check is the current task is completed
+        if self.current_task.as_ref().unwrap().task_complete() {
+            // TODO try to see if we need to get a new task
+            println!("------ task done!");
+            self.current_task = None;
+        }
+
+        Ok(())
     }
 
     async fn on_mls_proposal(&mut self, msg: Message) -> Result<(), SessionError> {
@@ -1498,9 +1551,47 @@ where
         let msg_id = msg.get_id();
 
         // cancel timer
-        let ret = self.delete_timer(msg_id).await?;
-        debug_assert!(ret, "timer for leave reply should be removed");
+        if self.delete_timer(msg_id).await? {
+            // wth the leave reply reception we conclude a participant remove
+            // so we can pickup a new task
+            self.task_done().await
+        } else {
+            debug!("timer for leave reply {:?} was not removed", msg_id);
+            Ok(())
+        }
+    }
+
+    async fn task_done(&mut self) -> Result<(), SessionError> {
+        // TODO
         Ok(())
+        // here the moderator is not busy anymore
+        /*self.busy = false;
+
+        // check if there is a pending task to process
+        let msg = match self.tasks_todo.pop_front() {
+            Some(m) => m,
+            None => {
+                // nothing else to do
+                return Ok(());
+            }
+        };
+
+        debug!("process a message from the todo list");
+
+        let msg_type = msg.get_session_header().session_message_type();
+        match msg_type {
+            ProtoSessionMessageType::ChannelDiscoveryRequest => self.forward(msg).await,
+            ProtoSessionMessageType::ChannelMlsProposal => {
+                // TODO check local rotation
+                self.on_mls_proposal(msg).await
+            }
+            ProtoSessionMessageType::ChannelLeaveRequest => self.on_leave_request(msg).await,
+            _ => {
+                error!("unexpected message in the list of tasks to do, drop it");
+                self.busy = false;
+                Ok(())
+            }
+        }*/
     }
 }
 
@@ -1511,6 +1602,7 @@ where
     T: SessionTransmitter + Send + Sync + Clone + 'static,
 {
     async fn update_mls_keys(&mut self) -> Result<(), SessionError> {
+        // TODO if busy put something on the task queue and process this later
         if self.mls_state.is_none() {
             return Err(SessionError::NoMls);
         }
@@ -1568,32 +1660,72 @@ where
         let msg_type = msg.get_session_header().session_message_type();
         match msg_type {
             ProtoSessionMessageType::ChannelDiscoveryRequest => {
+                // the channel discovery starts a new participant invite
+                // process the request only if not busy
+                if self.current_task.is_some() {
+                    // if busy postpone the task and add it to the todo list
+                    self.tasks_todo.push_back(msg);
+                    return Ok(());
+                }
+                // now the moderator is busy
+                self.current_task = if self.mls_state.is_some() {
+                    Some(ModeratorTask::AddParticipantMlsTask(AddParticipantMlsTask::default()))
+                } else {
+                    Some(ModeratorTask::AddParticipantTask(AddParticipantTask::default()))
+                };
+
                 debug!("Invite new participant to the channel, send discovery message");
                 // discovery message coming from the application
                 self.forward(msg).await
             }
             ProtoSessionMessageType::ChannelDiscoveryReply => {
+                // this is part of an invite, process the packet
                 debug!("Received discovery reply message");
                 self.on_discovery_reply(msg).await
             }
             ProtoSessionMessageType::ChannelJoinReply => {
+                // this is part of an invite, process the packet
                 debug!("Received join reply message");
                 self.on_join_reply(msg).await
             }
             ProtoSessionMessageType::ChannelMlsAck => {
+                // this is part of an mls exchange, process the packet
                 debug!("Received mls ack message");
                 self.on_msl_ack(msg).await
             }
             ProtoSessionMessageType::ChannelMlsProposal => {
+                // this message starts a new participant update
+                // process the request only if not busy
+                // TODO
+                /*if self.busy {
+                    // if busy postpone the task and add it to the todo list
+                    self.tasks_todo.push_back(msg);
+                    return Ok(());
+                }
+                // now the moderator is busy
+                self.busy = true;*/
+
                 debug!("Received mls proposal message");
                 self.on_mls_proposal(msg).await
             }
             ProtoSessionMessageType::ChannelLeaveRequest => {
                 // leave message coming from the application
+                // this message starts a new participant remove
+                // process the request only if not busy
+                // TODO
+                /*if self.busy {
+                    // if busy postpone the task and add it to the todo list
+                    self.tasks_todo.push_back(msg);
+                    return Ok(());
+                }
+                // now the moderator is busy
+                self.busy = true;*/
+
                 debug!("Received leave request message");
                 self.on_leave_request(msg).await
             }
             ProtoSessionMessageType::ChannelLeaveReply => {
+                // this is part of a remove, process the packet
                 debug!("Received leave reply message");
                 self.on_leave_reply(msg).await
             }

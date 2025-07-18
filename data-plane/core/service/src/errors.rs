@@ -131,4 +131,8 @@ pub enum SessionError {
     JoinChannelPayload(String),
     #[error("key rotation pending")]
     KeyRotationPending,
+
+    // Moderator Tasks errors
+    #[error("error updating a task: {0}")]
+    ModeratorTask(String),
 }

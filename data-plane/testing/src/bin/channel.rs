@@ -245,9 +245,9 @@ async fn main() {
                 .await
                 .expect("error sending invite message");
 
-            tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
+            //tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
         }
-        tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
+        tokio::time::sleep(tokio::time::Duration::from_millis(10000)).await;
 
         // listen for messages
         tokio::spawn(async move {
