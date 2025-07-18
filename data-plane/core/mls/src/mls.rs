@@ -376,9 +376,7 @@ where
         Ok(commit_msg)
     }
 
-    pub fn process_local_pending_proposal(
-        &mut self,
-    ) -> Result<CommitMsg, MlsError> {
+    pub fn process_local_pending_proposal(&mut self) -> Result<CommitMsg, MlsError> {
         let group = self.group.as_mut().ok_or(MlsError::GroupNotExists)?;
 
         // create commit message from proposal
@@ -391,7 +389,6 @@ where
         let commit_msg = Self::map_mls_error(commit.commit_message.to_bytes())?;
         Ok(commit_msg)
     }
-
 
     pub fn encrypt_message(&mut self, message: &[u8]) -> Result<Vec<u8>, MlsError> {
         debug!("Encrypting MLS message");
@@ -457,7 +454,9 @@ where
             vec![],
         ))?;
 
-        debug!("Created credential rotation proposal, store it and return the message to the caller");
+        debug!(
+            "Created credential rotation proposal, store it and return the message to the caller"
+        );
 
         let storage_path = self.get_storage_path();
         if let Some(stored) = self.stored_identity.as_mut() {

@@ -396,7 +396,10 @@ where
         Ok(ret)
     }
 
-    async fn process_proposal_message(&mut self, proposal: &ProposalMsg) -> Result<CommitMsg, SessionError> {
+    async fn process_proposal_message(
+        &mut self,
+        proposal: &ProposalMsg,
+    ) -> Result<CommitMsg, SessionError> {
         let commit = self
             .common
             .mls
@@ -1207,7 +1210,9 @@ where
                 }
                 ProtoSessionMessageType::ChannelMlsProposal => {
                     // check the payload of the proposal message
-                    let content = &to_process.as_ref().unwrap()
+                    let content = &to_process
+                        .as_ref()
+                        .unwrap()
                         .get_payload()
                         .map_or_else(
                             || {
@@ -1217,8 +1222,11 @@ where
                                 ))
                             },
                             |content| -> Result<(MlsProposalMessagePayload, usize), SessionError> {
-                                bincode::decode_from_slice(&content.blob, bincode::config::standard())
-                                    .map_err(|e| SessionError::ParseProposalMessage(e.to_string()))
+                                bincode::decode_from_slice(
+                                    &content.blob,
+                                    bincode::config::standard(),
+                                )
+                                .map_err(|e| SessionError::ParseProposalMessage(e.to_string()))
                             },
                         )?
                         .0;
@@ -1227,7 +1235,9 @@ where
                     if content.source_name == self.endpoint.name {
                         // this proposal was originated by the moderator itself
                         // apply it and send the commit
-                        info!("recevied all the acks for the local proposal message send the commit");
+                        info!(
+                            "recevied all the acks for the local proposal message send the commit"
+                        );
                         commit_payload = self
                             .mls_state
                             .as_mut()
@@ -1245,7 +1255,7 @@ where
                             .process_proposal_message(&content.mls_msg)
                             .await?;
                     }
-        
+
                     // brodcast the commit
                     let commit_id = self.mls_state.as_mut().unwrap().get_next_mls_mgs_id();
 
@@ -1383,7 +1393,7 @@ where
     }
 
     async fn on_mls_proposal(&mut self, msg: Message) -> Result<(), SessionError> {
-        // send ack to the participant
+        // get the payload
         let source = msg.get_source();
         let msg_id = msg.get_id();
         let payload = &msg
@@ -1406,28 +1416,65 @@ where
         info!("send ack for the received proposal");
         self.endpoint.send(ack).await?;
 
-        // broadcast the proposal on the channel
-        let broadcast_msg_id = self.mls_state.as_mut().unwrap().get_next_mls_mgs_id();
-        let broadcast_msg = self.endpoint.create_channel_message(
-            &self.endpoint.channel_name,
-            self.endpoint.channel_id,
-            true,
-            ProtoSessionMessageType::ChannelMlsProposal,
-            broadcast_msg_id,
-            payload.to_vec(),
-        );
-
-        // send the proposal to all the participants and set the timers
+        // if the sender is the only participant in the group we can apply the proposal
+        // locally and send a commit. otherwise the proposal must be known by all the
+        // members of the group and so we have to broadcast the proposal first and send
+        // the commit when all the acks are received
         let len = self.mls_state.as_ref().unwrap().participants.len();
-        info!("Send MLS Proposal Message to the channel (key rotation)");
-        info!("create timer for {} acks", len);
-        self.endpoint.send(broadcast_msg.clone()).await?;
-        self.create_timer(
-            broadcast_msg_id,
-            len.try_into().unwrap(),
-            broadcast_msg.clone(),
-            Some(broadcast_msg),
-        );
+
+        if len == 1 {
+            // we have a single participant in the gruop. apply the proposal and send the commit
+            let content: MlsProposalMessagePayload =
+                bincode::decode_from_slice(&payload, bincode::config::standard())
+                    .map_err(|e| SessionError::ParseProposalMessage(e.to_string()))?
+                    .0;
+
+            info!("process received proposal and send commit (single participant)");
+            let commit_payload = self
+                .mls_state
+                .as_mut()
+                .unwrap()
+                .process_proposal_message(&content.mls_msg)
+                .await?;
+
+            let commit_id = self.mls_state.as_mut().unwrap().get_next_mls_mgs_id();
+
+            let commit = self.endpoint.create_channel_message(
+                &self.endpoint.channel_name,
+                self.endpoint.channel_id,
+                true,
+                ProtoSessionMessageType::ChannelMlsCommit,
+                commit_id,
+                commit_payload,
+            );
+
+            info!("Send MLS Commit Message to the channel (commit recevied proposal)");
+            self.endpoint.send(commit.clone()).await?;
+            self.create_timer(commit_id, len.try_into().unwrap(), commit, None);
+
+        } else {
+            // broadcast the proposal on the channel
+            let broadcast_msg_id = self.mls_state.as_mut().unwrap().get_next_mls_mgs_id();
+            let broadcast_msg = self.endpoint.create_channel_message(
+                &self.endpoint.channel_name,
+                self.endpoint.channel_id,
+                true,
+                ProtoSessionMessageType::ChannelMlsProposal,
+                broadcast_msg_id,
+                payload.to_vec(),
+            );
+
+            // send the proposal to all the participants and set the timers
+            info!("Send MLS Proposal Message to the channel (key rotation)");
+            info!("create timer for {} acks", len);
+            self.endpoint.send(broadcast_msg.clone()).await?;
+            self.create_timer(
+                broadcast_msg_id,
+                len.try_into().unwrap(),
+                broadcast_msg.clone(),
+                Some(broadcast_msg),
+            );
+        }
 
         Ok(())
     }
@@ -1519,7 +1566,12 @@ where
         info!("Send MLS Proposal Message to the channel (moderator key update)");
         let len = self.mls_state.as_ref().unwrap().participants.len();
         self.endpoint.send(proposal.clone()).await?;
-        self.create_timer(proposal_id, len.try_into().unwrap(), proposal.clone(), Some(proposal));
+        self.create_timer(
+            proposal_id,
+            len.try_into().unwrap(),
+            proposal.clone(),
+            Some(proposal),
+        );
 
         Ok(())
     }
