@@ -462,7 +462,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let test_end = tokio::time::Instant::now() + Duration::from_secs(args.test_timeout);
         loop {
             tokio::select! {
-                // Prioritize message processing first
                 msg = rx.recv() => {
                     match msg {
                         Some(msg @ (TaskMessage::MessageSent(_, _) | TaskMessage::MessageReceived(_, _) | TaskMessage::ParticipantInvited(_) | TaskMessage::ParticipantRemoved(_))) => {
