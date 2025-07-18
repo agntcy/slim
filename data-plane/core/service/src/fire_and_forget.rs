@@ -252,7 +252,6 @@ where
                     }
                 }
                 () = &mut sleep, if self.state.config.mls_enabled => {
-                        println!("------ timer timer timer 10 sec!!!!");
                         let _ = self.state.channel_endpoint.update_mls_keys().await;
                         sleep.as_mut().reset(Instant::now() + Duration::from_secs(3600));
                 }
