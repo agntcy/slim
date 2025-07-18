@@ -152,6 +152,13 @@ func (s *nbAPIService) DeleteSubscription(ctx context.Context, deleteSubscriptio
 	if err != nil {
 		return nil, fmt.Errorf("failed to get subscription: %v", err)
 	}
+	connectionID := subscription.ConnectionId
+	endpoint, err := s.nodeService.GetConnectionDetails(connectionID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get connectiondetails: %v", err)
+	}
+	subscription.ConnectionId = endpoint
+
 	err = s.routeService.DeleteSubscription(ctx, subscription, opts)
 	if err != nil {
 		return nil, fmt.Errorf("failed to delete subscription: %v", err)
