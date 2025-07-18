@@ -18,6 +18,7 @@ mod testutils;
 mod transmitter;
 
 mod channel_endpoint;
+mod moderator_task;
 
 pub use fire_and_forget::FireAndForgetConfiguration;
 pub use session::SessionMessage;
