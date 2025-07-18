@@ -3935,6 +3935,7 @@ dependencies = [
  "agntcy-slim-config",
  "agntcy-slim-datapath",
  "agntcy-slim-service",
+ "agntcy-slim-tracing",
  "clap",
  "indicatif",
  "parking_lot",
