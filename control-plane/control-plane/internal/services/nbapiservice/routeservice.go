@@ -101,7 +101,7 @@ func (s *routeService) ListConnections(ctx context.Context, opts *options.Common
 	return nil, fmt.Errorf("no ConnectionListResponse found in response")
 }
 
-func (s *routeService) CreateConnection(ctx context.Context, connection *controllerapi.Connection, opts *options.CommonOptions) error {
+func (s *routeService) CreateConnection(ctx context.Context, connection *controllerapi.Connection, opts *options.CommonOptions) *controllerapi.ControlMessage {
 	controllerConfigCommand := &controllerapi.ConfigurationCommand{
 		ConnectionsToCreate:   []*controllerapi.Connection{connection},
 		SubscriptionsToSet:    []*controllerapi.Subscription{},
@@ -116,25 +116,7 @@ func (s *routeService) CreateConnection(ctx context.Context, connection *control
 		},
 	}
 
-	stream, err := controller.OpenControlChannel(ctx, opts)
-	if err != nil {
-		return fmt.Errorf("failed to open control channel: %w", err)
-	}
-	if err = stream.Send(msg); err != nil {
-		return fmt.Errorf("failed to send control message: %w", err)
-	}
-	if err = stream.CloseSend(); err != nil {
-		return fmt.Errorf("failed to close send: %w", err)
-	}
-	ack, err := stream.Recv()
-	if err != nil {
-		return fmt.Errorf("error receiving ack via stream: %w", err)
-	}
-	a := ack.GetAck()
-	if a == nil {
-		return fmt.Errorf("unexpected response type received (not an ACK): %v", ack)
-	}
-	return nil
+	return msg
 }
 
 func (s *routeService) CreateSubscription(ctx context.Context, subscription *controllerapi.Subscription, opts *options.CommonOptions) error {

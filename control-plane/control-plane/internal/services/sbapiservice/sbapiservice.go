@@ -8,6 +8,7 @@ import (
 
 	controllerapi "github.com/agntcy/slim/control-plane/common/proto/controller/v1"
 	"github.com/agntcy/slim/control-plane/control-plane/internal/db"
+	"github.com/agntcy/slim/control-plane/control-plane/internal/services/messagingservice"
 )
 
 type SouthboundAPIServer interface {
@@ -17,8 +18,9 @@ type SouthboundAPIServer interface {
 type sbAPIService struct {
 	controllerapi.UnimplementedControllerServiceServer
 	dbService               db.DataAccess
-	nodeConnectionMap       sync.Map
-	nodeConnectionStatusMap sync.Map
+	messagingService        messagingservice.Messaging
+	nodeConnectionMap       sync.Map // Maps node ID to the open control channel stream
+	nodeConnectionStatusMap sync.Map // Maps node ID to its connection status
 }
 
 // Node Status enumeration
@@ -30,24 +32,11 @@ const (
 	NodeStatusUnknown      NodeStatus = "unknown"
 )
 
-func NewSBAPIService(dbService db.DataAccess) SouthboundAPIServer {
+func NewSBAPIService(dbService db.DataAccess, messagingService messagingservice.Messaging) SouthboundAPIServer {
 	return &sbAPIService{
-		dbService: dbService,
+		dbService:        dbService,
+		messagingService: messagingService,
 	}
-}
-
-func (s *sbAPIService) GetNodeConnection(nodeID string) (controllerapi.ControllerService_OpenControlChannelServer, bool) {
-	if conn, ok := s.nodeConnectionMap.Load(nodeID); ok {
-		return conn.(controllerapi.ControllerService_OpenControlChannelServer), true
-	}
-	return nil, false
-}
-
-func (s *sbAPIService) GetNodeConnectionStatus(nodeID string) NodeStatus {
-	if status, ok := s.nodeConnectionStatusMap.Load(nodeID); ok {
-		return status.(NodeStatus)
-	}
-	return NodeStatusUnknown
 }
 
 func (s *sbAPIService) OpenControlChannel(stream controllerapi.ControllerService_OpenControlChannelServer) error {
@@ -56,6 +45,10 @@ func (s *sbAPIService) OpenControlChannel(stream controllerapi.ControllerService
 		msg *controllerapi.ControlMessage
 		err error
 	}
+
+	// For testing
+	// TODO: remove this after testing
+	s.nodeConnectionMap.Store(stream, "node1")
 
 	recvChan := make(chan recvResult)
 
@@ -86,7 +79,7 @@ func (s *sbAPIService) OpenControlChannel(stream controllerapi.ControllerService
 						log.Printf("Deregister node with ID: %v", nodeID)
 						// Update the node status to not connected
 						s.nodeConnectionStatusMap.Store(nodeID, NodeStatusNotConnected)
-						s.nodeConnectionMap.Delete(nodeID)
+						s.nodeConnectionMap.Delete(stream)
 					}
 
 				case *controllerapi.ControlMessage_RegisterNodeRequest:
@@ -98,15 +91,34 @@ func (s *sbAPIService) OpenControlChannel(stream controllerapi.ControllerService
 							ID: nodeID,
 						})
 						s.nodeConnectionStatusMap.Store(nodeID, NodeStatusConnected)
-						s.nodeConnectionMap.Store(nodeID, stream)
+						s.nodeConnectionMap.Store(stream, nodeID)
 					}
 				default:
 					log.Printf("Unknown message: %v", res.msg)
 				}
 			}
 		default:
-			fmt.Print("cica")
-			time.Sleep(10 * time.Millisecond) // Avoid busy loop
+
+			// Check if there is new message for the node
+			streamNodeID, ok := s.nodeConnectionMap.Load(stream)
+			if !ok {
+				log.Printf("No node ID found for the stream")
+				continue
+			}
+			nodeID := streamNodeID.(string)
+			command, err := s.messagingService.ReceiveMessage(nodeID)
+			if err != nil {
+				log.Printf("Failed to receive message for node %s: %v", nodeID, err)
+				continue
+			}
+			if command != nil {
+				log.Printf("Sending command to node %s: %v", nodeID, command)
+				stream.Send(command)
+			} else {
+				log.Printf("No command available for node %s", nodeID)
+			}
+
+			time.Sleep(10 * time.Second) // Avoid busy loop
 		}
 	}
 }
