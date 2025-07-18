@@ -25,6 +25,7 @@ const IDENTITY_FILENAME: &str = "identity.json";
 
 pub type CommitMsg = Vec<u8>;
 pub type WelcomeMsg = Vec<u8>;
+pub type ProposalMsg = Vec<u8>;
 pub type KeyPackageMsg = Vec<u8>;
 pub type MlsIdentity = Vec<u8>;
 pub struct MlsAddMemberResult {
@@ -349,6 +350,46 @@ where
         Ok(group_id)
     }
 
+    pub fn process_proposal(
+        &mut self,
+        proposal_message: &[u8],
+        create_commit: bool,
+    ) -> Result<CommitMsg, MlsError> {
+        let group = self.group.as_mut().ok_or(MlsError::GroupNotExists)?;
+        let proposal = Self::map_mls_error(MlsMessage::from_bytes(proposal_message))?;
+
+        Self::map_mls_error(group.process_incoming_message(proposal))?;
+
+        if !create_commit {
+            debug!("process proposal but do not create commit. return empty commit");
+            return Ok(vec![]);
+        }
+
+        // create commit message from proposal
+        let commit = Self::map_mls_error(group.commit_builder().build())?;
+
+        // apply the commit locally
+        Self::map_mls_error(group.apply_pending_commit())?;
+
+        // return the commit message
+        let commit_msg = Self::map_mls_error(commit.commit_message.to_bytes())?;
+        Ok(commit_msg)
+    }
+
+    pub fn process_local_pending_proposal(&mut self) -> Result<CommitMsg, MlsError> {
+        let group = self.group.as_mut().ok_or(MlsError::GroupNotExists)?;
+
+        // create commit message from proposal
+        let commit = Self::map_mls_error(group.commit_builder().build())?;
+
+        // apply the commit locally
+        Self::map_mls_error(group.apply_pending_commit())?;
+
+        // return the commit message
+        let commit_msg = Self::map_mls_error(commit.commit_message.to_bytes())?;
+        Ok(commit_msg)
+    }
+
     pub fn encrypt_message(&mut self, message: &[u8]) -> Result<Vec<u8>, MlsError> {
         debug!("Encrypting MLS message");
 
@@ -390,45 +431,22 @@ where
         self.group.as_ref().map(|g| g.current_epoch())
     }
 
-    // TODO(zkacsand): this needs to be triggered from the auth crate
-    #[allow(dead_code)]
-    fn check_credential_rotation(&mut self) -> Result<Option<Vec<u8>>, MlsError> {
-        let stored_identity = self
-            .stored_identity
-            .as_ref()
-            .ok_or(MlsError::ClientNotInitialized)?;
+    pub fn create_rotation_proposal(&mut self) -> Result<ProposalMsg, MlsError> {
+        let group = self.group.as_mut().ok_or(MlsError::GroupNotExists)?;
 
-        let current_token = self
+        // get the current credentials
+        let token = self
             .identity_provider
             .get_token()
             .map_err(|e| MlsError::TokenRetrievalFailed(e.to_string()))?;
 
-        if let Some(last_credential) = &stored_identity.last_credential {
-            if last_credential != &current_token && self.group.is_some() {
-                info!(
-                    "Credential rotation detected: {} -> {}",
-                    last_credential, current_token
-                );
-                return self.create_rotation_proposal(current_token).map(Some);
-            }
-        }
-
-        Ok(None)
-    }
-
-    pub fn create_rotation_proposal(
-        &mut self,
-        new_credential: String,
-    ) -> Result<Vec<u8>, MlsError> {
-        let group = self.group.as_mut().ok_or(MlsError::GroupNotExists)?;
-
-        let credential_data = new_credential.as_bytes().to_vec();
-        let new_basic_cred = BasicCredential::new(credential_data);
+        let credential_data = token.as_bytes().to_vec();
+        let basic_cred = BasicCredential::new(credential_data);
 
         let (new_private_key, new_public_key) = Self::generate_key_pair()?;
 
         let new_signing_identity =
-            SigningIdentity::new(new_basic_cred.into_credential(), new_public_key.clone());
+            SigningIdentity::new(basic_cred.into_credential(), new_public_key.clone());
 
         let update_proposal = Self::map_mls_error(group.propose_update_with_identity(
             new_private_key.clone(),
@@ -436,11 +454,13 @@ where
             vec![],
         ))?;
 
-        info!("Created credential rotation proposal");
+        debug!(
+            "Created credential rotation proposal, store it and return the message to the caller"
+        );
 
         let storage_path = self.get_storage_path();
         if let Some(stored) = self.stored_identity.as_mut() {
-            stored.last_credential = Some(new_credential);
+            stored.last_credential = Some(token);
             stored.credential_version = stored.credential_version.saturating_add(1);
             stored.public_key_bytes = new_public_key.as_bytes().to_vec();
             stored.private_key_bytes = new_private_key.as_bytes().to_vec();
@@ -752,74 +772,6 @@ mod tests {
     }
 
     #[test]
-    fn test_credential_rotation_detection_and_proposal() -> Result<(), Box<dyn std::error::Error>> {
-        let alice_path = "/tmp/mls_test_credential_rotation_alice";
-        let bob_path = "/tmp/mls_test_credential_rotation_bob";
-        let _ = std::fs::remove_dir_all(alice_path);
-        let _ = std::fs::remove_dir_all(bob_path);
-
-        let alice_agent =
-            slim_datapath::messages::Agent::from_strings("org", "default", "alice", 0);
-        let bob_agent = slim_datapath::messages::Agent::from_strings("org", "default", "bob", 1);
-
-        let mut alice = Mls::new(
-            alice_agent.clone(),
-            SimpleGroup::new("alice", "secret_v1"),
-            SimpleGroup::new("alice", "secret_v1"),
-            alice_path.into(),
-        );
-
-        let mut bob = Mls::new(
-            bob_agent.clone(),
-            SimpleGroup::new("bob", "secret_v1"),
-            SimpleGroup::new("bob", "secret_v1"),
-            bob_path.into(),
-        );
-
-        alice.initialize()?;
-        bob.initialize()?;
-        let _group_id = alice.create_group()?;
-
-        let bob_key_package = bob.generate_key_package()?;
-        let result = alice.add_member(&bob_key_package)?;
-        let welcome_message = result.welcome_message;
-        let _bob_group_id = bob.process_welcome(&welcome_message)?;
-
-        let message1 = b"Initial message";
-        let encrypted1 = alice.encrypt_message(message1)?;
-        let decrypted1 = bob.decrypt_message(&encrypted1)?;
-        assert_eq!(decrypted1, message1);
-
-        let initial_version = alice.stored_identity.as_ref().unwrap().credential_version;
-
-        alice.identity_provider = SimpleGroup::new("alice", "secret_v2");
-
-        let rotation_proposal = alice.check_credential_rotation()?;
-        assert!(
-            rotation_proposal.is_some(),
-            "Should detect credential rotation"
-        );
-
-        let proposal_bytes = rotation_proposal.unwrap();
-        assert!(!proposal_bytes.is_empty(), "Proposal should contain data");
-
-        if let Some(stored) = &alice.stored_identity {
-            assert_eq!(stored.last_credential, Some("secret_v2:alice".to_string()));
-            assert_eq!(stored.credential_version, initial_version + 1);
-        } else {
-            panic!("Stored identity should exist after rotation");
-        }
-
-        let new_proposal = alice.check_credential_rotation()?;
-        assert!(
-            new_proposal.is_none(),
-            "Should not detect rotation again with same credential"
-        );
-
-        Ok(())
-    }
-
-    #[test]
     fn test_full_credential_rotation_flow() -> Result<(), Box<dyn std::error::Error>> {
         let alice_path = "/tmp/mls_test_full_rotation_alice";
         let bob_path = "/tmp/mls_test_full_rotation_bob";
@@ -882,46 +834,17 @@ mod tests {
         let decrypted1 = bob.decrypt_message(&encrypted1)?;
         assert_eq!(decrypted1, message1);
 
-        let initial_version = alice.stored_identity.as_ref().unwrap().credential_version;
+        // Alice create a proposal
+        let rotation_proposal = alice.create_rotation_proposal()?;
 
-        // Alice rotates her credential
-        alice.identity_provider = SimpleGroup::new("alice", "secret_v2");
-        alice.identity_verifier = SimpleGroup::new("alice", "secret_v2");
+        // send proposal to the moderator
+        let commit = moderator.process_proposal(&rotation_proposal, true)?;
+        // send proposal also to bob
+        bob.process_proposal(&rotation_proposal, false)?;
 
-        // Alice should detect credential rotation and create a proposal
-        let rotation_proposal = alice.check_credential_rotation()?;
-        assert!(
-            rotation_proposal.is_some(),
-            "Should detect credential rotation"
-        );
-
-        let proposal_bytes = rotation_proposal.unwrap();
-
-        // Alice sends the proposal to the moderator
-        let proposal_message = MlsMessage::from_bytes(&proposal_bytes)
-            .map_err(|e| format!("Failed to parse proposal: {}", e))?;
-        // Moderator processes the proposal
-        let moderator_group = moderator.group.as_mut().unwrap();
-        moderator_group
-            .process_incoming_message(proposal_message)
-            .map_err(|e| format!("Failed to process proposal: {}", e))?;
-
-        // Moderator creates and applies the commit
-        let commit = moderator_group
-            .commit_builder()
-            .build()
-            .map_err(|e| format!("Commit build failed: {}", e))?;
-        moderator_group
-            .apply_pending_commit()
-            .map_err(|e| format!("Apply commit failed: {}", e))?;
-
-        // Moderator sends the commit to Alice and Bob
-        let commit_bytes = commit
-            .commit_message
-            .to_bytes()
-            .map_err(|e| format!("Commit to bytes failed: {}", e))?;
-        alice.process_commit(&commit_bytes)?;
-        bob.process_commit(&commit_bytes)?;
+        // broadcast the commit message
+        alice.process_commit(&commit)?;
+        bob.process_commit(&commit)?;
 
         // Test messaging after rotation
         // Bob can decrypt Alice's encrypted message
@@ -947,12 +870,6 @@ mod tests {
             moderator.get_epoch(),
             "Alice and Moderator epochs should match after rotation"
         );
-
-        // Verify credential was updated
-        if let Some(stored) = &alice.stored_identity {
-            assert_eq!(stored.last_credential, Some("secret_v2:alice".to_string()));
-            assert_eq!(stored.credential_version, initial_version + 1);
-        }
 
         // The end.
         Ok(())
