@@ -14,5 +14,9 @@ spec:
       targetPort: messenger
       protocol: TCP
       name: messenger
+    - port: 46358
+      targetPort: controller
+      protocol: TCP
+      name: controller
   selector:
     {{- include "slim.selectorLabels" . | nindent 4 }}
