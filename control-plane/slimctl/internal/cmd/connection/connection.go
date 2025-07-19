@@ -10,9 +10,9 @@ import (
 	"github.com/google/uuid"
 	"github.com/spf13/cobra"
 
-	"github.com/agntcy/slim/control-plane/slimctl/internal/controller"
-	"github.com/agntcy/slim/control-plane/slimctl/internal/options"
-	grpcapi "github.com/agntcy/slim/control-plane/slimctl/internal/proto/controller/v1"
+	"github.com/agntcy/slim/control-plane/common/controller"
+	"github.com/agntcy/slim/control-plane/common/options"
+	grpcapi "github.com/agntcy/slim/control-plane/common/proto/controller/v1"
 )
 
 func NewConnectionCmd(opts *options.CommonOptions) *cobra.Command {

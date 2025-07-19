@@ -1,0 +1,77 @@
+// Copyright AGNTCY Contributors (https://github.com/agntcy)
+// SPDX-License-Identifier: Apache-2.0
+
+syntax = "proto3";
+package controlplane.proto.v1;
+
+import "controller/v1/controller.proto";
+
+option go_package = "github.com/agntcy/slim/control-plane/common/proto/controlplane/v1;controlplanev1";
+
+service ControlPlaneService {
+  rpc ModifyConfiguration(ConfigurationCommand) returns (controller.proto.v1.Ack) {}
+
+  rpc CreateConnection(CreateConnectionRequest) returns (CreateConnectionResponse){}
+  rpc CreateSubscription(CreateSubscriptionRequest) returns (CreateSubscriptionResponse);
+  rpc ListSubscriptions(Node) returns (controller.proto.v1.SubscriptionListResponse) {}
+  rpc ListConnections(Node) returns (controller.proto.v1.ConnectionListResponse) {}
+  rpc DeleteSubscription(DeleteSubscriptionRequest) returns (DeleteSubscriptionResponse);
+
+  rpc ListNodes(NodeListRequest) returns (NodeListResponse) {}
+  rpc DeregisterNode(Node) returns (DeregisterNodeResponse);
+}
+
+message ConfigurationCommand {
+  controller.proto.v1.ConfigurationCommand configuration_command = 1;
+  string nodeId = 2;
+}
+
+message Node { 
+  string id = 1;
+ }
+
+message NodeListRequest {}
+
+message NodeEntry {
+    string id = 1;
+    string host = 2;
+    uint32 port = 3;
+}
+
+message NodeListResponse {
+    repeated NodeEntry entries = 1;
+}
+
+message CreateConnectionRequest {
+  controller.proto.v1.Connection connection = 1;
+  string nodeId = 2;
+}
+
+message CreateConnectionResponse {
+  bool success = 1;
+  string connectionId = 2;
+}
+
+message CreateSubscriptionRequest {
+  controller.proto.v1.Subscription subscription = 1;
+  string nodeId = 2;
+}
+
+message CreateSubscriptionResponse {
+  bool success = 1;
+  string subscriptionId = 2;
+
+}
+
+message DeleteSubscriptionRequest {
+  string subscriptionId = 1;
+  string nodeId = 2;
+}
+
+message DeleteSubscriptionResponse {
+  bool success = 1;
+}
+
+message DeregisterNodeResponse {
+  bool success = 1;
+}

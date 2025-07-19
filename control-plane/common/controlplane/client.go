@@ -11,14 +11,14 @@ import (
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
 
-	"github.com/agntcy/slim/control-plane/slimctl/internal/options"
-	grpcapi "github.com/agntcy/slim/control-plane/slimctl/internal/proto/controller/v1"
+	"github.com/agntcy/slim/control-plane/common/options"
+	cpApi "github.com/agntcy/slim/control-plane/common/proto/controlplane/v1"
 )
 
-func OpenControlChannel(
+func GetClient(
 	ctx context.Context,
 	opts *options.CommonOptions,
-) (grpcapi.ControllerService_OpenControlChannelClient, error) {
+) (cpApi.ControlPlaneServiceClient, error) {
 	var creds credentials.TransportCredentials
 	if opts.TLSInsecure {
 		creds = insecure.NewCredentials()
@@ -38,16 +38,6 @@ func OpenControlChannel(
 		return nil, fmt.Errorf("error connecting to server(%s): %w", opts.Server, err)
 	}
 
-	client := grpcapi.NewControllerServiceClient(conn)
-	stream, err := client.OpenControlChannel(ctx)
-	if err != nil {
-		conn.Close()
-		return nil, fmt.Errorf(
-			"cannot open control channel to %s: %w",
-			opts.Server,
-			err,
-		)
-	}
-
-	return stream, nil
+	client := cpApi.NewControlPlaneServiceClient(conn)
+	return client, nil
 }
