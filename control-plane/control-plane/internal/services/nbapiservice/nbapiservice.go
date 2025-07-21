@@ -90,6 +90,8 @@ func (s *nbAPIService) CreateConnection(ctx context.Context, createConnectionReq
 		return nil, fmt.Errorf("failed to get node by ID: %v", err)
 	}
 	endpoint := fmt.Sprintf("%s:%d", nodeEntry.Host, nodeEntry.Port)
+	connectionID := endpoint
+	createConnectionRequest.Connection.ConnectionId = connectionID
 	opts := options.NewOptions()
 	opts.Server = endpoint
 	opts.TLSInsecure = true
@@ -97,11 +99,11 @@ func (s *nbAPIService) CreateConnection(ctx context.Context, createConnectionReq
 
 	s.messagingService.SendMessage(nodeEntry.Id, createCommandMessage)
 
-	connectionID, err := s.nodeService.SaveConnection(nodeEntry, createConnectionRequest.Connection)
+	connID, err := s.nodeService.SaveConnection(nodeEntry, createConnectionRequest.Connection)
 
 	return &controlplaneApi.CreateConnectionResponse{
 		Success:      true,
-		ConnectionId: connectionID,
+		ConnectionId: connID,
 	}, nil
 }
 
@@ -131,7 +133,6 @@ func (s *nbAPIService) CreateSubscription(ctx context.Context, createSubscriptio
 
 	// To properly save the subscription we restore the original connection ID making sure that db validation passes
 	createSubscriptionRequest.Subscription.ConnectionId = connectionID
-
 	subscriptionID, err := s.nodeService.SaveSubscription(createSubscriptionRequest.NodeId, createSubscriptionRequest.Subscription)
 	if err != nil {
 		fmt.Printf("save error: %v\n", err.Error())

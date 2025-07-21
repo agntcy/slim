@@ -9,6 +9,7 @@ import (
 	controllerapi "github.com/agntcy/slim/control-plane/common/proto/controller/v1"
 	"github.com/agntcy/slim/control-plane/control-plane/internal/db"
 	"github.com/agntcy/slim/control-plane/control-plane/internal/services/messagingservice"
+	"github.com/google/uuid"
 )
 
 type SouthboundAPIServer interface {
@@ -46,9 +47,21 @@ func (s *sbAPIService) OpenControlChannel(stream controllerapi.ControllerService
 		err error
 	}
 
+	// Acknowledge the connection
+	messageId := uuid.NewString()
+	msg := &controllerapi.ControlMessage{
+		MessageId: messageId,
+		Payload: &controllerapi.ControlMessage_Ack{
+			Ack: &controllerapi.Ack{
+				Success: true,
+			},
+		},
+	}
+	stream.Send(msg)
+
 	// For testing
 	// TODO: remove this after testing
-	s.nodeConnectionMap.Store(stream, "node1")
+	//s.nodeConnectionMap.Store(stream, "node1")
 
 	recvChan := make(chan recvResult)
 

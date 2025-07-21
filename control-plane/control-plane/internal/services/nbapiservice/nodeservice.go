@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/agntcy/slim/control-plane/common/controlplane"
 	controllerapi "github.com/agntcy/slim/control-plane/common/proto/controller/v1"
 	controlplaneApi "github.com/agntcy/slim/control-plane/common/proto/controlplane/v1"
 	"github.com/agntcy/slim/control-plane/control-plane/internal/db"
@@ -69,6 +70,7 @@ func (s *nodeService) SaveConnection(nodeEntry *controlplaneApi.NodeEntry, conne
 	}
 
 	connectionEntry := db.Connection{
+		ID: connection.ConnectionId,
 		NodeID:     nodeEntry.Id,
 		ConfigData: connection.ConfigData,
 	}
@@ -124,6 +126,7 @@ func (s *nodeService) SaveSubscription(nodeID string, subscription *controllerap
 	}
 
 	subscriptionEntry := db.Subscription{
+		ID:           controlplane.GetSubscriptionID(subscription),
 		NodeID:       nodeID,
 		ConnectionID: subscription.ConnectionId,
 		Organization: subscription.Organization,
