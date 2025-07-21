@@ -26,11 +26,11 @@ func main() {
 	dbService := db.NewInMemoryDBService()
 	messagingService := messagingservice.NewMessagingService()
 	nodeService := nbapiservice.NewNodeService(dbService)
-	routeService := nbapiservice.NewRouteService()
+	routeService := nbapiservice.NewRouteService(messagingService)
 	configService := nbapiservice.NewConfigService()
 
 	go func() {
-		cpServer := nbapiservice.NewNorthboundAPIServer(nodeService, routeService, configService, messagingService)
+		cpServer := nbapiservice.NewNorthboundAPIServer(nodeService, routeService, configService)
 		grpcServer := grpc.NewServer(opts...)
 		controlplaneApi.RegisterControlPlaneServiceServer(grpcServer, cpServer)
 

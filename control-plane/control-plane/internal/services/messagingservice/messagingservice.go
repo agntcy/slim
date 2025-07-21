@@ -40,6 +40,8 @@ func (m *messagingService) ReceiveMessage(nodeID string) (*controllerapi.Control
 
 // Add a command to the node's command queue.
 func (m *messagingService) SendMessage(nodeID string, configurationCommand *controllerapi.ControlMessage) error {
+	// TODO check if node with nodeID is connected status
+	// TODO wait for ACK from the node before returning
 	value, ok := m.nodeCommandMap.Load(nodeID)
 	var commands []*controllerapi.ControlMessage
 	if ok {

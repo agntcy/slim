@@ -7,16 +7,22 @@ import (
 	"github.com/agntcy/slim/control-plane/common/controller"
 	"github.com/agntcy/slim/control-plane/common/options"
 	controllerapi "github.com/agntcy/slim/control-plane/common/proto/controller/v1"
+	controlplanev1 "github.com/agntcy/slim/control-plane/common/proto/controlplane/v1"
+	"github.com/agntcy/slim/control-plane/control-plane/internal/services/messagingservice"
 	"github.com/google/uuid"
 )
 
-type routeService struct{}
-
-func NewRouteService() *routeService {
-	return &routeService{}
+type routeService struct {
+	messagingService messagingservice.Messaging
 }
 
-func (s *routeService) ListSubscriptions(ctx context.Context, opts *options.CommonOptions) (*controllerapi.SubscriptionListResponse, error) {
+func NewRouteService(messagingService messagingservice.Messaging) *routeService {
+	return &routeService{
+		messagingService: messagingService,
+	}
+}
+
+func (s *routeService) ListSubscriptions(ctx context.Context, nodeEntry *controlplanev1.NodeEntry, opts *options.CommonOptions) (*controllerapi.SubscriptionListResponse, error) {
 	msg := &controllerapi.ControlMessage{
 		MessageId: uuid.NewString(),
 		Payload:   &controllerapi.ControlMessage_SubscriptionListRequest{},
@@ -64,7 +70,7 @@ func (s *routeService) ListSubscriptions(ctx context.Context, opts *options.Comm
 	return nil, fmt.Errorf("no SubscriptionListResponse found in response")
 }
 
-func (s *routeService) ListConnections(ctx context.Context, opts *options.CommonOptions) (*controllerapi.ConnectionListResponse, error) {
+func (s *routeService) ListConnections(ctx context.Context, nodeEntry *controlplanev1.NodeEntry, opts *options.CommonOptions) (*controllerapi.ConnectionListResponse, error) {
 	msg := &controllerapi.ControlMessage{
 		MessageId: uuid.NewString(),
 		Payload:   &controllerapi.ControlMessage_ConnectionListRequest{},
@@ -101,7 +107,7 @@ func (s *routeService) ListConnections(ctx context.Context, opts *options.Common
 	return nil, fmt.Errorf("no ConnectionListResponse found in response")
 }
 
-func (s *routeService) CreateConnection(ctx context.Context, connection *controllerapi.Connection, opts *options.CommonOptions) *controllerapi.ControlMessage {
+func (s *routeService) CreateConnection(ctx context.Context, nodeEntry *controlplanev1.NodeEntry, connection *controllerapi.Connection, opts *options.CommonOptions) error {
 	controllerConfigCommand := &controllerapi.ConfigurationCommand{
 		ConnectionsToCreate:   []*controllerapi.Connection{connection},
 		SubscriptionsToSet:    []*controllerapi.Subscription{},
@@ -109,17 +115,22 @@ func (s *routeService) CreateConnection(ctx context.Context, connection *control
 	}
 
 	messageId := uuid.NewString()
-	msg := &controllerapi.ControlMessage{
+	createCommandMessage := &controllerapi.ControlMessage{
 		MessageId: messageId,
 		Payload: &controllerapi.ControlMessage_ConfigCommand{
 			ConfigCommand: controllerConfigCommand,
 		},
 	}
 
-	return msg
+	err := s.messagingService.SendMessage(nodeEntry.Id, createCommandMessage)
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
 
-func (s *routeService) CreateSubscription(ctx context.Context, subscription *controllerapi.Subscription, opts *options.CommonOptions) error {
+func (s *routeService) CreateSubscription(ctx context.Context, nodeEntry *controlplanev1.NodeEntry, subscription *controllerapi.Subscription, opts *options.CommonOptions) error {
 	controllerConfigCommand := &controllerapi.ConfigurationCommand{
 		ConnectionsToCreate:   []*controllerapi.Connection{},
 		SubscriptionsToSet:    []*controllerapi.Subscription{subscription},
@@ -134,28 +145,15 @@ func (s *routeService) CreateSubscription(ctx context.Context, subscription *con
 		},
 	}
 
-	stream, err := controller.OpenControlChannel(ctx, opts)
+	err := s.messagingService.SendMessage(nodeEntry.Id, msg)
 	if err != nil {
-		return fmt.Errorf("failed to open control channel: %w", err)
+		return err
 	}
-	if err = stream.Send(msg); err != nil {
-		return fmt.Errorf("failed to send control message: %w", err)
-	}
-	if err = stream.CloseSend(); err != nil {
-		return fmt.Errorf("failed to close send: %w", err)
-	}
-	ack, err := stream.Recv()
-	if err != nil {
-		return fmt.Errorf("error receiving ack via stream: %w", err)
-	}
-	a := ack.GetAck()
-	if a == nil {
-		return fmt.Errorf("unexpected response type received (not an ACK): %v", ack)
-	}
+
 	return nil
 }
 
-func (s *routeService) DeleteSubscription(ctx context.Context, subscription *controllerapi.Subscription, opts *options.CommonOptions) error {
+func (s *routeService) DeleteSubscription(ctx context.Context, nodeEntry *controlplanev1.NodeEntry, subscription *controllerapi.Subscription, opts *options.CommonOptions) error {
 	msg := &controllerapi.ControlMessage{
 		MessageId: uuid.NewString(),
 		Payload: &controllerapi.ControlMessage_ConfigCommand{

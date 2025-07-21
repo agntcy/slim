@@ -8,7 +8,6 @@ import (
 	"github.com/agntcy/slim/control-plane/common/options"
 	controllerapi "github.com/agntcy/slim/control-plane/common/proto/controller/v1"
 	controlplaneApi "github.com/agntcy/slim/control-plane/common/proto/controlplane/v1"
-	"github.com/agntcy/slim/control-plane/control-plane/internal/services/messagingservice"
 )
 
 type NorthboundAPIServer interface {
@@ -18,23 +17,20 @@ type NorthboundAPIServer interface {
 type nbAPIService struct {
 	controlplaneApi.UnimplementedControlPlaneServiceServer
 
-	nodeService      *nodeService
-	routeService     *routeService
-	configService    *configService
-	messagingService messagingservice.Messaging
+	nodeService   *nodeService
+	routeService  *routeService
+	configService *configService
 }
 
 func NewNorthboundAPIServer(
 	nodeService *nodeService,
 	routeService *routeService,
 	configService *configService,
-	messagingService messagingservice.Messaging,
 ) NorthboundAPIServer {
 	cpServer := &nbAPIService{
-		nodeService:      nodeService,
-		routeService:     routeService,
-		configService:    configService,
-		messagingService: messagingService,
+		nodeService:   nodeService,
+		routeService:  routeService,
+		configService: configService,
 	}
 	return cpServer
 }
@@ -49,7 +45,7 @@ func (s *nbAPIService) ListSubscriptions(ctx context.Context, node *controlplane
 	opts := options.NewOptions()
 	opts.Server = endpoint
 	opts.TLSInsecure = true
-	return s.routeService.ListSubscriptions(ctx, opts)
+	return s.routeService.ListSubscriptions(ctx, nodeEntry, opts)
 }
 
 func (s *nbAPIService) ListConnections(ctx context.Context, node *controlplaneApi.Node) (*controllerapi.ConnectionListResponse, error) {
@@ -64,7 +60,7 @@ func (s *nbAPIService) ListConnections(ctx context.Context, node *controlplaneAp
 	opts := options.NewOptions()
 	opts.Server = endpoint
 	opts.TLSInsecure = true
-	return s.routeService.ListConnections(ctx, opts)
+	return s.routeService.ListConnections(ctx, nodeEntry, opts)
 }
 
 func (s *nbAPIService) ListNodes(ctx context.Context, nodeListRequest *controlplaneApi.NodeListRequest) (*controlplaneApi.NodeListResponse, error) {
@@ -95,9 +91,10 @@ func (s *nbAPIService) CreateConnection(ctx context.Context, createConnectionReq
 	opts := options.NewOptions()
 	opts.Server = endpoint
 	opts.TLSInsecure = true
-	createCommandMessage := s.routeService.CreateConnection(ctx, createConnectionRequest.Connection, opts)
-
-	s.messagingService.SendMessage(nodeEntry.Id, createCommandMessage)
+	err = s.routeService.CreateConnection(ctx, nodeEntry, createConnectionRequest.Connection, opts)
+	if err != nil {
+		return nil, fmt.Errorf("failed to send config command to node: %v", err)
+	}
 
 	connID, err := s.nodeService.SaveConnection(nodeEntry, createConnectionRequest.Connection)
 
@@ -125,7 +122,7 @@ func (s *nbAPIService) CreateSubscription(ctx context.Context, createSubscriptio
 
 	createSubscriptionRequest.Subscription.ConnectionId = endpoint
 
-	err = s.routeService.CreateSubscription(ctx, createSubscriptionRequest.Subscription, opts)
+	err = s.routeService.CreateSubscription(ctx, nodeEntry, createSubscriptionRequest.Subscription, opts)
 	if err != nil {
 		fmt.Printf("router error: %v\n", err.Error())
 		return nil, fmt.Errorf("failed to create subscription: %v", err)
@@ -167,7 +164,7 @@ func (s *nbAPIService) DeleteSubscription(ctx context.Context, deleteSubscriptio
 	}
 	subscription.ConnectionId = endpoint
 
-	err = s.routeService.DeleteSubscription(ctx, subscription, opts)
+	err = s.routeService.DeleteSubscription(ctx, nodeEntry, subscription, opts)
 	if err != nil {
 		return nil, fmt.Errorf("failed to delete subscription: %v", err)
 	}
