@@ -10,3 +10,4 @@ pub mod resolver;
 pub mod simple;
 pub mod testutils;
 pub mod traits;
+pub mod oidc;

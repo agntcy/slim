@@ -25,4 +25,11 @@ pub enum AuthError {
 
     #[error("invalid header: {0}")]
     InvalidHeader(String),
+
+    #[error("OpenID Connect error: {0}")]
+    OpenIdConnectError(String),
+    #[error("JWT error: {0}")]
+    JwtError(jsonwebtoken::errors::Error),
+    #[error("Unsupported operation: {0}")]
+    UnsupportedOperation(String),
 }
