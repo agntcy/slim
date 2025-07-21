@@ -107,7 +107,7 @@ func (s *routeService) ListConnections(ctx context.Context, nodeEntry *controlpl
 	return nil, fmt.Errorf("no ConnectionListResponse found in response")
 }
 
-func (s *routeService) CreateConnection(ctx context.Context, nodeEntry *controlplanev1.NodeEntry, connection *controllerapi.Connection, opts *options.CommonOptions) error {
+func (s *routeService) CreateConnection(ctx context.Context, nodeEntry *controlplanev1.NodeEntry, connection *controllerapi.Connection) error {
 	controllerConfigCommand := &controllerapi.ConfigurationCommand{
 		ConnectionsToCreate:   []*controllerapi.Connection{connection},
 		SubscriptionsToSet:    []*controllerapi.Subscription{},

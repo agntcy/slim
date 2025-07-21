@@ -85,13 +85,8 @@ func (s *nbAPIService) CreateConnection(ctx context.Context, createConnectionReq
 	if err != nil {
 		return nil, fmt.Errorf("failed to get node by ID: %v", err)
 	}
-	endpoint := fmt.Sprintf("%s:%d", nodeEntry.Host, nodeEntry.Port)
-	connectionID := endpoint
-	createConnectionRequest.Connection.ConnectionId = connectionID
-	opts := options.NewOptions()
-	opts.Server = endpoint
-	opts.TLSInsecure = true
-	err = s.routeService.CreateConnection(ctx, nodeEntry, createConnectionRequest.Connection, opts)
+
+	err = s.routeService.CreateConnection(ctx, nodeEntry, createConnectionRequest.Connection)
 	if err != nil {
 		return nil, fmt.Errorf("failed to send config command to node: %v", err)
 	}
