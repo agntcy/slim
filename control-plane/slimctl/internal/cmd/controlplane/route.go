@@ -204,6 +204,8 @@ func newDelCmd(opts *options.CommonOptions) *cobra.Command {
 				AgentId:      wrapperspb.UInt64(agentID),
 			}
 
+			subscriptionID := cpApi.GetSubscriptionID(subscription)
+
 			ctx, cancel := context.WithTimeout(cmd.Context(), opts.Timeout)
 			defer cancel()
 
@@ -212,30 +214,19 @@ func newDelCmd(opts *options.CommonOptions) *cobra.Command {
 				return fmt.Errorf("failed to get control plane client: %w", err)
 			}
 
-			controllerConfigCommand := &grpcapi.ConfigurationCommand{
-				ConnectionsToCreate:   []*grpcapi.Connection{},
-				SubscriptionsToSet:    []*grpcapi.Subscription{},
-				SubscriptionsToDelete: []*grpcapi.Subscription{subscription},
-			}
-
-			returnedMessage, err := cpCLient.ModifyConfiguration(ctx, &controlplaneApi.ConfigurationCommand{
-				ConfigurationCommand: controllerConfigCommand,
-				NodeId:               nodeID,
-			})
+			returnedMessage, err := cpCLient.DeleteSubscription(ctx,
+				&controlplaneApi.DeleteSubscriptionRequest{
+					NodeId:         nodeID,
+					SubscriptionId: subscriptionID,
+				})
 			if err != nil {
 				return fmt.Errorf("failed to delete route: %w", err)
 			}
 
 			fmt.Printf(
 				"ACK received for %s: success=%t\n",
-				returnedMessage.OriginalMessageId,
 				returnedMessage.Success,
 			)
-			if len(returnedMessage.Messages) > 0 {
-				for i, ackMsg := range returnedMessage.Messages {
-					fmt.Printf("    [%d] %s\n", i+1, ackMsg)
-				}
-			}
 
 			return nil
 		},
