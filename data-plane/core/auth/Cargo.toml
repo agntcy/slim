@@ -9,14 +9,18 @@ description = "Authentication utilities for the Agntcy Slim framework"
 name = "slim_auth"
 
 [dependencies]
+anyhow = "1.0"
 async-trait = { workspace = true }
 aws-lc-rs = { workspace = true }
 base64 = { workspace = true }
+chrono = { workspace = true }
 futures = { workspace = true }
 headers = { workspace = true }
 http = { workspace = true }
+jsonwebtoken = "9.3"
 jsonwebtoken-aws-lc = { workspace = true }
 notify = { workspace = true }
+openidconnect = { version = "4.0.1", features = ["reqwest"] }
 parking_lot = { workspace = true }
 pin-project = { workspace = true }
 reqwest = { workspace = true }
