@@ -44,7 +44,7 @@ where
     T: SessionTransmitter + Send + Sync + Clone + 'static,
 {
     async fn on_timeout(&self, timer_id: u32, timeouts: u32) {
-        trace!("timeout number {} for request {}", timeouts, timer_id);
+        debug!("timeout number {} for request {}", timeouts, timer_id);
 
         if self
             .tx
@@ -223,8 +223,11 @@ where
         &mut self,
         msg: Message,
         local_name: &Agent,
-    ) -> Result<(), SessionError> {
-        self.is_valid_msg_id(msg)?;
+    ) -> Result<bool, SessionError> {
+        if !self.is_valid_msg_id(msg)? {
+            // message already processed, drop it
+            return Ok(false);
+        }
 
         // process all messages in map until the numbering is not continuous
         while let Some(msg) = self
@@ -253,7 +256,7 @@ where
             }
         }
 
-        Ok(())
+        Ok(true)
     }
 
     fn process_commit_message(&mut self, commit: Message) -> Result<(), SessionError> {
@@ -311,7 +314,7 @@ where
         Ok(())
     }
 
-    fn is_valid_msg_id(&mut self, msg: Message) -> Result<(), SessionError> {
+    fn is_valid_msg_id(&mut self, msg: Message) -> Result<bool, SessionError> {
         // the first message to be received should be a welcome message
         // this message will init the last_mls_msg_id. so if last_mls_msg_id = 0
         // drop the commits
@@ -322,25 +325,23 @@ where
             ));
         }
 
-        if msg.get_id() < self.last_mls_msg_id {
+        if msg.get_id() <= self.last_mls_msg_id {
             debug!(
                 "message with id {} already processed, drop it",
                 msg.get_id()
             );
-            return Ok(());
+            return Ok(false);
         }
 
         // store commit in hash map
         match self.stored_commits_proposals.entry(msg.get_id()) {
             Entry::Occupied(_) => {
                 debug!("message with id {} already exists, drop it", msg.get_id());
-                Err(SessionError::CommitMessage(
-                    "commit message already exists, drop it".to_string(),
-                ))
+                Ok(false)
             }
             Entry::Vacant(entry) => {
                 entry.insert(msg);
-                Ok(())
+                Ok(true)
             }
         }
     }
@@ -557,6 +558,8 @@ impl<T> Endpoint<T>
 where
     T: SessionTransmitter + Send + Sync + Clone + 'static,
 {
+    const MAX_FANOUT: u32 = 256;
+
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         name: Agent,
@@ -592,7 +595,13 @@ where
         payload: Vec<u8>,
     ) -> Message {
         let flags = if broadcast {
-            Some(SlimHeaderFlags::new(10, None, None, None, None))
+            Some(SlimHeaderFlags::new(
+                Self::MAX_FANOUT,
+                None,
+                None,
+                None,
+                None,
+            ))
         } else {
             None
         };
@@ -863,10 +872,17 @@ where
         let msg_id = msg.get_id();
 
         // process the control message
-        self.mls_state
+        let ret = self
+            .mls_state
             .as_mut()
             .ok_or(SessionError::NoMls)?
             .process_control_message(msg, &self.endpoint.name)?;
+
+        if !ret {
+            // message already processed, drop it
+            debug!("message with id {} already processed, drop it", msg_id);
+            return Ok(());
+        }
 
         debug!("Control message correctly processed, MLS state updated");
 
@@ -1295,6 +1311,7 @@ where
             }
         }
 
+        debug!(%key, "timer cancelled, all messages acked");
         Ok(true)
     }
 
@@ -1386,7 +1403,7 @@ where
             if len > 1 {
                 debug!("Send MLS Commit Message to the channel (new group member)");
                 self.endpoint.send(commit.clone()).await?;
-                self.create_timer(commit_id, (len - 1).try_into().unwrap(), commit, None);
+                self.create_timer(commit_id, (len - 1) as u32, commit, None);
             }
         };
 
@@ -1645,7 +1662,7 @@ mod tests {
     use crate::testutils::MockTransmitter;
 
     use super::*;
-    use slim_auth::simple::SimpleGroup;
+    use slim_auth::shared_secret::SharedSecret;
     use tracing_test::traced_test;
 
     use slim_datapath::messages::AgentType;
@@ -1676,16 +1693,16 @@ mod tests {
 
         let moderator_mls = MlsState::new(Arc::new(Mutex::new(Mls::new(
             moderator.clone(),
-            SimpleGroup::new("moderator", "group"),
-            SimpleGroup::new("moderator", "group"),
+            SharedSecret::new("moderator", "group"),
+            SharedSecret::new("moderator", "group"),
             std::path::PathBuf::from("/tmp/test_moderator_mls"),
         ))))
         .unwrap();
 
         let participant_mls = MlsState::new(Arc::new(Mutex::new(Mls::new(
             participant.clone(),
-            SimpleGroup::new("participant", "group"),
-            SimpleGroup::new("participant", "group"),
+            SharedSecret::new("participant", "group"),
+            SharedSecret::new("participant", "group"),
             std::path::PathBuf::from("/tmp/test_participant_mls"),
         ))))
         .unwrap();

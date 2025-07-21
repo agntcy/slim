@@ -7,7 +7,7 @@ use clap::Parser;
 use slim::config;
 use tracing::{error, info};
 
-use slim_auth::simple::SimpleGroup;
+use slim_auth::shared_secret::SharedSecret;
 use slim_datapath::messages::{Agent, AgentType, utils::SlimHeaderFlags};
 use slim_service::streaming::StreamingConfiguration;
 
@@ -177,8 +177,8 @@ async fn main() {
     let (app, mut rx) = svc
         .create_app(
             &local_name,
-            SimpleGroup::new(&local_name_str, "group"),
-            SimpleGroup::new(&local_name_str, "group"),
+            SharedSecret::new(&local_name_str, "group"),
+            SharedSecret::new(&local_name_str, "group"),
         )
         .await
         .expect("failed to create agent");

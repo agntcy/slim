@@ -5,13 +5,15 @@ import asyncio
 import datetime
 
 import pytest
+from common import create_slim
 
 import slim_bindings
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("server", ["127.0.0.1:12375"], indirect=True)
-async def test_streaming(server):  # noqa: C901
+@pytest.mark.parametrize("mls_enabled", [True, False])
+async def test_pubsub(server, mls_enabled):  # noqa: C901
     org = "cisco"
     ns = "default"
     chat = "chat"
@@ -29,7 +31,7 @@ async def test_streaming(server):  # noqa: C901
 
         print(f"Creating participant {name}...")
 
-        participant = await slim_bindings.Slim.new(org, ns, name)
+        participant = await create_slim(org, ns, name, "secret")
 
         # Connect to SLIM server
         _ = await participant.connect(
@@ -47,6 +49,7 @@ async def test_streaming(server):  # noqa: C901
                     moderator=True,
                     max_retries=5,
                     timeout=datetime.timedelta(seconds=5),
+                    mls_enabled=mls_enabled,
                 )
             )
 

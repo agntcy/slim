@@ -105,6 +105,7 @@ pub(crate) enum PySessionConfiguration {
         sticky: bool,
         mls_enabled: bool,
     },
+
     #[pyo3(constructor = (session_direction, topic=None, moderator=false, max_retries=0, timeout=std::time::Duration::from_millis(1000), mls_enabled=false))]
     Streaming {
         session_direction: PySessionDirection,

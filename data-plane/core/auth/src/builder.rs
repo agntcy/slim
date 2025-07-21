@@ -283,8 +283,6 @@ impl JwtBuilder<state::Initial> {
     }
 
     pub fn token_file(self, token_file: impl Into<String>) -> JwtBuilder<state::WithToken> {
-        // This method is not implemented yet, but it can be used to set a token file
-        // and transition to a state that handles token files.
         JwtBuilder::<state::WithToken> {
             issuer: self.issuer,
             audience: self.audience,
