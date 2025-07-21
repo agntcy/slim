@@ -3,6 +3,7 @@ package nbapiservice
 import (
 	"context"
 	"fmt"
+	"reflect"
 
 	"github.com/agntcy/slim/control-plane/common/controller"
 	"github.com/agntcy/slim/control-plane/common/options"
@@ -76,34 +77,18 @@ func (s *routeService) ListConnections(ctx context.Context, nodeEntry *controlpl
 		Payload:   &controllerapi.ControlMessage_ConnectionListRequest{},
 	}
 
-	stream, err := controller.OpenControlChannel(ctx, opts)
+	s.messagingService.SendMessage(nodeEntry.Id, msg)
+	response, err := s.messagingService.FindMessageByType(reflect.TypeOf(&controllerapi.ConnectionListResponse{}))
 	if err != nil {
-		return nil, fmt.Errorf("open control channel: %w", err)
+		return nil, fmt.Errorf("failed to find ConnectionListResponse: %w", err)
 	}
-
-	if err := stream.Send(msg); err != nil {
-		return nil, fmt.Errorf("send request: %w", err)
-	}
-	if err := stream.CloseSend(); err != nil {
-		return nil, fmt.Errorf("close send: %w", err)
-	}
-
-	for {
-		resp, err := stream.Recv()
-		if err != nil {
-			break
+	if listResp := response.GetConnectionListResponse(); listResp != nil {
+		for _, e := range listResp.Entries {
+			fmt.Printf("id=%d %s\n", e.GetId(), e.GetConfigData())
 		}
-		fmt.Printf("Received response: %v\n", resp)
-		if listResp := resp.GetConnectionListResponse(); listResp != nil {
-			for _, e := range listResp.Entries {
-				fmt.Printf("id=%d %s:%d\n",
-					e.GetId(),
-					e.GetConfigData(),
-				)
-			}
-			return listResp, nil
-		}
+		return listResp, nil
 	}
+	// If we reach here, it means we didn't find a ConnectionListResponse
 	return nil, fmt.Errorf("no ConnectionListResponse found in response")
 }
 
