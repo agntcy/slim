@@ -12,10 +12,10 @@ runtime:
   drain_timeout: 10s
 
 services:
-  slim/a:
+  slim/b:
     pubsub:
       servers:
-        - endpoint: "0.0.0.0:46357"
+        - endpoint: "0.0.0.0:46367"
           tls:
             insecure: true
 
