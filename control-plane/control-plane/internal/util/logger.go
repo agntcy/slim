@@ -6,8 +6,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/agntcy/slim/control-plane/control-plane/internal/config"
 	"github.com/rs/zerolog"
+
+	"github.com/agntcy/slim/control-plane/control-plane/internal/config"
 )
 
 func GetContextWithLogger(ctx context.Context, logConfig config.LogConfig) context.Context {

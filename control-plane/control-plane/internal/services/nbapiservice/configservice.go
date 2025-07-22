@@ -4,10 +4,11 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/google/uuid"
+
 	"github.com/agntcy/slim/control-plane/common/controller"
 	"github.com/agntcy/slim/control-plane/common/options"
 	controllerapi "github.com/agntcy/slim/control-plane/common/proto/controller/v1"
-	"github.com/google/uuid"
 )
 
 type ConfigService struct{}

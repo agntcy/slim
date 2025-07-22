@@ -3,13 +3,14 @@ package sbapiservice
 import (
 	"context"
 
+	"github.com/google/uuid"
+	"github.com/rs/zerolog"
+
 	controllerapi "github.com/agntcy/slim/control-plane/common/proto/controller/v1"
 	"github.com/agntcy/slim/control-plane/control-plane/internal/config"
 	"github.com/agntcy/slim/control-plane/control-plane/internal/db"
 	"github.com/agntcy/slim/control-plane/control-plane/internal/services/nodecontrol"
 	"github.com/agntcy/slim/control-plane/control-plane/internal/util"
-	"github.com/google/uuid"
-	"github.com/rs/zerolog"
 )
 
 type SouthboundAPIServer interface {
