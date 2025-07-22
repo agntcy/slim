@@ -4,8 +4,9 @@
 package controlplane
 
 import (
-	"github.com/agntcy/slim/control-plane/common/options"
 	"github.com/spf13/cobra"
+
+	"github.com/agntcy/slim/control-plane/common/options"
 )
 
 func NewCpCmd(opts *options.CommonOptions) *cobra.Command {

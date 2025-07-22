@@ -8,9 +8,10 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/agntcy/slim/control-plane/slimctl/internal/cmd/util"
 	"github.com/spf13/cobra"
 	"google.golang.org/protobuf/types/known/wrapperspb"
+
+	"github.com/agntcy/slim/control-plane/slimctl/internal/cmd/util"
 
 	cpApi "github.com/agntcy/slim/control-plane/common/controlplane"
 	"github.com/agntcy/slim/control-plane/common/options"
@@ -18,18 +19,21 @@ import (
 	controlplaneApi "github.com/agntcy/slim/control-plane/common/proto/controlplane/v1"
 )
 
-const nodeIdFlag = "node-id"
+const nodeIDFlag = "node-id"
 
 func newRouteCmd(opts *options.CommonOptions) *cobra.Command {
-
 	cmd := &cobra.Command{
 		Use:   "route",
 		Short: "Manage SLIM routes",
 		Long:  `Manage SLIM routes`,
 	}
 
-	cmd.PersistentFlags().StringP(nodeIdFlag, "n", "", "ID of the node to manage routes for")
-	cmd.MarkPersistentFlagRequired(nodeIdFlag)
+	cmd.PersistentFlags().StringP(nodeIDFlag, "n", "", "ID of the node to manage routes for")
+
+	err := cmd.MarkPersistentFlagRequired(nodeIDFlag)
+	if err != nil {
+		fmt.Printf("Error marking persistent flag required: %v\n", err)
+	}
 
 	cmd.AddCommand(newListCmd(opts))
 	cmd.AddCommand(newAddCmd(opts))
@@ -44,8 +48,7 @@ func newListCmd(opts *options.CommonOptions) *cobra.Command {
 		Short: "List routes",
 		Long:  `List routes`,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-
-			nodeID, _ := cmd.Flags().GetString(nodeIdFlag)
+			nodeID, _ := cmd.Flags().GetString(nodeIDFlag)
 			fmt.Printf("Listing routes for node ID: %s\n", nodeID)
 
 			ctx, cancel := context.WithTimeout(cmd.Context(), opts.Timeout)
@@ -98,7 +101,7 @@ func newAddCmd(opts *options.CommonOptions) *cobra.Command {
 			viaKeyword := strings.ToLower(args[1])
 			configFile := args[2]
 
-			nodeID, _ := cmd.Flags().GetString(nodeIdFlag)
+			nodeID, _ := cmd.Flags().GetString(nodeIDFlag)
 			fmt.Printf("Add route for node ID: %s\n", nodeID)
 
 			if viaKeyword != "via" {
@@ -133,17 +136,17 @@ func newAddCmd(opts *options.CommonOptions) *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("failed to create connection: %w", err)
 			}
-			connectionId := createConnectionResponse.ConnectionId
+			connectionID := createConnectionResponse.ConnectionId
 			if !createConnectionResponse.Success {
 				return fmt.Errorf("failed to create connection")
 			}
-			fmt.Printf("Connection created successfully with ID: %v\n", connectionId)
+			fmt.Printf("Connection created successfully with ID: %v\n", connectionID)
 
 			subscription := &grpcapi.Subscription{
 				Organization: organization,
 				Namespace:    namespace,
 				AgentType:    agentType,
-				ConnectionId: connectionId,
+				ConnectionId: connectionID,
 				AgentId:      wrapperspb.UInt64(agentID),
 			}
 
@@ -176,7 +179,7 @@ func newDelCmd(opts *options.CommonOptions) *cobra.Command {
 			viaKeyword := strings.ToLower(args[1])
 			endpoint := args[2]
 
-			nodeID, _ := cmd.Flags().GetString(nodeIdFlag)
+			nodeID, _ := cmd.Flags().GetString(nodeIDFlag)
 			fmt.Printf("Delete route for node ID: %s\n", nodeID)
 
 			if viaKeyword != "via" {

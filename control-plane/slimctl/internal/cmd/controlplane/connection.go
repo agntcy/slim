@@ -7,9 +7,10 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/spf13/cobra"
+
 	cpApi "github.com/agntcy/slim/control-plane/common/controlplane"
 	controlplaneApi "github.com/agntcy/slim/control-plane/common/proto/controlplane/v1"
-	"github.com/spf13/cobra"
 
 	"github.com/agntcy/slim/control-plane/common/options"
 )
@@ -21,8 +22,12 @@ func newConnectionCmd(opts *options.CommonOptions) *cobra.Command {
 		Long:  `Manage SLIM connections`,
 	}
 
-	cmd.PersistentFlags().StringP(nodeIdFlag, "n", "", "ID of the node to manage routes for")
-	cmd.MarkPersistentFlagRequired(nodeIdFlag)
+	cmd.PersistentFlags().StringP(nodeIDFlag, "n", "", "ID of the node to manage routes for")
+	//
+	err := cmd.MarkPersistentFlagRequired(nodeIDFlag)
+	if err != nil {
+		fmt.Printf("Error marking persistent flag required: %v\n", err)
+	}
 
 	cmd.AddCommand(newListConnectionsCmd(opts))
 
@@ -35,8 +40,7 @@ func newListConnectionsCmd(opts *options.CommonOptions) *cobra.Command {
 		Short: "List active connections",
 		Long:  `List active connections`,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-
-			nodeID, _ := cmd.Flags().GetString(nodeIdFlag)
+			nodeID, _ := cmd.Flags().GetString(nodeIDFlag)
 			fmt.Printf("Listing connections for node ID: %s\n", nodeID)
 
 			ctx, cancel := context.WithTimeout(cmd.Context(), opts.Timeout)
@@ -55,7 +59,12 @@ func newListConnectionsCmd(opts *options.CommonOptions) *cobra.Command {
 			}
 			fmt.Printf("Received connection list response: %v\n", len(connectionListResponse.Entries))
 			for _, entry := range connectionListResponse.Entries {
-				fmt.Printf("Connection ID: %v, Connection type: %v, ConfigData %v\n", entry.Id, entry.ConnectionType, entry.ConfigData)
+				fmt.Printf(
+					"Connection ID: %v, Connection type: %v, ConfigData %v\n",
+					entry.Id,
+					entry.ConnectionType,
+					entry.ConfigData,
+				)
 			}
 
 			return nil

@@ -7,10 +7,11 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/spf13/cobra"
+
 	cpApi "github.com/agntcy/slim/control-plane/common/controlplane"
 	"github.com/agntcy/slim/control-plane/common/options"
 	controlplaneApi "github.com/agntcy/slim/control-plane/common/proto/controlplane/v1"
-	"github.com/spf13/cobra"
 )
 
 func newNodeCmd(opts *options.CommonOptions) *cobra.Command {
@@ -31,7 +32,6 @@ func newListNodesCmd(opts *options.CommonOptions) *cobra.Command {
 		Short: "List nodes",
 		Long:  `List nodes connected to the control plane`,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-
 			ctx, cancel := context.WithTimeout(cmd.Context(), opts.Timeout)
 			defer cancel()
 

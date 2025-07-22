@@ -8,10 +8,11 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/agntcy/slim/control-plane/slimctl/internal/cmd/util"
 	"github.com/google/uuid"
 	"github.com/spf13/cobra"
 	"google.golang.org/protobuf/types/known/wrapperspb"
+
+	"github.com/agntcy/slim/control-plane/slimctl/internal/cmd/util"
 
 	"github.com/agntcy/slim/control-plane/common/controller"
 	"github.com/agntcy/slim/control-plane/common/options"

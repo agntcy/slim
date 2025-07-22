@@ -23,8 +23,10 @@ func NewRouteService(messagingService nodecontrol.NodeCommandHandler) *RouteServ
 	}
 }
 
-func (s *RouteService) ListSubscriptions(_ context.Context,
-	nodeEntry *controlplanev1.NodeEntry) (*controllerapi.SubscriptionListResponse, error) {
+func (s *RouteService) ListSubscriptions(
+	_ context.Context,
+	nodeEntry *controlplanev1.NodeEntry,
+) (*controllerapi.SubscriptionListResponse, error) {
 	msg := &controllerapi.ControlMessage{
 		MessageId: uuid.NewString(),
 		Payload:   &controllerapi.ControlMessage_SubscriptionListRequest{},
@@ -61,8 +63,10 @@ func (s *RouteService) ListSubscriptions(_ context.Context,
 	return nil, fmt.Errorf("no SubscriptionListResponse received")
 }
 
-func (s *RouteService) ListConnections(_ context.Context,
-	nodeEntry *controlplanev1.NodeEntry) (*controllerapi.ConnectionListResponse, error) {
+func (s *RouteService) ListConnections(
+	_ context.Context,
+	nodeEntry *controlplanev1.NodeEntry,
+) (*controllerapi.ConnectionListResponse, error) {
 	msg := &controllerapi.ControlMessage{
 		MessageId: uuid.NewString(),
 		Payload:   &controllerapi.ControlMessage_ConnectionListRequest{},
@@ -86,8 +90,11 @@ func (s *RouteService) ListConnections(_ context.Context,
 	return nil, fmt.Errorf("no ConnectionListResponse received")
 }
 
-func (s *RouteService) CreateConnection(ctx context.Context, nodeEntry *controlplanev1.NodeEntry,
-	connection *controllerapi.Connection) error {
+func (s *RouteService) CreateConnection(
+	ctx context.Context,
+	nodeEntry *controlplanev1.NodeEntry,
+	connection *controllerapi.Connection,
+) error {
 	zlog := zerolog.Ctx(ctx)
 
 	controllerConfigCommand := &controllerapi.ConfigurationCommand{
@@ -125,9 +132,11 @@ func (s *RouteService) CreateConnection(ctx context.Context, nodeEntry *controlp
 	return nil
 }
 
-func (s *RouteService) CreateSubscription(ctx context.Context, nodeEntry *controlplanev1.NodeEntry,
-	subscription *controllerapi.Subscription) error {
-
+func (s *RouteService) CreateSubscription(
+	ctx context.Context,
+	nodeEntry *controlplanev1.NodeEntry,
+	subscription *controllerapi.Subscription,
+) error {
 	zlog := zerolog.Ctx(ctx)
 
 	controllerConfigCommand := &controllerapi.ConfigurationCommand{
@@ -166,8 +175,11 @@ func (s *RouteService) CreateSubscription(ctx context.Context, nodeEntry *contro
 	return nil
 }
 
-func (s *RouteService) DeleteSubscription(ctx context.Context, nodeEntry *controlplanev1.NodeEntry,
-	subscription *controllerapi.Subscription) error {
+func (s *RouteService) DeleteSubscription(
+	ctx context.Context,
+	nodeEntry *controlplanev1.NodeEntry,
+	subscription *controllerapi.Subscription,
+) error {
 	zlog := zerolog.Ctx(ctx)
 
 	msg := &controllerapi.ControlMessage{
