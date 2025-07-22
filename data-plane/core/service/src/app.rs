@@ -773,7 +773,6 @@ where
         }
 
         if session_message_type == ProtoSessionMessageType::ChannelLeaveRequest {
-            println!("-------------------------received session leave");
             // send message to the session and delete it after
             if let Some(session) = self.pool.read().await.get(&id) {
                 session.on_message(message, direction).await?;
@@ -787,17 +786,14 @@ where
             }
             // remove the session
             self.remove_session(id).await;
-            println!("-------------------------session removed");
             return Ok(());
         }
 
         if let Some(session) = self.pool.read().await.get(&id) {
             // pass the message to the session
-            println!("-------session {} exists", id);
             return session.on_message(message, direction).await;
         }
 
-        println!("-------create new session with id {}", id);
         let new_session_id = match session_message_type {
             ProtoSessionMessageType::FnfMsg | ProtoSessionMessageType::FnfReliable => {
                 let mut conf = self.default_ff_conf.read().clone();

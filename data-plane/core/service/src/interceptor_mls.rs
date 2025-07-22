@@ -28,21 +28,8 @@ where
     V: slim_auth::traits::Verifier + Send + Sync + Clone + 'static,
 {
     pub fn new(mls: Arc<Mutex<Mls<P, V>>>) -> Self {
-        println!("!!!!!!!!!!!!!!!!!!!!!!!!!!!!! new inteceptor");
-        let ptr_to_data = Arc::as_ptr(&mls);
-        println!("----------The memory location pointed to by Arc is: {:p}", ptr_to_data);
         Self { mls }
     }
-}
-
-impl<P, V> Drop for MlsInterceptor<P, V> 
-where
-    P: slim_auth::traits::TokenProvider + Send + Sync + Clone + 'static,
-    V: slim_auth::traits::Verifier + Send + Sync + Clone + 'static,
-{
-    fn drop(&mut self) {
-        println!("--------!!! super drop!");
-    } 
 }
 
 #[async_trait::async_trait]
@@ -83,12 +70,8 @@ where
             }
         };
 
-        let ptr_to_data = Arc::as_ptr(&self.mls);
-        println!("----------The memory location pointed to by Arc is: {:p}", ptr_to_data);
-
         let mut mls_guard = self.mls.lock();
 
-        println!("---- curent epoch enc{:?}", mls_guard.get_epoch());
         debug!("Encrypting message for group member");
         let binding = mls_guard.encrypt_message(payload);
         let encrypted_payload = match &binding {
@@ -152,13 +135,9 @@ where
         };
 
         let decrypted_payload = {
-            let ptr_to_data = Arc::as_ptr(&self.mls);
-            println!("----------The memory location pointed to by Arc is: {:p}", ptr_to_data);
-
             let mut mls_guard = self.mls.lock();
 
             debug!("Decrypting message for group member");
-            println!("---- curent epoch dec {:?}", mls_guard.get_epoch());
             match mls_guard.decrypt_message(payload) {
                 Ok(decrypted_payload) => decrypted_payload,
                 Err(e) => {
