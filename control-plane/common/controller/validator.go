@@ -7,14 +7,12 @@ import (
 	"github.com/xeipuuv/gojsonschema"
 )
 
-//go:generate cp ../../../../data-plane/core/config/src/grpc/schema/client-config.schema.json ./schema.json
+//go:generate cp ../../../data-plane/core/config/src/grpc/schema/client-config.schema.json ./schema.json
 //go:embed schema.json
 var schemaData []byte
 
-var (
-	// SchemaValidator is a global, compiled JSON schema validator.
-	SchemaValidator *gojsonschema.Schema
-)
+// SchemaValidator is a global, compiled JSON schema validator.
+var SchemaValidator *gojsonschema.Schema
 
 func init() {
 	loader := gojsonschema.NewBytesLoader(schemaData)
