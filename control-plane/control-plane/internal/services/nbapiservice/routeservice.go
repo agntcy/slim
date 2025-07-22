@@ -5,82 +5,71 @@ import (
 	"fmt"
 	"reflect"
 
-	"github.com/agntcy/slim/control-plane/common/controller"
 	"github.com/agntcy/slim/control-plane/common/options"
 	controllerapi "github.com/agntcy/slim/control-plane/common/proto/controller/v1"
 	controlplanev1 "github.com/agntcy/slim/control-plane/common/proto/controlplane/v1"
-	"github.com/agntcy/slim/control-plane/control-plane/internal/services/messagingservice"
+	"github.com/agntcy/slim/control-plane/control-plane/internal/services/nodecontrol"
 	"github.com/google/uuid"
 )
 
 type routeService struct {
-	messagingService messagingservice.Messaging
+	messagingService nodecontrol.NodeCommandHandler
 }
 
-func NewRouteService(messagingService messagingservice.Messaging) *routeService {
+func NewRouteService(messagingService nodecontrol.NodeCommandHandler) *routeService {
 	return &routeService{
 		messagingService: messagingService,
 	}
 }
 
-func (s *routeService) ListSubscriptions(ctx context.Context, nodeEntry *controlplanev1.NodeEntry, opts *options.CommonOptions) (*controllerapi.SubscriptionListResponse, error) {
+func (s *routeService) ListSubscriptions(ctx context.Context, nodeEntry *controlplanev1.NodeEntry) (*controllerapi.SubscriptionListResponse, error) {
 	msg := &controllerapi.ControlMessage{
 		MessageId: uuid.NewString(),
 		Payload:   &controllerapi.ControlMessage_SubscriptionListRequest{},
 	}
 
-	stream, err := controller.OpenControlChannel(ctx, opts)
+	if err := s.messagingService.SendMessage(nodeEntry.Id, msg); err != nil {
+		return nil, fmt.Errorf("failed to send message: %w", err)
+	}
+	resp, err := s.messagingService.WaitForResponse(nodeEntry.Id, reflect.TypeOf(&controllerapi.ControlMessage_SubscriptionListResponse{}))
 	if err != nil {
-		return nil, fmt.Errorf("failed to open control channel: %w", err)
+		return nil, fmt.Errorf("failed to receive SubscriptionListResponse: %w", err)
 	}
 
-	if err := stream.Send(msg); err != nil {
-		return nil, fmt.Errorf("failed to send control message: %w", err)
-	}
-
-	if err := stream.CloseSend(); err != nil {
-		return nil, fmt.Errorf("failed to close send: %w", err)
-	}
-
-	for {
-		resp, err := stream.Recv()
-		if err != nil {
-			break
-		}
-
-		if listResp := resp.GetSubscriptionListResponse(); listResp != nil {
-			for _, e := range listResp.Entries {
-				var localNames, remoteNames []string
-				for _, lc := range e.GetLocalConnections() {
-					localNames = append(localNames,
-						fmt.Sprintf("local:%d:%s", lc.GetId(), lc.GetConfigData()))
-				}
-				for _, rc := range e.GetRemoteConnections() {
-					remoteNames = append(remoteNames,
-						fmt.Sprintf("remote:%d:%s", rc.GetId(), rc.GetConfigData()))
-				}
-				fmt.Printf("%s/%s/%s id=%d local=%v remote=%v\n",
-					e.GetOrganization(), e.GetNamespace(), e.GetAgentType(),
-					e.GetAgentId().GetValue(),
-					localNames, remoteNames,
-				)
+	if listResp := resp.GetSubscriptionListResponse(); listResp != nil {
+		for _, e := range listResp.Entries {
+			var localNames, remoteNames []string
+			for _, lc := range e.GetLocalConnections() {
+				localNames = append(localNames,
+					fmt.Sprintf("local:%d:%s", lc.GetId(), lc.GetConfigData()))
 			}
-			return listResp, nil
+			for _, rc := range e.GetRemoteConnections() {
+				remoteNames = append(remoteNames,
+					fmt.Sprintf("remote:%d:%s", rc.GetId(), rc.GetConfigData()))
+			}
+			fmt.Printf("%s/%s/%s id=%d local=%v remote=%v\n",
+				e.GetOrganization(), e.GetNamespace(), e.GetAgentType(),
+				e.GetAgentId().GetValue(),
+				localNames, remoteNames,
+			)
 		}
+		return listResp, nil
 	}
-	return nil, fmt.Errorf("no SubscriptionListResponse found in response")
+	return nil, fmt.Errorf("no SubscriptionListResponse received")
 }
 
-func (s *routeService) ListConnections(ctx context.Context, nodeEntry *controlplanev1.NodeEntry, opts *options.CommonOptions) (*controllerapi.ConnectionListResponse, error) {
+func (s *routeService) ListConnections(ctx context.Context, nodeEntry *controlplanev1.NodeEntry) (*controllerapi.ConnectionListResponse, error) {
 	msg := &controllerapi.ControlMessage{
 		MessageId: uuid.NewString(),
 		Payload:   &controllerapi.ControlMessage_ConnectionListRequest{},
 	}
 
-	s.messagingService.SendMessage(nodeEntry.Id, msg)
-	response, err := s.messagingService.FindMessageByType(reflect.TypeOf(&controllerapi.ControlMessage_ConnectionListResponse{}))
+	if err := s.messagingService.SendMessage(nodeEntry.Id, msg); err != nil {
+		return nil, fmt.Errorf("failed to send message: %w", err)
+	}
+	response, err := s.messagingService.WaitForResponse(nodeEntry.Id, reflect.TypeOf(&controllerapi.ControlMessage_ConnectionListResponse{}))
 	if err != nil {
-		return nil, fmt.Errorf("failed to find ConnectionListResponse: %w", err)
+		return nil, fmt.Errorf("failed to receive ConnectionListResponse: %w", err)
 	}
 	if listResp := response.GetConnectionListResponse(); listResp != nil {
 		for _, e := range listResp.Entries {
@@ -89,7 +78,7 @@ func (s *routeService) ListConnections(ctx context.Context, nodeEntry *controlpl
 		return listResp, nil
 	}
 	// If we reach here, it means we didn't find a ConnectionListResponse
-	return nil, fmt.Errorf("no ConnectionListResponse found in response")
+	return nil, fmt.Errorf("no ConnectionListResponse received")
 }
 
 func (s *routeService) CreateConnection(ctx context.Context, nodeEntry *controlplanev1.NodeEntry, connection *controllerapi.Connection) error {
@@ -110,6 +99,19 @@ func (s *routeService) CreateConnection(ctx context.Context, nodeEntry *controlp
 	err := s.messagingService.SendMessage(nodeEntry.Id, createCommandMessage)
 	if err != nil {
 		return err
+	}
+	// wait for ACK response
+	response, err := s.messagingService.WaitForResponse(nodeEntry.Id, reflect.TypeOf(&controllerapi.ControlMessage_Ack{}))
+	if err != nil {
+		return err
+	}
+	// check if ack is successful
+	if ack := response.GetAck(); ack != nil {
+		if !ack.Success {
+			return fmt.Errorf("failed to create connection: %s", ack.Messages)
+		}
+		logAckMessage(ack)
+		fmt.Printf("Connection created successfully.")
 	}
 
 	return nil
@@ -134,6 +136,19 @@ func (s *routeService) CreateSubscription(ctx context.Context, nodeEntry *contro
 	if err != nil {
 		return err
 	}
+	// wait for ACK response
+	response, err := s.messagingService.WaitForResponse(nodeEntry.Id, reflect.TypeOf(&controllerapi.ControlMessage_Ack{}))
+	if err != nil {
+		return err
+	}
+	// check if ack is successful
+	if ack := response.GetAck(); ack != nil {
+		if !ack.Success {
+			return fmt.Errorf("failed to create subscription: %s", ack.Messages)
+		}
+		logAckMessage(ack)
+		fmt.Printf("Subscription created successfully.")
+	}
 
 	return nil
 }
@@ -150,38 +165,36 @@ func (s *routeService) DeleteSubscription(ctx context.Context, nodeEntry *contro
 		},
 	}
 
-	stream, err := controller.OpenControlChannel(ctx, opts)
+	err := s.messagingService.SendMessage(nodeEntry.Id, msg)
 	if err != nil {
-		return fmt.Errorf("failed to open control channel: %w", err)
+		return err
 	}
-
-	if err = stream.Send(msg); err != nil {
-		return fmt.Errorf("failed to send control message: %w", err)
-	}
-
-	if err = stream.CloseSend(); err != nil {
-		return fmt.Errorf("failed to close send: %w", err)
-	}
-
-	ack, err := stream.Recv()
+	// wait for ACK response
+	response, err := s.messagingService.WaitForResponse(nodeEntry.Id, reflect.TypeOf(&controllerapi.ControlMessage_Ack{}))
 	if err != nil {
-		return fmt.Errorf("error receiving ack via stream: %w", err)
+		return err
+	}
+	// check if ack is successful
+	if ack := response.GetAck(); ack != nil {
+		if !ack.Success {
+			return fmt.Errorf("failed to delete subscription: %s", ack.Messages)
+		}
+		logAckMessage(ack)
+		fmt.Printf("Subscription deleted successfully.")
 	}
 
-	a := ack.GetAck()
-	if a == nil {
-		return fmt.Errorf("unexpected response type received (not an ACK): %v", ack)
-	}
+	return nil
+}
 
+func logAckMessage(ack *controllerapi.Ack) {
 	fmt.Printf(
 		"ACK received for %s: success=%t\n",
-		a.OriginalMessageId,
-		a.Success,
+		ack.OriginalMessageId,
+		ack.Success,
 	)
-	if len(a.Messages) > 0 {
-		for i, ackMsg := range a.Messages {
+	if len(ack.Messages) > 0 {
+		for i, ackMsg := range ack.Messages {
 			fmt.Printf("    [%d] %s\n", i+1, ackMsg)
 		}
 	}
-	return nil
 }

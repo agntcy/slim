@@ -1,4 +1,4 @@
-package messagingservice
+package nodecontrol
 
 import (
 	"reflect"
@@ -10,7 +10,7 @@ import (
 )
 
 func TestFindMessageByType(t *testing.T) {
-	ms := NewMessagingService()
+	ms := DefaultNodeCommandHandler()
 
 	// Add some test messages
 	configMsg := &controllerapi.ControlMessage{
@@ -43,9 +43,9 @@ func TestFindMessageByType(t *testing.T) {
 	}
 
 	// Add messages to different nodes
-	ms.AddNodeCommand("node1", configMsg)
-	ms.AddNodeCommand("node2", subscriptionMsg)
-	ms.AddNodeCommand("node1", ackMsg)
+	ms.ResponseReceived("node1", configMsg)
+	ms.ResponseReceived("node2", subscriptionMsg)
+	ms.ResponseReceived("node1", ackMsg)
 
 	tests := []struct {
 		name          string
@@ -81,7 +81,7 @@ func TestFindMessageByType(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			foundMsg, err := ms.FindMessageByType(tt.messageType)
+			foundMsg, err := ms.WaitForResponse(tt.messageType)
 
 			if tt.expectedFound {
 				if err != nil {
@@ -106,7 +106,7 @@ func TestFindMessageByType(t *testing.T) {
 }
 
 func TestFindMessageByType_RemovesMessage(t *testing.T) {
-	ms := NewMessagingService()
+	ms := DefaultNodeCommandHandler()
 
 	// Add two messages of the same type to the same node
 	msg1 := &controllerapi.ControlMessage{
@@ -123,11 +123,11 @@ func TestFindMessageByType_RemovesMessage(t *testing.T) {
 		},
 	}
 
-	ms.AddNodeCommand("node1", msg1)
-	ms.AddNodeCommand("node1", msg2)
+	ms.ResponseReceived("node1", msg1)
+	ms.ResponseReceived("node1", msg2)
 
 	// Find first message - should return msg1 and remove it
-	foundMsg, err := ms.FindMessageByType(reflect.TypeOf(&controllerapi.ControlMessage_ConfigCommand{}))
+	foundMsg, err := ms.WaitForResponse(reflect.TypeOf(&controllerapi.ControlMessage_ConfigCommand{}))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -136,7 +136,7 @@ func TestFindMessageByType_RemovesMessage(t *testing.T) {
 	}
 
 	// Find second message - should return msg2 and remove it
-	foundMsg, err = ms.FindMessageByType(reflect.TypeOf(&controllerapi.ControlMessage_ConfigCommand{}))
+	foundMsg, err = ms.WaitForResponse(reflect.TypeOf(&controllerapi.ControlMessage_ConfigCommand{}))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -145,23 +145,23 @@ func TestFindMessageByType_RemovesMessage(t *testing.T) {
 	}
 
 	// Try to find third message - should fail
-	_, err = ms.FindMessageByType(reflect.TypeOf(&controllerapi.ControlMessage_ConfigCommand{}))
+	_, err = ms.WaitForResponse(reflect.TypeOf(&controllerapi.ControlMessage_ConfigCommand{}))
 	if err == nil {
 		t.Fatal("expected error when no more messages available")
 	}
 }
 
 func TestFindMessageByType_EmptyMap(t *testing.T) {
-	ms := NewMessagingService()
+	ms := DefaultNodeCommandHandler()
 
-	_, err := ms.FindMessageByType(reflect.TypeOf(&controllerapi.ControlMessage_ConfigCommand{}))
+	_, err := ms.WaitForResponse(reflect.TypeOf(&controllerapi.ControlMessage_ConfigCommand{}))
 	if err == nil {
 		t.Fatal("expected error when searching in empty map")
 	}
 }
 
 func TestFindMessageByType_MultipleNodes(t *testing.T) {
-	ms := NewMessagingService()
+	ms := DefaultNodeCommandHandler()
 
 	// Add messages to multiple nodes
 	msg1 := &controllerapi.ControlMessage{
@@ -178,11 +178,11 @@ func TestFindMessageByType_MultipleNodes(t *testing.T) {
 		},
 	}
 
-	ms.AddNodeCommand("node1", msg1)
-	ms.AddNodeCommand("node2", msg2)
+	ms.ResponseReceived("node1", msg1)
+	ms.ResponseReceived("node2", msg2)
 
 	// Should find one of the messages (order not guaranteed due to sync.Map.Range)
-	foundMsg, err := ms.FindMessageByType(reflect.TypeOf(&controllerapi.ControlMessage_ConfigCommand{}))
+	foundMsg, err := ms.WaitForResponse(reflect.TypeOf(&controllerapi.ControlMessage_ConfigCommand{}))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

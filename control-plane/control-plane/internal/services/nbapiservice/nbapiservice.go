@@ -40,12 +40,7 @@ func (s *nbAPIService) ListSubscriptions(ctx context.Context, node *controlplane
 	if err != nil {
 		return nil, fmt.Errorf("failed to get node by ID: %v", err)
 	}
-	fmt.Printf("Received endpoint: %v\n", node)
-	endpoint := fmt.Sprintf("%s:%d", nodeEntry.Host, nodeEntry.Port)
-	opts := options.NewOptions()
-	opts.Server = endpoint
-	opts.TLSInsecure = true
-	return s.routeService.ListSubscriptions(ctx, nodeEntry, opts)
+	return s.routeService.ListSubscriptions(ctx, nodeEntry)
 }
 
 func (s *nbAPIService) ListConnections(ctx context.Context, node *controlplaneApi.Node) (*controllerapi.ConnectionListResponse, error) {
@@ -53,14 +48,7 @@ func (s *nbAPIService) ListConnections(ctx context.Context, node *controlplaneAp
 	if err != nil {
 		return nil, fmt.Errorf("failed to get node by ID: %v", err)
 	}
-	fmt.Printf("Received endpoint: %v\n", node)
-	endpoint := fmt.Sprintf("%s:%d", nodeEntry.Host, nodeEntry.Port)
-	fmt.Printf("Received endpoint: %v\n", endpoint)
-
-	opts := options.NewOptions()
-	opts.Server = endpoint
-	opts.TLSInsecure = true
-	return s.routeService.ListConnections(ctx, nodeEntry, opts)
+	return s.routeService.ListConnections(ctx, nodeEntry)
 }
 
 func (s *nbAPIService) ListNodes(ctx context.Context, nodeListRequest *controlplaneApi.NodeListRequest) (*controlplaneApi.NodeListResponse, error) {

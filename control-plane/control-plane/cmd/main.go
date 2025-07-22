@@ -10,8 +10,8 @@ import (
 	controlplaneApi "github.com/agntcy/slim/control-plane/common/proto/controlplane/v1"
 	"github.com/agntcy/slim/control-plane/control-plane/internal/config"
 	"github.com/agntcy/slim/control-plane/control-plane/internal/db"
-	"github.com/agntcy/slim/control-plane/control-plane/internal/services/messagingservice"
 	"github.com/agntcy/slim/control-plane/control-plane/internal/services/nbapiservice"
+	"github.com/agntcy/slim/control-plane/control-plane/internal/services/nodecontrol"
 	"github.com/agntcy/slim/control-plane/control-plane/internal/services/sbapiservice"
 	"google.golang.org/grpc"
 )
@@ -24,7 +24,7 @@ func main() {
 	var opts []grpc.ServerOption
 
 	dbService := db.NewInMemoryDBService()
-	messagingService := messagingservice.NewMessagingService()
+	messagingService := nodecontrol.DefaultNodeCommandHandler()
 	nodeService := nbapiservice.NewNodeService(dbService)
 	routeService := nbapiservice.NewRouteService(messagingService)
 	configService := nbapiservice.NewConfigService()
