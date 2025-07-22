@@ -247,7 +247,8 @@ async fn main() {
 
             //tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
         }
-        tokio::time::sleep(tokio::time::Duration::from_millis(10000)).await;
+
+        tokio::time::sleep(tokio::time::Duration::from_millis(3000)).await;
 
         // listen for messages
         tokio::spawn(async move {
@@ -297,6 +298,34 @@ async fn main() {
             }
             if frequency != 0 {
                 tokio::time::sleep(tokio::time::Duration::from_millis(frequency as u64)).await;
+            }
+
+            if i == 10 {
+                //do some churn
+                app.remove_participant(&Agent::from_strings("org", "ns", "t1", 1), info.clone())
+                    .await
+                    .expect("error sending remove message");
+                //app.remove_participant(&Agent::from_strings("org", "ns", "t2", 1), info.clone())
+                //    .await
+                //    .expect("error sending remove message");
+                //app.remove_participant(&Agent::from_strings("org", "ns", "t3", 1), info.clone())
+                //    .await
+                //    .expect("error sending remove message");
+                app.invite_participant(&AgentType::from_strings("org", "ns", "t1"), info.clone())
+                    .await
+                    .expect("error sending invite message");
+                /*app.remove_participant(&Agent::from_strings("org", "ns", "t4", 1), info.clone())
+                    .await
+                    .expect("error sending remove message");
+                app.invite_participant(&AgentType::from_strings("org", "ns", "t2"), info.clone())
+                    .await
+                    .expect("error sending invite message");
+                app.remove_participant(&Agent::from_strings("org", "ns", "t5", 1), info.clone())
+                    .await
+                    .expect("error sending remove message");
+                app.invite_participant(&AgentType::from_strings("org", "ns", "t3"), info.clone())
+                    .await
+                    .expect("error sending invite message");*/
             }
         }
     } else {

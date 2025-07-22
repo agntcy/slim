@@ -1005,31 +1005,31 @@ where
                 ))
             }
             ProtoSessionMessageType::ChannelJoinRequest => {
-                debug!("Received join request message");
+                info!("Received join request message");
                 self.on_join_request(msg).await
             }
             ProtoSessionMessageType::ChannelMlsWelcome => {
-                debug!("Received mls welcome message");
+                info!("Received mls welcome message");
                 self.on_mls_welcome(msg).await
             }
             ProtoSessionMessageType::ChannelMlsCommit => {
-                debug!("Received mls commit message");
+                info!("Received mls commit message");
                 self.on_mls_commit(msg).await
             }
             ProtoSessionMessageType::ChannelMlsProposal => {
-                debug!("Received mls proposal message");
+                info!("Received mls proposal message");
                 self.on_mls_proposal(msg).await
             }
             ProtoSessionMessageType::ChannelLeaveRequest => {
-                debug!("Received leave request message");
+                info!("Received leave request message");
                 self.on_leave_request(msg).await
             }
             ProtoSessionMessageType::ChannelMlsAck => {
-                debug!("Received mls ack message");
+                info!("Received mls ack message");
                 self.on_mls_ack(msg).await
             }
             _ => {
-                debug!("Received message of type {:?}, drop it", msg_type);
+                info!("Received message of type {:?}, drop it", msg_type);
 
                 Err(SessionError::Processing(format!(
                     "Received message of type {:?}, drop it",
@@ -1431,16 +1431,16 @@ where
                 .as_mut()
                 .unwrap()
                 .mls_phase_completed(recv_msg_id)?;
+
+            // notify mls state that an ack was received
+            self.mls_state
+                .as_mut()
+                .ok_or(SessionError::NoMls)?
+                .on_mls_ack()?;
+
+            // check if the current task is completed
+            self.task_done().await?;
         }
-
-        // notify mls state that an ack was received
-        self.mls_state
-            .as_mut()
-            .ok_or(SessionError::NoMls)?
-            .on_mls_ack()?;
-
-        // check if the current task is completed
-        self.task_done().await?;
 
         Ok(())
     }
@@ -1610,6 +1610,7 @@ where
         if !self.current_task.as_ref().unwrap().task_complete() {
             // the task is not completed so just return
             // and continue with the process
+            info!("Current task is completed");
             return Ok(());
         }
 
@@ -1621,11 +1622,12 @@ where
             Some(m) => m,
             None => {
                 // nothing else to do
+                info!("No tasks left to perform");
                 return Ok(());
             }
         };
 
-        debug!("process a message from the todo list");
+        info!("process a message from the todo list");
 
         let msg_type = msg.get_session_header().session_message_type();
         match msg_type {
@@ -1639,7 +1641,7 @@ where
                     Some(ModeratorTask::AddParticipant(AddParticipant::default()))
                 };
 
-                debug!("Invite new participant to the channel, send discovery message");
+                info!("start a new inivte task, send discovery message");
                 let msg_id = msg.get_id();
                 // discovery message coming from the application
                 self.forward(msg).await?;
@@ -1648,6 +1650,7 @@ where
                 self.current_task.as_mut().unwrap().discovery_start(msg_id)
             }
             ProtoSessionMessageType::ChannelMlsProposal => {
+                info!("Start a new proposal task");
                 if msg.get_source() == self.endpoint.name {
                     // we need to update the keys of the moderator
                     self.update_mls_keys().await
@@ -1657,6 +1660,7 @@ where
                 }
             }
             ProtoSessionMessageType::ChannelLeaveRequest => {
+                info!("Start a new channel leave task");
                 // now the moderator is busy
                 self.current_task = if self.mls_state.is_some() {
                     Some(ModeratorTask::RemoveParticipantMls(
@@ -1817,6 +1821,7 @@ where
                 // this message starts a new participant update
                 // process the request only if not busy
                 if self.current_task.is_some() {
+                    info!("Moderator is busy. Add MLS propsal task to the list and process it later");
                     // if busy postpone the task and add it to the todo list
                     self.tasks_todo.push_back(msg);
                     return Ok(());
@@ -1836,6 +1841,7 @@ where
                 // process the request only if not busy
                 if self.current_task.is_some() {
                     // if busy postpone the task and add it to the todo list
+                    info!("Moderator is busy. Add  leave request task to the list and process it later");
                     self.tasks_todo.push_back(msg);
                     return Ok(());
                 }

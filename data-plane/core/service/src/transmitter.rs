@@ -95,3 +95,10 @@ impl SessionTransmitter for Transmitter {
         }
     }
 }
+
+impl Drop for Transmitter {
+    fn drop(&mut self) {
+        println!("!!!!!!!!!!!!!!---- super drop tx!!!!!----");
+        self.interceptors.write().clear();
+    }
+}

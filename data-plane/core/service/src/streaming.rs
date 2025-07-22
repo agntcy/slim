@@ -247,8 +247,6 @@ where
     ) -> Self {
         let (tx, rx) = mpsc::channel(128);
 
-        // TODO pass a parameter to set MLS on/off
-        // for the moment is always on
         let common = Common::new(
             id,
             session_direction.clone(),
@@ -355,7 +353,7 @@ where
             let mls = mls.map(|mls| MlsState::new(mls).expect("failed to create MLS state"));
 
             let mls_enable = mls.is_some();
-            let sleep = time::sleep(Duration::from_secs(10));
+            let sleep = time::sleep(Duration::from_secs(3600));
             tokio::pin!(sleep);
 
             // create the channel endpoint
@@ -557,7 +555,7 @@ where
                     () = &mut sleep, if mls_enable => {
                         println!("!!!!!!------- TIMER ");
                         let _ = channel_endpoint.update_mls_keys().await;
-                        sleep.as_mut().reset(Instant::now() + Duration::from_secs(10));
+                        sleep.as_mut().reset(Instant::now() + Duration::from_secs(3600));
                     }
                 }
             }
@@ -971,7 +969,7 @@ where
                 let session_msg = SessionMessage::new(m, info);
                 // send message to the app
                 if tx.send_to_app(Ok(session_msg)).await.is_err() {
-                    error!("error sending packet to slim on session {}", session_id);
+                    error!("error sending packet to app on session {}", session_id);
                 }
             }
             None => {

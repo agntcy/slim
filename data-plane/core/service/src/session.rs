@@ -459,6 +459,23 @@ where
     }
 }
 
+
+impl<P, V, T> Drop for Session<P, V, T> 
+where
+    P: TokenProvider + Send + Sync + Clone + 'static,
+    V: Verifier + Send + Sync + Clone + 'static,
+    T: SessionTransmitter + Send + Sync + Clone + 'static,
+{
+    fn drop(&mut self) {
+        println!("--------!!! super drop for session!!!");
+        //if let Some(mls) = self.mls() {
+            
+        //    self.tx.remove_interceptor();
+        //}
+        
+    } 
+}
+
 #[async_trait]
 impl<P, V, T> CommonSession<P, V, T> for Common<P, V, T>
 where
@@ -543,6 +560,8 @@ where
             None
         };
 
+        println!("------------ new mls! {:?}", mls);
+
         let session = Self {
             id,
             state: State::Active,
@@ -574,4 +593,17 @@ where
     pub(crate) fn mls(&self) -> Option<Arc<Mutex<Mls<P, V>>>> {
         self.mls.as_ref().map(|mls| mls.clone())
     }
+}
+
+
+impl<P, V, T> Drop for Common<P, V, T> 
+where
+    P: TokenProvider + Send + Sync + Clone + 'static,
+    V: Verifier + Send + Sync + Clone + 'static,
+    T: SessionTransmitter + Send + Sync + Clone + 'static,
+{
+    fn drop(&mut self) {
+        println!("--------!!! super drop for common!!!");
+        
+    } 
 }
