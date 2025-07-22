@@ -42,7 +42,7 @@ func newListConnectionsCmd(opts *options.CommonOptions) *cobra.Command {
 			ctx, cancel := context.WithTimeout(cmd.Context(), opts.Timeout)
 			defer cancel()
 
-			cpCLient, err := cpApi.GetClient(ctx, opts)
+			cpCLient, err := cpApi.GetClient(opts)
 			if err != nil {
 				return fmt.Errorf("failed to get control plane client: %w", err)
 			}

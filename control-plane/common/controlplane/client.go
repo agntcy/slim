@@ -4,7 +4,6 @@
 package controlplane
 
 import (
-	"context"
 	"fmt"
 
 	"google.golang.org/grpc"
@@ -16,7 +15,6 @@ import (
 )
 
 func GetClient(
-	ctx context.Context,
 	opts *options.CommonOptions,
 ) (cpApi.ControlPlaneServiceClient, error) {
 	var creds credentials.TransportCredentials

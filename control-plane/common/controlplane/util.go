@@ -7,5 +7,10 @@ import (
 )
 
 func GetSubscriptionID(subscription *grpcapi.Subscription) string {
-	return fmt.Sprintf("%s/%s/%s/%v->%s", subscription.Organization, subscription.Namespace, subscription.AgentType, subscription.AgentId, subscription.ConnectionId)
+	return fmt.Sprintf("%s/%s/%s/%v->%s",
+		subscription.Organization,
+		subscription.Namespace,
+		subscription.AgentType,
+		subscription.AgentId,
+		subscription.ConnectionId)
 }

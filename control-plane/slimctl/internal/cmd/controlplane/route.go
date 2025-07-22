@@ -51,7 +51,7 @@ func newListCmd(opts *options.CommonOptions) *cobra.Command {
 			ctx, cancel := context.WithTimeout(cmd.Context(), opts.Timeout)
 			defer cancel()
 
-			cpCLient, err := cpApi.GetClient(ctx, opts)
+			cpCLient, err := cpApi.GetClient(opts)
 			if err != nil {
 				return fmt.Errorf("failed to get control plane client: %w", err)
 			}
@@ -72,9 +72,9 @@ func newListCmd(opts *options.CommonOptions) *cobra.Command {
 				}
 				for _, c := range e.RemoteConnections {
 					remoteNames = append(remoteNames,
-						fmt.Sprintf("remote:%s:%d:%d", c.ConnectionType, c.ConfigData, c.Id))
+						fmt.Sprintf("remote:%s:%v:%d", c.ConnectionType, c.ConfigData, c.Id))
 				}
-				fmt.Printf("%s/%s/%s id=%d local=%v remote=%v\n",
+				fmt.Printf("%s/%s/%s id=%v local=%v remote=%v\n",
 					e.Organization, e.Namespace, e.AgentType,
 					e.AgentId,
 					localNames, remoteNames,
@@ -121,7 +121,7 @@ func newAddCmd(opts *options.CommonOptions) *cobra.Command {
 			ctx, cancel := context.WithTimeout(cmd.Context(), opts.Timeout)
 			defer cancel()
 
-			cpClient, err := cpApi.GetClient(ctx, opts)
+			cpClient, err := cpApi.GetClient(opts)
 			if err != nil {
 				return fmt.Errorf("failed to get control plane client: %w", err)
 			}
@@ -209,7 +209,7 @@ func newDelCmd(opts *options.CommonOptions) *cobra.Command {
 			ctx, cancel := context.WithTimeout(cmd.Context(), opts.Timeout)
 			defer cancel()
 
-			cpCLient, err := cpApi.GetClient(ctx, opts)
+			cpCLient, err := cpApi.GetClient(opts)
 			if err != nil {
 				return fmt.Errorf("failed to get control plane client: %w", err)
 			}
@@ -224,7 +224,7 @@ func newDelCmd(opts *options.CommonOptions) *cobra.Command {
 			}
 
 			fmt.Printf(
-				"ACK received for %s: success=%t\n",
+				"ACK received success=%v\n",
 				returnedMessage.Success,
 			)
 
