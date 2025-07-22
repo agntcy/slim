@@ -186,10 +186,12 @@ tasks:
   #  control plane related tasks
   control-plane:control-plane:build:
     desc: Builds the control plane binary
-    deps:
-      - control-plane:proto:generate
     dir: control-plane/cmd
     cmds:
+      - |
+        go mod tidy
+      - |
+        go mod download
       - |
         go generate ./../...
       - |

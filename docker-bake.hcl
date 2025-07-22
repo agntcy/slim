@@ -129,8 +129,15 @@ target "testutils" {
 }
 
 target "control-plane" {
-  context = "."
+  contexts = {
+    src = "."
+  }
   dockerfile = "./control-plane/Dockerfile"
-  tags = get_tag(target.docker-metadata-action.tags, "${target.slim.name}")
+  target     = "control-plane"
+  inherits = [
+    "_common",
+    "docker-metadata-action",
+  ]
+  tags = get_tag(target.docker-metadata-action.tags, "${target.control-plane.name}")
 }
 
