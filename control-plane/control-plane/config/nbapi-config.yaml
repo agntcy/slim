@@ -1,6 +1,6 @@
 northbound:
   httpHost: localhost
-  httpPort: 8080
+  httpPort: 50051
 southbound:
   httpHost: localhost
-  httpPort: 8081
+  httpPort: 50052

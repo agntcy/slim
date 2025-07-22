@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 tracing:
-  log_level: info
+  log_level: debug
   display_thread_names: true
   display_thread_ids: true
 
@@ -25,3 +25,7 @@ services:
         - endpoint: "http://127.0.0.1:50052"
           tls:
             insecure: true
+      servers:
+        - endpoint: "0.0.0.0:46368"
+          tls:
+            insecure: true            

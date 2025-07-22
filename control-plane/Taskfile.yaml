@@ -203,5 +203,4 @@ tasks:
     cmds:
       - |
         {{.OUTPUT_DIR}}/bin/control-plane \
-          --config {{.REPO_ROOT}}/control-plane/config.yaml \
-          --log-level debug
+          --config {{.REPO_ROOT}}/control-plane/config.yaml
