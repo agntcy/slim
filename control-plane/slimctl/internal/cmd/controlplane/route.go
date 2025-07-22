@@ -11,12 +11,11 @@ import (
 	"github.com/spf13/cobra"
 	"google.golang.org/protobuf/types/known/wrapperspb"
 
-	"github.com/agntcy/slim/control-plane/slimctl/internal/cmd/util"
-
 	cpApi "github.com/agntcy/slim/control-plane/common/controlplane"
 	"github.com/agntcy/slim/control-plane/common/options"
 	grpcapi "github.com/agntcy/slim/control-plane/common/proto/controller/v1"
 	controlplaneApi "github.com/agntcy/slim/control-plane/common/proto/controlplane/v1"
+	"github.com/agntcy/slim/control-plane/slimctl/internal/cmd/util"
 )
 
 const nodeIDFlag = "node-id"

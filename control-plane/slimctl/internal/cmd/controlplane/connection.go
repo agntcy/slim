@@ -10,9 +10,8 @@ import (
 	"github.com/spf13/cobra"
 
 	cpApi "github.com/agntcy/slim/control-plane/common/controlplane"
-	controlplaneApi "github.com/agntcy/slim/control-plane/common/proto/controlplane/v1"
-
 	"github.com/agntcy/slim/control-plane/common/options"
+	controlplaneApi "github.com/agntcy/slim/control-plane/common/proto/controlplane/v1"
 )
 
 func newConnectionCmd(opts *options.CommonOptions) *cobra.Command {
