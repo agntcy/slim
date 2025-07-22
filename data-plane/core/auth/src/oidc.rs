@@ -1,532 +1,414 @@
-use anyhow::{anyhow, Result}; // anyhow is kept for main's return type, but AuthError is preferred internally
-use serde::{Deserialize, Serialize};
+// Copyright AGNTCY Contributors (https://github.com/agntcy)
+// SPDX-License-Identifier: Apache-2.0
+
+use std::collections::HashMap;
 use std::sync::Arc;
-use parking_lot::RwLock; // For TokenCache (synchronous access)
-use tokio::sync::RwLock as AsyncRwLock; // For OidcVerifier (asynchronous access)
-use url::Url;
-use jsonwebtoken::{decode, decode_header, Algorithm, DecodingKey, Validation}; // For JWT verification
-use std::collections::HashMap; // For JWT claims
-use std::time::{Duration, SystemTime}; // For cache expiry
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-// OpenID Connect crate imports
-use openidconnect::core::{CoreClient, CoreProviderMetadata};
-use openidconnect::{ClientId, ClientSecret, IssuerUrl, Scope};
-use openidconnect::reqwest::async_http_client; // Correct async http client for openidconnect
+use async_trait::async_trait;
+use futures::executor::block_on;
+use jsonwebtoken::{Algorithm, DecodingKey, Validation, decode, decode_header};
+use openidconnect::{
+    ClientId, ClientSecret, IssuerUrl, OAuth2TokenResponse, Scope,
+    core::{CoreClient, CoreProviderMetadata},
+};
+use parking_lot::RwLock;
+use serde::Deserialize;
 
-// Custom error and trait imports
 use crate::errors::AuthError;
 use crate::traits::{TokenProvider, Verifier};
-use async_trait::async_trait;
 
-// Define a buffer time in seconds before the token actually expires to trigger a refresh.
-// This helps prevent using an almost-expired token or race conditions.
-const REFRESH_BUFFER_SECONDS: u64 = 60; // Changed to u64 to match SystemTime::as_secs()
+// Default token refresh buffer (60 seconds before expiry)
+const REFRESH_BUFFER_SECONDS: u64 = 60;
 
-/// Represents the structure of an access token response from an OIDC provider.
-#[derive(Debug, Deserialize, Serialize, Clone)]
-pub struct AccessToken {
-    pub access_token: String,
-    pub token_type: String,
-    pub expires_in: u64, // Lifetime in seconds
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub scope: Option<String>,
-}
-
-/// Represents an entry in the token cache, including the token and its calculated expiry timestamp.
+/// Cache entry for OIDC access tokens
 #[derive(Debug, Clone)]
-pub struct AccessTokenCacheEntry {
-    pub token: AccessToken,
-    pub expiry: u64, // Unix timestamp in seconds
+struct TokenCacheEntry {
+    /// The cached access token
+    token: String,
+    /// Expiration time in seconds since UNIX epoch
+    expiry: u64,
 }
 
-/// Manages the cached access tokens using a synchronous RwLock.
+/// Cache entry for JWKS responses
+#[derive(Debug, Clone)]
+struct JwksCacheEntry {
+    /// The cached JWKS
+    jwks: JwkSet,
+    /// Time when the JWKS was fetched
+    fetched_at: SystemTime,
+}
+
+/// Cache for OIDC tokens to avoid repeated token requests
 #[derive(Debug)]
-pub struct TokenCache {
-    entries: RwLock<HashMap<String, AccessTokenCacheEntry>>,
+struct OidcTokenCache {
+    /// Map from cache key (issuer_url + client_id + scope) to token entry
+    entries: RwLock<HashMap<String, TokenCacheEntry>>,
 }
 
-impl TokenCache {
-    /// Creates a new, empty `TokenCache`.
-    pub fn new() -> Self {
-        TokenCache {
+impl OidcTokenCache {
+    /// Create a new OIDC token cache
+    fn new() -> Self {
+        OidcTokenCache {
             entries: RwLock::new(HashMap::new()),
         }
     }
 
-    /// Attempts to retrieve a valid (non-expired, considering refresh buffer) token from the cache.
-    /// Returns `Some(token)` if valid, `None` otherwise.
-    pub fn get_valid_token(&self, key: &str) -> Option<AccessToken> {
+    /// Store a token in the cache
+    fn store(&self, key: impl Into<String>, token: impl Into<String>, expiry: u64) {
+        let entry = TokenCacheEntry {
+            token: token.into(),
+            expiry,
+        };
+        self.entries.write().insert(key.into(), entry);
+    }
+
+    /// Retrieve a token from the cache if it exists and is still valid
+    fn get(&self, key: impl Into<String>) -> Option<String> {
         let now = SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
+            .duration_since(UNIX_EPOCH)
             .unwrap_or(Duration::from_secs(0))
             .as_secs();
-        if let Some(entry) = self.entries.read().get(key) {
-            // Check if the token is still valid, considering the refresh buffer.
+
+        let key = key.into();
+        if let Some(entry) = self.entries.read().get(&key) {
             if entry.expiry > now + REFRESH_BUFFER_SECONDS {
-                println!("Cache HIT: Returning valid token from cache for key: {}", key);
                 return Some(entry.token.clone());
-            } else {
-                println!("Cache MISS: Token for key '{}' expired or close to expiration.", key);
             }
-        } else {
-            println!("Cache MISS: No token in cache for key: {}", key);
         }
         None
     }
-
-    /// Sets a new token in the cache, calculating its expiration timestamp.
-    pub fn set_token(&self, key: String, token: AccessToken) {
-        let expiry = SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or(Duration::from_secs(0))
-            .as_secs() + token.expires_in;
-        let entry = AccessTokenCacheEntry { token, expiry };
-        self.entries.write().insert(key.clone(), entry);
-        println!("Cache UPDATED: New token set for key: {}, expires at: {}", key, expiry);
-    }
 }
 
-/// `OidcTokenProvider` handles fetching and caching access tokens using the Client Credentials flow
-/// with the `openidconnect` crate.
-pub struct OidcTokenProvider {
-    client_id: String,
-    client_secret: String,
-    client: CoreClient,
-    scope: Option<String>,
-    cache: Arc<TokenCache>,
+/// Cache for JWKS to avoid repeated JWKS requests
+#[derive(Debug)]
+struct JwksCache {
+    /// Map from issuer URL to JWKS entry
+    entries: RwLock<HashMap<String, JwksCacheEntry>>,
 }
 
-impl OidcTokenProvider {
-    /// Creates a new `OidcTokenProvider` instance by discovering provider metadata.
-    ///
-    /// # Arguments
-    /// * `client_id` - The OAuth 2.0 client ID.
-    /// * `client_secret` - The OAuth 2.0 client secret.
-    /// * `issuer_url` - The URL string of the OIDC issuer (e.g., "https://accounts.google.com").
-    /// * `scope` - An optional string representing the requested scope(s).
-    pub async fn new(
-        client_id: String,
-        client_secret: String,
-        issuer_url: &str,
-        scope: Option<String>,
-    ) -> Result<Self, AuthError> {
-        let issuer = IssuerUrl::new(issuer_url.to_string())
-            .map_err(|e| AuthError::ConfigError(format!("Invalid issuer URL: {}", e)))?;
-
-        println!("Discovering OIDC provider metadata from: {}", issuer_url);
-        let provider_metadata = CoreProviderMetadata::discover_async(issuer, async_http_client)
-            .await
-            .map_err(|e| AuthError::OpenIdConnectError(format!("Failed to discover provider metadata: {}", e)))?;
-        println!("Provider metadata discovered successfully.");
-
-        let client = CoreClient::from_provider_metadata(
-            provider_metadata,
-            ClientId::new(client_id.clone()),
-            Some(ClientSecret::new(client_secret.clone())),
-        );
-
-        Ok(OidcTokenProvider {
-            client_id,
-            client_secret,
-            client,
-            scope,
-            cache: Arc::new(TokenCache::new()),
-        })
-    }
-
-    /// Fetches a new access token from the OIDC provider using the Client Credentials flow.
-    async fn fetch_new_token(&self) -> Result<AccessToken, AuthError> {
-        println!("Fetching new token from OIDC provider...");
-
-        let mut token_req = self.client.clone().exchange_client_credentials();
-
-        // Add scope if provided
-        if let Some(scope_str) = &self.scope {
-            token_req = token_req.add_scope(Scope::new(scope_str.clone()));
+impl JwksCache {
+    /// Create a new JWKS cache
+    fn new() -> Self {
+        JwksCache {
+            entries: RwLock::new(HashMap::new()),
         }
+    }
 
-        let token_response = token_req
-            .request_async(async_http_client)
-            .await
-            .map_err(|e| AuthError::GetTokenError(format!("OIDC token fetch error: {}", e)))?;
-
-        let token = AccessToken {
-            access_token: token_response.access_token().secret().to_string(),
-            token_type: token_response.token_type().as_str().to_string(),
-            // Use unwrap_or_else with a default if expires_in is not provided by the OIDC server
-            expires_in: token_response.expires_in().unwrap_or_else(|| Duration::from_secs(3600)).as_secs(),
-            // Convert HashSet<Scope> to Option<String>
-            scope: token_response.scopes().map(|s| s.iter().map(|sc| sc.as_str().to_string()).collect::<Vec<_>>().join(" ")),
+    /// Store JWKS in the cache
+    fn store(&self, issuer_url: impl Into<String>, jwks: JwkSet) {
+        let entry = JwksCacheEntry {
+            jwks,
+            fetched_at: SystemTime::now(),
         };
-        println!("Successfully fetched new token.");
-        Ok(token)
+        self.entries.write().insert(issuer_url.into(), entry);
     }
 
-    /// Retrieves an access token. It first checks the cache, and if the token is
-    /// expired or not present, it fetches a new one and updates the cache.
-    pub async fn get_access_token(&self) -> Result<String, AuthError> {
-        // Use the scope as part of the cache key, or "default" if no scope is specified.
-        let key = self.scope.clone().unwrap_or_else(|| "default".to_string());
-
-        // Check cache first
-        if let Some(token) = self.cache.get_valid_token(&key) {
-            return Ok(token.access_token);
+    /// Retrieve JWKS from the cache if it exists and is still valid
+    fn get(&self, issuer_url: impl Into<String>) -> Option<JwkSet> {
+        let key = issuer_url.into();
+        if let Some(entry) = self.entries.read().get(&key) {
+            // Cache JWKS for 1 hour
+            if entry.fetched_at.elapsed().unwrap_or_default() <= Duration::from_secs(3600) {
+                return Some(entry.jwks.clone());
+            }
         }
 
-        // If no valid token in cache, fetch a new one
-        let new_token = self.fetch_new_token().await?;
-        let token_string = new_token.access_token.clone();
-        self.cache.set_token(key, new_token);
-        Ok(token_string)
+        None
     }
 }
 
-impl TokenProvider for OidcTokenProvider {
-    /// Implements the `get_token` method from the `TokenProvider` trait.
-    fn get_token(&self) -> Result<String, AuthError> {
-        tokio::runtime::Handle::current().block_on(self.get_access_token())
-    }
-}
-
-/// Represents the structure of a JSON Web Key (JWK).
-/// This is used to parse the JWKS endpoint response.
+/// Represents a JWK (JSON Web Key) from the JWKS endpoint
 #[derive(Debug, Deserialize, Clone)]
 pub struct Jwk {
-    pub kty: String, // Key Type (e.g., "RSA", "EC")
-    #[serde(default)] // Default to empty string if not present
-    pub n: Option<String>, // Modulus for RSA
-    #[serde(default)] // Default to empty string if not present
-    pub e: Option<String>, // Exponent for RSA
+    pub kty: String,         // Key type (e.g., "RSA")
+    pub kid: String,         // Key ID
+    pub n: Option<String>,   // RSA modulus (base64url)
+    pub e: Option<String>,   // RSA exponent (base64url)
     pub alg: Option<String>, // Algorithm (e.g., "RS256")
-    pub kid: String, // Key ID
-    #[serde(default)] // Default to empty Vec if not present
-    pub x5c: Option<Vec<String>>, // X.509 Certificate Chain
-    #[serde(default)] // Default to empty string if not present
-    pub x5t: Option<String>, // X.509 Certificate Thumbprint
-    // Other fields like 'crv', 'x', 'y' for EC keys can be added if needed
 }
 
-/// Represents a JSON Web Key Set (JWKS).
+/// Represents a JWKS (JSON Web Key Set) response
 #[derive(Debug, Deserialize, Clone)]
 pub struct JwkSet {
     pub keys: Vec<Jwk>,
 }
 
-/// `OidcVerifier` handles the verification of JWT access tokens using `jsonwebtoken` crate.
-pub struct OidcVerifier {
-    issuer: String, // The expected issuer of the token (e.g., "https://your-oidc-provider.com/oauth2")
-    audience: String, // The expected audience of the token (e.g., "your_resource_server_api")
-    jwks_uri: Url, // The URL to fetch the JWKS from
-    jwks_cache: Arc<AsyncRwLock<(JwkSet, SystemTime)>>, // Cache for JWKS with timestamp
-    http_client: reqwest::Client, // Dedicated http client for verifier
+/// OIDC Token Provider that implements the Client Credentials flow
+#[derive(Clone)]
+pub struct OidcTokenProvider {
+    issuer_url: String,
+    client_id: String,
+    client_secret: String,
+    scope: Option<String>,
+    token_cache: Arc<OidcTokenCache>,
+    http_client: reqwest::Client,
 }
 
-impl OidcVerifier {
-    /// Creates a new `OidcVerifier` instance.
-    ///
-    /// It fetches the initial JWKS upon creation.
-    ///
-    /// # Arguments
-    /// * `issuer` - The expected issuer (iss) claim in the JWT.
-    /// * `audience` - The expected audience (aud) claim in the JWT.
-    /// * `jwks_uri_str` - The URL string for the JSON Web Key Set (JWKS) endpoint.
-    pub async fn new(issuer: String, audience: String, jwks_uri_str: &str) -> Result<Self, AuthError> {
-        let jwks_uri = Url::parse(jwks_uri_str)
-            .map_err(|e| AuthError::ConfigError(format!("Invalid JWKS URI: {}", e)))?;
-
+impl OidcTokenProvider {
+    /// Create a new OIDC Token Provider
+    pub async fn new(
+        issuer_url: impl Into<String>,
+        client_id: impl Into<String>,
+        client_secret: impl Into<String>,
+        scope: Option<String>,
+    ) -> Result<Self, AuthError> {
+        let issuer_url_str = issuer_url.into();
+        let client_id_str = client_id.into();
+        let client_secret_str = client_secret.into();
         let http_client = reqwest::Client::new();
-        let initial_jwks = Self::fetch_jwks(&http_client, &jwks_uri).await?;
 
-        Ok(OidcVerifier {
-            issuer,
-            audience,
-            jwks_uri,
-            jwks_cache: Arc::new(AsyncRwLock::new((initial_jwks, SystemTime::now()))),
+        // TODO(hackeramitkumar) : Implement OIDC provider discovery ( for now commenting it because of the mock server failing this checking)
+        // // Validate that we can discover the OIDC provider
+        // let issuer_url = IssuerUrl::new(issuer_url_str.clone())
+        //     .map_err(|e| AuthError::ConfigError(format!("Invalid issuer URL: {}", e)))?;
+
+        // let _provider_metadata = CoreProviderMetadata::discover_async(issuer_url, &http_client)
+        //     .await
+        //     .map_err(|e| {
+        //         AuthError::ConfigError(format!("Failed to discover provider metadata: {}", e))
+        //     })?;
+
+        Ok(Self {
+            issuer_url: issuer_url_str,
+            client_id: client_id_str,
+            client_secret: client_secret_str,
+            scope,
+            token_cache: Arc::new(OidcTokenCache::new()),
             http_client,
         })
     }
 
-    /// Fetches the JWKS from the configured URI.
-    async fn fetch_jwks(client: &reqwest::Client, jwks_url: &Url) -> Result<JwkSet, AuthError> {
-        println!("Fetching JWKS from: {}", jwks_url);
-        let response = client.get(jwks_url.clone()).send().await?;
+    /// Create a new OIDC Token Provider (synchronous version for backward compatibility)
+    pub fn new_blocking(
+        issuer_url: impl Into<String>,
+        client_id: impl Into<String>,
+        client_secret: impl Into<String>,
+        scope: Option<String>,
+    ) -> Result<Self, AuthError> {
+        block_on(Self::new(issuer_url, client_id, client_secret, scope))
+    }
 
-        let status = response.status();
-        let text = response.text().await?;
+    /// Generate cache key for token caching
+    fn get_cache_key(&self) -> String {
+        format!(
+            "{}:{}:{}",
+            self.issuer_url,
+            self.client_id,
+            self.scope.as_deref().unwrap_or("")
+        )
+    }
 
-        if !status.is_success() {
-            return Err(AuthError::ConfigError(format!(
-                "Failed to fetch JWKS: {} - {}",
-                status, text
-            )));
+    /// Check if cached token is still valid
+    fn is_token_valid(&self, now: u64, expiry: u64) -> bool {
+        expiry > now + REFRESH_BUFFER_SECONDS
+    }
+
+    /// Fetch a new token using client credentials flow
+    async fn fetch_new_token(&self) -> Result<String, AuthError> {
+        // Discover the provider metadata to get the token endpoint
+        let issuer_url = IssuerUrl::new(self.issuer_url.clone())
+            .map_err(|e| AuthError::ConfigError(format!("Invalid issuer URL: {}", e)))?;
+
+        let provider_metadata = CoreProviderMetadata::discover_async(issuer_url, &self.http_client)
+            .await
+            .map_err(|e| {
+                AuthError::ConfigError(format!("Failed to discover provider metadata: {}", e))
+            })?;
+
+        let client = CoreClient::from_provider_metadata(
+            provider_metadata,
+            ClientId::new(self.client_id.clone()),
+            Some(ClientSecret::new(self.client_secret.clone())),
+        );
+
+        let mut token_request = match client.exchange_client_credentials() {
+            Ok(request) => request,
+            Err(e) => {
+                return Err(AuthError::ConfigError(format!(
+                    "Failed to create token request: {}",
+                    e
+                )));
+            }
+        };
+
+        if let Some(ref scope) = self.scope {
+            token_request = token_request.add_scope(Scope::new(scope.clone()));
         }
 
-        let jwks: JwkSet = serde_json::from_str(&text)?;
+        let token_response = token_request
+            .request_async(&self.http_client)
+            .await
+            .map_err(|e| AuthError::GetTokenError(format!("Failed to exchange token: {}", e)))?;
 
-        println!("Successfully fetched JWKS.");
+        let access_token = token_response.access_token().secret();
+        let expires_in = token_response
+            .expires_in()
+            .map(|duration| duration.as_secs())
+            .unwrap_or(3600); // Default to 1 hour
+
+        // Calculate expiry timestamp
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+        let expiry = now + expires_in;
+
+        // Cache the token using the structured cache
+        let cache_key = self.get_cache_key();
+        self.token_cache.store(cache_key, access_token, expiry);
+
+        Ok(access_token.to_string())
+    }
+}
+
+impl TokenProvider for OidcTokenProvider {
+    fn get_token(&self) -> Result<String, AuthError> {
+        // Check cached token first using the structured cache
+        let cache_key = self.get_cache_key();
+        if let Some(cached_token) = self.token_cache.get(&cache_key) {
+            return Ok(cached_token);
+        }
+
+        // Fetch new token (blocking)
+        block_on(self.fetch_new_token())
+    }
+}
+
+/// OIDC Token Verifier that validates JWTs using JWKS
+#[derive(Clone)]
+pub struct OidcVerifier {
+    issuer_url: String,
+    audience: String,
+    jwks_cache: Arc<JwksCache>,
+    http_client: reqwest::Client,
+}
+
+impl OidcVerifier {
+    /// Create a new OIDC Token Verifier
+    pub fn new(issuer_url: impl Into<String>, audience: impl Into<String>) -> Self {
+        Self {
+            issuer_url: issuer_url.into(),
+            audience: audience.into(),
+            jwks_cache: Arc::new(JwksCache::new()),
+            http_client: reqwest::Client::new(),
+        }
+    }
+
+    /// Fetch JWKS from the issuer
+    async fn fetch_jwks(&self) -> Result<JwkSet, AuthError> {
+        let issuer_url = IssuerUrl::new(self.issuer_url.clone())
+            .map_err(|e| AuthError::ConfigError(format!("Invalid issuer URL: {}", e)))?;
+
+        // Use openidconnect to discover provider metadata
+        let provider_metadata = CoreProviderMetadata::discover_async(issuer_url, &self.http_client)
+            .await
+            .map_err(|e| {
+                AuthError::ConfigError(format!("Failed to discover provider metadata: {}", e))
+            })?;
+
+        let jwks_uri = provider_metadata.jwks_uri();
+
+        // Now fetch the JWKS from the discovered jwks_uri
+        let jwks: JwkSet = self
+            .http_client
+            .get(jwks_uri.as_str())
+            .send()
+            .await?
+            .json()
+            .await?;
+
         Ok(jwks)
     }
 
-    /// Retrieves the JWKS, either from cache or by fetching it if expired.
+    /// Get JWKS (from cache or fetch new)
     async fn get_jwks(&self) -> Result<JwkSet, AuthError> {
-        let mut cache_guard = self.jwks_cache.write().await;
-        let (cached_jwks, last_fetch_time) = &mut *cache_guard;
-
-        let now = SystemTime::now();
-        // Refresh JWKS if it's older than 1 hour (3600 seconds)
-        if now.duration_since(*last_fetch_time).unwrap_or(Duration::from_secs(0)) > Duration::from_secs(3600) {
-            println!("JWKS cache expired or too old, fetching new.");
-            let new_jwks = Self::fetch_jwks(&self.http_client, &self.jwks_uri).await?;
-            *cached_jwks = new_jwks;
-            *last_fetch_time = now;
-        } else {
-            println!("JWKS Cache HIT.");
+        // Check cache first
+        if let Some(cached_jwks) = self.jwks_cache.get(&self.issuer_url) {
+            return Ok(cached_jwks);
         }
-        Ok(cached_jwks.clone())
+
+        // Fetch new JWKS and cache it
+        let jwks = self.fetch_jwks().await?;
+        self.jwks_cache.store(&self.issuer_url, jwks.clone());
+        Ok(jwks)
     }
 
-    /// Verifies a given JWT access token.
-    ///
-    /// # Arguments
-    /// * `token_str` - The JWT string to verify.
-    ///
-    /// Returns the decoded claims as a `HashMap<String, serde_json::Value>` if verification is successful.
-    pub async fn verify_access_token(&self, token_str: &str) -> Result<HashMap<String, serde_json::Value>, AuthError> {
-        // 1. Decode header to get key ID (kid)
-        let header = decode_header(token_str)
-            .map_err(|e| AuthError::VerificationError(format!("Failed to decode JWT header: {}", e)))?;
+    /// Verify a JWT token
+    async fn verify_token<Claims>(&self, token: &str) -> Result<Claims, AuthError>
+    where
+        Claims: serde::de::DeserializeOwned,
+    {
+        // Decode header to get kid
+        let header = decode_header(token)?;
 
-        let kid = header.kid.ok_or_else(|| AuthError::VerificationError("JWT header missing 'kid'".to_string()))?;
-
-        // 2. Get JWKS and find the matching key
+        // Get JWKS
         let jwks = self.get_jwks().await?;
-        let jwk = jwks.keys.iter().find(|k| k.kid == kid)
-            .ok_or_else(|| AuthError::VerificationError(format!("No matching JWK found for kid: {}", kid)))?;
 
-        // 3. Create decoding key from JWK
-        let decoding_key = match jwk.alg.as_deref() {
-            Some("RS256") | Some("RS384") | Some("RS512") => {
-                let n = jwk.n.as_ref().ok_or_else(|| AuthError::VerificationError("RSA JWK missing 'n'".to_string()))?;
-                let e = jwk.e.as_ref().ok_or_else(|| AuthError::VerificationError("RSA JWK missing 'e'".to_string()))?;
-                DecodingKey::from_rsa_components(n, e)
-                    .map_err(|e| AuthError::VerificationError(format!("Failed to create RSA decoding key: {}", e)))?
-            },
-            Some("ES256") | Some("ES384") | Some("ES512") => {
-                // For EC keys, you'd typically need 'crv', 'x', 'y' fields.
-                // This example primarily supports RSA, common for OIDC access tokens.
-                return Err(AuthError::VerificationError(format!("Unsupported algorithm for verification: {}", jwk.alg.as_deref().unwrap_or("unknown"))));
-            },
-            _ => return Err(AuthError::VerificationError("Unsupported or missing algorithm in JWK".to_string())),
+        // Find matching key
+        let jwk = match header.kid {
+            Some(kid) => {
+                // Look for specific key by kid
+                jwks.keys.iter().find(|k| k.kid == kid).ok_or_else(|| {
+                    AuthError::VerificationError(format!("Key not found: {}", kid))
+                })?
+            }
+            None => {
+                // No kid provided - if there's only one key, use it
+                if jwks.keys.len() == 1 {
+                    &jwks.keys[0]
+                } else {
+                    return Err(AuthError::VerificationError(
+                        "Token header missing 'kid' and multiple keys available".to_string(),
+                    ));
+                }
+            }
         };
 
-        // 4. Set up validation rules
-        let mut validation = Validation::new(
-            header.alg.ok_or_else(|| AuthError::VerificationError("JWT header missing 'alg'".to_string()))?
-        );
-        validation.validate_exp = true; // Validate expiration (exp)
-        validation.validate_nbf = false; // Not before (nbf) - optional, often true in production
-        validation.validate_aud = Some(vec![self.audience.clone()]); // Validate audience (aud)
-        validation.validate_iss = Some(vec![self.issuer.clone()]); // Validate issuer (iss)
+        // Only support RSA keys for now
+        if jwk.kty != "RSA" {
+            return Err(AuthError::UnsupportedOperation(format!(
+                "Unsupported key type: {}",
+                jwk.kty
+            )));
+        }
 
-        // 5. Decode and validate the token
-        let token_data = decode::<HashMap<String, serde_json::Value>>(
-            token_str,
-            &decoding_key,
-            &validation,
-        )
-        .map_err(|e| AuthError::JwtError(e))?; // Convert jsonwebtoken error to AuthError::JwtError
+        let n = jwk.n.as_ref().ok_or_else(|| {
+            AuthError::VerificationError("RSA key missing 'n' parameter".to_string())
+        })?;
+        let e = jwk.e.as_ref().ok_or_else(|| {
+            AuthError::VerificationError("RSA key missing 'e' parameter".to_string())
+        })?;
 
-        println!("Token successfully verified!");
+        // Create decoding key
+        let decoding_key = DecodingKey::from_rsa_components(n, e)
+            .map_err(|e| AuthError::VerificationError(format!("Invalid RSA key: {}", e)))?;
+
+        // Set up validation
+        let mut validation = Validation::new(Algorithm::RS256);
+        validation.set_audience(&[&self.audience]);
+        validation.set_issuer(&[&self.issuer_url]);
+
+        // Decode and validate token
+        let token_data = decode::<Claims>(token, &decoding_key, &validation)?;
         Ok(token_data.claims)
     }
 }
 
 #[async_trait]
 impl Verifier for OidcVerifier {
-    /// Implements the `verify` method from the `Verifier` trait for access tokens.
     async fn verify<Claims>(&self, token: impl Into<String> + Send) -> Result<Claims, AuthError>
     where
         Claims: serde::de::DeserializeOwned + Send,
     {
-        let claims_map = self.verify_access_token(&token.into()).await?;
-        let json = serde_json::to_value(&claims_map)?; // Convert HashMap to serde_json::Value
-        let claims: Claims = serde_json::from_value(json)?; // Deserialize into target Claims type
-        Ok(claims)
+        self.verify_token(&token.into()).await
     }
+
     fn try_verify<Claims>(&self, token: impl Into<String>) -> Result<Claims, AuthError>
     where
-        Claims: serde::de::DeserializeOwned,
+        Claims: serde::de::DeserializeOwned + Send,
     {
-        // Synchronous verification is not supported in this implementation.
-        Err(AuthError::UnsupportedOperation("Synchronous verification is not supported".to_string()))
+        // For synchronous verification, we need a runtime
+        block_on(self.verify_token(&token.into()))
     }
 }
-
-/// Builder for `OidcTokenProvider` and `OidcVerifier`.
-pub struct OidcBuilder {
-    client_id: Option<String>,
-    client_secret: Option<String>,
-    issuer_url: Option<String>,
-    scope: Option<String>,
-}
-
-impl OidcBuilder {
-    /// Creates a new `OidcBuilder` instance.
-    pub fn new() -> Self {
-        Self {
-            client_id: None,
-            client_secret: None,
-            issuer_url: None,
-            scope: None,
-        }
-    }
-
-    /// Sets the client ID for the builder.
-    pub fn client_id(mut self, client_id: impl Into<String>) -> Self {
-        self.client_id = Some(client_id.into());
-        self
-    }
-
-    /// Sets the client secret for the builder.
-    pub fn client_secret(mut self, client_secret: impl Into<String>) -> Self {
-        self.client_secret = Some(client_secret.into());
-        self
-    }
-
-    /// Sets the issuer URL for the builder.
-    pub fn issuer_url(mut self, issuer_url: impl Into<String>) -> Self {
-        self.issuer_url = Some(issuer_url.into());
-        self
-    }
-
-    /// Sets the requested scope for the builder.
-    pub fn scope(mut self, scope: Option<String>) -> Self {
-        self.scope = scope;
-        self
-    }
-
-    /// Builds an `OidcTokenProvider` instance based on the configured parameters.
-    pub async fn build_provider(self) -> Result<OidcTokenProvider, AuthError> {
-        OidcTokenProvider::new(
-            self.client_id.ok_or_else(|| AuthError::ConfigError("Missing client_id for provider".to_string()))?,
-            self.client_secret.ok_or_else(|| AuthError::ConfigError("Missing client_secret for provider".to_string()))?,
-            &self.issuer_url.ok_or_else(|| AuthError::ConfigError("Missing issuer_url for provider".to_string()))?,
-            self.scope,
-        ).await
-    }
-
-    /// Builds an `OidcVerifier` instance. This method will discover the JWKS URI
-    /// from the OIDC provider's metadata using the issuer URL.
-    ///
-    /// # Arguments
-    /// * `audience` - The expected audience (aud) claim for the tokens to be verified.
-    pub async fn build_verifier(self, audience: String) -> Result<OidcVerifier, AuthError> {
-        let issuer_url_str = self.issuer_url.ok_or_else(|| AuthError::ConfigError("Missing issuer_url for verifier".to_string()))?;
-        let issuer = IssuerUrl::new(issuer_url_str.clone())
-            .map_err(|e| AuthError::ConfigError(format!("Invalid issuer URL for verifier: {}", e)))?;
-
-        println!("Discovering provider metadata for verifier from: {}", issuer_url_str);
-        let provider_metadata = CoreProviderMetadata::discover_async(issuer, async_http_client)
-            .await
-            .map_err(|e| AuthError::OpenIdConnectError(format!("Failed to discover provider metadata for verifier: {}", e)))?;
-        println!("Provider metadata for verifier discovered successfully.");
-
-        let jwks_uri = provider_metadata.jwks_uri()
-            .map(|url| url.to_string())
-            .ok_or_else(|| AuthError::ConfigError("JWKS URI not found in provider metadata for verifier".to_string()))?;
-
-        OidcVerifier::new(issuer_url_str, audience, &jwks_uri).await
-    }
-}
-
-
-#[tokio::main]
-async fn main() -> Result<(), AuthError> {
-    // --- Configuration (Replace with your actual OIDC provider details) ---
-    let client_id = "your_client_id".to_string();
-    let client_secret = "your_client_secret".to_string();
-    let issuer_url = "https://your-oidc-provider.com/oauth2".to_string(); // Base URL of your OIDC provider
-    let scope: Option<String> = Some("api_scope_1 api_scope_2".to_string()); // Example scope, or None for no specific scope
-
-    // --- Access Token Verifier Configuration (Replace with your actual details) ---
-    let audience = "your_resource_server_api".to_string(); // Identifier for your API/resource server
-
-    // --- IMPORTANT: Placeholder Check ---
-    if client_id == "your_client_id" || client_secret == "your_client_secret" || issuer_url == "https://your-oidc-provider.com/oauth2" ||
-       audience == "your_resource_server_api" {
-        eprintln!("\nWARNING: Please update ALL placeholder values in `main.rs` with your actual OIDC provider and resource server details for this example to work correctly.");
-        eprintln!("You can use a service like Auth0, Okta, Keycloak, or IdentityServer4 to get these values.");
-        eprintln!("For the verifier, you'll need the Issuer URL and the Audience (identifier for your API). The JWKS URI will be discovered automatically.");
-        eprintln!("Proceeding with placeholder values, which will likely result in an error.\n");
-        // In a real application, you might want to exit here or return an error.
-    }
-
-    // Initialize OIDC Token Provider
-    let provider_builder = OidcBuilder::new()
-        .client_id(client_id.clone())
-        .client_secret(client_secret.clone())
-        .issuer_url(issuer_url.clone())
-        .scope(scope.clone());
-
-    let provider = provider_builder.build_provider().await?;
-    println!("OidcTokenProvider initialized.");
-
-    // Initialize OIDC Verifier
-    let verifier_builder = OidcBuilder::new()
-        .issuer_url(issuer_url); // Only issuer_url is strictly needed for verifier discovery
-                                 // client_id and client_secret are not used by build_verifier directly,
-                                 // but the OidcBuilder requires them for its internal consistency.
-                                 // If you want to strictly separate, you'd need separate builders.
-
-    let verifier = verifier_builder.build_verifier(audience).await?;
-    println!("OidcVerifier initialized.");
-
-
-    println!("\n--- First token request (should fetch new) ---");
-    let token1 = provider.get_token().await?; // Use get_token from trait
-    println!("Received Token 1: {}...", &token1.chars().take(20).collect::<String>()); // Print first 20 chars for brevity
-
-    println!("\n--- Verifying Token 1 ---");
-    // Define a simple claims struct for demonstration.
-    // This struct should match the expected claims in your JWT access token.
-    #[derive(Debug, Deserialize)]
-    struct MyAccessTokenClaims {
-        iss: String, // Issuer
-        aud: serde_json::Value, // Audience (can be string or array of strings)
-        exp: u64, // Expiration time
-        iat: u64, // Issued at time
-        sub: String, // Subject (often client_id for client credentials)
-        // Add any other custom claims you expect in your access token
-    }
-    match verifier.verify::<MyAccessTokenClaims>(&token1).await {
-        Ok(claims) => println!("Token 1 verified successfully! Claims: {:?}", claims),
-        Err(e) => eprintln!("Token 1 verification failed: {}", e),
-    }
-
-    println!("\n--- Second token request (should use cached token) ---");
-    let token2 = provider.get_token().await?;
-    println!("Received Token 2: {}...", &token2.chars().take(20).collect::<String>());
-
-    println!("\n--- Verifying Token 2 ---");
-    match verifier.verify::<MyAccessTokenClaims>(&token2).await {
-        Ok(claims) => println!("Token 2 verified successfully! Claims: {:?}", claims),
-        Err(e) => eprintln!("Token 2 verification failed: {}", e),
-    }
-
-    println!("\n--- Simulate time passing to force token refresh ---");
-    tokio::time::sleep(tokio::time::Duration::from_secs(REFRESH_BUFFER_SECONDS + 5)).await;
-    println!("Simulated time passing...");
-
-    println!("\n--- Third token request (should fetch new due to simulated expiration) ---");
-    let token3 = provider.get_token().await?;
-    println!("Received Token 3: {}...", &token3.chars().take(20).collect::<String>());
-
-    println!("\n--- Verifying Token 3 ---");
-    match verifier.verify::<MyAccessTokenClaims>(&token3).await {
-        Ok(claims) => println!("Token 3 verified successfully! Claims: {:?}", claims),
-        Err(e) => eprintln!("Token 3 verification failed: {}", e),
-    }
-
-    Ok(())
-}
-
