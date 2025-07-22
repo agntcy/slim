@@ -9,7 +9,7 @@ use tokio::time;
 use tracing::info;
 
 use slim::config;
-use slim_auth::simple::SimpleGroup;
+use slim_auth::shared_secret::SharedSecret;
 use slim_datapath::messages::{Agent, AgentType};
 use slim_service::{
     FireAndForgetConfiguration,
@@ -55,8 +55,8 @@ async fn main() {
     let (app, mut rx) = svc
         .create_app(
             &agent_name,
-            SimpleGroup::new("a", "group"),
-            SimpleGroup::new("a", "group"),
+            SharedSecret::new("a", "group"),
+            SharedSecret::new("a", "group"),
         )
         .await
         .expect("failed to create agent");
@@ -102,8 +102,8 @@ async fn main() {
             None
         } else {
             // Server: create group and wait for client key package
-            let identity_provider = SimpleGroup::new("server", "group");
-            let identity_verifier = SimpleGroup::new("server", "group");
+            let identity_provider = SharedSecret::new("server", "group");
+            let identity_verifier = SharedSecret::new("server", "group");
             let mut server_mls = slim_mls::mls::Mls::new(
                 agent_name.clone(),
                 identity_provider,
@@ -168,8 +168,8 @@ async fn main() {
         // Client MLS setup, only if mls_group_id is provided
         if let Some(group_identifier) = mls_group_id {
             // Client: generate key package and wait for welcome message
-            let identity_provider = SimpleGroup::new("client", "group");
-            let identity_verifier = SimpleGroup::new("client", "group");
+            let identity_provider = SharedSecret::new("client", "group");
+            let identity_verifier = SharedSecret::new("client", "group");
             let mut client_mls = slim_mls::mls::Mls::new(
                 agent_name.clone(),
                 identity_provider,

@@ -17,7 +17,7 @@ use indicatif::ProgressBar;
 use tracing::{debug, error, info};
 
 use slim::config;
-use slim_auth::simple::SimpleGroup;
+use slim_auth::shared_secret::SharedSecret;
 use slim_service::streaming::StreamingConfiguration;
 
 #[derive(Parser, Debug)]
@@ -177,8 +177,8 @@ async fn main() {
     let (app, mut rx) = svc
         .create_app(
             &agent_name,
-            SimpleGroup::new("a", "group"),
-            SimpleGroup::new("a", "group"),
+            SharedSecret::new("a", "group"),
+            SharedSecret::new("a", "group"),
         )
         .await
         .expect("failed to create agent");

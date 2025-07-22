@@ -406,12 +406,35 @@ where
 
                                 // process the messages for the channel endpoint first
                                 match msg.get_session_header().session_message_type() {
+                                    ProtoSessionMessageType::ChannelLeaveReply => {
+                                        // we need to remove the partipicant that was removed from the channel
+                                        // also in the list of receiver buffers. the name to search is the
+                                        // surce of the ChannelLeaveReply message
+                                        let name = msg.get_source();
+                                        match &mut endpoint {
+                                            Endpoint::Producer(_) => {/* nothing to do at the producer */}
+                                            Endpoint::Receiver(receiver) => {
+                                                // try to clean up the receiver buffers
+                                                receiver.buffers.remove(&name);
+                                            }
+                                            Endpoint::Bidirectional(state) => {
+                                                // try to clean up the receiver buffers
+                                                state.receiver.buffers.remove(&name);
+                                            }
+                                        }
+                                        match channel_endpoint.on_message(msg).await {
+                                            Ok(_) => {},
+                                            Err(e) => {
+                                                error!("error processing channel message: {}", e);
+                                            },
+                                        }
+                                        continue;
+                                    }
                                     ProtoSessionMessageType::ChannelDiscoveryRequest |
                                     ProtoSessionMessageType::ChannelDiscoveryReply |
                                     ProtoSessionMessageType::ChannelJoinRequest |
                                     ProtoSessionMessageType::ChannelJoinReply |
                                     ProtoSessionMessageType::ChannelLeaveRequest |
-                                    ProtoSessionMessageType::ChannelLeaveReply |
                                     ProtoSessionMessageType::ChannelMlsWelcome |
                                     ProtoSessionMessageType::ChannelMlsCommit |
                                     ProtoSessionMessageType::ChannelMlsProposal |
@@ -1053,7 +1076,7 @@ mod tests {
     use crate::testutils::MockTransmitter;
 
     use super::*;
-    use slim_auth::simple::SimpleGroup;
+    use slim_auth::shared_secret::SharedSecret;
     use tokio::time;
     use tracing_test::traced_test;
 
@@ -1081,8 +1104,8 @@ mod tests {
             SessionDirection::Sender,
             source.clone(),
             tx.clone(),
-            SimpleGroup::new("a", "group"),
-            SimpleGroup::new("a", "group"),
+            SharedSecret::new("a", "group"),
+            SharedSecret::new("a", "group"),
             std::path::PathBuf::from("/tmp/test_session"),
         );
 
@@ -1108,8 +1131,8 @@ mod tests {
             SessionDirection::Receiver,
             source.clone(),
             tx,
-            SimpleGroup::new("a", "group"),
-            SimpleGroup::new("a", "group"),
+            SharedSecret::new("a", "group"),
+            SharedSecret::new("a", "group"),
             std::path::PathBuf::from("/tmp/test_session"),
         );
 
@@ -1160,8 +1183,8 @@ mod tests {
             SessionDirection::Sender,
             send.clone(),
             tx_sender,
-            SimpleGroup::new("a", "group"),
-            SimpleGroup::new("a", "group"),
+            SharedSecret::new("a", "group"),
+            SharedSecret::new("a", "group"),
             std::path::PathBuf::from("/tmp/test_session_sender"),
         );
         let receiver = Streaming::new(
@@ -1170,8 +1193,8 @@ mod tests {
             SessionDirection::Receiver,
             recv.clone(),
             tx_receiver,
-            SimpleGroup::new("a", "group"),
-            SimpleGroup::new("a", "group"),
+            SharedSecret::new("a", "group"),
+            SharedSecret::new("a", "group"),
             std::path::PathBuf::from("/tmp/test_session_receiver"),
         );
 
@@ -1242,8 +1265,8 @@ mod tests {
             SessionDirection::Receiver,
             agent.clone(),
             tx,
-            SimpleGroup::new("a", "group"),
-            SimpleGroup::new("a", "group"),
+            SharedSecret::new("a", "group"),
+            SharedSecret::new("a", "group"),
             std::path::PathBuf::from("/tmp/test_session"),
         );
 
@@ -1326,8 +1349,8 @@ mod tests {
             SessionDirection::Sender,
             agent.clone(),
             tx,
-            SimpleGroup::new("a", "group"),
-            SimpleGroup::new("a", "group"),
+            SharedSecret::new("a", "group"),
+            SharedSecret::new("a", "group"),
             std::path::PathBuf::from("/tmp/test_session"),
         );
 
@@ -1447,8 +1470,8 @@ mod tests {
             SessionDirection::Sender,
             send.clone(),
             tx_sender,
-            SimpleGroup::new("a", "group"),
-            SimpleGroup::new("a", "group"),
+            SharedSecret::new("a", "group"),
+            SharedSecret::new("a", "group"),
             std::path::PathBuf::from("/tmp/test_session_sender"),
         );
         let receiver = Streaming::new(
@@ -1457,8 +1480,8 @@ mod tests {
             SessionDirection::Receiver,
             recv.clone(),
             tx_receiver,
-            SimpleGroup::new("a", "group"),
-            SimpleGroup::new("a", "group"),
+            SharedSecret::new("a", "group"),
+            SharedSecret::new("a", "group"),
             std::path::PathBuf::from("/tmp/test_session_receiver"),
         );
 
@@ -1668,8 +1691,8 @@ mod tests {
                 SessionDirection::Sender,
                 source.clone(),
                 tx,
-                SimpleGroup::new("a", "group"),
-                SimpleGroup::new("a", "group"),
+                SharedSecret::new("a", "group"),
+                SharedSecret::new("a", "group"),
                 std::path::PathBuf::from("/tmp/test_session"),
             );
         }

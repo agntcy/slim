@@ -7,7 +7,7 @@ use clap::Parser;
 use slim::config;
 use tracing::{error, info};
 
-use slim_auth::simple::SimpleGroup;
+use slim_auth::shared_secret::SharedSecret;
 use slim_datapath::messages::{Agent, AgentType, utils::SlimHeaderFlags};
 use slim_service::streaming::StreamingConfiguration;
 
@@ -177,8 +177,8 @@ async fn main() {
     let (app, mut rx) = svc
         .create_app(
             &local_name,
-            SimpleGroup::new(&local_name_str, "group"),
-            SimpleGroup::new(&local_name_str, "group"),
+            SharedSecret::new(&local_name_str, "group"),
+            SharedSecret::new(&local_name_str, "group"),
         )
         .await
         .expect("failed to create agent");
@@ -334,7 +334,6 @@ async fn main() {
             panic!("missing moderator name in the configuration")
         }
         let moderator = parse_string_name(moderator_name);
-        let mut msg_id = 0;
 
         if is_attacker {
             info!("Starting the attacker");
@@ -369,6 +368,7 @@ async fn main() {
                 Some(msg_info) => match msg_info {
                     Ok(msg) => {
                         let publisher = msg.message.get_slim_header().get_source();
+                        let msg_id = msg.message.get_id();
                         let payload = match msg.message.get_payload() {
                             Some(c) => {
                                 let blob = &c.blob;
@@ -394,7 +394,6 @@ async fn main() {
                             let mut pstr = msg_payload_str.clone();
                             pstr.push_str(&msg_id.to_string());
                             let p = pstr.as_bytes().to_vec();
-                            msg_id += 1;
 
                             let flags = SlimHeaderFlags::new(10, None, None, None, None);
                             if app
