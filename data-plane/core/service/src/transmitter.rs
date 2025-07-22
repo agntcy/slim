@@ -95,3 +95,12 @@ impl SessionTransmitter for Transmitter {
         }
     }
 }
+
+impl Drop for Transmitter {
+    fn drop(&mut self) {
+        // when the trasmitter is removed we need to clean up all
+        // the interceptors. this is needed because in mls there is
+        // a pointer to the mls state that needs to be released
+        self.interceptors.write().clear();
+    }
+}
