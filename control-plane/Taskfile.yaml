@@ -178,7 +178,9 @@ tasks:
 
   control-plane:build:
     desc: Build go binaries
+    deps: [control-plane:modtidy]
     cmds:
+      - task: control-plane:control-plane:build
       - task: control-plane:token-service:build
       - task: control-plane:slimctl:build
 
@@ -187,6 +189,8 @@ tasks:
   control-plane:control-plane:build:
     desc: Builds the control plane binary
     dir: control-plane/cmd
+    deps:
+      - control-plane:proto:generate
     cmds:
       - |
         go mod tidy
