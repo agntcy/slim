@@ -8,6 +8,8 @@ import (
 	"github.com/agntcy/slim/control-plane/common/options"
 	controllerapi "github.com/agntcy/slim/control-plane/common/proto/controller/v1"
 	controlplaneApi "github.com/agntcy/slim/control-plane/common/proto/controlplane/v1"
+	"github.com/agntcy/slim/control-plane/control-plane/internal/config"
+	"github.com/agntcy/slim/control-plane/control-plane/internal/util"
 )
 
 type NorthboundAPIServer interface {
@@ -17,17 +19,20 @@ type NorthboundAPIServer interface {
 type nbAPIService struct {
 	controlplaneApi.UnimplementedControlPlaneServiceServer
 
+	config        config.APIConfig
 	nodeService   *nodeService
 	routeService  *routeService
 	configService *configService
 }
 
 func NewNorthboundAPIServer(
+	config config.APIConfig,
 	nodeService *nodeService,
 	routeService *routeService,
 	configService *configService,
 ) NorthboundAPIServer {
 	cpServer := &nbAPIService{
+		config:        config,
 		nodeService:   nodeService,
 		routeService:  routeService,
 		configService: configService,
@@ -36,6 +41,7 @@ func NewNorthboundAPIServer(
 }
 
 func (s *nbAPIService) ListSubscriptions(ctx context.Context, node *controlplaneApi.Node) (*controllerapi.SubscriptionListResponse, error) {
+	ctx = util.GetContextWithLogger(ctx, s.config.LogConfig)
 	nodeEntry, err := s.nodeService.GetNodeByID(node.Id)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get node by ID: %v", err)
@@ -44,6 +50,7 @@ func (s *nbAPIService) ListSubscriptions(ctx context.Context, node *controlplane
 }
 
 func (s *nbAPIService) ListConnections(ctx context.Context, node *controlplaneApi.Node) (*controllerapi.ConnectionListResponse, error) {
+	ctx = util.GetContextWithLogger(ctx, s.config.LogConfig)
 	nodeEntry, err := s.nodeService.GetNodeByID(node.Id)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get node by ID: %v", err)
@@ -52,10 +59,12 @@ func (s *nbAPIService) ListConnections(ctx context.Context, node *controlplaneAp
 }
 
 func (s *nbAPIService) ListNodes(ctx context.Context, nodeListRequest *controlplaneApi.NodeListRequest) (*controlplaneApi.NodeListResponse, error) {
+	ctx = util.GetContextWithLogger(ctx, s.config.LogConfig)
 	return s.nodeService.ListNodes(ctx, nodeListRequest)
 }
 
 func (s *nbAPIService) ModifyConfiguration(ctx context.Context, message *controlplaneApi.ConfigurationCommand) (*controllerapi.Ack, error) {
+	ctx = util.GetContextWithLogger(ctx, s.config.LogConfig)
 	nodeEntry, err := s.nodeService.GetNodeByID(message.NodeId)
 	if err != nil {
 		log.Fatalf("failed to get node by ID: %v", err)
@@ -69,6 +78,7 @@ func (s *nbAPIService) ModifyConfiguration(ctx context.Context, message *control
 }
 
 func (s *nbAPIService) CreateConnection(ctx context.Context, createConnectionRequest *controlplaneApi.CreateConnectionRequest) (*controlplaneApi.CreateConnectionResponse, error) {
+	ctx = util.GetContextWithLogger(ctx, s.config.LogConfig)
 	nodeEntry, err := s.nodeService.GetNodeByID(createConnectionRequest.NodeId)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get node by ID: %v", err)
@@ -88,14 +98,12 @@ func (s *nbAPIService) CreateConnection(ctx context.Context, createConnectionReq
 }
 
 func (s *nbAPIService) CreateSubscription(ctx context.Context, createSubscriptionRequest *controlplaneApi.CreateSubscriptionRequest) (*controlplaneApi.CreateSubscriptionResponse, error) {
+	ctx = util.GetContextWithLogger(ctx, s.config.LogConfig)
 	nodeEntry, err := s.nodeService.GetNodeByID(createSubscriptionRequest.NodeId)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get node by ID: %v", err)
 	}
-	slimEndpoint := fmt.Sprintf("%s:%d", nodeEntry.Host, nodeEntry.Port)
-	opts := options.NewOptions()
-	opts.Server = slimEndpoint
-	opts.TLSInsecure = true
+
 	connectionID := createSubscriptionRequest.Subscription.ConnectionId
 	// Instead of ID node should send endpoint as connection Id to the Node
 	endpoint, err := s.nodeService.GetConnectionDetails(createSubscriptionRequest.NodeId, connectionID)
@@ -105,7 +113,7 @@ func (s *nbAPIService) CreateSubscription(ctx context.Context, createSubscriptio
 
 	createSubscriptionRequest.Subscription.ConnectionId = endpoint
 
-	err = s.routeService.CreateSubscription(ctx, nodeEntry, createSubscriptionRequest.Subscription, opts)
+	err = s.routeService.CreateSubscription(ctx, nodeEntry, createSubscriptionRequest.Subscription)
 	if err != nil {
 		fmt.Printf("router error: %v\n", err.Error())
 		return nil, fmt.Errorf("failed to create subscription: %v", err)
@@ -127,14 +135,11 @@ func (s *nbAPIService) CreateSubscription(ctx context.Context, createSubscriptio
 }
 
 func (s *nbAPIService) DeleteSubscription(ctx context.Context, deleteSubscriptionRequest *controlplaneApi.DeleteSubscriptionRequest) (*controlplaneApi.DeleteSubscriptionResponse, error) {
+	ctx = util.GetContextWithLogger(ctx, s.config.LogConfig)
 	nodeEntry, err := s.nodeService.GetNodeByID(deleteSubscriptionRequest.NodeId)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get node by ID: %v", err)
 	}
-	slimEndpoint := fmt.Sprintf("%s:%d", nodeEntry.Host, nodeEntry.Port)
-	opts := options.NewOptions()
-	opts.Server = slimEndpoint
-	opts.TLSInsecure = true
 
 	subscription, err := s.nodeService.GetSubscription(deleteSubscriptionRequest.NodeId, deleteSubscriptionRequest.SubscriptionId)
 	if err != nil {
@@ -147,7 +152,7 @@ func (s *nbAPIService) DeleteSubscription(ctx context.Context, deleteSubscriptio
 	}
 	subscription.ConnectionId = endpoint
 
-	err = s.routeService.DeleteSubscription(ctx, nodeEntry, subscription, opts)
+	err = s.routeService.DeleteSubscription(ctx, nodeEntry, subscription)
 	if err != nil {
 		return nil, fmt.Errorf("failed to delete subscription: %v", err)
 	}

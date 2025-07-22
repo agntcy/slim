@@ -30,7 +30,7 @@ func main() {
 	configService := nbapiservice.NewConfigService()
 
 	go func() {
-		cpServer := nbapiservice.NewNorthboundAPIServer(nodeService, routeService, configService)
+		cpServer := nbapiservice.NewNorthboundAPIServer(config.Northbound, nodeService, routeService, configService)
 		grpcServer := grpc.NewServer(opts...)
 		controlplaneApi.RegisterControlPlaneServiceServer(grpcServer, cpServer)
 
@@ -44,7 +44,7 @@ func main() {
 	}()
 
 	sbGrpcServer := grpc.NewServer(opts...)
-	sbApiSvc := sbapiservice.NewSBAPIService(dbService, messagingService)
+	sbApiSvc := sbapiservice.NewSBAPIService(config.Southbound, dbService, messagingService)
 	southboundApi.RegisterControllerServiceServer(sbGrpcServer, sbApiSvc)
 
 	sbListeningAddress := fmt.Sprintf("%s:%s", config.Southbound.HttpHost, config.Southbound.HttpPort)

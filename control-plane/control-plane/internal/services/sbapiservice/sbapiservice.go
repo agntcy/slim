@@ -1,12 +1,15 @@
 package sbapiservice
 
 import (
-	"log"
+	"context"
 
 	controllerapi "github.com/agntcy/slim/control-plane/common/proto/controller/v1"
+	"github.com/agntcy/slim/control-plane/control-plane/internal/config"
 	"github.com/agntcy/slim/control-plane/control-plane/internal/db"
 	"github.com/agntcy/slim/control-plane/control-plane/internal/services/nodecontrol"
+	"github.com/agntcy/slim/control-plane/control-plane/internal/util"
 	"github.com/google/uuid"
+	"github.com/rs/zerolog"
 )
 
 type SouthboundAPIServer interface {
@@ -14,13 +17,15 @@ type SouthboundAPIServer interface {
 }
 
 type sbAPIService struct {
+	config config.APIConfig
 	controllerapi.UnimplementedControllerServiceServer
 	dbService        db.DataAccess
 	messagingService nodecontrol.NodeCommandHandler
 }
 
-func NewSBAPIService(dbService db.DataAccess, messagingService nodecontrol.NodeCommandHandler) SouthboundAPIServer {
+func NewSBAPIService(config config.APIConfig, dbService db.DataAccess, messagingService nodecontrol.NodeCommandHandler) SouthboundAPIServer {
 	return &sbAPIService{
+		config:           config,
 		dbService:        dbService,
 		messagingService: messagingService,
 	}
@@ -28,10 +33,8 @@ func NewSBAPIService(dbService db.DataAccess, messagingService nodecontrol.NodeC
 
 func (s *sbAPIService) OpenControlChannel(stream controllerapi.ControllerService_OpenControlChannelServer) error {
 
-	type recvResult struct {
-		msg *controllerapi.ControlMessage
-		err error
-	}
+	ctx := util.GetContextWithLogger(context.Background(), s.config.LogConfig)
+	zlog := zerolog.Ctx(ctx)
 
 	// Acknowledge the connection
 	messageId := uuid.NewString()
@@ -48,7 +51,7 @@ func (s *sbAPIService) OpenControlChannel(stream controllerapi.ControllerService
 	// TODO: receive with timeout, if no register request received within a certain time, close the stream
 	msg, err := stream.Recv()
 	if err != nil {
-		log.Printf("Error receiving message: %v", err)
+		zlog.Error().Msgf("Error receiving message: %v", err)
 		return err
 	}
 
@@ -57,7 +60,7 @@ func (s *sbAPIService) OpenControlChannel(stream controllerapi.ControllerService
 	// Check for ControlMessage_RegisterNodeRequest
 	if regReq, ok := msg.Payload.(*controllerapi.ControlMessage_RegisterNodeRequest); ok {
 		registeredNodeID = regReq.RegisterNodeRequest.NodeId
-		log.Printf("Register node with ID: %v", registeredNodeID)
+		zlog.Info().Msgf("Register node with ID: %v", registeredNodeID)
 		s.dbService.SaveNode(db.Node{
 			ID: registeredNodeID,
 		})
@@ -66,14 +69,14 @@ func (s *sbAPIService) OpenControlChannel(stream controllerapi.ControllerService
 	}
 
 	if registeredNodeID == "" {
-		log.Println("No register node request received, closing stream.")
+		zlog.Info().Msgf("No register node request received, closing stream.")
 		return nil
 	}
 
 	for {
 		msg, err := stream.Recv()
 		if err != nil {
-			log.Printf("Error receiving message: %v", err)
+			zlog.Error().Msgf("Error receiving message: %v", err)
 			return err
 		}
 		switch payload := msg.Payload.(type) {
@@ -81,13 +84,13 @@ func (s *sbAPIService) OpenControlChannel(stream controllerapi.ControllerService
 			// Handle deregistration logic
 			if payload.DeregisterNodeRequest.Node != nil {
 				nodeID := payload.DeregisterNodeRequest.Node.Id
-				log.Printf("Deregister node with ID: %v", nodeID)
+				zlog.Info().Msgf("Deregister node with ID: %v", nodeID)
 				// Update the node status to not connected
 				s.messagingService.UpdateConnectionStatus(nodeID, nodecontrol.NodeStatusNotConnected)
 
 				err := s.messagingService.RemoveStream(nodeID)
 				if err != nil {
-					log.Printf("Error removing stream for node %s: %v", nodeID, err)
+					zlog.Error().Msgf("Error removing stream for node %s: %v", nodeID, err)
 				}
 
 				if err = s.messagingService.SendMessage(nodeID, &controllerapi.ControlMessage{
@@ -98,23 +101,23 @@ func (s *sbAPIService) OpenControlChannel(stream controllerapi.ControllerService
 						},
 					},
 				}); err != nil {
-					log.Printf("Error sending DeregisterNodeResponse to node %s: %v", nodeID, err)
+					zlog.Error().Msgf("Error sending DeregisterNodeResponse to node %s: %v", nodeID, err)
 				}
 				return nil
 			}
 			continue
 		case *controllerapi.ControlMessage_Ack:
-			log.Printf("Received ACK for message ID: %s, Success: %t", msg.MessageId, payload.Ack.Success)
+			zlog.Debug().Msgf("Received ACK for message ID: %s, Success: %t", msg.MessageId, payload.Ack.Success)
 			s.messagingService.ResponseReceived(registeredNodeID, msg)
 			continue
 		case *controllerapi.ControlMessage_ConnectionListResponse:
-			log.Printf("Received ConnectionListResponse for node %s: %v", registeredNodeID, payload.ConnectionListResponse)
+			zlog.Debug().Msgf("Received ConnectionListResponse for node %s: %v", registeredNodeID, payload.ConnectionListResponse)
 			s.messagingService.ResponseReceived(registeredNodeID, msg)
 		case *controllerapi.ControlMessage_SubscriptionListResponse:
-			log.Printf("Received SubscriptionListResponse for node %s: %v", registeredNodeID, payload.SubscriptionListResponse)
+			zlog.Debug().Msgf("Received SubscriptionListResponse for node %s: %v", registeredNodeID, payload.SubscriptionListResponse)
 			s.messagingService.ResponseReceived(registeredNodeID, msg)
 		default:
-			log.Printf("Invalid payload received from node %s: %s : %v", registeredNodeID, msg.MessageId, msg.Payload)
+			zlog.Debug().Msgf("Invalid payload received from node %s: %s : %v", registeredNodeID, msg.MessageId, msg.Payload)
 		}
 	}
 }

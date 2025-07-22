@@ -5,11 +5,11 @@ import (
 	"fmt"
 	"reflect"
 
-	"github.com/agntcy/slim/control-plane/common/options"
 	controllerapi "github.com/agntcy/slim/control-plane/common/proto/controller/v1"
 	controlplanev1 "github.com/agntcy/slim/control-plane/common/proto/controlplane/v1"
 	"github.com/agntcy/slim/control-plane/control-plane/internal/services/nodecontrol"
 	"github.com/google/uuid"
+	"github.com/rs/zerolog"
 )
 
 type routeService struct {
@@ -82,6 +82,8 @@ func (s *routeService) ListConnections(ctx context.Context, nodeEntry *controlpl
 }
 
 func (s *routeService) CreateConnection(ctx context.Context, nodeEntry *controlplanev1.NodeEntry, connection *controllerapi.Connection) error {
+	zlog := zerolog.Ctx(ctx)
+
 	controllerConfigCommand := &controllerapi.ConfigurationCommand{
 		ConnectionsToCreate:   []*controllerapi.Connection{connection},
 		SubscriptionsToSet:    []*controllerapi.Subscription{},
@@ -110,14 +112,16 @@ func (s *routeService) CreateConnection(ctx context.Context, nodeEntry *controlp
 		if !ack.Success {
 			return fmt.Errorf("failed to create connection: %s", ack.Messages)
 		}
-		logAckMessage(ack)
-		fmt.Printf("Connection created successfully.")
+		logAckMessage(ctx, ack)
+		zlog.Debug().Msg("Connection created successfully.")
 	}
 
 	return nil
 }
 
-func (s *routeService) CreateSubscription(ctx context.Context, nodeEntry *controlplanev1.NodeEntry, subscription *controllerapi.Subscription, opts *options.CommonOptions) error {
+func (s *routeService) CreateSubscription(ctx context.Context, nodeEntry *controlplanev1.NodeEntry, subscription *controllerapi.Subscription) error {
+	zlog := zerolog.Ctx(ctx)
+
 	controllerConfigCommand := &controllerapi.ConfigurationCommand{
 		ConnectionsToCreate:   []*controllerapi.Connection{},
 		SubscriptionsToSet:    []*controllerapi.Subscription{subscription},
@@ -146,14 +150,16 @@ func (s *routeService) CreateSubscription(ctx context.Context, nodeEntry *contro
 		if !ack.Success {
 			return fmt.Errorf("failed to create subscription: %s", ack.Messages)
 		}
-		logAckMessage(ack)
-		fmt.Printf("Subscription created successfully.")
+		logAckMessage(ctx, ack)
+		zlog.Debug().Msg("Subscription created successfully.")
 	}
 
 	return nil
 }
 
-func (s *routeService) DeleteSubscription(ctx context.Context, nodeEntry *controlplanev1.NodeEntry, subscription *controllerapi.Subscription, opts *options.CommonOptions) error {
+func (s *routeService) DeleteSubscription(ctx context.Context, nodeEntry *controlplanev1.NodeEntry, subscription *controllerapi.Subscription) error {
+	zlog := zerolog.Ctx(ctx)
+
 	msg := &controllerapi.ControlMessage{
 		MessageId: uuid.NewString(),
 		Payload: &controllerapi.ControlMessage_ConfigCommand{
@@ -179,22 +185,23 @@ func (s *routeService) DeleteSubscription(ctx context.Context, nodeEntry *contro
 		if !ack.Success {
 			return fmt.Errorf("failed to delete subscription: %s", ack.Messages)
 		}
-		logAckMessage(ack)
-		fmt.Printf("Subscription deleted successfully.")
+		logAckMessage(ctx, ack)
+		zlog.Debug().Msg("Subscription deleted successfully.")
 	}
 
 	return nil
 }
 
-func logAckMessage(ack *controllerapi.Ack) {
-	fmt.Printf(
+func logAckMessage(ctx context.Context, ack *controllerapi.Ack) {
+	zlog := zerolog.Ctx(ctx)
+	zlog.Debug().Msgf(
 		"ACK received for %s: success=%t\n",
 		ack.OriginalMessageId,
 		ack.Success,
 	)
 	if len(ack.Messages) > 0 {
 		for i, ackMsg := range ack.Messages {
-			fmt.Printf("    [%d] %s\n", i+1, ackMsg)
+			zlog.Debug().Msgf("    [%d] %s\n", i+1, ackMsg)
 		}
 	}
 }
