@@ -1,7 +1,7 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
-use tracing::info;
+use tracing::debug;
 
 use crate::errors::SessionError;
 
@@ -138,7 +138,7 @@ pub struct AddParticipant {
 
 impl TaskUpdate for AddParticipant {
     fn discovery_start(&mut self, timer_id: u32) -> Result<(), SessionError> {
-        info!(
+        debug!(
             "start discovery on AddParticipant task, timer id {}",
             timer_id
         );
@@ -150,7 +150,7 @@ impl TaskUpdate for AddParticipant {
     fn discovery_complete(&mut self, timer_id: u32) -> Result<(), SessionError> {
         if self.discovery.timer_id == timer_id {
             self.discovery.received = true;
-            info!(
+            debug!(
                 "discovery completed on AddParticipant task, timer id {}",
                 timer_id
             );
@@ -163,7 +163,7 @@ impl TaskUpdate for AddParticipant {
     }
 
     fn join_start(&mut self, timer_id: u32) -> Result<(), SessionError> {
-        info!("start join on AddParticipant task, timer id {}", timer_id);
+        debug!("start join on AddParticipant task, timer id {}", timer_id);
         self.join.received = false;
         self.join.timer_id = timer_id;
         Ok(())
@@ -172,7 +172,7 @@ impl TaskUpdate for AddParticipant {
     fn join_complete(&mut self, timer_id: u32) -> Result<(), SessionError> {
         if self.join.timer_id == timer_id {
             self.join.received = true;
-            info!(
+            debug!(
                 "join completed on AddParticipant task, timer id {}",
                 timer_id
             );
@@ -223,7 +223,7 @@ pub struct AddParticipantMls {
 
 impl TaskUpdate for AddParticipantMls {
     fn discovery_start(&mut self, timer_id: u32) -> Result<(), SessionError> {
-        info!(
+        debug!(
             "start discovery on AddParticipanMls task, timer id {}",
             timer_id
         );
@@ -235,7 +235,7 @@ impl TaskUpdate for AddParticipantMls {
     fn discovery_complete(&mut self, timer_id: u32) -> Result<(), SessionError> {
         if self.discovery.timer_id == timer_id {
             self.discovery.received = true;
-            info!(
+            debug!(
                 "discovery completed on AddParticipanMls task, timer id {}",
                 timer_id
             );
@@ -248,7 +248,7 @@ impl TaskUpdate for AddParticipantMls {
     }
 
     fn join_start(&mut self, timer_id: u32) -> Result<(), SessionError> {
-        info!("start join on AddParticipanMls task, timer id {}", timer_id);
+        debug!("start join on AddParticipanMls task, timer id {}", timer_id);
         self.join.received = false;
         self.join.timer_id = timer_id;
         Ok(())
@@ -257,7 +257,7 @@ impl TaskUpdate for AddParticipantMls {
     fn join_complete(&mut self, timer_id: u32) -> Result<(), SessionError> {
         if self.join.timer_id == timer_id {
             self.join.received = true;
-            info!(
+            debug!(
                 "join completed on AddParticipanMls task, timer id {}",
                 timer_id
             );
@@ -278,7 +278,7 @@ impl TaskUpdate for AddParticipantMls {
     }
 
     fn welcome_start(&mut self, timer_id: u32) -> Result<(), SessionError> {
-        info!(
+        debug!(
             "start welcome on AddParticipanMls task, timer id {}",
             timer_id
         );
@@ -288,7 +288,7 @@ impl TaskUpdate for AddParticipantMls {
     }
 
     fn commit_start(&mut self, timer_id: u32) -> Result<(), SessionError> {
-        info!(
+        debug!(
             "start commit on AddParticipanMls task, timer id {}",
             timer_id
         );
@@ -304,14 +304,14 @@ impl TaskUpdate for AddParticipantMls {
     fn mls_phase_completed(&mut self, timer_id: u32) -> Result<(), SessionError> {
         if self.welcome.timer_id == timer_id {
             self.welcome.received = true;
-            info!(
+            debug!(
                 "welcome completed on AddParticipanMls task, timer id {}",
                 timer_id
             );
             Ok(())
         } else if self.commit.timer_id == timer_id {
             self.commit.received = true;
-            info!(
+            debug!(
                 "commit completed on AddParticipanMls task, timer id {}",
                 timer_id
             );
@@ -354,7 +354,7 @@ impl TaskUpdate for RemoveParticipant {
     }
 
     fn leave_start(&mut self, timer_id: u32) -> Result<(), SessionError> {
-        info!(
+        debug!(
             "start leave on RemoveParticipant task, timer id {}",
             timer_id
         );
@@ -366,7 +366,7 @@ impl TaskUpdate for RemoveParticipant {
     fn leave_complete(&mut self, timer_id: u32) -> Result<(), SessionError> {
         if self.leave.timer_id == timer_id {
             self.leave.received = true;
-            info!(
+            debug!(
                 "leave completed on RemoveParticipant task, timer id {}",
                 timer_id
             );
@@ -423,7 +423,7 @@ impl TaskUpdate for RemoveParticipantMls {
     }
 
     fn leave_start(&mut self, timer_id: u32) -> Result<(), SessionError> {
-        info!(
+        debug!(
             "start leave on RemoveParticipantMls task, timer id {}",
             timer_id
         );
@@ -435,7 +435,7 @@ impl TaskUpdate for RemoveParticipantMls {
     fn leave_complete(&mut self, timer_id: u32) -> Result<(), SessionError> {
         if self.leave.timer_id == timer_id {
             self.leave.received = true;
-            info!(
+            debug!(
                 "leave completed on RemoveParticipantMls task, timer id {}",
                 timer_id
             );
@@ -452,7 +452,7 @@ impl TaskUpdate for RemoveParticipantMls {
     }
 
     fn commit_start(&mut self, timer_id: u32) -> Result<(), SessionError> {
-        info!(
+        debug!(
             "start commit on RemoveParticipanMls task, timer id {}",
             timer_id
         );
@@ -468,7 +468,7 @@ impl TaskUpdate for RemoveParticipantMls {
     fn mls_phase_completed(&mut self, timer_id: u32) -> Result<(), SessionError> {
         if self.commit.timer_id == timer_id {
             self.commit.received = true;
-            info!(
+            debug!(
                 "commit completed on RemoveParticipanMls task, timer id {}",
                 timer_id
             );
@@ -521,7 +521,7 @@ impl TaskUpdate for UpdateParticipantMls {
     }
 
     fn commit_start(&mut self, timer_id: u32) -> Result<(), SessionError> {
-        info!(
+        debug!(
             "start commit on UpdateParticipanMls task, timer id {}",
             timer_id
         );
@@ -531,7 +531,7 @@ impl TaskUpdate for UpdateParticipantMls {
     }
 
     fn proposal_start(&mut self, timer_id: u32) -> Result<(), SessionError> {
-        info!(
+        debug!(
             "start proposal on UpdateParticipanMls task, timer id {}",
             timer_id
         );
@@ -543,14 +543,14 @@ impl TaskUpdate for UpdateParticipantMls {
     fn mls_phase_completed(&mut self, timer_id: u32) -> Result<(), SessionError> {
         if self.proposal.timer_id == timer_id {
             self.proposal.received = true;
-            info!(
+            debug!(
                 "proposal completed on UpdateParticipanMls task, timer id {}",
                 timer_id
             );
             Ok(())
         } else if self.commit.timer_id == timer_id {
             self.commit.received = true;
-            info!(
+            debug!(
                 "commit completed on UpdateParticipanMls task, timer id {}",
                 timer_id
             );

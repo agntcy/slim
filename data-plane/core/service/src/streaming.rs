@@ -353,7 +353,7 @@ where
             let mls = mls.map(|mls| MlsState::new(mls).expect("failed to create MLS state"));
 
             let mls_enable = mls.is_some();
-            let sleep = time::sleep(Duration::from_secs(3600));
+            let sleep = time::sleep(Duration::from_secs(10));
             tokio::pin!(sleep);
 
             // create the channel endpoint
@@ -576,8 +576,9 @@ where
                         }
                     }
                     () = &mut sleep, if mls_enable => {
+                        println!("----update!");
                         let _ = channel_endpoint.update_mls_keys().await;
-                        sleep.as_mut().reset(Instant::now() + Duration::from_secs(3600));
+                        sleep.as_mut().reset(Instant::now() + Duration::from_secs(10));
                     }
                 }
             }

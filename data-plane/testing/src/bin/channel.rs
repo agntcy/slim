@@ -327,7 +327,7 @@ async fn main() {
                     .await
                     .expect("error sending invite message");*/
             }*/
-            if i == 10 {
+            /*if i == 10 {
                 println!("remove t1");
                 app.remove_participant( &Agent::from_strings("org", "ns", "t1", 1), info.clone())
                 .await
@@ -342,21 +342,32 @@ async fn main() {
                 app.remove_participant( &Agent::from_strings("org", "ns", "t3", 1), info.clone())
                 .await
                 .expect("error sending remove message");
+                println!("add t1");
+                app.invite_participant(&AgentType::from_strings("org", "ns", "t1"), info.clone())
+                .await
+                .expect("error sending invite message");
                 //tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
                 println!("remove t4");
                 app.remove_participant( &Agent::from_strings("org", "ns", "t4", 1), info.clone())
                 .await
                 .expect("error sending remove message");
+                println!("add t2");
+                app.invite_participant(&AgentType::from_strings("org", "ns", "t2"), info.clone())
+                .await
+                .expect("error sending invite message");
                 //tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
                 println!("remove t5");
                 app.remove_participant( &Agent::from_strings("org", "ns", "t5", 1), info.clone())
                 .await
                 .expect("error sending remove message");
                 //tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+                println!("add t3");
+                app.invite_participant(&AgentType::from_strings("org", "ns", "t3"), info.clone())
+                .await
+                .expect("error sending invite message");
+            }*/
 
-            }
-
-            if i == 20 {
+            /*if i == 20 {
                 println!("add t1");
                 app.invite_participant(&AgentType::from_strings("org", "ns", "t1"), info.clone())
                 .await
@@ -382,7 +393,7 @@ async fn main() {
                 .await
                 .expect("error sending invite message");
                 tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
-            }          
+            }*/          
         }
     } else {
         // participant
