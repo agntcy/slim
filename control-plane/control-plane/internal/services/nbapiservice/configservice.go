@@ -17,7 +17,10 @@ func NewConfigService() *ConfigService {
 	return &ConfigService{}
 }
 
-func (s *ConfigService) ModifyConfiguration(ctx context.Context, configCommand *controllerapi.ConfigurationCommand, opts *options.CommonOptions) (*controllerapi.Ack, error) {
+func (s *ConfigService) ModifyConfiguration(
+	ctx context.Context, configCommand *controllerapi.ConfigurationCommand, opts *options.CommonOptions) (
+	*controllerapi.Ack, error,
+) {
 	stream, err := controller.OpenControlChannel(ctx, opts)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open control channel: %w", err)

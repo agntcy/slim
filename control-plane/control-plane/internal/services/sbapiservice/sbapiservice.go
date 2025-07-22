@@ -24,7 +24,11 @@ type sbAPIService struct {
 	messagingService nodecontrol.NodeCommandHandler
 }
 
-func NewSBAPIService(config config.APIConfig, dbService db.DataAccess, messagingService nodecontrol.NodeCommandHandler) SouthboundAPIServer {
+func NewSBAPIService(
+	config config.APIConfig,
+	dbService db.DataAccess,
+	messagingService nodecontrol.NodeCommandHandler,
+) SouthboundAPIServer {
 	return &sbAPIService{
 		config:           config,
 		dbService:        dbService,
@@ -33,7 +37,6 @@ func NewSBAPIService(config config.APIConfig, dbService db.DataAccess, messaging
 }
 
 func (s *sbAPIService) OpenControlChannel(stream controllerapi.ControllerService_OpenControlChannelServer) error {
-
 	ctx := util.GetContextWithLogger(context.Background(), s.config.LogConfig)
 	zlog := zerolog.Ctx(ctx)
 
@@ -120,13 +123,21 @@ func (s *sbAPIService) OpenControlChannel(stream controllerapi.ControllerService
 			s.messagingService.ResponseReceived(registeredNodeID, msg)
 			continue
 		case *controllerapi.ControlMessage_ConnectionListResponse:
-			zlog.Debug().Msgf("Received ConnectionListResponse for node %s: %v", registeredNodeID, payload.ConnectionListResponse)
+			zlog.Debug().Msgf(
+				"Received ConnectionListResponse for node %s: %v",
+				registeredNodeID, payload.ConnectionListResponse,
+			)
 			s.messagingService.ResponseReceived(registeredNodeID, msg)
 		case *controllerapi.ControlMessage_SubscriptionListResponse:
-			zlog.Debug().Msgf("Received SubscriptionListResponse for node %s: %v", registeredNodeID, payload.SubscriptionListResponse)
+			zlog.Debug().Msgf(
+				"Received SubscriptionListResponse for node %s: %v",
+				registeredNodeID, payload.SubscriptionListResponse)
 			s.messagingService.ResponseReceived(registeredNodeID, msg)
 		default:
-			zlog.Debug().Msgf("Invalid payload received from node %s: %s : %v", registeredNodeID, msg.MessageId, msg.Payload)
+			zlog.Debug().Msgf(
+				"Invalid payload received from node %s: %s : %v",
+				registeredNodeID, msg.MessageId, msg.Payload,
+			)
 		}
 	}
 }

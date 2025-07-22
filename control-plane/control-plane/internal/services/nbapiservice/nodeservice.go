@@ -21,7 +21,9 @@ func NewNodeService(dbService db.DataAccess) *NodeService {
 	}
 }
 
-func (s *NodeService) ListNodes(context.Context, *controlplaneApi.NodeListRequest) (*controlplaneApi.NodeListResponse, error) {
+func (s *NodeService) ListNodes(
+	context.Context, *controlplaneApi.NodeListRequest,
+) (*controlplaneApi.NodeListResponse, error) {
 	storedNodes, err := s.dbService.ListNodes()
 	if err != nil {
 		return nil, err
@@ -54,7 +56,9 @@ func (s *NodeService) GetNodeByID(nodeID string) (*controlplaneApi.NodeEntry, er
 	return nodeEntry, nil
 }
 
-func (s *NodeService) SaveConnection(nodeEntry *controlplaneApi.NodeEntry, connection *controllerapi.Connection) (string, error) {
+func (s *NodeService) SaveConnection(
+	nodeEntry *controlplaneApi.NodeEntry, connection *controllerapi.Connection,
+) (string, error) {
 	// Check if the node exists
 	if nodeEntry == nil {
 		return "", fmt.Errorf("node entry is required")

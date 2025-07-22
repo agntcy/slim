@@ -10,14 +10,18 @@ import (
 )
 
 type defaultNodeCommandHandler struct {
-	nodeStreamMap           sync.Map // Maps node IDs and streams map[nodeID]controllerapi.ControllerService_OpenControlChannelServer
-	nodeConnectionStatusMap sync.Map // Maps node ID to its connection status
-	nodeResponseMsgMap      sync.Map // Maps contains received *controllerapi.ControlMessage responses for a node IDs and message type
+	// Maps node IDs and streams map[nodeID]controllerapi.ControllerService_OpenControlChannelServer
+	nodeStreamMap sync.Map
+	// Maps node ID to its connection status
+	nodeConnectionStatusMap sync.Map
+	// Maps contains received *controllerapi.ControlMessage responses for a node IDs and message type
+	nodeResponseMsgMap sync.Map
 }
 
 // WaitForResponse implements NodeCommandHandler.
-func (m *defaultNodeCommandHandler) WaitForResponse(nodeID string, messageType reflect.Type) (*controllerapi.ControlMessage, error) {
-
+func (m *defaultNodeCommandHandler) WaitForResponse(
+	nodeID string, messageType reflect.Type,
+) (*controllerapi.ControlMessage, error) {
 	if nodeID == "" {
 		return nil, fmt.Errorf("nodeID cannot be empty")
 	}
@@ -67,7 +71,11 @@ func (m *defaultNodeCommandHandler) ResponseReceived(nodeID string, command *con
 	select {
 	case ch.(chan *controllerapi.ControlMessage) <- command:
 	default:
-		fmt.Printf("Channel for node %s and message type %s is full, dropping message\n", nodeID, reflect.TypeOf(command.GetPayload()))
+		fmt.Printf(
+			"Channel for node %s and message type %s is full, dropping message\n",
+			nodeID,
+			reflect.TypeOf(command.GetPayload()),
+		)
 	}
 }
 
@@ -86,7 +94,9 @@ func (m *defaultNodeCommandHandler) UpdateConnectionStatus(nodeID string, status
 }
 
 // AddStream implements NodeCommandHandler.
-func (m *defaultNodeCommandHandler) AddStream(nodeID string, stream controllerapi.ControllerService_OpenControlChannelServer) {
+func (m *defaultNodeCommandHandler) AddStream(
+	nodeID string, stream controllerapi.ControllerService_OpenControlChannelServer,
+) {
 	m.nodeStreamMap.Store(nodeID, stream)
 
 	// Update status to connected

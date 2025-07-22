@@ -11,10 +11,8 @@ import (
 //go:embed schema.json
 var schemaData []byte
 
-var (
-	// SchemaValidator is a global, compiled JSON schema validator.
-	SchemaValidator *gojsonschema.Schema
-)
+// SchemaValidator is a global, compiled JSON schema validator.
+var SchemaValidator *gojsonschema.Schema
 
 func init() {
 	loader := gojsonschema.NewBytesLoader(schemaData)
