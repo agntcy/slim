@@ -40,7 +40,8 @@ func NewNorthboundAPIServer(
 	return cpServer
 }
 
-func (s *nbAPIService) ListSubscriptions(ctx context.Context, node *controlplaneApi.Node) (*controllerapi.SubscriptionListResponse, error) {
+func (s *nbAPIService) ListSubscriptions(ctx context.Context,
+	node *controlplaneApi.Node) (*controllerapi.SubscriptionListResponse, error) {
 	ctx = util.GetContextWithLogger(ctx, s.config.LogConfig)
 	nodeEntry, err := s.nodeService.GetNodeByID(node.Id)
 	if err != nil {
@@ -49,7 +50,8 @@ func (s *nbAPIService) ListSubscriptions(ctx context.Context, node *controlplane
 	return s.routeService.ListSubscriptions(ctx, nodeEntry)
 }
 
-func (s *nbAPIService) ListConnections(ctx context.Context, node *controlplaneApi.Node) (*controllerapi.ConnectionListResponse, error) {
+func (s *nbAPIService) ListConnections(ctx context.Context,
+	node *controlplaneApi.Node) (*controllerapi.ConnectionListResponse, error) {
 	ctx = util.GetContextWithLogger(ctx, s.config.LogConfig)
 	nodeEntry, err := s.nodeService.GetNodeByID(node.Id)
 	if err != nil {
@@ -58,12 +60,14 @@ func (s *nbAPIService) ListConnections(ctx context.Context, node *controlplaneAp
 	return s.routeService.ListConnections(ctx, nodeEntry)
 }
 
-func (s *nbAPIService) ListNodes(ctx context.Context, nodeListRequest *controlplaneApi.NodeListRequest) (*controlplaneApi.NodeListResponse, error) {
+func (s *nbAPIService) ListNodes(ctx context.Context,
+	nodeListRequest *controlplaneApi.NodeListRequest) (*controlplaneApi.NodeListResponse, error) {
 	ctx = util.GetContextWithLogger(ctx, s.config.LogConfig)
 	return s.nodeService.ListNodes(ctx, nodeListRequest)
 }
 
-func (s *nbAPIService) ModifyConfiguration(ctx context.Context, message *controlplaneApi.ConfigurationCommand) (*controllerapi.Ack, error) {
+func (s *nbAPIService) ModifyConfiguration(ctx context.Context,
+	message *controlplaneApi.ConfigurationCommand) (*controllerapi.Ack, error) {
 	ctx = util.GetContextWithLogger(ctx, s.config.LogConfig)
 	nodeEntry, err := s.nodeService.GetNodeByID(message.NodeId)
 	if err != nil {
@@ -77,7 +81,10 @@ func (s *nbAPIService) ModifyConfiguration(ctx context.Context, message *control
 	return s.configService.ModifyConfiguration(ctx, message.ConfigurationCommand, opts)
 }
 
-func (s *nbAPIService) CreateConnection(ctx context.Context, createConnectionRequest *controlplaneApi.CreateConnectionRequest) (*controlplaneApi.CreateConnectionResponse, error) {
+func (s *nbAPIService) CreateConnection(
+	ctx context.Context,
+	createConnectionRequest *controlplaneApi.CreateConnectionRequest) (
+	*controlplaneApi.CreateConnectionResponse, error) {
 	ctx = util.GetContextWithLogger(ctx, s.config.LogConfig)
 	nodeEntry, err := s.nodeService.GetNodeByID(createConnectionRequest.NodeId)
 	if err != nil {
@@ -99,7 +106,11 @@ func (s *nbAPIService) CreateConnection(ctx context.Context, createConnectionReq
 	}, nil
 }
 
-func (s *nbAPIService) CreateSubscription(ctx context.Context, createSubscriptionRequest *controlplaneApi.CreateSubscriptionRequest) (*controlplaneApi.CreateSubscriptionResponse, error) {
+func (s *nbAPIService) CreateSubscription(
+	ctx context.Context,
+	createSubscriptionRequest *controlplaneApi.CreateSubscriptionRequest) (
+	*controlplaneApi.CreateSubscriptionResponse, error) {
+
 	ctx = util.GetContextWithLogger(ctx, s.config.LogConfig)
 	nodeEntry, err := s.nodeService.GetNodeByID(createSubscriptionRequest.NodeId)
 	if err != nil {
@@ -123,7 +134,8 @@ func (s *nbAPIService) CreateSubscription(ctx context.Context, createSubscriptio
 
 	// To properly save the subscription we restore the original connection ID making sure that db validation passes
 	createSubscriptionRequest.Subscription.ConnectionId = connectionID
-	subscriptionID, err := s.nodeService.SaveSubscription(createSubscriptionRequest.NodeId, createSubscriptionRequest.Subscription)
+	subscriptionID, err := s.nodeService.SaveSubscription(createSubscriptionRequest.NodeId,
+		createSubscriptionRequest.Subscription)
 	if err != nil {
 		fmt.Printf("save error: %v\n", err.Error())
 
@@ -136,14 +148,19 @@ func (s *nbAPIService) CreateSubscription(ctx context.Context, createSubscriptio
 	return response, nil
 }
 
-func (s *nbAPIService) DeleteSubscription(ctx context.Context, deleteSubscriptionRequest *controlplaneApi.DeleteSubscriptionRequest) (*controlplaneApi.DeleteSubscriptionResponse, error) {
+func (s *nbAPIService) DeleteSubscription(
+	ctx context.Context,
+	deleteSubscriptionRequest *controlplaneApi.DeleteSubscriptionRequest) (
+	*controlplaneApi.DeleteSubscriptionResponse, error) {
+
 	ctx = util.GetContextWithLogger(ctx, s.config.LogConfig)
 	nodeEntry, err := s.nodeService.GetNodeByID(deleteSubscriptionRequest.NodeId)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get node by ID: %w", err)
 	}
 
-	subscription, err := s.nodeService.GetSubscription(deleteSubscriptionRequest.NodeId, deleteSubscriptionRequest.SubscriptionId)
+	subscription, err := s.nodeService.GetSubscription(deleteSubscriptionRequest.NodeId,
+		deleteSubscriptionRequest.SubscriptionId)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get subscription: %w", err)
 	}
@@ -163,7 +180,8 @@ func (s *nbAPIService) DeleteSubscription(ctx context.Context, deleteSubscriptio
 	}, nil
 }
 
-func (s *nbAPIService) DeregisterNode(context.Context, *controlplaneApi.Node) (*controlplaneApi.DeregisterNodeResponse, error) {
+func (s *nbAPIService) DeregisterNode(context.Context,
+	*controlplaneApi.Node) (*controlplaneApi.DeregisterNodeResponse, error) {
 	return &controlplaneApi.DeregisterNodeResponse{
 		Success: false,
 	}, nil
