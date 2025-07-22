@@ -70,7 +70,7 @@ func (s *nodeService) SaveConnection(nodeEntry *controlplaneApi.NodeEntry, conne
 	}
 
 	connectionEntry := db.Connection{
-		ID: connection.ConnectionId,
+		ID:         connection.ConnectionId,
 		NodeID:     nodeEntry.Id,
 		ConfigData: connection.ConfigData,
 	}
