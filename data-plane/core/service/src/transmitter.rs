@@ -36,6 +36,10 @@ impl SessionInterceptorProvider for Transmitter {
     fn get_interceptors(&self) -> Vec<Arc<dyn SessionInterceptor + Send + Sync + 'static>> {
         self.interceptors.read().clone()
     }
+
+    fn clear_interceptors(&mut self) {
+        self.interceptors.write().clear();
+    }
 }
 
 impl SessionTransmitter for Transmitter {

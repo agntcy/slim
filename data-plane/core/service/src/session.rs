@@ -386,6 +386,13 @@ where
             Session::Streaming(session) => session.tx_ref().get_interceptors(),
         }
     }
+
+    fn clear_interceptors(&mut self) {
+        match self {
+            Session::FireAndForget(session) => session.tx().clear_interceptors(),
+            Session::Streaming(session) => session.tx().clear_interceptors(),
+        }
+    }
 }
 
 #[async_trait]
@@ -573,5 +580,19 @@ where
 
     pub(crate) fn mls(&self) -> Option<Arc<Mutex<Mls<P, V>>>> {
         self.mls.as_ref().map(|mls| mls.clone())
+    }
+}
+
+impl<P, V, T> Drop for Common<P, V, T>
+where
+    P: TokenProvider + Send + Sync + Clone + 'static,
+    V: Verifier + Send + Sync + Clone + 'static,
+    T: SessionTransmitter + Send + Sync + Clone + 'static,
+{
+    fn drop(&mut self) {
+        // when the session is removed we need to clean up all
+        // the interceptors. this is needed because for mls there is
+        // a pointer to the mls state that needs to be released
+        self.tx.clear_interceptors();
     }
 }

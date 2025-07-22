@@ -60,4 +60,8 @@ impl SessionInterceptorProvider for MockTransmitter {
         // In a real implementation, you would return the stored interceptors
         Vec::new()
     }
+
+    fn clear_interceptors(&mut self) {
+        // Mock implementation does nothing
+    }
 }
