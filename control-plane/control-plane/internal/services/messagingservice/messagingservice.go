@@ -71,6 +71,8 @@ func (m *messagingService) FindMessageByType(messageType reflect.Type) (*control
 	ticker := time.NewTicker(100 * time.Millisecond) // Check every 100ms
 	defer ticker.Stop()
 
+	fmt.Println("Waiting for message of type:", messageType)
+
 	for {
 		select {
 		case <-timeout:
@@ -80,6 +82,7 @@ func (m *messagingService) FindMessageByType(messageType reflect.Type) (*control
 				messages := value.([]*controllerapi.ControlMessage)
 				for i, msg := range messages {
 					// Check if the message type matches
+					fmt.Printf("payload type: %s\n", reflect.TypeOf(msg.GetPayload()))
 					if reflect.TypeOf(msg.GetPayload()) == messageType {
 						foundMessage = msg
 

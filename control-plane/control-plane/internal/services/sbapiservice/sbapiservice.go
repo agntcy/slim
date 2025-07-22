@@ -45,25 +45,29 @@ func (s *sbAPIService) OpenControlChannel(stream controllerapi.ControllerService
 	}
 	stream.Send(msg)
 
-	// For testing
-	// TODO: remove this after testing
-	//s.nodeConnectionMap.Store(stream, "node1")
-
+	// TODO: receive with timeout, if no register request received within a certain time, close the stream
 	msg, err := stream.Recv()
 	if err != nil {
 		log.Printf("Error receiving message: %v", err)
 		return err
 	}
 
+	registeredNodeID := ""
+
 	// Check for ControlMessage_RegisterNodeRequest
 	if regReq, ok := msg.Payload.(*controllerapi.ControlMessage_RegisterNodeRequest); ok {
-		nodeID := regReq.RegisterNodeRequest.NodeId
-		log.Printf("Register node with ID: %v", nodeID)
+		registeredNodeID = regReq.RegisterNodeRequest.NodeId
+		log.Printf("Register node with ID: %v", registeredNodeID)
 		s.dbService.SaveNode(db.Node{
-			ID: nodeID,
+			ID: registeredNodeID,
 		})
-		s.messagingService.AddStream(nodeID, stream)
-		s.messagingService.UpdateConnectionStatus(nodeID, messagingservice.NodeStatusConnected)
+		s.messagingService.AddStream(registeredNodeID, stream)
+		s.messagingService.UpdateConnectionStatus(registeredNodeID, messagingservice.NodeStatusConnected)
+	}
+
+	if registeredNodeID == "" {
+		log.Println("No register node request received, closing stream.")
+		return nil
 	}
 
 	for {
@@ -80,22 +84,20 @@ func (s *sbAPIService) OpenControlChannel(stream controllerapi.ControllerService
 				log.Printf("Deregister node with ID: %v", nodeID)
 				// Update the node status to not connected
 				s.messagingService.UpdateConnectionStatus(nodeID, messagingservice.NodeStatusNotConnected)
-				s.messagingService.RemoveStream(nodeID)
-			}
-			/*
-				case *controllerapi.ControlMessage_Ack:
-					log.Printf("Received ACK for message ID: %s, Success: %t", msg.MessageId, payload.Ack.Success) */
 
+				err := s.messagingService.RemoveStream(nodeID)
+				if err != nil {
+					log.Printf("Error removing stream for node %s: %v", nodeID, err)
+				}
+				return nil
+			}
+			continue
+		case *controllerapi.ControlMessage_Ack:
+			log.Printf("Received ACK for message ID: %s, Success: %t", msg.MessageId, payload.Ack.Success)
+			continue
 		default:
-			nodeID, err := s.messagingService.GetNodeId(stream)
-			if err != nil {
-				log.Printf("Error getting node ID: %v", err)
-				return err
-			}
-
-			s.messagingService.AddNodeCommand(nodeID, msg)
-
-			log.Printf("Received message from node %s: %s", nodeID, msg.MessageId)
+			s.messagingService.AddNodeCommand(registeredNodeID, msg)
+			log.Printf("Received message from node %s: %s : %v", registeredNodeID, msg.MessageId, msg.Payload)
 		}
 	}
 }

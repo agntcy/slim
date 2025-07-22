@@ -46,8 +46,7 @@ func newListNodesCmd(opts *options.CommonOptions) *cobra.Command {
 
 			// iterate through the nodes and print their details
 			for _, node := range listResponse.Entries {
-				fmt.Printf("Node ID: %s, Host: %s, Port: %s\n",
-					node.Id, node.Host, node.Port)
+				fmt.Printf("Node ID: %s\n", node.Id)
 			}
 
 			return nil

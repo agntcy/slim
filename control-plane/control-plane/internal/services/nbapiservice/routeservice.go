@@ -78,7 +78,7 @@ func (s *routeService) ListConnections(ctx context.Context, nodeEntry *controlpl
 	}
 
 	s.messagingService.SendMessage(nodeEntry.Id, msg)
-	response, err := s.messagingService.FindMessageByType(reflect.TypeOf(&controllerapi.ConnectionListResponse{}))
+	response, err := s.messagingService.FindMessageByType(reflect.TypeOf(&controllerapi.ControlMessage_ConnectionListResponse{}))
 	if err != nil {
 		return nil, fmt.Errorf("failed to find ConnectionListResponse: %w", err)
 	}
