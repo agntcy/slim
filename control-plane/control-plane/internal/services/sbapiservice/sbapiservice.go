@@ -37,19 +37,23 @@ func (s *sbAPIService) OpenControlChannel(stream controllerapi.ControllerService
 	zlog := zerolog.Ctx(ctx)
 
 	// Acknowledge the connection
-	messageId := uuid.NewString()
+	messageID := uuid.NewString()
 	msg := &controllerapi.ControlMessage{
-		MessageId: messageId,
+		MessageId: messageID,
 		Payload: &controllerapi.ControlMessage_Ack{
 			Ack: &controllerapi.Ack{
 				Success: true,
 			},
 		},
 	}
-	stream.Send(msg)
+	err := stream.Send(msg)
+	if err != nil {
+		zlog.Error().Msgf("Error sending message: %v", err)
+		return err
+	}
 
 	// TODO: receive with timeout, if no register request received within a certain time, close the stream
-	msg, err := stream.Recv()
+	msg, err = stream.Recv()
 	if err != nil {
 		zlog.Error().Msgf("Error receiving message: %v", err)
 		return err
@@ -61,9 +65,13 @@ func (s *sbAPIService) OpenControlChannel(stream controllerapi.ControllerService
 	if regReq, ok := msg.Payload.(*controllerapi.ControlMessage_RegisterNodeRequest); ok {
 		registeredNodeID = regReq.RegisterNodeRequest.NodeId
 		zlog.Info().Msgf("Register node with ID: %v", registeredNodeID)
-		s.dbService.SaveNode(db.Node{
+		_, err = s.dbService.SaveNode(db.Node{
 			ID: registeredNodeID,
 		})
+		if err != nil {
+			zlog.Error().Msgf("Error saving node: %v", err)
+			return err
+		}
 		s.messagingService.AddStream(registeredNodeID, stream)
 		s.messagingService.UpdateConnectionStatus(registeredNodeID, nodecontrol.NodeStatusConnected)
 	}

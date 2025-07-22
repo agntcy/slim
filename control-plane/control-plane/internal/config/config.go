@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"strconv"
 	"strings"
 
 	"github.com/rs/zerolog"
@@ -12,7 +11,7 @@ import (
 )
 
 // Application configuration
-type controlPlaneConfig struct {
+type ControlPlaneConfig struct {
 	Northbound APIConfig `yaml:"northbound"`
 	Southbound APIConfig `yaml:"southbound"`
 }
@@ -34,34 +33,34 @@ func (l LogConfig) Validate() error {
 }
 
 type APIConfig struct {
-	HttpHost  string    `yaml:"httpHost"`
-	HttpPort  string    `yaml:"httpPort"`
+	HTTPHost  string    `yaml:"HTTPHost"`
+	HTTPPort  string    `yaml:"HTTPPort"`
 	LogConfig LogConfig `yaml:"logging"`
 }
 
 // validate APIConfig
 func (a APIConfig) Validate() error {
-	if a.HttpPort == "" {
-		return errors.New("HttpPort is required")
+	if a.HTTPPort == "" {
+		return errors.New("HTTPPort is required")
 	}
-	if a.HttpHost == "" {
-		return errors.New("HttpHost is required")
+	if a.HTTPHost == "" {
+		return errors.New("HTTPHost is required")
 	}
 	return a.LogConfig.Validate()
 }
 
-func DefaultConfig() *controlPlaneConfig {
-	return &controlPlaneConfig{
+func DefaultConfig() *ControlPlaneConfig {
+	return &ControlPlaneConfig{
 		APIConfig{
-			HttpHost: "localhost",
-			HttpPort: "50051",
+			HTTPHost: "localhost",
+			HTTPPort: "50051",
 			LogConfig: LogConfig{
 				Level: "debug", // Default log level
 			},
 		},
 		APIConfig{
-			HttpHost: "localhost",
-			HttpPort: "50052",
+			HTTPHost: "localhost",
+			HTTPPort: "50052",
 			LogConfig: LogConfig{
 				Level: "debug", // Default log level
 			},
@@ -69,7 +68,7 @@ func DefaultConfig() *controlPlaneConfig {
 	}
 }
 
-func (c controlPlaneConfig) OverrideFromFile(file string) *controlPlaneConfig {
+func (c ControlPlaneConfig) OverrideFromFile(file string) *ControlPlaneConfig {
 	configFile := file
 	if configFile == "" {
 		configFile = "config.yaml"
@@ -90,17 +89,17 @@ func (c controlPlaneConfig) OverrideFromFile(file string) *controlPlaneConfig {
 	return &c
 }
 
-func (c controlPlaneConfig) OverrideFromEnv() *controlPlaneConfig {
-	c.Northbound.HttpPort = getEnvStr("NB_API_HTTP_PORT", c.Northbound.HttpPort)
-	c.Northbound.HttpHost = getEnvStr("NB_API_HTTP_HOST", c.Northbound.HttpHost)
+func (c ControlPlaneConfig) OverrideFromEnv() *ControlPlaneConfig {
+	c.Northbound.HTTPPort = getEnvStr("NB_API_HTTP_PORT", c.Northbound.HTTPPort)
+	c.Northbound.HTTPHost = getEnvStr("NB_API_HTTP_HOST", c.Northbound.HTTPHost)
 	c.Northbound.LogConfig.Level = getEnvStr("NB_API_LOG_LEVEL", c.Northbound.LogConfig.Level)
-	c.Southbound.HttpPort = getEnvStr("SB_API_HTTP_PORT", c.Southbound.HttpPort)
-	c.Southbound.HttpHost = getEnvStr("SB_API_HTTP_HOST", c.Southbound.HttpHost)
+	c.Southbound.HTTPPort = getEnvStr("SB_API_HTTP_PORT", c.Southbound.HTTPPort)
+	c.Southbound.HTTPHost = getEnvStr("SB_API_HTTP_HOST", c.Southbound.HTTPHost)
 	c.Southbound.LogConfig.Level = getEnvStr("SB_API_LOG_LEVEL", c.Southbound.LogConfig.Level)
 	return &c
 }
 
-func (c controlPlaneConfig) Validate() *controlPlaneConfig {
+func (c ControlPlaneConfig) Validate() *ControlPlaneConfig {
 	if err := c.Northbound.Validate(); err != nil {
 		panic(fmt.Sprintf("invalid northbound API configuration: %v", err))
 	}
@@ -116,32 +115,4 @@ func getEnvStr(varName string, defValue string) string {
 		return defValue
 	}
 	return value
-}
-
-func getEnvBool(varName string, defValue bool) bool {
-	value := os.Getenv(varName)
-	if value == "" {
-		return defValue
-	}
-	value = strings.ToLower(value)
-	if value == "1" || value == "true" || value == "on" {
-		return true
-	}
-	if value == "0" || value == "false" || value == "off" {
-		return false
-	}
-	return defValue
-}
-
-func getEnvInt(varName string, defValue int) int {
-	value := os.Getenv(varName)
-	if value == "" {
-		return defValue
-	}
-
-	intVal, err := strconv.Atoi(value)
-	if err != nil {
-		return defValue
-	}
-	return intVal
 }

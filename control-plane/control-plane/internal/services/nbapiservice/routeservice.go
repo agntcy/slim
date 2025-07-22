@@ -12,17 +12,17 @@ import (
 	"github.com/rs/zerolog"
 )
 
-type routeService struct {
+type RouteService struct {
 	messagingService nodecontrol.NodeCommandHandler
 }
 
-func NewRouteService(messagingService nodecontrol.NodeCommandHandler) *routeService {
-	return &routeService{
+func NewRouteService(messagingService nodecontrol.NodeCommandHandler) *RouteService {
+	return &RouteService{
 		messagingService: messagingService,
 	}
 }
 
-func (s *routeService) ListSubscriptions(ctx context.Context, nodeEntry *controlplanev1.NodeEntry) (*controllerapi.SubscriptionListResponse, error) {
+func (s *RouteService) ListSubscriptions(ctx context.Context, nodeEntry *controlplanev1.NodeEntry) (*controllerapi.SubscriptionListResponse, error) {
 	msg := &controllerapi.ControlMessage{
 		MessageId: uuid.NewString(),
 		Payload:   &controllerapi.ControlMessage_SubscriptionListRequest{},
@@ -58,7 +58,7 @@ func (s *routeService) ListSubscriptions(ctx context.Context, nodeEntry *control
 	return nil, fmt.Errorf("no SubscriptionListResponse received")
 }
 
-func (s *routeService) ListConnections(ctx context.Context, nodeEntry *controlplanev1.NodeEntry) (*controllerapi.ConnectionListResponse, error) {
+func (s *RouteService) ListConnections(ctx context.Context, nodeEntry *controlplanev1.NodeEntry) (*controllerapi.ConnectionListResponse, error) {
 	msg := &controllerapi.ControlMessage{
 		MessageId: uuid.NewString(),
 		Payload:   &controllerapi.ControlMessage_ConnectionListRequest{},
@@ -81,7 +81,7 @@ func (s *routeService) ListConnections(ctx context.Context, nodeEntry *controlpl
 	return nil, fmt.Errorf("no ConnectionListResponse received")
 }
 
-func (s *routeService) CreateConnection(ctx context.Context, nodeEntry *controlplanev1.NodeEntry, connection *controllerapi.Connection) error {
+func (s *RouteService) CreateConnection(ctx context.Context, nodeEntry *controlplanev1.NodeEntry, connection *controllerapi.Connection) error {
 	zlog := zerolog.Ctx(ctx)
 
 	controllerConfigCommand := &controllerapi.ConfigurationCommand{
@@ -90,9 +90,9 @@ func (s *routeService) CreateConnection(ctx context.Context, nodeEntry *controlp
 		SubscriptionsToDelete: []*controllerapi.Subscription{},
 	}
 
-	messageId := uuid.NewString()
+	messageID := uuid.NewString()
 	createCommandMessage := &controllerapi.ControlMessage{
-		MessageId: messageId,
+		MessageId: messageID,
 		Payload: &controllerapi.ControlMessage_ConfigCommand{
 			ConfigCommand: controllerConfigCommand,
 		},
@@ -119,7 +119,7 @@ func (s *routeService) CreateConnection(ctx context.Context, nodeEntry *controlp
 	return nil
 }
 
-func (s *routeService) CreateSubscription(ctx context.Context, nodeEntry *controlplanev1.NodeEntry, subscription *controllerapi.Subscription) error {
+func (s *RouteService) CreateSubscription(ctx context.Context, nodeEntry *controlplanev1.NodeEntry, subscription *controllerapi.Subscription) error {
 	zlog := zerolog.Ctx(ctx)
 
 	controllerConfigCommand := &controllerapi.ConfigurationCommand{
@@ -128,9 +128,9 @@ func (s *routeService) CreateSubscription(ctx context.Context, nodeEntry *contro
 		SubscriptionsToDelete: []*controllerapi.Subscription{},
 	}
 
-	messageId := uuid.NewString()
+	messageID := uuid.NewString()
 	msg := &controllerapi.ControlMessage{
-		MessageId: messageId,
+		MessageId: messageID,
 		Payload: &controllerapi.ControlMessage_ConfigCommand{
 			ConfigCommand: controllerConfigCommand,
 		},
@@ -157,7 +157,7 @@ func (s *routeService) CreateSubscription(ctx context.Context, nodeEntry *contro
 	return nil
 }
 
-func (s *routeService) DeleteSubscription(ctx context.Context, nodeEntry *controlplanev1.NodeEntry, subscription *controllerapi.Subscription) error {
+func (s *RouteService) DeleteSubscription(ctx context.Context, nodeEntry *controlplanev1.NodeEntry, subscription *controllerapi.Subscription) error {
 	zlog := zerolog.Ctx(ctx)
 
 	msg := &controllerapi.ControlMessage{

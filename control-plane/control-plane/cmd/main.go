@@ -34,24 +34,30 @@ func main() {
 		grpcServer := grpc.NewServer(opts...)
 		controlplaneApi.RegisterControlPlaneServiceServer(grpcServer, cpServer)
 
-		listeningAddress := fmt.Sprintf("%s:%s", config.Northbound.HttpHost, config.Northbound.HttpPort)
+		listeningAddress := fmt.Sprintf("%s:%s", config.Northbound.HTTPHost, config.Northbound.HTTPPort)
 		lis, err := net.Listen("tcp", listeningAddress)
 		if err != nil {
 			log.Fatalf("failed to listen: %v", err)
 		}
 		fmt.Printf("Northbound API Service is listening on %s\n", lis.Addr())
-		grpcServer.Serve(lis)
+		err = grpcServer.Serve(lis)
+		if err != nil {
+			log.Fatalf("failed to serve: %v", err)
+		}
 	}()
 
 	sbGrpcServer := grpc.NewServer(opts...)
-	sbApiSvc := sbapiservice.NewSBAPIService(config.Southbound, dbService, messagingService)
-	southboundApi.RegisterControllerServiceServer(sbGrpcServer, sbApiSvc)
+	sbAPISvc := sbapiservice.NewSBAPIService(config.Southbound, dbService, messagingService)
+	southboundApi.RegisterControllerServiceServer(sbGrpcServer, sbAPISvc)
 
-	sbListeningAddress := fmt.Sprintf("%s:%s", config.Southbound.HttpHost, config.Southbound.HttpPort)
+	sbListeningAddress := fmt.Sprintf("%s:%s", config.Southbound.HTTPHost, config.Southbound.HTTPPort)
 	lisSB, err := net.Listen("tcp", sbListeningAddress)
 	if err != nil {
 		log.Fatalf("failed to listen: %v", err)
 	}
 	fmt.Printf("Southbound API Service is Listening on %s\n", lisSB.Addr())
-	sbGrpcServer.Serve(lisSB)
+	err = sbGrpcServer.Serve(lisSB)
+	if err != nil {
+		log.Fatalf("failed to serve: %v", err)
+	}
 }

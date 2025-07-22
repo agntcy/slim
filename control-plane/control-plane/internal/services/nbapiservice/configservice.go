@@ -10,20 +10,20 @@ import (
 	"github.com/google/uuid"
 )
 
-type configService struct{}
+type ConfigService struct{}
 
-func NewConfigService() *configService {
-	return &configService{}
+func NewConfigService() *ConfigService {
+	return &ConfigService{}
 }
 
-func (s *configService) ModifyConfiguration(ctx context.Context, configCommand *controllerapi.ConfigurationCommand, opts *options.CommonOptions) (*controllerapi.Ack, error) {
+func (s *ConfigService) ModifyConfiguration(ctx context.Context, configCommand *controllerapi.ConfigurationCommand, opts *options.CommonOptions) (*controllerapi.Ack, error) {
 	stream, err := controller.OpenControlChannel(ctx, opts)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open control channel: %w", err)
 	}
-	messageId := uuid.NewString()
+	messageID := uuid.NewString()
 	msg := &controllerapi.ControlMessage{
-		MessageId: messageId,
+		MessageId: messageID,
 		Payload: &controllerapi.ControlMessage_ConfigCommand{
 			ConfigCommand: configCommand,
 		},
@@ -58,7 +58,7 @@ func (s *configService) ModifyConfiguration(ctx context.Context, configCommand *
 		}
 	}
 	return &controllerapi.Ack{
-		OriginalMessageId: messageId,
+		OriginalMessageId: messageID,
 		Success:           true,
 		Messages:          []string{"Configuration command processed successfully"},
 	}, nil

@@ -11,17 +11,17 @@ import (
 	"github.com/agntcy/slim/control-plane/control-plane/internal/db"
 )
 
-type nodeService struct {
+type NodeService struct {
 	dbService db.DataAccess
 }
 
-func NewNodeService(dbService db.DataAccess) *nodeService {
-	return &nodeService{
+func NewNodeService(dbService db.DataAccess) *NodeService {
+	return &NodeService{
 		dbService: dbService,
 	}
 }
 
-func (s *nodeService) ListNodes(context.Context, *controlplaneApi.NodeListRequest) (*controlplaneApi.NodeListResponse, error) {
+func (s *NodeService) ListNodes(context.Context, *controlplaneApi.NodeListRequest) (*controlplaneApi.NodeListResponse, error) {
 	storedNodes, err := s.dbService.ListNodes()
 	if err != nil {
 		return nil, err
@@ -31,7 +31,7 @@ func (s *nodeService) ListNodes(context.Context, *controlplaneApi.NodeListReques
 		nodeEntry := &controlplaneApi.NodeEntry{
 			Id:   node.ID,
 			Host: node.Host,
-			Port: uint32(node.Port),
+			Port: node.Port,
 		}
 		nodeEntries = append(nodeEntries, nodeEntry)
 	}
@@ -41,7 +41,7 @@ func (s *nodeService) ListNodes(context.Context, *controlplaneApi.NodeListReques
 	return nodeListresponse, nil
 }
 
-func (s *nodeService) GetNodeByID(nodeID string) (*controlplaneApi.NodeEntry, error) {
+func (s *NodeService) GetNodeByID(nodeID string) (*controlplaneApi.NodeEntry, error) {
 	storedNode, err := s.dbService.GetNode(nodeID)
 	if err != nil {
 		return nil, err
@@ -49,12 +49,12 @@ func (s *nodeService) GetNodeByID(nodeID string) (*controlplaneApi.NodeEntry, er
 	nodeEntry := &controlplaneApi.NodeEntry{
 		Id:   storedNode.ID,
 		Host: storedNode.Host,
-		Port: uint32(storedNode.Port),
+		Port: storedNode.Port,
 	}
 	return nodeEntry, nil
 }
 
-func (s *nodeService) SaveConnection(nodeEntry *controlplaneApi.NodeEntry, connection *controllerapi.Connection) (string, error) {
+func (s *NodeService) SaveConnection(nodeEntry *controlplaneApi.NodeEntry, connection *controllerapi.Connection) (string, error) {
 	// Check if the node exists
 	if nodeEntry == nil {
 		return "", fmt.Errorf("node entry is required")
@@ -66,7 +66,7 @@ func (s *nodeService) SaveConnection(nodeEntry *controlplaneApi.NodeEntry, conne
 
 	_, err := s.dbService.GetNode(nodeEntry.Id)
 	if err != nil {
-		return "", fmt.Errorf("node with ID %s not found: %v", nodeEntry.Id, err)
+		return "", fmt.Errorf("node with ID %s not found: %w", nodeEntry.Id, err)
 	}
 
 	connectionEntry := db.Connection{
@@ -78,21 +78,21 @@ func (s *nodeService) SaveConnection(nodeEntry *controlplaneApi.NodeEntry, conne
 	return s.dbService.SaveConnection(connectionEntry)
 }
 
-func (s *nodeService) GetConnectionDetails(nodeID string, connectionID string) (string, error) {
+func (s *NodeService) GetConnectionDetails(nodeID string, connectionID string) (string, error) {
 	connection, err := s.dbService.GetConnection(connectionID)
 	if err != nil {
-		return "", fmt.Errorf("failed to get connection details: %v", err)
+		return "", fmt.Errorf("failed to get connection details: %w", err)
 	}
 	if connection.NodeID != nodeID {
 		return "", fmt.Errorf("connection with ID %s does not belong to node %s", connectionID, nodeID)
 	}
 
-	// Retrive endpoint details from the connection's config data
+	// Retrieve endpoint details from the connection's config data
 
 	// Parse the JSON config data
 	var config map[string]interface{}
 	if err := json.Unmarshal([]byte(connection.ConfigData), &config); err != nil {
-		return "", fmt.Errorf("failed to parse config data: %v", err)
+		return "", fmt.Errorf("failed to parse config data: %w", err)
 	}
 
 	// Extract the endpoint value
@@ -109,11 +109,11 @@ func (s *nodeService) GetConnectionDetails(nodeID string, connectionID string) (
 	return endpointStr, nil
 }
 
-func (s *nodeService) SaveSubscription(nodeID string, subscription *controllerapi.Subscription) (string, error) {
+func (s *NodeService) SaveSubscription(nodeID string, subscription *controllerapi.Subscription) (string, error) {
 	// Check if the node exists
 	_, err := s.dbService.GetNode(nodeID)
 	if err != nil {
-		return "", fmt.Errorf("node with ID %s not found: %v", nodeID, err)
+		return "", fmt.Errorf("node with ID %s not found: %w", nodeID, err)
 	}
 
 	// Check if the connection exists
@@ -122,7 +122,7 @@ func (s *nodeService) SaveSubscription(nodeID string, subscription *controllerap
 	}
 	_, err = s.dbService.GetConnection(subscription.ConnectionId)
 	if err != nil {
-		return "", fmt.Errorf("connection with ID %s not found: %v", subscription.ConnectionId, err)
+		return "", fmt.Errorf("connection with ID %s not found: %w", subscription.ConnectionId, err)
 	}
 
 	subscriptionEntry := db.Subscription{
@@ -138,14 +138,14 @@ func (s *nodeService) SaveSubscription(nodeID string, subscription *controllerap
 	return s.dbService.SaveSubscription(subscriptionEntry)
 }
 
-func (s *nodeService) GetSubscription(nodeID string, subscriptionId string) (*controllerapi.Subscription, error) {
-	subscription, err := s.dbService.GetSubscription(subscriptionId)
+func (s *NodeService) GetSubscription(nodeID string, subscriptionID string) (*controllerapi.Subscription, error) {
+	subscription, err := s.dbService.GetSubscription(subscriptionID)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get subscription: %v", err)
+		return nil, fmt.Errorf("failed to get subscription: %w", err)
 	}
 
 	if subscription.NodeID != nodeID {
-		return nil, fmt.Errorf("subscription with ID %s does not belong to node %s", subscriptionId, nodeID)
+		return nil, fmt.Errorf("subscription with ID %s does not belong to node %s", subscriptionID, nodeID)
 	}
 
 	return &controllerapi.Subscription{
