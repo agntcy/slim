@@ -593,7 +593,16 @@ where
         };
 
         // Create a new transmitter
-        let tx = self.transmitter.clone();
+        let mut tx = self.transmitter.clone();
+        tx.clear_interceptors();
+
+        // Create identity interceptor
+        let identity_interceptor = Arc::new(IdentityInterceptor::new(
+            self.identity_provider.clone(),
+            self.identity_verifier.clone(),
+        ));
+
+        tx.add_interceptor(identity_interceptor);
 
         // create a new session
         let session = match session_config {
