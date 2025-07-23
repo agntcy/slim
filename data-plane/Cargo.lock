@@ -3763,7 +3763,6 @@ dependencies = [
  "agntcy-slim-service",
  "agntcy-slim-signal",
  "clap",
- "parking_lot",
  "tokio",
  "tracing",
 ]

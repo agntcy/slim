@@ -61,7 +61,10 @@ impl SessionInterceptorProvider for MockTransmitter {
         Vec::new()
     }
 
-    fn clear_interceptors(&mut self) {
-        // Mock implementation does nothing
+    fn derive_new(&self) -> Self {
+        MockTransmitter {
+            tx_app: self.tx_app.clone(),
+            tx_slim: self.tx_slim.clone(),
+        }
     }
 }

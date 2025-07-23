@@ -1,10 +1,7 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
-use std::sync::Arc;
-
 use clap::Parser;
-use parking_lot::Mutex;
 use tokio::time;
 use tracing::info;
 
@@ -13,7 +10,6 @@ use slim_auth::shared_secret::SharedSecret;
 use slim_datapath::messages::{Agent, AgentType};
 use slim_service::{
     FireAndForgetConfiguration,
-    interceptor_mls::{self, MlsInterceptor},
     session::{self, SessionConfig},
 };
 
@@ -83,7 +79,7 @@ async fn main() {
     tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
 
     // MLS setup, only if mls_group_id is provided
-    let server_mls_option = if let Some(group_identifier) = mls_group_id {
+    if let Some(group_identifier) = mls_group_id {
         info!("MLS enabled with group identifier: {}", group_identifier);
 
         //TODO(zkacsand): temporary file based key package exchange, until the session API is ready to support it
@@ -204,12 +200,6 @@ async fn main() {
             // Join the group
             let _group_id = client_mls.process_welcome(&welcome_message).unwrap();
             info!("Client successfully joined group");
-
-            // enable mls for the session with group_id
-            let interceptor = MlsInterceptor::new(Arc::new(Mutex::new(client_mls)));
-            app.add_interceptor(session.id, Arc::new(interceptor))
-                .await
-                .unwrap();
         }
 
         // publish message
@@ -220,8 +210,6 @@ async fn main() {
 
     // wait for messages
     let mut messages = std::collections::VecDeque::<(String, session::Info)>::new();
-    let mut server_session_created = false;
-    let mut server_mls_for_session = server_mls_option;
     loop {
         tokio::select! {
             _ = slim_signal::shutdown() => {
@@ -243,19 +231,6 @@ async fn main() {
                 }
 
                 let session_msg = next.unwrap().expect("error");
-
-                // Setup MLS session for server on first message
-                if message.is_none() && !server_session_created && server_mls_for_session.is_some() {
-                    let (mls, _group_id) = server_mls_for_session.take().unwrap();
-                    let interceptor = interceptor_mls::MlsInterceptor::new(
-                        Arc::new(Mutex::new(mls)),
-                    );
-                    app.add_interceptor(session_msg.info.id, Arc::new(interceptor))
-                        .await
-                        .unwrap();
-                    server_session_created = true;
-                    info!("Server setup MLS for session");
-                }
 
                 match &session_msg.message.message_type.unwrap() {
                     slim_datapath::api::ProtoPublishType(msg) => {

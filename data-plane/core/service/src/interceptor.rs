@@ -26,8 +26,7 @@ pub trait SessionInterceptorProvider {
     /// get all interceptors for the session
     fn get_interceptors(&self) -> Vec<Arc<dyn SessionInterceptor + Send + Sync + 'static>>;
 
-    /// delete all interceptors
-    fn clear_interceptors(&mut self);
+    fn derive_new(&self) -> Self;
 
     /// run all interceptors on a message received from the app
     async fn on_msg_from_app_interceptors(&self, msg: &mut Message) -> Result<(), SessionError> {

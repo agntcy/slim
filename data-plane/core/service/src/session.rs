@@ -13,7 +13,7 @@ use tonic::Status;
 
 use crate::errors::SessionError;
 use crate::fire_and_forget::{FireAndForget, FireAndForgetConfiguration};
-use crate::interceptor::{SessionInterceptor, SessionInterceptorProvider};
+use crate::interceptor::SessionInterceptorProvider;
 use crate::interceptor_mls::MlsInterceptor;
 use crate::streaming::{Streaming, StreamingConfiguration};
 use slim_datapath::api::{ProtoMessage as Message, ProtoSessionMessageType};
@@ -295,6 +295,7 @@ where
     fn tx(&self) -> T;
 
     /// get a reference to the transmitter
+    #[allow(dead_code)]
     fn tx_ref(&self) -> &T;
 }
 
@@ -363,34 +364,6 @@ where
         match self {
             Session::FireAndForget(session) => session.on_message(message, direction).await,
             Session::Streaming(session) => session.on_message(message, direction).await,
-        }
-    }
-}
-
-impl<P, V, T> SessionInterceptorProvider for Session<P, V, T>
-where
-    P: TokenProvider + Send + Sync + Clone + 'static,
-    V: Verifier + Send + Sync + Clone + 'static,
-    T: SessionTransmitter + Send + Sync + Clone + 'static,
-{
-    fn add_interceptor(&self, interceptor: Arc<dyn SessionInterceptor + Send + Sync + 'static>) {
-        match self {
-            Session::FireAndForget(session) => session.tx_ref().add_interceptor(interceptor),
-            Session::Streaming(session) => session.tx_ref().add_interceptor(interceptor),
-        }
-    }
-
-    fn get_interceptors(&self) -> Vec<Arc<dyn SessionInterceptor + Send + Sync + 'static>> {
-        match self {
-            Session::FireAndForget(session) => session.tx_ref().get_interceptors(),
-            Session::Streaming(session) => session.tx_ref().get_interceptors(),
-        }
-    }
-
-    fn clear_interceptors(&mut self) {
-        match self {
-            Session::FireAndForget(session) => session.tx().clear_interceptors(),
-            Session::Streaming(session) => session.tx().clear_interceptors(),
         }
     }
 }
@@ -515,6 +488,7 @@ where
         self.tx.clone()
     }
 
+    #[allow(dead_code)]
     fn tx_ref(&self) -> &T {
         &self.tx
     }
@@ -574,6 +548,7 @@ where
         self.tx.clone()
     }
 
+    #[allow(dead_code)]
     pub(crate) fn tx_ref(&self) -> &T {
         &self.tx
     }

@@ -37,8 +37,12 @@ impl SessionInterceptorProvider for Transmitter {
         self.interceptors.read().clone()
     }
 
-    fn clear_interceptors(&mut self) {
-        self.interceptors.write().clear();
+    fn derive_new(&self) -> Self {
+        Transmitter {
+            slim_tx: self.slim_tx.clone(),
+            app_tx: self.app_tx.clone(),
+            interceptors: Arc::new(RwLock::new(self.interceptors.read().clone())),
+        }
     }
 }
 
