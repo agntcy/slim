@@ -48,7 +48,7 @@ where
     T: SessionTransmitter + Send + Sync + Clone + 'static,
 {
     async fn on_timeout(&self, timer_id: u32, timeouts: u32) {
-        debug!("timeout number {} for request {}", timeouts, timer_id);
+        debug!("Timeout number {} for request {}", timeouts, timer_id);
 
         if self
             .tx
@@ -56,7 +56,7 @@ where
             .await
             .is_err()
         {
-            error!("error sending invite message");
+            error!("Error sending invite message");
         }
     }
 
@@ -188,7 +188,7 @@ where
 
     fn process_welcome_message(&mut self, msg: &Message) -> Result<(), SessionError> {
         if self.last_mls_msg_id != 0 {
-            debug!("welcome message already received, drop");
+            debug!("Welcome message already received, drop");
             // we already got a welcome message, ignore this one
             return Ok(());
         }
@@ -306,7 +306,7 @@ where
 
         if content.source_name == *local_name {
             // drop the message as we are the original source
-            debug!("known proposal, drop the message");
+            debug!("Known proposal, drop the message");
             return Ok(());
         }
 
@@ -331,7 +331,7 @@ where
 
         if msg.get_id() <= self.last_mls_msg_id {
             debug!(
-                "message with id {} already processed, drop it. lasl message id {}",
+                "Message with id {} already processed, drop it. last message id {}",
                 msg.get_id(),
                 self.last_mls_msg_id
             );
@@ -341,7 +341,7 @@ where
         // store commit in hash map
         match self.stored_commits_proposals.entry(msg.get_id()) {
             Entry::Occupied(_) => {
-                debug!("message with id {} already exists, drop it", msg.get_id());
+                debug!("Message with id {} already exists, drop it", msg.get_id());
                 Ok(false)
             }
             Entry::Vacant(entry) => {
@@ -427,7 +427,7 @@ where
     }
 
     fn remove_participant(&mut self, msg: &Message) -> Result<CommitMsg, SessionError> {
-        debug!("remove participant from the MLS group");
+        debug!("Remove participant from the MLS group");
         let name = msg.get_name_as_agent();
         let id = match self.participants.get(&name) {
             Some(id) => id,
@@ -885,7 +885,7 @@ where
 
         if !ret {
             // message already processed, drop it
-            debug!("message with id {} already processed, drop it", msg_id);
+            debug!("Message with id {} already processed, drop it", msg_id);
             return Ok(());
         }
 
@@ -943,19 +943,19 @@ where
         match self.timer {
             Some(ref mut t) => {
                 if t.get_id() != msg_id {
-                    debug!("received unexpected ack, drop it");
+                    debug!("Received unexpected ack, drop it");
                     return Err(SessionError::TimerNotFound("wrong timer id".to_string()));
                 }
                 // stop the timer
                 t.stop();
             }
             None => {
-                debug!("received unexpected ack, drop it");
+                debug!("Received unexpected ack, drop it");
                 return Err(SessionError::TimerNotFound("timer not set".to_string()));
             }
         }
 
-        debug!("got reply for MLS proposal form the moderator, remove the timer");
+        debug!("Got a reply for MLS proposal form the moderator, remove the timer");
         // reset the timer
         self.timer = None;
 
@@ -965,9 +965,9 @@ where
             Some(c) => {
                 if c.blob.is_empty() {
                     // all good the moderator is processing the update
-                    debug!("poposal message was accepted by the moderator");
+                    debug!("Proposal message was accepted by the moderator");
                 } else {
-                    debug!("poposal message was rejected by the moderator, send it again");
+                    debug!("Proposal message was rejected by the moderator, send it again");
                     self.update_mls_keys().await?;
                 }
             }
@@ -998,7 +998,7 @@ where
             return Err(SessionError::KeyRotationPending);
         }
 
-        debug!("update mls keys");
+        debug!("Update mls keys");
         let mls = self.mls_state.as_mut().unwrap();
         let proposal_msg;
         {
@@ -1269,7 +1269,7 @@ where
             }
         }
 
-        debug!("got all the acks, remove timer");
+        debug!("Got all the acks, remove timer");
 
         if to_process.is_some() {
             match to_process
@@ -1279,7 +1279,7 @@ where
                 .session_message_type()
             {
                 ProtoSessionMessageType::ChannelLeaveRequest => {
-                    debug!("forward channel leave request after timer cancellation");
+                    debug!("Forward channel leave request after timer cancellation");
                     let msg = to_process.unwrap();
                     let msg_id = msg.get_id();
                     self.forward(msg).await?;
@@ -1288,7 +1288,7 @@ where
                     self.current_task.as_mut().unwrap().leave_start(msg_id)?;
                 }
                 ProtoSessionMessageType::ChannelMlsProposal => {
-                    debug!("create commit message for mls proposal after timer cancellation");
+                    debug!("Create commit message for mls proposal after timer cancellation");
                     // check the payload of the proposal message
                     let content = &to_process
                         .as_ref()
@@ -1296,9 +1296,9 @@ where
                         .get_payload()
                         .map_or_else(
                             || {
-                                error!("missing payload in a Mls Proposal, ignore the message");
+                                error!("Missing payload in a Mls Proposal, ignore the message");
                                 Err(SessionError::Processing(
-                                    "missing payload in a Mls Proposal".to_string(),
+                                    "Missing payload in a Mls Proposal".to_string(),
                                 ))
                             },
                             |content| -> Result<(MlsProposalMessagePayload, usize), SessionError> {
@@ -1356,7 +1356,7 @@ where
             }
         }
 
-        debug!(%key, "timer cancelled, all messages acked");
+        debug!(%key, "Timer cancelled, all messages acked");
         Ok(true)
     }
 
@@ -1526,7 +1526,7 @@ where
         };
 
         // ack the MLS proposal
-        debug!("received proposal from a participant, send ack");
+        debug!("Received proposal from a participant, send ack");
         let ack = self.endpoint.create_channel_message(
             source.agent_type(),
             source.agent_id_option(),
@@ -1572,14 +1572,14 @@ where
         let len = self.mls_state.as_ref().unwrap().participants.len();
 
         if len == 1 {
-            debug!("only one partcipant in the group. send the commit");
+            debug!("Only one partcipant in the group. send the commit");
             // we have a single participant in the group. apply the proposal and send the commit
             let content: MlsProposalMessagePayload =
                 bincode::decode_from_slice(payload, bincode::config::standard())
                     .map_err(|e| SessionError::ParseProposalMessage(e.to_string()))?
                     .0;
 
-            debug!("process received proposal and send commit (single participant)");
+            debug!("Process received proposal and send commit (single participant)");
             let commit_payload = self
                 .mls_state
                 .as_mut()
@@ -1699,7 +1699,7 @@ where
             self.current_task.as_mut().unwrap().leave_complete(msg_id)?;
             self.task_done().await
         } else {
-            debug!("timer for leave reply {:?} was not removed", msg_id);
+            debug!("Timer for leave reply {:?} was not removed", msg_id);
             Ok(())
         }
     }
@@ -1782,10 +1782,10 @@ where
     T: SessionTransmitter + Send + Sync + Clone + 'static,
 {
     async fn update_mls_keys(&mut self) -> Result<(), SessionError> {
-        debug!("update local mls keys");
+        debug!("Update local mls keys");
 
         if self.current_task.is_some() {
-            debug!("another task is running, schedule update for later");
+            debug!("Another task is running, schedule update for later");
             // if busy postpone the task and add it to the todo list
             // at this point we cannot create a real proposal so create
             // a fake one with empty payload and push it to the todo list

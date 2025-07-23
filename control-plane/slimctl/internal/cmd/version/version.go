@@ -10,7 +10,7 @@ import (
 	"github.com/spf13/cobra"
 	"go.uber.org/zap"
 
-	"github.com/agntcy/slim/control-plane/slimctl/internal/options"
+	"github.com/agntcy/slim/control-plane/common/options"
 )
 
 var (

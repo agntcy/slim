@@ -244,11 +244,9 @@ async fn main() {
             app.invite_participant(&p, info.clone())
                 .await
                 .expect("error sending invite message");
-
-            //tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
         }
 
-        tokio::time::sleep(tokio::time::Duration::from_millis(3000)).await;
+        tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
 
         // listen for messages
         tokio::spawn(async move {
@@ -327,7 +325,7 @@ async fn main() {
                     .await
                     .expect("error sending invite message");*/
             }*/
-            /*if i == 10 {
+            if i == 10 {
                 println!("remove t1");
                 app.remove_participant( &Agent::from_strings("org", "ns", "t1", 1), info.clone())
                 .await
@@ -365,7 +363,15 @@ async fn main() {
                 app.invite_participant(&AgentType::from_strings("org", "ns", "t3"), info.clone())
                 .await
                 .expect("error sending invite message");
-            }*/
+                println!("add t4");
+                app.invite_participant(&AgentType::from_strings("org", "ns", "t4"), info.clone())
+                .await
+                .expect("error sending invite message");
+                println!("add t5");
+                app.invite_participant(&AgentType::from_strings("org", "ns", "t5"), info.clone())
+                .await
+                .expect("error sending invite message");
+            }
 
             /*if i == 20 {
                 println!("add t1");

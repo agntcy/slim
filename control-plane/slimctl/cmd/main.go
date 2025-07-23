@@ -19,10 +19,11 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 
+	"github.com/agntcy/slim/control-plane/common/options"
 	connectionCmd "github.com/agntcy/slim/control-plane/slimctl/internal/cmd/connection"
+	cpCmd "github.com/agntcy/slim/control-plane/slimctl/internal/cmd/controlplane"
 	routeCmd "github.com/agntcy/slim/control-plane/slimctl/internal/cmd/route"
 	versionCmd "github.com/agntcy/slim/control-plane/slimctl/internal/cmd/version"
-	"github.com/agntcy/slim/control-plane/slimctl/internal/options"
 )
 
 var k = koanf.New(".")
@@ -133,6 +134,7 @@ func main() {
 	rootCmd.AddCommand(routeCmd.NewRouteCmd(opts))
 	rootCmd.AddCommand(connectionCmd.NewConnectionCmd(opts))
 	rootCmd.AddCommand(versionCmd.NewVersionCmd(opts))
+	rootCmd.AddCommand(cpCmd.NewCpCmd(opts))
 
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Fprintf(os.Stderr, "CLI error: %v", err)
