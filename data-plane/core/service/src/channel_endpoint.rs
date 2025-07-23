@@ -2,8 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::{
-
-    collections::{HashMap, VecDeque, BTreeMap, btree_map::Entry},
+    collections::{BTreeMap, HashMap, VecDeque, btree_map::Entry},
     sync::Arc,
     time::Duration,
 };
@@ -11,8 +10,7 @@ use std::{
 use async_trait::async_trait;
 use bincode::{Decode, Encode};
 use parking_lot::Mutex;
-use slim_controller::api::proto::api::v1::control_message::Payload;
-use tracing::{debug, error, info, trace};
+use tracing::{debug, error, trace};
 
 use crate::{
     errors::SessionError,
@@ -230,7 +228,6 @@ where
         msg: Message,
         local_name: &Agent,
     ) -> Result<bool, SessionError> {
-        println!("----- received mls control with id {}", msg.get_id());
         if !self.is_valid_msg_id(msg)? {
             // message already processed, drop it
             return Ok(false);
@@ -333,9 +330,10 @@ where
         }
 
         if msg.get_id() <= self.last_mls_msg_id {
-            info!(
+            debug!(
                 "message with id {} already processed, drop it. lasl message id {}",
-                msg.get_id(),  self.last_mls_msg_id
+                msg.get_id(),
+                self.last_mls_msg_id
             );
             return Ok(false);
         }
@@ -887,11 +885,11 @@ where
 
         if !ret {
             // message already processed, drop it
-            info!("----message with id {} already processed, drop it", msg_id);
+            debug!("message with id {} already processed, drop it", msg_id);
             return Ok(());
         }
 
-        info!("Control message correctly processed, MLS state updated");
+        debug!("Control message correctly processed, MLS state updated");
 
         // send an ack back to the moderator
         let ack = self.endpoint.create_channel_message(
@@ -957,31 +955,29 @@ where
             }
         }
 
-        info!("participant remove the timer for MLS proposal");
+        debug!("got reply for MLS proposal form the moderator, remove the timer");
         // reset the timer
         self.timer = None;
 
-        // check the payload of the msg. if is not empty the moderator 
-        // rejected the proposal so we need to send a new one. 
+        // check the payload of the msg. if is not empty the moderator
+        // rejected the proposal so we need to send a new one.
         match msg.get_payload() {
             Some(c) => {
-                if c.blob.len() == 0 {
+                if c.blob.is_empty() {
                     // all good the moderator is processing the update
-                    println!("-------------- proposal accepted {:?}", self.endpoint.name);
+                    debug!("poposal message was accepted by the moderator");
                 } else {
-                    println!("-------------- the moderator dropped the update message {:?}", self.endpoint.name);
-                    // the proposal was droppe, send a new one
+                    debug!("poposal message was rejected by the moderator, send it again");
                     self.update_mls_keys().await?;
                 }
-                    //println!("-------------- the moderator dropped the update message");
-                    // the proposal was droppe, send a new one
-                    //self.update_mls_keys().await?;
             }
             None => {
-                return Err(SessionError::ParseProposalMessage("prosal ack from the moderator is missing the payload".to_string()));
+                return Err(SessionError::ParseProposalMessage(
+                    "prosal ack from the moderator is missing the payload".to_string(),
+                ));
             }
         }
-        
+
         Ok(())
     }
 }
@@ -1002,7 +998,7 @@ where
             return Err(SessionError::KeyRotationPending);
         }
 
-        info!("-----Update mls keys");
+        debug!("update mls keys");
         let mls = self.mls_state.as_mut().unwrap();
         let proposal_msg;
         {
@@ -1027,7 +1023,7 @@ where
             payload,
         );
 
-        info!("---- {:?} Send MLS Proposal Message to the moderator (participant key update)", self.endpoint.name);
+        debug!("Send MLS Proposal Message to the moderator (participant key update)");
         self.endpoint.send(proposal.clone()).await?;
 
         // create a timer for the proposal
@@ -1077,31 +1073,31 @@ where
                 ))
             }
             ProtoSessionMessageType::ChannelJoinRequest => {
-                info!("Received join request message");
+                debug!("Received join request message");
                 self.on_join_request(msg).await
             }
             ProtoSessionMessageType::ChannelMlsWelcome => {
-                info!("Received mls welcome message");
+                debug!("Received mls welcome message");
                 self.on_mls_welcome(msg).await
             }
             ProtoSessionMessageType::ChannelMlsCommit => {
-                info!("Received mls commit message");
+                debug!("Received mls commit message");
                 self.on_mls_control_message(msg).await
             }
             ProtoSessionMessageType::ChannelMlsProposal => {
-                info!("Received mls proposal message");
+                debug!("Received mls proposal message");
                 self.on_mls_control_message(msg).await
             }
             ProtoSessionMessageType::ChannelLeaveRequest => {
-                info!("Received leave request message");
+                debug!("Received leave request message");
                 self.on_leave_request(msg).await
             }
             ProtoSessionMessageType::ChannelMlsAck => {
-                info!("Received mls ack message");
+                debug!("Received mls ack message");
                 self.on_mls_ack(msg).await
             }
             _ => {
-                info!("Received message of type {:?}, drop it", msg_type);
+                error!("Received message of type {:?}, drop it", msg_type);
 
                 Err(SessionError::Processing(format!(
                     "Received message of type {:?}, drop it",
@@ -1351,7 +1347,6 @@ where
                     self.create_timer(commit_id, len.try_into().unwrap(), commit, None);
 
                     // advance current task state and start leave phase
-                    println!("-----------------update commit start {:?}", commit_id);
                     self.current_task
                         .as_mut()
                         .unwrap()
@@ -1499,10 +1494,8 @@ where
 
     async fn on_msl_ack(&mut self, msg: Message) -> Result<(), SessionError> {
         let recv_msg_id = msg.get_id();
-        println!("-----------------received mls ack id {:?}",recv_msg_id );
         if self.delete_timer(recv_msg_id).await? {
             // one mls phase was completed so update the current task state
-            println!("-----------------update mls timer removed {:?}",recv_msg_id );
             self.current_task
                 .as_mut()
                 .unwrap()
@@ -1533,7 +1526,7 @@ where
         };
 
         // ack the MLS proposal
-        info!("received proposal from a participant, send ack");
+        debug!("received proposal from a participant, send ack");
         let ack = self.endpoint.create_channel_message(
             source.agent_type(),
             source.agent_id_option(),
@@ -1549,11 +1542,9 @@ where
     async fn on_mls_proposal(&mut self, msg: Message) -> Result<(), SessionError> {
         // we need to send the ack back to the participant
         // if the moderator is no busy the message can be processed
-        // immediatly otherwise we need to ask to participant to send
-        // a new proposal becuase the proposal as related to mls epochs
+        // immediately otherwise we need to ask to participant to send
+        // a new proposal because the proposal as related to mls epochs
         // and a proposal from an old epoch cannot be processed.
-        println!("------------- on mls proposal line 1498");
-
         let payload = &msg
             .get_payload()
             .ok_or(SessionError::CommitMessage(
@@ -1565,7 +1556,7 @@ where
 
         // check it the moderator is busy or if we can process the packet
         if self.current_task.is_some() {
-            info!("Moderator is busy. drop the proposal");
+            debug!("Moderator is busy. drop the proposal");
             return Ok(());
         }
 
@@ -1581,7 +1572,7 @@ where
         let len = self.mls_state.as_ref().unwrap().participants.len();
 
         if len == 1 {
-            println!("---- just one participant");
+            debug!("only one partcipant in the group. send the commit");
             // we have a single participant in the group. apply the proposal and send the commit
             let content: MlsProposalMessagePayload =
                 bincode::decode_from_slice(payload, bincode::config::standard())
@@ -1614,17 +1605,14 @@ where
 
             // in the current task mark the proposal phase as done because it will not be executed
             // and start the commit phase waiting for the ack
-            println!("-----------------update proposal start and done");
             self.current_task.as_mut().unwrap().proposal_start(0)?;
             self.current_task.as_mut().unwrap().mls_phase_completed(0)?;
 
-            println!("-----------------update commit start {:?}", commit_id);
             self.current_task
                 .as_mut()
                 .unwrap()
                 .commit_start(commit_id)?;
         } else {
-            println!("---- many participants");
             // broadcast the proposal on the channel
             let broadcast_msg_id = self.mls_state.as_mut().unwrap().get_next_mls_mgs_id();
             let broadcast_msg = self.endpoint.create_channel_message(
@@ -1647,7 +1635,6 @@ where
             );
 
             // advance the current task with the proposal start
-            println!("------ proposal starts {:?}",broadcast_msg_id );
             self.current_task
                 .as_mut()
                 .unwrap()
@@ -1721,7 +1708,7 @@ where
         if !self.current_task.as_ref().unwrap().task_complete() {
             // the task is not completed so just return
             // and continue with the process
-            info!("Current task is NOT completed");
+            debug!("Current task is NOT completed");
             return Ok(());
         }
 
@@ -1733,13 +1720,12 @@ where
             Some(m) => m,
             None => {
                 // nothing else to do
-                info!("No tasks left to perform");
+                debug!("No tasks left to perform");
                 return Ok(());
             }
         };
 
-        info!("process a message from the todo list");
-
+        debug!("process a new task from the todo list");
         let msg_type = msg.get_session_header().session_message_type();
         match msg_type {
             ProtoSessionMessageType::ChannelDiscoveryRequest => {
@@ -1752,7 +1738,7 @@ where
                     Some(ModeratorTask::AddParticipant(AddParticipant::default()))
                 };
 
-                debug!("start a new inivte task, send discovery message");
+                debug!("Start a new inivte task, send discovery message");
                 let msg_id = msg.get_id();
                 // discovery message coming from the application
                 self.forward(msg).await?;
@@ -1762,11 +1748,11 @@ where
             }
             ProtoSessionMessageType::ChannelMlsProposal => {
                 // only the moderator itself can schedule a proposal task
-                debug!("start a new local proposal task");
+                debug!("Start a new local key update task");
                 self.update_mls_keys().await
             }
             ProtoSessionMessageType::ChannelLeaveRequest => {
-                info!("Start a new channel leave task");
+                debug!("Start a new channel leave task");
                 // now the moderator is busy
                 self.current_task = if self.mls_state.is_some() {
                     Some(ModeratorTask::RemoveParticipantMls(
@@ -1777,8 +1763,6 @@ where
                         RemoveParticipant::default(),
                     ))
                 };
-
-                debug!("Received leave request message");
                 self.on_leave_request(msg).await
             }
             _ => {
@@ -1883,23 +1867,25 @@ where
                 // the channel discovery starts a new participant invite.
                 // process the request only if not busy
                 if self.current_task.is_some() {
-                    info!("Moderator is busy. Add invite participant task to the list and process it later");
+                    debug!(
+                        "Moderator is busy. Add invite participant task to the list and process it later"
+                    );
                     // if busy postpone the task and add it to the todo list
                     self.tasks_todo.push_back(msg);
                     return Ok(());
                 }
                 // now the moderator is busy
                 self.current_task = if self.mls_state.is_some() {
-                    info!("Create AddParticipantMls task");
+                    debug!("Create AddParticipantMls task");
                     Some(ModeratorTask::AddParticipantMls(
                         AddParticipantMls::default(),
                     ))
                 } else {
-                    info!("Create AddParticipant task");
+                    debug!("Create AddParticipant task");
                     Some(ModeratorTask::AddParticipant(AddParticipant::default()))
                 };
 
-                info!("Invite new participant to the channel, send discovery message");
+                debug!("Invite new participant to the channel, send discovery message");
                 let msg_id = msg.get_id();
                 // discovery message coming from the application
                 self.forward(msg).await?;
@@ -1932,7 +1918,9 @@ where
                 // process the request only if not busy
                 if self.current_task.is_some() {
                     // if busy postpone the task and add it to the todo list
-                    info!("Moderator is busy. Add  leave request task to the list and process it later");
+                    debug!(
+                        "Moderator is busy. Add  leave request task to the list and process it later"
+                    );
                     self.tasks_todo.push_back(msg);
                     return Ok(());
                 }
