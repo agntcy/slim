@@ -353,8 +353,16 @@ where
             let mls = mls.map(|mls| MlsState::new(mls).expect("failed to create MLS state"));
 
             let mls_enable = mls.is_some();
+
+            // used to trigger mls key rotation
             let sleep = time::sleep(Duration::from_secs(3600));
             tokio::pin!(sleep);
+
+            // used to send all the messages after the mls is setup
+            let mut flushed = false;
+            if !mls_enable {
+                flushed = true;
+            }
 
             // create the channel endpoint
             let mut channel_endpoint = match session_config.moderator {
@@ -468,8 +476,15 @@ where
                                                 process_incoming_rtx_request(msg, session_id, producer, &source, &tx).await;
                                             }
                                             MessageDirection::South => {
-                                                // received a message from the APP
-                                                process_message_from_app(msg, session_id, producer, false, &tx).await;
+                                                // received a message from the application
+                                                // if mls is on check if we need to flush
+                                                let need_flush = if !flushed && channel_endpoint.is_mls_up().unwrap_or(false) {
+                                                    flushed = true;
+                                                    true
+                                                } else {
+                                                    false
+                                                };
+                                                process_message_from_app(msg, session_id, producer, false, need_flush, &tx).await;
                                             }
                                         }
                                     }
@@ -495,7 +510,15 @@ where
                                             }
                                             MessageDirection::South => {
                                                 // received a message from the APP
-                                                process_message_from_app(msg, session_id, &mut state.producer, true, &tx).await;
+                                                // if mls is on check if we need to flush
+                                                let need_flush = if !flushed && channel_endpoint.is_mls_up().unwrap_or(false) {
+                                                    flushed = true;
+                                                    true
+                                                } else {
+                                                    false
+                                                };
+
+                                                process_message_from_app(msg, session_id, &mut state.producer, true, need_flush, &tx).await;
                                             }
                                         };
                                     }
@@ -690,12 +713,31 @@ async fn process_message_from_app<T>(
     session_id: u32,
     producer: &mut ProducerState,
     is_bidirectional: bool,
+    need_flush: bool,
     tx: &T,
 ) where
     T: SessionTransmitter + Send + Sync + Clone + 'static,
 {
     // set the session header, add the message to the buffer and send it
     trace!("received message from the app on session {}", session_id);
+
+    if need_flush {
+        debug!("flush producer buffer");
+        // flush the prod buffer before add the new packet
+        for m in producer.buffer.iter() {
+            if tx.send_to_slim(Ok(m.clone())).await.is_err() {
+                error!(
+                    "error sending publication packet to slim on session {}",
+                    session_id
+                );
+                tx.send_to_app(Err(SessionError::Processing(
+                    "error sending message to local slim instance".to_string(),
+                )))
+                .await
+                .expect("error notifying app");
+            }
+        }
+    }
 
     if is_bidirectional {
         msg.set_session_type(ProtoSessionType::SessionPubSub);
