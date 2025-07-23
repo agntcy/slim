@@ -36,6 +36,14 @@ impl SessionInterceptorProvider for Transmitter {
     fn get_interceptors(&self) -> Vec<Arc<dyn SessionInterceptor + Send + Sync + 'static>> {
         self.interceptors.read().clone()
     }
+
+    fn derive_new(&self) -> Self {
+        Transmitter {
+            slim_tx: self.slim_tx.clone(),
+            app_tx: self.app_tx.clone(),
+            interceptors: Arc::new(RwLock::new(self.interceptors.read().clone())),
+        }
+    }
 }
 
 impl SessionTransmitter for Transmitter {

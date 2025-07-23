@@ -408,12 +408,35 @@ where
 
                                 // process the messages for the channel endpoint first
                                 match msg.get_session_header().session_message_type() {
+                                    ProtoSessionMessageType::ChannelLeaveReply => {
+                                        // we need to remove the partipicant that was removed from the channel
+                                        // also in the list of receiver buffers. the name to search is the
+                                        // surce of the ChannelLeaveReply message
+                                        let name = msg.get_source();
+                                        match &mut endpoint {
+                                            Endpoint::Producer(_) => {/* nothing to do at the producer */}
+                                            Endpoint::Receiver(receiver) => {
+                                                // try to clean up the receiver buffers
+                                                receiver.buffers.remove(&name);
+                                            }
+                                            Endpoint::Bidirectional(state) => {
+                                                // try to clean up the receiver buffers
+                                                state.receiver.buffers.remove(&name);
+                                            }
+                                        }
+                                        match channel_endpoint.on_message(msg).await {
+                                            Ok(_) => {},
+                                            Err(e) => {
+                                                error!("error processing channel message: {}", e);
+                                            },
+                                        }
+                                        continue;
+                                    }
                                     ProtoSessionMessageType::ChannelDiscoveryRequest |
                                     ProtoSessionMessageType::ChannelDiscoveryReply |
                                     ProtoSessionMessageType::ChannelJoinRequest |
                                     ProtoSessionMessageType::ChannelJoinReply |
                                     ProtoSessionMessageType::ChannelLeaveRequest |
-                                    ProtoSessionMessageType::ChannelLeaveReply |
                                     ProtoSessionMessageType::ChannelMlsWelcome |
                                     ProtoSessionMessageType::ChannelMlsCommit |
                                     ProtoSessionMessageType::ChannelMlsProposal |
