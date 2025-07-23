@@ -58,20 +58,7 @@ tasks:
   run:channel-test:moderator:mls:
     desc: "start moderator for test channel"
     cmds:
-      #- cargo run --release --bin channel -- --config $CONFIG_CLIENT --name org/ns/moderator/1 --is-moderator --participants org/ns/t1
-      #- cargo run --release --bin channel -- --config $CONFIG_CLIENT --name org/ns/moderator/1 --is-moderator --participants org/ns/t1 org/ns/t2 org/ns/t3 org/ns/t4 org/ns/t5
-      - cargo run --release --bin channel -- --config $CONFIG_CLIENT --name org/ns/moderator/1 --is-moderator --participants org/ns/t1 org/ns/t2 org/ns/t3 org/ns/t4 org/ns/t5 org/ns/t6 org/ns/t7 org/ns/t8 org/ns/t9 org/ns/t10
-
-  run:channel-test:all:mls:
-    desc: "run all"
-    cmds:
-      - |
-        echo "all"
-        for i in $(seq 1 10);
-        do
-          cargo run --release --bin channel -- --config ../config/base/client-config.yaml --name org/ns/t$i/1 --moderator-name org/ns/moderator/1 &
-        done
-        echo "done"
+      - cargo run --release --bin channel -- --config $CONFIG_CLIENT --name org/ns/moderator/1 --is-moderator --participants org/ns/t1 org/ns/t2
 
   run:channel-test:participant-1:mls:
     desc: "start participant-1 for test channel"
@@ -86,8 +73,7 @@ tasks:
   run:channel-test:moderator:no-mls:
     desc: "start moderator for test channel"
     cmds:
-      #- cargo run --release --bin channel -- --config $CONFIG_CLIENT --name org/ns/moderator/1 --is-moderator --participants org/ns/t1 org/ns/t2 --mls-disabled
-      - cargo run --release --bin channel -- --config $CONFIG_CLIENT --name org/ns/moderator/1 --is-moderator --participants org/ns/t1 org/ns/t2 org/ns/t3 org/ns/t4 org/ns/t5 org/ns/t6 org/ns/t7 org/ns/t8 org/ns/t9 org/ns/t10 --mls-disabled
+      - cargo run --release --bin channel -- --config $CONFIG_CLIENT --name org/ns/moderator/1 --is-moderator --participants org/ns/t1 org/ns/t2 --mls-disabled
 
   run:channel-test:participant-1:no-mls:
     desc: "start participant-1 for test channel"

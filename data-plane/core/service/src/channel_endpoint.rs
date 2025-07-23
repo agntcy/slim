@@ -1346,7 +1346,7 @@ where
                     self.endpoint.send(commit.clone()).await?;
                     self.create_timer(commit_id, len.try_into().unwrap(), commit, None);
 
-                    // advance current task state and start leave phase
+                    // advance current task state and start commit phase
                     self.current_task
                         .as_mut()
                         .unwrap()
@@ -1554,7 +1554,7 @@ where
 
         self.ack_msl_proposal(&msg).await?;
 
-        // check it the moderator is busy or if we can process the packet
+        // check if the moderator is busy or if we can process the packet
         if self.current_task.is_some() {
             debug!("Moderator is busy. drop the proposal");
             return Ok(());
@@ -1646,7 +1646,7 @@ where
 
     async fn on_leave_request(&mut self, msg: Message) -> Result<(), SessionError> {
         // If MLS is on, send the MLS commit and wait for all the
-        // acks before send the leave request. If MLS is of forward
+        // acks before send the leave request. If MLS is off forward
         // the message
         match self.mls_state.as_mut() {
             Some(state) => {
@@ -1725,7 +1725,7 @@ where
             }
         };
 
-        debug!("process a new task from the todo list");
+        debug!("Process a new task from the todo list");
         let msg_type = msg.get_session_header().session_message_type();
         match msg_type {
             ProtoSessionMessageType::ChannelDiscoveryRequest => {
