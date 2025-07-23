@@ -3,9 +3,7 @@ package nbapiservice
 import (
 	"context"
 	"fmt"
-	"log"
 
-	"github.com/agntcy/slim/control-plane/common/options"
 	controllerapi "github.com/agntcy/slim/control-plane/common/proto/controller/v1"
 	controlplaneApi "github.com/agntcy/slim/control-plane/common/proto/controlplane/v1"
 	"github.com/agntcy/slim/control-plane/control-plane/internal/config"
@@ -18,24 +16,23 @@ type NorthboundAPIServer interface {
 
 type nbAPIService struct {
 	controlplaneApi.UnimplementedControlPlaneServiceServer
-
-	config        config.APIConfig
-	nodeService   *NodeService
-	routeService  *RouteService
-	configService *ConfigService
+	config       config.APIConfig
+	nodeService  *NodeService
+	routeService *RouteService
+	groupService *GroupService
 }
 
 func NewNorthboundAPIServer(
 	config config.APIConfig,
 	nodeService *NodeService,
 	routeService *RouteService,
-	configService *ConfigService,
+	groupService *GroupService,
 ) NorthboundAPIServer {
 	cpServer := &nbAPIService{
-		config:        config,
-		nodeService:   nodeService,
-		routeService:  routeService,
-		configService: configService,
+		config:       config,
+		nodeService:  nodeService,
+		routeService: routeService,
+		groupService: groupService,
 	}
 	return cpServer
 }
@@ -70,23 +67,6 @@ func (s *nbAPIService) ListNodes(
 ) (*controlplaneApi.NodeListResponse, error) {
 	ctx = util.GetContextWithLogger(ctx, s.config.LogConfig)
 	return s.nodeService.ListNodes(ctx, nodeListRequest)
-}
-
-func (s *nbAPIService) ModifyConfiguration(
-	ctx context.Context,
-	message *controlplaneApi.ConfigurationCommand,
-) (*controllerapi.Ack, error) {
-	ctx = util.GetContextWithLogger(ctx, s.config.LogConfig)
-	nodeEntry, err := s.nodeService.GetNodeByID(message.NodeId)
-	if err != nil {
-		log.Fatalf("failed to get node by ID: %v", err)
-	}
-	endpoint := fmt.Sprintf("%s:%d", nodeEntry.Host, nodeEntry.Port)
-
-	opts := options.NewOptions()
-	opts.Server = endpoint
-	opts.TLSInsecure = true
-	return s.configService.ModifyConfiguration(ctx, message.ConfigurationCommand, opts)
 }
 
 func (s *nbAPIService) CreateConnection(
@@ -196,4 +176,40 @@ func (s *nbAPIService) DeregisterNode(
 	return &controlplaneApi.DeregisterNodeResponse{
 		Success: false,
 	}, nil
+}
+
+func (s *nbAPIService) CreateChannel(
+	ctx context.Context, createChannelRequest *controlplaneApi.CreateChannelRequest) (
+	*controlplaneApi.CreateChannelResponse, error) {
+	return s.groupService.CreateChannel(ctx, createChannelRequest)
+}
+
+func (s *nbAPIService) DeleteChannel(
+	ctx context.Context, deleteChannelRequest *controlplaneApi.DeleteChannelRequest) (
+	*controllerapi.Ack, error) {
+	return s.groupService.DeleteChannel(ctx, deleteChannelRequest)
+}
+
+func (s *nbAPIService) AddParticipant(
+	ctx context.Context, addParticipantRequest *controlplaneApi.AddParticipantRequest) (
+	*controllerapi.Ack, error) {
+	return s.groupService.AddParticipant(ctx, addParticipantRequest)
+}
+
+func (s *nbAPIService) DeleteParticipant(
+	ctx context.Context, deleteParticipantRequest *controlplaneApi.DeleteParticipantRequest) (
+	*controllerapi.Ack, error) {
+	return s.groupService.DeleteParticipant(ctx, deleteParticipantRequest)
+}
+
+func (s *nbAPIService) ListChannels(
+	ctx context.Context, listChannelsRequest *controlplaneApi.ListChannelsRequest) (
+	*controlplaneApi.ListChannelsResponse, error) {
+	return s.groupService.ListChannels(ctx, listChannelsRequest)
+}
+
+func (s *nbAPIService) ListParticipants(
+	ctx context.Context, listParticipantsCommand *controlplaneApi.ListParticipantsCommand) (
+	*controlplaneApi.ListParticipantsResponse, error) {
+	return s.groupService.ListParticipants(ctx, listParticipantsCommand)
 }

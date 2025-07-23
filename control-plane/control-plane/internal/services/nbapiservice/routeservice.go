@@ -9,7 +9,7 @@ import (
 	"github.com/rs/zerolog"
 
 	controllerapi "github.com/agntcy/slim/control-plane/common/proto/controller/v1"
-	controlplanev1 "github.com/agntcy/slim/control-plane/common/proto/controlplane/v1"
+	controlplaneApi "github.com/agntcy/slim/control-plane/common/proto/controlplane/v1"
 	"github.com/agntcy/slim/control-plane/control-plane/internal/services/nodecontrol"
 )
 
@@ -25,7 +25,7 @@ func NewRouteService(messagingService nodecontrol.NodeCommandHandler) *RouteServ
 
 func (s *RouteService) ListSubscriptions(
 	_ context.Context,
-	nodeEntry *controlplanev1.NodeEntry,
+	nodeEntry *controlplaneApi.NodeEntry,
 ) (*controllerapi.SubscriptionListResponse, error) {
 	msg := &controllerapi.ControlMessage{
 		MessageId: uuid.NewString(),
@@ -65,7 +65,7 @@ func (s *RouteService) ListSubscriptions(
 
 func (s *RouteService) ListConnections(
 	_ context.Context,
-	nodeEntry *controlplanev1.NodeEntry,
+	nodeEntry *controlplaneApi.NodeEntry,
 ) (*controllerapi.ConnectionListResponse, error) {
 	msg := &controllerapi.ControlMessage{
 		MessageId: uuid.NewString(),
@@ -92,7 +92,7 @@ func (s *RouteService) ListConnections(
 
 func (s *RouteService) CreateConnection(
 	ctx context.Context,
-	nodeEntry *controlplanev1.NodeEntry,
+	nodeEntry *controlplaneApi.NodeEntry,
 	connection *controllerapi.Connection,
 ) error {
 	zlog := zerolog.Ctx(ctx)
@@ -134,7 +134,7 @@ func (s *RouteService) CreateConnection(
 
 func (s *RouteService) CreateSubscription(
 	ctx context.Context,
-	nodeEntry *controlplanev1.NodeEntry,
+	nodeEntry *controlplaneApi.NodeEntry,
 	subscription *controllerapi.Subscription,
 ) error {
 	zlog := zerolog.Ctx(ctx)
@@ -177,7 +177,7 @@ func (s *RouteService) CreateSubscription(
 
 func (s *RouteService) DeleteSubscription(
 	ctx context.Context,
-	nodeEntry *controlplanev1.NodeEntry,
+	nodeEntry *controlplaneApi.NodeEntry,
 	subscription *controllerapi.Subscription,
 ) error {
 	zlog := zerolog.Ctx(ctx)

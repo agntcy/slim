@@ -37,7 +37,7 @@ task control-plane:control-plane:build
 
 ```bash
 # Start the control plane service
-task control-plane:run
+task control-plane:control-plane:run
 ```
 
 By default, the service listens on ports defined in `config/config.yaml`. You can override configuration using environment variables.
