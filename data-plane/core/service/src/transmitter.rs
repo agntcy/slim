@@ -36,6 +36,14 @@ impl SessionInterceptorProvider for Transmitter {
     fn get_interceptors(&self) -> Vec<Arc<dyn SessionInterceptor + Send + Sync + 'static>> {
         self.interceptors.read().clone()
     }
+
+    fn derive_new(&self) -> Self {
+        Transmitter {
+            slim_tx: self.slim_tx.clone(),
+            app_tx: self.app_tx.clone(),
+            interceptors: Arc::new(RwLock::new(self.interceptors.read().clone())),
+        }
+    }
 }
 
 impl SessionTransmitter for Transmitter {
@@ -93,14 +101,5 @@ impl SessionTransmitter for Transmitter {
                     SessionError::SlimTransmission(e.to_string())
                 })
         }
-    }
-}
-
-impl Drop for Transmitter {
-    fn drop(&mut self) {
-        // when the trasmitter is removed we need to clean up all
-        // the interceptors. this is needed because in mls there is
-        // a pointer to the mls state that needs to be released
-        self.interceptors.write().clear();
     }
 }
