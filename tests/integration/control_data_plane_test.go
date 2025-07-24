@@ -61,13 +61,13 @@ var _ = BeforeSuite(func() {
 	time.Sleep(2000 * time.Millisecond)
 
 	// add routes
-	Expect(exec.Command(slimctlPath,
+	Expect(exec.Command(slimctlPath, "nc",
 		"route", "add", "org/default/b/0",
 		"via", "./testdata/client-b-config-data.json",
 		"-s", "127.0.0.1:46358",
 	).Run()).To(Succeed())
 
-	Expect(exec.Command(slimctlPath,
+	Expect(exec.Command(slimctlPath, "nc",
 		"route", "add", "org/default/a/0",
 		"via", "./testdata/client-a-config-data.json",
 		"-s", "127.0.0.1:46368",
@@ -130,7 +130,7 @@ var _ = Describe("Routing", func() {
 
 		// test listing routes
 		routeListOut, err := exec.Command(
-			slimctlPath,
+			slimctlPath, "nc",
 			"route", "list",
 			"-s", "127.0.0.1:46358",
 		).CombinedOutput()
@@ -142,7 +142,7 @@ var _ = Describe("Routing", func() {
 
 		// test listing connections
 		connectionListOut, err := exec.Command(
-			slimctlPath,
+			slimctlPath, "nc",
 			"connection", "list",
 			"-s", "127.0.0.1:46358",
 		).CombinedOutput()
