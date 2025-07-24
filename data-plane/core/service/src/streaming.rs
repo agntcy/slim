@@ -453,6 +453,31 @@ where
                                                 error!("error processing channel message: {}", e);
                                             },
                                         }
+
+                                        // here the mls state may be changed so check if we need
+                                        // to flush the producer buffer
+                                        match &mut endpoint {
+                                            Endpoint::Producer(producer) => {
+                                                let (need_flush, _) = need_to_flush_and_send(mls_enable,
+                                                    channel_endpoint.is_mls_up().unwrap_or(false), flushed);
+                                                if need_flush {
+                                                    flushed = true;
+                                                    flush_producer_buffer(producer, session_id, &tx).await;
+                                                }
+                                            }
+                                            Endpoint::Receiver(_) => { /* nothing to di in this case */ }
+                                            Endpoint::Bidirectional(state) => {
+                                                let (need_flush, _) = need_to_flush_and_send(mls_enable,
+                                                    channel_endpoint.is_mls_up().unwrap_or(false), flushed);
+                                                if need_flush {
+                                                    flushed = true;
+                                                    flush_producer_buffer(&mut state.producer, session_id, &tx).await;
+                                                }
+                                            }
+                                        }
+
+
+
                                         continue;
                                     }
                                     _ => {}
@@ -708,14 +733,13 @@ async fn process_incoming_rtx_request<T>(
     }
 }
 
-// returns flash: bool and send: bool
+// returns to_flush = true if the producer needs to flush the buffer
+// and to_send = true if the producer need to send the current packet
 fn need_to_flush_and_send(
     mls_enable: bool,
     is_mls_up: bool,
     already_flushed: bool,
 ) -> (bool, bool) {
-    //let is_mls_up = channel_endpoint.is_mls_up().unwrap_or(false);
-
     let mut to_flush = false;
     let mut to_send = true;
 
@@ -735,6 +759,30 @@ fn need_to_flush_and_send(
     (to_flush, to_send)
 }
 
+async fn flush_producer_buffer<T>(producer: &mut ProducerState, session_id: u32, tx: &T)
+where
+    T: SessionTransmitter + Send + Sync + Clone + 'static,
+{
+    debug!("flush producer buffer");
+    // flush the prod buffer before add the new packet
+    for m in producer.buffer.iter() {
+        if tx.send_to_slim(Ok(m.clone())).await.is_err() {
+            error!(
+                "error sending publication packet to slim on session {}",
+                session_id
+            );
+            tx.send_to_app(Err(SessionError::Processing(
+                "error sending message to local slim instance".to_string(),
+            )))
+            .await
+            .expect("error notifying app");
+        }
+    }
+
+    // set timer for these messages
+    producer.timer.reset(producer.timer_observer.clone());
+}
+
 async fn process_message_from_app<T>(
     mut msg: Message,
     session_id: u32,
@@ -750,26 +798,7 @@ async fn process_message_from_app<T>(
     debug!("received message from the app on session {}", session_id);
 
     if need_flush {
-        debug!("flush producer buffer");
-        // flush the prod buffer before add the new packet
-        for m in producer.buffer.iter() {
-            if tx.send_to_slim(Ok(m.clone())).await.is_err() {
-                error!(
-                    "error sending publication packet to slim on session {}",
-                    session_id
-                );
-                tx.send_to_app(Err(SessionError::Processing(
-                    "error sending message to local slim instance".to_string(),
-                )))
-                .await
-                .expect("error notifying app");
-            }
-        }
-
-        if !send_msg {
-            // set timer for this message
-            producer.timer.reset(producer.timer_observer.clone());
-        }
+        flush_producer_buffer(producer, session_id, tx).await;
     }
 
     if is_bidirectional {
