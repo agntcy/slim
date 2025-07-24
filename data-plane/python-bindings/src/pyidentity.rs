@@ -5,6 +5,7 @@ use pyo3::prelude::*;
 use pyo3_stub_gen::derive::gen_stub_pyclass_enum;
 
 use slim_auth::builder::JwtBuilder;
+use slim_auth::jwt::algorithm_from_jwk;
 use slim_auth::jwt::Key;
 use slim_auth::jwt::SignerJwt;
 use slim_auth::jwt::StaticTokenProvider;
@@ -74,6 +75,8 @@ pub(crate) enum PyKey {
     },
     #[pyo3(constructor = (algorithm, pem))]
     String { algorithm: PyAlgorithm, pem: String },
+    #[pyo3(constructor = (jwk))]
+    Jwk { jwk: String },
 }
 
 impl From<PyKey> for Key {
@@ -86,6 +89,10 @@ impl From<PyKey> for Key {
             PyKey::String { algorithm, pem } => Key {
                 algorithm: algorithm.into(),
                 key: KeyData::Pem(pem),
+            },
+            PyKey::Jwk { jwk } => Key {
+                algorithm: Algorithm::RS256,
+                key: KeyData::Jwk(jwk),
             },
         }
     }
@@ -109,7 +116,7 @@ pub(crate) enum PyIdentityProvider {
         private_key: PyKey,
         duration: std::time::Duration,
         issuer: Option<String>,
-        audience: Option<String>,
+        audience: Option<Vec<String>>,
         subject: Option<String>,
     },
     #[pyo3(constructor = (identity, shared_secret))]
@@ -138,7 +145,7 @@ impl From<PyIdentityProvider> for IdentityProvider {
                     builder = builder.issuer(issuer);
                 }
                 if let Some(audience) = audience {
-                    builder = builder.audience(audience);
+                    builder = builder.audience(&audience);
                 }
                 if let Some(subject) = subject {
                     builder = builder.subject(subject);
@@ -185,7 +192,7 @@ pub(crate) enum PyIdentityVerifier {
         public_key: Option<PyKey>,
         autoresolve: bool,
         issuer: Option<String>,
-        audience: Option<String>,
+        audience: Option<Vec<String>>,
         subject: Option<String>,
         require_iss: bool,
         require_aud: bool,
@@ -218,7 +225,7 @@ impl From<PyIdentityVerifier> for IdentityVerifier {
                 }
 
                 if let Some(audience) = audience {
-                    builder = builder.audience(audience);
+                    builder = builder.audience(&audience);
                 }
 
                 if let Some(subject) = subject {

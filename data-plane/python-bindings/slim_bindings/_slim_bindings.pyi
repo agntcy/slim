@@ -47,6 +47,7 @@ class PyIdentityVerifier(Enum):
 class PyKey(Enum):
     File = auto()
     String = auto()
+    Jwk = auto()
 
 class PySessionConfiguration(Enum):
     FireAndForget = auto()
