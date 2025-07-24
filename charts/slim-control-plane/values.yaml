@@ -10,7 +10,6 @@ replicaCount: 1
 
 # This sets the container image more information can be found here: https://kubernetes.io/docs/concepts/containers/images/
 image:
-  # This sets the image repository more information can be found here: https://kubernetes.io/docs/concepts/containers/images/#specifying-image-versions
   repository: "ghcr.io/agntcy/slim/control-plane"
   # This sets the pull policy for images.
   pullPolicy: IfNotPresent
@@ -21,18 +20,18 @@ image:
 imagePullSecrets: []
 # This is to override the chart name.
 nameOverride: ""
-fullnameOverride: "slim-controller"
+fullnameOverride: "slim-control"
 
 config:
   northbound:
     httpHost: 0.0.0.0
-    httpPort: "{{ .Values.northService.port }}"
+    httpPort: "{{ .Values.service.north.port }}"
     logging:
       level: DEBUG
 
   southbound:
     httpHost: 0.0.0.0
-    httpPort: "{{ .Values.southService.port }}"
+    httpPort: "{{ .Values.service.south.port }}"
     logging:
       level: DEBUG
 
@@ -73,17 +72,13 @@ securityContext: {}
   # runAsUser: 1000
 
 # This is for setting up a service more information can be found here: https://kubernetes.io/docs/concepts/services-networking/service/
-southService:
+service:
   # This sets the service type more information can be found here: https://kubernetes.io/docs/concepts/services-networking/service/#publishing-services-service-types
   type: ClusterIP
-  # This sets the ports more information can be found here: https://kubernetes.io/docs/concepts/services-networking/service/#field-spec-ports
-  port: 50052
-
-northService:
-  # This sets the service type more information can be found here: https://kubernetes.io/docs/concepts/services-networking/service/#publishing-services-service-types
-  type: ClusterIP
-  # This sets the ports more information can be found here: https://kubernetes.io/docs/concepts/services-networking/service/#field-spec-ports
-  port: 50051
+  south:
+    port: 50052
+  north:
+    port: 50051
 
 # This block is for setting up the ingress for more information can be found here: https://kubernetes.io/docs/concepts/services-networking/ingress/
 ingress:

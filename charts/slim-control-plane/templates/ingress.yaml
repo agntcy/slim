@@ -37,7 +37,7 @@ spec:
               service:
                 name: {{ include "control-plane.fullname" $ }}
                 port:
-                  number: {{ $.Values.northService.port }}
+                  number: {{ $.Values.service.north.port }}
           {{- end }}
     {{- end }}
 {{- end }}

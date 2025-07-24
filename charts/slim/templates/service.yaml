@@ -10,11 +10,11 @@ metadata:
 spec:
   type: {{ .Values.slim.service.type }}
   ports:
-    - port: {{ .Values.slim.service.port }}
+    - port: {{ .Values.slim.service.data.port }}
       targetPort: messenger
       protocol: TCP
       name: messenger
-    - port: 46358
+    - port: {{ .Values.slim.service.control.port }}
       targetPort: controller
       protocol: TCP
       name: controller

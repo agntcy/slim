@@ -61,11 +61,11 @@ spec:
             - "--config"
             - "/config.yaml"
           ports:
-            - name: messenger
-              containerPort: {{ .Values.slim.service.port }}
+            - name: data-plane
+              containerPort: {{ .Values.slim.service.data.port }}
               protocol: TCP
             - name: controller
-              containerPort: 46358
+              containerPort: {{ .Values.slim.service.control.port }}
               protocol: TCP
           resources:
             {{- toYaml .Values.slim.resources | nindent 12 }}

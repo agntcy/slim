@@ -38,10 +38,10 @@ spec:
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           ports:
             - name: south
-              containerPort: {{ .Values.southService.port }}
+              containerPort: {{ .Values.service.south.port }}
               protocol: TCP
             - name: north
-              containerPort: {{ .Values.northService.port }}
+              containerPort: {{ .Values.service.north.port }}
               protocol: TCP
           {{ with .Values.env }}
           env:

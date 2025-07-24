@@ -5,13 +5,13 @@ metadata:
   labels:
     {{- include "control-plane.labels" . | nindent 4 }}
 spec:
-  type: {{ .Values.northService.type }}
+  type: {{ .Values.service.type }}
   ports:
-    - port: {{ .Values.northService.port }}
+    - port: {{ .Values.service.north.port }}
       targetPort: north
       protocol: TCP
       name: north
-    - port: {{ .Values.southService.port }}
+    - port: {{ .Values.service.south.port }}
       name: south
       targetPort: south
       protocol: TCP

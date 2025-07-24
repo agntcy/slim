@@ -11,5 +11,5 @@ spec:
     - name: wget
       image: busybox
       command: ['wget']
-      args: ['{{ include "control-plane.fullname" . }}:{{ .Values.northService.port }}']
+      args: ['{{ include "control-plane.fullname" . }}:{{ .Values.service.north.port }}']
   restartPolicy: Never
