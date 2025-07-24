@@ -32,16 +32,16 @@ slim:
       slim/0:
         pubsub:
           servers:
-            - endpoint: "0.0.0.0:46357"
+            - endpoint: "0.0.0.0:{{ .Values.slim.service.port }}"
               tls:
                 insecure: true
 
           clients: []
         controller:
-          server:
-            endpoint: "0.0.0.0:46358"
-            tls:
-              insecure: true
+          servers:
+            - endpoint: "0.0.0.0:{{ .Values.slim.controlService.port }}"
+              tls:
+                insecure: true
 
   # This is for setting up a service more information can be found here: https://kubernetes.io/docs/concepts/services-networking/service/
   service:
@@ -49,6 +49,12 @@ slim:
     type: ClusterIP
     # This sets the ports more information can be found here: https://kubernetes.io/docs/concepts/services-networking/service/#field-spec-ports
     port: 46357
+
+  controlService:
+    # This sets the service type more information can be found here: https://kubernetes.io/docs/concepts/services-networking/service/#publishing-services-service-types
+    type: ClusterIP
+    # This sets the ports more information can be found here: https://kubernetes.io/docs/concepts/services-networking/service/#field-spec-ports
+    port: 46358
 
   # This block is for setting up the ingress for more information can be found here: https://kubernetes.io/docs/concepts/services-networking/ingress/
   ingress:

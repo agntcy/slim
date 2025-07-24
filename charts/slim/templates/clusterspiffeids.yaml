@@ -13,10 +13,10 @@ spec:
     - key: app.kubernetes.io/name
       operator: In
       values:
-      - {{ include "slim.name" . }}     
+      - {{ include "slim.name" . }}
   workloadSelectorTemplates:
     - k8s:pod-image:{{ .Values.slim.image.repository }}:{{ .Values.slim.image.tag | default .Chart.AppVersion }}
-    - k8s:sa:{{ include "slim.serviceAccountName" . }}   
+    - k8s:sa:{{ include "slim.serviceAccountName" . }}
   spiffeIDTemplate: {{ "spiffe://{{ .TrustDomain }}/ns/{{ .PodMeta.Namespace }}/sa/slim" }}
   autoPopulateDNSNames: true
 {{- end }}

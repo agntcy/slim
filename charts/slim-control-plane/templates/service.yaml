@@ -1,18 +1,19 @@
-# Copyright AGNTCY Contributors (https://github.com/agntcy)
-# SPDX-License-Identifier: Apache-2.0
-
 apiVersion: v1
 kind: Service
 metadata:
-  name: {{ include "slim-control-plane.tokenServiceName" . }}
+  name: {{ include "control-plane.fullname" . }}
   labels:
-    {{- include "slim-control-plane.tokenServiceLabels" . | nindent 4 }}
+    {{- include "control-plane.labels" . | nindent 4 }}
 spec:
-  type: {{ .Values.tokenService.service.type }}
+  type: {{ .Values.northService.type }}
   ports:
-    - port: {{ .Values.tokenService.service.port }}
-      targetPort: http
+    - port: {{ .Values.northService.port }}
+      targetPort: north
       protocol: TCP
-      name: http
+      name: north
+    - port: {{ .Values.southService.port }}
+      name: south
+      targetPort: south
+      protocol: TCP
   selector:
-    {{- include "slim-control-plane.tokenServiceSelectorLabels" . | nindent 4 }}
+    {{- include "control-plane.selectorLabels" . | nindent 4 }}
