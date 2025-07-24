@@ -213,11 +213,15 @@ impl Service {
         }
 
         // Controller service
-        let mut controller = self.config.controller.into_service(
-            self.id.clone(),
-            self.watch.clone(),
-            self.message_processor.clone(),
-        );
+        let mut controller = self
+            .config
+            .controller
+            .into_service(
+                self.id.clone(),
+                self.watch.clone(),
+                self.message_processor.clone(),
+            )
+            .await;
 
         // run controller service
         controller.run().await.map_err(|e| {
@@ -257,7 +261,7 @@ impl Service {
         })?;
 
         // Channels to communicate with SLIM
-        let (conn_id, tx_slim, rx_slim) = self.message_processor.register_local_connection();
+        let (conn_id, tx_slim, rx_slim) = self.message_processor.register_local_connection(false);
 
         // Channels to communicate with the local app
         // TODO(msardara): make the buffer size configurable
