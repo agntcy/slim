@@ -21,7 +21,7 @@ import (
 
 	"github.com/agntcy/slim/control-plane/common/options"
 	controllerCmd "github.com/agntcy/slim/control-plane/slimctl/internal/cmd/controller"
-	nodectrlCmd "github.com/agntcy/slim/control-plane/slimctl/internal/cmd/node_controller"
+	nodectrlCmd "github.com/agntcy/slim/control-plane/slimctl/internal/cmd/nodecontroller"
 	versionCmd "github.com/agntcy/slim/control-plane/slimctl/internal/cmd/version"
 )
 
