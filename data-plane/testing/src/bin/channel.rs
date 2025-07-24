@@ -250,7 +250,28 @@ async fn main() {
 
         // listen for messages
         tokio::spawn(async move {
-            loop {
+            for i in 0..max_packets.unwrap_or(u64::MAX) {
+                info!("moderator: send message {}", i);
+                // create payload
+                let mut pstr = msg_payload_str.clone();
+                pstr.push_str(&i.to_string());
+                let p = pstr.as_bytes().to_vec();
+
+                // set fanout > 1 to send the message in broadcast
+                let flags = SlimHeaderFlags::new(10, None, None, None, None);
+
+                if app
+                    .publish_with_flags(info.clone(), &channel_name, None, flags, p)
+                    .await
+                    .is_err()
+                {
+                    panic!("an error occurred sending publication from moderator",);
+                }
+                if frequency != 0 {
+                    tokio::time::sleep(tokio::time::Duration::from_millis(frequency as u64)).await;
+                }
+            }
+            /*             loop {
                 match rx.recv().await {
                     None => {
                         info!(%conn_id, "end of stream");
@@ -274,28 +295,32 @@ async fn main() {
                         }
                     },
                 }
-            }
+            }*/
         });
 
-        for i in 0..max_packets.unwrap_or(u64::MAX) {
-            info!("moderator: send message {}", i);
-            // create payload
-            let mut pstr = msg_payload_str.clone();
-            pstr.push_str(&i.to_string());
-            let p = pstr.as_bytes().to_vec();
+        loop {
+            match rx.recv().await {
+                None => {
+                    info!(%conn_id, "end of stream");
+                    break;
+                }
+                Some(msg_info) => match msg_info {
+                    Ok(msg) => {
+                        let payload = match msg.message.get_payload() {
+                            Some(c) => {
+                                let p = &c.blob;
+                                String::from_utf8(p.to_vec())
+                                    .expect("error while parsing received message")
+                            }
+                            None => "".to_string(),
+                        };
 
-            // set fanout > 1 to send the message in broadcast
-            let flags = SlimHeaderFlags::new(10, None, None, None, None);
-
-            if app
-                .publish_with_flags(info.clone(), &channel_name, None, flags, p)
-                .await
-                .is_err()
-            {
-                panic!("an error occurred sending publication from moderator",);
-            }
-            if frequency != 0 {
-                tokio::time::sleep(tokio::time::Duration::from_millis(frequency as u64)).await;
+                        info!("received message: {}", payload);
+                    }
+                    Err(e) => {
+                        error!("received an error message {:?}", e);
+                    }
+                },
             }
         }
     } else {
