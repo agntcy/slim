@@ -209,4 +209,4 @@ tasks:
     cmds:
       - |
         {{.OUTPUT_DIR}}/bin/control-plane \
-          --config {{.REPO_ROOT}}/control-plane/config.yaml
+          --config {{.REPO_ROOT}}/control-plane/control-plane/config/config.yaml

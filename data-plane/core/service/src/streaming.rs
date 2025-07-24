@@ -454,7 +454,7 @@ where
                                             },
                                         }
 
-                                        // here the mls state may be changed so check if we need
+                                        // here the mls state may change, check if is it possible
                                         // to flush the producer buffer
                                         match &mut endpoint {
                                             Endpoint::Producer(producer) => {
