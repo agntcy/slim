@@ -1,9 +1,12 @@
-FROM golang:1.23 AS builder
+FROM golang:1.24 AS builder
 
 WORKDIR /
 
+# Install unzip
+RUN apt update && apt install unzip
+
 # https://pkg.go.dev/cmd/cgo
-# Some C stuff dosen't work on distroless images
+# Some C stuff doesn't work on distroless images
 ENV CGO_ENABLED=0
 SHELL ["/usr/bin/bash", "-c"]
 
@@ -12,17 +15,16 @@ COPY . /ctx
 WORKDIR /ctx/control-plane
 
 # Install task runner
-RUN curl --location https://taskfile.dev/install.sh -o install.sh && \
-    sh install.sh -d
+RUN sh -c "$(curl --location https://taskfile.dev/install.sh)" -- -d -b /usr/local/bin
 
-RUN ./bin/task control-plane:control-plane:build
+RUN task control-plane:build
 
-#
 ## https://github.com/GoogleContainerTools/distroless
 FROM gcr.io/distroless/static:nonroot AS control-plane
+
 WORKDIR /
 
 COPY --from=builder /ctx/.dist/bin/control-plane .
-
+COPY --from=builder /ctx/.dist/bin/slimctl .
 
 ENTRYPOINT ["control-plane"]
