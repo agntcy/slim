@@ -52,9 +52,6 @@ struct ControllerServiceInternal {
     /// channel to send messages into the datapath
     tx_slim: mpsc::Sender<Result<PubsubMessage, Status>>,
 
-    /// channel to receive messages from the datapath
-    _rx_slim: mpsc::Receiver<Result<PubsubMessage, Status>>,
-
     /// channels to send control messages
     tx_channels: parking_lot::RwLock<TxChannels>,
 
@@ -108,7 +105,7 @@ impl ControlPlane {
     /// * `message_processor` - An Arc to the message processor instance.
     /// # Returns
     /// A new instance of ControlPlane.
-    pub fn new(
+    pub async fn create_control_plane(
         id: ID,
         servers: Vec<ServerConfig>,
         clients: Vec<ClientConfig>,
@@ -116,9 +113,9 @@ impl ControlPlane {
         message_processor: Arc<MessageProcessor>,
     ) -> Self {
         // create local connection with the message processor
-        let (_, tx_slim, rx_slim) = message_processor.register_local_connection();
+        let (_, tx_slim, rx_slim) = message_processor.register_local_connection(true);
 
-        ControlPlane {
+        let mut cp = ControlPlane {
             servers,
             clients,
             controller: ControllerService {
@@ -127,13 +124,15 @@ impl ControlPlane {
                     message_processor,
                     connections: Arc::new(parking_lot::RwLock::new(HashMap::new())),
                     tx_slim,
-                    _rx_slim: rx_slim,
                     tx_channels: parking_lot::RwLock::new(HashMap::new()),
                     cancellation_tokens: parking_lot::RwLock::new(HashMap::new()),
                     drain_rx,
                 }),
             },
-        }
+        };
+
+        cp.listen_from_data_plane(rx_slim).await;
+        cp
     }
 
     /// Take an existing ControlPlane instance and return a new one with the provided clients.
@@ -172,6 +171,49 @@ impl ControlPlane {
         }
 
         Ok(())
+    }
+
+    async fn listen_from_data_plane(
+        &mut self,
+        mut rx: mpsc::Receiver<Result<PubsubMessage, Status>>,
+    ) {
+        let cancellation_token = CancellationToken::new();
+        let cancellation_token_clone = cancellation_token.clone();
+        let drain = self.controller.inner.drain_rx.clone();
+
+        self.controller
+            .inner
+            .cancellation_tokens
+            .write()
+            .insert("DATA_PLANE".to_string(), cancellation_token_clone);
+
+        tokio::spawn(async move {
+            loop {
+                tokio::select! {
+                    next = rx.recv() => {
+                        match next {
+                            Some(msg) => {
+                                info!("got message {:?}", msg);
+                                // TODO: here we have to forward the messages
+                                // to the control plane
+                            }
+                            None => {
+                                debug!("Data plane receiver channel closed.");
+                                break;
+                            }
+                        }
+                    }
+                    _ = cancellation_token.cancelled() => {
+                        debug!("shutting down stream on cancellation token");
+                        break;
+                    }
+                    _ = drain.clone().signaled() => {
+                        debug!("shutting down stream on drain");
+                        break;
+                    }
+                }
+            }
+        });
     }
 
     /// Stop the ControlPlane service.
@@ -815,21 +857,23 @@ mod tests {
         let message_processor_server = MessageProcessor::with_drain_channel(watch_server.clone());
 
         // Create a control plane instance for server
-        let mut control_plane_server = ControlPlane::new(
+        let mut control_plane_server = ControlPlane::create_control_plane(
             id_server,
             vec![server_config],
             vec![],
             watch_server,
             Arc::new(message_processor_server),
-        );
+        )
+        .await;
 
-        let mut control_plane_client = ControlPlane::new(
+        let mut control_plane_client = ControlPlane::create_control_plane(
             id_client,
             vec![],
             vec![client_config],
             watch_client,
             Arc::new(message_processor_client),
-        );
+        )
+        .await;
 
         // Start the server
         control_plane_server.run().await.unwrap();

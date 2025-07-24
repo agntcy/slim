@@ -97,7 +97,7 @@ mod tests {
         assert!(logs_contain(&expected_msg));
 
         // test the local connections
-        let (_conn_id, tx, mut rx) = msg_processor.register_local_connection();
+        let (_conn_id, tx, mut rx) = msg_processor.register_local_connection(false);
 
         // send messages from tx and verify that they are received by rx
         let msg = make_message("org", "namespace", "type");
