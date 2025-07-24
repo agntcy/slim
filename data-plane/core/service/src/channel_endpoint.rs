@@ -351,14 +351,6 @@ where
         }
     }
 
-    fn on_mls_ack(&mut self) -> Result<(), SessionError> {
-        // this is called by the moderator when the participant
-        // sends back an ack after the welcome message
-        self.mls_up = true;
-
-        Ok(())
-    }
-
     fn is_mls_up(&self) -> Result<bool, SessionError> {
         Ok(self.mls_up)
     }
@@ -479,10 +471,6 @@ where
     fn get_next_mls_mgs_id(&mut self) -> u32 {
         self.next_msg_id += 1;
         self.next_msg_id
-    }
-
-    fn on_mls_ack(&mut self) -> Result<(), SessionError> {
-        self.common.on_mls_ack()
     }
 
     fn is_mls_up(&self) -> Result<bool, SessionError> {
@@ -1501,11 +1489,15 @@ where
                 .unwrap()
                 .mls_phase_completed(recv_msg_id)?;
 
-            // notify mls state that an ack was received
-            self.mls_state
-                .as_mut()
-                .ok_or(SessionError::NoMls)?
-                .on_mls_ack()?;
+            // check if the task is done. if yes we can set mls_up to
+            // true because at least one MLS task was done
+            if self.current_task.as_mut().unwrap().task_complete() {
+                self.mls_state
+                    .as_mut()
+                    .ok_or(SessionError::NoMls)?
+                    .common
+                    .mls_up = true;
+            }
 
             // check if the current task is completed
             self.task_done().await?;

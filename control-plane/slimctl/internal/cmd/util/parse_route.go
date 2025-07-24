@@ -3,7 +3,7 @@ package util
 import (
 	"encoding/json"
 	"fmt"
-	"net"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -51,46 +51,38 @@ func ParseRoute(route string) (
 }
 
 func ParseEndpoint(endpoint string) (*grpcapi.Connection, string, error) {
-	host, portStr, err := net.SplitHostPort(endpoint)
+	u, err := url.Parse(endpoint)
 	if err != nil {
-		return nil, "", fmt.Errorf(
-			"cannot split endpoint '%s' into host:port: %w",
-			endpoint,
-			err,
-		)
+		return nil, "", fmt.Errorf("failed to parse endpoint '%s': %w", endpoint, err)
 	}
 
+	scheme := u.Scheme
+	if scheme != "http" && scheme != "https" {
+		return nil, "", fmt.Errorf("unsupported scheme '%s' in endpoint '%s', must be 'http' or 'https'", scheme, endpoint)
+	}
+
+	host := u.Hostname()
+	portStr := u.Port()
 	if host == "" {
-		return nil, "", fmt.Errorf(
-			"invalid endpoint format '%s': host part is missing",
-			endpoint,
-		)
+		return nil, "", fmt.Errorf("invalid endpoint format '%s': host part is missing", endpoint)
 	}
-
+	if portStr == "" {
+		return nil, "", fmt.Errorf("invalid endpoint format '%s': port part is missing", endpoint)
+	}
 	port, err := strconv.ParseInt(portStr, 10, 32)
 	if err != nil {
-		return nil, "", fmt.Errorf(
-			"invalid port '%s' in endpoint '%s': %w",
-			portStr,
-			endpoint,
-			err,
-		)
+		return nil, "", fmt.Errorf("invalid port '%s' in endpoint '%s': %w", portStr, endpoint, err)
 	}
 	if port <= 0 || port > 65535 {
-		return nil, "", fmt.Errorf(
-			"port number '%d' in endpoint '%s' out of range (1-65535)",
-			port,
-			endpoint,
-		)
+		return nil, "", fmt.Errorf("port number '%d' in endpoint '%s' out of range (1-65535)", port, endpoint)
 	}
 
-	connID := endpoint
 	conn := &grpcapi.Connection{
-		ConnectionId: connID,
+		ConnectionId: endpoint,
 		ConfigData:   "",
 	}
 
-	return conn, connID, nil
+	return conn, endpoint, nil
 }
 
 func ParseConfigFile(configFile string) (*grpcapi.Connection, error) {

@@ -183,7 +183,7 @@ func newAddCmd(opts *options.CommonOptions) *cobra.Command {
 
 func newDelCmd(opts *options.CommonOptions) *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "del <organization/namespace/agentname/agentid> via <host:port>",
+		Use:   "del <organization/namespace/agentname/agentid> via <http|https://host:port>",
 		Short: "Delete a route from a SLIM instance",
 		Long:  `Delete a route from a SLIM instance`,
 		Args:  cobra.ExactArgs(3),
