@@ -456,27 +456,20 @@ where
 
                                         // here the mls state may change, check if is it possible
                                         // to flush the producer buffer
-                                        match &mut endpoint {
-                                            Endpoint::Producer(producer) => {
-                                                let (need_flush, _) = need_to_flush_and_send(mls_enable,
-                                                    channel_endpoint.is_mls_up().unwrap_or(false), flushed);
-                                                if need_flush {
-                                                    flushed = true;
+                                        if !flushed && channel_endpoint.is_mls_up().unwrap_or(false) {
+                                            // flush the producer buffer
+                                            match &mut endpoint {
+                                                Endpoint::Producer(producer) => {
                                                     flush_producer_buffer(producer, session_id, &tx).await;
                                                 }
-                                            }
-                                            Endpoint::Receiver(_) => { /* nothing to di in this case */ }
-                                            Endpoint::Bidirectional(state) => {
-                                                let (need_flush, _) = need_to_flush_and_send(mls_enable,
-                                                    channel_endpoint.is_mls_up().unwrap_or(false), flushed);
-                                                if need_flush {
-                                                    flushed = true;
+                                                Endpoint::Receiver(_) => { /* nothing to di in this case */ }
+                                                Endpoint::Bidirectional(state) => {
                                                     flush_producer_buffer(&mut state.producer, session_id, &tx).await;
                                                 }
                                             }
+
+                                            flushed = true;
                                         }
-
-
 
                                         continue;
                                     }
@@ -502,14 +495,9 @@ where
                                             }
                                             MessageDirection::South => {
                                                 // received a message from the application
-                                                // if mls is on check if we need to flush and when start to send packets
+                                                // if flushed is true send the packet, otherwise keep it in the buffer
                                                 let bidirectional = false;
-                                                let (need_flush, send_msg) = need_to_flush_and_send(mls_enable,
-                                                    channel_endpoint.is_mls_up().unwrap_or(false), flushed);
-                                                if need_flush {
-                                                    flushed = true;
-                                                }
-                                                process_message_from_app(msg, session_id, producer, bidirectional, need_flush, send_msg, &tx).await;
+                                                process_message_from_app(msg, session_id, producer, bidirectional, flushed, &tx).await;
                                             }
                                         }
                                     }
@@ -535,15 +523,9 @@ where
                                             }
                                             MessageDirection::South => {
                                                 // received a message from the APP
-                                                // if mls is on check if we need to flush and when start to send packets
-                                                let bidireaction = true;
-                                                let (need_flush, send_msg) = need_to_flush_and_send(mls_enable,
-                                                        channel_endpoint.is_mls_up().unwrap_or(false), flushed);
-                                                if need_flush {
-                                                    flushed = true;
-                                                }
-
-                                                process_message_from_app(msg, session_id, &mut state.producer, bidireaction, need_flush, send_msg, &tx).await;
+                                                // if flushed is true send the packet, otherwise keep it in the buffer
+                                                let bidirectional = true;
+                                                process_message_from_app(msg, session_id, &mut state.producer, bidirectional, flushed, &tx).await;
                                             }
                                         };
                                     }
@@ -733,38 +715,13 @@ async fn process_incoming_rtx_request<T>(
     }
 }
 
-// returns to_flush = true if the producer needs to flush the buffer
-// and to_send = true if the producer need to send the current packet
-fn need_to_flush_and_send(
-    mls_enable: bool,
-    is_mls_up: bool,
-    already_flushed: bool,
-) -> (bool, bool) {
-    let mut to_flush = false;
-    let mut to_send = true;
-
-    let mut already_flushed_copy = already_flushed;
-
-    if !already_flushed_copy && is_mls_up {
-        to_flush = true;
-        // move already_flushed to true so that
-        // we can enable also the send
-        already_flushed_copy = true;
-    }
-
-    if !already_flushed_copy && mls_enable {
-        to_send = false;
-    }
-
-    (to_flush, to_send)
-}
-
 async fn flush_producer_buffer<T>(producer: &mut ProducerState, session_id: u32, tx: &T)
 where
     T: SessionTransmitter + Send + Sync + Clone + 'static,
 {
     debug!("flush producer buffer");
-    // flush the prod buffer before add the new packet
+    // flush the prod buffer and check if at least one message was sent
+    let mut sent = false;
     for m in producer.buffer.iter() {
         if tx.send_to_slim(Ok(m.clone())).await.is_err() {
             error!(
@@ -777,10 +734,13 @@ where
             .await
             .expect("error notifying app");
         }
+        sent = true;
     }
 
     // set timer for these messages
-    producer.timer.reset(producer.timer_observer.clone());
+    if sent {
+        producer.timer.reset(producer.timer_observer.clone());
+    }
 }
 
 async fn process_message_from_app<T>(
@@ -788,18 +748,13 @@ async fn process_message_from_app<T>(
     session_id: u32,
     producer: &mut ProducerState,
     is_bidirectional: bool,
-    need_flush: bool,
     send_msg: bool,
     tx: &T,
 ) where
     T: SessionTransmitter + Send + Sync + Clone + 'static,
 {
     // set the session header, add the message to the buffer and send it
-    debug!("received message from the app on session {}", session_id);
-
-    if need_flush {
-        flush_producer_buffer(producer, session_id, tx).await;
-    }
+    trace!("received message from the app on session {}", session_id);
 
     if is_bidirectional {
         msg.set_session_type(ProtoSessionType::SessionPubSub);
