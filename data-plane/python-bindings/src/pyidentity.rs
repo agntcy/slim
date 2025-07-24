@@ -2,13 +2,15 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use pyo3::prelude::*;
-use pyo3_stub_gen::derive::gen_stub_pyclass_enum;
+use pyo3_stub_gen::derive::{gen_stub_pyclass, gen_stub_pyclass_enum};
 
 use slim_auth::builder::JwtBuilder;
 use slim_auth::jwt::Key;
+use slim_auth::jwt::KeyFormat;
 use slim_auth::jwt::SignerJwt;
 use slim_auth::jwt::StaticTokenProvider;
 use slim_auth::jwt::VerifierJwt;
+use slim_auth::jwt::algorithm_from_jwk;
 use slim_auth::jwt::{Algorithm, KeyData};
 use slim_auth::shared_secret::SharedSecret;
 use slim_auth::traits::TokenProvider;
@@ -66,27 +68,54 @@ impl From<PyAlgorithm> for Algorithm {
 #[gen_stub_pyclass_enum]
 #[derive(Clone, PartialEq)]
 #[pyclass(eq)]
-pub(crate) enum PyKey {
-    #[pyo3(constructor = (algorithm, path))]
-    File {
-        algorithm: PyAlgorithm,
-        path: String,
-    },
-    #[pyo3(constructor = (algorithm, pem))]
-    String { algorithm: PyAlgorithm, pem: String },
+pub(crate) enum PyKeyData {
+    #[pyo3(constructor = (path))]
+    File { path: String },
+    #[pyo3(constructor = (content))]
+    Content { content: String },
+}
+
+impl From<PyKeyData> for KeyData {
+    fn from(value: PyKeyData) -> Self {
+        match value {
+            PyKeyData::File { path } => KeyData::File(path),
+            PyKeyData::Content { content } => KeyData::Str(content),
+        }
+    }
+}
+
+#[gen_stub_pyclass_enum]
+#[derive(Clone, PartialEq)]
+#[pyclass(eq)]
+pub(crate) enum PyKeyFormat {
+    Pem,
+    Jwk
+}
+
+impl From<PyKeyFormat> for KeyFormat {
+    fn from(value: PyKeyFormat) -> Self {
+        match value {
+            PyKeyFormat::Pem => KeyFormat::Pem,
+            PyKeyFormat::Jwk => KeyFormat::Jwk,
+        }
+    }
+}
+
+#[gen_stub_pyclass]
+#[pyclass]
+#[derive(Clone, PartialEq)]
+pub(crate) struct PyKey {
+    pub(crate) algorithm: PyAlgorithm,
+    pub(crate) format: KeyFormat,
+    pub(crate) key: PyKeyData,
 }
 
 impl From<PyKey> for Key {
     fn from(value: PyKey) -> Self {
-        match value {
-            PyKey::File { algorithm, path } => Key {
-                algorithm: algorithm.into(),
-                key: KeyData::File(path),
-            },
-            PyKey::String { algorithm, pem } => Key {
-                algorithm: algorithm.into(),
-                key: KeyData::Pem(pem),
-            },
+        Key {
+            algorithm: value.algorithm.into(),
+            format: value.format.into(),
+            key: value.key.into(),
         }
     }
 }
@@ -109,7 +138,7 @@ pub(crate) enum PyIdentityProvider {
         private_key: PyKey,
         duration: std::time::Duration,
         issuer: Option<String>,
-        audience: Option<String>,
+        audience: Option<Vec<String>>,
         subject: Option<String>,
     },
     #[pyo3(constructor = (identity, shared_secret))]
@@ -138,7 +167,7 @@ impl From<PyIdentityProvider> for IdentityProvider {
                     builder = builder.issuer(issuer);
                 }
                 if let Some(audience) = audience {
-                    builder = builder.audience(audience);
+                    builder = builder.audience(&audience);
                 }
                 if let Some(subject) = subject {
                     builder = builder.subject(subject);
@@ -185,7 +214,7 @@ pub(crate) enum PyIdentityVerifier {
         public_key: Option<PyKey>,
         autoresolve: bool,
         issuer: Option<String>,
-        audience: Option<String>,
+        audience: Option<Vec<String>>,
         subject: Option<String>,
         require_iss: bool,
         require_aud: bool,
@@ -218,7 +247,7 @@ impl From<PyIdentityVerifier> for IdentityVerifier {
                 }
 
                 if let Some(audience) = audience {
-                    builder = builder.audience(audience);
+                    builder = builder.audience(&audience);
                 }
 
                 if let Some(subject) = subject {

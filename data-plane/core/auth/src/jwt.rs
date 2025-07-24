@@ -7,9 +7,10 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use async_trait::async_trait;
 pub use jsonwebtoken_aws_lc::Algorithm;
+use jsonwebtoken_aws_lc::jwk::KeyAlgorithm;
 use jsonwebtoken_aws_lc::{
     DecodingKey, EncodingKey, Header as JwtHeader, TokenData, Validation, decode, decode_header,
-    encode, errors::ErrorKind,
+    encode, errors::ErrorKind, jwk::Jwk,
 };
 
 use parking_lot::RwLock;
@@ -22,12 +23,18 @@ use crate::file_watcher::FileWatcher;
 use crate::resolver::KeyResolver;
 use crate::traits::{Signer, StandardClaims, TokenProvider, Verifier};
 
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
+pub enum KeyFormat {
+    Pem,
+    Jwk,
+}
+
 /// Enum representing key data types
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 #[serde(rename_all = "lowercase")]
 pub enum KeyData {
-    /// PEM encoded key
-    Pem(String),
+    /// String with encoded key
+    Str(String),
     /// File path to the key
     File(String),
 }
@@ -39,10 +46,49 @@ pub struct Key {
     #[schemars(skip)]
     pub algorithm: Algorithm,
 
-    /// PEM encoded key or file path
+    /// Key format - PEM or JWK
+    #[schemars(skip)]
+    pub format: KeyFormat,
+
+    /// Eencoded key or file path
     #[schemars(skip)]
     #[serde(flatten, with = "serde_yaml::with::singleton_map")]
     pub key: KeyData,
+}
+
+fn key_alg_to_algorithm(key: &KeyAlgorithm) -> Result<Algorithm, AuthError> {
+    match key {
+        KeyAlgorithm::ES256 => Ok(Algorithm::ES256),
+        KeyAlgorithm::ES384 => Ok(Algorithm::ES384),
+        KeyAlgorithm::HS256 => Ok(Algorithm::HS256),
+        KeyAlgorithm::HS384 => Ok(Algorithm::HS384),
+        KeyAlgorithm::HS512 => Ok(Algorithm::HS512),
+        KeyAlgorithm::RS256 => Ok(Algorithm::RS256),
+        KeyAlgorithm::RS384 => Ok(Algorithm::RS384),
+        KeyAlgorithm::RS512 => Ok(Algorithm::RS512),
+        KeyAlgorithm::PS256 => Ok(Algorithm::PS256),
+        KeyAlgorithm::PS384 => Ok(Algorithm::PS384),
+        KeyAlgorithm::PS512 => Ok(Algorithm::PS512),
+        KeyAlgorithm::EdDSA => Ok(Algorithm::EdDSA),
+        _ => Err(AuthError::ConfigError(format!(
+            "Unsupported key algorithm: {:?}",
+            key
+        ))),
+    }
+}
+
+pub fn algorithm_from_jwk(jwk: &str) -> Result<Algorithm, AuthError> {
+    let jwk: Jwk = serde_json::from_str(jwk)
+        .map_err(|e| AuthError::ConfigError(format!("Failed to parse JWK: {}", e)))?;
+
+    tracing::info!(?jwk, "JWK parsed successfully");
+
+    let alg = jwk
+        .common
+        .key_algorithm
+        .ok_or_else(|| AuthError::ConfigError("JWK does not contain an algorithm".to_string()))?;
+
+    key_alg_to_algorithm(&alg)
 }
 
 /// Cache entry for validated tokens
@@ -513,7 +559,7 @@ mod tests {
     use std::collections::HashMap;
     use std::fs::{File, OpenOptions};
     use std::io::{Seek, SeekFrom, Write};
-    use std::{env, fs};
+    use std::{env, fs, vec};
 
     use super::*;
     use jsonwebtoken_aws_lc::{Algorithm, Header};
@@ -554,10 +600,11 @@ mod tests {
         // create jwt builder
         let jwt = JwtBuilder::new()
             .issuer("test-issuer")
-            .audience("test-audience")
+            .audience(&["test-audience"])
             .subject("test-subject")
             .private_key(&Key {
                 algorithm: Algorithm::HS512,
+                format: KeyFormat::Pem,
                 key: KeyData::File(file_name.to_string()),
             })
             .build()
@@ -566,7 +613,7 @@ mod tests {
         let claims = jwt.create_claims();
 
         assert_eq!(claims.iss.unwrap(), "test-issuer");
-        assert_eq!(claims.aud.unwrap(), "test-audience");
+        assert_eq!(claims.aud.unwrap(), ["test-audience"]);
         assert_eq!(claims.sub.unwrap(), "test-subject");
 
         assert!(jwt.decoding_key.is_none());
@@ -633,10 +680,11 @@ mod tests {
         // create jwt builder
         let jwt = JwtBuilder::new()
             .issuer("test-issuer")
-            .audience("test-audience")
+            .audience(&["test-audience"])
             .subject("test-subject")
             .public_key(&Key {
                 algorithm: Algorithm::HS512,
+                format: KeyFormat::Pem,
                 key: KeyData::File(file_name.to_string()),
             })
             .build()
@@ -648,11 +696,12 @@ mod tests {
         // test the verifier with the first key
         let signer = JwtBuilder::new()
             .issuer("test-issuer")
-            .audience("test-audience")
+            .audience(&["test-audience"])
             .subject("test-subject")
             .private_key(&Key {
                 algorithm: Algorithm::HS512,
-                key: KeyData::Pem(String::from(first_key)),
+                format: KeyFormat::Pem,
+                key: KeyData::Str(String::from(first_key)),
             })
             .build()
             .unwrap();
@@ -663,7 +712,7 @@ mod tests {
         let verified_claims: StandardClaims = jwt.verify(token.clone()).await.unwrap();
 
         assert_eq!(verified_claims.iss.unwrap(), "test-issuer");
-        assert_eq!(verified_claims.aud.unwrap(), "test-audience");
+        assert_eq!(verified_claims.aud.unwrap(), &["test-audience"]);
         assert_eq!(verified_claims.sub.unwrap(), "test-subject");
 
         let second_key = "another-test-key";
@@ -676,11 +725,12 @@ mod tests {
         // test the verifier with the second key
         let signer = JwtBuilder::new()
             .issuer("test-issuer")
-            .audience("test-audience")
+            .audience(&["test-audience"])
             .subject("test-subject")
             .private_key(&Key {
                 algorithm: Algorithm::HS512,
-                key: KeyData::Pem(String::from(second_key)),
+                format: KeyFormat::Pem,
+                key: KeyData::Str(String::from(second_key)),
             })
             .build()
             .unwrap();
@@ -691,7 +741,7 @@ mod tests {
         let verified_claims: StandardClaims = jwt.verify(token.clone()).await.unwrap();
 
         assert_eq!(verified_claims.iss.unwrap(), "test-issuer");
-        assert_eq!(verified_claims.aud.unwrap(), "test-audience");
+        assert_eq!(verified_claims.aud.unwrap(), &["test-audience"]);
         assert_eq!(verified_claims.sub.unwrap(), "test-subject");
 
         delete_file(file_name).expect("error deleting file");
@@ -701,22 +751,24 @@ mod tests {
     async fn test_jwt_sign_and_verify() {
         let signer = JwtBuilder::new()
             .issuer("test-issuer")
-            .audience("test-audience")
+            .audience(&["test-audience"])
             .subject("test-subject")
             .private_key(&Key {
                 algorithm: Algorithm::HS512,
-                key: KeyData::Pem("secret-key".to_string()),
+                format: KeyFormat::Pem,
+                key: KeyData::Str("secret-key".to_string()),
             })
             .build()
             .unwrap();
 
         let verifier = JwtBuilder::new()
             .issuer("test-issuer")
-            .audience("test-audience")
+            .audience(&["test-audience"])
             .subject("test-subject")
             .public_key(&Key {
                 algorithm: Algorithm::HS512,
-                key: KeyData::Pem("secret-key".to_string()),
+                format: KeyFormat::Pem,
+                key: KeyData::Str("secret-key".to_string()),
             })
             .build()
             .unwrap();
@@ -727,7 +779,7 @@ mod tests {
         let verified_claims: StandardClaims = verifier.verify(token.clone()).await.unwrap();
 
         assert_eq!(verified_claims.iss.unwrap(), "test-issuer");
-        assert_eq!(verified_claims.aud.unwrap(), "test-audience");
+        assert_eq!(verified_claims.aud.unwrap(), ["test-audience"]);
         assert_eq!(verified_claims.sub.unwrap(), "test-subject");
 
         // Try to verify with an invalid token
@@ -742,11 +794,12 @@ mod tests {
         // Create a verifier with the wrong key
         let wrong_verifier = JwtBuilder::new()
             .issuer("test-issuer")
-            .audience("test-audience")
+            .audience(&["test-audience"])
             .subject("test-subject")
             .public_key(&Key {
                 algorithm: Algorithm::HS512,
-                key: KeyData::Pem("wrong-secret-key".to_string()),
+                format: KeyFormat::Pem,
+                key: KeyData::Str("wrong-secret-key".to_string()),
             })
             .build()
             .unwrap();
@@ -761,22 +814,24 @@ mod tests {
     async fn test_jwt_sign_and_verify_custom_claims() {
         let signer = JwtBuilder::new()
             .issuer("test-issuer")
-            .audience("test-audience")
+            .audience(&["test-audience"])
             .subject("test-subject")
             .private_key(&Key {
                 algorithm: Algorithm::HS512,
-                key: KeyData::Pem("secret-key".to_string()),
+                format: KeyFormat::Pem,
+                key: KeyData::Str("secret-key".to_string()),
             })
             .build()
             .unwrap();
 
         let verifier = JwtBuilder::new()
             .issuer("test-issuer")
-            .audience("test-audience")
+            .audience(&["test-audience"])
             .subject("test-subject")
             .public_key(&Key {
                 algorithm: Algorithm::HS512,
-                key: KeyData::Pem("secret-key".to_string()),
+                format: KeyFormat::Pem,
+                key: KeyData::Str("secret-key".to_string()),
             })
             .build()
             .unwrap();
@@ -821,18 +876,19 @@ mod tests {
         // Build the JWT with auto key resolution
         let signer = JwtBuilder::new()
             .issuer(mock_server.uri())
-            .audience("test-audience")
+            .audience(&["test-audience"])
             .subject("test-subject")
             .private_key(&Key {
                 algorithm,
-                key: KeyData::Pem(test_key),
+                format: KeyFormat::Pem,
+                key: KeyData::Str(test_key),
             })
             .build()
             .unwrap();
 
         let verifier = JwtBuilder::new()
             .issuer(mock_server.uri())
-            .audience("test-audience")
+            .audience(&["test-audience"])
             .subject("test-subject")
             .auto_resolve_keys(true)
             .build()
@@ -844,7 +900,7 @@ mod tests {
 
         // Validate the claims
         assert_eq!(claims.iss.unwrap(), mock_server.uri());
-        assert_eq!(claims.aud.unwrap(), "test-audience");
+        assert_eq!(claims.aud.unwrap(), vec!["test-audience"]);
         assert_eq!(claims.sub.unwrap(), "test-subject");
     }
 
@@ -895,26 +951,53 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_jwk() {
+        let token = "eyJhbGciOiJSUzI1NiIsImtpZCI6InFLWXBwMTVJb2x0WXFaTEZFUHd4VnQ4aFlWeHFTN1A4IiwidHlwIjoiSldUIn0.eyJhdWQiOlsic2xpbS1kZW1vIl0sImV4cCI6MTc1MzE3MTMzMSwiaWF0IjoxNzUzMTY3NzMxLCJpc3MiOiJodHRwczovL29pZGMtZGlzY292ZXJ5LmV4YW1wbGUub3JnIiwic3ViIjoic3BpZmZlOi8vZXhhbXBsZS5vcmcvbnMvc2xpbS1jbGllbnRzL3NhL3NsaW0tY2xpZW50LTEifQ.ajYghAS0drv4zH8hLj5rY811e6WrgXS9Sf-26xWxtO-ILiJZJp1Ehry_86ijlH3UAFKuwLOsXckIErCP1VisgQi0pXFx_R0RvPi66IPWXdRjE0IORabM6XMVspfcd3eHdz60sJ9FAgw4NoZ8TSceu0oXaK2LWX0BmkrpgP1L4jGELOPRr4MmQo1bC4fFBFC9hUyZG80DslIb6Ra5vNZgSfUzeDy3-RTG4DbUJYzilZ9cFiulnc57lApEohzGQfgZDRRUQWao3ZK7BUCBKihzUbPPfraK7y6XeZRlOEE8MY4V0iMCKawNg-tiK1b39tbwq6MF0Bk2v-my4Q-x4d91VA";
+
+        let verifier = JwtBuilder::new()
+            .issuer("https://oidc-discovery.example.org")
+            .audience(&["slim-demo"])
+            .subject("spiffe://example.org/ns/slim-clients/sa/slim-client-1")
+            .public_key(&Key {
+                algorithm: Algorithm::RS256,
+                format: KeyFormat::Jwk,
+                key: KeyData::Str(
+                    r#"{
+                            "kty": "RSA",
+                            "kid": "qKYpp15IoltYqZLFEPwxVt8hYVxqS7P8",
+                            "n": "l4D_vzJlSAME60UrMZfmFDCYf-wo1icFBK8IPd_8v1vW2J72rzCrY6DwkZV_Y-xzisagpj8MeHOnakDN5NovU7ciAMucIpUjDenWlvSaVHgRj2g99RjO3_tAa423Hv91H_2RGRv0eiHDNSr_kogQ3WZTRs1QRV7Xpr0xQtj6DOCD7HF6kOjN-Mklh7r9zdrjFYZbdQsvvTjUo6lco24DeoD_sjBWMkoeQfTEEfleNGDmD_qtTwLcLBb3fO0TFmMh6_3lHdWBOpOaDL5S7rTv84C_KAXqyhkSQp-aeicZCiAH1Z6rUzQoNRjkos6zNV4nrH8sZVNv56qzTfJIUWL5hw",
+                            "e": "AQAB"
+                        }"#.to_string())})
+            .build()
+            .unwrap();
+
+        // Verify the token
+        let _result: StandardClaims = verifier.try_verify(token.to_string()).unwrap();
+    }
+
+    #[tokio::test]
     async fn test_jwt_verify_caching() {
         // Create test JWT objects
         let signer = JwtBuilder::new()
             .issuer("test-issuer")
-            .audience("test-audience")
+            .audience(&["test-audience"])
             .subject("test-subject")
             .private_key(&Key {
                 algorithm: Algorithm::HS512,
-                key: KeyData::Pem("secret-key".to_string()),
+                format: KeyFormat::Pem,
+                key: KeyData::Str("secret-key".to_string()),
             })
             .build()
             .unwrap();
 
         let mut verifier = JwtBuilder::new()
             .issuer("test-issuer")
-            .audience("test-audience")
+            .audience(&["test-audience"])
             .subject("test-subject")
             .public_key(&Key {
                 algorithm: Algorithm::HS512,
-                key: KeyData::Pem("secret-key".to_string()),
+                format: KeyFormat::Pem,
+                key: KeyData::Str("secret-key".to_string()),
             })
             .build()
             .unwrap();
