@@ -27,4 +27,4 @@ WORKDIR /
 COPY --from=builder /ctx/.dist/bin/control-plane .
 COPY --from=builder /ctx/.dist/bin/slimctl .
 
-ENTRYPOINT ["control-plane"]
+ENTRYPOINT ["/control-plane"]
