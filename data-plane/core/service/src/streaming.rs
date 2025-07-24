@@ -477,14 +477,14 @@ where
                                             }
                                             MessageDirection::South => {
                                                 // received a message from the application
-                                                // if mls is on check if we need to flush
-                                                let need_flush = if !flushed && channel_endpoint.is_mls_up().unwrap_or(false) {
+                                                // if mls is on check if we need to flush and when start to send packets
+                                                let bidirectional = false;
+                                                let (need_flush, send_msg) = need_to_flush_and_send(mls_enable,
+                                                    channel_endpoint.is_mls_up().unwrap_or(false), flushed);
+                                                if need_flush {
                                                     flushed = true;
-                                                    true
-                                                } else {
-                                                    false
-                                                };
-                                                process_message_from_app(msg, session_id, producer, false, need_flush, &tx).await;
+                                                }
+                                                process_message_from_app(msg, session_id, producer, bidirectional, need_flush, send_msg, &tx).await;
                                             }
                                         }
                                     }
@@ -510,15 +510,15 @@ where
                                             }
                                             MessageDirection::South => {
                                                 // received a message from the APP
-                                                // if mls is on check if we need to flush
-                                                let need_flush = if !flushed && channel_endpoint.is_mls_up().unwrap_or(false) {
+                                                // if mls is on check if we need to flush and when start to send packets
+                                                let bidireaction = true;
+                                                let (need_flush, send_msg) = need_to_flush_and_send(mls_enable,
+                                                        channel_endpoint.is_mls_up().unwrap_or(false), flushed);
+                                                if need_flush {
                                                     flushed = true;
-                                                    true
-                                                } else {
-                                                    false
-                                                };
+                                                }
 
-                                                process_message_from_app(msg, session_id, &mut state.producer, true, need_flush, &tx).await;
+                                                process_message_from_app(msg, session_id, &mut state.producer, bidireaction, need_flush, send_msg, &tx).await;
                                             }
                                         };
                                     }
@@ -708,18 +708,46 @@ async fn process_incoming_rtx_request<T>(
     }
 }
 
+// returns flash: bool and send: bool
+fn need_to_flush_and_send(
+    mls_enable: bool,
+    is_mls_up: bool,
+    already_flushed: bool,
+) -> (bool, bool) {
+    //let is_mls_up = channel_endpoint.is_mls_up().unwrap_or(false);
+
+    let mut to_flush = false;
+    let mut to_send = true;
+
+    let mut already_flushed_copy = already_flushed;
+
+    if !already_flushed_copy && is_mls_up {
+        to_flush = true;
+        // move already_flushed to true so that
+        // we can enable also the send
+        already_flushed_copy = true;
+    }
+
+    if !already_flushed_copy && mls_enable {
+        to_send = false;
+    }
+
+    (to_flush, to_send)
+}
+
 async fn process_message_from_app<T>(
     mut msg: Message,
     session_id: u32,
     producer: &mut ProducerState,
     is_bidirectional: bool,
     need_flush: bool,
+    send_msg: bool,
     tx: &T,
 ) where
     T: SessionTransmitter + Send + Sync + Clone + 'static,
 {
     // set the session header, add the message to the buffer and send it
-    trace!("received message from the app on session {}", session_id);
+    debug!("received message from the app on session {}", session_id);
 
     if need_flush {
         debug!("flush producer buffer");
@@ -736,6 +764,11 @@ async fn process_message_from_app<T>(
                 .await
                 .expect("error notifying app");
             }
+        }
+
+        if !send_msg {
+            // set timer for this message
+            producer.timer.reset(producer.timer_observer.clone());
         }
     }
 
@@ -763,20 +796,22 @@ async fn process_message_from_app<T>(
     );
     producer.next_id += 1;
 
-    if tx.send_to_slim(Ok(msg)).await.is_err() {
-        error!(
-            "error sending publication packet to slim on session {}",
-            session_id
-        );
-        tx.send_to_app(Err(SessionError::Processing(
-            "error sending message to local slim instance".to_string(),
-        )))
-        .await
-        .expect("error notifying app");
-    }
+    if send_msg {
+        if tx.send_to_slim(Ok(msg)).await.is_err() {
+            error!(
+                "error sending publication packet to slim on session {}",
+                session_id
+            );
+            tx.send_to_app(Err(SessionError::Processing(
+                "error sending message to local slim instance".to_string(),
+            )))
+            .await
+            .expect("error notifying app");
+        }
 
-    // set timer for this message
-    producer.timer.reset(producer.timer_observer.clone());
+        // set timer for this message
+        producer.timer.reset(producer.timer_observer.clone());
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
