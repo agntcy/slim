@@ -21,6 +21,10 @@
             "package-name": "slimctl",
             "release-type": "go"
         },
+        "control-plane/control-plane": {
+            "package-name": "control-plane",
+            "release-type": "go"
+        },
         "data-plane/integrations/mcp/slim-mcp/examples/llamaindex-time-agent": {
             "package-name": "slim-llamaindex-time-agent",
             "release-type": "simple"
