@@ -32,7 +32,7 @@ slim:
       slim/0:
         pubsub:
           servers:
-            - endpoint: "0.0.0.0:{{ .Values.slim.data.service.port }}"
+            - endpoint: "0.0.0.0:{{ .Values.slim.service.data.port }}"
               tls:
                 insecure: true
 
