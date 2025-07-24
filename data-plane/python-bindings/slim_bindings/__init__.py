@@ -43,6 +43,12 @@ from ._slim_bindings import (
     PyKey as PyKey,
 )
 from ._slim_bindings import (
+    PyKeyData as PyKeyData,
+)
+from ._slim_bindings import (
+    PyKeyFormat as PyKeyFormat,
+)
+from ._slim_bindings import (
     PySessionDirection as PySessionDirection,
 )
 from ._slim_bindings import (

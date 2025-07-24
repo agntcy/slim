@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use pyo3::prelude::*;
-use pyo3_stub_gen::derive::{gen_stub_pyclass, gen_stub_pyclass_enum};
+use pyo3_stub_gen::derive::{gen_stub_pyclass, gen_stub_pyclass_enum, gen_stub_pymethods};
 
 use slim_auth::builder::JwtBuilder;
 use slim_auth::jwt::Key;
@@ -10,7 +10,6 @@ use slim_auth::jwt::KeyFormat;
 use slim_auth::jwt::SignerJwt;
 use slim_auth::jwt::StaticTokenProvider;
 use slim_auth::jwt::VerifierJwt;
-use slim_auth::jwt::algorithm_from_jwk;
 use slim_auth::jwt::{Algorithm, KeyData};
 use slim_auth::shared_secret::SharedSecret;
 use slim_auth::traits::TokenProvider;
@@ -89,7 +88,7 @@ impl From<PyKeyData> for KeyData {
 #[pyclass(eq)]
 pub(crate) enum PyKeyFormat {
     Pem,
-    Jwk
+    Jwk,
 }
 
 impl From<PyKeyFormat> for KeyFormat {
@@ -105,9 +104,27 @@ impl From<PyKeyFormat> for KeyFormat {
 #[pyclass]
 #[derive(Clone, PartialEq)]
 pub(crate) struct PyKey {
-    pub(crate) algorithm: PyAlgorithm,
-    pub(crate) format: KeyFormat,
-    pub(crate) key: PyKeyData,
+    #[pyo3(get, set)]
+    algorithm: PyAlgorithm,
+
+    #[pyo3(get, set)]
+    format: PyKeyFormat,
+
+    #[pyo3(get, set)]
+    key: PyKeyData,
+}
+
+#[gen_stub_pymethods]
+#[pymethods]
+impl PyKey {
+    #[new]
+    pub fn new(algorithm: PyAlgorithm, format: PyKeyFormat, key: PyKeyData) -> Self {
+        PyKey {
+            algorithm,
+            format,
+            key,
+        }
+    }
 }
 
 impl From<PyKey> for Key {

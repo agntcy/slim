@@ -10,7 +10,7 @@ import slim_bindings
 
 keys_folder = "./tests/testdata"
 
-test_audience = "test.audience"
+test_audience = ["test.audience"]
 
 
 def create_slim(
@@ -23,25 +23,29 @@ def create_slim(
     public_key_algorithm,
     wrong_audience=None,
 ):
-    private_key = slim_bindings.PyKey.File(
-        path=private_key, algorithm=private_key_algorithm
+    private_key = slim_bindings.PyKey(
+        algorithm=private_key_algorithm,
+        format=slim_bindings.PyKeyFormat.Pem,
+        key=slim_bindings.PyKeyData.File(path=private_key),
     )
 
-    public_key = slim_bindings.PyKey.File(
-        path=public_key, algorithm=public_key_algorithm
+    public_key = slim_bindings.PyKey(
+        algorithm=public_key_algorithm,
+        format=slim_bindings.PyKeyFormat.Pem,
+        key=slim_bindings.PyKeyData.File(path=public_key),
     )
 
     provider = slim_bindings.PyIdentityProvider.Jwt(
         private_key=private_key,
         duration=datetime.timedelta(seconds=60),
         issuer="test-issuer",
-        audience="test.audience",
+        audience=test_audience,
         subject=agent_type,
     )
     verifier = slim_bindings.PyIdentityVerifier.Jwt(
         public_key=public_key,
         issuer="test-issuer",
-        audience=wrong_audience or "test.audience",
+        audience=wrong_audience or test_audience,
         require_iss=True,
         require_aud=True,
     )
@@ -53,7 +57,7 @@ def create_slim(
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("server", ["127.0.0.1:52345"], indirect=True)
-@pytest.mark.parametrize("audience", [test_audience, "wrong.audience"])
+@pytest.mark.parametrize("audience", [test_audience, ["wrong.audience"]])
 async def test_identity_verification(server, audience):
     org = "org"
     ns = "default"

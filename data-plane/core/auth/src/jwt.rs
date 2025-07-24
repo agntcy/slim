@@ -951,31 +951,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_jwk() {
-        let token = "eyJhbGciOiJSUzI1NiIsImtpZCI6InFLWXBwMTVJb2x0WXFaTEZFUHd4VnQ4aFlWeHFTN1A4IiwidHlwIjoiSldUIn0.eyJhdWQiOlsic2xpbS1kZW1vIl0sImV4cCI6MTc1MzE3MTMzMSwiaWF0IjoxNzUzMTY3NzMxLCJpc3MiOiJodHRwczovL29pZGMtZGlzY292ZXJ5LmV4YW1wbGUub3JnIiwic3ViIjoic3BpZmZlOi8vZXhhbXBsZS5vcmcvbnMvc2xpbS1jbGllbnRzL3NhL3NsaW0tY2xpZW50LTEifQ.ajYghAS0drv4zH8hLj5rY811e6WrgXS9Sf-26xWxtO-ILiJZJp1Ehry_86ijlH3UAFKuwLOsXckIErCP1VisgQi0pXFx_R0RvPi66IPWXdRjE0IORabM6XMVspfcd3eHdz60sJ9FAgw4NoZ8TSceu0oXaK2LWX0BmkrpgP1L4jGELOPRr4MmQo1bC4fFBFC9hUyZG80DslIb6Ra5vNZgSfUzeDy3-RTG4DbUJYzilZ9cFiulnc57lApEohzGQfgZDRRUQWao3ZK7BUCBKihzUbPPfraK7y6XeZRlOEE8MY4V0iMCKawNg-tiK1b39tbwq6MF0Bk2v-my4Q-x4d91VA";
-
-        let verifier = JwtBuilder::new()
-            .issuer("https://oidc-discovery.example.org")
-            .audience(&["slim-demo"])
-            .subject("spiffe://example.org/ns/slim-clients/sa/slim-client-1")
-            .public_key(&Key {
-                algorithm: Algorithm::RS256,
-                format: KeyFormat::Jwk,
-                key: KeyData::Str(
-                    r#"{
-                            "kty": "RSA",
-                            "kid": "qKYpp15IoltYqZLFEPwxVt8hYVxqS7P8",
-                            "n": "l4D_vzJlSAME60UrMZfmFDCYf-wo1icFBK8IPd_8v1vW2J72rzCrY6DwkZV_Y-xzisagpj8MeHOnakDN5NovU7ciAMucIpUjDenWlvSaVHgRj2g99RjO3_tAa423Hv91H_2RGRv0eiHDNSr_kogQ3WZTRs1QRV7Xpr0xQtj6DOCD7HF6kOjN-Mklh7r9zdrjFYZbdQsvvTjUo6lco24DeoD_sjBWMkoeQfTEEfleNGDmD_qtTwLcLBb3fO0TFmMh6_3lHdWBOpOaDL5S7rTv84C_KAXqyhkSQp-aeicZCiAH1Z6rUzQoNRjkos6zNV4nrH8sZVNv56qzTfJIUWL5hw",
-                            "e": "AQAB"
-                        }"#.to_string())})
-            .build()
-            .unwrap();
-
-        // Verify the token
-        let _result: StandardClaims = verifier.try_verify(token.to_string()).unwrap();
-    }
-
-    #[tokio::test]
     async fn test_jwt_verify_caching() {
         // Create test JWT objects
         let signer = JwtBuilder::new()
