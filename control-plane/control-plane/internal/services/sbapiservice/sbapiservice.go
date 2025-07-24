@@ -2,6 +2,7 @@ package sbapiservice
 
 import (
 	"context"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/rs/zerolog"
@@ -56,11 +57,32 @@ func (s *sbAPIService) OpenControlChannel(stream controllerapi.ControllerService
 		return err
 	}
 
-	// TODO: receive with timeout, if no register request received within a certain time, close the stream
-	msg, err = stream.Recv()
-	if err != nil {
+	// if no register request received within a certain time, close the stream
+	recvTimeout := 15 * time.Second // assume this is a time.Duration field in your config
+	recvCtx, cancel := context.WithTimeout(ctx, recvTimeout)
+	defer cancel()
+
+	msgCh := make(chan *controllerapi.ControlMessage, 1)
+	errCh := make(chan error, 1)
+
+	go func() {
+		msg, err := stream.Recv()
+		if err != nil {
+			errCh <- err
+			return
+		}
+		msgCh <- msg
+	}()
+
+	select {
+	case <-recvCtx.Done():
+		zlog.Error().Msgf("Timeout waiting for register node request")
+		return recvCtx.Err()
+	case err := <-errCh:
 		zlog.Error().Msgf("Error receiving message: %v", err)
 		return err
+	case m := <-msgCh:
+		msg = m
 	}
 
 	registeredNodeID := ""
@@ -68,7 +90,7 @@ func (s *sbAPIService) OpenControlChannel(stream controllerapi.ControllerService
 	// Check for ControlMessage_RegisterNodeRequest
 	if regReq, ok := msg.Payload.(*controllerapi.ControlMessage_RegisterNodeRequest); ok {
 		registeredNodeID = regReq.RegisterNodeRequest.NodeId
-		zlog.Info().Msgf("Register node with ID: %v", registeredNodeID)
+		zlog.Info().Msgf("Registering node with ID: %v", registeredNodeID)
 		_, err = s.dbService.SaveNode(db.Node{
 			ID: registeredNodeID,
 		})
@@ -78,6 +100,20 @@ func (s *sbAPIService) OpenControlChannel(stream controllerapi.ControllerService
 		}
 		s.messagingService.AddStream(registeredNodeID, stream)
 		s.messagingService.UpdateConnectionStatus(registeredNodeID, nodecontrol.NodeStatusConnected)
+
+		// Acknowledge the registration
+		ackMsg := &controllerapi.ControlMessage{
+			MessageId: uuid.NewString(),
+			Payload: &controllerapi.ControlMessage_Ack{
+				Ack: &controllerapi.Ack{
+					Success:  true,
+					Messages: []string{"Node registered successfully"},
+				},
+			},
+		}
+		stream.Send(ackMsg)
+
+		//TODO send connection & subscription list in a separate goroutine
 	}
 
 	if registeredNodeID == "" {
