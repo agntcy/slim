@@ -29,7 +29,9 @@ mod _slim_bindings {
     use utils::{PyAgentType, init_tracing};
 
     #[pymodule_export]
-    use pyidentity::{PyAlgorithm, PyIdentityProvider, PyIdentityVerifier, PyKey};
+    use pyidentity::{
+        PyAlgorithm, PyIdentityProvider, PyIdentityVerifier, PyKey, PyKeyData, PyKeyFormat,
+    };
 
     #[pymodule_init]
     fn module_init(m: &Bound<'_, PyModule>) -> PyResult<()> {

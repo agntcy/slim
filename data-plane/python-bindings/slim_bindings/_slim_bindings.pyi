@@ -14,6 +14,12 @@ class PyAgentType:
     agent_type: builtins.str
     def __new__(cls,agent_org:builtins.str, agent_ns:builtins.str, agent_class:builtins.str): ...
 
+class PyKey:
+    algorithm: PyAlgorithm
+    format: PyKeyFormat
+    key: PyKeyData
+    def __new__(cls,algorithm:PyAlgorithm, format:PyKeyFormat, key:PyKeyData): ...
+
 class PyService:
     id: builtins.int
 
@@ -44,9 +50,16 @@ class PyIdentityVerifier(Enum):
     Jwt = auto()
     SharedSecret = auto()
 
-class PyKey(Enum):
+class PyKeyData(Enum):
     File = auto()
+<<<<<<< HEAD
     String = auto()
+=======
+    Content = auto()
+
+class PyKeyFormat(Enum):
+    Pem = auto()
+>>>>>>> main
     Jwk = auto()
 
 class PySessionConfiguration(Enum):

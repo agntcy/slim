@@ -38,7 +38,7 @@ spec:
        {{- if eq .Values.spire.enabled true }}
         - name: spiffe-helper
           image: {{ .Values.spire.helperImage.repository }}:{{ .Values.spire.helperImage.tag | default "0.10.0" }}
-          imagePullPolicy: {{ .Values.spire.helperImage.pullPolicy }}     
+          imagePullPolicy: {{ .Values.spire.helperImage.pullPolicy }}
           args: [ "-config", "config/helper.conf" ]
           volumeMounts:
             - name: config-volume
@@ -46,11 +46,11 @@ spec:
               subPath: helper.conf
             - name: spire-agent-socket
               mountPath: /run/spire/agent-sockets
-              readOnly: false 
+              readOnly: false
             - name: svids-volume
-              mountPath: /svids     
-              readOnly: false      
-        {{- end }}       
+              mountPath: /svids
+              readOnly: false
+        {{- end }}
         - name: {{ .Chart.Name }}
           securityContext:
             {{- toYaml .Values.securityContext | nindent 12 }}
@@ -75,9 +75,9 @@ spec:
               subPath: config.yaml
 {{- if eq .Values.spire.enabled true }}
             - name: svids-volume
-              mountPath: /svids 
+              mountPath: /svids
               readOnly: false
-{{- end }}              
+{{- end }}
       volumes:
         - name: config-volume
           configMap:
@@ -86,10 +86,10 @@ spec:
         - name: spire-agent-socket
           hostPath:
             path: /run/spire/agent-sockets
-            type: Directory       
+            type: Directory
         - name: svids-volume
-          emptyDir: {}            
-{{- end}}            
+          emptyDir: {}
+{{- end}}
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}

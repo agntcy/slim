@@ -118,3 +118,6 @@ dmypy.json
 
 # pyd files
 .pyd
+
+# this schema is copied over from dataplane
+control-plane/common/controller/schema.json

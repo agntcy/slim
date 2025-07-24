@@ -85,6 +85,14 @@ impl ProducerBuffer {
             Some(index) => self.buffer[*index].clone(),
         }
     }
+
+    pub fn iter(&self) -> impl Iterator<Item = &Message> {
+        self.buffer.iter().filter_map(|msg| {
+            // If message is Some(msg), it unwraps and return &msg.
+            // Skip it otherwise
+            msg.as_ref()
+        })
+    }
 }
 
 // tests
@@ -196,5 +204,39 @@ mod tests {
         assert_eq!(buffer.get(2).unwrap(), p2);
         assert_eq!(buffer.get(3).unwrap(), p3);
         assert_eq!(buffer.get(4).unwrap(), p4);
+    }
+
+    #[test]
+    fn test_iter_producer_buffer() {
+        let src = Agent::from_strings("org", "ns", "type", 0);
+        let name_type = AgentType::from_strings("org", "ns", "type");
+
+        let slim_header = SlimHeader::new(&src, &name_type, Some(1), None);
+        let h = SessionHeader::new(
+            SessionType::SessionUnknown.into(),
+            SessionMessageType::FnfMsg.into(),
+            0,
+            0,
+        );
+        let mut p = Message::new_publish_with_headers(Some(slim_header), Some(h), "", vec![]);
+
+        let mut b = ProducerBuffer::with_capacity(30);
+        b.push(p.clone()); // add 0
+        p.set_message_id(1);
+        b.push(p.clone()); // add 1
+        p.set_message_id(2);
+        b.push(p.clone()); // add 2
+        p.set_message_id(5);
+        b.push(p.clone()); // add 5
+        p.set_message_id(6);
+        b.push(p.clone()); // add 6
+        p.set_message_id(10);
+        b.push(p.clone()); // add 10
+
+        let expected = [0, 1, 2, 5, 6, 10];
+
+        for (i, m) in b.iter().enumerate() {
+            assert_eq!(m.get_id(), expected[i]);
+        }
     }
 }
