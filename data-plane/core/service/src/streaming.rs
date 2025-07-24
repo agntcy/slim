@@ -247,8 +247,6 @@ where
     ) -> Self {
         let (tx, rx) = mpsc::channel(128);
 
-        // TODO pass a parameter to set MLS on/off
-        // for the moment is always on
         let common = Common::new(
             id,
             session_direction.clone(),
@@ -993,7 +991,7 @@ where
                 let session_msg = SessionMessage::new(m, info);
                 // send message to the app
                 if tx.send_to_app(Ok(session_msg)).await.is_err() {
-                    error!("error sending packet to slim on session {}", session_id);
+                    error!("error sending packet to app on session {}", session_id);
                 }
             }
             None => {

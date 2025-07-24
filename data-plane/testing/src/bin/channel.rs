@@ -244,9 +244,8 @@ async fn main() {
             app.invite_participant(&p, info.clone())
                 .await
                 .expect("error sending invite message");
-
-            tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
         }
+
         tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
 
         // listen for messages
