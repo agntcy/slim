@@ -30,8 +30,7 @@ mod _slim_bindings {
 
     #[pymodule_export]
     use pyidentity::{
-        PyAlgorithm, PyIdentityProvider, PyIdentityVerifier, PyKey, PyKeyData,
-        PyKeyFormat,
+        PyAlgorithm, PyIdentityProvider, PyIdentityVerifier, PyKey, PyKeyData, PyKeyFormat,
     };
 
     #[pymodule_init]
