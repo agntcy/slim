@@ -10,8 +10,8 @@ replicaCount: 1
 
 # This sets the container image more information can be found here: https://kubernetes.io/docs/concepts/containers/images/
 image:
-  # TODO(msardara): Update the repository as soon as the image is ready
-  repository: ""
+  # This sets the image repository more information can be found here: https://kubernetes.io/docs/concepts/containers/images/#specifying-image-versions
+  repository: "ghcr.io/agntcy/slim/control-plane"
   # This sets the pull policy for images.
   pullPolicy: IfNotPresent
   # Overrides the image tag whose default is the chart appVersion.
@@ -21,7 +21,7 @@ image:
 imagePullSecrets: []
 # This is to override the chart name.
 nameOverride: ""
-fullnameOverride: "slim-control"
+fullnameOverride: "slim-controller"
 
 config:
   northbound:
