@@ -1,7 +1,7 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
-package controlplane
+package controller
 
 import (
 	"context"
@@ -20,7 +20,7 @@ import (
 
 const nodeIDFlag = "node-id"
 
-func newRouteCmd(opts *options.CommonOptions) *cobra.Command {
+func NewRouteCmd(opts *options.CommonOptions) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "route",
 		Short: "Manage SLIM routes",

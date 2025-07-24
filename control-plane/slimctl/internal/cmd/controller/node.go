@@ -1,7 +1,7 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
-package controlplane
+package controller
 
 import (
 	"context"
@@ -14,7 +14,7 @@ import (
 	controlplaneApi "github.com/agntcy/slim/control-plane/common/proto/controlplane/v1"
 )
 
-func newNodeCmd(opts *options.CommonOptions) *cobra.Command {
+func NewNodeCmd(opts *options.CommonOptions) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "node",
 		Short: "Manage SLIM nodes",
@@ -28,9 +28,10 @@ func newNodeCmd(opts *options.CommonOptions) *cobra.Command {
 
 func newListNodesCmd(opts *options.CommonOptions) *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "list",
-		Short: "List nodes",
-		Long:  `List nodes connected to the control plane`,
+		Use:     "list",
+		Aliases: []string{"ls"},
+		Short:   "List nodes",
+		Long:    `List nodes connected to the control plane`,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			ctx, cancel := context.WithTimeout(cmd.Context(), opts.Timeout)
 			defer cancel()
