@@ -33,8 +33,8 @@ func (l LogConfig) Validate() error {
 }
 
 type APIConfig struct {
-	HTTPHost  string    `yaml:"HTTPHost"`
-	HTTPPort  string    `yaml:"HTTPPort"`
+	HTTPHost  string    `yaml:"httpHost"`
+	HTTPPort  string    `yaml:"httpPort"`
 	LogConfig LogConfig `yaml:"logging"`
 }
 
