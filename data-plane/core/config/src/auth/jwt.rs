@@ -16,7 +16,7 @@ use slim_auth::jwt_middleware::{AddJwtLayer, ValidateJwtLayer};
 #[derive(Debug, Default, Serialize, Deserialize, Clone, PartialEq, JsonSchema)]
 pub struct Claims {
     /// JWT audience
-    audience: Option<String>,
+    audience: Option<Vec<String>>,
 
     /// JWT Issuer
     issuer: Option<String>,
@@ -32,7 +32,7 @@ pub struct Claims {
 impl Claims {
     /// Create a new Claims
     pub fn new(
-        audience: Option<String>,
+        audience: Option<Vec<String>>,
         issuer: Option<String>,
         subject: Option<String>,
         custom_claims: Option<std::collections::HashMap<String, serde_yaml::Value>>,
@@ -45,9 +45,9 @@ impl Claims {
         }
     }
 
-    pub fn with_audience(self, audience: impl Into<String>) -> Self {
+    pub fn with_audience(self, audience: &[impl Into<String> + Clone]) -> Self {
         Claims {
-            audience: Some(audience.into()),
+            audience: Some(audience.iter().map(|a| a.clone().into()).collect()),
             ..self
         }
     }
@@ -77,7 +77,7 @@ impl Claims {
     }
 
     /// Get the audience
-    pub fn audience(&self) -> &Option<String> {
+    pub fn audience(&self) -> &Option<Vec<String>> {
         &self.audience
     }
 
@@ -277,6 +277,7 @@ mod tests {
     use http::Response;
     use slim_auth::jwt::Algorithm;
     use slim_auth::jwt::KeyData;
+    use slim_auth::jwt::KeyFormat;
     use tower::ServiceBuilder;
 
     use super::*;
@@ -284,7 +285,7 @@ mod tests {
     #[test]
     fn test_config() {
         let claims = Claims {
-            audience: Some("audience".to_string()),
+            audience: Some(vec!["audience".to_string()]),
             issuer: Some("issuer".to_string()),
             subject: Some("subject".to_string()),
             custom_claims: None,
@@ -292,7 +293,8 @@ mod tests {
 
         let key = JwtKey::Encoding(Key {
             algorithm: Algorithm::HS256,
-            key: KeyData::Pem("test-key".to_string()),
+            format: KeyFormat::Pem,
+            key: KeyData::Str("test-key".to_string()),
         });
 
         let config = Config::new(claims.clone(), Duration::from_secs(3600), key);
@@ -304,7 +306,7 @@ mod tests {
     #[tokio::test]
     async fn test_authenticator() {
         let claims = Claims {
-            audience: Some("audience".to_string()),
+            audience: Some(vec!["audience".to_string()]),
             issuer: Some("issuer".to_string()),
             subject: Some("subject".to_string()),
             custom_claims: None,
@@ -312,12 +314,14 @@ mod tests {
 
         let encoding_key = JwtKey::Encoding(Key {
             algorithm: Algorithm::HS256,
-            key: KeyData::Pem("test-key".to_string()),
+            format: KeyFormat::Pem,
+            key: KeyData::Str("test-key".to_string()),
         });
 
         let decoding_key = JwtKey::Decoding(Key {
             algorithm: Algorithm::HS256,
-            key: KeyData::Pem("test-key".to_string()),
+            format: KeyFormat::Pem,
+            key: KeyData::Str("test-key".to_string()),
         });
 
         let client_config = Config::new(claims.clone(), Duration::from_secs(3600), encoding_key);

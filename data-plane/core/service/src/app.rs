@@ -13,7 +13,8 @@ use tracing::{debug, error, warn};
 use crate::channel_endpoint::handle_channel_discovery_message;
 use crate::errors::SessionError;
 use crate::fire_and_forget::FireAndForgetConfiguration;
-use crate::interceptor::{IdentityInterceptor, SessionInterceptor, SessionInterceptorProvider};
+use crate::interceptor::SessionInterceptor;
+use crate::interceptor::{IdentityInterceptor, SessionInterceptorProvider};
 use crate::session::{
     AppChannelSender, CommonSession, Id, Info, MessageDirection, MessageHandler, SESSION_RANGE,
     Session, SessionConfig, SessionConfigTrait, SessionDirection, SessionMessage,
@@ -215,17 +216,6 @@ where
         // get the default session config
         self.session_layer
             .get_default_session_config(session_type)
-            .await
-    }
-
-    /// Add an interceptor to a session
-    pub async fn add_interceptor(
-        &self,
-        session_id: session::Id,
-        interceptor: Arc<dyn SessionInterceptor + Send + Sync>,
-    ) -> Result<(), SessionError> {
-        self.session_layer
-            .add_session_interceptor(session_id, interceptor)
             .await
     }
 
@@ -592,8 +582,15 @@ where
             }
         };
 
-        // Create a new transmitter
-        let tx = self.transmitter.clone();
+        // Create a new transmitter with identity interceptros
+        let tx = self.transmitter.derive_new();
+
+        let identity_interceptor = Arc::new(IdentityInterceptor::new(
+            self.identity_provider.clone(),
+            self.identity_verifier.clone(),
+        ));
+
+        tx.add_interceptor(identity_interceptor);
 
         // create a new session
         let session = match session_config {
@@ -959,6 +956,7 @@ where
     }
 
     /// Add an interceptor to a session
+    #[allow(dead_code)]
     pub async fn add_session_interceptor(
         &self,
         session_id: Id,
@@ -967,7 +965,7 @@ where
         let mut pool = self.pool.write().await;
 
         if let Some(session) = pool.get_mut(&session_id) {
-            session.add_interceptor(interceptor);
+            session.tx_ref().add_interceptor(interceptor);
             Ok(())
         } else {
             Err(SessionError::SessionNotFound(session_id.to_string()))
@@ -980,21 +978,21 @@ mod tests {
     use super::*;
     use crate::fire_and_forget::FireAndForgetConfiguration;
 
-    use slim_auth::simple::SimpleGroup;
+    use slim_auth::shared_secret::SharedSecret;
     use slim_datapath::{
         api::ProtoMessage,
         messages::{Agent, AgentType, utils::SLIM_IDENTITY},
     };
 
-    fn create_app() -> App<SimpleGroup, SimpleGroup> {
+    fn create_app() -> App<SharedSecret, SharedSecret> {
         let (tx_slim, _) = tokio::sync::mpsc::channel(128);
         let (tx_app, _) = tokio::sync::mpsc::channel(128);
         let agent = Agent::from_strings("org", "ns", "type", 0);
 
         App::new(
             &agent,
-            SimpleGroup::new("a", "group"),
-            SimpleGroup::new("a", "group"),
+            SharedSecret::new("a", "group"),
+            SharedSecret::new("a", "group"),
             0,
             tx_slim,
             tx_app,
@@ -1017,8 +1015,8 @@ mod tests {
 
         let app = App::new(
             &agent,
-            SimpleGroup::new("a", "group"),
-            SimpleGroup::new("a", "group"),
+            SharedSecret::new("a", "group"),
+            SharedSecret::new("a", "group"),
             0,
             tx_slim.clone(),
             tx_app.clone(),
@@ -1043,8 +1041,8 @@ mod tests {
 
         let session_layer = App::new(
             &agent,
-            SimpleGroup::new("a", "group"),
-            SimpleGroup::new("a", "group"),
+            SharedSecret::new("a", "group"),
+            SharedSecret::new("a", "group"),
             0,
             tx_slim.clone(),
             tx_app.clone(),
@@ -1068,8 +1066,8 @@ mod tests {
 
         let session_layer = App::new(
             &agent,
-            SimpleGroup::new("a", "group"),
-            SimpleGroup::new("a", "group"),
+            SharedSecret::new("a", "group"),
+            SharedSecret::new("a", "group"),
             0,
             tx_slim.clone(),
             tx_app.clone(),
@@ -1097,7 +1095,7 @@ mod tests {
         let (tx_app, mut rx_app) = tokio::sync::mpsc::channel(1);
         let agent = Agent::from_strings("org", "ns", "type", 0);
 
-        let identity = SimpleGroup::new("a", "group");
+        let identity = SharedSecret::new("a", "group");
 
         let app = App::new(
             &agent,
@@ -1176,7 +1174,7 @@ mod tests {
         let (tx_app, _) = tokio::sync::mpsc::channel(1);
         let agent = Agent::from_strings("org", "ns", "type", 0);
 
-        let identity = SimpleGroup::new("a", "group");
+        let identity = SharedSecret::new("a", "group");
 
         let app = App::new(
             &agent,

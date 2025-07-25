@@ -26,3 +26,10 @@ jobs:
     with:
       go-version: 1.23.6
       working-directory: ./control-plane
+
+  control-plane-docker-build:
+    name: Build control plane docker image
+    uses: ./.github/workflows/reusable-docker-build-push.yaml
+    with:
+      bake-targets: control-plane
+      image-tag: ${{ github.sha }}

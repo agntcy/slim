@@ -9,7 +9,7 @@ metadata:
     {{- include "slim.labels" . | nindent 4 }}
 data:
   config.yaml: |
-    {{- .Values.slim.config | toYaml | nindent 4 }}
+    {{- tpl (toYaml .Values.slim.config) . | nindent 4 }}
     {{- if eq .Values.spire.enabled true }}
   helper.conf: |
     agent_address =  "/run/spire/agent-sockets/api.sock"
@@ -26,5 +26,5 @@ data:
     jwt_svid_file_mode = 0644
     jwt_bundle_file_mode = 0644
     jwt_svids = [{jwt_audience="test", jwt_svid_file_name="jwt_svid.token"}]
-    daemon_mode = true  
-    {{- end}} 
+    daemon_mode = true
+    {{- end}}

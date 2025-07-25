@@ -20,11 +20,26 @@ tls:
   key_file: "/path/to/client.key"
 ```
 
-## Commands
+`server` endpoint can the Controller endpoint of a SLIM instance, in case of connecting directly to a SLIM instance or an endpoint of Control Plane endpoint in case of using `slimctl cp` sub-commands.
 
+## Commands 
+
+### Connected directly to a SLIM instance
+
+* `slimctl connection list` List connection on a SLIM instance.
 * `slimctl route list` List routes on a SLIM instance.
-* `slimctl route add <organization/namespace/agentName/agentId> via <host:port>` Add a route to the SLIM instance.
+* `slimctl route add <organization/namespace/agentName/agentId> via <config_file>` Add a route to the SLIM instance.
 * `slimctl route del <organization/namespace/agentName/agentId> via <host:port>` Delete a route from the SLIM instance.
+
+
+### Connected through Control Plane
+
+* `slimctl cp connection list --node-id=<slim_node_id>` List connection on a SLIM instance.
+* `slimctl cp route list --node-id=<slim_node_id>` List routes on a SLIM instance.
+* `slimctl cp route add <organization/namespace/agentName/agentId> via <config_file> --node-id=<slim_node_id>` Add a route to the SLIM instance.
+* `slimctl cp route del <organization/namespace/agentName/agentId> via <host:port> --node-id=<slim_node_id>` Delete a route from the SLIM instance.
+
+
 * `slimctl version` Print version information.
 
 Run `slimctl <command> --help` for more details on flags and usage.

@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 mod build_info;
+mod pyidentity;
 mod pyservice;
 mod pysession;
 mod utils;
@@ -16,9 +17,9 @@ mod _slim_bindings {
     #[pymodule_export]
     use pyservice::{
         PyService, connect, create_pyservice, create_session, delete_session, disconnect,
-        get_default_session_config, get_session_config, invite, publish, receive, remove_route,
-        run_server, set_default_session_config, set_route, set_session_config, stop_server,
-        subscribe, unsubscribe,
+        get_default_session_config, get_session_config, invite, publish, receive, remove,
+        remove_route, run_server, set_default_session_config, set_route, set_session_config,
+        stop_server, subscribe, unsubscribe,
     };
 
     #[pymodule_export]
@@ -26,6 +27,11 @@ mod _slim_bindings {
 
     #[pymodule_export]
     use utils::{PyAgentType, init_tracing};
+
+    #[pymodule_export]
+    use pyidentity::{
+        PyAlgorithm, PyIdentityProvider, PyIdentityVerifier, PyKey, PyKeyData, PyKeyFormat,
+    };
 
     #[pymodule_init]
     fn module_init(m: &Bound<'_, PyModule>) -> PyResult<()> {

@@ -1,7 +1,11 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
-use std::{collections::HashMap, sync::Arc, time::Duration};
+use std::{
+    collections::{BTreeMap, HashMap, VecDeque, btree_map::Entry},
+    sync::Arc,
+    time::Duration,
+};
 
 use async_trait::async_trait;
 use bincode::{Decode, Encode};
@@ -11,6 +15,10 @@ use tracing::{debug, error, trace};
 use crate::{
     errors::SessionError,
     interceptor_mls::{METADATA_MLS_ENABLED, METADATA_MLS_INIT_COMMIT_ID},
+    moderator_task::{
+        AddParticipant, AddParticipantMls, ModeratorTask, RemoveParticipant, RemoveParticipantMls,
+        TaskUpdate, UpdateParticipantMls,
+    },
     session::{Id, SessionTransmitter},
 };
 use slim_auth::traits::{TokenProvider, Verifier};
@@ -21,7 +29,7 @@ use slim_datapath::{
     },
     messages::{Agent, AgentType, utils::SlimHeaderFlags},
 };
-use slim_mls::mls::{CommitMsg, KeyPackageMsg, Mls, MlsIdentity, WelcomeMsg};
+use slim_mls::mls::{CommitMsg, KeyPackageMsg, Mls, MlsIdentity, ProposalMsg, WelcomeMsg};
 
 struct RequestTimerObserver<T>
 where
@@ -40,7 +48,7 @@ where
     T: SessionTransmitter + Send + Sync + Clone + 'static,
 {
     async fn on_timeout(&self, timer_id: u32, timeouts: u32) {
-        trace!("timeout number {} for request {}", timeouts, timer_id);
+        debug!("Timeout number {} for request {}", timeouts, timer_id);
 
         if self
             .tx
@@ -48,7 +56,7 @@ where
             .await
             .is_err()
         {
-            error!("error sending invite message");
+            error!("Error sending invite message");
         }
     }
 
@@ -75,6 +83,9 @@ trait OnMessageReceived {
 pub(crate) trait MlsEndpoint {
     /// check whether MLS is up
     fn is_mls_up(&self) -> Result<bool, SessionError>;
+
+    /// rotate MLS keys
+    async fn update_mls_keys(&mut self) -> Result<(), SessionError>;
 }
 
 impl<P, V, T> MlsEndpoint for ChannelEndpoint<P, V, T>
@@ -84,16 +95,17 @@ where
     T: SessionTransmitter + Send + Sync + Clone + 'static,
 {
     fn is_mls_up(&self) -> Result<bool, SessionError> {
-        let endpoint = match self {
-            ChannelEndpoint::ChannelParticipant(cp) => &cp.endpoint,
-            ChannelEndpoint::ChannelModerator(cm) => &cm.endpoint,
-        };
+        match self {
+            ChannelEndpoint::ChannelParticipant(cp) => cp.is_mls_up(),
+            ChannelEndpoint::ChannelModerator(cm) => cm.is_mls_up(),
+        }
+    }
 
-        endpoint
-            .mls_state
-            .as_ref()
-            .ok_or(SessionError::NoMls)?
-            .is_mls_up()
+    async fn update_mls_keys(&mut self) -> Result<(), SessionError> {
+        match self {
+            ChannelEndpoint::ChannelParticipant(cp) => cp.update_mls_keys().await,
+            ChannelEndpoint::ChannelModerator(cm) => cm.update_mls_keys().await,
+        }
     }
 }
 
@@ -136,13 +148,11 @@ where
     /// used only if Some(mls)
     group: Vec<u8>,
 
-    /// last commit id
-    last_commit_id: u32,
+    /// last mls message id
+    last_mls_msg_id: u32,
 
-    /// map of the participants with package keys
-    /// this is used only by the moderator to remove
-    /// participants from the channel
-    participants: HashMap<Agent, MlsIdentity>,
+    /// map of stored commits and proposals
+    stored_commits_proposals: BTreeMap<u32, Message>,
 
     /// track if MLS is UP. For moderator this is true as soon as at least one participant
     /// has sent back an ack after the welcome message, while for participant
@@ -163,35 +173,27 @@ where
         Ok(MlsState {
             mls,
             group: vec![],
-            last_commit_id: 0,
-            participants: HashMap::new(),
+            last_mls_msg_id: 0,
+            stored_commits_proposals: BTreeMap::new(),
             mls_up: false,
         })
     }
 
-    async fn init_moderator(&mut self) -> Result<(), SessionError> {
-        self.mls
-            .lock()
-            .create_group()
-            .map(|_| ())
-            .map_err(|e| SessionError::MLSInit(e.to_string()))
-    }
-
-    async fn generate_key_package(&mut self) -> Result<KeyPackageMsg, SessionError> {
+    fn generate_key_package(&mut self) -> Result<KeyPackageMsg, SessionError> {
         self.mls
             .lock()
             .generate_key_package()
             .map_err(|e| SessionError::MLSInit(e.to_string()))
     }
 
-    async fn process_welcome_message(&mut self, msg: &Message) -> Result<(), SessionError> {
-        if self.last_commit_id != 0 {
-            debug!("welcome message already received, drop");
+    fn process_welcome_message(&mut self, msg: &Message) -> Result<(), SessionError> {
+        if self.last_mls_msg_id != 0 {
+            debug!("Welcome message already received, drop");
             // we already got a welcome message, ignore this one
             return Ok(());
         }
 
-        self.last_commit_id = msg
+        self.last_mls_msg_id = msg
             .get_metadata(METADATA_MLS_INIT_COMMIT_ID)
             .ok_or(SessionError::WelcomeMessage(
                 "received welcome message without commit id, drop it".to_string(),
@@ -221,48 +223,179 @@ where
         Ok(())
     }
 
-    async fn process_commit_message(&mut self, msg: &Message) -> Result<(), SessionError> {
-        // the first message to be received should be a welcome message
-        // this message will init the last_commit_id. so if last_commit_id = 0
-        // drop the commits
-        if self.last_commit_id == 0 {
-            error!("welcome message not received yet, drop commit");
-            return Err(SessionError::CommitMessage(
-                "welcome message not received yet, drop commit".to_string(),
-            ));
+    fn process_control_message(
+        &mut self,
+        msg: Message,
+        local_name: &Agent,
+    ) -> Result<bool, SessionError> {
+        if !self.is_valid_msg_id(msg)? {
+            // message already processed, drop it
+            return Ok(false);
         }
 
-        // the only valid commit that we can accepet it the commit with id
-        // last_commit_id + 1. We can safely drop all the others because
-        // the moderator will keep sending them if needed
-        let msg_id = msg.get_id();
-        if msg_id == self.last_commit_id + 1 {
-            debug!(%msg_id, "received valid commit with id");
-            self.last_commit_id += 1;
-        } else {
-            error!("unexpected commit id, drop message");
-            return Err(SessionError::CommitMessage(
-                "unexpected commit id, drop message".to_string(),
-            ));
+        // process all messages in map until the numbering is not continuous
+        while let Some(msg) = self
+            .stored_commits_proposals
+            .remove(&(self.last_mls_msg_id + 1))
+        {
+            trace!("processing stored message {}", msg.get_id());
+
+            // increment the last mls message id
+            self.last_mls_msg_id += 1;
+
+            // base on the message type, process it
+            match msg.get_session_header().session_message_type() {
+                ProtoSessionMessageType::ChannelMlsProposal => {
+                    self.process_proposal_message(msg, local_name)?;
+                }
+                ProtoSessionMessageType::ChannelMlsCommit => {
+                    self.process_commit_message(msg)?;
+                }
+                _ => {
+                    error!("unknown control message type, drop it");
+                    return Err(SessionError::Processing(
+                        "unknown control message type".to_string(),
+                    ));
+                }
+            }
         }
 
-        let commit = &msg
+        Ok(true)
+    }
+
+    fn process_commit_message(&mut self, commit: Message) -> Result<(), SessionError> {
+        trace!("processing stored commit {}", commit.get_id());
+
+        // get the payload
+        let commit = &commit
             .get_payload()
             .ok_or(SessionError::CommitMessage(
                 "missing payload in MLS commit, cannot process the commit".to_string(),
             ))?
             .blob;
 
+        // process the commit message
         self.mls
             .lock()
             .process_commit(commit)
             .map_err(|e| SessionError::CommitMessage(e.to_string()))
     }
 
-    async fn add_participant(
+    fn process_proposal_message(
         &mut self,
-        msg: &Message,
-    ) -> Result<(CommitMsg, WelcomeMsg), SessionError> {
+        proposal: Message,
+        local_name: &Agent,
+    ) -> Result<(), SessionError> {
+        trace!("processing stored proposal {}", proposal.get_id());
+
+        let content = proposal
+            .get_payload()
+            .map_or_else(
+                || {
+                    error!("missing payload in a Mls Proposal, ignore the message");
+                    Err(SessionError::Processing(
+                        "missing payload in a Mls Proposal".to_string(),
+                    ))
+                },
+                |content| -> Result<(MlsProposalMessagePayload, usize), SessionError> {
+                    bincode::decode_from_slice(&content.blob, bincode::config::standard())
+                        .map_err(|e| SessionError::ParseProposalMessage(e.to_string()))
+                },
+            )?
+            .0;
+
+        if content.source_name == *local_name {
+            // drop the message as we are the original source
+            debug!("Known proposal, drop the message");
+            return Ok(());
+        }
+
+        self.mls
+            .lock()
+            .process_proposal(&content.mls_msg, false)
+            .map_err(|e| SessionError::CommitMessage(e.to_string()))?;
+
+        Ok(())
+    }
+
+    fn is_valid_msg_id(&mut self, msg: Message) -> Result<bool, SessionError> {
+        // the first message to be received should be a welcome message
+        // this message will init the last_mls_msg_id. so if last_mls_msg_id = 0
+        // drop the commits
+        if self.last_mls_msg_id == 0 {
+            error!("welcome message not received yet, drop mls message");
+            return Err(SessionError::MLSIdMessage(
+                "welcome message not received yet, drop mls message".to_string(),
+            ));
+        }
+
+        if msg.get_id() <= self.last_mls_msg_id {
+            debug!(
+                "Message with id {} already processed, drop it. last message id {}",
+                msg.get_id(),
+                self.last_mls_msg_id
+            );
+            return Ok(false);
+        }
+
+        // store commit in hash map
+        match self.stored_commits_proposals.entry(msg.get_id()) {
+            Entry::Occupied(_) => {
+                debug!("Message with id {} already exists, drop it", msg.get_id());
+                Ok(false)
+            }
+            Entry::Vacant(entry) => {
+                entry.insert(msg);
+                Ok(true)
+            }
+        }
+    }
+
+    fn is_mls_up(&self) -> Result<bool, SessionError> {
+        Ok(self.mls_up)
+    }
+}
+
+#[derive(Debug)]
+pub(crate) struct MlsModeratorState<P, V>
+where
+    P: TokenProvider + Send + Sync + Clone + 'static,
+    V: Verifier + Send + Sync + Clone + 'static,
+{
+    /// mls state in common between moderator and
+    common: MlsState<P, V>,
+
+    /// map of the participants with package keys
+    /// used to remove participants from the channel
+    participants: HashMap<Agent, MlsIdentity>,
+
+    /// message id of the next msl message to send
+    next_msg_id: u32,
+}
+
+impl<P, V> MlsModeratorState<P, V>
+where
+    P: TokenProvider + Send + Sync + Clone + 'static,
+    V: Verifier + Send + Sync + Clone + 'static,
+{
+    pub(crate) fn new(mls: MlsState<P, V>) -> Self {
+        MlsModeratorState {
+            common: mls,
+            participants: HashMap::new(),
+            next_msg_id: 0,
+        }
+    }
+
+    fn init_moderator(&mut self) -> Result<(), SessionError> {
+        self.common
+            .mls
+            .lock()
+            .create_group()
+            .map(|_| ())
+            .map_err(|e| SessionError::MLSInit(e.to_string()))
+    }
+
+    fn add_participant(&mut self, msg: &Message) -> Result<(CommitMsg, WelcomeMsg), SessionError> {
         let payload = &msg
             .get_payload()
             .ok_or(SessionError::AddParticipant(
@@ -270,7 +403,7 @@ where
             ))?
             .blob;
 
-        match self.mls.lock().add_member(payload) {
+        match self.common.mls.lock().add_member(payload) {
             Ok(ret) => {
                 // add participant to the list
                 self.participants
@@ -285,8 +418,8 @@ where
         }
     }
 
-    async fn remove_participant(&mut self, msg: &Message) -> Result<CommitMsg, SessionError> {
-        debug!("remove participant from the MLS group");
+    fn remove_participant(&mut self, msg: &Message) -> Result<CommitMsg, SessionError> {
+        debug!("Remove participant from the MLS group");
         let name = msg.get_name_as_agent();
         let id = match self.participants.get(&name) {
             Some(id) => id,
@@ -298,6 +431,7 @@ where
             }
         };
         let ret = self
+            .common
             .mls
             .lock()
             .remove_member(id)
@@ -309,16 +443,38 @@ where
         Ok(ret)
     }
 
-    fn on_mls_ack(&mut self) -> Result<(), SessionError> {
-        // this is called by the moderator when the participant
-        // sends back an ack after the welcome message
-        self.mls_up = true;
+    fn process_proposal_message(
+        &mut self,
+        proposal: &ProposalMsg,
+    ) -> Result<CommitMsg, SessionError> {
+        let commit = self
+            .common
+            .mls
+            .lock()
+            .process_proposal(proposal, true)
+            .map_err(|e| SessionError::CommitMessage(e.to_string()))?;
 
-        Ok(())
+        Ok(commit)
+    }
+
+    fn process_local_pending_proposal(&mut self) -> Result<CommitMsg, SessionError> {
+        let commit = self
+            .common
+            .mls
+            .lock()
+            .process_local_pending_proposal()
+            .map_err(|e| SessionError::CommitMessage(e.to_string()))?;
+
+        Ok(commit)
+    }
+
+    fn get_next_mls_mgs_id(&mut self) -> u32 {
+        self.next_msg_id += 1;
+        self.next_msg_id
     }
 
     fn is_mls_up(&self) -> Result<bool, SessionError> {
-        Ok(self.mls_up)
+        self.common.is_mls_up()
     }
 }
 
@@ -339,11 +495,24 @@ impl JoinMessagePayload {
     }
 }
 
+#[derive(Debug, Clone, Default, Encode, Decode)]
+pub struct MlsProposalMessagePayload {
+    source_name: Agent,
+    mls_msg: Vec<u8>,
+}
+
+impl MlsProposalMessagePayload {
+    fn new(source_name: Agent, mls_msg: Vec<u8>) -> Self {
+        MlsProposalMessagePayload {
+            source_name,
+            mls_msg,
+        }
+    }
+}
+
 #[derive(Debug)]
-struct Endpoint<P, V, T>
+struct Endpoint<T>
 where
-    P: TokenProvider + Send + Sync + Clone + 'static,
-    V: Verifier + Send + Sync + Clone + 'static,
     T: SessionTransmitter + Send + Sync + Clone + 'static,
 {
     /// endpoint name
@@ -368,26 +537,31 @@ where
     /// true is the endpoint is already subscribed to the channel
     subscribed: bool,
 
-    /// mls state
-    mls_state: Option<MlsState<P, V>>,
+    /// number or maximum retries before give up with a control message
+    max_retries: u32,
+
+    /// interval between retries
+    retries_interval: Duration,
 
     /// transmitter to send messages to the local SLIM instance and to the application
     tx: T,
 }
 
-impl<P, V, T> Endpoint<P, V, T>
+impl<T> Endpoint<T>
 where
-    P: TokenProvider + Send + Sync + Clone + 'static,
-    V: Verifier + Send + Sync + Clone + 'static,
     T: SessionTransmitter + Send + Sync + Clone + 'static,
 {
+    const MAX_FANOUT: u32 = 256;
+
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         name: Agent,
         channel_name: AgentType,
         channel_id: Option<u64>,
         session_id: Id,
         session_type: ProtoSessionType,
-        mls_state: Option<MlsState<P, V>>,
+        max_retries: u32,
+        retries_interval: Duration,
         tx: T,
     ) -> Self {
         Endpoint {
@@ -398,7 +572,8 @@ where
             session_type,
             conn: None,
             subscribed: false,
-            mls_state,
+            max_retries,
+            retries_interval,
             tx,
         }
     }
@@ -413,7 +588,13 @@ where
         payload: Vec<u8>,
     ) -> Message {
         let flags = if broadcast {
-            Some(SlimHeaderFlags::new(10, None, None, None, None))
+            Some(SlimHeaderFlags::new(
+                Self::MAX_FANOUT,
+                None,
+                None,
+                None,
+                None,
+            ))
         } else {
             None
         };
@@ -502,17 +683,6 @@ where
     }
 }
 
-#[derive(Debug)]
-pub struct ChannelParticipant<P, V, T>
-where
-    P: TokenProvider + Send + Sync + Clone + 'static,
-    V: Verifier + Send + Sync + Clone + 'static,
-    T: SessionTransmitter + Send + Sync + Clone + 'static,
-{
-    moderator_name: Option<Agent>,
-    endpoint: Endpoint<P, V, T>,
-}
-
 pub fn handle_channel_discovery_message(
     message: &Message,
     source: &Agent,
@@ -541,18 +711,41 @@ pub fn handle_channel_discovery_message(
     Message::new_publish_with_headers(slim_header, session_header, "", vec![])
 }
 
+#[derive(Debug)]
+pub struct ChannelParticipant<P, V, T>
+where
+    P: TokenProvider + Send + Sync + Clone + 'static,
+    V: Verifier + Send + Sync + Clone + 'static,
+    T: SessionTransmitter + Send + Sync + Clone + 'static,
+{
+    /// name of the moderator, used to send mls proposal messages
+    moderator_name: Option<Agent>,
+
+    /// timer used for retransmission of mls proposal messages
+    timer: Option<crate::timer::Timer>,
+
+    /// endpoint
+    endpoint: Endpoint<T>,
+
+    /// mls state
+    mls_state: Option<MlsState<P, V>>,
+}
+
 impl<P, V, T> ChannelParticipant<P, V, T>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
     T: SessionTransmitter + Send + Sync + Clone + 'static,
 {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         name: Agent,
         channel_name: AgentType,
         channel_id: Option<u64>,
         session_id: Id,
         session_type: ProtoSessionType,
+        max_retries: u32,
+        retries_interval: Duration,
         mls: Option<MlsState<P, V>>,
         tx: T,
     ) -> Self {
@@ -562,12 +755,15 @@ where
             channel_id,
             session_id,
             session_type,
-            mls,
+            max_retries,
+            retries_interval,
             tx,
         );
         ChannelParticipant {
             moderator_name: None,
+            timer: None,
             endpoint,
+            mls_state: mls,
         }
     }
 
@@ -614,12 +810,10 @@ where
         let src = msg.get_source();
         let payload: Vec<u8> = if msg.contains_metadata(METADATA_MLS_ENABLED) {
             // if mls we need to provide the key package
-            self.endpoint
-                .mls_state
+            self.mls_state
                 .as_mut()
                 .ok_or(SessionError::NoMls)?
-                .generate_key_package()
-                .await?
+                .generate_key_package()?
         } else {
             // without MLS we can set the state for the channel
             // otherwise the endpoint needs to receive a
@@ -642,12 +836,10 @@ where
     }
 
     async fn on_mls_welcome(&mut self, msg: Message) -> Result<(), SessionError> {
-        self.endpoint
-            .mls_state
+        self.mls_state
             .as_mut()
             .ok_or(SessionError::NoMls)?
-            .process_welcome_message(&msg)
-            .await?;
+            .process_welcome_message(&msg)?;
 
         debug!("Welcome message correctly processed, MLS state initialized");
 
@@ -668,24 +860,32 @@ where
         self.endpoint.send(ack).await
     }
 
-    async fn on_mls_commit(&mut self, msg: Message) -> Result<(), SessionError> {
-        self.endpoint
+    async fn on_mls_control_message(&mut self, msg: Message) -> Result<(), SessionError> {
+        let msg_source = msg.get_source();
+        let msg_id = msg.get_id();
+
+        // process the control message
+        let ret = self
             .mls_state
             .as_mut()
             .ok_or(SessionError::NoMls)?
-            .process_commit_message(&msg)
-            .await?;
+            .process_control_message(msg, &self.endpoint.name)?;
 
-        debug!("Commit message correctly processed, MLS state updated");
+        if !ret {
+            // message already processed, drop it
+            debug!("Message with id {} already processed, drop it", msg_id);
+            return Ok(());
+        }
+
+        debug!("Control message correctly processed, MLS state updated");
 
         // send an ack back to the moderator
-        let src = msg.get_source();
         let ack = self.endpoint.create_channel_message(
-            src.agent_type(),
-            src.agent_id_option(),
+            msg_source.agent_type(),
+            msg_source.agent_id_option(),
             false,
             ProtoSessionMessageType::ChannelMlsAck,
-            msg.get_id(),
+            msg_id,
             vec![],
         );
 
@@ -722,6 +922,124 @@ where
 
         Ok(())
     }
+
+    async fn on_mls_ack(&mut self, msg: Message) -> Result<(), SessionError> {
+        // this is the ack for the proposal message (the only MLS ack that can
+        // be received by a participant). Stop the timer and wait for the commit
+        let msg_id = msg.get_id();
+
+        match self.timer {
+            Some(ref mut t) => {
+                if t.get_id() != msg_id {
+                    debug!("Received unexpected ack, drop it");
+                    return Err(SessionError::TimerNotFound("wrong timer id".to_string()));
+                }
+                // stop the timer
+                t.stop();
+            }
+            None => {
+                debug!("Received unexpected ack, drop it");
+                return Err(SessionError::TimerNotFound("timer not set".to_string()));
+            }
+        }
+
+        debug!("Got a reply for MLS proposal form the moderator, remove the timer");
+        // reset the timer
+        self.timer = None;
+
+        // check the payload of the msg. if is not empty the moderator
+        // rejected the proposal so we need to send a new one.
+        match msg.get_payload() {
+            Some(c) => {
+                if c.blob.is_empty() {
+                    // all good the moderator is processing the update
+                    debug!("Proposal message was accepted by the moderator");
+                } else {
+                    debug!("Proposal message was rejected by the moderator, send it again");
+                    self.update_mls_keys().await?;
+                }
+            }
+            None => {
+                return Err(SessionError::ParseProposalMessage(
+                    "prosal ack from the moderator is missing the payload".to_string(),
+                ));
+            }
+        }
+
+        Ok(())
+    }
+}
+
+impl<P, V, T> MlsEndpoint for ChannelParticipant<P, V, T>
+where
+    P: TokenProvider + Send + Sync + Clone + 'static,
+    V: Verifier + Send + Sync + Clone + 'static,
+    T: SessionTransmitter + Send + Sync + Clone + 'static,
+{
+    async fn update_mls_keys(&mut self) -> Result<(), SessionError> {
+        if self.mls_state.is_none() || self.moderator_name.is_none() {
+            return Err(SessionError::NoMls);
+        }
+
+        if self.timer.is_some() {
+            // there is already another key change pending so drop this one
+            return Err(SessionError::KeyRotationPending);
+        }
+
+        debug!("Update mls keys");
+        let mls = self.mls_state.as_mut().unwrap();
+        let proposal_msg;
+        {
+            let mut lock = mls.mls.lock();
+            proposal_msg = lock
+                .create_rotation_proposal()
+                .map_err(|e| SessionError::NewProposalMessage(e.to_string()))?;
+        }
+        let dest = self.moderator_name.as_ref().unwrap();
+
+        let content = MlsProposalMessagePayload::new(self.endpoint.name.clone(), proposal_msg);
+        let payload: Vec<u8> =
+            bincode::encode_to_vec(&content, bincode::config::standard()).unwrap();
+        // get msg id
+        let proposal_id = rand::random::<u32>();
+        let proposal = self.endpoint.create_channel_message(
+            dest.agent_type(),
+            dest.agent_id_option(),
+            true,
+            ProtoSessionMessageType::ChannelMlsProposal,
+            proposal_id,
+            payload,
+        );
+
+        debug!("Send MLS Proposal Message to the moderator (participant key update)");
+        self.endpoint.send(proposal.clone()).await?;
+
+        // create a timer for the proposal
+        let observer = Arc::new(RequestTimerObserver {
+            message: proposal,
+            tx: self.endpoint.tx.clone(),
+        });
+
+        let timer = crate::timer::Timer::new(
+            proposal_id,
+            crate::timer::TimerType::Constant,
+            self.endpoint.retries_interval,
+            None,
+            Some(self.endpoint.max_retries),
+        );
+
+        timer.start(observer);
+
+        self.timer = Some(timer);
+        Ok(())
+    }
+
+    fn is_mls_up(&self) -> Result<bool, SessionError> {
+        self.mls_state
+            .as_ref()
+            .ok_or(SessionError::NoMls)?
+            .is_mls_up()
+    }
 }
 
 impl<P, V, T> OnMessageReceived for ChannelParticipant<P, V, T>
@@ -752,14 +1070,22 @@ where
             }
             ProtoSessionMessageType::ChannelMlsCommit => {
                 debug!("Received mls commit message");
-                self.on_mls_commit(msg).await
+                self.on_mls_control_message(msg).await
+            }
+            ProtoSessionMessageType::ChannelMlsProposal => {
+                debug!("Received mls proposal message");
+                self.on_mls_control_message(msg).await
             }
             ProtoSessionMessageType::ChannelLeaveRequest => {
                 debug!("Received leave request message");
                 self.on_leave_request(msg).await
             }
+            ProtoSessionMessageType::ChannelMlsAck => {
+                debug!("Received mls ack message");
+                self.on_mls_ack(msg).await
+            }
             _ => {
-                debug!("Received message of type {:?}, drop it", msg_type);
+                error!("Received message of type {:?}, drop it", msg_type);
 
                 Err(SessionError::Processing(format!(
                     "Received message of type {:?}, drop it",
@@ -780,10 +1106,11 @@ struct ChannelTimer {
     /// this is used for broadcast messages
     expected_acks: u32,
 
-    /// message to forward once the timer is deleted
+    /// message to process once the timer is deleted
     /// because all the acks are received and so the
-    /// request succeeded (e.g. used for leave request msg)
-    to_forward: Option<Message>,
+    /// request succeeded (e.g. used for leave request msg
+    /// or to send the commit after proposal broadcast)
+    to_process: Option<Message>,
 }
 
 #[derive(Debug)]
@@ -793,25 +1120,23 @@ where
     V: Verifier + Send + Sync + Clone + 'static,
     T: SessionTransmitter + Send + Sync + Clone + 'static,
 {
-    endpoint: Endpoint<P, V, T>,
+    endpoint: Endpoint<T>,
 
-    /// list of endpoint names in the channel
-    // channel_list: HashSet<Agent>,
+    /// list of pending task to execute
+    tasks_todo: VecDeque<Message>,
+
+    /// the current task executed by the moderator
+    /// if it is None the moderator can accept a new task
+    current_task: Option<ModeratorTask>,
 
     /// list of pending requests and related timers
     pending_requests: HashMap<u32, ChannelTimer>,
 
-    /// number or maximum retries before give up with a control message
-    max_retries: u32,
-
-    /// interval between retries
-    retries_interval: Duration,
-
     /// channel name as payload to add to the invite messages
     invite_payload: Vec<u8>,
 
-    /// mls message id
-    mls_msg_id: u32,
+    /// mls state
+    mls_state: Option<MlsModeratorState<P, V>>,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -836,23 +1161,25 @@ where
         let invite_payload: Vec<u8> = bincode::encode_to_vec(p, bincode::config::standard())
             .expect("unable to parse channel name as payload");
 
+        let mls_state = mls.map(MlsModeratorState::new);
+
         let endpoint = Endpoint::new(
             name,
             channel_name,
             channel_id,
             session_id,
             session_type,
-            mls,
+            max_retries,
+            retries_interval,
             tx,
         );
         ChannelModerator {
             endpoint,
-            //channel_list: HashSet::new(),
+            tasks_todo: vec![].into(),
+            current_task: None,
             pending_requests: HashMap::new(),
-            max_retries,
-            retries_interval,
             invite_payload,
-            mls_msg_id: 0,
+            mls_state,
         }
     }
 
@@ -862,8 +1189,8 @@ where
             self.endpoint.join().await?;
 
             // create mls group if needed
-            if let Some(mls) = self.endpoint.mls_state.as_mut() {
-                mls.init_moderator().await?;
+            if let Some(mls) = self.mls_state.as_mut() {
+                mls.init_moderator()?;
             }
         }
 
@@ -885,7 +1212,7 @@ where
         key: u32,
         pending_messages: u32,
         msg: Message,
-        to_forward: Option<Message>,
+        to_process: Option<Message>,
     ) {
         let observer = Arc::new(RequestTimerObserver {
             message: msg,
@@ -895,23 +1222,23 @@ where
         let timer = crate::timer::Timer::new(
             key,
             crate::timer::TimerType::Constant,
-            self.retries_interval,
+            self.endpoint.retries_interval,
             None,
-            Some(self.max_retries),
+            Some(self.endpoint.max_retries),
         );
         timer.start(observer);
 
         let t = ChannelTimer {
             timer,
             expected_acks: pending_messages,
-            to_forward,
+            to_process,
         };
 
         self.pending_requests.insert(key, t);
     }
 
     async fn delete_timer(&mut self, key: u32) -> Result<bool, SessionError> {
-        let to_forward;
+        let to_process;
         match self.pending_requests.get_mut(&key) {
             Some(timer) => {
                 if timer.expected_acks > 0 {
@@ -919,7 +1246,7 @@ where
                 }
                 if timer.expected_acks == 0 {
                     timer.timer.stop();
-                    to_forward = timer.to_forward.clone();
+                    to_process = timer.to_process.clone();
                     self.pending_requests.remove(&key);
                 } else {
                     return Ok(false);
@@ -930,17 +1257,95 @@ where
             }
         }
 
-        if to_forward.is_some() {
-            debug!("timer cancelled, send message to forward");
-            self.forward(to_forward.unwrap()).await?;
+        debug!("Got all the acks, remove timer");
+
+        if to_process.is_some() {
+            match to_process
+                .as_ref()
+                .unwrap()
+                .get_session_header()
+                .session_message_type()
+            {
+                ProtoSessionMessageType::ChannelLeaveRequest => {
+                    debug!("Forward channel leave request after timer cancellation");
+                    let msg = to_process.unwrap();
+                    let msg_id = msg.get_id();
+                    self.forward(msg).await?;
+
+                    // advance current task state and start leave phase
+                    self.current_task.as_mut().unwrap().leave_start(msg_id)?;
+                }
+                ProtoSessionMessageType::ChannelMlsProposal => {
+                    debug!("Create commit message for mls proposal after timer cancellation");
+                    // check the payload of the proposal message
+                    let content = &to_process
+                        .as_ref()
+                        .unwrap()
+                        .get_payload()
+                        .map_or_else(
+                            || {
+                                error!("Missing payload in a Mls Proposal, ignore the message");
+                                Err(SessionError::Processing(
+                                    "Missing payload in a Mls Proposal".to_string(),
+                                ))
+                            },
+                            |content| -> Result<(MlsProposalMessagePayload, usize), SessionError> {
+                                bincode::decode_from_slice(
+                                    &content.blob,
+                                    bincode::config::standard(),
+                                )
+                                .map_err(|e| SessionError::ParseProposalMessage(e.to_string()))
+                            },
+                        )?
+                        .0;
+
+                    let commit_payload = if content.source_name == self.endpoint.name {
+                        // this proposal was originated by the moderator itself
+                        // apply it and send the commit
+                        self.mls_state
+                            .as_mut()
+                            .unwrap()
+                            .process_local_pending_proposal()?
+                    } else {
+                        // the proposal comes from a participant
+                        // process the content and send the commit
+                        self.mls_state
+                            .as_mut()
+                            .unwrap()
+                            .process_proposal_message(&content.mls_msg)?
+                    };
+
+                    // broadcast the commit
+                    let commit_id = self.mls_state.as_mut().unwrap().get_next_mls_mgs_id();
+
+                    let commit = self.endpoint.create_channel_message(
+                        &self.endpoint.channel_name,
+                        self.endpoint.channel_id,
+                        true,
+                        ProtoSessionMessageType::ChannelMlsCommit,
+                        commit_id,
+                        commit_payload,
+                    );
+
+                    // send commit message if needed
+                    let len = self.mls_state.as_ref().unwrap().participants.len();
+
+                    debug!("Send MLS Commit Message to the channel (commit for proposal)");
+                    self.endpoint.send(commit.clone()).await?;
+                    self.create_timer(commit_id, len.try_into().unwrap(), commit, None);
+
+                    // advance current task state and start commit phase
+                    self.current_task
+                        .as_mut()
+                        .unwrap()
+                        .commit_start(commit_id)?;
+                }
+                _ => { /*nothing to do at the moment*/ }
+            }
         }
 
+        debug!(%key, "Timer cancelled, all messages acked");
         Ok(true)
-    }
-
-    fn get_next_mls_mgs_id(&mut self) -> u32 {
-        self.mls_msg_id += 1;
-        self.mls_msg_id
     }
 
     async fn on_discovery_reply(&mut self, msg: Message) -> Result<(), SessionError> {
@@ -949,6 +1354,13 @@ where
 
         // If recv_msg_id is not in the pending requests, this will fail with an error
         self.delete_timer(recv_msg_id).await?;
+
+        // evolve the current task state
+        // the discovery phase is completed
+        self.current_task
+            .as_mut()
+            .unwrap()
+            .discovery_complete(recv_msg_id)?;
 
         // set the local state and join the channel
         self.endpoint.conn = Some(msg.get_incoming_conn());
@@ -969,7 +1381,7 @@ where
             self.invite_payload.clone(),
         );
 
-        if self.endpoint.mls_state.is_some() {
+        if self.mls_state.is_some() {
             join.insert_metadata(METADATA_MLS_ENABLED.to_string(), "true".to_owned());
             debug!("Reply with the join request, MLS is enabled");
         } else {
@@ -978,6 +1390,10 @@ where
 
         // add a new timer for the join message
         self.create_timer(new_msg_id, 1, join.clone(), None);
+
+        // evolve the current task state
+        // start the join phase
+        self.current_task.as_mut().unwrap().join_start(new_msg_id)?;
 
         // send the message
         self.endpoint.send(join).await
@@ -991,18 +1407,17 @@ where
         let ret = self.delete_timer(msg_id).await?;
         debug_assert!(ret, "timer for join reply should be removed");
 
+        // evolve the current task state
+        // the join phase is completed
+        self.current_task.as_mut().unwrap().join_complete(msg_id)?;
+
         // send MLS messages if needed
-        if self.endpoint.mls_state.is_some() {
-            let (commit_payload, welcome_payload) = self
-                .endpoint
-                .mls_state
-                .as_mut()
-                .unwrap()
-                .add_participant(&msg)
-                .await?;
+        if self.mls_state.is_some() {
+            let (commit_payload, welcome_payload) =
+                self.mls_state.as_mut().unwrap().add_participant(&msg)?;
 
             // send the commit message to the channel
-            let commit_id = self.get_next_mls_mgs_id();
+            let commit_id = self.mls_state.as_mut().unwrap().get_next_mls_mgs_id();
             let welcome_id = rand::random::<u32>();
 
             let commit = self.endpoint.create_channel_message(
@@ -1031,42 +1446,209 @@ where
             self.endpoint.send(welcome.clone()).await?;
             self.create_timer(welcome_id, 1, welcome, None);
 
+            // evolve the current task state
+            // welcome start
+            self.current_task
+                .as_mut()
+                .unwrap()
+                .welcome_start(welcome_id)?;
+
             // send commit message if needed
-            let len = self.endpoint.mls_state.as_ref().unwrap().participants.len();
+            let len = self.mls_state.as_ref().unwrap().participants.len();
             if len > 1 {
-                debug!("Send MLS Commit Message to the channel");
+                debug!("Send MLS Commit Message to the channel (new group member)");
                 self.endpoint.send(commit.clone()).await?;
                 self.create_timer(commit_id, (len - 1).try_into().unwrap(), commit, None);
+
+                // evolve the current task state
+                // commit start
+                self.current_task
+                    .as_mut()
+                    .unwrap()
+                    .commit_start(commit_id)?;
+            } else {
+                // no commit message will be sent so update the task state to consider the commit as received
+                // the timer id is not important here, it just need to be consistent
+                self.current_task.as_mut().unwrap().commit_start(0)?;
+                self.current_task.as_mut().unwrap().mls_phase_completed(0)?;
             }
-        };
+        } else {
+            // MLS is disable so the current task should be completed
+            self.task_done().await?;
+        }
 
         Ok(())
     }
 
     async fn on_msl_ack(&mut self, msg: Message) -> Result<(), SessionError> {
         let recv_msg_id = msg.get_id();
-        let _ = self.delete_timer(recv_msg_id).await?;
+        if self.delete_timer(recv_msg_id).await? {
+            // one mls phase was completed so update the current task state
+            self.current_task
+                .as_mut()
+                .unwrap()
+                .mls_phase_completed(recv_msg_id)?;
 
-        // notify mls state that an ack was received
-        self.endpoint
-            .mls_state
-            .as_mut()
-            .ok_or(SessionError::NoMls)?
-            .on_mls_ack()
+            // check if the task is done. if yes we can set mls_up to
+            // true because at least one MLS task was done
+            if self.current_task.as_mut().unwrap().task_complete() {
+                self.mls_state
+                    .as_mut()
+                    .ok_or(SessionError::NoMls)?
+                    .common
+                    .mls_up = true;
+            }
+
+            // check if the current task is completed
+            self.task_done().await?;
+        }
+
+        Ok(())
+    }
+
+    async fn ack_msl_proposal(&mut self, msg: &Message) -> Result<(), SessionError> {
+        // get the payload
+        let source = msg.get_source();
+        let msg_id = msg.get_id();
+
+        let payload: Vec<u8> = if self.current_task.is_some() {
+            b"busy".to_vec()
+        } else {
+            vec![]
+        };
+
+        // ack the MLS proposal
+        debug!("Received proposal from a participant, send ack");
+        let ack = self.endpoint.create_channel_message(
+            source.agent_type(),
+            source.agent_id_option(),
+            false,
+            ProtoSessionMessageType::ChannelMlsAck,
+            msg_id,
+            payload,
+        );
+
+        self.endpoint.send(ack).await
+    }
+
+    async fn on_mls_proposal(&mut self, msg: Message) -> Result<(), SessionError> {
+        // we need to send the ack back to the participant
+        // if the moderator is no busy the message can be processed
+        // immediately otherwise we need to ask to participant to send
+        // a new proposal because the proposal as related to mls epochs
+        // and a proposal from an old epoch cannot be processed.
+        let payload = &msg
+            .get_payload()
+            .ok_or(SessionError::CommitMessage(
+                "missing payload in MLS proposal, cannot process it".to_string(),
+            ))?
+            .blob;
+
+        self.ack_msl_proposal(&msg).await?;
+
+        // check if the moderator is busy or if we can process the packet
+        if self.current_task.is_some() {
+            debug!("Moderator is busy. drop the proposal");
+            return Ok(());
+        }
+
+        // now the moderator is busy
+        self.current_task = Some(ModeratorTask::UpdateParticipantMls(
+            UpdateParticipantMls::default(),
+        ));
+
+        // if the sender is the only participant in the group we can apply the proposal
+        // locally and send a commit. otherwise the proposal must be known by all the
+        // members of the group and so we have to broadcast the proposal first and send
+        // the commit when all the acks are received
+        let len = self.mls_state.as_ref().unwrap().participants.len();
+
+        if len == 1 {
+            debug!("Only one partcipant in the group. send the commit");
+            // we have a single participant in the group. apply the proposal and send the commit
+            let content: MlsProposalMessagePayload =
+                bincode::decode_from_slice(payload, bincode::config::standard())
+                    .map_err(|e| SessionError::ParseProposalMessage(e.to_string()))?
+                    .0;
+
+            debug!("Process received proposal and send commit (single participant)");
+            let commit_payload = self
+                .mls_state
+                .as_mut()
+                .unwrap()
+                .process_proposal_message(&content.mls_msg)?;
+
+            let commit_id = self.mls_state.as_mut().unwrap().get_next_mls_mgs_id();
+
+            let commit = self.endpoint.create_channel_message(
+                &self.endpoint.channel_name,
+                self.endpoint.channel_id,
+                true,
+                ProtoSessionMessageType::ChannelMlsCommit,
+                commit_id,
+                commit_payload,
+            );
+
+            debug!(
+                "Send MLS Commit Message to the channel (commit received proposal - single participant)"
+            );
+            self.endpoint.send(commit.clone()).await?;
+            self.create_timer(commit_id, len.try_into().unwrap(), commit, None);
+
+            // in the current task mark the proposal phase as done because it will not be executed
+            // and start the commit phase waiting for the ack
+            self.current_task.as_mut().unwrap().proposal_start(0)?;
+            self.current_task.as_mut().unwrap().mls_phase_completed(0)?;
+
+            self.current_task
+                .as_mut()
+                .unwrap()
+                .commit_start(commit_id)?;
+        } else {
+            // broadcast the proposal on the channel
+            let broadcast_msg_id = self.mls_state.as_mut().unwrap().get_next_mls_mgs_id();
+            let broadcast_msg = self.endpoint.create_channel_message(
+                &self.endpoint.channel_name,
+                self.endpoint.channel_id,
+                true,
+                ProtoSessionMessageType::ChannelMlsProposal,
+                broadcast_msg_id,
+                payload.to_vec(),
+            );
+
+            // send the proposal to all the participants and set the timers
+            debug!("Send MLS Proposal Message to the channel (key rotation)");
+            self.endpoint.send(broadcast_msg.clone()).await?;
+            self.create_timer(
+                broadcast_msg_id,
+                len.try_into().unwrap(),
+                broadcast_msg.clone(),
+                Some(broadcast_msg),
+            );
+
+            // advance the current task with the proposal start
+            self.current_task
+                .as_mut()
+                .unwrap()
+                .proposal_start(broadcast_msg_id)?;
+        }
+
+        Ok(())
     }
 
     async fn on_leave_request(&mut self, msg: Message) -> Result<(), SessionError> {
-        // If MLS is on send the MLS commit and wait for all the
-        // acks before send the leave request. If MLS is of forward
+        // If MLS is on, send the MLS commit and wait for all the
+        // acks before send the leave request. If MLS is off forward
         // the message
-        match self.endpoint.mls_state.as_mut() {
+        match self.mls_state.as_mut() {
             Some(state) => {
-                let commit_payload = state.remove_participant(&msg).await?;
+                let commit_payload = state.remove_participant(&msg)?;
 
-                let commit_id = self.get_next_mls_mgs_id();
+                let commit_id = self.mls_state.as_mut().unwrap().get_next_mls_mgs_id();
+
                 let commit = self.endpoint.create_channel_message(
                     &self.endpoint.channel_name,
-                    None,
+                    self.endpoint.channel_id,
                     true,
                     ProtoSessionMessageType::ChannelMlsCommit,
                     commit_id,
@@ -1074,21 +1656,27 @@ where
                 );
 
                 // send commit message if needed
-                debug!("Send MLS Commit Message to the channel");
+                debug!("Send MLS Commit Message to the channel (remove group member)");
                 self.endpoint.send(commit.clone()).await?;
 
                 // wait for len + 1 acks because the participant list does not contains
                 // the removed participant anymore
-                let len = self.endpoint.mls_state.as_ref().unwrap().participants.len() + 1;
+                let len = self.mls_state.as_ref().unwrap().participants.len() + 1;
 
                 // the leave request will be forwarded after all acks are received
                 self.create_timer(commit_id, (len).try_into().unwrap(), commit, Some(msg));
+                self.current_task
+                    .as_mut()
+                    .unwrap()
+                    .commit_start(commit_id)?;
 
                 Ok(())
             }
             None => {
                 // just send the leave request
-                self.forward(msg).await
+                let msg_id = msg.get_id();
+                self.forward(msg).await?;
+                self.current_task.as_mut().unwrap().leave_start(msg_id)
             }
         }
     }
@@ -1097,9 +1685,164 @@ where
         let msg_id = msg.get_id();
 
         // cancel timer
-        let ret = self.delete_timer(msg_id).await?;
-        debug_assert!(ret, "timer for leave reply should be removed");
-        Ok(())
+        if self.delete_timer(msg_id).await? {
+            // with the leave reply reception we conclude a participant remove
+            // update the task and try to pickup a new task
+            self.current_task.as_mut().unwrap().leave_complete(msg_id)?;
+            self.task_done().await
+        } else {
+            debug!("Timer for leave reply {:?} was not removed", msg_id);
+            Ok(())
+        }
+    }
+
+    async fn task_done(&mut self) -> Result<(), SessionError> {
+        if !self.current_task.as_ref().unwrap().task_complete() {
+            // the task is not completed so just return
+            // and continue with the process
+            debug!("Current task is NOT completed");
+            return Ok(());
+        }
+
+        // here the moderator is not busy anymore
+        self.current_task = None;
+
+        // check if there is a pending task to process
+        let msg = match self.tasks_todo.pop_front() {
+            Some(m) => m,
+            None => {
+                // nothing else to do
+                debug!("No tasks left to perform");
+                return Ok(());
+            }
+        };
+
+        debug!("Process a new task from the todo list");
+        let msg_type = msg.get_session_header().session_message_type();
+        match msg_type {
+            ProtoSessionMessageType::ChannelDiscoveryRequest => {
+                // now the moderator is busy
+                self.current_task = if self.mls_state.is_some() {
+                    Some(ModeratorTask::AddParticipantMls(
+                        AddParticipantMls::default(),
+                    ))
+                } else {
+                    Some(ModeratorTask::AddParticipant(AddParticipant::default()))
+                };
+
+                debug!("Start a new inivte task, send discovery message");
+                let msg_id = msg.get_id();
+                // discovery message coming from the application
+                self.forward(msg).await?;
+
+                // register the discovery start in the current task
+                self.current_task.as_mut().unwrap().discovery_start(msg_id)
+            }
+            ProtoSessionMessageType::ChannelMlsProposal => {
+                // only the moderator itself can schedule a proposal task
+                debug!("Start a new local key update task");
+                self.update_mls_keys().await
+            }
+            ProtoSessionMessageType::ChannelLeaveRequest => {
+                debug!("Start a new channel leave task");
+                // now the moderator is busy
+                self.current_task = if self.mls_state.is_some() {
+                    Some(ModeratorTask::RemoveParticipantMls(
+                        RemoveParticipantMls::default(),
+                    ))
+                } else {
+                    Some(ModeratorTask::RemoveParticipant(
+                        RemoveParticipant::default(),
+                    ))
+                };
+                self.on_leave_request(msg).await
+            }
+            _ => {
+                error!("unexpected message in the list of tasks to do, drop it");
+                Err(SessionError::ModeratorTask(
+                    "unexpected new task".to_string(),
+                ))
+            }
+        }
+    }
+}
+
+impl<P, V, T> MlsEndpoint for ChannelModerator<P, V, T>
+where
+    P: TokenProvider + Send + Sync + Clone + 'static,
+    V: Verifier + Send + Sync + Clone + 'static,
+    T: SessionTransmitter + Send + Sync + Clone + 'static,
+{
+    async fn update_mls_keys(&mut self) -> Result<(), SessionError> {
+        debug!("Update local mls keys");
+
+        if self.current_task.is_some() {
+            debug!("Another task is running, schedule update for later");
+            // if busy postpone the task and add it to the todo list
+            // at this point we cannot create a real proposal so create
+            // a fake one with empty payload and push it to the todo list
+            let empty_msg = self.endpoint.create_channel_message(
+                &self.endpoint.channel_name,
+                self.endpoint.channel_id,
+                true,
+                ProtoSessionMessageType::ChannelMlsProposal,
+                rand::random::<u32>(),
+                vec![],
+            );
+
+            self.tasks_todo.push_back(empty_msg);
+            return Ok(());
+        }
+
+        // now the moderator is busy
+        self.current_task = Some(ModeratorTask::UpdateParticipantMls(
+            UpdateParticipantMls::default(),
+        ));
+
+        let mls = &self.mls_state.as_mut().unwrap().common;
+        let proposal_msg;
+        {
+            let mut lock = mls.mls.lock();
+            proposal_msg = lock
+                .create_rotation_proposal()
+                .map_err(|e| SessionError::NewProposalMessage(e.to_string()))?;
+        }
+
+        let content = MlsProposalMessagePayload::new(self.endpoint.name.clone(), proposal_msg);
+        let payload: Vec<u8> =
+            bincode::encode_to_vec(&content, bincode::config::standard()).unwrap();
+        let proposal_id = self.mls_state.as_mut().unwrap().get_next_mls_mgs_id();
+        let proposal = self.endpoint.create_channel_message(
+            &self.endpoint.channel_name,
+            self.endpoint.channel_id,
+            true,
+            ProtoSessionMessageType::ChannelMlsProposal,
+            proposal_id,
+            payload,
+        );
+
+        debug!("Send MLS Proposal Message to the channel (moderator key update)");
+        let len = self.mls_state.as_ref().unwrap().participants.len();
+        self.endpoint.send(proposal.clone()).await?;
+        self.create_timer(
+            proposal_id,
+            len.try_into().unwrap(),
+            proposal.clone(),
+            Some(proposal),
+        );
+
+        // advance current task with proposal start
+        self.current_task
+            .as_mut()
+            .unwrap()
+            .proposal_start(proposal_id)
+    }
+
+    fn is_mls_up(&self) -> Result<bool, SessionError> {
+        self.mls_state
+            .as_ref()
+            .ok_or(SessionError::NoMls)?
+            .is_mls_up()
     }
 }
 
@@ -1113,28 +1856,83 @@ where
         let msg_type = msg.get_session_header().session_message_type();
         match msg_type {
             ProtoSessionMessageType::ChannelDiscoveryRequest => {
+                // the channel discovery starts a new participant invite.
+                // process the request only if not busy
+                if self.current_task.is_some() {
+                    debug!(
+                        "Moderator is busy. Add invite participant task to the list and process it later"
+                    );
+                    // if busy postpone the task and add it to the todo list
+                    self.tasks_todo.push_back(msg);
+                    return Ok(());
+                }
+                // now the moderator is busy
+                self.current_task = if self.mls_state.is_some() {
+                    debug!("Create AddParticipantMls task");
+                    Some(ModeratorTask::AddParticipantMls(
+                        AddParticipantMls::default(),
+                    ))
+                } else {
+                    debug!("Create AddParticipant task");
+                    Some(ModeratorTask::AddParticipant(AddParticipant::default()))
+                };
+
                 debug!("Invite new participant to the channel, send discovery message");
+                let msg_id = msg.get_id();
                 // discovery message coming from the application
-                self.forward(msg).await
+                self.forward(msg).await?;
+
+                // register the discovery start in the current task
+                self.current_task.as_mut().unwrap().discovery_start(msg_id)
             }
             ProtoSessionMessageType::ChannelDiscoveryReply => {
+                // this is part of an invite, process the packet
                 debug!("Received discovery reply message");
                 self.on_discovery_reply(msg).await
             }
             ProtoSessionMessageType::ChannelJoinReply => {
+                // this is part of an invite, process the packet
                 debug!("Received join reply message");
                 self.on_join_reply(msg).await
             }
             ProtoSessionMessageType::ChannelMlsAck => {
+                // this is part of an mls exchange, process the packet
                 debug!("Received mls ack message");
                 self.on_msl_ack(msg).await
             }
+            ProtoSessionMessageType::ChannelMlsProposal => {
+                debug!("Received mls proposal message");
+                self.on_mls_proposal(msg).await
+            }
             ProtoSessionMessageType::ChannelLeaveRequest => {
                 // leave message coming from the application
+                // this message starts a new participant removal.
+                // process the request only if not busy
+                if self.current_task.is_some() {
+                    // if busy postpone the task and add it to the todo list
+                    debug!(
+                        "Moderator is busy. Add  leave request task to the list and process it later"
+                    );
+                    self.tasks_todo.push_back(msg);
+                    return Ok(());
+                }
+
+                // now the moderator is busy
+                self.current_task = if self.mls_state.is_some() {
+                    Some(ModeratorTask::RemoveParticipantMls(
+                        RemoveParticipantMls::default(),
+                    ))
+                } else {
+                    Some(ModeratorTask::RemoveParticipant(
+                        RemoveParticipant::default(),
+                    ))
+                };
+
                 debug!("Received leave request message");
                 self.on_leave_request(msg).await
             }
             ProtoSessionMessageType::ChannelLeaveReply => {
+                // this is part of a remove, process the packet
                 debug!("Received leave reply message");
                 self.on_leave_reply(msg).await
             }
@@ -1151,7 +1949,7 @@ mod tests {
     use crate::testutils::MockTransmitter;
 
     use super::*;
-    use slim_auth::simple::SimpleGroup;
+    use slim_auth::shared_secret::SharedSecret;
     use tracing_test::traced_test;
 
     use slim_datapath::messages::AgentType;
@@ -1182,16 +1980,16 @@ mod tests {
 
         let moderator_mls = MlsState::new(Arc::new(Mutex::new(Mls::new(
             moderator.clone(),
-            SimpleGroup::new("moderator", "group"),
-            SimpleGroup::new("moderator", "group"),
+            SharedSecret::new("moderator", "group"),
+            SharedSecret::new("moderator", "group"),
             std::path::PathBuf::from("/tmp/test_moderator_mls"),
         ))))
         .unwrap();
 
         let participant_mls = MlsState::new(Arc::new(Mutex::new(Mls::new(
             participant.clone(),
-            SimpleGroup::new("participant", "group"),
-            SimpleGroup::new("participant", "group"),
+            SharedSecret::new("participant", "group"),
+            SharedSecret::new("participant", "group"),
             std::path::PathBuf::from("/tmp/test_participant_mls"),
         ))))
         .unwrap();
@@ -1213,6 +2011,8 @@ mod tests {
             None,
             SESSION_ID,
             ProtoSessionType::SessionUnknown,
+            3,
+            Duration::from_millis(100),
             Some(participant_mls),
             participant_tx,
         );

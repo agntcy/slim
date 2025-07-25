@@ -14,11 +14,11 @@ class PyAgentType:
     agent_type: builtins.str
     def __new__(cls,agent_org:builtins.str, agent_ns:builtins.str, agent_class:builtins.str): ...
 
-class PyRequestResponseConfiguration:
-    r"""
-    request response session config
-    """
-    ...
+class PyKey:
+    algorithm: PyAlgorithm
+    format: PyKeyFormat
+    key: PyKeyData
+    def __new__(cls,algorithm:PyAlgorithm, format:PyKeyFormat, key:PyKeyData): ...
 
 class PyService:
     id: builtins.int
@@ -27,9 +27,39 @@ class PySessionInfo:
     id: builtins.int
     def __new__(cls,session_id:builtins.int): ...
 
+class PyAlgorithm(Enum):
+    HS256 = auto()
+    HS384 = auto()
+    HS512 = auto()
+    RS256 = auto()
+    RS384 = auto()
+    RS512 = auto()
+    PS256 = auto()
+    PS384 = auto()
+    PS512 = auto()
+    ES256 = auto()
+    ES384 = auto()
+    EdDSA = auto()
+
+class PyIdentityProvider(Enum):
+    StaticJwt = auto()
+    Jwt = auto()
+    SharedSecret = auto()
+
+class PyIdentityVerifier(Enum):
+    Jwt = auto()
+    SharedSecret = auto()
+
+class PyKeyData(Enum):
+    File = auto()
+    Content = auto()
+
+class PyKeyFormat(Enum):
+    Pem = auto()
+    Jwk = auto()
+
 class PySessionConfiguration(Enum):
     FireAndForget = auto()
-    RequestResponse = auto()
     Streaming = auto()
 
 class PySessionDirection(Enum):
@@ -45,13 +75,12 @@ class PySessionType(Enum):
     session type
     """
     FIRE_AND_FORGET = auto()
-    REQUEST_RESPONSE = auto()
     STREAMING = auto()
 
 def connect(svc:PyService, config:dict) -> typing.Any:
     ...
 
-def create_pyservice(organization:builtins.str, namespace:builtins.str, agent_type:builtins.str, id:typing.Optional[builtins.int]=None) -> typing.Any:
+def create_pyservice(organization:builtins.str, namespace:builtins.str, agent_type:builtins.str, provider:PyIdentityProvider, verifier:PyIdentityVerifier) -> typing.Any:
     ...
 
 def create_session(svc:PyService, config:PySessionConfiguration) -> typing.Any:
@@ -72,10 +101,16 @@ def get_session_config(svc:PyService, session_id:builtins.int) -> typing.Any:
 def init_tracing(config:dict) -> typing.Any:
     ...
 
+def invite(svc:PyService, session_info:PySessionInfo, name:PyAgentType) -> typing.Any:
+    ...
+
 def publish(svc:PyService, session_info:PySessionInfo, fanout:builtins.int, blob:typing.Sequence[builtins.int], name:typing.Optional[PyAgentType]=None, id:typing.Optional[builtins.int]=None) -> typing.Any:
     ...
 
 def receive(svc:PyService) -> typing.Any:
+    ...
+
+def remove(svc:PyService, session_info:PySessionInfo, name:PyAgentType, id:builtins.int) -> typing.Any:
     ...
 
 def remove_route(svc:PyService, conn:builtins.int, name:PyAgentType, id:typing.Optional[builtins.int]=None) -> typing.Any:

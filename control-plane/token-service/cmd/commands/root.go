@@ -68,7 +68,6 @@ func Execute(
 	// we do not log the error here since we expect that each subcommand
 	// handles the errors by itself.
 	err := cmd.ExecuteContext(ctx)
-
 	if err != nil {
 		opts.Logger.Error("error", zap.Error(err))
 	}

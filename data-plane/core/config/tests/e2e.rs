@@ -66,6 +66,7 @@ mod tests {
 
     use super::*;
     use slim_auth::jwt::Algorithm;
+    use slim_auth::jwt::KeyFormat;
     use slim_config::auth::basic::Config as BasicAuthConfig;
     use slim_config::auth::bearer::Config as BearerAuthConfig;
     use slim_config::auth::jwt::Config as JwtAuthConfig;
@@ -290,7 +291,7 @@ mod tests {
         let claims = slim_config::auth::jwt::Claims::default()
             .with_issuer("test-issuer")
             .with_subject("test-subject")
-            .with_audience("test-audience");
+            .with_audience(&["test-audience"]);
 
         let client_config = ClientAuthenticationConfig::Jwt(JwtAuthConfig::new(
             claims.clone(),
@@ -321,15 +322,18 @@ mod tests {
         test_tls_jwt_grpc_configuration(
             Key {
                 algorithm: Algorithm::HS256,
-                key: KeyData::Pem("secret-key".to_string()),
+                format: KeyFormat::Pem,
+                key: KeyData::Str("secret-key".to_string()),
             },
             Key {
                 algorithm: Algorithm::HS256,
-                key: KeyData::Pem("secret-key".to_string()),
+                format: KeyFormat::Pem,
+                key: KeyData::Str("secret-key".to_string()),
             },
             Key {
                 algorithm: Algorithm::HS256,
-                key: KeyData::Pem("wrong-key".to_string()),
+                format: KeyFormat::Pem,
+                key: KeyData::Str("wrong-key".to_string()),
             },
             50057,
         )
@@ -343,14 +347,17 @@ mod tests {
         test_tls_jwt_grpc_configuration(
             Key {
                 algorithm: Algorithm::RS256,
+                format: KeyFormat::Pem,
                 key: KeyData::File(TEST_DATA_PATH.to_string() + "/jwt/rsa.pem"),
             },
             Key {
                 algorithm: Algorithm::RS256,
+                format: KeyFormat::Pem,
                 key: KeyData::File(TEST_DATA_PATH.to_string() + "/jwt/rsa-public.pem"),
             },
             Key {
                 algorithm: Algorithm::RS256,
+                format: KeyFormat::Pem,
                 key: KeyData::File(TEST_DATA_PATH.to_string() + "/jwt/rsa-wrong.pem"),
             },
             50058,
@@ -365,14 +372,17 @@ mod tests {
         test_tls_jwt_grpc_configuration(
             Key {
                 algorithm: Algorithm::RS384,
+                format: KeyFormat::Pem,
                 key: KeyData::File(TEST_DATA_PATH.to_string() + "/jwt/rsa.pem"),
             },
             Key {
                 algorithm: Algorithm::RS384,
+                format: KeyFormat::Pem,
                 key: KeyData::File(TEST_DATA_PATH.to_string() + "/jwt/rsa-public.pem"),
             },
             Key {
                 algorithm: Algorithm::RS384,
+                format: KeyFormat::Pem,
                 key: KeyData::File(TEST_DATA_PATH.to_string() + "/jwt/rsa-wrong.pem"),
             },
             50059,
@@ -387,14 +397,17 @@ mod tests {
         test_tls_jwt_grpc_configuration(
             Key {
                 algorithm: Algorithm::RS512,
+                format: KeyFormat::Pem,
                 key: KeyData::File(TEST_DATA_PATH.to_string() + "/jwt/rsa.pem"),
             },
             Key {
                 algorithm: Algorithm::RS512,
+                format: KeyFormat::Pem,
                 key: KeyData::File(TEST_DATA_PATH.to_string() + "/jwt/rsa-public.pem"),
             },
             Key {
                 algorithm: Algorithm::RS512,
+                format: KeyFormat::Pem,
                 key: KeyData::File(TEST_DATA_PATH.to_string() + "/jwt/rsa-wrong.pem"),
             },
             50060,
@@ -409,14 +422,17 @@ mod tests {
         test_tls_jwt_grpc_configuration(
             Key {
                 algorithm: Algorithm::ES256,
+                format: KeyFormat::Pem,
                 key: KeyData::File(TEST_DATA_PATH.to_string() + "/jwt/ec256.pem"),
             },
             Key {
                 algorithm: Algorithm::ES256,
+                format: KeyFormat::Pem,
                 key: KeyData::File(TEST_DATA_PATH.to_string() + "/jwt/ec256-public.pem"),
             },
             Key {
                 algorithm: Algorithm::ES256,
+                format: KeyFormat::Pem,
                 key: KeyData::File(TEST_DATA_PATH.to_string() + "/jwt/ec256-wrong.pem"),
             },
             50061,
@@ -431,14 +447,17 @@ mod tests {
         test_tls_jwt_grpc_configuration(
             Key {
                 algorithm: Algorithm::ES384,
+                format: KeyFormat::Pem,
                 key: KeyData::File(TEST_DATA_PATH.to_string() + "/jwt/ec384.pem"),
             },
             Key {
                 algorithm: Algorithm::ES384,
+                format: KeyFormat::Pem,
                 key: KeyData::File(TEST_DATA_PATH.to_string() + "/jwt/ec384-public.pem"),
             },
             Key {
                 algorithm: Algorithm::ES384,
+                format: KeyFormat::Pem,
                 key: KeyData::File(TEST_DATA_PATH.to_string() + "/jwt/ec384-wrong.pem"),
             },
             50062,
@@ -453,14 +472,17 @@ mod tests {
         test_tls_jwt_grpc_configuration(
             Key {
                 algorithm: Algorithm::PS256,
+                format: KeyFormat::Pem,
                 key: KeyData::File(TEST_DATA_PATH.to_string() + "/jwt/rsa.pem"),
             },
             Key {
                 algorithm: Algorithm::PS256,
+                format: KeyFormat::Pem,
                 key: KeyData::File(TEST_DATA_PATH.to_string() + "/jwt/rsa-public.pem"),
             },
             Key {
                 algorithm: Algorithm::PS256,
+                format: KeyFormat::Pem,
                 key: KeyData::File(TEST_DATA_PATH.to_string() + "/jwt/rsa-wrong.pem"),
             },
             50063,
@@ -475,14 +497,17 @@ mod tests {
         test_tls_jwt_grpc_configuration(
             Key {
                 algorithm: Algorithm::PS384,
+                format: KeyFormat::Pem,
                 key: KeyData::File(TEST_DATA_PATH.to_string() + "/jwt/rsa.pem"),
             },
             Key {
                 algorithm: Algorithm::PS384,
+                format: KeyFormat::Pem,
                 key: KeyData::File(TEST_DATA_PATH.to_string() + "/jwt/rsa-public.pem"),
             },
             Key {
                 algorithm: Algorithm::PS384,
+                format: KeyFormat::Pem,
                 key: KeyData::File(TEST_DATA_PATH.to_string() + "/jwt/rsa-wrong.pem"),
             },
             50064,
@@ -497,14 +522,17 @@ mod tests {
         test_tls_jwt_grpc_configuration(
             Key {
                 algorithm: Algorithm::PS512,
+                format: KeyFormat::Pem,
                 key: KeyData::File(TEST_DATA_PATH.to_string() + "/jwt/rsa.pem"),
             },
             Key {
                 algorithm: Algorithm::PS512,
+                format: KeyFormat::Pem,
                 key: KeyData::File(TEST_DATA_PATH.to_string() + "/jwt/rsa-public.pem"),
             },
             Key {
                 algorithm: Algorithm::PS512,
+                format: KeyFormat::Pem,
                 key: KeyData::File(TEST_DATA_PATH.to_string() + "/jwt/rsa-wrong.pem"),
             },
             50065,
@@ -519,14 +547,17 @@ mod tests {
         test_tls_jwt_grpc_configuration(
             Key {
                 algorithm: Algorithm::EdDSA,
+                format: KeyFormat::Pem,
                 key: KeyData::File(TEST_DATA_PATH.to_string() + "/jwt/eddsa.pem"),
             },
             Key {
                 algorithm: Algorithm::EdDSA,
+                format: KeyFormat::Pem,
                 key: KeyData::File(TEST_DATA_PATH.to_string() + "/jwt/eddsa-public.pem"),
             },
             Key {
                 algorithm: Algorithm::EdDSA,
+                format: KeyFormat::Pem,
                 key: KeyData::File(TEST_DATA_PATH.to_string() + "/jwt/eddsa-wrong.pem"),
             },
             50066,
@@ -541,14 +572,15 @@ mod tests {
         let claims = slim_config::auth::jwt::Claims::default()
             .with_issuer(mock_server.uri())
             .with_subject("test-subject")
-            .with_audience("test-audience");
+            .with_audience(&["test-audience"]);
 
         let client_config = ClientAuthenticationConfig::Jwt(JwtAuthConfig::new(
             claims.clone(),
             Duration::from_secs(3600),
             JwtKey::Encoding(Key {
                 algorithm,
-                key: KeyData::Pem(test_key.clone()),
+                format: KeyFormat::Pem,
+                key: KeyData::Str(test_key.clone()),
             }),
         ));
 
@@ -576,6 +608,7 @@ mod tests {
             Duration::from_secs(3600),
             JwtKey::Encoding(Key {
                 algorithm,
+                format: KeyFormat::Pem,
                 key: KeyData::File(key_path),
             }),
         ));

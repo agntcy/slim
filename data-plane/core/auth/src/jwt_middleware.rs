@@ -309,7 +309,7 @@ where
 
 #[cfg(test)]
 mod tests {
-    use crate::jwt::Algorithm;
+    use crate::jwt::{Algorithm, KeyFormat};
     use crate::traits::{Signer, StandardClaims};
     use crate::{builder::JwtBuilder, jwt::Key, jwt::KeyData};
     use futures::future::{self, Ready};
@@ -365,11 +365,12 @@ mod tests {
         // Set up a JWT signer
         let signer = JwtBuilder::new()
             .issuer("test-issuer")
-            .audience("test-audience")
+            .audience(&["test-audience"])
             .subject("test-subject")
             .private_key(&Key {
                 algorithm: Algorithm::HS256,
-                key: KeyData::Pem("test-key".to_string()),
+                format: KeyFormat::Pem,
+                key: KeyData::Str("test-key".to_string()),
             })
             .build()
             .unwrap();
@@ -397,11 +398,12 @@ mod tests {
         // Set up a JWT signer
         let signer = JwtBuilder::new()
             .issuer("test-issuer")
-            .audience("test-audience")
+            .audience(&["test-audience"])
             .subject("test-subject")
             .private_key(&Key {
                 algorithm: Algorithm::HS256,
-                key: KeyData::Pem("test-key".to_string()),
+                format: KeyFormat::Pem,
+                key: KeyData::Str("test-key".to_string()),
             })
             .build()
             .unwrap();
@@ -480,22 +482,24 @@ mod tests {
         // Set up a JWT signer and verifier with the same key
         let signer = JwtBuilder::new()
             .issuer("test-issuer")
-            .audience("test-audience")
+            .audience(&["test-audience"])
             .subject("test-subject")
             .private_key(&Key {
                 algorithm: Algorithm::HS256,
-                key: KeyData::Pem("shared-secret".to_string()),
+                format: KeyFormat::Pem,
+                key: KeyData::Str("shared-secret".to_string()),
             })
             .build()
             .unwrap();
 
         let verifier = JwtBuilder::new()
             .issuer("test-issuer")
-            .audience("test-audience")
+            .audience(&["test-audience"])
             .subject("test-subject")
             .public_key(&Key {
                 algorithm: Algorithm::HS256,
-                key: KeyData::Pem("shared-secret".to_string()),
+                format: KeyFormat::Pem,
+                key: KeyData::Str("shared-secret".to_string()),
             })
             .build()
             .unwrap();
@@ -537,11 +541,12 @@ mod tests {
         // Set up a JWT verifier
         let verifier = JwtBuilder::new()
             .issuer("test-issuer")
-            .audience("test-audience")
+            .audience(&["test-audience"])
             .subject("test-subject")
             .public_key(&Key {
                 algorithm: Algorithm::HS256,
-                key: KeyData::Pem("test-key".to_string()),
+                format: KeyFormat::Pem,
+                key: KeyData::Str("test-key".to_string()),
             })
             .build()
             .unwrap();
@@ -555,11 +560,12 @@ mod tests {
         // Set up a JWT signer with the same key as the verifier
         let signer = JwtBuilder::new()
             .issuer("test-issuer")
-            .audience("test-audience")
+            .audience(&["test-audience"])
             .subject("test-subject")
             .private_key(&Key {
                 algorithm: Algorithm::HS256,
-                key: KeyData::Pem("test-key".to_string()),
+                format: KeyFormat::Pem,
+                key: KeyData::Str("test-key".to_string()),
             })
             .build()
             .unwrap();
@@ -638,11 +644,12 @@ mod tests {
         // Set up a JWT signer and verifier with the same key
         let signer = JwtBuilder::new()
             .issuer("test-issuer")
-            .audience("test-audience")
+            .audience(&["test-audience"])
             .subject("test-subject")
             .private_key(&Key {
                 algorithm: Algorithm::HS256,
-                key: KeyData::Pem("shared-secret".to_string()),
+                format: KeyFormat::Pem,
+                key: KeyData::Str("shared-secret".to_string()),
             })
             .custom_claims(claims.clone())
             .build()
@@ -650,11 +657,12 @@ mod tests {
 
         let verifier = JwtBuilder::new()
             .issuer("test-issuer")
-            .audience("test-audience")
+            .audience(&["test-audience"])
             .subject("test-subject")
             .public_key(&Key {
                 algorithm: Algorithm::HS256,
-                key: KeyData::Pem("shared-secret".to_string()),
+                format: KeyFormat::Pem,
+                key: KeyData::Str("shared-secret".to_string()),
             })
             .build()
             .unwrap();
@@ -699,7 +707,7 @@ mod tests {
 
         // Check the claims are as expected
         assert_eq!(ret_claims.iss, Some("test-issuer".to_string()));
-        assert_eq!(ret_claims.aud, Some("test-audience".to_string()));
+        assert_eq!(ret_claims.aud, Some(vec!["test-audience".to_string()]));
         assert_eq!(ret_claims.sub, Some("test-subject".to_string()));
         assert_eq!(
             ret_claims.custom_claims.get("claim1"),

@@ -1,0 +1,19 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "control-plane.fullname" . }}
+  labels:
+    {{- include "control-plane.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.service.type }}
+  ports:
+    - port: {{ .Values.service.north.port }}
+      targetPort: north
+      protocol: TCP
+      name: north
+    - port: {{ .Values.service.south.port }}
+      name: south
+      targetPort: south
+      protocol: TCP
+  selector:
+    {{- include "control-plane.selectorLabels" . | nindent 4 }}

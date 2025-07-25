@@ -60,4 +60,11 @@ impl SessionInterceptorProvider for MockTransmitter {
         // In a real implementation, you would return the stored interceptors
         Vec::new()
     }
+
+    fn derive_new(&self) -> Self {
+        MockTransmitter {
+            tx_app: self.tx_app.clone(),
+            tx_slim: self.tx_slim.clone(),
+        }
+    }
 }

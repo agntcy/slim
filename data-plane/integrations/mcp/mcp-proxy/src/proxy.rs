@@ -11,7 +11,7 @@ use rmcp::{
     transport::{IntoTransport, SseTransport, sse::SseTransportError},
 };
 use slim::config::ConfigResult;
-use slim_auth::simple::SimpleGroup;
+use slim_auth::shared_secret::SharedSecret;
 use slim_datapath::{
     api::ProtoMessage as Message,
     messages::{Agent, AgentType},
@@ -300,8 +300,8 @@ impl Proxy {
         let (app, mut slim_rx) = svc
             .create_app(
                 &self.name,
-                SimpleGroup::new("id", "group"),
-                SimpleGroup::new("id", "group"),
+                SharedSecret::new("id", "secret"),
+                SharedSecret::new("id", "secret"),
             )
             .await
             .expect("failed to create agent");

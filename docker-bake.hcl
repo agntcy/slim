@@ -30,6 +30,13 @@ group "data-plane" {
   ]
 }
 
+group "control-plane" {
+  targets = [
+    "control-plane",
+  ]
+}
+
+
 target "_common" {
   output = [
     "type=image",
@@ -120,3 +127,17 @@ target "testutils" {
   ]
   tags = get_tag(target.docker-metadata-action.tags, "${target.testutils.name}")
 }
+
+target "control-plane" {
+  contexts = {
+    src = "."
+  }
+  dockerfile = "./control-plane/Dockerfile"
+  target     = "control-plane"
+  inherits = [
+    "_common",
+    "docker-metadata-action",
+  ]
+  tags = get_tag(target.docker-metadata-action.tags, "${target.control-plane.name}")
+}
+

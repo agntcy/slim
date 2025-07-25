@@ -13,12 +13,20 @@
             "package-name": "slim-helm",
             "release-type": "helm"
         },
+        "charts/slim-control-plane": {
+            "package-name": "slim-helm-control-plane",
+            "release-type": "helm"
+        },
         "data-plane/integrations/mcp/slim-mcp/packages/slim-mcp": {
             "package-name": "slim-mcp",
             "release-type": "python"
         },
         "control-plane/slimctl": {
             "package-name": "slimctl",
+            "release-type": "go"
+        },
+        "control-plane/control-plane": {
+            "package-name": "control-plane",
             "release-type": "go"
         },
         "data-plane/integrations/mcp/slim-mcp/examples/llamaindex-time-agent": {

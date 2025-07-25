@@ -11,6 +11,7 @@ use slim_auth::traits::{TokenProvider, Verifier};
 use slim_datapath::api::{ProtoSessionType, SessionHeader, SlimHeader};
 use slim_datapath::messages::AgentType;
 use tokio::sync::mpsc::{self, Receiver, Sender};
+use tokio::time::{self, Instant};
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, error};
 
@@ -206,6 +207,10 @@ where
     async fn process_loop(mut self) {
         debug!("Starting FireAndForgetProcessor loop");
 
+        // set timer for mls key rotation if it is enabled
+        let sleep = time::sleep(Duration::from_secs(3600));
+        tokio::pin!(sleep);
+
         loop {
             tokio::select! {
                 next = self.rx.recv() => {
@@ -245,6 +250,10 @@ where
                             break;
                         }
                     }
+                }
+                () = &mut sleep, if self.state.config.mls_enabled => {
+                        let _ = self.state.channel_endpoint.update_mls_keys().await;
+                        sleep.as_mut().reset(Instant::now() + Duration::from_secs(3600));
                 }
                 _ = self.cancellation_token.cancelled() => {
                     debug!("ff session {} deleted", self.state.session_id);
@@ -632,6 +641,7 @@ where
             | ProtoSessionMessageType::ChannelLeaveReply
             | ProtoSessionMessageType::ChannelMlsWelcome
             | ProtoSessionMessageType::ChannelMlsCommit
+            | ProtoSessionMessageType::ChannelMlsProposal
             | ProtoSessionMessageType::ChannelMlsAck => {
                 // Handle mls stuff
                 self.state
@@ -759,6 +769,8 @@ where
                     common.source().agent_id_option(),
                     id,
                     ProtoSessionType::SessionFireForget,
+                    60,
+                    Duration::from_secs(1),
                     mls,
                     tx_slim_app.clone(),
                 );
@@ -897,7 +909,7 @@ where
 #[cfg(test)]
 mod tests {
     use parking_lot::RwLock;
-    use slim_auth::simple::SimpleGroup;
+    use slim_auth::shared_secret::SharedSecret;
     use std::time::Duration;
     use tracing_test::traced_test;
 
@@ -926,8 +938,8 @@ mod tests {
             SessionDirection::Bidirectional,
             source.clone(),
             tx,
-            SimpleGroup::new("a", "group"),
-            SimpleGroup::new("a", "group"),
+            SharedSecret::new("a", "group"),
+            SharedSecret::new("a", "group"),
             std::path::PathBuf::from("/tmp/test_session"),
         );
 
@@ -954,8 +966,8 @@ mod tests {
             SessionDirection::Bidirectional,
             source.clone(),
             tx,
-            SimpleGroup::new("a", "group"),
-            SimpleGroup::new("a", "group"),
+            SharedSecret::new("a", "group"),
+            SharedSecret::new("a", "group"),
             std::path::PathBuf::from("/tmp/test_session"),
         );
 
@@ -1005,8 +1017,8 @@ mod tests {
             SessionDirection::Bidirectional,
             source.clone(),
             tx,
-            SimpleGroup::new("a", "group"),
-            SimpleGroup::new("a", "group"),
+            SharedSecret::new("a", "group"),
+            SharedSecret::new("a", "group"),
             std::path::PathBuf::from("/tmp/test_session"),
         );
 
@@ -1077,8 +1089,8 @@ mod tests {
             SessionDirection::Bidirectional,
             source.clone(),
             tx,
-            SimpleGroup::new("a", "group"),
-            SimpleGroup::new("a", "group"),
+            SharedSecret::new("a", "group"),
+            SharedSecret::new("a", "group"),
             std::path::PathBuf::from("/tmp/test_session"),
         );
 
@@ -1154,8 +1166,8 @@ mod tests {
             SessionDirection::Bidirectional,
             local.clone(),
             tx_sender,
-            SimpleGroup::new("a", "group"),
-            SimpleGroup::new("a", "group"),
+            SharedSecret::new("a", "group"),
+            SharedSecret::new("a", "group"),
             std::path::PathBuf::from("/tmp/test_session"),
         );
 
@@ -1166,8 +1178,8 @@ mod tests {
             SessionDirection::Bidirectional,
             remote.clone(),
             tx_receiver,
-            SimpleGroup::new("a", "group"),
-            SimpleGroup::new("a", "group"),
+            SharedSecret::new("a", "group"),
+            SharedSecret::new("a", "group"),
             std::path::PathBuf::from("/tmp/test_session"),
         );
 
@@ -1268,8 +1280,8 @@ mod tests {
                 SessionDirection::Bidirectional,
                 source.clone(),
                 tx,
-                SimpleGroup::new("a", "group"),
-                SimpleGroup::new("a", "group"),
+                SharedSecret::new("a", "group"),
+                SharedSecret::new("a", "group"),
                 std::path::PathBuf::from("/tmp/test_session"),
             );
         }
@@ -1317,8 +1329,8 @@ mod tests {
             SessionDirection::Bidirectional,
             local.clone(),
             sender_tx,
-            SimpleGroup::new("a", "group"),
-            SimpleGroup::new("a", "group"),
+            SharedSecret::new("a", "group"),
+            SharedSecret::new("a", "group"),
             std::path::PathBuf::from("/tmp/test_sender"),
         );
 
@@ -1334,8 +1346,8 @@ mod tests {
             SessionDirection::Bidirectional,
             remote.clone(),
             receiver_tx,
-            SimpleGroup::new("b", "group"),
-            SimpleGroup::new("b", "group"),
+            SharedSecret::new("b", "group"),
+            SharedSecret::new("b", "group"),
             std::path::PathBuf::from("/tmp/test_receiver"),
         );
 

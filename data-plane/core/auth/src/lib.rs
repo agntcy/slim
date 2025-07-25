@@ -8,6 +8,6 @@ pub mod jwt;
 pub mod jwt_middleware;
 pub mod oidc;
 pub mod resolver;
-pub mod simple;
+pub mod shared_secret;
 pub mod testutils;
 pub mod traits;

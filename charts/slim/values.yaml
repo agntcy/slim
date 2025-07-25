@@ -1,10 +1,6 @@
 # Copyright AGNTCY Contributors (https://github.com/agntcy)
 # SPDX-License-Identifier: Apache-2.0
 
-# Default values for slim.
-# This is a YAML-formatted file.
-# Declare variables to be passed into your templates.
-
 slim:
   # This will set the replicaset count more information can be found here: https://kubernetes.io/docs/concepts/workloads/controllers/replicaset/
   replicaCount: 1
@@ -32,23 +28,25 @@ slim:
       slim/0:
         pubsub:
           servers:
-            - endpoint: "0.0.0.0:46357"
+            - endpoint: "0.0.0.0:{{ .Values.slim.service.data.port }}"
               tls:
                 insecure: true
 
           clients: []
         controller:
-          server:
-            endpoint: "0.0.0.0:46358"
-            tls:
-              insecure: true
+          servers:
+            - endpoint: "0.0.0.0:{{ .Values.slim.service.control.port }}"
+              tls:
+                insecure: true
 
   # This is for setting up a service more information can be found here: https://kubernetes.io/docs/concepts/services-networking/service/
   service:
     # This sets the service type more information can be found here: https://kubernetes.io/docs/concepts/services-networking/service/#publishing-services-service-types
     type: ClusterIP
-    # This sets the ports more information can be found here: https://kubernetes.io/docs/concepts/services-networking/service/#field-spec-ports
-    port: 46357
+    data:
+      port: 46357
+    control:
+      port: 46358
 
   # This block is for setting up the ingress for more information can be found here: https://kubernetes.io/docs/concepts/services-networking/ingress/
   ingress:
