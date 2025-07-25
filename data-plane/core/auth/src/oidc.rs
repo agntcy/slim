@@ -221,9 +221,8 @@ impl OidcTokenProvider {
         };
 
         // Start background refresh task
-        let refresh_task = provider.start_refresh_task(shutdown_rx).await;
+        let refresh_task = provider.start_refresh_task(shutdown_rx);
         *provider.refresh_task.lock() = Some(refresh_task);
-
         // Fetch initial token to populate cache
         if let Err(e) = provider.fetch_new_token().await {
             eprintln!("Warning: Failed to fetch initial token: {}", e);
@@ -231,16 +230,6 @@ impl OidcTokenProvider {
         }
 
         Ok(provider)
-    }
-
-    /// Create a new OIDC Token Provider (synchronous version for backward compatibility)
-    pub fn new_blocking(
-        issuer_url: impl Into<String>,
-        client_id: impl Into<String>,
-        client_secret: impl Into<String>,
-        scope: Option<String>,
-    ) -> Result<Self, AuthError> {
-        block_on(Self::new(issuer_url, client_id, client_secret, scope))
     }
 
     /// Generate cache key for token caching
@@ -251,6 +240,11 @@ impl OidcTokenProvider {
             self.client_id,
             self.scope.as_deref().unwrap_or("")
         )
+    }
+
+    /// Check if cached token is still valid
+    fn is_token_valid(&self, now: u64, expiry: u64) -> bool {
+        expiry > now + REFRESH_BUFFER_SECONDS
     }
 
     /// Fetch a new token using client credentials flow
@@ -315,7 +309,7 @@ impl OidcTokenProvider {
     }
 
     /// Start the background refresh task
-    async fn start_refresh_task(&self, mut shutdown_rx: watch::Receiver<bool>) -> JoinHandle<()> {
+    fn start_refresh_task(&self, mut shutdown_rx: watch::Receiver<bool>) -> JoinHandle<()> {
         let provider_clone = self.clone();
 
         tokio::spawn(async move {
@@ -374,6 +368,18 @@ impl OidcTokenProvider {
             });
         }
     }
+
+    /// Try to fetch initial token synchronously (only for very first call)
+    fn try_initial_token_fetch(&self) -> Result<String, AuthError> {
+        // Check if we already have any token in cache
+        let cache_key = self.get_cache_key();
+        if let Some(cached_token) = self.token_cache.get(&cache_key) {
+            return Ok(cached_token);
+        }
+
+        // Only do blocking call if absolutely necessary (no cached token exists)
+        block_on(self.fetch_new_token())
+    }
 }
 
 impl TokenProvider for OidcTokenProvider {
@@ -392,20 +398,6 @@ impl TokenProvider for OidcTokenProvider {
                 "No cached token available and initial fetch failed. Background refresh should handle this.".to_string()
             ))
         }
-    }
-}
-
-impl OidcTokenProvider {
-    /// Try to fetch initial token synchronously (only for very first call)
-    fn try_initial_token_fetch(&self) -> Result<String, AuthError> {
-        // Check if we already have any token in cache
-        let cache_key = self.get_cache_key();
-        if let Some(cached_token) = self.token_cache.get(&cache_key) {
-            return Ok(cached_token);
-        }
-
-        // Only do blocking call if absolutely necessary (no cached token exists)
-        block_on(self.fetch_new_token())
     }
 }
 
@@ -553,5 +545,548 @@ impl Verifier for OidcVerifier {
     {
         // For synchronous verification, we need a runtime
         block_on(self.verify_token(&token.into()))
+    }
+}
+
+/////////////////////////////////////
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::testutils::{initialize_crypto_provider, setup_test_jwt_resolver};
+    use jsonwebtoken::{Algorithm as JwtAlgorithm, EncodingKey, Header, encode};
+    use jsonwebtoken_aws_lc::Algorithm;
+    use serde_json::json;
+    use wiremock::matchers::{method, path};
+    use wiremock::{Mock, MockServer, ResponseTemplate};
+
+    #[derive(Debug, serde::Serialize, serde::Deserialize, PartialEq)]
+    struct TestClaims {
+        pub sub: String,
+        pub iss: String,
+        pub aud: String,
+        pub exp: u64,
+        pub iat: u64,
+    }
+
+    async fn setup_oidc_mock_server() -> (MockServer, String, String) {
+        let mock_server = MockServer::start().await;
+        let issuer_url = mock_server.uri();
+
+        // Mock OIDC discovery endpoint
+        Mock::given(method("GET"))
+            .and(path("/.well-known/openid-configuration"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "issuer": issuer_url,
+                "authorization_endpoint": format!("{}/auth", issuer_url),
+                "token_endpoint": format!("{}/oauth2/token", issuer_url),
+                "jwks_uri": format!("{}/oauth2/jwks.json", issuer_url),
+                "userinfo_endpoint": format!("{}/userinfo", issuer_url),
+                "response_types_supported": ["code"],
+                "subject_types_supported": ["public"],
+                "id_token_signing_alg_values_supported": ["RS256"],
+                "scopes_supported": ["openid", "profile", "email"],
+                "token_endpoint_auth_methods_supported": ["client_secret_basic", "client_secret_post"],
+                "claims_supported": ["sub", "iss", "aud", "exp", "iat"],
+                "grant_types_supported": ["authorization_code", "client_credentials"]
+            })))
+            .mount(&mock_server)
+            .await;
+
+        // Mock token endpoint for client credentials
+        Mock::given(method("POST"))
+            .and(path("/oauth2/token"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "access_token": "test-access-token-12345",
+                "token_type": "Bearer",
+                "expires_in": 3600
+            })))
+            .mount(&mock_server)
+            .await;
+
+        // Mock JWKS endpoint (needed for token verification)
+        Mock::given(method("GET"))
+            .and(path("/oauth2/jwks.json"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "keys": [{
+                    "kty": "RSA",
+                    "kid": "test-key-1",
+                    "n": "0vx7agoebGcQSuuPiLJXZptN9nndrQmbXEps2aiAFbWhM78LhWx4cbbfAAtVT86zwu1RK7aPFFxuhDR1L6tSoc_BJECPebWKRXjBZCiFV4n3oknjhMstn64tZ_2W-5JsGY4Hc5n9yBXArwl93lqt7_RN5w6Cf0h4QyQ5v-65YGjQR0_FDW2QvzqY368QQMicAtaSqzs8KJZgnYb9c7d0zgdAZHzu6qMQvRL5hajrn1n91CbOpbIS_4q3eFD1LTXfhHQjEZzXpk2zb7fF_xxGLmNr8zXczK8TGLLcgPYEEYnNJhJRs5vJ3dNb02f1_Q-sNHd8qXe5s7eXs2E4RbQJvQ",
+                    "e": "AQAB",
+                    "alg": "RS256"
+                }]
+            })))
+            .mount(&mock_server)
+            .await;
+
+        let access_token = "test-access-token-12345".to_string();
+
+        (mock_server, issuer_url, access_token)
+    }
+
+    #[tokio::test]
+    async fn test_oidc_token_provider_client_credentials_flow() {
+        initialize_crypto_provider();
+
+        let (_mock_server, issuer_url, expected_token) = setup_oidc_mock_server().await;
+
+        let provider = OidcTokenProvider::new(
+            issuer_url,
+            "test-client-id",
+            "test-client-secret",
+            Some("api:read".to_string()),
+        )
+        .await
+        .unwrap();
+
+        // Test token retrieval
+        let token = provider.get_token().unwrap();
+        assert_eq!(token, expected_token);
+
+        // Verify mock was called
+        // The mock server automatically verifies that the expected requests were made
+    }
+
+    #[tokio::test]
+    async fn test_oidc_token_provider_caching() {
+        initialize_crypto_provider();
+
+        let (_mock_server, issuer_url, expected_token) = setup_oidc_mock_server().await;
+
+        let provider =
+            OidcTokenProvider::new(issuer_url, "test-client-id", "test-client-secret", None)
+                .await
+                .unwrap();
+
+        // First call - should fetch token
+        let token1 = provider.get_token().unwrap();
+        assert_eq!(token1, expected_token);
+
+        // Second call - should use cached token
+        let token2 = provider.get_token().unwrap();
+        assert_eq!(token2, expected_token);
+        assert_eq!(token1, token2);
+    }
+
+    #[tokio::test]
+    async fn test_oidc_token_provider_error_handling() {
+        initialize_crypto_provider();
+
+        let mock_server = MockServer::start().await;
+        let issuer_url = mock_server.uri();
+
+        // Mock discovery endpoint returning error
+        Mock::given(method("GET"))
+            .and(path("/.well-known/openid-configuration"))
+            .respond_with(ResponseTemplate::new(404))
+            .mount(&mock_server)
+            .await;
+
+        let provider =
+            OidcTokenProvider::new(issuer_url, "test-client-id", "test-client-secret", None).await;
+
+        // Provider creation should succeed (we don't validate during construction anymore)
+        assert!(provider.is_ok());
+
+        let provider = provider.unwrap();
+
+        // But token fetching should fail when discovery endpoint returns 404
+        let result = provider.get_token();
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_oidc_token_provider_invalid_token_response() {
+        initialize_crypto_provider();
+
+        let mock_server = MockServer::start().await;
+        let issuer_url = mock_server.uri();
+
+        // Mock discovery endpoint
+        Mock::given(method("GET"))
+            .and(path("/.well-known/openid-configuration"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "issuer": issuer_url,
+                "token_endpoint": format!("{}/oauth2/token", issuer_url),
+            })))
+            .mount(&mock_server)
+            .await;
+
+        // Mock token endpoint returning invalid response (missing access_token)
+        Mock::given(method("POST"))
+            .and(path("/oauth2/token"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "token_type": "Bearer",
+                "expires_in": 3600
+            })))
+            .mount(&mock_server)
+            .await;
+
+        let provider =
+            OidcTokenProvider::new(issuer_url, "test-client-id", "test-client-secret", None)
+                .await
+                .unwrap();
+
+        // Should return error when access_token is missing
+        let result = provider.get_token();
+        assert!(result.is_err());
+        if let Err(AuthError::GetTokenError(msg)) = result {
+            assert!(msg.contains("access_token not found"));
+        } else {
+            panic!("Expected GetTokenError");
+        }
+    }
+
+    #[tokio::test]
+    async fn test_oidc_verifier_simple_mock() {
+        initialize_crypto_provider();
+
+        // Use the existing utility to set up mock server
+        let (_private_key, mock_server, _alg) = setup_test_jwt_resolver(Algorithm::RS256).await;
+        let issuer_url = mock_server.uri();
+
+        // Create verifier and test that it can fetch JWKS
+        let verifier = OidcVerifier::new(issuer_url, "test-audience");
+
+        // Test that we can fetch JWKS successfully
+        let jwks = verifier.fetch_jwks().await.unwrap();
+        assert_eq!(jwks.keys.len(), 1);
+        assert_eq!(jwks.keys[0].kty, "RSA");
+        // The key ID will be generated by setup_test_jwt_resolver
+        assert!(!jwks.keys[0].kid.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_oidc_verifier_jwt_verification() {
+        initialize_crypto_provider();
+
+        // Setup mock OIDC server with JWKS using the existing utility
+        let (private_key, mock_server, _alg) = setup_test_jwt_resolver(Algorithm::RS256).await;
+        let issuer_url = mock_server.uri();
+
+        // Create test claims
+        let claims = TestClaims {
+            sub: "user123".to_string(),
+            iss: issuer_url.clone(),
+            aud: "test-audience".to_string(),
+            exp: (SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_secs()
+                + 3600),
+            iat: SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_secs(),
+        };
+
+        // Create JWT token without kid (since we have only one key)
+        let header = Header::new(JwtAlgorithm::RS256);
+        let encoding_key = EncodingKey::from_rsa_pem(private_key.as_bytes()).unwrap();
+        let token = encode(&header, &claims, &encoding_key).unwrap();
+
+        // Create verifier
+        let verifier = OidcVerifier::new(issuer_url, "test-audience");
+
+        // First test that JWKS can be fetched
+        let jwks = verifier.fetch_jwks().await.unwrap();
+        assert!(jwks.keys.len() > 0);
+
+        // Now verify the token
+        let verified_claims: TestClaims = verifier.verify(token).await.unwrap();
+        assert_eq!(verified_claims.sub, "user123");
+        assert_eq!(verified_claims.aud, "test-audience");
+    }
+
+    #[tokio::test]
+    async fn test_oidc_verifier_jwks_caching() {
+        initialize_crypto_provider();
+
+        let (private_key, mock_server, _alg) = setup_test_jwt_resolver(Algorithm::RS256).await;
+        let issuer_url = mock_server.uri();
+
+        let claims = TestClaims {
+            sub: "user123".to_string(),
+            iss: issuer_url.clone(),
+            aud: "test-audience".to_string(),
+            exp: (SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_secs()
+                + 3600),
+            iat: SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_secs(),
+        };
+
+        let header = Header::new(JwtAlgorithm::RS256);
+        let encoding_key = EncodingKey::from_rsa_pem(private_key.as_bytes()).unwrap();
+        let token = encode(&header, &claims, &encoding_key).unwrap();
+
+        let verifier = OidcVerifier::new(issuer_url, "test-audience");
+
+        // First verification - should fetch JWKS
+        let result1: TestClaims = verifier.verify(token.clone()).await.unwrap();
+        assert_eq!(result1.sub, "user123");
+
+        // Second verification - should use cached JWKS
+        let result2: TestClaims = verifier.verify(token).await.unwrap();
+        assert_eq!(result2.sub, "user123");
+    }
+
+    #[tokio::test]
+    async fn test_oidc_verifier_invalid_token() {
+        initialize_crypto_provider();
+
+        let (_private_key, mock_server, _alg) = setup_test_jwt_resolver(Algorithm::RS256).await;
+        let issuer_url = mock_server.uri();
+
+        let verifier = OidcVerifier::new(issuer_url, "test-audience");
+
+        // Try to verify invalid token
+        let result: Result<TestClaims, _> = verifier.verify("invalid-token").await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_oidc_verifier_missing_kid_single_key_works() {
+        initialize_crypto_provider();
+
+        let (private_key, mock_server, _alg) = setup_test_jwt_resolver(Algorithm::RS256).await;
+        let issuer_url = mock_server.uri();
+
+        let claims = TestClaims {
+            sub: "user123".to_string(),
+            iss: issuer_url.clone(),
+            aud: "test-audience".to_string(),
+            exp: (SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_secs()
+                + 3600),
+            iat: SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_secs(),
+        };
+
+        // Create token without kid in header - this should work with single key
+        let mut header = Header::new(JwtAlgorithm::RS256);
+        header.kid = None; // Explicitly remove kid
+        let encoding_key = EncodingKey::from_rsa_pem(private_key.as_bytes()).unwrap();
+        let token = encode(&header, &claims, &encoding_key).unwrap();
+
+        let verifier = OidcVerifier::new(issuer_url, "test-audience");
+
+        // Should succeed because kid is missing but there's only one key available
+        let result: Result<TestClaims, _> = verifier.verify(token).await;
+        if let Err(e) = &result {
+            println!("Unexpected error: {:?}", e);
+        }
+        assert!(
+            result.is_ok(),
+            "Expected success with single key and no kid, got error: {:?}",
+            result.err()
+        );
+
+        let verified_claims = result.unwrap();
+        assert_eq!(verified_claims.sub, "user123");
+        assert_eq!(verified_claims.aud, "test-audience");
+    }
+
+    #[tokio::test]
+    async fn test_oidc_verifier_unsupported_key_type() {
+        initialize_crypto_provider();
+
+        let mock_server = MockServer::start().await;
+        let issuer_url = mock_server.uri();
+
+        // Mock OIDC discovery endpoint
+        Mock::given(method("GET"))
+            .and(path("/.well-known/openid-configuration"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "issuer": issuer_url,
+                "authorization_endpoint": format!("{}/auth", issuer_url),
+                "token_endpoint": format!("{}/oauth2/token", issuer_url),
+                "jwks_uri": format!("{}/jwks.json", issuer_url),
+                "response_types_supported": ["code"],
+                "subject_types_supported": ["public"],
+                "id_token_signing_alg_values_supported": ["RS256"]
+            })))
+            .mount(&mock_server)
+            .await;
+
+        // Mock JWKS with unsupported key type
+        Mock::given(method("GET"))
+            .and(path("/jwks.json"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "keys": [{
+                    "kty": "oct", // Symmetric key - not supported
+                    "kid": "test-key-id",
+                    "k": "test-key-value"
+                }]
+            })))
+            .mount(&mock_server)
+            .await;
+
+        // Create a token with the test key ID
+        let claims = TestClaims {
+            sub: "user123".to_string(),
+            iss: issuer_url.clone(),
+            aud: "test-audience".to_string(),
+            exp: (SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_secs()
+                + 3600),
+            iat: SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_secs(),
+        };
+
+        let mut header = Header::new(JwtAlgorithm::RS256);
+        header.kid = Some("test-key-id".to_string());
+
+        // Use a dummy key for encoding (the test will fail at key type validation)
+        // We need to use the proper algorithm for the encoding to work
+        let header = Header::new(JwtAlgorithm::HS256); // Use HS256 for symmetric key
+        let encoding_key = EncodingKey::from_secret("dummy-secret".as_ref());
+        let token = encode(&header, &claims, &encoding_key).unwrap();
+
+        let verifier = OidcVerifier::new(issuer_url, "test-audience");
+
+        // Should fail because key type is not supported
+        let result: Result<TestClaims, _> = verifier.verify(token).await;
+        assert!(result.is_err());
+        if let Err(AuthError::UnsupportedOperation(msg)) = result {
+            assert!(msg.contains("Unsupported key type"));
+        } else {
+            panic!("Expected UnsupportedOperation error");
+        }
+    }
+
+    #[tokio::test]
+    async fn test_oidc_verifier_key_not_found() {
+        initialize_crypto_provider();
+
+        let (private_key, mock_server, _alg) = setup_test_jwt_resolver(Algorithm::RS256).await;
+        let issuer_url = mock_server.uri();
+
+        let claims = TestClaims {
+            sub: "user123".to_string(),
+            iss: issuer_url.clone(),
+            aud: "test-audience".to_string(),
+            exp: (SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_secs()
+                + 3600),
+            iat: SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_secs(),
+        };
+
+        // Create token with non-existent key ID
+        let mut header = Header::new(JwtAlgorithm::RS256);
+        header.kid = Some("non-existent-key-id".to_string());
+        let encoding_key = EncodingKey::from_rsa_pem(private_key.as_bytes()).unwrap();
+        let token = encode(&header, &claims, &encoding_key).unwrap();
+
+        let verifier = OidcVerifier::new(issuer_url, "test-audience");
+
+        // Should fail because key is not found in JWKS
+        let result: Result<TestClaims, _> = verifier.verify(token).await;
+        assert!(result.is_err());
+        if let Err(AuthError::VerificationError(msg)) = result {
+            assert!(msg.contains("Key not found"));
+        } else {
+            panic!("Expected VerificationError about key not found");
+        }
+    }
+
+    // #[tokio::test]
+    // async fn test_oidc_verifier_try_verify_sync() {
+    //     initialize_crypto_provider();
+
+    //     let (private_key, mock_server, _alg) = setup_test_jwt_resolver(Algorithm::RS256).await;
+    //     let issuer_url = mock_server.uri();
+
+    //     let claims = TestClaims {
+    //         sub: "user123".to_string(),
+    //         iss: issuer_url.clone(),
+    //         aud: "test-audience".to_string(),
+    //         exp: (SystemTime::now()
+    //             .duration_since(UNIX_EPOCH)
+    //             .unwrap()
+    //             .as_secs()
+    //             + 3600),
+    //         iat: SystemTime::now()
+    //             .duration_since(UNIX_EPOCH)
+    //             .unwrap()
+    //             .as_secs(),
+    //     };
+
+    //     let header = Header::new(JwtAlgorithm::RS256);
+    //     let encoding_key = EncodingKey::from_rsa_pem(private_key.as_bytes()).unwrap();
+    //     let token = encode(&header, &claims, &encoding_key).unwrap();
+
+    //     let verifier = OidcVerifier::new(issuer_url, "test-audience");
+
+    //     // Test synchronous verification
+    //     let verified_claims: TestClaims = verifier.try_verify(token).unwrap();
+    //     assert_eq!(verified_claims.sub, "user123");
+    // }
+
+    #[tokio::test]
+    async fn test_oidc_token_provider_creation() {
+        initialize_crypto_provider();
+
+        // Use the existing setup function
+        let (_mock_server, issuer_url, _expected_token) = setup_oidc_mock_server().await;
+        let provider = OidcTokenProvider::new(
+            issuer_url,
+            "client-id",
+            "client-secret",
+            Some("scope".to_string()),
+        )
+        .await;
+
+        // Test that the provider can be created successfully with proper OIDC server
+        match provider {
+            Ok(provider) => {
+                assert_eq!(provider.scope, Some("scope".to_string()));
+            }
+            Err(e) => {
+                eprintln!("Provider creation failed: {:?}", e);
+                panic!("Provider creation should have succeeded");
+            }
+        }
+    }
+
+    #[test]
+    fn test_oidc_verifier_creation() {
+        let verifier = OidcVerifier::new("https://example.com", "audience");
+
+        assert_eq!(verifier.issuer_url, "https://example.com");
+        assert_eq!(verifier.audience, "audience");
+    }
+
+    #[tokio::test]
+    async fn test_token_validity_check() {
+        let (_mock_server, issuer_url, _expected_token) = setup_oidc_mock_server().await;
+
+        let provider = OidcTokenProvider::new(issuer_url, "client-id", "client-secret", None)
+            .await
+            .unwrap();
+
+        let now = 1000;
+        let expiry_valid = now + REFRESH_BUFFER_SECONDS + 100; // Valid token
+        let expiry_invalid = now + REFRESH_BUFFER_SECONDS - 100; // Invalid token
+
+        assert!(provider.is_token_valid(now, expiry_valid));
+        assert!(!provider.is_token_valid(now, expiry_invalid));
     }
 }

@@ -179,7 +179,12 @@ pub async fn setup_test_jwt_resolver(algorithm: Algorithm) -> (String, MockServe
         .and(path("/.well-known/openid-configuration"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "issuer": mock_server.uri(),
-            "jwks_uri": jwks_uri
+            "authorization_endpoint": format!("{}/auth", mock_server.uri()),
+            "token_endpoint": format!("{}/oauth2/token", mock_server.uri()),
+            "jwks_uri": jwks_uri,
+            "response_types_supported": ["code"],
+            "subject_types_supported": ["public"],
+            "id_token_signing_alg_values_supported": ["RS256"]
         })))
         .mount(&mock_server)
         .await;
