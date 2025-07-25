@@ -1,7 +1,7 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
-package route
+package nodecontroller
 
 import (
 	"context"
@@ -18,25 +18,26 @@ import (
 	"github.com/agntcy/slim/control-plane/slimctl/internal/cmd/util"
 )
 
-func NewRouteCmd(opts *options.CommonOptions) *cobra.Command {
+func newRouteCmd(opts *options.CommonOptions) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "route",
 		Short: "Manage SLIM routes",
 		Long:  `Manage SLIM routes`,
 	}
 
-	cmd.AddCommand(newListCmd(opts))
+	cmd.AddCommand(newListRoutesCmd(opts))
 	cmd.AddCommand(newAddCmd(opts))
 	cmd.AddCommand(newDelCmd(opts))
 
 	return cmd
 }
 
-func newListCmd(opts *options.CommonOptions) *cobra.Command {
+func newListRoutesCmd(opts *options.CommonOptions) *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "list",
-		Short: "List routes",
-		Long:  `List routes`,
+		Use:     "list",
+		Aliases: []string{"ls"},
+		Short:   "List routes",
+		Long:    `List routes`,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			msg := &grpcapi.ControlMessage{
 				MessageId: uuid.NewString(),
