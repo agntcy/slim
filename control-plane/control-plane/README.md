@@ -4,17 +4,27 @@ The SLIM Control Plane is a centralized management service that orchestrates nod
 
 ## Overview
 
-
-The control plane consists of:
+The SLIM Controller component is in charge of managing SLIM nodes and their connections. It provides a centralized point for:
 
 - **Node Management**: Registration, status tracking, and lifecycle management
 - **Connection Management**: Creation and configuration of node connections
 - **Subscription Management**: Routing and subscription configuration
 
-Provides the following API's:
+Exposes two API's over gRPC:
 
 - **Northbound API**: Management interface for external clients and control tools, like `slimctl`.
 - **Southbound API**: Node registration and control channel for SLIM nodes
+
+## Architecture
+
+#### System Context Diagram
+
+![System Context Diagram](img/system-context-controller.png)
+
+#### Container Diagram
+
+![System Context Diagram](img/container-controller.png)
+
 
 ## Quick Start
 
