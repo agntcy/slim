@@ -1,5 +1,8 @@
 FROM --platform=${BUILDPLATFORM} golang:1.24 AS builder
 
+ARG TARGETOS
+ARG TARGETARCH
+
 SHELL ["/usr/bin/bash", "-c"]
 
 WORKDIR /
