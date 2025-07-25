@@ -949,7 +949,7 @@ func (x *ListChannelsResponse) GetChannelId() []string {
 	return nil
 }
 
-type ListParticipantsCommand struct {
+type ListParticipantsRequest struct {
 	state         protoimpl.MessageState
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
@@ -958,20 +958,20 @@ type ListParticipantsCommand struct {
 	ChannelId string `protobuf:"bytes,1,opt,name=channel_id,json=channelId,proto3" json:"channel_id,omitempty"`
 }
 
-func (x *ListParticipantsCommand) Reset() {
-	*x = ListParticipantsCommand{}
+func (x *ListParticipantsRequest) Reset() {
+	*x = ListParticipantsRequest{}
 	mi := &file_controlplane_v1_controlplane_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *ListParticipantsCommand) String() string {
+func (x *ListParticipantsRequest) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*ListParticipantsCommand) ProtoMessage() {}
+func (*ListParticipantsRequest) ProtoMessage() {}
 
-func (x *ListParticipantsCommand) ProtoReflect() protoreflect.Message {
+func (x *ListParticipantsRequest) ProtoReflect() protoreflect.Message {
 	mi := &file_controlplane_v1_controlplane_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -983,12 +983,12 @@ func (x *ListParticipantsCommand) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use ListParticipantsCommand.ProtoReflect.Descriptor instead.
-func (*ListParticipantsCommand) Descriptor() ([]byte, []int) {
+// Deprecated: Use ListParticipantsRequest.ProtoReflect.Descriptor instead.
+func (*ListParticipantsRequest) Descriptor() ([]byte, []int) {
 	return file_controlplane_v1_controlplane_proto_rawDescGZIP(), []int{19}
 }
 
-func (x *ListParticipantsCommand) GetChannelId() string {
+func (x *ListParticipantsRequest) GetChannelId() string {
 	if x != nil {
 		return x.ChannelId
 	}
@@ -1138,7 +1138,7 @@ var file_controlplane_v1_controlplane_proto_rawDesc = []byte{
 	0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x12, 0x1d, 0x0a, 0x0a, 0x63, 0x68, 0x61, 0x6e, 0x6e, 0x65,
 	0x6c, 0x5f, 0x69, 0x64, 0x18, 0x01, 0x20, 0x03, 0x28, 0x09, 0x52, 0x09, 0x63, 0x68, 0x61, 0x6e,
 	0x6e, 0x65, 0x6c, 0x49, 0x64, 0x22, 0x38, 0x0a, 0x17, 0x4c, 0x69, 0x73, 0x74, 0x50, 0x61, 0x72,
-	0x74, 0x69, 0x63, 0x69, 0x70, 0x61, 0x6e, 0x74, 0x73, 0x43, 0x6f, 0x6d, 0x6d, 0x61, 0x6e, 0x64,
+	0x74, 0x69, 0x63, 0x69, 0x70, 0x61, 0x6e, 0x74, 0x73, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74,
 	0x12, 0x1d, 0x0a, 0x0a, 0x63, 0x68, 0x61, 0x6e, 0x6e, 0x65, 0x6c, 0x5f, 0x69, 0x64, 0x18, 0x01,
 	0x20, 0x01, 0x28, 0x09, 0x52, 0x09, 0x63, 0x68, 0x61, 0x6e, 0x6e, 0x65, 0x6c, 0x49, 0x64, 0x22,
 	0x41, 0x0a, 0x18, 0x4c, 0x69, 0x73, 0x74, 0x50, 0x61, 0x72, 0x74, 0x69, 0x63, 0x69, 0x70, 0x61,
@@ -1228,8 +1228,8 @@ var file_controlplane_v1_controlplane_proto_rawDesc = []byte{
 	0x0a, 0x10, 0x4c, 0x69, 0x73, 0x74, 0x50, 0x61, 0x72, 0x74, 0x69, 0x63, 0x69, 0x70, 0x61, 0x6e,
 	0x74, 0x73, 0x12, 0x2e, 0x2e, 0x63, 0x6f, 0x6e, 0x74, 0x72, 0x6f, 0x6c, 0x70, 0x6c, 0x61, 0x6e,
 	0x65, 0x2e, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x2e, 0x76, 0x31, 0x2e, 0x4c, 0x69, 0x73, 0x74, 0x50,
-	0x61, 0x72, 0x74, 0x69, 0x63, 0x69, 0x70, 0x61, 0x6e, 0x74, 0x73, 0x43, 0x6f, 0x6d, 0x6d, 0x61,
-	0x6e, 0x64, 0x1a, 0x2f, 0x2e, 0x63, 0x6f, 0x6e, 0x74, 0x72, 0x6f, 0x6c, 0x70, 0x6c, 0x61, 0x6e,
+	0x61, 0x72, 0x74, 0x69, 0x63, 0x69, 0x70, 0x61, 0x6e, 0x74, 0x73, 0x52, 0x65, 0x71, 0x75, 0x65,
+	0x73, 0x74, 0x1a, 0x2f, 0x2e, 0x63, 0x6f, 0x6e, 0x74, 0x72, 0x6f, 0x6c, 0x70, 0x6c, 0x61, 0x6e,
 	0x65, 0x2e, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x2e, 0x76, 0x31, 0x2e, 0x4c, 0x69, 0x73, 0x74, 0x50,
 	0x61, 0x72, 0x74, 0x69, 0x63, 0x69, 0x70, 0x61, 0x6e, 0x74, 0x73, 0x52, 0x65, 0x73, 0x70, 0x6f,
 	0x6e, 0x73, 0x65, 0x22, 0x00, 0x42, 0x52, 0x5a, 0x50, 0x67, 0x69, 0x74, 0x68, 0x75, 0x62, 0x2e,
@@ -1274,7 +1274,7 @@ var file_controlplane_v1_controlplane_proto_goTypes = []any{
 	(*DeleteParticipantRequest)(nil),    // 16: controlplane.proto.v1.DeleteParticipantRequest
 	(*ListChannelsRequest)(nil),         // 17: controlplane.proto.v1.ListChannelsRequest
 	(*ListChannelsResponse)(nil),        // 18: controlplane.proto.v1.ListChannelsResponse
-	(*ListParticipantsCommand)(nil),     // 19: controlplane.proto.v1.ListParticipantsCommand
+	(*ListParticipantsRequest)(nil),     // 19: controlplane.proto.v1.ListParticipantsRequest
 	(*ListParticipantsResponse)(nil),    // 20: controlplane.proto.v1.ListParticipantsResponse
 	(*v1.ConfigurationCommand)(nil),     // 21: controller.proto.v1.ConfigurationCommand
 	(*v1.Connection)(nil),               // 22: controller.proto.v1.Connection
@@ -1300,7 +1300,7 @@ var file_controlplane_v1_controlplane_proto_depIdxs = []int32{
 	15, // 13: controlplane.proto.v1.ControlPlaneService.AddParticipant:input_type -> controlplane.proto.v1.AddParticipantRequest
 	16, // 14: controlplane.proto.v1.ControlPlaneService.DeleteParticipant:input_type -> controlplane.proto.v1.DeleteParticipantRequest
 	17, // 15: controlplane.proto.v1.ControlPlaneService.ListChannels:input_type -> controlplane.proto.v1.ListChannelsRequest
-	19, // 16: controlplane.proto.v1.ControlPlaneService.ListParticipants:input_type -> controlplane.proto.v1.ListParticipantsCommand
+	19, // 16: controlplane.proto.v1.ControlPlaneService.ListParticipants:input_type -> controlplane.proto.v1.ListParticipantsRequest
 	6,  // 17: controlplane.proto.v1.ControlPlaneService.CreateConnection:output_type -> controlplane.proto.v1.CreateConnectionResponse
 	8,  // 18: controlplane.proto.v1.ControlPlaneService.CreateSubscription:output_type -> controlplane.proto.v1.CreateSubscriptionResponse
 	24, // 19: controlplane.proto.v1.ControlPlaneService.ListSubscriptions:output_type -> controller.proto.v1.SubscriptionListResponse

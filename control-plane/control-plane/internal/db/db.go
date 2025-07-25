@@ -1,6 +1,8 @@
 package db
 
-import "google.golang.org/protobuf/types/known/wrapperspb"
+import (
+	"google.golang.org/protobuf/types/known/wrapperspb"
+)
 
 type DataAccess interface {
 	ListNodes() ([]Node, error)
@@ -17,6 +19,12 @@ type DataAccess interface {
 	SaveSubscription(subscription Subscription) (string, error)
 	GetSubscription(subscriptionID string) (Subscription, error)
 	DeleteSubscription(subscriptionID string) error
+
+	SaveChannel(channelID string, moderators []string) error
+	DeleteChannel(channelID string) error
+	GetChannel(channelID string) (Channel, error)
+	UpdateChannel(channel Channel) error
+	ListChannels() ([]Channel, error)
 }
 
 type Node struct {
@@ -40,4 +48,10 @@ type Subscription struct {
 	Namespace    string
 	AgentType    string
 	AgentID      *wrapperspb.UInt64Value
+}
+
+type Channel struct {
+	ID           string
+	Moderators   []string
+	Participants []string
 }

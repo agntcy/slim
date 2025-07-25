@@ -209,7 +209,7 @@ func (s *nbAPIService) ListChannels(
 }
 
 func (s *nbAPIService) ListParticipants(
-	ctx context.Context, listParticipantsCommand *controlplaneApi.ListParticipantsCommand) (
+	ctx context.Context, listParticipantsRequest *controlplaneApi.ListParticipantsRequest) (
 	*controlplaneApi.ListParticipantsResponse, error) {
-	return s.groupService.ListParticipants(ctx, listParticipantsCommand)
+	return s.groupService.ListParticipants(ctx, listParticipantsRequest)
 }

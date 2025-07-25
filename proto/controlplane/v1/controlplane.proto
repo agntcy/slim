@@ -23,7 +23,7 @@ service ControlPlaneService {
   rpc AddParticipant(AddParticipantRequest) returns (controller.proto.v1.Ack) {}
   rpc DeleteParticipant(DeleteParticipantRequest) returns (controller.proto.v1.Ack) {}
   rpc ListChannels(ListChannelsRequest) returns (ListChannelsResponse) {}
-  rpc ListParticipants(ListParticipantsCommand) returns (ListParticipantsResponse) {}
+  rpc ListParticipants(ListParticipantsRequest) returns (ListParticipantsResponse) {}
 }
 
 message ConfigurationCommand {
@@ -119,7 +119,7 @@ message ListChannelsResponse {
   repeated string channel_id = 1;
 }
 
-message ListParticipantsCommand {
+message ListParticipantsRequest {
   // ID of the channel
   string channel_id = 1;
 }
