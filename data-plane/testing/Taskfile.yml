@@ -58,8 +58,7 @@ tasks:
   channel-example:moderator:mls:
     desc: "start moderator for test channel"
     cmds:
-      #- cargo run --release --bin channel -- --config $CONFIG_CLIENT --name org/ns/moderator/1 --is-moderator --participants org/ns/t1 org/ns/t2
-      - cargo run --release --bin channel -- --config $CONFIG_CLIENT --name org/ns/moderator/1 --is-moderator --participants org/ns/t1
+      - cargo run --release --bin channel -- --config $CONFIG_CLIENT --name org/ns/moderator/1 --is-moderator --participants org/ns/t1 org/ns/t2
 
   channel-example:participant-1:mls:
     desc: "start participant-1 for test channel"

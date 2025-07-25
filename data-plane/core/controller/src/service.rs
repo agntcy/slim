@@ -31,7 +31,7 @@ use slim_datapath::messages::Name;
 use slim_datapath::messages::utils::SlimHeaderFlags;
 use slim_datapath::tables::SubscriptionTable;
 
-type TxChannel = mpsc::Sender<Result<ControlMessage, Status>>;
+type TxChannel = Arc<mpsc::Sender<Result<ControlMessage, Status>>>;
 type TxChannels = HashMap<String, TxChannel>;
 
 /// Inner structure for the controller service
@@ -50,7 +50,7 @@ struct ControllerServiceInternal {
     connections: Arc<parking_lot::RwLock<HashMap<String, u64>>>,
 
     /// channel to send messages into the datapath
-    tx_slim: mpsc::Sender<Result<PubsubMessage, Status>>,
+    tx_slim: parking_lot::RwLock<mpsc::Sender<Result<PubsubMessage, Status>>>,
 
     /// channels to send control messages
     tx_channels: parking_lot::RwLock<TxChannels>,
@@ -105,17 +105,16 @@ impl ControlPlane {
     /// * `message_processor` - An Arc to the message processor instance.
     /// # Returns
     /// A new instance of ControlPlane.
-    pub async fn create_control_plane(
+    pub fn new(
         id: ID,
         servers: Vec<ServerConfig>,
         clients: Vec<ClientConfig>,
         drain_rx: drain::Watch,
         message_processor: Arc<MessageProcessor>,
     ) -> Self {
-        // create local connection with the message processor
-        let (_, tx_slim, rx_slim) = message_processor.register_local_connection(true);
-
-        let mut cp = ControlPlane {
+        let (tx, _) = mpsc::channel(128);
+        
+        ControlPlane {
             servers,
             clients,
             controller: ControllerService {
@@ -123,16 +122,13 @@ impl ControlPlane {
                     id,
                     message_processor,
                     connections: Arc::new(parking_lot::RwLock::new(HashMap::new())),
-                    tx_slim,
+                    tx_slim: parking_lot::RwLock::new(tx), // this will be correctly inside run()
                     tx_channels: parking_lot::RwLock::new(HashMap::new()),
                     cancellation_tokens: parking_lot::RwLock::new(HashMap::new()),
                     drain_rx,
                 }),
             },
-        };
-
-        cp.listen_from_data_plane(rx_slim).await;
-        cp
+        }
     }
 
     /// Take an existing ControlPlane instance and return a new one with the provided clients.
@@ -170,6 +166,13 @@ impl ControlPlane {
             self.run_client(client).await?;
         }
 
+        // create local connection with the message processor
+        let (_, tx_slim, rx_slim) = self.controller.inner.message_processor.register_local_connection(true);
+        let inner = self.controller.inner.clone();
+        *inner.tx_slim.write() = tx_slim;
+
+        self.listen_from_data_plane(rx_slim).await;
+
         Ok(())
     }
 
@@ -187,15 +190,86 @@ impl ControlPlane {
             .write()
             .insert("DATA_PLANE".to_string(), cancellation_token_clone);
 
+        let clients = self.clients.clone();
+        let inner = self.controller.inner.clone();
+
         tokio::spawn(async move {
             loop {
                 tokio::select! {
                     next = rx.recv() => {
                         match next {
-                            Some(msg) => {
-                                info!("got message {:?}", msg);
-                                // TODO: here we have to forward the messages
-                                // to the control plane
+                            Some(res) => {
+                                match res {
+                                    Ok(msg) => {
+                                        // TODO: process the packet according to the values in the metadata
+                                        /*
+                                        match msg.get_metadata("CHANNEL") {
+                                            Some(_) => {
+                                                match msg.get_metadata("CHANNEL_CREATION") {
+                                                    Some(_) => {
+                                                        info!("received subscription and creation for channel {}",msg.get_name_as_agent());
+                                                    }
+                                                    None => {
+                                                        info!("received sub/unsub for channel {}",msg.get_name_as_agent());
+                                                    }
+                                                }
+                                            }
+                                            None => {
+                                                info!("received sub/unsub for new name {}",msg.get_name_as_agent());
+                                            }
+                                        }
+                                        */
+
+                                        let mut sub_vec = vec![];
+                                        let mut unsub_vec = vec![];
+
+                                        let (name, id) = msg.get_name();
+                                        let cmd = v1::Subscription {
+                                                    organization: name.organization_string().unwrap(),
+                                                    namespace: name.namespace_string().unwrap(),
+                                                    agent_type: name.agent_type_string().unwrap(),
+                                                    agent_id: id,
+                                                    connection_id: "connection".to_string(),  //TODO
+                                        };
+                                        match msg.get_type() {
+                                            slim_datapath::api::MessageType::Subscribe(_) => {
+                                                sub_vec.push(cmd);
+                                            },
+                                            slim_datapath::api::MessageType::Unsubscribe(_) => {
+                                                unsub_vec.push(cmd);
+                                            }
+                                            slim_datapath::api::MessageType::Publish(_) => {
+                                                // drop publication messages
+                                                continue;
+                                            },
+                                        }
+
+                                        let ctrl = ControlMessage {
+                                            message_id: uuid::Uuid::new_v4().to_string(),
+                                            payload: Some(Payload::ConfigCommand(
+                                                v1::ConfigurationCommand {
+                                                    connections_to_create: vec![],
+                                                    subscriptions_to_set: sub_vec,
+                                                    subscriptions_to_delete: unsub_vec 
+                                                })),
+                                        };
+
+                                        for c in &clients {
+                                            let tx = match inner.tx_channels.read().get(&c.endpoint) {
+                                                Some(tx) => tx.clone(),
+                                                None => continue,
+                                            };
+                                            if let Err(_) = tx.send(Ok(ctrl.clone())).await {
+                                                error!("error while notifiyng the control plane");
+                                            };
+
+                                        }
+                                    }
+                                    Err(e) => {
+                                        error!("received error from the data plane {}", e.to_string());
+                                        continue;
+                                    }
+                                }
                             }
                             None => {
                                 debug!("Data plane receiver channel closed.");
@@ -265,7 +339,7 @@ impl ControlPlane {
             .inner
             .tx_channels
             .write()
-            .insert(client.endpoint.clone(), tx);
+            .insert(client.endpoint.clone(), Arc::new(tx));
 
         // return the sender for control messages
         Ok(())
@@ -610,7 +684,8 @@ impl ControllerService {
 
     /// Send a control message to SLIM.
     async fn send_control_message(&self, msg: PubsubMessage) -> Result<(), ControllerError> {
-        self.inner.tx_slim.send(Ok(msg)).await.map_err(|e| {
+        let guard = self.inner.tx_slim.read().clone();
+        guard.send(Ok(msg)).await.map_err(|e| {
             error!("error sending message into datapath: {}", e);
             ControllerError::DatapathError(e.to_string())
         })
@@ -709,7 +784,7 @@ impl ControllerService {
                                 this.inner
                                     .tx_channels
                                     .write()
-                                    .insert(config.endpoint.clone(), tx);
+                                    .insert(config.endpoint.clone(), Arc::new(tx));
                             },
                         )
                 }
@@ -810,7 +885,7 @@ impl GrpcControllerService for ControllerService {
         self.inner
             .tx_channels
             .write()
-            .insert(remote_endpoint.clone(), tx);
+            .insert(remote_endpoint.clone(), Arc::new(tx));
 
         // store the cancellation token in the controller service
         self.inner
@@ -857,23 +932,21 @@ mod tests {
         let message_processor_server = MessageProcessor::with_drain_channel(watch_server.clone());
 
         // Create a control plane instance for server
-        let mut control_plane_server = ControlPlane::create_control_plane(
+        let mut control_plane_server = ControlPlane::new(
             id_server,
             vec![server_config],
             vec![],
             watch_server,
             Arc::new(message_processor_server),
-        )
-        .await;
+        );
 
-        let mut control_plane_client = ControlPlane::create_control_plane(
+        let mut control_plane_client = ControlPlane::new(
             id_client,
             vec![],
             vec![client_config],
             watch_client,
             Arc::new(message_processor_client),
-        )
-        .await;
+        );
 
         // Start the server
         control_plane_server.run().await.unwrap();

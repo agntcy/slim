@@ -602,7 +602,9 @@ where
         Message::new_publish_with_headers(slim_header, session_header, "", payload)
     }
 
-    async fn join(&mut self) -> Result<(), SessionError> {
+    // creation is set to true is this is the first join to the channel
+    // done by the moderator node. False in all the other cases
+    async fn join(&mut self, creation: bool) -> Result<(), SessionError> {
         // subscribe only once to the channel
         if self.subscribed {
             return Ok(());
@@ -612,7 +614,15 @@ where
 
         // subscribe for the channel
         let header = Some(SlimHeaderFlags::default().with_forward_to(self.conn.unwrap()));
-        let sub = Message::new_subscribe(&self.name, &self.channel_name, header);
+        let mut sub =
+            Message::new_subscribe(&self.name, &self.channel_name, self.channel_id, header);
+
+        // add in the metadata to indication that the
+        // subscription is associated to a channel
+        sub.insert_metadata("CHANNEL".to_string(), "true".to_string());
+        if creation {
+            sub.insert_metadata("CHANNEL_CREATION".to_string(), "true".to_string());
+        }
 
         self.send(sub).await?;
 
@@ -645,7 +655,12 @@ where
     async fn leave(&self) -> Result<(), SessionError> {
         // unsubscribe for the channel
         let header = Some(SlimHeaderFlags::default().with_forward_to(self.conn.unwrap()));
-        let unsub = Message::new_unsubscribe(&self.name, &self.channel_name, header);
+        let mut unsub =
+            Message::new_unsubscribe(&self.name, &self.channel_name, self.channel_id, header);
+
+        // add in the metadata to indication that the
+        // subscription is associated to a channel
+        unsub.insert_metadata("CHANNEL".to_string(), "true".to_string());
 
         self.send(unsub).await?;
 
@@ -791,7 +806,7 @@ where
             // without MLS we can set the state for the channel
             // otherwise the endpoint needs to receive a
             // welcome message first
-            self.endpoint.join().await?;
+            self.endpoint.join(false).await?;
             vec![]
         };
 
@@ -816,7 +831,7 @@ where
         debug!("Welcome message correctly processed, MLS state initialized");
 
         // set route for the channel name
-        self.endpoint.join().await?;
+        self.endpoint.join(false).await?;
 
         // send an ack back to the moderator
         let src = msg.get_source();
@@ -1148,7 +1163,7 @@ where
     pub async fn join(&mut self) -> Result<(), SessionError> {
         if !self.endpoint.subscribed {
             // join the channel
-            self.endpoint.join().await?;
+            self.endpoint.join(true).await?;
 
             // create mls group if needed
             if let Some(mls) = self.mls_state.as_mut() {
