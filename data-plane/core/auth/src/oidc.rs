@@ -194,7 +194,6 @@ impl OidcTokenProvider {
         let client_secret_str = client_secret.into();
         let http_client = reqwest::Client::new();
 
-        // TODO(hackeramitkumar) : Implement OIDC provider discovery ( for now commenting it because of the mock server failing this checking. if we will add this then we have to write some additional mocks. And this check is redundent as well. So commenting this out as of now. )
         // Validate that we can discover the OIDC provider
         let issuer_url = IssuerUrl::new(issuer_url_str.clone())
             .map_err(|e| AuthError::ConfigError(format!("Invalid issuer URL: {}", e)))?;
@@ -228,7 +227,6 @@ impl OidcTokenProvider {
             eprintln!("Warning: Failed to fetch initial token: {}", e);
             // Don't fail construction, let background task handle it
         }
-
         Ok(provider)
     }
 
@@ -242,7 +240,7 @@ impl OidcTokenProvider {
         )
     }
 
-    /// Check if cached token is still valid
+    /// Check if cached token is still valid ( using in the unit tests )
     #[allow(dead_code)]
     fn is_token_valid(&self, now: u64, expiry: u64) -> bool {
         expiry > now + REFRESH_BUFFER_SECONDS
