@@ -54,7 +54,7 @@ type ControlPlaneServiceClient interface {
 	AddParticipant(ctx context.Context, in *AddParticipantRequest, opts ...grpc.CallOption) (*v1.Ack, error)
 	DeleteParticipant(ctx context.Context, in *DeleteParticipantRequest, opts ...grpc.CallOption) (*v1.Ack, error)
 	ListChannels(ctx context.Context, in *ListChannelsRequest, opts ...grpc.CallOption) (*ListChannelsResponse, error)
-	ListParticipants(ctx context.Context, in *ListParticipantsCommand, opts ...grpc.CallOption) (*ListParticipantsResponse, error)
+	ListParticipants(ctx context.Context, in *ListParticipantsRequest, opts ...grpc.CallOption) (*ListParticipantsResponse, error)
 }
 
 type controlPlaneServiceClient struct {
@@ -185,7 +185,7 @@ func (c *controlPlaneServiceClient) ListChannels(ctx context.Context, in *ListCh
 	return out, nil
 }
 
-func (c *controlPlaneServiceClient) ListParticipants(ctx context.Context, in *ListParticipantsCommand, opts ...grpc.CallOption) (*ListParticipantsResponse, error) {
+func (c *controlPlaneServiceClient) ListParticipants(ctx context.Context, in *ListParticipantsRequest, opts ...grpc.CallOption) (*ListParticipantsResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(ListParticipantsResponse)
 	err := c.cc.Invoke(ctx, ControlPlaneService_ListParticipants_FullMethodName, in, out, cOpts...)
@@ -211,7 +211,7 @@ type ControlPlaneServiceServer interface {
 	AddParticipant(context.Context, *AddParticipantRequest) (*v1.Ack, error)
 	DeleteParticipant(context.Context, *DeleteParticipantRequest) (*v1.Ack, error)
 	ListChannels(context.Context, *ListChannelsRequest) (*ListChannelsResponse, error)
-	ListParticipants(context.Context, *ListParticipantsCommand) (*ListParticipantsResponse, error)
+	ListParticipants(context.Context, *ListParticipantsRequest) (*ListParticipantsResponse, error)
 	mustEmbedUnimplementedControlPlaneServiceServer()
 }
 
@@ -255,7 +255,7 @@ func (UnimplementedControlPlaneServiceServer) DeleteParticipant(context.Context,
 func (UnimplementedControlPlaneServiceServer) ListChannels(context.Context, *ListChannelsRequest) (*ListChannelsResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ListChannels not implemented")
 }
-func (UnimplementedControlPlaneServiceServer) ListParticipants(context.Context, *ListParticipantsCommand) (*ListParticipantsResponse, error) {
+func (UnimplementedControlPlaneServiceServer) ListParticipants(context.Context, *ListParticipantsRequest) (*ListParticipantsResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ListParticipants not implemented")
 }
 func (UnimplementedControlPlaneServiceServer) mustEmbedUnimplementedControlPlaneServiceServer() {}
@@ -488,7 +488,7 @@ func _ControlPlaneService_ListChannels_Handler(srv interface{}, ctx context.Cont
 }
 
 func _ControlPlaneService_ListParticipants_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(ListParticipantsCommand)
+	in := new(ListParticipantsRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
@@ -500,7 +500,7 @@ func _ControlPlaneService_ListParticipants_Handler(srv interface{}, ctx context.
 		FullMethod: ControlPlaneService_ListParticipants_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(ControlPlaneServiceServer).ListParticipants(ctx, req.(*ListParticipantsCommand))
+		return srv.(ControlPlaneServiceServer).ListParticipants(ctx, req.(*ListParticipantsRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }

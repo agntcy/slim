@@ -1,7 +1,7 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
-package connection
+package nodecontroller
 
 import (
 	"context"
@@ -15,11 +15,12 @@ import (
 	grpcapi "github.com/agntcy/slim/control-plane/common/proto/controller/v1"
 )
 
-func NewConnectionCmd(opts *options.CommonOptions) *cobra.Command {
+func newConnectionCmd(opts *options.CommonOptions) *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "connection",
-		Short: "Manage SLIM connections",
-		Long:  `Manage SLIM connections`,
+		Use:     "connection",
+		Aliases: []string{"conn"},
+		Short:   "Manage SLIM connections",
+		Long:    `Manage SLIM connections`,
 	}
 
 	cmd.AddCommand(newListCmd(opts))
@@ -29,9 +30,10 @@ func NewConnectionCmd(opts *options.CommonOptions) *cobra.Command {
 
 func newListCmd(opts *options.CommonOptions) *cobra.Command {
 	return &cobra.Command{
-		Use:   "list",
-		Short: "List active connections",
-		Long:  `List active connections`,
+		Use:     "list",
+		Aliases: []string{"ls"},
+		Short:   "List active connections",
+		Long:    `List active connections`,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			msg := &grpcapi.ControlMessage{
 				MessageId: uuid.NewString(),

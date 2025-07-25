@@ -20,9 +20,8 @@ import (
 	"github.com/spf13/pflag"
 
 	"github.com/agntcy/slim/control-plane/common/options"
-	connectionCmd "github.com/agntcy/slim/control-plane/slimctl/internal/cmd/connection"
-	cpCmd "github.com/agntcy/slim/control-plane/slimctl/internal/cmd/controlplane"
-	routeCmd "github.com/agntcy/slim/control-plane/slimctl/internal/cmd/route"
+	controllerCmd "github.com/agntcy/slim/control-plane/slimctl/internal/cmd/controller"
+	nodectrlCmd "github.com/agntcy/slim/control-plane/slimctl/internal/cmd/nodecontroller"
 	versionCmd "github.com/agntcy/slim/control-plane/slimctl/internal/cmd/version"
 )
 
@@ -131,10 +130,12 @@ func main() {
 		"path to client TLS key",
 	)
 
-	rootCmd.AddCommand(routeCmd.NewRouteCmd(opts))
-	rootCmd.AddCommand(connectionCmd.NewConnectionCmd(opts))
+	rootCmd.AddCommand(controllerCmd.NewNodeCmd(opts))
+	rootCmd.AddCommand(controllerCmd.NewConnectionCmd(opts))
+	rootCmd.AddCommand(controllerCmd.NewRouteCmd(opts))
+
+	rootCmd.AddCommand(nodectrlCmd.NewNodeCmd(opts))
 	rootCmd.AddCommand(versionCmd.NewVersionCmd(opts))
-	rootCmd.AddCommand(cpCmd.NewCpCmd(opts))
 
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Fprintf(os.Stderr, "CLI error: %v", err)

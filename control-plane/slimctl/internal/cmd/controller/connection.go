@@ -1,7 +1,7 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
-package controlplane
+package controller
 
 import (
 	"context"
@@ -14,15 +14,15 @@ import (
 	controlplaneApi "github.com/agntcy/slim/control-plane/common/proto/controlplane/v1"
 )
 
-func newConnectionCmd(opts *options.CommonOptions) *cobra.Command {
+func NewConnectionCmd(opts *options.CommonOptions) *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "connection",
-		Short: "Manage SLIM connections",
-		Long:  `Manage SLIM connections`,
+		Use:     "connection",
+		Aliases: []string{"conn"},
+		Short:   "Manage SLIM connections",
+		Long:    `Manage SLIM connections`,
 	}
 
 	cmd.PersistentFlags().StringP(nodeIDFlag, "n", "", "ID of the node to manage routes for")
-	//
 	err := cmd.MarkPersistentFlagRequired(nodeIDFlag)
 	if err != nil {
 		fmt.Printf("Error marking persistent flag required: %v\n", err)
@@ -35,9 +35,10 @@ func newConnectionCmd(opts *options.CommonOptions) *cobra.Command {
 
 func newListConnectionsCmd(opts *options.CommonOptions) *cobra.Command {
 	return &cobra.Command{
-		Use:   "list",
-		Short: "List active connections",
-		Long:  `List active connections`,
+		Use:     "list",
+		Aliases: []string{"ls"},
+		Short:   "List active connections",
+		Long:    `List active connections`,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			nodeID, _ := cmd.Flags().GetString(nodeIDFlag)
 			fmt.Printf("Listing connections for node ID: %s\n", nodeID)

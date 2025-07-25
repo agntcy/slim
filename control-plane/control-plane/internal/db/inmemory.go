@@ -7,6 +7,86 @@ import (
 	"github.com/google/uuid"
 )
 
+type dbService struct {
+	nodes         map[string]Node
+	connections   map[string]Connection
+	subscriptions map[string]Subscription
+	channels      map[string]Channel
+	mu            sync.RWMutex
+}
+
+func NewInMemoryDBService() DataAccess {
+	return &dbService{
+		nodes:         make(map[string]Node),
+		connections:   make(map[string]Connection),
+		subscriptions: make(map[string]Subscription),
+		channels:      make(map[string]Channel),
+	}
+}
+
+func (d *dbService) SaveChannel(channelID string, moderators []string) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	if _, exists := d.channels[channelID]; exists {
+		return fmt.Errorf("channel with ID %s already exists", channelID)
+	}
+
+	d.channels[channelID] = Channel{
+		ID:           channelID,
+		Moderators:   moderators,
+		Participants: make([]string, 0),
+	}
+	return nil
+}
+
+func (d *dbService) DeleteChannel(channelID string) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if _, exists := d.channels[channelID]; !exists {
+		return fmt.Errorf("channel with ID %s not found", channelID)
+	}
+
+	delete(d.channels, channelID)
+	return nil
+}
+
+func (d *dbService) GetChannel(channelID string) (Channel, error) {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	channel, exists := d.channels[channelID]
+	if !exists {
+		return Channel{}, fmt.Errorf("channel with ID %s not found", channelID)
+	}
+	return channel, nil
+}
+
+func (d *dbService) UpdateChannel(channel Channel) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	if channel.ID == "" {
+		return fmt.Errorf("channel ID cannot be empty")
+	}
+
+	if _, exists := d.channels[channel.ID]; !exists {
+		return fmt.Errorf("channel with ID %s not found", channel.ID)
+	}
+
+	d.channels[channel.ID] = channel
+	return nil
+}
+
+func (d *dbService) ListChannels() ([]Channel, error) {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	channels := make([]Channel, 0, len(d.channels))
+	for _, channel := range d.channels {
+		channels = append(channels, channel)
+	}
+	return channels, nil
+}
+
 func (d *dbService) ListNodes() ([]Node, error) {
 	d.mu.RLock()
 	defer d.mu.RUnlock()
@@ -168,13 +248,6 @@ func (d *dbService) DeleteNode(id string) error {
 	return nil
 }
 
-type dbService struct {
-	nodes         map[string]Node
-	connections   map[string]Connection
-	subscriptions map[string]Subscription
-	mu            sync.RWMutex
-}
-
 // ListConnectionsByNodeID implements DataAccess.
 func (d *dbService) ListConnectionsByNodeID(nodeID string) ([]Connection, error) {
 	d.mu.RLock()
@@ -219,12 +292,4 @@ func (d *dbService) ListSubscriptionsByNodeID(nodeID string) ([]Subscription, er
 	}
 
 	return subscriptions, nil
-}
-
-func NewInMemoryDBService() DataAccess {
-	return &dbService{
-		nodes:         make(map[string]Node),
-		connections:   make(map[string]Connection),
-		subscriptions: make(map[string]Subscription),
-	}
 }
