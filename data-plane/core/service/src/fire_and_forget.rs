@@ -13,7 +13,7 @@ use slim_datapath::messages::AgentType;
 use tokio::sync::mpsc::{self, Receiver, Sender};
 use tokio::time::{self, Instant};
 use tokio_util::sync::CancellationToken;
-use tracing::{debug, error};
+use tracing::{debug, error, warn};
 
 use crate::channel_endpoint::{
     ChannelEndpoint, ChannelModerator, ChannelParticipant, MlsEndpoint, MlsState,
@@ -41,8 +41,8 @@ pub struct FireAndForgetConfiguration {
 impl Default for FireAndForgetConfiguration {
     fn default() -> Self {
         FireAndForgetConfiguration {
-            timeout: Some(Duration::from_secs(5)),
-            max_retries: Some(3),
+            timeout: None,
+            max_retries: Some(5),
             sticky: false,
             mls_enabled: false,
             initiator: true,
@@ -57,6 +57,13 @@ impl FireAndForgetConfiguration {
         sticky: bool,
         mls_enabled: bool,
     ) -> Self {
+        // If mls is enabled and session is not sticky, print a warning
+        if mls_enabled && !sticky {
+            warn!(
+                "MLS on non-sticky sessions is not supported yet. If you want to use MLS, please set sticky to true."
+            );
+        }
+
         FireAndForgetConfiguration {
             timeout,
             max_retries,

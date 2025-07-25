@@ -73,6 +73,8 @@ impl Default for KeyResolver {
 }
 
 impl KeyResolver {
+    const STATIC_JWKS_ENTRY: &'static str = "static_jwks";
+
     /// Create a new KeyResolver with default settings
     pub fn new() -> Self {
         // Create a reqwest client with default TLS configuration
@@ -84,6 +86,30 @@ impl KeyResolver {
         Self {
             client,
             jwks_cache: RwLock::new(HashMap::new()),
+            default_jwks_ttl: Duration::from_secs(3600), // 1 hour default TTL
+        }
+    }
+
+    pub fn with_jwks(jwks: JwkSet) -> Self {
+        // Initialize the cache with the provided JWKS
+        let mut cache = HashMap::new();
+        cache.insert(
+            Self::STATIC_JWKS_ENTRY.to_string(),
+            JwksCache {
+                jwks,
+                fetched_at: Instant::now(),
+                ttl: Duration::from_secs(u64::MAX), // static JWKS, infinite TTL
+            },
+        );
+
+        let client = ReqwestClient::builder()
+            .user_agent("AGNTCY Slim Auth")
+            .build()
+            .expect("Failed to create reqwest client");
+
+        Self {
+            client,
+            jwks_cache: RwLock::new(cache),
             default_jwks_ttl: Duration::from_secs(3600), // 1 hour default TTL
         }
     }
@@ -109,6 +135,12 @@ impl KeyResolver {
         issuer: &str,
         token_header: &Header,
     ) -> Result<DecodingKey, AuthError> {
+        // Check if we have a static JWKS entry
+        if let Some(cache_entry) = self.jwks_cache.read().get(Self::STATIC_JWKS_ENTRY) {
+            // If we have a static JWKS, use it directly
+            return self.get_decoded_key_from_jwks(&cache_entry.jwks, token_header);
+        }
+
         // Try to get cached key if available
         if let Ok(cached_key) = self.get_cached_key(issuer, token_header) {
             return Ok(cached_key);
@@ -196,6 +228,12 @@ impl KeyResolver {
     ) -> Result<DecodingKey, AuthError> {
         // Check if we have a cached JWKS that's still valid
         let cache = self.jwks_cache.read();
+
+        // Check static JWKS entry first
+        if let Some(cache_entry) = cache.get(Self::STATIC_JWKS_ENTRY) {
+            // no need to check the elapsed time for static JWKS
+            return self.get_decoded_key_from_jwks(&cache_entry.jwks, token_header);
+        }
 
         let cache_entry = cache.get(issuer);
         if cache_entry.is_none() {

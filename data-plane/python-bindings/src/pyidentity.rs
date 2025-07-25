@@ -89,6 +89,7 @@ impl From<PyKeyData> for KeyData {
 pub(crate) enum PyKeyFormat {
     Pem,
     Jwk,
+    Jwks,
 }
 
 impl From<PyKeyFormat> for KeyFormat {
@@ -96,6 +97,7 @@ impl From<PyKeyFormat> for KeyFormat {
         match value {
             PyKeyFormat::Pem => KeyFormat::Pem,
             PyKeyFormat::Jwk => KeyFormat::Jwk,
+            PyKeyFormat::Jwks => KeyFormat::Jwks,
         }
     }
 }

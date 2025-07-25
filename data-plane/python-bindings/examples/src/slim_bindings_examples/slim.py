@@ -30,7 +30,7 @@ async def run_server(address: str, enable_opentelemetry: bool):
     await slim.run_server({"endpoint": address, "tls": {"insecure": True}})
 
 
-async def main():
+async def amain():
     parser = argparse.ArgumentParser(description="Command line client for slim server.")
     parser.add_argument(
         "-s", "--slim", type=str, help="Slim address.", default="127.0.0.1:12345"
@@ -71,8 +71,8 @@ async def main():
         pass
 
 
-if __name__ == "__main__":
+def main():
     try:
-        asyncio.run(main())
+        asyncio.run(amain())
     except KeyboardInterrupt:
         print("Program terminated by user.")
