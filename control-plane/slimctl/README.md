@@ -52,6 +52,8 @@ slimctl route add org/default/alice/0 via connection_config.json
 slimctl route del org/default/alice/0 via http://localhost:46367
 ```
 
+> For full reference of connection_config.json checkout [client-config-schema.json](https://github.com/agntcy/slim/blob/main/data-plane/core/config/src/grpc/schema/client-config.schema.json)
+
 ### Manager routes & list connections connecting directly to a SLIM node
 
 * `slimctl node-connect connection list --server=<node_control_endpoint>` List connection on a SLIM instance.
