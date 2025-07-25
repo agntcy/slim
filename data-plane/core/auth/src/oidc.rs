@@ -243,6 +243,7 @@ impl OidcTokenProvider {
     }
 
     /// Check if cached token is still valid
+    #[allow(dead_code)]
     fn is_token_valid(&self, now: u64, expiry: u64) -> bool {
         expiry > now + REFRESH_BUFFER_SECONDS
     }
@@ -354,14 +355,14 @@ impl OidcTokenProvider {
 
     /// Shutdown the background refresh task
     pub fn shutdown(&self) {
-        if let Err(_) = self.shutdown_tx.send(true) {
+        if self.shutdown_tx.send(true).is_err() {
             eprintln!("Failed to send shutdown signal");
         }
 
         // Wait for task to complete
         if let Some(handle) = self.refresh_task.lock().take() {
             tokio::spawn(async move {
-                if let Err(_) = handle.await {
+                if (handle.await).is_err() {
                     eprintln!("Background refresh task panicked");
                 }
             });
@@ -403,7 +404,7 @@ impl TokenProvider for OidcTokenProvider {
 impl Drop for OidcTokenProvider {
     fn drop(&mut self) {
         // Signal shutdown when the provider is dropped
-        if let Err(_) = self.shutdown_tx.send(true) {
+        if self.shutdown_tx.send(true).is_err() {
             // Ignore errors during drop
         }
     }
@@ -558,200 +559,10 @@ mod tests {
     use wiremock::matchers::{method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
-    // Additional imports for the utility functions
-    use aws_lc_rs::encoding::AsDer;
-    use aws_lc_rs::signature::KeyPair;
-    use aws_lc_rs::{rsa, signature};
-    use base64::Engine;
-    use base64::engine::general_purpose::URL_SAFE_NO_PAD;
-    use std::sync::Once;
-
-    static RUSTLS: Once = Once::new();
-
-    fn initialize_crypto_provider() {
-        RUSTLS.call_once(|| {
-            // Set aws-lc as default crypto provider
-            rustls::crypto::aws_lc_rs::default_provider()
-                .install_default()
-                .unwrap();
-        });
-    }
-
-    /// Helper function to convert key bytes to PEM format
-    fn bytes_to_pem(key_bytes: &[u8], header: &str, footer: &str) -> String {
-        // Use base64 with standard encoding (not URL safe)
-        let encoded = base64::engine::general_purpose::STANDARD.encode(key_bytes);
-
-        // Insert newlines every 64 characters as per PEM format
-        let mut pem_body = String::new();
-        for i in 0..(encoded.len().div_ceil(64)) {
-            let start = i * 64;
-            let end = std::cmp::min(start + 64, encoded.len());
-            if start < encoded.len() {
-                pem_body.push_str(&encoded[start..end]);
-                if end < encoded.len() {
-                    pem_body.push('\n');
-                }
-            }
-        }
-
-        format!("{}{}{}", header, pem_body, footer)
-    }
-
-    async fn setup_test_jwt_resolver(algorithm: Algorithm) -> (String, MockServer, String) {
-        // Set up the mock server for JWKS
-        let mock_server = MockServer::start().await;
-
-        // Get the algorithm name as a string and prepare the key
-        let (test_key, jwks_key_json, alg_str) = match algorithm {
-            Algorithm::RS256
-            | Algorithm::RS384
-            | Algorithm::RS512
-            | Algorithm::PS256
-            | Algorithm::PS384
-            | Algorithm::PS512 => {
-                // Create an RSA keypair for testing using AWS-LC
-                let private_key = signature::RsaKeyPair::generate(rsa::KeySize::Rsa2048).unwrap();
-                let public_key = private_key.public_key();
-                let private_key_pkcs8 = private_key.as_der().unwrap();
-                let public_key_der = public_key;
-
-                // Derive key ID from the public key
-                let key_id = URL_SAFE_NO_PAD.encode(public_key_der.as_ref());
-
-                // Extract modulus and exponent
-                let modulus = public_key.modulus().big_endian_without_leading_zero();
-                let exponent = public_key.exponent().big_endian_without_leading_zero();
-
-                let modulus_encoded = URL_SAFE_NO_PAD.encode(modulus);
-                let exponent_encoded = URL_SAFE_NO_PAD.encode(exponent);
-
-                let alg_str = match algorithm {
-                    Algorithm::RS256 => "RS256",
-                    Algorithm::RS384 => "RS384",
-                    Algorithm::RS512 => "RS512",
-                    Algorithm::PS256 => "PS256",
-                    Algorithm::PS384 => "PS384",
-                    Algorithm::PS512 => "PS512",
-                    _ => unreachable!(),
-                };
-
-                let jwks_key = json!({
-                    "kty": "RSA",
-                    "alg": alg_str,
-                    "use": "sig",
-                    "kid": key_id,
-                    "n": modulus_encoded,
-                    "e": exponent_encoded,
-                });
-
-                // Convert the private key DER to PEM format
-                let private_key_pem = bytes_to_pem(
-                    private_key_pkcs8.as_ref(),
-                    "-----BEGIN PRIVATE KEY-----\n",
-                    "\n-----END PRIVATE KEY-----",
-                );
-
-                (private_key_pem, jwks_key, alg_str.to_string())
-            }
-            _ => panic!("Unsupported algorithm for this test: {:?}", algorithm),
-        };
-
-        // Setup mock for OpenID discovery endpoint
-        let jwks_uri = format!("{}/custom/path/to/jwks.json", mock_server.uri());
-        Mock::given(method("GET"))
-            .and(path("/.well-known/openid-configuration"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-                "issuer": mock_server.uri(),
-                "authorization_endpoint": format!("{}/auth", mock_server.uri()),
-                "token_endpoint": format!("{}/oauth2/token", mock_server.uri()),
-                "jwks_uri": jwks_uri,
-                "response_types_supported": ["code"],
-                "subject_types_supported": ["public"],
-                "id_token_signing_alg_values_supported": ["RS256"],
-                "scopes_supported": ["openid", "profile", "email"],
-                "token_endpoint_auth_methods_supported": ["client_secret_basic", "client_secret_post"],
-                "claims_supported": ["sub", "iss", "aud", "exp", "iat"],
-                "grant_types_supported": ["authorization_code", "client_credentials"]
-            })))
-            .mount(&mock_server)
-            .await;
-
-        // Setup mock for JWKS
-        Mock::given(method("GET"))
-            .and(path("/custom/path/to/jwks.json"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-                "keys": [jwks_key_json]
-            })))
-            .mount(&mock_server)
-            .await;
-
-        (test_key, mock_server, alg_str.to_string())
-    }
-
-    #[derive(Debug, serde::Serialize, serde::Deserialize, PartialEq)]
-    struct TestClaims {
-        pub sub: String,
-        pub iss: String,
-        pub aud: String,
-        pub exp: u64,
-        pub iat: u64,
-    }
-
-    async fn setup_oidc_mock_server() -> (MockServer, String, String) {
-        let mock_server = MockServer::start().await;
-        let issuer_url = mock_server.uri();
-
-        // Mock OIDC discovery endpoint
-        Mock::given(method("GET"))
-            .and(path("/.well-known/openid-configuration"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-                "issuer": issuer_url,
-                "authorization_endpoint": format!("{}/auth", issuer_url),
-                "token_endpoint": format!("{}/oauth2/token", issuer_url),
-                "jwks_uri": format!("{}/oauth2/jwks.json", issuer_url),
-                "userinfo_endpoint": format!("{}/userinfo", issuer_url),
-                "response_types_supported": ["code"],
-                "subject_types_supported": ["public"],
-                "id_token_signing_alg_values_supported": ["RS256"],
-                "scopes_supported": ["openid", "profile", "email"],
-                "token_endpoint_auth_methods_supported": ["client_secret_basic", "client_secret_post"],
-                "claims_supported": ["sub", "iss", "aud", "exp", "iat"],
-                "grant_types_supported": ["authorization_code", "client_credentials"]
-            })))
-            .mount(&mock_server)
-            .await;
-
-        // Mock token endpoint for client credentials
-        Mock::given(method("POST"))
-            .and(path("/oauth2/token"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-                "access_token": "test-access-token-12345",
-                "token_type": "Bearer",
-                "expires_in": 3600
-            })))
-            .mount(&mock_server)
-            .await;
-
-        // Mock JWKS endpoint (needed for token verification)
-        Mock::given(method("GET"))
-            .and(path("/oauth2/jwks.json"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-                "keys": [{
-                    "kty": "RSA",
-                    "kid": "test-key-1",
-                    "n": "0vx7agoebGcQSuuPiLJXZptN9nndrQmbXEps2aiAFbWhM78LhWx4cbbfAAtVT86zwu1RK7aPFFxuhDR1L6tSoc_BJECPebWKRXjBZCiFV4n3oknjhMstn64tZ_2W-5JsGY4Hc5n9yBXArwl93lqt7_RN5w6Cf0h4QyQ5v-65YGjQR0_FDW2QvzqY368QQMicAtaSqzs8KJZgnYb9c7d0zgdAZHzu6qMQvRL5hajrn1n91CbOpbIS_4q3eFD1LTXfhHQjEZzXpk2zb7fF_xxGLmNr8zXczK8TGLLcgPYEEYnNJhJRs5vJ3dNb02f1_Q-sNHd8qXe5s7eXs2E4RbQJvQ",
-                    "e": "AQAB",
-                    "alg": "RS256"
-                }]
-            })))
-            .mount(&mock_server)
-            .await;
-
-        let access_token = "test-access-token-12345".to_string();
-
-        (mock_server, issuer_url, access_token)
-    }
+    // Use the test utilities from the testutils module
+    use crate::testutils::{
+        TestClaims, initialize_crypto_provider, setup_oidc_mock_server, setup_test_jwt_resolver,
+    };
 
     #[tokio::test]
     async fn test_oidc_token_provider_client_credentials_flow() {
@@ -825,20 +636,7 @@ mod tests {
         let issuer_url = mock_server.uri();
 
         // Create test claims
-        let claims = TestClaims {
-            sub: "user123".to_string(),
-            iss: issuer_url.clone(),
-            aud: "test-audience".to_string(),
-            exp: (SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap()
-                .as_secs()
-                + 3600),
-            iat: SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap()
-                .as_secs(),
-        };
+        let claims = TestClaims::new("user123", issuer_url.clone(), "test-audience");
 
         // Create JWT token without kid (since we have only one key)
         let header = Header::new(JwtAlgorithm::RS256);
@@ -850,7 +648,7 @@ mod tests {
 
         // First test that JWKS can be fetched
         let jwks = verifier.fetch_jwks().await.unwrap();
-        assert!(jwks.keys.len() > 0);
+        assert!(!jwks.keys.is_empty());
 
         // Now verify the token
         let verified_claims: TestClaims = verifier.verify(token).await.unwrap();
