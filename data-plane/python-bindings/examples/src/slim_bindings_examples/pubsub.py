@@ -1,93 +1,55 @@
 # Copyright AGNTCY Contributors (https://github.com/agntcy)
 # SPDX-License-Identifier: Apache-2.0
 
-import argparse
 import asyncio
 import datetime
-import os
-
-from .common import (
-    split_id,
-    common_parser,
-    get_provider_and_verifier_with_spire,
-    get_provider_and_verifier_from_shared_secret,
-)
 
 import slim_bindings
 
+from .common import (
+    create_local_app,
+    format_message,
+    format_message_print,
+    jwt_identity,
+    shared_secret_identity,
+    split_id,
+    common_options,
+)
+
 
 async def run_client(
-    local_id: str,
-    remote_id: str,
-    address: str,
-    moderator: bool,
-    jwt: str | None,
-    key: str | None,
-    shared_secret: str,
-    enable_opentelemetry: bool,
-    mls_enabled: bool,
+    local: str,
+    slim: dict,
+    remote: str | None,
+    enable_opentelemetry: bool = False,
+    enable_mls: bool = False,
+    shared_secret: str | None = None,
+    jwt: str | None = None,
+    bundle: str | None = None,
+    audience: list[str] | None = None,
+    invites: list[str] | None = None,
 ):
-    # init tracing
-    slim_bindings.init_tracing(
-        {
-            "log_level": "info",
-            "opentelemetry": {
-                "enabled": enable_opentelemetry,
-                "grpc": {
-                    "endpoint": "http://localhost:4317",
-                },
-            },
-        }
+    local_app = await create_local_app(
+        local,
+        slim,
+        enable_opentelemetry=enable_opentelemetry,
+        shared_secret=shared_secret,
+        jwt=jwt,
+        bundle=bundle,
+        audience=audience,
     )
 
-    # Derive identity provider and verifier from JWK and JWT
-    if jwt and key:
-        provider, verifier = get_provider_and_verifier_with_spire(
-            jwt,
-            key,
-            aud=["slim-demo"],
-        )
-    else:
-        provider, verifier = get_provider_and_verifier_from_shared_secret(
-            identity=local_id,
-            shared_secret=shared_secret,
-        )
+    # If provided, split the remote IDs into their respective components
+    if remote:
+        remote_organization, remote_namespace, broadcast_topic = split_id(remote)
 
-    # Split the local IDs into their respective components
-    local_organization, local_namespace, local_agent = split_id(local_id)
+    tasks = []
 
-    # split local agent into participant name and id
-    local_agent_name, local_agent_id = local_agent.split("-")
-
-    # Split the remote IDs into their respective components
-    remote_organization, remote_namespace, broadcast_topic = split_id(remote_id)
-
-    name = f"{local_agent}"
-
-    print(f"Creating participant {name}...")
-
-    participant = await slim_bindings.Slim.new(
-        local_organization, local_namespace, local_agent, provider, verifier
-    )
-
-    print(f"{name} -> Created participant {local_agent}")
-
-    # Connect to slim server
-    _ = await participant.connect({"endpoint": address, "tls": {"ca_file": "/svids/svid_bundle.pem", "insecure_skip_verify": True}})
-
-    print(f"{name} -> Connected to to {address}")
-
-    # set route for the chat, so that messages can be sent to the other participants
-    await participant.set_route(remote_organization, remote_namespace, broadcast_topic)
-
-    # Subscribe to the producer topic
-    await participant.subscribe(remote_organization, remote_namespace, broadcast_topic)
-
-    if moderator:
-        print(f"{name} -> Creating new pubsub sessions...")
+    if remote and invites:
+        format_message_print(local, "Creating new pubsub sessions...")
         # create pubsubb session. A pubsub session is a just a bidirectional
         # streaming session, where participants are both sender and receivers
-        session_info = await participant.create_session(
+        session_info = await local_app.create_session(
             slim_bindings.PySessionConfiguration.Streaming(
                 slim_bindings.PySessionDirection.BIDIRECTIONAL,
                 topic=slim_bindings.PyAgentType(
@@ -96,58 +58,61 @@ async def run_client(
                 moderator=True,
                 max_retries=5,
                 timeout=datetime.timedelta(seconds=5),
-                mls_enabled=mls_enabled,
+                mls_enabled=enable_mls,
             )
         )
 
         # invite all participants
-        for i in range(1, int(local_agent_id)):
-            type_to_add = f"participant-{i}"
-            to_add = slim_bindings.PyAgentType(remote_organization, remote_namespace, type_to_add)
-            await participant.set_route(remote_organization, remote_namespace, type_to_add)
-            await participant.invite(session_info, to_add)
-            print(f"{name} -> add {type_to_add} to the group")
-
-    tasks = []
+        for p in invites:
+            org, ns, type_to_add = split_id(p)
+            to_add = slim_bindings.PyAgentType(org, ns, type_to_add)
+            await local_app.set_route(org, ns, type_to_add)
+            await local_app.invite(session_info, to_add)
+            print(f"{local} -> add {type_to_add} to the group")
 
     # define the background task
     async def background_task():
-        msg = f"Hello from {local_agent}"
-
-        async with participant:
+        async with local_app:
             # init session from session
-            if moderator:
+            if invites:
                 recv_session = session_info
             else:
-                print(f"{name} -> Waiting for session...")
-                recv_session, _ = await participant.receive()
+                format_message_print(local, "-> Waiting for session...")
+                recv_session, _ = await local_app.receive()
 
             while True:
                 try:
                     # receive message from session
-                    recv_session, msg_rcv = await participant.receive(
+                    recv_session, msg_rcv = await local_app.receive(
                         session=recv_session.id
                     )
 
                     # print received message
-                    print(f"{name} -> Received message: {msg_rcv.decode()}")
+                    format_message_print(
+                        local,
+                        f"-> Received message from {recv_session.id}: {msg_rcv.decode()}",
+                    )
+
+                    # Here we could send a message back to the channel, e.g.:
+                    # await participant.publish(session_info, f"Echo: {msg_rcv.decode()}".encode())
                 except asyncio.CancelledError:
                     break
                 except Exception as e:
-                    print(f"{name} -> Error receiving message: {e}")
+                    format_message_print(local, f"-> Error receiving message: {e}")
                     break
 
     tasks.append(asyncio.create_task(background_task()))
 
-    if moderator:
+    if remote and invites:
+
         async def background_task_keyboard():
             while True:
-                user_input = await asyncio.to_thread(input, "message> ")
+                user_input = await asyncio.to_thread(input, "\033[1mmessage>\033[0m ")
                 if user_input == "exit":
                     break
 
                 # Send the message to the all participants
-                await participant.publish(
+                await local_app.publish(
                     session_info,
                     f"{user_input}".encode(),
                     remote_organization,
@@ -161,43 +126,33 @@ async def run_client(
     await asyncio.gather(*tasks)
 
 
-async def amain():
-    parser = common_parser()
-
-    parser.add_argument(
-        "--moderator",
-        "-m",
-        action="store_true",
-        default=os.getenv("SLIM_MODERATOR", "false").lower() == "true",
-        help="Enable moderator mode.",
-    )
-
-    parser.add_argument(
-        "-x",
-        "--mls-enabled",
-        action="store_true",
-        default=os.getenv("SLIM_MLS_ENABLED", "false").lower() == "true",
-        help="Disable MLS (Message Layer Security) for the pubsub session.",
-    )
-
-    args = parser.parse_args()
-
-    # Run the client with the specified local ID, remote ID, and optional message
-    await run_client(
-        args.local,
-        args.remote,
-        args.slim,
-        args.moderator,
-        args.jwt,
-        args.key,
-        args.shared_secret,
-        args.enable_opentelemetry,
-        args.mls_enabled,
-    )
-
-
-def main():
+@common_options
+def main(
+    local: str,
+    slim: dict,
+    remote: str | None = None,
+    enable_opentelemetry: bool = False,
+    enable_mls: bool = False,
+    shared_secret: str | None = None,
+    jwt: str | None = None,
+    bundle: str | None = None,
+    audience: list[str] | None = None,
+    invites: list[str] | None = None,
+):
     try:
-        asyncio.run(amain())
+        asyncio.run(
+            run_client(
+                local=local,
+                slim=slim,
+                remote=remote,
+                enable_opentelemetry=enable_opentelemetry,
+                enable_mls=enable_mls,
+                shared_secret=shared_secret,
+                jwt=jwt,
+                bundle=bundle,
+                audience=audience,
+                invites=invites,
+            )
+        )
     except KeyboardInterrupt:
-        print("Program terminated by user.")
+        print("Client interrupted by user.")

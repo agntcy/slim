@@ -52,14 +52,10 @@ class PyIdentityVerifier(Enum):
 
 class PyKeyData(Enum):
     File = auto()
-<<<<<<< HEAD
-    String = auto()
-=======
     Content = auto()
 
 class PyKeyFormat(Enum):
     Pem = auto()
->>>>>>> main
     Jwk = auto()
 
 class PySessionConfiguration(Enum):

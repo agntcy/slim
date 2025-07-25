@@ -5,12 +5,9 @@
 name = "slim-bindings-examples"
 version = "0.1.0"
 description = "Example apps using SLIM Rust bindings for Python"
-requires-python = ">=3.12"
+requires-python = ">=3.9"
 license = "Apache-2.0"
-dependencies = [
-    "slim-bindings>=0.3.6",
-    "pyjwt>=2.10.1",
-]
+dependencies = ["slim-bindings>=0.3.6", "pyjwt>=2.10.1", "click>=8.1.8"]
 
 [tool.uv.sources]
 slim-bindings = { workspace = true }
@@ -18,8 +15,8 @@ slim-bindings = { workspace = true }
 [project.scripts]
 examples = "slim_bindings_examples:main"
 slim = "slim_bindings_examples:slim_main"
-fire-and-forget = "slim_bindings_examples:fire_and_forget_main"
-request-reply = "slim_bindings_examples:request_reply_main"
+ff = "slim_bindings_examples:fire_and_forget_main"
+rr = "slim_bindings_examples:request_reply_main"
 streaming = "slim_bindings_examples:streaming_main"
 pubsub = "slim_bindings_examples:pubsub_main"
 

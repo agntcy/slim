@@ -1,13 +1,13 @@
 # Copyright AGNTCY Contributors (https://github.com/agntcy)
 # SPDX-License-Identifier: Apache-2.0
 
-import argparse
-import json
-import os
-import slim_bindings
 import base64
+import json
+import functools
 
-from jwt import PyJWK
+import click
+
+import slim_bindings
 
 
 class color:
@@ -23,12 +23,20 @@ class color:
     END = "\033[0m"
 
 
+# Format a message for display
 def format_message(message1, message2=""):
     return f"{color.BOLD}{color.CYAN}{message1.capitalize():<45}{color.END}{message2}"
 
 
+def format_message_print(message1, message2=""):
+    print(format_message(message1, message2))
+
+
+# Split an ID into its components
+# Expected format: organization/namespace/agent
+# Raises ValueError if the format is incorrect
+# Returns a tuple of (organization, namespace, agent)
 def split_id(id):
-    # Split the IDs into their respective components
     try:
         local_organization, local_namespace, local_agent = id.split("/")
     except ValueError as e:
@@ -38,11 +46,12 @@ def split_id(id):
     return local_organization, local_namespace, local_agent
 
 
-def connection_string(address):
-    return {"endpoint": address, "tls": {"insecure": True}}
-
-
-def get_provider_and_verifier_from_shared_secret(identity, secret):
+# Create a shared secret identity provider and verifier
+# This is used for shared secret authentication
+# Takes an identity and a shared secret as parameters
+# Returns a tuple of (provider, verifier)
+# This is used for shared secret authentication
+def shared_secret_identity(identity, secret):
     """
     Create a provider and verifier using a shared secret.
     """
@@ -56,12 +65,16 @@ def get_provider_and_verifier_from_shared_secret(identity, secret):
     return provider, verifier
 
 
-def get_provider_and_verifier_with_spire(
+# Create a JWT identity provider and verifier
+# This is used for JWT authentication
+# Takes private key path, public key path, and algorithm as parameters
+# Returns a Slim object with the provider and verifier
+def jwt_identity(
     jwt_path: str,
     jwk_path: str,
     iss: str = None,
     sub: str = None,
-    aud: str = None,
+    aud: list = None,
 ):
     """
     Parse the JWK and JWT from the provided strings.
@@ -69,24 +82,26 @@ def get_provider_and_verifier_with_spire(
 
     print(f"Using JWk file: {jwk_path}")
 
-    with open(jwk_path, "r") as jwk_file:
+    with open(jwk_path) as jwk_file:
         jwk_string = jwk_file.read()
 
     # The JWK is normally encoded as base64, so we need to decode it
     spire_jwks = json.loads(jwk_string)
 
-    for k, v in spire_jwks.items():
+    for _, v in spire_jwks.items():
         # Decode first item from base64
         spire_jwks = base64.b64decode(v)
-        spire_jwks = json.loads(spire_jwks)
-        spire_jwk = spire_jwks["keys"][0]
         break
 
     provider = slim_bindings.PyIdentityProvider.StaticJwt(
         path=jwt_path,
     )
 
-    pykey = slim_bindings.PyKey.Jwk(jwk=json.dumps(spire_jwk))
+    pykey = slim_bindings.PyKey(
+        algorithm=slim_bindings.PyAlgorithm.RS256,
+        format=slim_bindings.PyKeyFormat.Jwks,
+        key=slim_bindings.PyKeyData.Content(content=spire_jwks.decode("utf-8")),
+    )
 
     verifier = slim_bindings.PyIdentityVerifier.Jwt(
         public_key=pykey,
@@ -98,58 +113,152 @@ def get_provider_and_verifier_with_spire(
     return provider, verifier
 
 
-def common_parser():
-    parser = argparse.ArgumentParser(
-        description="Command line client for message passing."
-    )
-    parser.add_argument(
-        "-l",
+# A custom click parameter type for parsing dictionaries from JSON strings
+# This is useful for passing complex configurations via command line arguments
+class DictParamType(click.ParamType):
+    name = "dict"
+
+    def convert(self, value, param, ctx):
+        import json
+
+        if isinstance(value, dict):
+            return value  # Already a dict (for default value)
+        try:
+            return json.loads(value)
+        except json.JSONDecodeError:
+            self.fail(f"{value} is not valid JSON", param, ctx)
+
+
+def common_options(function):
+    function = click.command(context_settings={"auto_envvar_prefix": "SLIM"})(function)
+
+    function = click.option(
         "--local",
         type=str,
-        default=os.getenv("SLIM_LOCAL_ID", "organization/namespace/agent"),
-        help="Local ID in the format organization/namespace/agent.",
-    )
-    parser.add_argument(
-        "-r",
+        required=True,
+        help="Local ID in the format organization/namespace/agent",
+    )(function)
+
+    function = click.option(
         "--remote",
         type=str,
-        default=os.getenv("SLIM_REMOTE_ID", "organization/namespace/agent"),
-        help="Remote ID in the format organization/namespace/agent.",
-    )
-    parser.add_argument(
-        "-s",
+        help="Remote ID in the format organization/namespace/agent",
+    )(function)
+
+    function = click.option(
         "--slim",
-        type=str,
-        help="Slim address.",
-        default="http://127.0.0.1:46357",
-    )
-    parser.add_argument(
-        "-t",
+        default={
+            "endpoint": "http://127.0.0.1:46357",
+            "tls": {
+                "insecure": True,
+            },
+        },
+        type=DictParamType(),
+        help="slim connection parameters",
+    )(function)
+
+    function = click.option(
         "--enable-opentelemetry",
-        action="store_true",
-        default=False,
-        help="Enable OpenTelemetry tracing.",
-    )
-    parser.add_argument(
-        "-z",
+        is_flag=True,
+        help="Enable OpenTelemetry tracing",
+    )(function)
+
+    function = click.option(
         "--shared-secret",
         type=str,
-        default="secret",
         help="Shared secret for authentication. Don't use this in production.",
-    )
-    parser.add_argument(
-        "-j",
+    )(function)
+
+    function = click.option(
         "--jwt",
         type=str,
         help="JWT token for authentication.",
-        default=None,
-    )
-    parser.add_argument(
-        "-k",
-        "--key",
+    )(function)
+
+    function = click.option(
+        "--bundle",
         type=str,
-        help="Key file for authentication, in JWK format.",
-        default=None,
+        help="Key bundle for authentication, in JWKS format.",
+    )(function)
+
+    function = click.option(
+        "--audience",
+        type=str,
+        help="Audience for the JWT.",
+    )(function)
+
+    function = click.option(
+        "--invites",
+        type=str,
+        multiple=True,
+        help="Invite other participants to the pubsub session. Can be specified multiple times.",
+    )(function)
+
+    function = click.option(
+        "--enable-mls",
+        is_flag=True,
+        help="Enable MLS (Message Layer Security) for the pubsub session.",
+    )(function)
+
+    return function
+
+
+async def create_local_app(
+    local: str,
+    slim: dict,
+    remote: str | None = None,
+    enable_opentelemetry: bool = False,
+    shared_secret: str | None = None,
+    jwt: str | None = None,
+    bundle: str | None = None,
+    audience: list[str] | None = None,
+):
+    # init tracing
+    slim_bindings.init_tracing(
+        {
+            "log_level": "info",
+            "opentelemetry": {
+                "enabled": enable_opentelemetry,
+                "grpc": {
+                    "endpoint": "http://localhost:4317",
+                },
+            },
+        }
     )
 
-    return parser
+    if not jwt and not bundle:
+        if not shared_secret:
+            raise ValueError(
+                "Either JWT or bundle must be provided, or a shared secret."
+            )
+
+    # Derive identity provider and verifier from JWK and JWT
+    if jwt and bundle:
+        provider, verifier = jwt_identity(
+            jwt,
+            bundle,
+            aud=audience,
+        )
+    else:
+        provider, verifier = shared_secret_identity(
+            identity=local,
+            secret=shared_secret,
+        )
+
+    # Split the local IDs into their respective components
+    local_organization, local_namespace, local_agent = split_id(local)
+
+    local_app = await slim_bindings.Slim.new(
+        local_organization, local_namespace, local_agent, provider, verifier
+    )
+
+    format_message_print(f"{local_app.get_agent_id()}", "Created app")
+
+    # Connect to slim server
+    _ = await local_app.connect(slim)
+
+    format_message_print(
+        f"{local_app.get_agent_id()}", f"Connected to {slim['endpoint']}"
+    )
+
+    return local_app

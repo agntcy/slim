@@ -2,10 +2,10 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from .fire_and_forget import main as fire_and_forget_main
-from .request_reply import main as request_reply_main
-from .streaming import main as streaming_main
 from .pubsub import main as pubsub_main
+from .request_reply import main as request_reply_main
 from .slim import main as slim_main
+from .streaming import main as streaming_main
 
 HELP = """
 This is the slim bindings examples package.
@@ -29,9 +29,9 @@ def main():
         command = sys.argv[1]
         sys.argv = sys.argv[1:]
 
-        if command == "fire-and-forget":
+        if command == "ff":
             fire_and_forget_main()
-        elif command == "request-reply":
+        elif command == "rr":
             request_reply_main()
         elif command == "streaming":
             streaming_main()
@@ -45,6 +45,7 @@ def main():
     else:
         print("No command provided.")
         print(HELP)
+
 
 if __name__ == "__main__":
     main()

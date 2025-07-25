@@ -22,22 +22,21 @@ tasks:
 
   python-bindings:build:
     desc: "Build the Python bindings"
+    vars:
+      PROFILE: '{{.PROFILE | default "debug"}}'
+      RELEASE:
+        sh: '[[ {{.PROFILE}} == "release" ]] && echo "--release" || echo ""'
+      TARGET: '{{.TARGET | default ""}}'
     cmds:
       - task: rust:toolchain:run-command
         vars:
           COMMAND: |
-            uv run maturin develop --uv
-
-  python-bindings:build:release:
-    desc: "Release the Python bindings"
-    cmds:
-      - task: rust:toolchain:run-command
-        vars:
-          COMMAND: |
-            uv run maturin develop --uv --release
+            uv run maturin develop --uv {{.RELEASE}}
 
   python-bindings:examples:build:
     desc: "Build the Python bindings examples"
+    deps:
+      - python-bindings:build
     cmds:
       - task: rust:toolchain:run-command
         vars:
@@ -111,139 +110,121 @@ tasks:
     vars:
       EXTRA_ARGS: '{{.EXTRA_ARGS | default ""}}'
 
-  python-bindings:example:ff:alice1:
-    desc: "Run the Alice example"
-    env:
-      SLIM_INSTANCE_ID: alice1
+  python-bindings:example:ff:alice:
+    desc: "Fire and forget example - Alice will listen for messages and echo them"
     cmds:
       - |
-        uv run --package slim-bindings-examples fire-and-forget \
-          -l cisco/default/alice          \
-          -s http://localhost:12345       \
-          {{.EXTRA_ARGS}}
-    vars:
-      EXTRA_ARGS: '{{.EXTRA_ARGS | default ""}}'
-
-  python-bindings:example:ff:alice2:
-    desc: "Run the Alice example"
-    env:
-      SLIM_INSTANCE_ID: alice2
-    cmds:
-      - |
-        uv run --package slim-bindings-examples fire-and-forget \
-          -l cisco/default/alice          \
-          -s http://localhost:12345       \
-          {{.EXTRA_ARGS}}
+        uv run --package slim-bindings-examples ff                                    \
+          --local agntcy/ns/alice                                                     \
+          --slim '{"endpoint": "http://localhost:46357", "tls": {"insecure": true}}'  \
+          --shared-secret "secret" {{.EXTRA_ARGS}}
     vars:
       EXTRA_ARGS: '{{.EXTRA_ARGS | default ""}}'
 
   python-bindings:example:ff:bob:
-    desc: "Run the Bob example"
+    desc: "Fire and forget example - Bob will send encrypted messages to Alice"
     env:
       SLIM_INSTANCE_ID: bob
     cmds:
       - |
-        uv run --package slim-bindings-examples fire-and-forget \
-          -l cisco/default/bob              \
-          -r cisco/default/alice            \
-          -s http://localhost:12345         \
-          -m "hello"                        \
-          -i 1000                           \
-          {{.EXTRA_ARGS}}
+        uv run --package slim-bindings-examples ff                                    \
+          --local agntcy/ns/bob                                                       \
+          --slim '{"endpoint": "http://localhost:46357", "tls": {"insecure": true}}'  \
+          --shared-secret "secret"                                                    \
+          --remote agntcy/ns/alice                                                    \
+          --message "hey there"                                                       \
+          --enable-mls {{.EXTRA_ARGS}}
     vars:
       EXTRA_ARGS: '{{.EXTRA_ARGS | default ""}}'
 
-  python-bindings:example:ff:bob-sticky:
-    desc: "Run the Bob example"
-    env:
-      SLIM_INSTANCE_ID: bob
+  python-bindings:example:rr:responder  :
+    desc: "Responder example - Responds to requests from the requester"
     cmds:
       - |
-        uv run --package slim-bindings-examples fire-and-forget \
-          -l cisco/default/bob              \
-          -r cisco/default/alice            \
-          -s http://localhost:12345         \
-          -m "hello"                        \
-          -i 1000                           \
-          -c                                \
+        uv run --package slim-bindings-examples rr                                    \
+          --local agntcy/ns/responder                                                 \
+          --slim '{"endpoint": "http://localhost:46357", "tls": {"insecure": true}}'  \
+          --shared-secret "secret"
           {{.EXTRA_ARGS}}
     vars:
       EXTRA_ARGS: '{{.EXTRA_ARGS | default ""}}'
 
   python-bindings:example:rr:requester:
-    desc: "Run the requester example"
-    env:
-      SLIM_INSTANCE_ID: requester
+    desc: "Requester example - Sends requests to the responder and waits for responses"
     cmds:
       - |
-        uv run --package slim-bindings-examples request-reply \
-          -l cisco/default/requester                \
-          -r cisco/default/responder                \
-          -s http://localhost:12345                 \
-          -m "hello"                                \
-          {{.EXTRA_ARGS}}
-    vars:
-      EXTRA_ARGS: '{{.EXTRA_ARGS | default ""}}'
-
-  python-bindings:example:rr:responder:
-    desc: "Run the responder example"
-    env:
-      SLIM_INSTANCE_ID: responder
-    cmds:
-      - |
-        uv run --package slim-bindings-examples request-reply \
-          -l cisco/default/responder                \
-          -s http://localhost:12345                 \
-          {{.EXTRA_ARGS}}
+        uv run --package slim-bindings-examples rr                                    \
+          --local agntcy/ns/requester                                                 \
+          --slim '{"endpoint": "http://localhost:46357", "tls": {"insecure": true}}'  \
+          --shared-secret "secret"                                                    \
+          --remote agntcy/ns/responder                                                \
+          --message "hey there"                                                       \
+          --enable-mls {{.EXTRA_ARGS}}
     vars:
       EXTRA_ARGS: '{{.EXTRA_ARGS | default ""}}'
 
   python-bindings:example:stream:producer:
-    desc: "Run the producer stream example"
-    env:
-      SLIM_INSTANCE_ID: producer
+    desc: "Stream producer example - Sends messages to shared stream"
     cmds:
       - |
-        uv run --package slim-bindings-examples streaming \
-          -l cisco/default/producer               \
-          -r cisco/default/stream                 \
-          -s http://localhost:12345               \
-          -p                                      \
-          {{.EXTRA_ARGS}}
+        uv run --package slim-bindings-examples streaming                             \
+          --local agntcy/ns/producer                                                  \
+          --slim '{"endpoint": "http://localhost:46357", "tls": {"insecure": true}}'  \
+          --shared-secret "secret"                                                    \
+          --remote agntcy/ns/stream                                                   \
+          --message "hello"                                                           \
+          --iterations 1000
     vars:
       EXTRA_ARGS: '{{.EXTRA_ARGS | default ""}}'
 
   python-bindings:example:stream:consumer:
-    desc: "Run the consumer stream example"
-    env:
-      SLIM_INSTANCE_ID: consumer-{{.CONSUMER_ID}}
+    desc: "Stream consumer example - Receives messages from shared stream"
     cmds:
       - |
-        uv run --package slim-bindings-examples streaming \
-          -l cisco/default/consumer-{{.CONSUMER_ID}}  \
-          -r cisco/default/stream                     \
-          -s http://localhost:12345                   \
-          {{.EXTRA_ARGS}}
+        uv run --package slim-bindings-examples streaming                             \
+          --local agntcy/ns/consumer                                                  \
+          --slim '{"endpoint": "http://localhost:46357", "tls": {"insecure": true}}'  \
+          --shared-secret "secret"                                                    \
+          --remote agntcy/ns/stream
     vars:
       EXTRA_ARGS: '{{.EXTRA_ARGS | default ""}}'
-      CONSUMER_ID:
-        sh: "head -c1 < /dev/urandom | base64 | tr -d '+=/'"
 
-  python-bindings:example:pubsub:
-    desc: "Run the pubsub example"
-    env:
-      SLIM_INSTANCE_ID: participant-{{.CONSUMER_ID}}
+  python-bindings:example:pubsub:moderator:
+    desc: "PubSub moderator example - Creates a channel, invites participants, and sends messages"
     cmds:
       - |
-        uv run --package slim-bindings-examples pubsub \
-          -l cisco/default/participant-{{.CONSUMER_ID}}  \
-          -r cisco/default/stream                     \
-          -s http://localhost:12345                   \
-          {{.EXTRA_ARGS}}
+        uv run --package slim-bindings-examples pubsub                                \
+          --local agntcy/ns/moderator                                                 \
+          --slim '{"endpoint": "http://localhost:46357", "tls": {"insecure": true}}'  \
+          --shared-secret "secret"                                                    \
+          --remote agntcy/ns/chat                                                     \
+          --invites agntcy/ns/client-1                                                \
+          --invites agntcy/ns/client-2                                                \
+          --enable-mls {{.EXTRA_ARGS}}
     vars:
       EXTRA_ARGS: '{{.EXTRA_ARGS | default ""}}'
-      CONSUMER_ID:
-        sh: "head -c1 < /dev/urandom | base64 | tr -d '+=/'"
+
+  python-bindings:example:pubsub:client-1:
+    desc: "PubSub moderator example - Creates a channel, invites participants, and sends messages"
+    cmds:
+      - |
+        uv run --package slim-bindings-examples pubsub                                \
+          --local agntcy/ns/client-1                                                  \
+          --slim '{"endpoint": "http://localhost:46357", "tls": {"insecure": true}}'  \
+          --shared-secret "secret" {{.EXTRA_ARGS}}
+    vars:
+      EXTRA_ARGS: '{{.EXTRA_ARGS | default ""}}'
+
+  python-bindings:example:pubsub:client-2:
+    desc: "PubSub moderator example - Creates a channel, invites participants, and sends messages"
+    cmds:
+      - |
+        uv run --package slim-bindings-examples pubsub                                \
+          --local agntcy/ns/client-2                                                  \
+          --slim '{"endpoint": "http://localhost:46357", "tls": {"insecure": true}}'  \
+          --shared-secret "secret" {{.EXTRA_ARGS}}
+    vars:
+      EXTRA_ARGS: '{{.EXTRA_ARGS | default ""}}'
 
   python-bindings:generate-stub:
     desc: "Generate stub file for the Python bindings"

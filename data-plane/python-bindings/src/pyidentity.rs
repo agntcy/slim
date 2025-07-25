@@ -5,7 +5,6 @@ use pyo3::prelude::*;
 use pyo3_stub_gen::derive::{gen_stub_pyclass, gen_stub_pyclass_enum, gen_stub_pymethods};
 
 use slim_auth::builder::JwtBuilder;
-use slim_auth::jwt::algorithm_from_jwk;
 use slim_auth::jwt::Key;
 use slim_auth::jwt::KeyFormat;
 use slim_auth::jwt::SignerJwt;
@@ -90,6 +89,7 @@ impl From<PyKeyData> for KeyData {
 pub(crate) enum PyKeyFormat {
     Pem,
     Jwk,
+    Jwks,
 }
 
 impl From<PyKeyFormat> for KeyFormat {
@@ -97,6 +97,7 @@ impl From<PyKeyFormat> for KeyFormat {
         match value {
             PyKeyFormat::Pem => KeyFormat::Pem,
             PyKeyFormat::Jwk => KeyFormat::Jwk,
+            PyKeyFormat::Jwks => KeyFormat::Jwks,
         }
     }
 }

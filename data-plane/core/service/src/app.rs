@@ -800,7 +800,13 @@ where
 
                 // If other session is reliable, set the timeout
                 if session_message_type == ProtoSessionMessageType::FnfReliable {
-                    conf.timeout = Some(std::time::Duration::from_secs(5));
+                    if conf.timeout.is_none() {
+                        conf.timeout = Some(std::time::Duration::from_secs(5));
+                    }
+
+                    if conf.max_retries.is_none() {
+                        conf.max_retries = Some(5);
+                    }
                 }
 
                 self.create_session(SessionConfig::FireAndForget(conf), Some(id))
@@ -817,7 +823,17 @@ where
                     ProtoSessionType::SessionFireForget => {
                         let mut conf = self.default_ff_conf.read().clone();
                         conf.initiator = false;
+
+                        if conf.timeout.is_none() {
+                            conf.timeout = Some(std::time::Duration::from_secs(5));
+                        }
+
+                        if conf.max_retries.is_none() {
+                            conf.max_retries = Some(5);
+                        }
+
                         conf.mls_enabled = message.message.contains_metadata(METADATA_MLS_ENABLED);
+
                         self.create_session(SessionConfig::FireAndForget(conf), Some(id))
                             .await?
                     }
