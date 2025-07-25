@@ -57,14 +57,13 @@ impl Config {
         rx_drain: drain::Watch,
         message_processor: Arc<MessageProcessor>,
     ) -> ControlPlane {
-        ControlPlane::create_control_plane(
+        ControlPlane::new(
             id,
             self.servers.clone(),
             self.clients.clone(),
             rx_drain,
             message_processor,
         )
-        .await
     }
 }
 
