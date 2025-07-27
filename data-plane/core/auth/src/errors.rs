@@ -30,10 +30,7 @@ pub enum AuthError {
     OpenIdConnectError(String),
 
     #[error("JWT error: {0}")]
-    JwtError(#[from] jsonwebtoken::errors::Error),
-
-    #[error("JWT AWS-LC error: {0}")]
-    JwtAwsLcError(#[from] jsonwebtoken_aws_lc::errors::Error),
+    JwtError(#[from] jsonwebtoken_aws_lc::errors::Error),
 
     #[error("unsupported operation: {0}")]
     UnsupportedOperation(String),
