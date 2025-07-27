@@ -52,26 +52,26 @@ use crate::traits::{TokenProvider, Verifier};
 pub struct OAuth2ClientCredentialsConfig {
     /// OAuth2 client ID
     pub client_id: String,
-    
+
     /// OAuth2 client secret
     #[schemars(skip)]
     pub client_secret: String,
-    
+
     /// Token endpoint URL
     pub token_endpoint: String,
-    
+
     /// Optional scope parameter
     #[serde(skip_serializing_if = "Option::is_none")]
     pub scope: Option<String>,
-    
+
     /// Optional audience parameter
     #[serde(skip_serializing_if = "Option::is_none")]
     pub audience: Option<String>,
-    
+
     /// Buffer time before token expiry to refresh (default: 300s)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cache_buffer: Option<Duration>,
-    
+
     /// HTTP timeout for token requests (default: 30s)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub timeout: Option<Duration>,
@@ -108,7 +108,7 @@ impl TokenCache {
             token: Arc::new(RwLock::new(None)),
         }
     }
-    
+
     /// Get a valid token from cache, returns None if expired or missing
     fn get_valid_token(&self, buffer: Duration) -> Option<String> {
         let token_guard = self.token.read();
@@ -121,12 +121,12 @@ impl TokenCache {
         }
         None
     }
-    
+
     /// Store a new token in the cache
     fn store_token(&self, token: CachedToken) {
         *self.token.write() = Some(token);
     }
-    
+
     /// Clear the token cache
     fn clear(&self) {
         *self.token.write() = None;
@@ -145,9 +145,10 @@ impl OAuth2TokenProvider {
     /// Create a new OAuth2 token provider
     pub fn new(config: OAuth2ClientCredentialsConfig) -> Result<Self, AuthError> {
         // Validate the token endpoint URL
-        Url::parse(&config.token_endpoint)
-            .map_err(|e| AuthError::InvalidTokenEndpoint(format!("Invalid token endpoint URL: {}", e)))?;
-        
+        Url::parse(&config.token_endpoint).map_err(|e| {
+            AuthError::InvalidTokenEndpoint(format!("Invalid token endpoint URL: {}", e))
+        })?;
+
         // Create HTTP client with timeout
         let client = ReqwestClient::builder()
             .user_agent("AGNTCY Slim Auth OAuth2")
@@ -155,29 +156,29 @@ impl OAuth2TokenProvider {
             .danger_accept_invalid_certs(true) // TEMPORARY: For testing only
             .build()
             .map_err(|e| AuthError::OAuth2Error(format!("Failed to create HTTP client: {}", e)))?;
-            
+
         Ok(Self {
             config,
             client,
             cache: TokenCache::new(),
         })
     }
-    
+
     /// Get a token asynchronously (preferred method)
     pub async fn get_token_async(&self) -> Result<String, AuthError> {
         let buffer = self.config.cache_buffer.unwrap_or(Duration::from_secs(300));
-        
+
         // Check cache first
         if let Some(cached_token) = self.cache.get_valid_token(buffer) {
             tracing::debug!("Using cached OAuth2 token");
             return Ok(cached_token);
         }
-        
+
         // Fetch new token
         tracing::debug!("Fetching new OAuth2 token from endpoint");
         self.fetch_token().await
     }
-    
+
     /// Fetch a new token from the OAuth2 endpoint
     async fn fetch_token(&self) -> Result<String, AuthError> {
         // Prepare request body
@@ -185,15 +186,15 @@ impl OAuth2TokenProvider {
         form_data.insert("grant_type", "client_credentials");
         form_data.insert("client_id", &self.config.client_id);
         form_data.insert("client_secret", &self.config.client_secret);
-        
+
         if let Some(scope) = &self.config.scope {
             form_data.insert("scope", scope);
         }
-        
+
         if let Some(audience) = &self.config.audience {
             form_data.insert("audience", audience);
         }
-        
+
         // Make the request
         let response = self
             .client
@@ -203,35 +204,36 @@ impl OAuth2TokenProvider {
             .send()
             .await
             .map_err(map_reqwest_error)?;
-        
+
         // Handle response
         let status = response.status();
         let body = response.text().await.map_err(map_reqwest_error)?;
-        
+
         if !status.is_success() {
             return Err(map_token_response_error(status, &body));
         }
-        
+
         // Parse token response
-        let token_response: TokenResponse = serde_json::from_str(&body)
-            .map_err(|e| AuthError::OAuth2Error(format!("Failed to parse token response: {}", e)))?;
-        
+        let token_response: TokenResponse = serde_json::from_str(&body).map_err(|e| {
+            AuthError::OAuth2Error(format!("Failed to parse token response: {}", e))
+        })?;
+
         // Calculate expiration time
         let expires_at = SystemTime::now() + Duration::from_secs(token_response.expires_in);
-        
+
         // Cache the token
         let cached_token = CachedToken {
             access_token: token_response.access_token.clone(),
             expires_at,
             token_type: token_response.token_type,
         };
-        
+
         self.cache.store_token(cached_token);
-        
+
         tracing::info!("Successfully fetched and cached OAuth2 token");
         Ok(token_response.access_token)
     }
-    
+
     /// Clear the token cache (useful for testing or forced refresh)
     pub fn clear_cache(&self) {
         self.cache.clear();
@@ -240,23 +242,24 @@ impl OAuth2TokenProvider {
 
 impl TokenProvider for OAuth2TokenProvider {
     /// Get a token synchronously from cache only.
-    /// 
+    ///
     /// This method will return a cached token if available and valid.
     /// If no valid cached token exists, it returns an error suggesting
     /// to use the async method instead.
-    /// 
+    ///
     /// For new token acquisition, use `get_token_async()` instead.
     fn get_token(&self) -> Result<String, AuthError> {
         let buffer = self.config.cache_buffer.unwrap_or(Duration::from_secs(300));
-        
+
         // Check cache first
         if let Some(cached_token) = self.cache.get_valid_token(buffer) {
             return Ok(cached_token);
         }
-        
+
         // For sync context, we can't fetch a new token
         Err(AuthError::GetTokenError(
-            "Token expired and sync refresh not supported. Use get_token_async() instead.".to_string()
+            "Token expired and sync refresh not supported. Use get_token_async() instead."
+                .to_string(),
         ))
     }
 }
@@ -270,21 +273,21 @@ impl OAuth2Verifier {
     /// Create a new OAuth2 verifier
     pub fn new(issuer: &str, audience: Option<&[String]>) -> Result<Self, AuthError> {
         let mut builder = JwtBuilder::new().issuer(issuer);
-            
+
         if let Some(aud) = audience {
             builder = builder.audience(aud);
         }
-        
+
         let jwt_verifier = builder.auto_resolve_keys(true).build()?;
-        
+
         Ok(Self { jwt_verifier })
     }
-    
+
     /// Create verifier from issuer only
     pub fn from_issuer(issuer: &str) -> Result<Self, AuthError> {
         Self::new(issuer, None)
     }
-    
+
     /// Create verifier with specific audience
     pub fn from_issuer_with_audience(issuer: &str, audience: &[String]) -> Result<Self, AuthError> {
         Self::new(issuer, Some(audience))
@@ -371,7 +374,7 @@ mod tests {
     #[tokio::test]
     async fn test_oauth2_token_provider_success() {
         let mock_server = MockServer::start().await;
-        
+
         // Setup mock token endpoint
         Mock::given(method("POST"))
             .and(path("/oauth/token"))
@@ -390,7 +393,7 @@ mod tests {
 
         let config = create_test_config(&mock_server.uri()).await;
         let provider = OAuth2TokenProvider::new(config).unwrap();
-        
+
         let token = provider.get_token_async().await.unwrap();
         assert_eq!(token, "test-access-token");
     }
@@ -398,7 +401,7 @@ mod tests {
     #[tokio::test]
     async fn test_oauth2_token_provider_caching() {
         let mock_server = MockServer::start().await;
-        
+
         // Setup mock - should only be called once due to caching
         Mock::given(method("POST"))
             .and(path("/oauth/token"))
@@ -413,11 +416,11 @@ mod tests {
 
         let config = create_test_config(&mock_server.uri()).await;
         let provider = OAuth2TokenProvider::new(config).unwrap();
-        
+
         // First call - should hit the endpoint
         let token1 = provider.get_token_async().await.unwrap();
         assert_eq!(token1, "cached-token");
-        
+
         // Second call - should use cache
         let token2 = provider.get_token_async().await.unwrap();
         assert_eq!(token2, "cached-token");
@@ -426,7 +429,7 @@ mod tests {
     #[tokio::test]
     async fn test_oauth2_token_provider_error_handling() {
         let mock_server = MockServer::start().await;
-        
+
         // Setup mock to return 401 Unauthorized
         Mock::given(method("POST"))
             .and(path("/oauth/token"))
@@ -439,10 +442,10 @@ mod tests {
 
         let config = create_test_config(&mock_server.uri()).await;
         let provider = OAuth2TokenProvider::new(config).unwrap();
-        
+
         let result = provider.get_token_async().await;
         assert!(result.is_err());
-        
+
         match result.unwrap_err() {
             AuthError::InvalidClientCredentials => {
                 // Expected error type
@@ -454,7 +457,7 @@ mod tests {
     #[tokio::test]
     async fn test_oauth2_token_provider_expiration() {
         let mock_server = MockServer::start().await;
-        
+
         // Setup mock to return short-lived token
         Mock::given(method("POST"))
             .and(path("/oauth/token"))
@@ -469,16 +472,16 @@ mod tests {
 
         let mut config = create_test_config(&mock_server.uri()).await;
         config.cache_buffer = Some(Duration::from_millis(500)); // 500ms buffer
-        
+
         let provider = OAuth2TokenProvider::new(config).unwrap();
-        
+
         // First call
         let token1 = provider.get_token_async().await.unwrap();
         assert_eq!(token1, "short-lived-token");
-        
+
         // Wait for token to expire (considering buffer)
         time::sleep(Duration::from_millis(600)).await;
-        
+
         // Second call - should fetch new token
         let token2 = provider.get_token_async().await.unwrap();
         assert_eq!(token2, "short-lived-token");
@@ -499,7 +502,7 @@ mod tests {
 
         let result = OAuth2TokenProvider::new(invalid_config);
         assert!(result.is_err());
-        
+
         match result.unwrap_err() {
             AuthError::InvalidTokenEndpoint(_) => {
                 // Expected error type
@@ -511,7 +514,7 @@ mod tests {
     #[tokio::test]
     async fn test_oauth2_network_timeout() {
         let mock_server = MockServer::start().await;
-        
+
         // Setup mock that never responds (simulates timeout)
         Mock::given(method("POST"))
             .and(path("/oauth/token"))
@@ -521,12 +524,12 @@ mod tests {
 
         let mut config = create_test_config(&mock_server.uri()).await;
         config.timeout = Some(Duration::from_millis(100)); // Very short timeout
-        
+
         let provider = OAuth2TokenProvider::new(config).unwrap();
-        
+
         let result = provider.get_token_async().await;
         assert!(result.is_err());
-        
+
         match result.unwrap_err() {
             AuthError::OAuth2Error(msg) => {
                 assert!(msg.contains("timeout") || msg.contains("Request timeout"));
@@ -538,7 +541,7 @@ mod tests {
     #[tokio::test]
     async fn test_oauth2_malformed_response() {
         let mock_server = MockServer::start().await;
-        
+
         // Setup mock to return invalid JSON
         Mock::given(method("POST"))
             .and(path("/oauth/token"))
@@ -548,10 +551,10 @@ mod tests {
 
         let config = create_test_config(&mock_server.uri()).await;
         let provider = OAuth2TokenProvider::new(config).unwrap();
-        
+
         let result = provider.get_token_async().await;
         assert!(result.is_err());
-        
+
         match result.unwrap_err() {
             AuthError::OAuth2Error(msg) => {
                 assert!(msg.contains("Failed to parse token response"));
@@ -563,7 +566,7 @@ mod tests {
     #[tokio::test]
     async fn test_oauth2_server_error_500() {
         let mock_server = MockServer::start().await;
-        
+
         // Setup mock to return 500 Internal Server Error
         Mock::given(method("POST"))
             .and(path("/oauth/token"))
@@ -573,10 +576,10 @@ mod tests {
 
         let config = create_test_config(&mock_server.uri()).await;
         let provider = OAuth2TokenProvider::new(config).unwrap();
-        
+
         let result = provider.get_token_async().await;
         assert!(result.is_err());
-        
+
         match result.unwrap_err() {
             AuthError::TokenEndpointError { status, body } => {
                 assert_eq!(status, 500);
@@ -589,7 +592,7 @@ mod tests {
     #[tokio::test]
     async fn test_oauth2_concurrent_requests() {
         let mock_server = MockServer::start().await;
-        
+
         // Setup mock - allow multiple calls since concurrent requests may not be cached
         Mock::given(method("POST"))
             .and(path("/oauth/token"))
@@ -603,23 +606,21 @@ mod tests {
 
         let config = create_test_config(&mock_server.uri()).await;
         let provider = Arc::new(OAuth2TokenProvider::new(config).unwrap());
-        
+
         // First, get a token to populate cache
         let _initial_token = provider.get_token_async().await.unwrap();
-        
+
         // Now spawn 5 concurrent requests - these should use cache
         let mut handles = vec![];
         for _ in 0..5 {
             let provider_clone = provider.clone();
-            let handle = tokio::spawn(async move {
-                provider_clone.get_token_async().await
-            });
+            let handle = tokio::spawn(async move { provider_clone.get_token_async().await });
             handles.push(handle);
         }
-        
+
         // Wait for all requests to complete
         let results: Vec<_> = futures::future::join_all(handles).await;
-        
+
         // All should succeed and return the same token
         for result in results {
             let token = result.unwrap().unwrap();
@@ -630,7 +631,7 @@ mod tests {
     #[tokio::test]
     async fn test_oauth2_cache_clear() {
         let mock_server = MockServer::start().await;
-        
+
         // Setup mock - should be called twice due to cache clear
         Mock::given(method("POST"))
             .and(path("/oauth/token"))
@@ -645,14 +646,14 @@ mod tests {
 
         let config = create_test_config(&mock_server.uri()).await;
         let provider = OAuth2TokenProvider::new(config).unwrap();
-        
+
         // First call - should hit the endpoint
         let token1 = provider.get_token_async().await.unwrap();
         assert_eq!(token1, "cache-clear-token");
-        
+
         // Clear cache
         provider.clear_cache();
-        
+
         // Second call - should hit the endpoint again
         let token2 = provider.get_token_async().await.unwrap();
         assert_eq!(token2, "cache-clear-token");
@@ -661,17 +662,17 @@ mod tests {
     #[tokio::test]
     async fn test_oauth2_verifier_integration() {
         use crate::testutils::initialize_crypto_provider;
-        
+
         initialize_crypto_provider();
-        
+
         // Test that OAuth2Verifier can be created successfully
         let verifier = OAuth2Verifier::from_issuer("https://example.com");
         assert!(verifier.is_ok());
-        
+
         // Test with audience
         let verifier_with_aud = OAuth2Verifier::from_issuer_with_audience(
             "https://example.com",
-            &["https://api.example.com".to_string()]
+            &["https://api.example.com".to_string()],
         );
         assert!(verifier_with_aud.is_ok());
     }
@@ -689,11 +690,11 @@ mod tests {
         };
 
         let provider = OAuth2TokenProvider::new(config).unwrap();
-        
+
         // Sync get_token should fail when no cached token
         let result = provider.get_token();
         assert!(result.is_err());
-        
+
         match result.unwrap_err() {
             AuthError::GetTokenError(msg) => {
                 assert!(msg.contains("Use get_token_async() instead"));

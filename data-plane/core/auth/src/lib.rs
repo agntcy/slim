@@ -13,17 +13,13 @@ pub mod testutils;
 pub mod traits;
 
 // Re-export main authentication traits
-pub use traits::{TokenProvider, Verifier, Signer, StandardClaims};
+pub use traits::{Signer, StandardClaims, TokenProvider, Verifier};
 
 // Re-export OAuth2 components for easier access
-pub use oauth2::{
-    OAuth2ClientCredentialsConfig,
-    OAuth2TokenProvider,
-    OAuth2Verifier,
-};
+pub use oauth2::{OAuth2ClientCredentialsConfig, OAuth2TokenProvider, OAuth2Verifier};
 
 // Re-export JWT components for convenience
-pub use jwt::{SignerJwt, VerifierJwt, StaticTokenProvider};
+pub use jwt::{SignerJwt, StaticTokenProvider, VerifierJwt};
 
 // Re-export builder for easy access
 pub use builder::JwtBuilder;

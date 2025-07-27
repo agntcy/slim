@@ -316,8 +316,8 @@ impl JwtBuilder<state::Initial> {
 
     /// Configure OAuth2 Client Credentials flow
     pub fn oauth2_client_credentials(
-        self, 
-        config: OAuth2ClientCredentialsConfig
+        self,
+        config: OAuth2ClientCredentialsConfig,
     ) -> JwtBuilder<state::WithOAuth2Provider> {
         JwtBuilder::<state::WithOAuth2Provider> {
             issuer: self.issuer,
@@ -552,10 +552,10 @@ impl JwtBuilder<state::WithToken> {
 impl JwtBuilder<state::WithOAuth2Provider> {
     /// Build OAuth2 token provider
     pub fn build(self) -> Result<OAuth2TokenProvider, AuthError> {
-        let config = self.oauth2_config.ok_or_else(|| {
-            AuthError::ConfigError("OAuth2 configuration missing".to_string())
-        })?;
-        
+        let config = self
+            .oauth2_config
+            .ok_or_else(|| AuthError::ConfigError("OAuth2 configuration missing".to_string()))?;
+
         OAuth2TokenProvider::new(config)
     }
 }
@@ -794,12 +794,8 @@ mod tests {
             timeout: Some(Duration::from_secs(30)),
         };
 
-        let provider = JwtBuilder::new()
-            .oauth2_client_credentials(config)
-            .build();
+        let provider = JwtBuilder::new().oauth2_client_credentials(config).build();
 
         assert!(provider.is_ok());
     }
-
-
 }
