@@ -7,7 +7,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use async_trait::async_trait;
 use futures::executor::block_on;
-use jsonwebtoken::{Algorithm, DecodingKey, Validation, decode, decode_header};
+use jsonwebtoken_aws_lc::{Algorithm, DecodingKey, Validation, decode, decode_header};
 use openidconnect::{
     ClientId, ClientSecret, IssuerUrl, OAuth2TokenResponse, Scope,
     core::{CoreClient, CoreProviderMetadata},
@@ -551,21 +551,16 @@ impl Verifier for OidcVerifier {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use jsonwebtoken::{Algorithm as JwtAlgorithm, EncodingKey, Header, encode};
-    use jsonwebtoken_aws_lc::Algorithm;
+    use jsonwebtoken_aws_lc::{Algorithm as JwtAlgorithm, EncodingKey, Header, encode};
     use serde_json::json;
     use wiremock::matchers::{method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
     // Use the test utilities from the testutils module
-    use crate::testutils::{
-        TestClaims, initialize_crypto_provider, setup_oidc_mock_server, setup_test_jwt_resolver,
-    };
+    use crate::testutils::{TestClaims, setup_oidc_mock_server, setup_test_jwt_resolver};
 
     #[tokio::test]
     async fn test_oidc_token_provider_client_credentials_flow() {
-        initialize_crypto_provider();
-
         let (_mock_server, issuer_url, expected_token) = setup_oidc_mock_server().await;
 
         let provider = OidcTokenProvider::new(
@@ -587,8 +582,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_oidc_token_provider_caching() {
-        initialize_crypto_provider();
-
         let (_mock_server, issuer_url, expected_token) = setup_oidc_mock_server().await;
 
         let provider =
@@ -608,8 +601,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_oidc_verifier_simple_mock() {
-        initialize_crypto_provider();
-
         // Use the existing utility to set up mock server
         let (_private_key, mock_server, _alg) = setup_test_jwt_resolver(Algorithm::RS256).await;
         let issuer_url = mock_server.uri();
@@ -627,8 +618,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_oidc_verifier_jwt_verification() {
-        initialize_crypto_provider();
-
         // Setup mock OIDC server with JWKS using the existing utility
         let (private_key, mock_server, _alg) = setup_test_jwt_resolver(Algorithm::RS256).await;
         let issuer_url = mock_server.uri();
@@ -656,8 +645,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_oidc_verifier_jwks_caching() {
-        initialize_crypto_provider();
-
         let (private_key, mock_server, _alg) = setup_test_jwt_resolver(Algorithm::RS256).await;
         let issuer_url = mock_server.uri();
 
@@ -693,8 +680,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_oidc_verifier_invalid_token() {
-        initialize_crypto_provider();
-
         let (_private_key, mock_server, _alg) = setup_test_jwt_resolver(Algorithm::RS256).await;
         let issuer_url = mock_server.uri();
 
@@ -707,8 +692,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_oidc_verifier_missing_kid_single_key_works() {
-        initialize_crypto_provider();
-
         let (private_key, mock_server, _alg) = setup_test_jwt_resolver(Algorithm::RS256).await;
         let issuer_url = mock_server.uri();
 
@@ -753,8 +736,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_oidc_verifier_unsupported_key_type() {
-        initialize_crypto_provider();
-
         let mock_server = MockServer::start().await;
         let issuer_url = mock_server.uri();
 
@@ -825,8 +806,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_oidc_verifier_key_not_found() {
-        initialize_crypto_provider();
-
         let (private_key, mock_server, _alg) = setup_test_jwt_resolver(Algorithm::RS256).await;
         let issuer_url = mock_server.uri();
 
@@ -865,8 +844,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_oidc_token_provider_creation() {
-        initialize_crypto_provider();
-
         // Use the existing setup function
         let (_mock_server, issuer_url, _expected_token) = setup_oidc_mock_server().await;
         let provider = OidcTokenProvider::new(
@@ -915,8 +892,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_oidc_token_provider_error_handling() {
-        initialize_crypto_provider();
-
         let mock_server = MockServer::start().await;
         let issuer_url = mock_server.uri();
 
@@ -965,8 +940,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_oidc_token_provider_invalid_token_response() {
-        initialize_crypto_provider();
-
         let mock_server = MockServer::start().await;
         let issuer_url = mock_server.uri();
 
@@ -1052,8 +1025,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_oidc_verifier_try_verify_sync() {
-        initialize_crypto_provider();
-
         let (private_key, mock_server, _alg) = setup_test_jwt_resolver(Algorithm::RS256).await;
         let issuer_url = mock_server.uri();
 
