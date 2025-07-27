@@ -18,11 +18,10 @@ static RUSTLS: Once = Once::new();
 
 pub fn initialize_crypto_provider() {
     RUSTLS.call_once(|| {
-        // Set aws-lc as default crypto provider, but don't panic if it's already set
-        if let Err(_) = rustls::crypto::aws_lc_rs::default_provider().install_default() {
-            // Provider might already be installed, which is fine
-            // Just ignore the error and continue
-        }
+        // Set aws-lc as default crypto provider
+        rustls::crypto::aws_lc_rs::default_provider()
+            .install_default()
+            .unwrap();
     });
 }
 
