@@ -138,7 +138,17 @@ func (s *sbAPIService) handleNodeMessages(stream controllerapi.ControllerService
 	for {
 		msg, err := stream.Recv()
 		if err != nil {
-			zlog.Error().Msgf("Error receiving message: %v", err)
+			zlog.Error().Msgf("Stream connection failed for node %s: %v", registeredNodeID, err)
+
+			// Update the node status to not connected
+			s.messagingService.UpdateConnectionStatus(registeredNodeID, nodecontrol.NodeStatusNotConnected)
+			zlog.Error().Msgf("Node %s status set to: %v", registeredNodeID, nodecontrol.NodeStatusNotConnected)
+
+			err := s.messagingService.RemoveStream(registeredNodeID)
+			if err != nil {
+				zlog.Error().Msgf("Error removing stream for node %s: %v", registeredNodeID, err)
+			}
+
 			return err
 		}
 		switch payload := msg.Payload.(type) {
