@@ -21,19 +21,22 @@ type SouthboundAPIServer interface {
 type sbAPIService struct {
 	config config.APIConfig
 	controllerapi.UnimplementedControllerServiceServer
-	dbService        db.DataAccess
-	messagingService nodecontrol.NodeCommandHandler
+	dbService                 db.DataAccess
+	messagingService          nodecontrol.NodeCommandHandler
+	nodeRegistrationListeners []nodecontrol.NodeRegistrationHandler
 }
 
 func NewSBAPIService(
 	config config.APIConfig,
 	dbService db.DataAccess,
 	messagingService nodecontrol.NodeCommandHandler,
+	nodeRegistrationListeners []nodecontrol.NodeRegistrationHandler,
 ) SouthboundAPIServer {
 	return &sbAPIService{
-		config:           config,
-		dbService:        dbService,
-		messagingService: messagingService,
+		config:                    config,
+		dbService:                 dbService,
+		messagingService:          messagingService,
+		nodeRegistrationListeners: nodeRegistrationListeners,
 	}
 }
 
@@ -113,7 +116,14 @@ func (s *sbAPIService) OpenControlChannel(stream controllerapi.ControllerService
 		}
 		stream.Send(ackMsg)
 
-		//TODO send connection & subscription list in a separate goroutine
+		// call all registered listeners in a goroutine
+		go func() {
+			for _, listener := range s.nodeRegistrationListeners {
+				if err := listener.NodeRegistered(ctx, registeredNodeID); err != nil {
+					zlog.Error().Msgf("Error in node registration listener: %v", err)
+				}
+			}
+		}()
 	}
 
 	if registeredNodeID == "" {
@@ -121,6 +131,10 @@ func (s *sbAPIService) OpenControlChannel(stream controllerapi.ControllerService
 		return nil
 	}
 
+	return s.handleNodeMessages(stream, zlog, registeredNodeID)
+}
+
+func (s *sbAPIService) handleNodeMessages(stream controllerapi.ControllerService_OpenControlChannelServer, zlog *zerolog.Logger, registeredNodeID string) error {
 	for {
 		msg, err := stream.Recv()
 		if err != nil {

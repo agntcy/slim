@@ -29,6 +29,7 @@ func main() {
 	nodeService := nbapiservice.NewNodeService(dbService)
 	routeService := nbapiservice.NewRouteService(messagingService)
 	groupService := nbapiservice.NewGroupService(dbService)
+	registrationService := nbapiservice.NewNodeRegistrationService(dbService, messagingService)
 
 	go func() {
 		cpServer := nbapiservice.NewNorthboundAPIServer(config.Northbound, nodeService, routeService, groupService)
@@ -48,7 +49,8 @@ func main() {
 	}()
 
 	sbGrpcServer := grpc.NewServer(opts...)
-	sbAPISvc := sbapiservice.NewSBAPIService(config.Southbound, dbService, messagingService)
+	sbAPISvc := sbapiservice.NewSBAPIService(config.Southbound, dbService, messagingService,
+		[]nodecontrol.NodeRegistrationHandler{registrationService})
 	southboundApi.RegisterControllerServiceServer(sbGrpcServer, sbAPISvc)
 
 	sbListeningAddress := fmt.Sprintf("%s:%s", config.Southbound.HTTPHost, config.Southbound.HTTPPort)

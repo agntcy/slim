@@ -1,6 +1,7 @@
 package nodecontrol
 
 import (
+	"context"
 	"reflect"
 
 	controllerapi "github.com/agntcy/slim/control-plane/common/proto/controller/v1"
@@ -24,4 +25,8 @@ type NodeCommandHandler interface {
 
 	WaitForResponse(nodeID string, messageType reflect.Type) (*controllerapi.ControlMessage, error)
 	ResponseReceived(nodeID string, command *controllerapi.ControlMessage)
+}
+
+type NodeRegistrationHandler interface {
+	NodeRegistered(ctx context.Context, nodeID string) error
 }

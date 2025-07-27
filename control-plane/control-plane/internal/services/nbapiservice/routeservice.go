@@ -214,6 +214,7 @@ func (s *RouteService) DeleteSubscription(
 	return nil
 }
 
+// logAckMessage logs the details of an ACK message received from a node.
 func logAckMessage(ctx context.Context, ack *controllerapi.Ack) {
 	zlog := zerolog.Ctx(ctx)
 	zlog.Debug().Msgf(

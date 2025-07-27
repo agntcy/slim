@@ -293,3 +293,43 @@ func (d *dbService) ListSubscriptionsByNodeID(nodeID string) ([]Subscription, er
 
 	return subscriptions, nil
 }
+
+// GetConnectionsByNodeID implements DataAccess.
+func (d *dbService) GetConnectionsByNodeID(nodeID string) ([]Connection, error) {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+
+	if _, exists := d.nodes[nodeID]; !exists {
+		return nil, fmt.Errorf("node with ID %s not found", nodeID)
+	}
+
+	var connections []Connection
+	for _, connection := range d.connections {
+		if connection.NodeID == nodeID {
+			connections = append(connections, connection)
+		}
+	}
+
+	// Return empty slice instead of error when no connections found
+	return connections, nil
+}
+
+// GetSubscriptionsByNodeID implements DataAccess.
+func (d *dbService) GetSubscriptionsByNodeID(nodeID string) ([]Subscription, error) {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+
+	if _, exists := d.nodes[nodeID]; !exists {
+		return nil, fmt.Errorf("node with ID %s not found", nodeID)
+	}
+
+	var subscriptions []Subscription
+	for _, subscription := range d.subscriptions {
+		if subscription.NodeID == nodeID {
+			subscriptions = append(subscriptions, subscription)
+		}
+	}
+
+	// Return empty slice instead of error when no subscriptions found
+	return subscriptions, nil
+}
