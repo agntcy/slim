@@ -15,6 +15,7 @@ use parking_lot::RwLock;
 use crate::errors::AuthError;
 use crate::file_watcher::FileWatcher;
 use crate::jwt::{Key, KeyData, KeyFormat, SignerJwt, StaticTokenProvider, VerifierJwt};
+use crate::oauth2::{OAuth2ClientCredentialsConfig, OAuth2TokenProvider};
 use crate::resolver::KeyResolver;
 use crate::traits::StandardClaims;
 
@@ -46,6 +47,9 @@ pub mod state {
 
     /// State after setting a token
     pub struct WithToken;
+
+    /// State after configuring OAuth2 provider
+    pub struct WithOAuth2Provider;
 }
 
 /// Builder for JWT Authentication configuration.
@@ -85,6 +89,9 @@ pub struct JwtBuilder<S = state::Initial> {
     // Token file
     token_file: Option<String>,
 
+    // OAuth2 configuration
+    oauth2_config: Option<OAuth2ClientCredentialsConfig>,
+
     // PhantomData to track state
     _state: PhantomData<S>,
 }
@@ -110,6 +117,7 @@ impl Default for JwtBuilder<state::Initial> {
             required_claims: Vec::new(),
             custom_claims: HashMap::new(),
             token_file: None,
+            oauth2_config: None,
             _state: PhantomData,
         }
     }
@@ -245,6 +253,7 @@ impl JwtBuilder<state::Initial> {
             required_claims: self.required_claims,
             custom_claims: self.custom_claims,
             token_file: None,
+            oauth2_config: None,
             _state: PhantomData,
         }
     }
@@ -263,6 +272,7 @@ impl JwtBuilder<state::Initial> {
             required_claims: self.required_claims,
             custom_claims: self.custom_claims,
             token_file: None,
+            oauth2_config: None,
             _state: PhantomData,
         }
     }
@@ -281,6 +291,7 @@ impl JwtBuilder<state::Initial> {
             required_claims: self.required_claims,
             custom_claims: self.custom_claims,
             token_file: None,
+            oauth2_config: None,
             _state: PhantomData,
         }
     }
@@ -298,6 +309,29 @@ impl JwtBuilder<state::Initial> {
             required_claims: self.required_claims,
             custom_claims: self.custom_claims,
             token_file: Some(token_file.into()),
+            oauth2_config: None,
+            _state: PhantomData,
+        }
+    }
+
+    /// Configure OAuth2 Client Credentials flow
+    pub fn oauth2_client_credentials(
+        self, 
+        config: OAuth2ClientCredentialsConfig
+    ) -> JwtBuilder<state::WithOAuth2Provider> {
+        JwtBuilder::<state::WithOAuth2Provider> {
+            issuer: self.issuer,
+            audience: self.audience,
+            subject: self.subject,
+            private_key: None,
+            public_key: None,
+            algorithm: self.algorithm,
+            token_duration: self.token_duration,
+            auto_resolve_keys: self.auto_resolve_keys,
+            required_claims: self.required_claims,
+            custom_claims: self.custom_claims,
+            token_file: None,
+            oauth2_config: Some(config),
             _state: PhantomData,
         }
     }
@@ -511,6 +545,18 @@ impl JwtBuilder<state::WithToken> {
         )
         .with_static_token(static_token)
         .with_watcher(w))
+    }
+}
+
+// Implementation for the WithOAuth2Provider state
+impl JwtBuilder<state::WithOAuth2Provider> {
+    /// Build OAuth2 token provider
+    pub fn build(self) -> Result<OAuth2TokenProvider, AuthError> {
+        let config = self.oauth2_config.ok_or_else(|| {
+            AuthError::ConfigError("OAuth2 configuration missing".to_string())
+        })?;
+        
+        OAuth2TokenProvider::new(config)
     }
 }
 
@@ -729,4 +775,31 @@ mod tests {
         let token = provider.get_token().unwrap();
         assert_eq!(token, new_token_value);
     }
+
+    #[test]
+    fn test_oauth2_builder_integration() {
+        use crate::oauth2::OAuth2ClientCredentialsConfig;
+        use std::time::Duration;
+
+        // Initialize crypto provider
+        initialize_crypto_provider();
+
+        let config = OAuth2ClientCredentialsConfig {
+            client_id: "test-client".to_string(),
+            client_secret: "test-secret".to_string(),
+            token_endpoint: "https://auth.example.com/oauth/token".to_string(),
+            scope: Some("read write".to_string()),
+            audience: Some("https://api.example.com".to_string()),
+            cache_buffer: Some(Duration::from_secs(300)),
+            timeout: Some(Duration::from_secs(30)),
+        };
+
+        let provider = JwtBuilder::new()
+            .oauth2_client_credentials(config)
+            .build();
+
+        assert!(provider.is_ok());
+    }
+
+
 }
