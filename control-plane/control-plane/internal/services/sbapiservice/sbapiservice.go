@@ -29,13 +29,13 @@ type sbAPIService struct {
 func NewSBAPIService(
 	config config.APIConfig,
 	dbService db.DataAccess,
-	messagingService nodecontrol.NodeCommandHandler,
+	cmdHandler nodecontrol.NodeCommandHandler,
 	nodeRegistrationListeners []nodecontrol.NodeRegistrationHandler,
 ) SouthboundAPIServer {
 	return &sbAPIService{
 		config:                    config,
 		dbService:                 dbService,
-		messagingService:          messagingService,
+		messagingService:          cmdHandler,
 		nodeRegistrationListeners: nodeRegistrationListeners,
 	}
 }
@@ -69,21 +69,21 @@ func (s *sbAPIService) OpenControlChannel(stream controllerapi.ControllerService
 	errCh := make(chan error, 1)
 
 	go func() {
-		msg, err := stream.Recv()
+		rmsg, rerr := stream.Recv()
 		if err != nil {
-			errCh <- err
+			errCh <- rerr
 			return
 		}
-		msgCh <- msg
+		msgCh <- rmsg
 	}()
 
 	select {
 	case <-recvCtx.Done():
 		zlog.Error().Msgf("Timeout waiting for register node request")
 		return recvCtx.Err()
-	case err := <-errCh:
+	case rerr := <-errCh:
 		zlog.Error().Msgf("Error receiving message: %v", err)
-		return err
+		return rerr
 	case m := <-msgCh:
 		msg = m
 	}
@@ -114,7 +114,7 @@ func (s *sbAPIService) OpenControlChannel(stream controllerapi.ControllerService
 				},
 			},
 		}
-		stream.Send(ackMsg)
+		_ = stream.Send(ackMsg)
 
 		// call all registered listeners in a goroutine
 		go func() {
@@ -134,7 +134,8 @@ func (s *sbAPIService) OpenControlChannel(stream controllerapi.ControllerService
 	return s.handleNodeMessages(stream, zlog, registeredNodeID)
 }
 
-func (s *sbAPIService) handleNodeMessages(stream controllerapi.ControllerService_OpenControlChannelServer, zlog *zerolog.Logger, registeredNodeID string) error {
+func (s *sbAPIService) handleNodeMessages(stream controllerapi.ControllerService_OpenControlChannelServer,
+	zlog *zerolog.Logger, registeredNodeID string) error {
 	for {
 		msg, err := stream.Recv()
 		if err != nil {

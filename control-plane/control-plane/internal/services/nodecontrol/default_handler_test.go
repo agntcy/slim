@@ -9,8 +9,9 @@ import (
 	"testing"
 	"time"
 
-	controllerapi "github.com/agntcy/slim/control-plane/common/proto/controller/v1"
 	"google.golang.org/grpc/metadata"
+
+	controllerapi "github.com/agntcy/slim/control-plane/common/proto/controller/v1"
 )
 
 func TestWaitForResponseByType_MultipleNodes(t *testing.T) {
@@ -113,9 +114,6 @@ type mockStream struct {
 	sendMu       sync.Mutex
 	sendDelay    time.Duration
 	failSend     bool
-	recvMessages []*controllerapi.ControlMessage
-	recvIndex    int
-	recvMu       sync.Mutex
 }
 
 func (m *mockStream) Send(msg *controllerapi.ControlMessage) error {

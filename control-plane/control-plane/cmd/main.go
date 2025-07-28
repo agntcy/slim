@@ -25,11 +25,11 @@ func main() {
 	var opts []grpc.ServerOption
 
 	dbService := db.NewInMemoryDBService()
-	messagingService := nodecontrol.DefaultNodeCommandHandler()
-	nodeService := nbapiservice.NewNodeService(dbService)
-	routeService := nbapiservice.NewRouteService(messagingService)
+	cmdHandler := nodecontrol.DefaultNodeCommandHandler()
+	nodeService := nbapiservice.NewNodeService(dbService, cmdHandler)
+	routeService := nbapiservice.NewRouteService(cmdHandler)
 	groupService := nbapiservice.NewGroupService(dbService)
-	registrationService := nbapiservice.NewNodeRegistrationService(dbService, messagingService)
+	registrationService := nbapiservice.NewNodeRegistrationService(dbService, cmdHandler)
 
 	go func() {
 		cpServer := nbapiservice.NewNorthboundAPIServer(config.Northbound, nodeService, routeService, groupService)
@@ -49,7 +49,7 @@ func main() {
 	}()
 
 	sbGrpcServer := grpc.NewServer(opts...)
-	sbAPISvc := sbapiservice.NewSBAPIService(config.Southbound, dbService, messagingService,
+	sbAPISvc := sbapiservice.NewSBAPIService(config.Southbound, dbService, cmdHandler,
 		[]nodecontrol.NodeRegistrationHandler{registrationService})
 	southboundApi.RegisterControllerServiceServer(sbGrpcServer, sbAPISvc)
 
