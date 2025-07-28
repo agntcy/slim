@@ -40,13 +40,13 @@ func (s *NodeRegistrationService) NodeRegistered(ctx context.Context, nodeID str
 	zlog.Info().Msg("Processing node registration - fetching stored connections and subscriptions")
 
 	// Fetch connections from database
-	connections, err := s.dbService.GetConnectionsByNodeID(nodeID)
+	connections, err := s.dbService.ListConnectionsByNodeID(nodeID)
 	if err != nil {
 		return fmt.Errorf("failed to fetch connections for node %s: %w", nodeID, err)
 	}
 
 	// Fetch subscriptions from database
-	subscriptions, err := s.dbService.GetSubscriptionsByNodeID(nodeID)
+	subscriptions, err := s.dbService.ListSubscriptionsByNodeID(nodeID)
 	if err != nil {
 		return fmt.Errorf("failed to fetch subscriptions for node %s: %w", nodeID, err)
 	}

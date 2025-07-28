@@ -264,58 +264,12 @@ func (d *dbService) ListConnectionsByNodeID(nodeID string) ([]Connection, error)
 		}
 	}
 
-	if len(connections) == 0 {
-		return nil, fmt.Errorf("no connections found for node ID %s", nodeID)
-	}
-
+	// Return empty slice instead of error when no connections found
 	return connections, nil
 }
 
 // ListSubscriptionsByNodeID implements DataAccess.
 func (d *dbService) ListSubscriptionsByNodeID(nodeID string) ([]Subscription, error) {
-	d.mu.RLock()
-	defer d.mu.RUnlock()
-
-	if _, exists := d.nodes[nodeID]; !exists {
-		return nil, fmt.Errorf("node with ID %s not found", nodeID)
-	}
-
-	var subscriptions []Subscription
-	for _, subscription := range d.subscriptions {
-		if subscription.NodeID == nodeID {
-			subscriptions = append(subscriptions, subscription)
-		}
-	}
-
-	if len(subscriptions) == 0 {
-		return nil, fmt.Errorf("no subscriptions found for node ID %s", nodeID)
-	}
-
-	return subscriptions, nil
-}
-
-// GetConnectionsByNodeID implements DataAccess.
-func (d *dbService) GetConnectionsByNodeID(nodeID string) ([]Connection, error) {
-	d.mu.RLock()
-	defer d.mu.RUnlock()
-
-	if _, exists := d.nodes[nodeID]; !exists {
-		return nil, fmt.Errorf("node with ID %s not found", nodeID)
-	}
-
-	var connections []Connection
-	for _, connection := range d.connections {
-		if connection.NodeID == nodeID {
-			connections = append(connections, connection)
-		}
-	}
-
-	// Return empty slice instead of error when no connections found
-	return connections, nil
-}
-
-// GetSubscriptionsByNodeID implements DataAccess.
-func (d *dbService) GetSubscriptionsByNodeID(nodeID string) ([]Subscription, error) {
 	d.mu.RLock()
 	defer d.mu.RUnlock()
 

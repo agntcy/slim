@@ -11,13 +11,11 @@ type DataAccess interface {
 	DeleteNode(id string) error
 
 	ListConnectionsByNodeID(nodeID string) ([]Connection, error)
-	GetConnectionsByNodeID(nodeID string) ([]Connection, error) // Add this
 	SaveConnection(connection Connection) (string, error)
 	GetConnection(connectionID string) (Connection, error)
 	DeleteConnection(connectionID string) error
 
 	ListSubscriptionsByNodeID(nodeID string) ([]Subscription, error)
-	GetSubscriptionsByNodeID(nodeID string) ([]Subscription, error) // Add this
 	SaveSubscription(subscription Subscription) (string, error)
 	GetSubscription(subscriptionID string) (Subscription, error)
 	DeleteSubscription(subscriptionID string) error
