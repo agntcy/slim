@@ -7,6 +7,8 @@ from signal import SIGINT
 
 import slim_bindings
 
+from .common import shared_secret_identity
+
 
 async def run_server(address: str, enable_opentelemetry: bool):
     # init tracing
@@ -23,8 +25,14 @@ async def run_server(address: str, enable_opentelemetry: bool):
     )
 
     global slim
+    # not used in the slim server
+    provider, verifier = shared_secret_identity(
+        identity="slim",
+        secret="secret",
+    )
+
     # create new slim object
-    slim = await slim_bindings.Slim.new("cisco", "default", "slim")
+    slim = await slim_bindings.Slim.new("agntcy", "default", "slim", provider, verifier)
 
     # Run as server
     await slim.run_server({"endpoint": address, "tls": {"insecure": True}})

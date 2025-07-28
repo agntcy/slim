@@ -8,8 +8,12 @@ import click
 
 import slim_bindings
 
-from .args import common_options
-from .common import create_local_app, format_message_print, split_id
+from .common import (
+    common_options,
+    create_local_app,
+    format_message_print,
+    split_id,
+)
 
 
 async def run_client(
@@ -53,12 +57,13 @@ async def run_client(
             )
 
             # create a session
-            if sticky:
+            if sticky or enable_mls:
                 session = await local_app.create_session(
                     slim_bindings.PySessionConfiguration.FireAndForget(
                         max_retries=5,
                         timeout=datetime.timedelta(seconds=5),
                         sticky=True,
+                        mls_enabled=enable_mls,
                     )
                 )
             else:
