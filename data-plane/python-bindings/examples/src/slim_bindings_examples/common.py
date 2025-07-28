@@ -3,7 +3,6 @@
 
 import base64
 import json
-import functools
 
 import click
 

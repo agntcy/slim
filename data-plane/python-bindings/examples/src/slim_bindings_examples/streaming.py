@@ -9,13 +9,10 @@ import click
 import slim_bindings
 
 from .common import (
+    common_options,
     create_local_app,
     format_message,
-    format_message_print,
-    jwt_identity,
-    shared_secret_identity,
     split_id,
-    common_options,
 )
 
 

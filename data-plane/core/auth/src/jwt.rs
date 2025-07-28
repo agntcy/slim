@@ -7,7 +7,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use async_trait::async_trait;
 pub use jsonwebtoken_aws_lc::Algorithm;
-use jsonwebtoken_aws_lc::jwk::{KeyAlgorithm};
+use jsonwebtoken_aws_lc::jwk::KeyAlgorithm;
 use jsonwebtoken_aws_lc::{
     DecodingKey, EncodingKey, Header as JwtHeader, TokenData, Validation, decode, decode_header,
     encode, errors::ErrorKind, jwk::Jwk,

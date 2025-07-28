@@ -3,7 +3,6 @@
 
 import asyncio
 import datetime
-import os
 
 import click
 
@@ -84,8 +83,8 @@ async def run_client(
                         f"received (from session {session.id}): {reply.decode()}",
                     )
 
-                except TimeoutError as e:
-                    format_message_print(f"{instance}", f"timeout waiting for reply")
+                except TimeoutError:
+                    format_message_print(f"{instance}", "timeout waiting for reply")
                     break
 
                 await asyncio.sleep(1)

@@ -507,14 +507,14 @@ impl JwtBuilder<state::WithPublicKey> {
                     _ => verifier,
                 };
 
-                return Ok(verifier);
+                Ok(verifier)
             }
             DecodingKeyInternal::Jwks(jwk_set) => {
                 // Create key resolver with the JWKS
                 let resolver = KeyResolver::with_jwks(jwk_set);
 
                 // Use JWKS for verification
-                return Ok(verifier.with_key_resolver(resolver));
+                Ok(verifier.with_key_resolver(resolver))
             }
         }
     }
