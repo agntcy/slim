@@ -8,7 +8,7 @@ use std::marker::PhantomData;
 use std::sync::Arc;
 use std::time::Duration;
 
-use jsonwebtoken_aws_lc::jwk::Jwk;
+use jsonwebtoken_aws_lc::jwk::{Jwk, JwkSet};
 use jsonwebtoken_aws_lc::{Algorithm, DecodingKey, EncodingKey, Validation};
 use parking_lot::RwLock;
 
@@ -396,18 +396,23 @@ impl JwtBuilder<state::WithPrivateKey> {
     }
 }
 
+enum DecodingKeyInternal {
+    DecKey(DecodingKey),
+    Jwks(JwkSet),
+}
+
 // Implementation for the WithPublicKey state
 impl JwtBuilder<state::WithPublicKey> {
-    fn build_internal(key: &Key) -> Result<DecodingKey, AuthError> {
+    fn build_internal(key: &Key) -> Result<DecodingKeyInternal, AuthError> {
         let key_str = resolve_key(key);
 
         match &key.format {
             KeyFormat::Pem => {
                 // Use public key for verification
                 match key.algorithm {
-                    Algorithm::HS256 | Algorithm::HS384 | Algorithm::HS512 => {
-                        Ok(DecodingKey::from_secret(key_str.as_bytes()))
-                    }
+                    Algorithm::HS256 | Algorithm::HS384 | Algorithm::HS512 => Ok(
+                        DecodingKeyInternal::DecKey(DecodingKey::from_secret(key_str.as_bytes())),
+                    ),
                     Algorithm::RS256
                     | Algorithm::RS384
                     | Algorithm::RS512
@@ -415,21 +420,27 @@ impl JwtBuilder<state::WithPublicKey> {
                     | Algorithm::PS384
                     | Algorithm::PS512 => {
                         // PEM-encoded public key
-                        DecodingKey::from_rsa_pem(key_str.as_bytes()).map_err(|e| {
+                        let ret = DecodingKey::from_rsa_pem(key_str.as_bytes()).map_err(|e| {
                             AuthError::ConfigError(format!("Invalid RSA public key: {}", e))
-                        })
+                        });
+
+                        ret.map(DecodingKeyInternal::DecKey)
                     }
                     Algorithm::ES256 | Algorithm::ES384 => {
                         // PEM-encoded EC public key
-                        DecodingKey::from_ec_pem(key_str.as_bytes()).map_err(|e| {
+                        let ret = DecodingKey::from_ec_pem(key_str.as_bytes()).map_err(|e| {
                             AuthError::ConfigError(format!("Invalid EC public key: {}", e))
-                        })
+                        });
+
+                        ret.map(DecodingKeyInternal::DecKey)
                     }
                     Algorithm::EdDSA => {
                         // PEM-encoded EdDSA public key
-                        DecodingKey::from_ed_pem(key_str.as_bytes()).map_err(|e| {
+                        let ret = DecodingKey::from_ed_pem(key_str.as_bytes()).map_err(|e| {
                             AuthError::ConfigError(format!("Invalid EdDSA public key: {}", e))
-                        })
+                        });
+
+                        ret.map(DecodingKeyInternal::DecKey)
                     }
                 }
             }
@@ -437,8 +448,17 @@ impl JwtBuilder<state::WithPublicKey> {
                 // JWK format
                 let jwk: Jwk = serde_json::from_str(&resolve_key(key))
                     .map_err(|e| AuthError::ConfigError(format!("Invalid JWK: {}", e)))?;
-                DecodingKey::from_jwk(&jwk)
-                    .map_err(|e| AuthError::ConfigError(format!("Invalid JWK: {}", e)))
+                let ret = DecodingKey::from_jwk(&jwk)
+                    .map_err(|e| AuthError::ConfigError(format!("Invalid JWK: {}", e)));
+
+                ret.map(DecodingKeyInternal::DecKey)
+            }
+            KeyFormat::Jwks => {
+                // JWKS format
+                let jwk_set: JwkSet = serde_json::from_str(&resolve_key(key))
+                    .map_err(|e| AuthError::ConfigError(format!("Invalid JWKS: {}", e)))?;
+
+                Ok(DecodingKeyInternal::Jwks(jwk_set))
             }
         }
     }
@@ -458,31 +478,45 @@ impl JwtBuilder<state::WithPublicKey> {
         // Create encoding key, either from file or from inline PEM
         let key = Self::build_internal(self.public_key.as_ref().unwrap())?;
 
-        // Transform it to Arc
-        let decoding_key = Arc::new(RwLock::new(key));
+        match key {
+            DecodingKeyInternal::DecKey(key) => {
+                // Transform it to Arc
+                let decoding_key = Arc::new(RwLock::new(key));
 
-        // Create a verifier
-        let verifier = verifier.with_decoding_key(decoding_key.clone());
+                // Create a verifier
+                let verifier = verifier.with_decoding_key(decoding_key.clone());
 
-        // If the public key is a file, setup also a file watcher for it
-        let verifier = match &self.public_key.as_ref().unwrap().key {
-            KeyData::File(path) => {
-                // If the key is a file, we need to set up a file watcher
-                let decoding_key_clone = decoding_key.clone();
-                let key_clone = self.public_key.clone().unwrap();
-                let mut w = FileWatcher::create_watcher(move |_file: &str| {
-                    let new_key =
-                        Self::build_internal(&key_clone).expect("error processing new key");
-                    *decoding_key_clone.as_ref().write() = new_key;
-                });
-                w.add_file(path).expect("error adding file to the watcher");
+                // If the public key is a file, setup also a file watcher for it
+                let verifier = match &self.public_key.as_ref().unwrap().key {
+                    KeyData::File(path) => {
+                        // If the key is a file, we need to set up a file watcher
+                        let decoding_key_clone = decoding_key.clone();
+                        let key_clone = self.public_key.clone().unwrap();
+                        let mut w = FileWatcher::create_watcher(move |_file: &str| {
+                            let new_key =
+                                Self::build_internal(&key_clone).expect("error processing new key");
+                            *decoding_key_clone.as_ref().write() = match new_key {
+                                DecodingKeyInternal::DecKey(key) => key,
+                                _ => panic!("Expected DecodingKey, got Jwks"),
+                            };
+                        });
+                        w.add_file(path).expect("error adding file to the watcher");
 
-                verifier.with_watcher(w)
+                        verifier.with_watcher(w)
+                    }
+                    _ => verifier,
+                };
+
+                Ok(verifier)
             }
-            _ => verifier,
-        };
+            DecodingKeyInternal::Jwks(jwk_set) => {
+                // Create key resolver with the JWKS
+                let resolver = KeyResolver::with_jwks(jwk_set);
 
-        Ok(verifier)
+                // Use JWKS for verification
+                Ok(verifier.with_key_resolver(resolver))
+            }
+        }
     }
 }
 

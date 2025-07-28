@@ -27,15 +27,16 @@ use crate::traits::{Signer, StandardClaims, TokenProvider, Verifier};
 pub enum KeyFormat {
     Pem,
     Jwk,
+    Jwks,
 }
 
 /// Enum representing key data types
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 #[serde(rename_all = "lowercase")]
 pub enum KeyData {
-    /// String with encoded key
+    /// String with encoded key(s)
     Str(String),
-    /// File path to the key
+    /// File path to the key(s)
     File(String),
 }
 
@@ -46,7 +47,7 @@ pub struct Key {
     #[schemars(skip)]
     pub algorithm: Algorithm,
 
-    /// Key format - PEM or JWK
+    /// Key format - PEM, JWK or JWKS
     #[schemars(skip)]
     pub format: KeyFormat,
 
