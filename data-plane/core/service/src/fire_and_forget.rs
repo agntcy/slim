@@ -59,9 +59,7 @@ impl FireAndForgetConfiguration {
     ) -> Self {
         // If mls is enabled and session is not sticky, print a warning
         if mls_enabled && !sticky {
-            warn!(
-                "MLS on non-sticky sessions is not supported yet. Forcing sticky session."
-            );
+            warn!("MLS on non-sticky sessions is not supported yet. Forcing sticky session.");
 
             sticky = true;
         }
