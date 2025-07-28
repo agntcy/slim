@@ -54,14 +54,16 @@ impl FireAndForgetConfiguration {
     pub fn new(
         timeout: Option<Duration>,
         max_retries: Option<u32>,
-        sticky: bool,
+        mut sticky: bool,
         mls_enabled: bool,
     ) -> Self {
         // If mls is enabled and session is not sticky, print a warning
         if mls_enabled && !sticky {
             warn!(
-                "MLS on non-sticky sessions is not supported yet. If you want to use MLS, please set sticky to true."
+                "MLS on non-sticky sessions is not supported yet. Forcing sticky session."
             );
+
+            sticky = true;
         }
 
         FireAndForgetConfiguration {
