@@ -27,15 +27,15 @@ async def test_end_to_end(server):
     )
 
     # subscribe alice and bob
-    alice_class = slim_bindings.PyAgentType("org", "default", "alice")
-    bob_class = slim_bindings.PyAgentType("org", "default", "bob")
-    await slim_bindings.subscribe(svc_alice, conn_id_alice, alice_class, svc_alice.id)
-    await slim_bindings.subscribe(svc_bob, conn_id_bob, bob_class, svc_bob.id)
+    alice_class = slim_bindings.PyName("org", "default", "alice", id=svc_alice.id)
+    bob_class = slim_bindings.PyName("org", "default", "bob", id=svc_bob.id)
+    await slim_bindings.subscribe(svc_alice, conn_id_alice, alice_class)
+    await slim_bindings.subscribe(svc_bob, conn_id_bob, bob_class)
 
     await asyncio.sleep(1)
 
     # set routes
-    await slim_bindings.set_route(svc_alice, conn_id_alice, bob_class, None)
+    await slim_bindings.set_route(svc_alice, conn_id_alice, bob_class)
 
     # create fire and forget session
     session_info = await slim_bindings.create_session(
@@ -44,12 +44,12 @@ async def test_end_to_end(server):
 
     # send msg from Alice to Bob
     msg = [1, 2, 3, 4, 5, 6, 7, 8, 9]
-    await slim_bindings.publish(svc_alice, session_info, 1, msg, bob_class, None)
+    await slim_bindings.publish(svc_alice, session_info, 1, msg, bob_class)
 
     # receive message from Alice
     session_info_ret, msg_rcv = await slim_bindings.receive(svc_bob)
 
-    # make seure the session id corresponds
+    # make sure the session id corresponds
     assert session_info_ret.id == session_info.id
 
     # check if the message is correct
@@ -70,7 +70,7 @@ async def test_end_to_end(server):
 
     # try to send a message after deleting the session - this should raise an exception
     try:
-        await slim_bindings.publish(svc_alice, session_info, 1, msg, bob_class, None)
+        await slim_bindings.publish(svc_alice, session_info, 1, msg, bob_class)
     except Exception as e:
         assert "session not found" in str(e), f"Unexpected error message: {str(e)}"
 
@@ -104,9 +104,9 @@ async def test_session_config(server):
     assert isinstance(
         session_config, slim_bindings.PySessionConfiguration.FireAndForget
     )
-    assert session_config == session_config_ret, (
-        f"session config are not equal: {session_config} vs {session_config_ret}"
-    )
+    assert (
+        session_config == session_config_ret
+    ), f"session config are not equal: {session_config} vs {session_config_ret}"
 
     # check default values
     await slim_bindings.set_default_session_config(
@@ -123,9 +123,9 @@ async def test_session_config(server):
     assert isinstance(
         session_config_ret, slim_bindings.PySessionConfiguration.FireAndForget
     )
-    assert session_config == session_config_ret, (
-        f"session config are not equal: {session_config} vs {session_config_ret}"
-    )
+    assert (
+        session_config == session_config_ret
+    ), f"session config are not equal: {session_config} vs {session_config_ret}"
 
     # Streaming session
     session_config = slim_bindings.PySessionConfiguration.Streaming(
@@ -155,9 +155,9 @@ async def test_session_config(server):
             session_config,
         )
     except Exception as e:
-        assert "cannot change session direction" in str(e), (
-            f"Unexpected error message: {str(e)}"
-        )
+        assert "cannot change session direction" in str(
+            e
+        ), f"Unexpected error message: {str(e)}"
 
     # Use a receiver direction
     session_config = slim_bindings.PySessionConfiguration.Streaming(
@@ -182,9 +182,8 @@ async def test_session_config(server):
 @pytest.mark.asyncio
 @pytest.mark.parametrize("server", ["127.0.0.1:12345"], indirect=True)
 async def test_slim_wrapper(server):
-    org = "org"
-    ns = "default"
-    agent1 = "slim1"
+    name1 = slim_bindings.PyName("org", "default", "slim1")
+    name2 = slim_bindings.PyName("org", "default", "slim2")
 
     # create new slim object
     slim1 = await create_slim(org, ns, agent1, "secret")
@@ -276,16 +275,16 @@ async def test_auto_reconnect_after_server_restart(server):
         {"endpoint": "http://127.0.0.1:12346", "tls": {"insecure": True}},
     )
 
-    alice_class = slim_bindings.PyAgentType("org", "default", "alice")
-    bob_class = slim_bindings.PyAgentType("org", "default", "bob")
-    await slim_bindings.subscribe(svc_alice, conn_id_alice, alice_class, svc_alice.id)
-    await slim_bindings.subscribe(svc_bob, conn_id_bob, bob_class, svc_bob.id)
+    alice_class = slim_bindings.PyName("org", "default", "alice", id=svc_alice.id)
+    bob_class = slim_bindings.PyName("org", "default", "bob", id=svc_bob.id)
+    await slim_bindings.subscribe(svc_alice, conn_id_alice, alice_class)
+    await slim_bindings.subscribe(svc_bob, conn_id_bob, bob_class)
 
     # Wait for routes to propagate
     await asyncio.sleep(1)
 
     # set routing from Alice to Bob
-    await slim_bindings.set_route(svc_alice, conn_id_alice, bob_class, None)
+    await slim_bindings.set_route(svc_alice, conn_id_alice, bob_class)
 
     # create fire and forget session
     session_info = await slim_bindings.create_session(
@@ -294,9 +293,7 @@ async def test_auto_reconnect_after_server_restart(server):
 
     # verify baseline message exchange before the simulated server restart
     baseline_msg = [1, 2, 3]
-    await slim_bindings.publish(
-        svc_alice, session_info, 1, baseline_msg, bob_class, None
-    )
+    await slim_bindings.publish(svc_alice, session_info, 1, baseline_msg, bob_class)
 
     _, received = await slim_bindings.receive(svc_bob)
     assert received == bytes(baseline_msg)
@@ -311,7 +308,7 @@ async def test_auto_reconnect_after_server_restart(server):
 
     # test that the message exchange resumes normally after the simulated restart
     test_msg = [4, 5, 6]
-    await slim_bindings.publish(svc_alice, session_info, 1, test_msg, bob_class, None)
+    await slim_bindings.publish(svc_alice, session_info, 1, test_msg, bob_class)
     _, received = await slim_bindings.receive(svc_bob)
     assert received == bytes(test_msg)
 
@@ -330,8 +327,8 @@ async def test_error_on_nonexistent_subscription(server):
         svc_alice,
         {"endpoint": "http://127.0.0.1:12347", "tls": {"insecure": True}},
     )
-    alice_class = slim_bindings.PyAgentType("org", "default", "alice")
-    await slim_bindings.subscribe(svc_alice, conn_id_alice, alice_class, svc_alice.id)
+    alice_class = slim_bindings.PyName("org", "default", "alice", id=svc_alice.id)
+    await slim_bindings.subscribe(svc_alice, conn_id_alice, alice_class)
 
     # create fire and forget session
     session_info = await slim_bindings.create_session(
@@ -339,11 +336,11 @@ async def test_error_on_nonexistent_subscription(server):
     )
 
     # create Bob's agent class, but do not instantiate or subscribe Bob
-    bob_class = slim_bindings.PyAgentType("org", "default", "bob")
+    bob_class = slim_bindings.PyName("org", "default", "bob")
 
     # publish a message from Alice intended for Bob (who is not there)
     msg = [7, 8, 9]
-    await slim_bindings.publish(svc_alice, session_info, 1, msg, bob_class, None)
+    await slim_bindings.publish(svc_alice, session_info, 1, msg, bob_class)
 
     # an exception should be raised on receive
     try:

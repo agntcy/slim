@@ -6,7 +6,7 @@ use pyo3_stub_gen::derive::gen_stub_pyclass;
 use pyo3_stub_gen::derive::gen_stub_pyclass_enum;
 use pyo3_stub_gen::derive::gen_stub_pymethods;
 
-use crate::utils::PyAgentType;
+use crate::utils::PyName;
 use slim_service::FireAndForgetConfiguration;
 use slim_service::StreamingConfiguration;
 use slim_service::session;
@@ -106,10 +106,10 @@ pub(crate) enum PySessionConfiguration {
         mls_enabled: bool,
     },
 
-    #[pyo3(constructor = (session_direction, topic=None, moderator=false, max_retries=0, timeout=std::time::Duration::from_millis(1000), mls_enabled=false))]
+    #[pyo3(constructor = (session_direction, topic, moderator=false, max_retries=0, timeout=std::time::Duration::from_millis(1000), mls_enabled=false))]
     Streaming {
         session_direction: PySessionDirection,
-        topic: Option<PyAgentType>,
+        topic: PyName,
         moderator: bool,
         max_retries: u32,
         timeout: std::time::Duration,
@@ -130,7 +130,7 @@ impl From<session::SessionConfig> for PySessionConfiguration {
             }
             session::SessionConfig::Streaming(config) => PySessionConfiguration::Streaming {
                 session_direction: config.direction.into(),
-                topic: None,
+                topic: config.channel_name.into(),
                 moderator: config.moderator,
                 max_retries: config.max_retries,
                 timeout: config.timeout,
@@ -163,7 +163,7 @@ impl From<PySessionConfiguration> for session::SessionConfig {
                 mls_enabled,
             } => session::SessionConfig::Streaming(StreamingConfiguration::new(
                 session_direction.into(),
-                topic.map(|topic| topic.into()),
+                topic.into(),
                 moderator,
                 Some(max_retries),
                 Some(timeout),

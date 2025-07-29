@@ -26,7 +26,8 @@ impl Hash for InternalName {
 
 impl PartialEq for InternalName {
     fn eq(&self, other: &Self) -> bool {
-        self.0.components() == other.0.components()
+        // check only the first 3 components
+        self.0.components()[0..3] == other.0.components()[0..3]
     }
 }
 
@@ -690,22 +691,19 @@ mod tests {
     #[test]
     #[traced_test]
     fn test_table() {
-        let mut name1 = Name::from_strings(["Cisco", "Default", "type_ONE"]);
-        let mut name2 = Name::from_strings(["Cisco", "Default", "type_TWO"]);
-        let name3 = Name::from_strings(["Cisco", "Default", "type_THREE"]);
+        let name1 = Name::from_strings(["agntcy", "default", "one"]);
+        let name2 = Name::from_strings(["agntcy", "default", "two"]);
+        let name3 = Name::from_strings(["agntcy", "default", "three"]);
+
+        let name1_1 = name1.clone().with_id(1);
+        let name2_2 = name2.clone().with_id(2);
 
         let t = SubscriptionTableImpl::default();
 
         assert_eq!(t.add_subscription(name1.clone(), 1, false), Ok(()));
         assert_eq!(t.add_subscription(name1.clone(), 2, false), Ok(()));
-
-        name1.set_id(1);
-        assert_eq!(t.add_subscription(name1.clone(), 3, false), Ok(()));
-        name1.reset_id();
-
-        name2.set_id(2);
-        assert_eq!(t.add_subscription(name2.clone(), 3, false), Ok(()));
-        name2.reset_id();
+        assert_eq!(t.add_subscription(name1_1.clone(), 3, false), Ok(()));
+        assert_eq!(t.add_subscription(name2_2.clone(), 3, false), Ok(()));
 
         // returns three matches on connection 1,2,3
         let out = t.match_all(&name1, 100).unwrap();
@@ -728,9 +726,7 @@ mod tests {
         assert!(out.contains(&1));
         assert!(out.contains(&3));
 
-        name1.set_id(1);
-        assert_eq!(t.remove_subscription(&name1, 3, false), Ok(()));
-        name1.reset_id();
+        assert_eq!(t.remove_subscription(&name1_1, 3, false), Ok(()));
 
         // return one matches on connection 1
         let out = t.match_all(&name1, 100).unwrap();
@@ -741,16 +737,13 @@ mod tests {
         assert_eq!(
             t.match_all(&name1, 1),
             Err(SubscriptionTableError::NoMatch(format!(
-                "{}, {:?}",
+                "{}",
                 name1,
-                Option::<u64>::None
             )))
         );
 
         // add subscription again
-        name1.set_id(1);
-        assert_eq!(t.add_subscription(name1.clone(), 2, false), Ok(()));
-        name1.reset_id();
+        assert_eq!(t.add_subscription(name1_1.clone(), 2, false), Ok(()));
 
         // returns two matches on connection 1 and 2
         let out = t.match_all(&name1, 100).unwrap();
@@ -768,19 +761,12 @@ mod tests {
         }
 
         // return connection 2
-        name1.set_id(1);
-        let out = t.match_one(&name1, 100).unwrap();
-        name1.reset_id();
-
+        let out = t.match_one(&name1_1, 100).unwrap();
         assert_eq!(out, 2);
 
         // return connection 3
-        name2.set_id(2);
-        let out = t.match_one(&name2, 100).unwrap();
-        name2.reset_id();
-
+        let out = t.match_one(&name2_2, 100).unwrap();
         assert_eq!(out, 3);
-
         assert_eq!(t.remove_connection(2, false), Ok(()));
 
         // returns one match on connection 1
@@ -788,21 +774,18 @@ mod tests {
         assert_eq!(out.len(), 1);
         assert!(out.contains(&1));
 
-        name2.set_id(2);
-        assert_eq!(t.add_subscription(name2.clone(), 4, false), Ok(()));
+        assert_eq!(t.add_subscription(name2_2.clone(), 4, false), Ok(()));
 
         // run multiple times for randomness
         for _ in 0..20 {
-            let out = t.match_one(&name2, 100).unwrap();
+            let out = t.match_one(&name2_2, 100).unwrap();
             if out != 3 && out != 4 {
                 // the output must be 2 or 4
                 panic!("the output must be 2 or 4");
             }
         }
 
-        assert_eq!(t.remove_subscription(&name2, 4, false), Ok(()));
-
-        name2.reset_id();
+        assert_eq!(t.remove_subscription(&name2_2, 4, false), Ok(()));
 
         // test local vs remote
         assert_eq!(t.add_subscription(name1.clone(), 2, true), Ok(()));
@@ -831,17 +814,14 @@ mod tests {
             Err(SubscriptionTableError::ConnectionIdNotFound)
         );
 
-        name1.set_id(1);
-        assert_eq!(t.match_one(&name1, 100), Ok(2));
-        name1.reset_id();
+        assert_eq!(t.match_one(&name1_1, 100), Ok(2));
 
-        name2.set_id(2);
         assert_eq!(
             // this generates a warning
-            t.add_subscription(name2.clone(), 3, false),
+            t.add_subscription(name2_2.clone(), 3, false),
             Ok(())
         );
-        name2.reset_id();
+
         assert_eq!(
             t.remove_subscription(&name3, 2, false),
             Err(SubscriptionTableError::SubscriptionNotFound)
@@ -854,8 +834,8 @@ mod tests {
 
     #[test]
     fn test_iter() {
-        let name1 = Name::from_strings(["Org", "Default", "type_ONE"]);
-        let name2 = Name::from_strings(["Org", "Default", "type_TWO"]);
+        let name1 = Name::from_strings(["agntcy", "default", "one"]);
+        let name2 = Name::from_strings(["agntcy", "default", "two"]);
 
         let t = SubscriptionTableImpl::default();
 

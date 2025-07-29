@@ -26,7 +26,7 @@ mod _slim_bindings {
     use pysession::{PySessionConfiguration, PySessionDirection, PySessionInfo, PySessionType};
 
     #[pymodule_export]
-    use utils::{PyAgentType, init_tracing};
+    use utils::{PyName, init_tracing};
 
     #[pymodule_export]
     use pyidentity::{

@@ -94,7 +94,7 @@ impl Name {
                 self.components[2],
                 id,
             ],
-            strings: None,
+            strings: self.strings,
         }
     }
 

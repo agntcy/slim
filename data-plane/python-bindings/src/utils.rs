@@ -17,39 +17,62 @@ use slim_datapath::messages::encoder::Name;
 #[gen_stub_pyclass]
 #[pyclass(eq)]
 #[derive(Clone, PartialEq)]
-pub struct PyAgentType {
-    #[pyo3(get, set)]
-    pub organization: String,
-
-    #[pyo3(get, set)]
-    pub namespace: String,
-
-    #[pyo3(get, set)]
-    pub agent_type: String,
+pub struct PyName {
+    name: Name,
 }
 
-impl From<PyAgentType> for Name {
-    fn from(value: PyAgentType) -> Name {
-        Name::from_strings(&value.organization, &value.namespace, &value.agent_type)
+impl From<PyName> for Name {
+    fn from(value: PyName) -> Name {
+        value.name
     }
 }
 
-impl From<&PyAgentType> for Name {
-    fn from(value: &PyAgentType) -> Name {
-        Name::from_strings(&value.organization, &value.namespace, &value.agent_type)
+impl From<&PyName> for Name {
+    fn from(value: &PyName) -> Name {
+        value.name.clone()
+    }
+}
+
+impl From<Name> for PyName {
+    fn from(name: Name) -> Self {
+        PyName { name }
     }
 }
 
 #[gen_stub_pymethods]
 #[pymethods]
-impl PyAgentType {
+impl PyName {
     #[new]
-    pub fn new(agent_org: String, agent_ns: String, agent_class: String) -> Self {
-        PyAgentType {
-            organization: agent_org,
-            namespace: agent_ns,
-            agent_type: agent_class,
+    #[pyo3(signature = (agent_org, agent_ns, agent_class, id=None))]
+    pub fn new(agent_org: String, agent_ns: String, agent_class: String, id: Option<u64>) -> Self {
+        let name = Name::from_strings([&agent_org, &agent_ns, &agent_class]);
+
+        PyName {
+            name: match id {
+                Some(id) => name.with_id(id),
+                None => name,
+            },
         }
+    }
+
+    #[getter]
+    pub fn id(&self) -> u64 {
+        self.name.id()
+    }
+
+    #[getter]
+    pub fn organization(&self) -> String {
+        self.name.components_strings().unwrap()[0].to_string()
+    }
+
+    #[getter]
+    pub fn namespace(&self) -> String {
+        self.name.components_strings().unwrap()[1].to_string()
+    }
+
+    #[getter]
+    pub fn agent_type(&self) -> String {
+        self.name.components_strings().unwrap()[2].to_string()
     }
 }
 

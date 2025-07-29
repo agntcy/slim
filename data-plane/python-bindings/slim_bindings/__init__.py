@@ -7,7 +7,7 @@ from typing import Optional
 
 from ._slim_bindings import (  # type: ignore[attr-defined]
     SESSION_UNSPECIFIED,
-    PyAgentType,
+    PyName,
     PyIdentityProvider,
     PyIdentityVerifier,
     PyService,
@@ -163,8 +163,7 @@ class Slim:
         }
 
         # Save local names
-        self.local_name = PyAgentType(organization, namespace, agent)
-        self.local_id = self.svc.id
+        self.local_name = PyName(organization, namespace, agent, self.svc.id)
 
         # Create connection ID map
         self.conn_ids: dict[str, int] = {}
@@ -433,7 +432,7 @@ class Slim:
         self.conn_id = conn_id
 
         # Subscribe to the local name
-        await subscribe(self.svc, conn_id, self.local_name, self.local_id)
+        await subscribe(self.svc, conn_id, self.local_name)
 
         # return the connection ID
         return conn_id
@@ -455,10 +454,7 @@ class Slim:
 
     async def set_route(
         self,
-        organization: str,
-        namespace: str,
-        agent: str,
-        id: Optional[int] = None,
+        name: PyName,
     ):
         """
         Set route for outgoing messages via the connected SLIM instance.
@@ -473,11 +469,10 @@ class Slim:
             None
         """
 
-        name = PyAgentType(organization, namespace, agent)
-        await set_route(self.svc, self.conn_id, name, id)
+        await set_route(self.svc, self.conn_id, name)
 
     async def remove_route(
-        self, organization: str, namespace: str, agent: str, id: Optional[int] = None
+        name: PyName,
     ):
         """
         Remove route for outgoing messages via the connected SLIM instance.
@@ -492,12 +487,9 @@ class Slim:
             None
         """
 
-        name = PyAgentType(organization, namespace, agent)
-        await remove_route(self.svc, self.conn_id, name, id)
+        await remove_route(self.svc, self.conn_id, name)
 
-    async def subscribe(
-        self, organization: str, namespace: str, agent: str, id: Optional[int] = None
-    ):
+    async def subscribe(self, name: PyName):
         """
         Subscribe to receive messages for the given agent.
 
@@ -511,12 +503,9 @@ class Slim:
             None
         """
 
-        sub = PyAgentType(organization, namespace, agent)
-        await subscribe(self.svc, self.conn_id, sub, id)
+        await subscribe(self.svc, self.conn_id, name)
 
-    async def unsubscribe(
-        self, organization: str, namespace: str, agent: str, id: Optional[int] = None
-    ):
+    async def unsubscribe(self, name: PyName):
         """
         Unsubscribe from receiving messages for the given agent.
 
@@ -530,17 +519,13 @@ class Slim:
             None
         """
 
-        unsub = PyAgentType(organization, namespace, agent)
-        await unsubscribe(self.svc, self.conn_id, unsub, id)
+        await unsubscribe(self.svc, self.conn_id, name)
 
     async def publish(
         self,
         session: PySessionInfo,
         msg: bytes,
-        organization: str,
-        namespace: str,
-        agent: str,
-        agent_id: Optional[int] = None,
+        dest: PyName,
     ):
         """
         Publish a message to an agent via normal matching in subscription table.
@@ -561,13 +546,12 @@ class Slim:
         if session.id not in self.sessions:
             raise Exception("session not found", session.id)
 
-        dest = PyAgentType(organization, namespace, agent)
-        await publish(self.svc, session, 1, msg, dest, agent_id)
+        await publish(self.svc, session, 1, msg, dest)
 
     async def invite(
         self,
         session: PySessionInfo,
-        name: PyAgentType,
+        name: PyName,
     ):
         # Make sure the sessions exists
         if session.id not in self.sessions:
@@ -579,10 +563,7 @@ class Slim:
         self,
         session: PySessionInfo,
         msg: bytes,
-        organization: str,
-        namespace: str,
-        agent: str,
-        agent_id: Optional[int] = None,
+        dest: PyName,
         timeout: Optional[datetime.timedelta] = None,
     ) -> tuple[PySessionInfo, Optional[bytes]]:
         """
@@ -604,8 +585,7 @@ class Slim:
         if session.id not in self.sessions:
             raise Exception("Session ID not found")
 
-        dest = PyAgentType(organization, namespace, agent)
-        await publish(self.svc, session, 1, msg, dest, agent_id)
+        await publish(self.svc, session, 1, msg, dest)
 
         # Wait for a reply in the corresponding session queue with timeout
         if timeout is not None:
