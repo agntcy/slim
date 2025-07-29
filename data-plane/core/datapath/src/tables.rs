@@ -11,26 +11,24 @@ pub mod subscription_table;
 
 pub mod pool;
 
-use crate::messages::AgentType;
+use crate::messages::Name;
 use errors::SubscriptionTableError;
 
 pub trait SubscriptionTable {
     fn for_each<F>(&self, f: F)
     where
-        F: FnMut(&AgentType, u64, &[u64], &[u64]);
+        F: FnMut(&Name, u64, &[u64], &[u64]);
 
     fn add_subscription(
         &self,
-        agent_type: AgentType,
-        agent_id: Option<u64>,
+        name: Name,
         conn: u64,
         is_local: bool,
     ) -> Result<(), SubscriptionTableError>;
 
     fn remove_subscription(
         &self,
-        agent_type: AgentType,
-        agent_id: Option<u64>,
+        name: &Name,
         conn: u64,
         is_local: bool,
     ) -> Result<(), SubscriptionTableError>;
@@ -39,15 +37,13 @@ pub trait SubscriptionTable {
 
     fn match_one(
         &self,
-        agent_type: AgentType,
-        agent_id: Option<u64>,
+        name: &Name,
         incoming_conn: u64,
     ) -> Result<u64, SubscriptionTableError>;
 
     fn match_all(
         &self,
-        agent_type: AgentType,
-        agent_id: Option<u64>,
+        name: &Name,
         incoming_conn: u64,
     ) -> Result<Vec<u64>, SubscriptionTableError>;
 }

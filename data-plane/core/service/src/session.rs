@@ -17,7 +17,7 @@ use crate::interceptor::SessionInterceptorProvider;
 use crate::interceptor_mls::MlsInterceptor;
 use crate::streaming::{Streaming, StreamingConfiguration};
 use slim_datapath::api::{ProtoMessage as Message, ProtoSessionMessageType};
-use slim_datapath::messages::encoder::Agent;
+use slim_datapath::messages::encoder::Name;
 
 /// Session ID
 pub type Id = u32;
@@ -98,7 +98,7 @@ pub struct Info {
     // The session Type
     pub session_type: ProtoSessionType,
     /// The identifier of the agent that sent the message
-    pub message_source: Option<Agent>,
+    pub message_source: Option<Name>,
     /// The input connection id
     pub input_connection: Option<u64>,
 }
@@ -128,7 +128,7 @@ impl Info {
         self.session_type = session_type;
     }
 
-    pub fn set_message_source(&mut self, message_source: Agent) {
+    pub fn set_message_source(&mut self, message_source: Name) {
         self.message_source = Some(message_source);
     }
 
@@ -156,7 +156,7 @@ impl Info {
         self.session_type
     }
 
-    pub fn get_message_source(&self) -> Option<Agent> {
+    pub fn get_message_source(&self) -> Option<Name> {
         self.message_source.clone()
     }
 
@@ -282,7 +282,7 @@ where
     fn identity_verifier(&self) -> V;
 
     /// Get the source name
-    fn source(&self) -> &Agent;
+    fn source(&self) -> &Name;
 
     // get the session config
     fn session_config(&self) -> SessionConfig;
@@ -340,7 +340,7 @@ where
     session_direction: SessionDirection,
 
     /// Source agent
-    source: Agent,
+    source: Name,
 
     /// MLS state (used only in pub/sub section for the moment)
     mls: Option<Arc<Mutex<Mls<P, V>>>>,
@@ -403,7 +403,7 @@ where
         }
     }
 
-    fn source(&self) -> &Agent {
+    fn source(&self) -> &Name {
         match self {
             Session::FireAndForget(session) => session.source(),
             Session::Streaming(session) => session.source(),
@@ -454,7 +454,7 @@ where
         &self.state
     }
 
-    fn source(&self) -> &Agent {
+    fn source(&self) -> &Name {
         &self.source
     }
 
@@ -505,7 +505,7 @@ where
         id: Id,
         session_direction: SessionDirection,
         session_config: SessionConfig,
-        source: Agent,
+        source: Name,
         tx: T,
         identity_provider: P,
         verifier: V,

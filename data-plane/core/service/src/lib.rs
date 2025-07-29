@@ -23,12 +23,12 @@ mod moderator_task;
 pub use fire_and_forget::FireAndForgetConfiguration;
 pub use session::SessionMessage;
 use slim_controller::config::Config as ControllerConfig;
+use slim_datapath::messages::Name;
 pub use slim_datapath::messages::utils::SlimHeaderFlags;
 pub use streaming::StreamingConfiguration;
 
 use serde::Deserialize;
 use session::{AppChannelReceiver, MessageDirection};
-use slim_datapath::messages::Agent;
 use std::collections::HashMap;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
@@ -233,7 +233,7 @@ impl Service {
     // APP APIs
     pub async fn create_app<P, V>(
         &self,
-        app_name: &Agent,
+        app_name: &Name,
         identity_provider: P,
         identity_verifier: V,
     ) -> Result<(App<P, V>, AppChannelReceiver), ServiceError>
@@ -436,6 +436,7 @@ mod tests {
     use slim_config::grpc::server::ServerConfig;
     use slim_config::tls::server::TlsServerConfig;
     use slim_datapath::api::MessageType;
+    use slim_datapath::messages::Name;
     use std::time::Duration;
     use tokio::time;
     use tracing_test::traced_test;
@@ -496,7 +497,8 @@ mod tests {
             .unwrap();
 
         // create a subscriber
-        let subscriber_agent = Agent::from_strings("cisco", "default", "subscriber_agent", 0);
+        let subscriber_agent =
+            Name::from_strings(["cisco", "default", "subscriber_agent"]).with_id(0);
         let (sub_app, mut sub_rx) = service
             .create_app(
                 &subscriber_agent,
@@ -507,7 +509,8 @@ mod tests {
             .expect("failed to create agent");
 
         // create a publisher
-        let publisher_agent = Agent::from_strings("cisco", "default", "publisher_agent", 0);
+        let publisher_agent =
+            Name::from_strings(["cisco", "default", "publisher_agent"]).with_id(0);
         let (pub_app, _rx) = service
             .create_app(
                 &publisher_agent,
@@ -538,8 +541,7 @@ mod tests {
         pub_app
             .publish(
                 session_info.clone(),
-                subscriber_agent.agent_type(),
-                Some(subscriber_agent.agent_id()),
+                &subscriber_agent,
                 message_blob.clone(),
             )
             .await
@@ -593,7 +595,7 @@ mod tests {
             .unwrap();
 
         // register local agent
-        let agent = Agent::from_strings("cisco", "default", "session_agent", 0);
+        let agent = Name::from_strings(["cisco", "default", "session_agent"]).with_id(0);
         let (app, _) = service
             .create_app(
                 &agent,
@@ -654,9 +656,12 @@ mod tests {
         ////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
         ////////////// stream session //////////////////////////////////////////////////////////////////////////////////
+
+        let stream = Name::from_strings(["agntcy", "ns", "stream"]);
+
         let session_config = SessionConfig::Streaming(StreamingConfiguration::new(
             session::SessionDirection::Receiver,
-            None,
+            stream.clone(),
             false,
             Some(1000),
             Some(time::Duration::from_secs(123)),
@@ -679,7 +684,7 @@ mod tests {
 
         let session_config = SessionConfig::Streaming(StreamingConfiguration::new(
             session::SessionDirection::Sender,
-            None,
+            stream.clone(),
             false,
             Some(2000),
             Some(time::Duration::from_secs(1234)),
@@ -692,7 +697,7 @@ mod tests {
 
         let session_config = SessionConfig::Streaming(StreamingConfiguration::new(
             session::SessionDirection::Receiver,
-            None,
+            stream.clone(),
             false,
             Some(2000),
             Some(time::Duration::from_secs(1234)),
@@ -717,7 +722,7 @@ mod tests {
         // set default session config
         let session_config = SessionConfig::Streaming(StreamingConfiguration::new(
             session::SessionDirection::Sender,
-            None,
+            stream.clone(),
             false,
             Some(20000),
             Some(time::Duration::from_secs(12345)),
@@ -730,7 +735,7 @@ mod tests {
 
         let session_config = SessionConfig::Streaming(StreamingConfiguration::new(
             session::SessionDirection::Receiver,
-            None,
+            stream.clone(),
             false,
             Some(20000),
             Some(time::Duration::from_secs(123456)),

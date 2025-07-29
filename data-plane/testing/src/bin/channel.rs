@@ -8,7 +8,7 @@ use slim::config;
 use tracing::{error, info};
 
 use slim_auth::shared_secret::SharedSecret;
-use slim_datapath::messages::{Agent, AgentType, utils::SlimHeaderFlags};
+use slim_datapath::messages::{Name, utils::SlimHeaderFlags};
 use slim_service::streaming::StreamingConfiguration;
 
 #[derive(Parser, Debug)]
@@ -119,12 +119,14 @@ impl Args {
     }
 }
 
-fn parse_string_name(name: String) -> Agent {
+fn parse_string_name(name: String) -> Name {
     let mut strs = name.split('/');
-    Agent::from_strings(
+    Name::from_strings([
         strs.next().expect("error parsing local_name string"),
         strs.next().expect("error parsing local_name string"),
         strs.next().expect("error parsing local_name string"),
+    ])
+    .with_id(
         strs.next()
             .expect("error parsing local_name string")
             .parse::<u64>()
@@ -132,13 +134,13 @@ fn parse_string_name(name: String) -> Agent {
     )
 }
 
-fn parse_string_type(name: String) -> AgentType {
+fn parse_string_type(name: String) -> Name {
     let mut strs = name.split('/');
-    AgentType::from_strings(
+    Name::from_strings([
         strs.next().expect("error parsing local_name string"),
         strs.next().expect("error parsing local_name string"),
         strs.next().expect("error parsing local_name string"),
-    )
+    ])
 }
 
 #[tokio::main]
@@ -172,7 +174,7 @@ async fn main() {
     // parse local name string
     let local_name = parse_string_name(local_name_str.clone());
 
-    let channel_name = AgentType::from_strings("channel", "channel", "channel");
+    let channel_name = Name::from_strings(["channel", "channel", "channel"]);
 
     let (app, mut rx) = svc
         .create_app(
@@ -193,13 +195,9 @@ async fn main() {
     info!("remote connection id = {}", conn_id);
 
     // subscribe for local name
-    app.subscribe(
-        local_name.agent_type(),
-        local_name.agent_id_option(),
-        Some(conn_id),
-    )
-    .await
-    .expect("an error accoured while adding a subscription");
+    app.subscribe(&local_name, Some(conn_id))
+        .await
+        .expect("an error accoured while adding a subscription");
 
     if is_moderator {
         if participants_str.is_empty() {
@@ -212,7 +210,7 @@ async fn main() {
             participants.push(p.clone());
 
             // add route
-            app.set_route(&p, None, conn_id)
+            app.set_route(&p, conn_id)
                 .await
                 .expect("an error accoured while adding a route");
         }
@@ -227,7 +225,7 @@ async fn main() {
             .create_session(
                 slim_service::session::SessionConfig::Streaming(StreamingConfiguration::new(
                     slim_service::session::SessionDirection::Bidirectional,
-                    Some(channel_name.clone()),
+                    channel_name.clone(),
                     true,
                     Some(10),
                     Some(Duration::from_secs(1)),
@@ -288,7 +286,7 @@ async fn main() {
             let flags = SlimHeaderFlags::new(10, None, None, None, None);
 
             if app
-                .publish_with_flags(info.clone(), &channel_name, None, flags, p)
+                .publish_with_flags(info.clone(), &channel_name, flags, p)
                 .await
                 .is_err()
             {
@@ -311,7 +309,7 @@ async fn main() {
                 .create_session(
                     slim_service::session::SessionConfig::Streaming(StreamingConfiguration::new(
                         slim_service::session::SessionDirection::Bidirectional,
-                        Some(channel_name.clone()),
+                        channel_name.clone(),
                         true,
                         Some(10),
                         Some(Duration::from_secs(1)),
@@ -323,7 +321,7 @@ async fn main() {
                 .expect("error creating session");
 
             // subscribe for local name
-            app.subscribe(&channel_name, None, Some(conn_id))
+            app.subscribe(&channel_name, Some(conn_id))
                 .await
                 .expect("an error accoured while adding a subscription");
         }
@@ -367,7 +365,7 @@ async fn main() {
 
                             let flags = SlimHeaderFlags::new(10, None, None, None, None);
                             if app
-                                .publish_with_flags(info, &channel_name, None, flags, p)
+                                .publish_with_flags(info, &channel_name, flags, p)
                                 .await
                                 .is_err()
                             {

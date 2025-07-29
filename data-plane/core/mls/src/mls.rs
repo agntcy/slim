@@ -75,7 +75,7 @@ where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
 {
-    agent: slim_datapath::messages::Agent,
+    agent: slim_datapath::messages::Name,
     storage_path: Option<std::path::PathBuf>,
     stored_identity: Option<StoredIdentity>,
     client: Option<
@@ -132,7 +132,7 @@ where
     V: Verifier + Send + Sync + Clone + 'static,
 {
     pub fn new(
-        agent: slim_datapath::messages::Agent,
+        agent: slim_datapath::messages::Name,
         identity_provider: P,
         identity_verifier: V,
         storage_path: std::path::PathBuf,
@@ -474,6 +474,7 @@ where
 
 #[cfg(test)]
 mod tests {
+    use slim_datapath::messages::{self, Name};
     use tokio::time;
 
     use super::*;
@@ -482,7 +483,7 @@ mod tests {
 
     #[test]
     fn test_mls_creation() -> Result<(), Box<dyn std::error::Error>> {
-        let agent = slim_datapath::messages::Agent::from_strings("org", "default", "alice", 0);
+        let agent = Name::from_strings(["org", "default", "alice"]).with_id(0);
         let mut mls = Mls::new(
             agent,
             SharedSecret::new("alice", "group"),
@@ -498,7 +499,7 @@ mod tests {
 
     #[test]
     fn test_group_creation() -> Result<(), Box<dyn std::error::Error>> {
-        let agent = slim_datapath::messages::Agent::from_strings("org", "default", "alice", 0);
+        let agent = messages::Name::from_strings(["org", "default", "alice"]).with_id(0);
         let mut mls = Mls::new(
             agent,
             SharedSecret::new("alice", "group"),
@@ -515,7 +516,7 @@ mod tests {
 
     #[test]
     fn test_key_package_generation() -> Result<(), Box<dyn std::error::Error>> {
-        let agent = slim_datapath::messages::Agent::from_strings("org", "default", "alice", 0);
+        let agent = Name::from_strings(["org", "default", "alice"]).with_id(0);
         let mut mls = Mls::new(
             agent,
             SharedSecret::new("alice", "group"),
@@ -531,13 +532,10 @@ mod tests {
 
     #[test]
     fn test_messaging() -> Result<(), Box<dyn std::error::Error>> {
-        let alice_agent =
-            slim_datapath::messages::Agent::from_strings("org", "default", "alice", 0);
-        let bob_agent = slim_datapath::messages::Agent::from_strings("org", "default", "bob", 0);
-        let charlie_agent =
-            slim_datapath::messages::Agent::from_strings("org", "default", "charlie", 0);
-        let daniel_agent =
-            slim_datapath::messages::Agent::from_strings("org", "default", "daniel", 0);
+        let alice_agent = Name::from_strings(["org", "default", "alice"]).with_id(0);
+        let bob_agent = Name::from_strings(["org", "default", "bob"]).with_id(0);
+        let charlie_agent = Name::from_strings(["org", "default", "charlie"]).with_id(0);
+        let daniel_agent = Name::from_strings(["org", "default", "daniel"]).with_id(0);
 
         // alice will work as moderator
         let mut alice = Mls::new(
@@ -684,9 +682,8 @@ mod tests {
 
     #[test]
     fn test_decrypt_message() -> Result<(), Box<dyn std::error::Error>> {
-        let alice_agent =
-            slim_datapath::messages::Agent::from_strings("org", "default", "alice", 0);
-        let bob_agent = slim_datapath::messages::Agent::from_strings("org", "default", "bob", 1);
+        let alice_agent = Name::from_strings(["org", "default", "alice"]).with_id(0);
+        let bob_agent = Name::from_strings(["org", "default", "bob"]).with_id(1);
 
         let mut alice = Mls::new(
             alice_agent,
@@ -720,9 +717,8 @@ mod tests {
 
     #[test]
     fn test_shared_secret_rotation_same_identity() -> Result<(), Box<dyn std::error::Error>> {
-        let alice_agent =
-            slim_datapath::messages::Agent::from_strings("org", "default", "alice", 0);
-        let bob_agent = slim_datapath::messages::Agent::from_strings("org", "default", "bob", 1);
+        let alice_agent = messages::Name::from_strings(["org", "default", "alice"]).with_id(0);
+        let bob_agent = messages::Name::from_strings(["org", "default", "bob"]).with_id(1);
 
         let mut alice = Mls::new(
             alice_agent.clone(),
@@ -780,11 +776,10 @@ mod tests {
         let _ = std::fs::remove_dir_all(bob_path);
         let _ = std::fs::remove_dir_all(moderator_path);
 
-        let alice_agent =
-            slim_datapath::messages::Agent::from_strings("org", "default", "alice", 0);
-        let bob_agent = slim_datapath::messages::Agent::from_strings("org", "default", "bob", 1);
+        let alice_agent = messages::Name::from_strings(["org", "default", "alice"]).with_id(0);
+        let bob_agent = messages::Name::from_strings(["org", "default", "bob"]).with_id(1);
         let moderator_agent =
-            slim_datapath::messages::Agent::from_strings("org", "default", "moderator", 2);
+            messages::Name::from_strings(["org", "default", "moderator"]).with_id(2);
 
         let mut moderator = Mls::new(
             moderator_agent.clone(),

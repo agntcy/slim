@@ -165,7 +165,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_mls_interceptor_without_group() {
-        let agent = slim_datapath::messages::Agent::from_strings("org", "default", "test_user", 0);
+        let agent =
+            slim_datapath::messages::Name::from_strings(["org", "default", "test_user"]).with_id(0);
         let mut mls = Mls::new(
             agent,
             SharedSecret::new("test", "group"),
@@ -178,9 +179,8 @@ mod tests {
         let interceptor = MlsInterceptor::new(mls_arc);
 
         let mut msg = Message::new_publish(
-            &slim_datapath::messages::Agent::from_strings("org", "default", "test", 0),
-            &slim_datapath::messages::AgentType::from_strings("org", "default", "target"),
-            None,
+            &slim_datapath::messages::Name::from_strings(["org", "default", "test"]).with_id(0),
+            &slim_datapath::messages::Name::from_strings(["org", "default", "target"]),
             None,
             "text",
             b"test message".to_vec(),
@@ -199,8 +199,9 @@ mod tests {
     #[tokio::test]
     async fn test_mls_interceptor_with_group() {
         let alice_agent =
-            slim_datapath::messages::Agent::from_strings("org", "default", "alice", 0);
-        let bob_agent = slim_datapath::messages::Agent::from_strings("org", "default", "bob", 1);
+            slim_datapath::messages::Name::from_strings(["org", "default", "alice"]).with_id(0);
+        let bob_agent =
+            slim_datapath::messages::Name::from_strings(["org", "default", "bob"]).with_id(1);
 
         let mut alice_mls = Mls::new(
             alice_agent,
@@ -228,9 +229,8 @@ mod tests {
 
         let original_payload = b"Hello from Alice!";
         let mut alice_msg = Message::new_publish(
-            &slim_datapath::messages::Agent::from_strings("org", "default", "alice", 0),
-            &slim_datapath::messages::AgentType::from_strings("org", "default", "bob"),
-            None,
+            &slim_datapath::messages::Name::from_strings(["org", "default", "alice"]).with_id(0),
+            &slim_datapath::messages::Name::from_strings(["org", "default", "bob"]),
             None,
             "text",
             original_payload.to_vec(),
@@ -262,7 +262,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_mls_interceptor_non_encrypted_message() {
-        let agent = slim_datapath::messages::Agent::from_strings("org", "default", "test_user", 0);
+        let agent =
+            slim_datapath::messages::Name::from_strings(["org", "default", "test_user"]).with_id(0);
         let mut mls = Mls::new(
             agent,
             SharedSecret::new("test", "group"),
@@ -276,9 +277,8 @@ mod tests {
         let interceptor = MlsInterceptor::new(mls_arc);
 
         let mut msg = Message::new_publish(
-            &slim_datapath::messages::Agent::from_strings("org", "default", "sender", 0),
-            &slim_datapath::messages::AgentType::from_strings("org", "default", "receiver"),
-            None,
+            &slim_datapath::messages::Name::from_strings(["org", "default", "sender"]).with_id(0),
+            &slim_datapath::messages::Name::from_strings(["org", "default", "receiver"]),
             None,
             "text",
             b"plain text message".to_vec(),

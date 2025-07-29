@@ -4,8 +4,8 @@
 mod tests {
     use std::{net::SocketAddr, sync::Arc};
 
+    use slim_datapath::messages::Name;
     use slim_datapath::messages::utils::SlimHeaderFlags;
-    use slim_datapath::messages::{Agent, AgentType};
     use tracing::info;
     use tracing_test::traced_test;
 
@@ -148,28 +148,26 @@ mod tests {
     }
 
     fn make_message(org: &str, ns: &str, agent_type: &str) -> Message {
-        let source = Agent::from_strings(org, ns, agent_type, 0);
-        let name = AgentType::from_strings(org, ns, agent_type);
-        Message::new_subscribe(&source, &name, Some(1), None)
+        let source = Name::from_strings([org, ns, agent_type]).with_id(0);
+        let name = Name::from_strings([org, ns, agent_type]).with_id(1);
+        Message::new_subscribe(&source, &name, None)
     }
 
     fn make_sub_from_command(org: &str, ns: &str, agent_type: &str, from_conn: u64) -> Message {
-        let name = AgentType::from_strings(org, ns, agent_type);
+        let name = Name::from_strings([org, ns, agent_type]);
         Message::new_subscribe(
-            &Agent::default(),
+            &Name::from_strings([org, ns, agent_type]).with_id(0),
             &name,
-            None,
             Some(SlimHeaderFlags::default().with_recv_from(from_conn)),
         )
     }
 
     fn make_fwd_to_command(org: &str, ns: &str, agent_type: &str, to_conn: u64) -> Message {
-        let source = Agent::from_strings(org, ns, agent_type, 0);
-        let name = AgentType::from_strings(org, ns, agent_type);
+        let source = Name::from_strings([org, ns, agent_type]).with_id(0);
+        let name = Name::from_strings([org, ns, agent_type]);
         Message::new_subscribe(
             &source,
             &name,
-            None,
             Some(SlimHeaderFlags::default().with_forward_to(to_conn)),
         )
     }

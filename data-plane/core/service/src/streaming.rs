@@ -32,7 +32,7 @@ use slim_datapath::{
         ProtoMessage as Message, ProtoSessionMessageType, ProtoSessionType, SessionHeader,
         SlimHeader,
     },
-    messages::{Agent, AgentType, utils::SlimHeaderFlags},
+    messages::{Name, utils::SlimHeaderFlags},
 };
 
 // this must be a number > 1
@@ -42,7 +42,7 @@ const STREAM_BROADCAST: u32 = 50;
 #[derive(Debug, Clone, PartialEq)]
 pub struct StreamingConfiguration {
     pub direction: SessionDirection,
-    pub channel_name: AgentType,
+    pub channel_name: Name,
     pub moderator: bool,
     pub max_retries: u32,
     pub timeout: std::time::Duration,
@@ -75,7 +75,7 @@ impl Default for StreamingConfiguration {
     fn default() -> Self {
         StreamingConfiguration {
             direction: SessionDirection::Receiver,
-            channel_name: AgentType::default(),
+            channel_name: Name::from_strings(["agntcy", "ns", "stream"]),
             moderator: false,
             max_retries: 10,
             timeout: std::time::Duration::from_millis(1000),
@@ -100,7 +100,7 @@ impl std::fmt::Display for StreamingConfiguration {
 impl StreamingConfiguration {
     pub fn new(
         direction: SessionDirection,
-        channel_name: Option<AgentType>,
+        channel_name: Name,
         moderator: bool,
         max_retries: Option<u32>,
         timeout: Option<std::time::Duration>,
@@ -108,7 +108,7 @@ impl StreamingConfiguration {
     ) -> Self {
         StreamingConfiguration {
             direction,
-            channel_name: channel_name.unwrap_or_default(),
+            channel_name,
             moderator,
             max_retries: max_retries.unwrap_or(0),
             timeout: timeout.unwrap_or(std::time::Duration::from_millis(0)),
@@ -118,8 +118,8 @@ impl StreamingConfiguration {
 }
 
 struct RtxTimerObserver {
-    producer_name: Agent,
-    channel: mpsc::Sender<Result<(u32, bool, Agent), Status>>,
+    producer_name: Name,
+    channel: mpsc::Sender<Result<(u32, bool, Name), Status>>,
 }
 
 #[async_trait]
@@ -204,7 +204,7 @@ struct Receiver {
 }
 
 struct ReceiverState {
-    buffers: HashMap<Agent, Receiver>,
+    buffers: HashMap<Name, Receiver>,
 }
 
 struct BidirectionalState {
@@ -239,7 +239,7 @@ where
         id: Id,
         session_config: StreamingConfiguration,
         session_direction: SessionDirection,
-        agent: Agent,
+        agent: Name,
         tx_slim_app: T,
         identity_provider: P,
         identity_verifier: V,
@@ -370,7 +370,6 @@ where
                     let cm = ChannelModerator::new(
                         source.clone(),
                         session_config.channel_name.clone(),
-                        None,
                         id,
                         ProtoSessionType::SessionPubSub,
                         60,
@@ -384,7 +383,6 @@ where
                     let cp = ChannelParticipant::new(
                         source.clone(),
                         session_config.channel_name.clone(),
-                        None,
                         id,
                         ProtoSessionType::SessionPubSub,
                         60,
@@ -624,7 +622,7 @@ async fn process_incoming_rtx_request<T>(
     msg: Message,
     session_id: u32,
     producer: &ProducerState,
-    source: &Agent,
+    source: &Name,
     tx: &T,
 ) where
     T: SessionTransmitter + Send + Sync + Clone + 'static,
@@ -657,8 +655,7 @@ async fn process_incoming_rtx_request<T>(
 
             let slim_header = Some(SlimHeader::new(
                 source,
-                pkt_src.agent_type(),
-                Some(pkt_src.agent_id()),
+                &pkt_src,
                 Some(
                     SlimHeaderFlags::default()
                         .with_forward_to(incoming_conn)
@@ -691,12 +688,7 @@ async fn process_incoming_rtx_request<T>(
                 .with_forward_to(incoming_conn)
                 .with_error(true);
 
-            let slim_header = Some(SlimHeader::new(
-                source,
-                pkt_src.agent_type(),
-                Some(pkt_src.agent_id()),
-                Some(flags),
-            ));
+            let slim_header = Some(SlimHeader::new(source, &pkt_src, Some(flags)));
 
             let session_header = Some(SessionHeader::new(
                 ProtoSessionType::SessionStreaming.into(),
@@ -803,10 +795,10 @@ async fn process_message_from_slim<T>(
     msg: Message,
     session_id: u32,
     receiver_state: &mut ReceiverState,
-    source: &Agent,
+    source: &Name,
     max_retries: u32,
     timeout: Duration,
-    rtx_timer_tx: &mpsc::Sender<Result<(u32, bool, Agent), Status>>,
+    rtx_timer_tx: &mpsc::Sender<Result<(u32, bool, Name), Status>>,
     tx: &T,
 ) where
     T: SessionTransmitter + Send + Sync + Clone + 'static,
@@ -901,8 +893,7 @@ async fn process_message_from_slim<T>(
 
         let slim_header = Some(SlimHeader::new(
             source,
-            producer_name.agent_type(),
-            Some(producer_name.agent_id()),
+            &producer_name,
             Some(SlimHeaderFlags::default().with_forward_to(producer_conn)),
         ));
 
@@ -936,7 +927,7 @@ async fn process_message_from_slim<T>(
 
 async fn handle_rtx_timeout<T>(
     receiver_state: &mut ReceiverState,
-    producer_name: &Agent,
+    producer_name: &Name,
     msg_id: u32,
     session_id: u32,
     tx: &T,
@@ -985,7 +976,7 @@ async fn handle_rtx_timeout<T>(
 
 async fn handle_rtx_failure<T>(
     receiver_state: &mut ReceiverState,
-    producer_name: &Agent,
+    producer_name: &Name,
     msg_id: u32,
     session_id: u32,
     tx: &T,
@@ -1009,8 +1000,8 @@ async fn handle_rtx_failure<T>(
 }
 
 async fn send_beacon_msg<T>(
-    source: &Agent,
-    topic: &AgentType,
+    source: &Name,
+    topic: &Name,
     beacon_type: ProtoSessionMessageType,
     last_msg_id: u32,
     session_id: u32,
@@ -1021,7 +1012,6 @@ async fn send_beacon_msg<T>(
     let slim_header = Some(SlimHeader::new(
         source,
         topic,
-        None,
         Some(SlimHeaderFlags::default().with_fanout(STREAM_BROADCAST)),
     ));
 
@@ -1108,7 +1098,7 @@ where
         self.common.set_session_config(session_config)
     }
 
-    fn source(&self) -> &Agent {
+    fn source(&self) -> &Name {
         self.common.source()
     }
 
@@ -1140,7 +1130,7 @@ mod tests {
     use tokio::time;
     use tracing_test::traced_test;
 
-    use slim_datapath::messages::AgentType;
+    use slim_datapath::messages::Name;
 
     #[tokio::test]
     #[traced_test]
@@ -1153,10 +1143,17 @@ mod tests {
             tx_app: tx_app.clone(),
         };
 
-        let source = Agent::from_strings("cisco", "default", "local_agent", 0);
+        let source = Name::from_strings(["agntcy", "ns", "local_agent"]).with_id(0);
+        let stream = Name::from_strings(["agntcy", "ns", "local_stream"]).with_id(0);
 
-        let session_config: StreamingConfiguration =
-            StreamingConfiguration::new(SessionDirection::Sender, None, false, None, None, false);
+        let session_config: StreamingConfiguration = StreamingConfiguration::new(
+            SessionDirection::Sender,
+            stream.clone(),
+            false,
+            None,
+            None,
+            false,
+        );
 
         let session = Streaming::new(
             0,
@@ -1178,7 +1175,7 @@ mod tests {
 
         let session_config: StreamingConfiguration = StreamingConfiguration::new(
             SessionDirection::Receiver,
-            None,
+            stream,
             false,
             Some(10),
             Some(Duration::from_millis(1000)),
@@ -1223,19 +1220,25 @@ mod tests {
             tx_app: tx_app_receiver,
         };
 
-        let session_config_sender: StreamingConfiguration =
-            StreamingConfiguration::new(SessionDirection::Sender, None, false, None, None, false);
+        let send = Name::from_strings(["cisco", "default", "sender"]).with_id(0);
+        let recv = Name::from_strings(["cisco", "default", "receiver"]).with_id(0);
+
+        let session_config_sender: StreamingConfiguration = StreamingConfiguration::new(
+            SessionDirection::Sender,
+            send.clone(),
+            false,
+            None,
+            None,
+            false,
+        );
         let session_config_receiver: StreamingConfiguration = StreamingConfiguration::new(
             SessionDirection::Receiver,
-            None,
+            send.clone(),
             false,
             Some(5),
             Some(Duration::from_millis(500)),
             false,
         );
-
-        let send = Agent::from_strings("cisco", "default", "sender", 0);
-        let recv = Agent::from_strings("cisco", "default", "receiver", 0);
 
         let sender = Streaming::new(
             0,
@@ -1260,8 +1263,7 @@ mod tests {
 
         let mut message = Message::new_publish(
             &send,
-            &AgentType::from_strings("cisco", "default", "receiver"),
-            Some(0),
+            &recv,
             Some(SlimHeaderFlags::default().with_incoming_conn(123)), // set a fake incoming conn, as it is required for the rtx
             "msg",
             vec![0x1, 0x2, 0x3, 0x4],
@@ -1308,22 +1310,23 @@ mod tests {
 
         let tx: MockTransmitter = MockTransmitter { tx_slim, tx_app };
 
+        let sender = Name::from_strings(["agntcy", "ns", "sender"]).with_id(0);
+        let receiver = Name::from_strings(["agntcy", "ns", "receiver"]).with_id(0);
+
         let session_config: StreamingConfiguration = StreamingConfiguration::new(
             SessionDirection::Receiver,
-            None,
+            sender.clone(),
             false,
             Some(5),
             Some(Duration::from_millis(500)),
             false,
         );
 
-        let agent = Agent::from_strings("cisco", "default", "sender", 0);
-
         let session = Streaming::new(
             0,
             session_config,
             SessionDirection::Receiver,
-            agent.clone(),
+            sender.clone(),
             tx,
             SharedSecret::new("a", "group"),
             SharedSecret::new("a", "group"),
@@ -1331,9 +1334,8 @@ mod tests {
         );
 
         let mut message = Message::new_publish(
-            &agent,
-            &AgentType::from_strings("cisco", "default", "receiver"),
-            Some(0),
+            &sender,
+            &receiver,
             Some(SlimHeaderFlags::default().with_incoming_conn(123)), // set a fake incoming conn, as it is required for the rtx
             "msg",
             vec![0x1, 0x2, 0x3, 0x4],
@@ -1392,36 +1394,31 @@ mod tests {
 
         let tx = MockTransmitter { tx_slim, tx_app };
 
+        let receiver = Name::from_strings(["agntcy", "ns", "receiver"]).with_id(0);
+        let sender = Name::from_strings(["agntcy", "ns", "sender"]).with_id(0);
+
         let session_config: StreamingConfiguration = StreamingConfiguration::new(
             SessionDirection::Receiver,
-            None,
+            sender.clone(),
             false,
             Some(5),
             Some(Duration::from_millis(500)),
             false,
         );
 
-        let agent = Agent::from_strings("cisco", "default", "receiver", 0);
-
         let session = Streaming::new(
             120,
             session_config,
             SessionDirection::Sender,
-            agent.clone(),
+            receiver.clone(),
             tx,
             SharedSecret::new("a", "group"),
             SharedSecret::new("a", "group"),
             std::path::PathBuf::from("/tmp/test_session"),
         );
 
-        let mut message = Message::new_publish(
-            &Agent::from_strings("cisco", "default", "sender", 0),
-            &AgentType::from_strings("cisco", "default", "receiver"),
-            Some(0),
-            None,
-            "",
-            vec![0x1, 0x2, 0x3, 0x4],
-        );
+        let mut message =
+            Message::new_publish(&sender, &receiver, None, "", vec![0x1, 0x2, 0x3, 0x4]);
 
         // set the session id in the message
         let header = message.get_session_header_mut();
@@ -1450,9 +1447,8 @@ mod tests {
         }
 
         let slim_header = Some(SlimHeader::new(
-            &Agent::from_strings("cisco", "default", "sender", 0),
-            &AgentType::from_strings("cisco", "default", "receiver"),
-            Some(0),
+            &sender,
+            &receiver,
             Some(
                 SlimHeaderFlags::default()
                     .with_forward_to(0)
@@ -1509,20 +1505,26 @@ mod tests {
             tx_app: tx_app_receiver,
         };
 
-        let session_config_sender: StreamingConfiguration =
-            StreamingConfiguration::new(SessionDirection::Sender, None, false, None, None, false);
+        let send = Name::from_strings(["cisco", "default", "sender"]).with_id(0);
+        let recv = Name::from_strings(["cisco", "default", "receiver"]).with_id(0);
+
+        let session_config_sender: StreamingConfiguration = StreamingConfiguration::new(
+            SessionDirection::Sender,
+            recv.clone(),
+            false,
+            None,
+            None,
+            false,
+        );
         let session_config_receiver: StreamingConfiguration = StreamingConfiguration::new(
             SessionDirection::Receiver,
-            None,
+            recv.clone(),
             false,
             Some(5),
             Some(Duration::from_millis(100)), // keep the timer shorter with respect to the beacon one
             // otherwise we don't know which message will be received first
             false,
         );
-
-        let send = Agent::from_strings("cisco", "default", "sender", 0);
-        let recv = Agent::from_strings("cisco", "default", "receiver", 0);
 
         let sender = Streaming::new(
             0,
@@ -1546,9 +1548,8 @@ mod tests {
         );
 
         let mut message = Message::new_publish(
-            &Agent::from_strings("cisco", "default", "sender", 0),
-            &AgentType::from_strings("cisco", "default", "receiver"),
-            Some(0),
+            &send,
+            &recv,
             Some(SlimHeaderFlags::default().with_incoming_conn(0)),
             "msg",
             vec![0x1, 0x2, 0x3, 0x4],
@@ -1600,14 +1601,11 @@ mod tests {
         );
         assert_eq!(
             msg.message.get_source(),
-            Agent::from_strings("cisco", "default", "sender", 0)
+            Name::from_strings(["cisco", "default", "sender"]).with_id(0)
         );
         assert_eq!(
-            msg.message.get_name(),
-            (
-                AgentType::from_strings("cisco", "default", "receiver"),
-                Some(0)
-            )
+            msg.message.get_dst(),
+            Name::from_strings(["cisco", "default", "receiver"]).with_id(0)
         );
 
         // get the RTX from packet 1 and drop the first one before send it to sender
@@ -1621,14 +1619,11 @@ mod tests {
         );
         assert_eq!(
             msg.get_source(),
-            Agent::from_strings("cisco", "default", "receiver", 0)
+            Name::from_strings(["cisco", "default", "receiver"]).with_id(0)
         );
         assert_eq!(
-            msg.get_name(),
-            (
-                AgentType::from_strings("cisco", "default", "sender"),
-                Some(0)
-            )
+            msg.get_dst(),
+            Name::from_strings(["cisco", "default", "sender"]).with_id(0)
         );
 
         let msg = rx_slim_receiver.recv().await.unwrap().unwrap();
@@ -1641,14 +1636,11 @@ mod tests {
         );
         assert_eq!(
             msg.get_source(),
-            Agent::from_strings("cisco", "default", "receiver", 0)
+            Name::from_strings(["cisco", "default", "receiver"]).with_id(0)
         );
         assert_eq!(
-            msg.get_name(),
-            (
-                AgentType::from_strings("cisco", "default", "sender"),
-                Some(0)
-            )
+            msg.get_dst(),
+            Name::from_strings(["cisco", "default", "sender"]).with_id(0)
         );
 
         // send the second reply to the producer
@@ -1671,14 +1663,11 @@ mod tests {
         );
         assert_eq!(
             msg.get_source(),
-            Agent::from_strings("cisco", "default", "sender", 0)
+            Name::from_strings(["cisco", "default", "sender"]).with_id(0)
         );
         assert_eq!(
-            msg.get_name(),
-            (
-                AgentType::from_strings("cisco", "default", "receiver"),
-                Some(0)
-            )
+            msg.get_dst(),
+            Name::from_strings(["cisco", "default", "receiver"]).with_id(0)
         );
 
         let mut session_msg: SessionMessage = SessionMessage::new(msg.clone(), Info::new(0));
@@ -1700,14 +1689,11 @@ mod tests {
         );
         assert_eq!(
             msg.message.get_source(),
-            Agent::from_strings("cisco", "default", "sender", 0)
+            Name::from_strings(["cisco", "default", "sender"]).with_id(0)
         );
         assert_eq!(
-            msg.message.get_name(),
-            (
-                AgentType::from_strings("cisco", "default", "receiver"),
-                Some(0)
-            )
+            msg.message.get_dst(),
+            Name::from_strings(["cisco", "default", "receiver"]).with_id(0)
         );
 
         let msg = rx_app_receiver.recv().await.unwrap().unwrap();
@@ -1720,14 +1706,11 @@ mod tests {
         );
         assert_eq!(
             msg.message.get_source(),
-            Agent::from_strings("cisco", "default", "sender", 0)
+            Name::from_strings(["cisco", "default", "sender"]).with_id(0)
         );
         assert_eq!(
-            msg.message.get_name(),
-            (
-                AgentType::from_strings("cisco", "default", "receiver"),
-                Some(0)
-            )
+            msg.message.get_dst(),
+            Name::from_strings(["cisco", "default", "receiver"]).with_id(0)
         );
     }
 
@@ -1739,10 +1722,11 @@ mod tests {
 
         let tx: MockTransmitter = MockTransmitter { tx_slim, tx_app };
 
-        let source = Agent::from_strings("cisco", "default", "local_agent", 0);
+        let source = Name::from_strings(["agntcy", "ns", "local_agent"]).with_id(0);
+        let stream = Name::from_strings(["agntcy", "ns", "stream"]);
 
         let session_config: StreamingConfiguration =
-            StreamingConfiguration::new(SessionDirection::Sender, None, false, None, None, false);
+            StreamingConfiguration::new(SessionDirection::Sender, stream, false, None, None, false);
 
         {
             let _session = Streaming::new(

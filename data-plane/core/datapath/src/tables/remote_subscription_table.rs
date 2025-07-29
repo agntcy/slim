@@ -4,26 +4,25 @@
 use std::collections::{HashMap, HashSet};
 
 use parking_lot::RwLock;
-
-use crate::messages::Agent;
-
 use tracing::error;
 
-#[derive(Hash, Eq, PartialEq, Debug, Clone, Default)]
+use crate::messages::Name;
+
+#[derive(Hash, Eq, PartialEq, Debug, Clone)]
 pub struct SubscriptionInfo {
     /// source name of subscription
-    source: Agent,
+    source: Name,
 
     /// subscription name
-    name: Agent,
+    name: Name,
 }
 
 impl SubscriptionInfo {
-    pub fn source(&self) -> &Agent {
+    pub fn source(&self) -> &Name {
         &self.source
     }
 
-    pub fn name(&self) -> &Agent {
+    pub fn name(&self) -> &Name {
         &self.name
     }
 }
@@ -36,7 +35,7 @@ pub struct RemoteSubscriptions {
 }
 
 impl RemoteSubscriptions {
-    pub fn add_subscription(&self, source: Agent, name: Agent, conn: u64) {
+    pub fn add_subscription(&self, source: Name, name: Name, conn: u64) {
         let info = SubscriptionInfo { source, name };
         let mut map = self.table.write();
         match map.get_mut(&conn) {
@@ -52,7 +51,7 @@ impl RemoteSubscriptions {
         }
     }
 
-    pub fn remove_subscription(&self, source: Agent, name: Agent, conn: u64) {
+    pub fn remove_subscription(&self, source: Name, name: Name, conn: u64) {
         let info = SubscriptionInfo { source, name };
         let mut map = self.table.write();
         match map.get_mut(&conn) {

@@ -94,7 +94,7 @@ async def run_client(
                 remote_organization, remote_namespace, broadcast_topic
             )
 
-            # Wait for messages and not reply
+            # Wait for messages and don't reply
             while True:
                 session_info, _ = await local_app.receive()
                 print(

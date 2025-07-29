@@ -7,7 +7,7 @@ use tracing::info;
 
 use slim::config;
 use slim_auth::shared_secret::SharedSecret;
-use slim_datapath::messages::{Agent, AgentType};
+use slim_datapath::messages::Name;
 use slim_service::{
     FireAndForgetConfiguration,
     session::{self, SessionConfig},
@@ -47,7 +47,7 @@ async fn main() {
 
     // create local agent
     let agent_id = 0;
-    let agent_name = Agent::from_strings("org", "default", local_agent, agent_id);
+    let agent_name = Name::from_strings(["org", "default", local_agent]).with_id(agent_id);
     let (app, mut rx) = svc
         .create_app(
             &agent_name,
@@ -65,15 +65,15 @@ async fn main() {
         .get_connection_id(&svc.config().clients()[0].endpoint)
         .unwrap();
 
-    let local_agent_type = AgentType::from_strings("org", "default", local_agent);
-    app.subscribe(&local_agent_type, Some(agent_id), Some(conn_id))
+    let local_agent_type = Name::from_strings(["org", "default", local_agent]).with_id(agent_id);
+    app.subscribe(&local_agent_type, Some(conn_id))
         .await
         .unwrap();
 
     // Set a route for the remote agent
-    let route = AgentType::from_strings("org", "default", remote_agent);
+    let route = Name::from_strings(["org", "default", remote_agent]);
     info!("allowing messages to remote agent: {:?}", route);
-    app.set_route(&route, None, conn_id).await.unwrap();
+    app.set_route(&route, conn_id).await.unwrap();
 
     // wait for the connection to be established
     tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
@@ -203,7 +203,7 @@ async fn main() {
         }
 
         // publish message
-        app.publish(session, &route, None, msg.into())
+        app.publish(session, &route,  msg.into())
             .await
             .unwrap();
     }
@@ -220,7 +220,7 @@ async fn main() {
                 // send a message back
                 let msg = messages.pop_front();
                 if let Some(msg) = msg {
-                    app.publish(msg.1, &route, None, msg.0.into())
+                    app.publish(msg.1, &route, msg.0.into())
                         .await
                         .unwrap();
                 }

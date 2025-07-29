@@ -11,7 +11,7 @@ use serde_pyobject::from_pyobject;
 use slim_tracing::TracingConfiguration;
 use tokio::sync::OnceCell;
 
-use slim_datapath::messages::encoder::AgentType;
+use slim_datapath::messages::encoder::Name;
 
 /// agent class
 #[gen_stub_pyclass]
@@ -28,15 +28,15 @@ pub struct PyAgentType {
     pub agent_type: String,
 }
 
-impl From<PyAgentType> for AgentType {
-    fn from(value: PyAgentType) -> AgentType {
-        AgentType::from_strings(&value.organization, &value.namespace, &value.agent_type)
+impl From<PyAgentType> for Name {
+    fn from(value: PyAgentType) -> Name {
+        Name::from_strings(&value.organization, &value.namespace, &value.agent_type)
     }
 }
 
-impl From<&PyAgentType> for AgentType {
-    fn from(value: &PyAgentType) -> AgentType {
-        AgentType::from_strings(&value.organization, &value.namespace, &value.agent_type)
+impl From<&PyAgentType> for Name {
+    fn from(value: &PyAgentType) -> Name {
+        Name::from_strings(&value.organization, &value.namespace, &value.agent_type)
     }
 }
 

@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use slim_auth::shared_secret::SharedSecret;
-use slim_datapath::messages::Agent;
+use slim_datapath::messages::Name;
 use slim_service::streaming::StreamingConfiguration;
 use std::fs::File;
 use std::io::prelude::*;
@@ -89,7 +89,7 @@ async fn main() {
     let svc = config.services.get_mut(&svc_id).unwrap();
 
     // create local agent
-    let agent_name = Agent::from_strings("cisco", "default", "subscriber", id);
+    let agent_name = Name::from_strings(["agntcy", "default", "subscriber"]).with_id(id);
     let (app, mut rx) = svc
         .create_app(
             &agent_name,
@@ -110,14 +110,7 @@ async fn main() {
     if streaming {
         // run subscriber in streaming mode
         // subscribe for local name
-        match app
-            .subscribe(
-                agent_name.agent_type(),
-                agent_name.agent_id_option(),
-                Some(conn_id),
-            )
-            .await
-        {
+        match app.subscribe(&agent_name, Some(conn_id)).await {
             Ok(_) => {}
             Err(e) => {
                 panic!("an error accoured while adding a subscription {}", e);
@@ -186,7 +179,7 @@ async fn main() {
         .create_session(
             slim_service::session::SessionConfig::Streaming(StreamingConfiguration::new(
                 slim_service::session::SessionDirection::Receiver,
-                None,
+                agent_name.clone(),
                 false,
                 Some(10),
                 Some(Duration::from_millis(1000)),
@@ -206,10 +199,7 @@ async fn main() {
     info!("register subscriptions for subscriber {}", id);
     let bar = ProgressBar::new(subscriptions_list.len() as u64);
     for s in subscriptions_list.iter() {
-        match app
-            .subscribe(s.agent_type(), Some(s.agent_id()), Some(conn_id))
-            .await
-        {
+        match app.subscribe(&s, Some(conn_id)).await {
             Ok(_) => {}
             Err(e) => {
                 panic!("an error accoured while adding a subscription {}", e);
@@ -262,14 +252,8 @@ async fn main() {
         }
 
         // send message
-        app.publish_to(
-            recv_msg.info,
-            source.agent_type(),
-            Some(source.agent_id()),
-            conn_id,
-            out_vec,
-        )
-        .await
-        .unwrap();
+        app.publish_to(recv_msg.info, &source, conn_id, out_vec)
+            .await
+            .unwrap();
     }
 }

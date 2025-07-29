@@ -25,7 +25,7 @@ use crate::api::proto::pubsub::v1::{Message, pub_sub_service_server::PubSubServi
 use crate::connection::{Channel, Connection, Type as ConnectionType};
 use crate::errors::DataPathError;
 use crate::forwarder::Forwarder;
-use crate::messages::AgentType;
+use crate::messages::Name;
 use crate::tables::connection_table::ConnectionTable;
 use crate::tables::subscription_table::SubscriptionTableImpl;
 
@@ -79,7 +79,7 @@ fn create_span(function: &str, out_conn: u64, msg: &Message) -> Span {
         "slim_process_message",
         function = function,
         source = format!("{}", msg.get_source()),
-        destination =  format!("{}",msg.get_name_as_agent()),
+        destination =  format!("{}", msg.get_dst()),
         instance_id = %INSTANCE_ID.as_str(),
         connection_id = out_conn,
         message_type = msg.get_type().to_string(),
@@ -357,14 +357,13 @@ impl MessageProcessor {
     async fn match_and_forward_msg(
         &self,
         msg: Message,
-        agent_type: AgentType,
+        agent_type: Name,
         in_connection: u64,
         fanout: u32,
-        agent_id: Option<u64>,
     ) -> Result<(), DataPathError> {
         debug!(
-            "match and forward message: type: {} - agent_id: {:?} - fanout: {}",
-            agent_type, agent_id, fanout,
+            "match and forward message: type: {} - fanout: {}",
+            agent_type, fanout,
         );
 
         // if the message already contains an output connection, use that one
@@ -379,7 +378,7 @@ impl MessageProcessor {
 
         match self
             .forwarder()
-            .on_publish_msg_match(agent_type, agent_id, in_connection, fanout)
+            .on_publish_msg_match(agent_type, in_connection, fanout)
         {
             Ok(out_vec) => {
                 // in case out_vec.len = 1, do not clone the message.
@@ -417,7 +416,7 @@ impl MessageProcessor {
         // get header
         let header = msg.get_slim_header();
 
-        let (agent_type, agent_id) = header.get_dst();
+        let agent_type = header.get_dst();
 
         // this function may panic, but at this point we are sure we are processing
         // a publish message
@@ -425,7 +424,7 @@ impl MessageProcessor {
 
         // if we get valid type also the name is valid so we can safely unwrap
         return self
-            .match_and_forward_msg(msg, agent_type, in_connection, fanout, agent_id)
+            .match_and_forward_msg(msg, agent_type, in_connection, fanout)
             .await;
     }
 
@@ -451,7 +450,7 @@ impl MessageProcessor {
         );
         //////////////////////////////////////////////////////
 
-        let (agent_type, agent_id) = msg.get_name();
+        let agent_type = msg.get_dst();
 
         // get header
         let header = msg.get_slim_header();
@@ -467,13 +466,12 @@ impl MessageProcessor {
             .ok_or_else(|| DataPathError::SubscriptionError("connection not found".to_string()))?;
 
         debug!(
-            "subscription update (add = {}) for agent type: {} (agent id: {:?}) - connection: {}",
-            add, agent_type, agent_id, conn
+            "subscription update (add = {}) for agent type: {} - connection: {}",
+            add, agent_type, conn
         );
 
         if let Err(e) = self.forwarder().on_subscription_msg(
             agent_type.clone(),
-            agent_id,
             conn,
             connection.is_local_connection(),
             add,
@@ -498,7 +496,6 @@ impl MessageProcessor {
                         self.forwarder().on_forwarded_subscription(
                             source_agent,
                             agent_type,
-                            agent_id,
                             out_conn,
                             add,
                         );
@@ -658,8 +655,7 @@ impl MessageProcessor {
                                 for r in remote_subscriptions.iter() {
                                     let sub_msg = Message::new_subscribe(
                                         r.source(),
-                                        r.name().agent_type(),
-                                        r.name().agent_id_option(),
+                                        r.name(),
                                         None,
                                     );
                                     if self.send_msg(sub_msg, conn_index).await.is_err() {

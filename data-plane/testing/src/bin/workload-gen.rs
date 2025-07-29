@@ -8,7 +8,7 @@ use std::{
 };
 
 use rand::Rng;
-use slim_datapath::messages::{Agent, AgentType};
+use slim_datapath::messages::Name;
 
 use clap::Parser;
 use indicatif::ProgressBar;
@@ -124,7 +124,7 @@ impl TypeState {
 
 struct Publication {
     /// publication name
-    publication: Agent,
+    publication: Name,
     /// list of ids that can receive the publication
     subscribers: HashSet<u32>,
 }
@@ -175,7 +175,7 @@ fn main() {
             .map(char::from)
             .collect::<String>();
 
-        let agent_type = AgentType::from_strings(&org, &ns, &atype);
+        let agent_type = Name::from_strings([&org, &ns, &atype]);
 
         let mut type_state = TypeState::default();
 
@@ -193,7 +193,7 @@ fn main() {
             && (subscriptions < max_subscriptions)
         {
             // the agent id in the subscription is always a random numb
-            let sub = Agent::new(agent_type.clone(), rng.random_range(0..u64::MAX));
+            let sub = agent_type.clone().with_id(rng.random_range(0..u64::MAX));
 
             // decide which agent will send the subscription
             let subscriber = rng.random_range(..subscribers);
@@ -203,7 +203,7 @@ fn main() {
 
             bar.inc(1);
 
-            type_state.insert(sub.agent_id(), subscriber);
+            type_state.insert(sub.id(), subscriber);
         }
 
         subscription_list.insert(agent_type, type_state);
@@ -225,7 +225,7 @@ fn main() {
                 // pick a random pair for this type
                 let pair = s.1.get_pair();
 
-                let name = Agent::new(s.0.clone(), pair.agent_id);
+                let name = s.0.clone().with_id(pair.agent_id);
 
                 let mut p = Publication {
                     publication: name,
@@ -235,7 +235,7 @@ fn main() {
 
                 publications_list.push(p);
             } else {
-                let name = Agent::new(s.0.clone(), 0);
+                let name = s.0.clone().with_id(0);
                 let mut p = Publication {
                     publication: name,
                     subscribers: HashSet::new(),
@@ -277,9 +277,9 @@ fn main() {
                 "SUB {} {} {} {} {} {}\n",
                 i,
                 p.subscriber,
-                s.0.organization(),
-                s.0.namespace(),
-                s.0.agent_type(),
+                s.0.components()[0],
+                s.0.components()[1],
+                s.0.components()[2],
                 p.agent_id
             );
             let res = file.write_all(s.as_bytes());
@@ -305,10 +305,10 @@ fn main() {
         let s = format!(
             "PUB {} {} {} {} {} {}{}\n", //do not add the space between m.subscribers.len() and sub_str
             i,
-            m.publication.agent_type().organization(),
-            m.publication.agent_type().namespace(),
-            m.publication.agent_type().agent_type(),
-            m.publication.agent_id(),
+            m.publication.components()[0],
+            m.publication.components()[1],
+            m.publication.components()[2],
+            m.publication.id(),
             m.subscribers.len(),
             sub_str
         );

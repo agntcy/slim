@@ -42,13 +42,13 @@ pub struct Connection {
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct Subscription {
     #[prost(string, tag = "1")]
-    pub organization: ::prost::alloc::string::String,
+    pub component_0: ::prost::alloc::string::String,
     #[prost(string, tag = "2")]
-    pub namespace: ::prost::alloc::string::String,
+    pub component_1: ::prost::alloc::string::String,
     #[prost(string, tag = "3")]
-    pub agent_type: ::prost::alloc::string::String,
+    pub component_2: ::prost::alloc::string::String,
     #[prost(message, optional, tag = "4")]
-    pub agent_id: ::core::option::Option<u64>,
+    pub id: ::core::option::Option<u64>,
     #[prost(string, tag = "5")]
     pub connection_id: ::prost::alloc::string::String,
 }
@@ -80,13 +80,13 @@ pub struct SubscriptionListResponse {
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct SubscriptionEntry {
     #[prost(string, tag = "1")]
-    pub organization: ::prost::alloc::string::String,
+    pub component_0: ::prost::alloc::string::String,
     #[prost(string, tag = "2")]
-    pub namespace: ::prost::alloc::string::String,
+    pub component_1: ::prost::alloc::string::String,
     #[prost(string, tag = "3")]
-    pub agent_type: ::prost::alloc::string::String,
+    pub component_2: ::prost::alloc::string::String,
     #[prost(message, optional, tag = "4")]
-    pub agent_id: ::core::option::Option<u64>,
+    pub id: ::core::option::Option<u64>,
     #[prost(message, repeated, tag = "5")]
     pub local_connections: ::prost::alloc::vec::Vec<ConnectionEntry>,
     #[prost(message, repeated, tag = "6")]

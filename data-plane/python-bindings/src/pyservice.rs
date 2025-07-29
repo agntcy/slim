@@ -12,7 +12,7 @@ use pyo3_stub_gen::derive::gen_stub_pymethods;
 use serde_pyobject::from_pyobject;
 use slim_auth::traits::TokenProvider;
 use slim_auth::traits::Verifier;
-use slim_datapath::messages::encoder::{Agent, AgentType};
+use slim_datapath::messages::encoder::{Agent, Name};
 use slim_datapath::messages::utils::SlimHeaderFlags;
 use slim_service::app::App;
 use slim_service::errors::SessionError;
@@ -138,7 +138,7 @@ impl PyService {
         name: PyAgentType,
         id: Option<u64>,
     ) -> Result<(), ServiceError> {
-        let class = AgentType::from_strings(&name.organization, &name.namespace, &name.agent_type);
+        let class = Name::from_strings(&name.organization, &name.namespace, &name.agent_type);
 
         self.sdk.app.subscribe(&class, id, Some(conn)).await
     }
@@ -149,7 +149,7 @@ impl PyService {
         name: PyAgentType,
         id: Option<u64>,
     ) -> Result<(), ServiceError> {
-        let class = AgentType::from_strings(&name.organization, &name.namespace, &name.agent_type);
+        let class = Name::from_strings(&name.organization, &name.namespace, &name.agent_type);
         self.sdk.app.unsubscribe(&class, id, Some(conn)).await
     }
 
@@ -159,7 +159,7 @@ impl PyService {
         name: PyAgentType,
         id: Option<u64>,
     ) -> Result<(), ServiceError> {
-        let class = AgentType::from_strings(&name.organization, &name.namespace, &name.agent_type);
+        let class = Name::from_strings(&name.organization, &name.namespace, &name.agent_type);
         self.sdk.app.set_route(&class, id, conn).await
     }
 
@@ -169,7 +169,7 @@ impl PyService {
         name: PyAgentType,
         id: Option<u64>,
     ) -> Result<(), ServiceError> {
-        let class = AgentType::from_strings(&name.organization, &name.namespace, &name.agent_type);
+        let class = Name::from_strings(&name.organization, &name.namespace, &name.agent_type);
         self.sdk.app.remove_route(&class, id, conn).await
     }
 

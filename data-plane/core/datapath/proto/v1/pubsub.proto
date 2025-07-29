@@ -10,9 +10,9 @@ service PubSubService {
 
 message Subscribe {
   SLIMHeader header = 1;
-  string organization = 2;
-  string namespace = 3;
-  string agent_type = 4;
+  string component_0 = 2;
+  string component_1 = 3;
+  string component_2 = 4;
 }
 
 message Unsubscribe { SLIMHeader header = 1; }
@@ -28,8 +28,8 @@ message Publish {
 // incomingConn = connection from where the packet was received
 // error = if true the publication contains an error notification
 message SLIMHeader {
-  Agent source = 1;
-  Agent destination = 2;
+  Name source = 1;
+  Name destination = 2;
   uint32 fanout = 3;
   optional uint64 recvFrom = 4;
   optional uint64 forwardTo = 5;
@@ -37,11 +37,11 @@ message SLIMHeader {
   optional bool error = 7;
 }
 
-message Agent {
-  uint64 organization = 1;
-  uint64 namespace = 2;
-  uint64 agent_type = 3;
-  optional uint64 agent_id = 4;
+message Name {
+  uint64 component_0 = 1;
+  uint64 component_1 = 2;
+  uint64 component_2 = 3;
+  uint64 component_3 = 4;
 }
 
 enum SessionType {

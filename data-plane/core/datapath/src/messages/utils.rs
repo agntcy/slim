@@ -6,9 +6,9 @@ use std::fmt::Display;
 
 use tracing::debug;
 
-use super::encoder::{Agent, AgentType, DEFAULT_AGENT_ID};
+use super::encoder::Name;
 use crate::api::{
-    Content, MessageType, ProtoAgent, ProtoMessage, ProtoPublish, ProtoPublishType,
+    Content, MessageType, ProtoMessage, ProtoName, ProtoPublish, ProtoPublishType,
     ProtoSessionType, ProtoSubscribe, ProtoSubscribeType, ProtoUnsubscribe, ProtoUnsubscribeType,
     SessionHeader, SlimHeader, proto::pubsub::v1::SessionMessageType,
 };
@@ -36,30 +36,13 @@ pub enum MessageError {
 pub const SLIM_IDENTITY: &str = "SLIM_IDENTITY";
 
 /// ProtoAgent from Agent
-impl From<&Agent> for ProtoAgent {
-    fn from(agent: &Agent) -> Self {
-        let mut id = None;
-        if agent.agent_id() != DEFAULT_AGENT_ID {
-            id = Some(agent.agent_id())
-        }
-
+impl From<&Name> for ProtoName {
+    fn from(agent: &Name) -> Self {
         Self {
-            organization: agent.agent_type().organization(),
-            namespace: agent.agent_type().namespace(),
-            agent_type: agent.agent_type().agent_type(),
-            agent_id: id,
-        }
-    }
-}
-
-/// ProtoAgent from AgentType
-impl From<(&AgentType, Option<u64>)> for ProtoAgent {
-    fn from((agent_type, agent_id): (&AgentType, Option<u64>)) -> Self {
-        Self {
-            organization: agent_type.organization(),
-            namespace: agent_type.namespace(),
-            agent_type: agent_type.agent_type(),
-            agent_id,
+            component_0: agent.components()[0],
+            component_1: agent.components()[1],
+            component_2: agent.components()[2],
+            component_3: agent.components()[3],
         }
     }
 }
@@ -161,17 +144,12 @@ impl SlimHeaderFlags {
 /// This header is used to identify the source and destination of the message
 /// and to manage the connections used to send and receive the message
 impl SlimHeader {
-    pub fn new(
-        source: &Agent,
-        name_type: &AgentType,
-        name_id: Option<u64>,
-        flags: Option<SlimHeaderFlags>,
-    ) -> Self {
+    pub fn new(source: &Name, destination: &Name, flags: Option<SlimHeaderFlags>) -> Self {
         let flags = flags.unwrap_or_default();
 
         Self {
-            source: Some(ProtoAgent::from(source)),
-            destination: Some(ProtoAgent::from((name_type, name_id))),
+            source: Some(ProtoName::from(source)),
+            destination: Some(ProtoName::from(destination)),
             fanout: flags.fanout,
             recv_from: flags.recv_from,
             forward_to: flags.forward_to,
@@ -201,26 +179,26 @@ impl SlimHeader {
         self.error
     }
 
-    pub fn get_source(&self) -> Agent {
+    pub fn get_source(&self) -> Name {
         match &self.source {
-            Some(source) => Agent::from(source),
+            Some(source) => Name::from(source),
             None => panic!("source not found"),
         }
     }
 
-    pub fn get_dst(&self) -> (AgentType, Option<u64>) {
+    pub fn get_dst(&self) -> Name {
         match &self.destination {
-            Some(destination) => (AgentType::from(destination), destination.agent_id),
+            Some(destination) => Name::from(destination),
             None => panic!("destination not found"),
         }
     }
 
-    pub fn set_source(&mut self, source: &Agent) {
-        self.source = Some(ProtoAgent::from(source));
+    pub fn set_source(&mut self, source: &Name) {
+        self.source = Some(ProtoName::from(source));
     }
 
-    pub fn set_destination(&mut self, dst: &Agent) {
-        self.destination = Some(ProtoAgent::from(dst));
+    pub fn set_destination(&mut self, dst: &Name) {
+        self.destination = Some(ProtoName::from(dst));
     }
 
     pub fn get_fanout(&self) -> u32 {
@@ -324,19 +302,14 @@ impl SessionHeader {
 /// ProtoSubscribe
 /// This message is used to subscribe to a topic
 impl ProtoSubscribe {
-    pub fn new(
-        source: &Agent,
-        agent_type: &AgentType,
-        agent_id: Option<u64>,
-        flags: Option<SlimHeaderFlags>,
-    ) -> Self {
-        let header = Some(SlimHeader::new(source, agent_type, agent_id, flags));
+    pub fn new(source: &Name, dst: &Name, flags: Option<SlimHeaderFlags>) -> Self {
+        let header = Some(SlimHeader::new(source, dst, flags));
 
         ProtoSubscribe {
             header,
-            organization: agent_type.organization_string().unwrap(),
-            namespace: agent_type.namespace_string().unwrap(),
-            agent_type: agent_type.agent_type_string().unwrap(),
+            component_0: dst.components_strings().unwrap()[0].clone(),
+            component_1: dst.components_strings().unwrap()[1].clone(),
+            component_2: dst.components_strings().unwrap()[2].clone(),
         }
     }
 }
@@ -358,13 +331,8 @@ impl ProtoUnsubscribe {
         ProtoUnsubscribe { header }
     }
 
-    pub fn new(
-        source: &Agent,
-        agent_type: &AgentType,
-        agent_id: Option<u64>,
-        flags: Option<SlimHeaderFlags>,
-    ) -> Self {
-        let header = Some(SlimHeader::new(source, agent_type, agent_id, flags));
+    pub fn new(source: &Name, dst: &Name, flags: Option<SlimHeaderFlags>) -> Self {
+        let header = Some(SlimHeader::new(source, dst, flags));
 
         Self::with_header(header)
     }
@@ -396,14 +364,13 @@ impl ProtoPublish {
     }
 
     pub fn new(
-        source: &Agent,
-        agent_type: &AgentType,
-        agent_id: Option<u64>,
+        source: &Name,
+        dst: &Name,
         flags: Option<SlimHeaderFlags>,
         content_type: &str,
         blob: Vec<u8>,
     ) -> Self {
-        let slim_header = Some(SlimHeader::new(source, agent_type, agent_id, flags));
+        let slim_header = Some(SlimHeader::new(source, dst, flags));
 
         let session_header = Some(SessionHeader::default());
 
@@ -456,37 +423,26 @@ impl ProtoMessage {
         }
     }
 
-    pub fn new_subscribe(
-        source: &Agent,
-        agent_type: &AgentType,
-        agent_id: Option<u64>,
-        flags: Option<SlimHeaderFlags>,
-    ) -> Self {
-        let subscribe = ProtoSubscribe::new(source, agent_type, agent_id, flags);
+    pub fn new_subscribe(source: &Name, dst: &Name, flags: Option<SlimHeaderFlags>) -> Self {
+        let subscribe = ProtoSubscribe::new(source, dst, flags);
 
         Self::new(HashMap::new(), ProtoSubscribeType(subscribe))
     }
 
-    pub fn new_unsubscribe(
-        source: &Agent,
-        agent_type: &AgentType,
-        agent_id: Option<u64>,
-        flags: Option<SlimHeaderFlags>,
-    ) -> Self {
-        let unsubscribe = ProtoUnsubscribe::new(source, agent_type, agent_id, flags);
+    pub fn new_unsubscribe(source: &Name, dst: &Name, flags: Option<SlimHeaderFlags>) -> Self {
+        let unsubscribe = ProtoUnsubscribe::new(source, dst, flags);
 
         Self::new(HashMap::new(), ProtoUnsubscribeType(unsubscribe))
     }
 
     pub fn new_publish(
-        source: &Agent,
-        agent_type: &AgentType,
-        agent_id: Option<u64>,
+        source: &Name,
+        dst: &Name,
         flags: Option<SlimHeaderFlags>,
         content_type: &str,
         blob: Vec<u8>,
     ) -> Self {
-        let publish = ProtoPublish::new(source, agent_type, agent_id, flags, content_type, blob);
+        let publish = ProtoPublish::new(source, dst, flags, content_type, blob);
 
         Self::new(HashMap::new(), ProtoPublishType(publish))
     }
@@ -646,7 +602,7 @@ impl ProtoMessage {
         self.get_session_header().get_message_id()
     }
 
-    pub fn get_source(&self) -> Agent {
+    pub fn get_source(&self) -> Name {
         self.get_slim_header().get_source()
     }
 
@@ -674,35 +630,24 @@ impl ProtoMessage {
         self.get_slim_header().get_incoming_conn()
     }
 
-    pub fn get_source_agent(&self) -> Agent {
+    pub fn get_source_agent(&self) -> Name {
         self.get_slim_header().get_source()
     }
 
-    pub fn get_name(&self) -> (AgentType, Option<u64>) {
-        let (agent_type, agent_id) = self.get_slim_header().get_dst();
+    pub fn get_dst(&self) -> Name {
+        let dst = self.get_slim_header().get_dst();
 
         // complete agent_type with the original name if the message is a subscribe
         if let Some(ProtoSubscribeType(subscribe)) = &self.message_type {
-            return (
-                AgentType::from_strings(
-                    subscribe.organization.as_str(),
-                    subscribe.namespace.as_str(),
-                    subscribe.agent_type.as_str(),
-                ),
-                agent_id,
-            );
+            return Name::from_strings([
+                subscribe.component_0.clone(),
+                subscribe.component_1.clone(),
+                subscribe.component_2.clone(),
+            ])
+            .with_id(dst.id());
         }
 
-        (agent_type, agent_id)
-    }
-
-    pub fn get_name_as_agent(&self) -> Agent {
-        let (a_type, a_id) = self.get_slim_header().get_dst();
-        let id = match a_id {
-            None => DEFAULT_AGENT_ID,
-            Some(id) => id,
-        };
-        Agent::new(a_type, id)
+        dst
     }
 
     pub fn get_type(&self) -> &MessageType {
@@ -797,25 +742,21 @@ impl AsRef<ProtoPublish> for ProtoMessage {
 
 #[cfg(test)]
 mod tests {
-    use crate::{
-        api::proto::pubsub::v1::SessionMessageType,
-        messages::encoder::{Agent, AgentType},
-    };
+    use crate::{api::proto::pubsub::v1::SessionMessageType, messages::encoder::Name};
 
     use super::*;
 
     fn test_subscription_template(
         subscription: bool,
-        source: Agent,
-        name: AgentType,
-        name_id: Option<u64>,
+        source: Name,
+        dst: Name,
         flags: Option<SlimHeaderFlags>,
     ) {
         let sub = {
             if subscription {
-                ProtoMessage::new_subscribe(&source, &name, name_id, flags.clone())
+                ProtoMessage::new_subscribe(&source, &dst, flags.clone())
             } else {
-                ProtoMessage::new_unsubscribe(&source, &name, name_id, flags.clone())
+                ProtoMessage::new_unsubscribe(&source, &dst, flags.clone())
             }
         };
 
@@ -832,21 +773,14 @@ mod tests {
         assert_eq!(flags.as_ref().unwrap().forward_to, sub.get_forward_to());
         assert_eq!(None, sub.try_get_incoming_conn());
         assert_eq!(source, sub.get_source());
-        let (got_name, got_name_id) = sub.get_name();
-        assert_eq!(name, got_name);
-        assert_eq!(name_id, got_name_id);
+        let got_name = sub.get_dst();
+        assert_eq!(dst, got_name);
     }
 
-    fn test_publish_template(
-        source: Agent,
-        name: AgentType,
-        name_id: Option<u64>,
-        flags: Option<SlimHeaderFlags>,
-    ) {
+    fn test_publish_template(source: Name, dst: Name, flags: Option<SlimHeaderFlags>) {
         let pub_msg = ProtoMessage::new_publish(
             &source,
-            &name,
-            name_id,
+            &dst,
             flags.clone(),
             "str",
             "this is the content of the message".into(),
@@ -865,29 +799,27 @@ mod tests {
         assert_eq!(flags.as_ref().unwrap().forward_to, pub_msg.get_forward_to());
         assert_eq!(None, pub_msg.try_get_incoming_conn());
         assert_eq!(source, pub_msg.get_source());
-        let (got_name, got_name_id) = pub_msg.get_name();
-        assert_eq!(name, got_name);
-        assert_eq!(name_id, got_name_id);
+        let got_name = pub_msg.get_dst();
+        assert_eq!(dst, got_name);
         assert_eq!(flags.as_ref().unwrap().fanout, pub_msg.get_fanout());
     }
 
     #[test]
     fn test_subscription() {
-        let source = Agent::from_strings("org", "ns", "type", 1);
-        let name = AgentType::from_strings("org", "ns", "type");
+        let source = Name::from_strings(["org", "ns", "type"]).with_id(1);
+        let dst = Name::from_strings(["org", "ns", "type"]).with_id(2);
 
         // simple
-        test_subscription_template(true, source.clone(), name.clone(), None, None);
+        test_subscription_template(true, source.clone(), dst.clone(), None);
 
         // with name id
-        test_subscription_template(true, source.clone(), name.clone(), Some(2), None);
+        test_subscription_template(true, source.clone(), dst.clone(), None);
 
         // with recv from
         test_subscription_template(
             true,
             source.clone(),
-            name.clone(),
-            None,
+            dst.clone(),
             Some(SlimHeaderFlags::default().with_recv_from(50)),
         );
 
@@ -895,29 +827,27 @@ mod tests {
         test_subscription_template(
             true,
             source.clone(),
-            name.clone(),
-            None,
+            dst.clone(),
             Some(SlimHeaderFlags::default().with_forward_to(30)),
         );
     }
 
     #[test]
     fn test_unsubscription() {
-        let source = Agent::from_strings("org", "ns", "type", 1);
-        let name = AgentType::from_strings("org", "ns", "type");
+        let source = Name::from_strings(["org", "ns", "type"]).with_id(1);
+        let dst = Name::from_strings(["org", "ns", "type"]).with_id(2);
 
         // simple
-        test_subscription_template(false, source.clone(), name.clone(), None, None);
+        test_subscription_template(false, source.clone(), dst.clone(), None);
 
         // with name id
-        test_subscription_template(false, source.clone(), name.clone(), Some(2), None);
+        test_subscription_template(false, source.clone(), dst.clone(), None);
 
         // with recv from
         test_subscription_template(
             false,
             source.clone(),
-            name.clone(),
-            None,
+            dst.clone(),
             Some(SlimHeaderFlags::default().with_recv_from(50)),
         );
 
@@ -925,99 +855,77 @@ mod tests {
         test_subscription_template(
             false,
             source.clone(),
-            name.clone(),
-            None,
+            dst.clone(),
             Some(SlimHeaderFlags::default().with_forward_to(30)),
         );
     }
 
     #[test]
     fn test_publish() {
-        let source = Agent::from_strings("org", "ns", "type", 1);
-        let name = AgentType::from_strings("org", "ns", "type");
+        let source = Name::from_strings(["org", "ns", "type"]).with_id(1);
+        let mut dst = Name::from_strings(["org", "ns", "type"]);
 
         // simple
         test_publish_template(
             source.clone(),
-            name.clone(),
-            None,
+            dst.clone(),
             Some(SlimHeaderFlags::default()),
         );
 
         // with name id
+        dst.set_id(2);
         test_publish_template(
             source.clone(),
-            name.clone(),
-            Some(2),
+            dst.clone(),
             Some(SlimHeaderFlags::default()),
         );
+        dst.reset_id();
 
         // with recv from
         test_publish_template(
             source.clone(),
-            name.clone(),
-            None,
+            dst.clone(),
             Some(SlimHeaderFlags::default().with_recv_from(50)),
         );
 
         // with forward to
         test_publish_template(
             source.clone(),
-            name.clone(),
-            None,
+            dst.clone(),
             Some(SlimHeaderFlags::default().with_forward_to(30)),
         );
 
         // with fanout
         test_publish_template(
             source.clone(),
-            name.clone(),
-            None,
+            dst.clone(),
             Some(SlimHeaderFlags::default().with_fanout(2)),
         );
     }
 
     #[test]
     fn test_conversions() {
-        // Agent to ProtoAgent
-        let agent = Agent::from_strings("org", "ns", "type", 1);
-        let proto_agent = ProtoAgent::from(&agent);
+        // Name to ProtoName
+        let name = Name::from_strings(["org", "ns", "type"]).with_id(1);
+        let proto_name = ProtoName::from(&name);
 
-        assert_eq!(proto_agent.organization, agent.agent_type().organization());
-        assert_eq!(proto_agent.namespace, agent.agent_type().namespace());
-        assert_eq!(proto_agent.agent_type, agent.agent_type().agent_type());
-        assert_eq!(proto_agent.agent_id.unwrap(), agent.agent_id());
+        assert_eq!(proto_name.component_0, name.components()[0]);
+        assert_eq!(proto_name.component_1, name.components()[1]);
+        assert_eq!(proto_name.component_2, name.components()[2]);
+        assert_eq!(proto_name.component_3, name.components()[3]);
 
-        // ProtoAgent to Agent
-        let agent_from_proto = Agent::from(&proto_agent);
-        assert_eq!(
-            agent_from_proto.agent_type().organization(),
-            proto_agent.organization
-        );
-        assert_eq!(
-            agent_from_proto.agent_type().namespace(),
-            proto_agent.namespace
-        );
-        assert_eq!(
-            agent_from_proto.agent_type().agent_type(),
-            proto_agent.agent_type
-        );
-        assert_eq!(agent_from_proto.agent_id(), proto_agent.agent_id.unwrap());
-
-        // AgentType to ProtoAgent
-        let agent_type = AgentType::from_strings("org", "ns", "type");
-        let proto_agent = ProtoAgent::from((&agent_type, Some(1)));
-
-        assert_eq!(proto_agent.organization, agent_type.organization());
-        assert_eq!(proto_agent.namespace, agent_type.namespace());
-        assert_eq!(proto_agent.agent_type, agent_type.agent_type());
-        assert_eq!(proto_agent.agent_id.unwrap(), 1);
+        // ProtoName to Name
+        let agent_from_proto = Name::from(&proto_name);
+        assert_eq!(agent_from_proto.components()[0], proto_name.component_0);
+        assert_eq!(agent_from_proto.components()[1], proto_name.component_1);
+        assert_eq!(agent_from_proto.components()[2], proto_name.component_2);
+        assert_eq!(agent_from_proto.components()[3], proto_name.component_3);
 
         // ProtoMessage to ProtoSubscribe
+        let dst = Name::from_strings(["org", "ns", "type"]).with_id(1);
         let proto_subscribe = ProtoMessage::new_subscribe(
-            &agent,
-            &agent_type,
-            Some(1),
+            &name,
+            &dst,
             Some(
                 SlimHeaderFlags::default()
                     .with_recv_from(2)
@@ -1025,17 +933,13 @@ mod tests {
             ),
         );
         let proto_subscribe = ProtoSubscribe::from(proto_subscribe);
-        assert_eq!(proto_subscribe.header.as_ref().unwrap().get_source(), agent);
-        assert_eq!(
-            proto_subscribe.header.as_ref().unwrap().get_dst(),
-            (agent_type.clone(), Some(1))
-        );
+        assert_eq!(proto_subscribe.header.as_ref().unwrap().get_source(), name);
+        assert_eq!(proto_subscribe.header.as_ref().unwrap().get_dst(), dst,);
 
         // ProtoMessage to ProtoUnsubscribe
         let proto_unsubscribe = ProtoMessage::new_unsubscribe(
-            &agent,
-            &agent_type,
-            Some(1),
+            &name,
+            &dst,
             Some(
                 SlimHeaderFlags::default()
                     .with_recv_from(2)
@@ -1045,18 +949,14 @@ mod tests {
         let proto_unsubscribe = ProtoUnsubscribe::from(proto_unsubscribe);
         assert_eq!(
             proto_unsubscribe.header.as_ref().unwrap().get_source(),
-            agent
+            name
         );
-        assert_eq!(
-            proto_unsubscribe.header.as_ref().unwrap().get_dst(),
-            (agent_type.clone(), Some(1))
-        );
+        assert_eq!(proto_unsubscribe.header.as_ref().unwrap().get_dst(), dst);
 
         // ProtoMessage to ProtoPublish
         let proto_publish = ProtoMessage::new_publish(
-            &agent,
-            &agent_type,
-            Some(1),
+            &name,
+            &dst,
             Some(
                 SlimHeaderFlags::default()
                     .with_recv_from(2)
@@ -1066,23 +966,19 @@ mod tests {
             "this is the content of the message".into(),
         );
         let proto_publish = ProtoPublish::from(proto_publish);
-        assert_eq!(proto_publish.header.as_ref().unwrap().get_source(), agent);
-        assert_eq!(
-            proto_publish.header.as_ref().unwrap().get_dst(),
-            (agent_type.clone(), Some(1))
-        );
+        assert_eq!(proto_publish.header.as_ref().unwrap().get_source(), name);
+        assert_eq!(proto_publish.header.as_ref().unwrap().get_dst(), dst);
     }
 
     #[test]
     fn test_panic() {
-        let source = Agent::from_strings("org", "ns", "type", 1);
-        let name = AgentType::from_strings("org", "ns", "type");
+        let source = Name::from_strings(["org", "ns", "type"]).with_id(1);
+        let dst = Name::from_strings(["org", "ns", "type"]).with_id(2);
 
         // panic if SLIM header is not found
         let msg = ProtoMessage::new_subscribe(
             &source,
-            &name,
-            None,
+            &dst,
             Some(
                 SlimHeaderFlags::default()
                     .with_recv_from(2)
@@ -1173,7 +1069,7 @@ mod tests {
         // all the other ops should fail with panic as well as the header is not set
         let result = std::panic::catch_unwind(|| message.get_source());
         assert!(result.is_err());
-        let result = std::panic::catch_unwind(|| message.get_name());
+        let result = std::panic::catch_unwind(|| message.get_dst());
         assert!(result.is_err());
         let result = std::panic::catch_unwind(|| message.get_recv_from());
         assert!(result.is_err());

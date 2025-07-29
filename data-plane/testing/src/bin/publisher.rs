@@ -7,7 +7,7 @@ use std::time::Duration;
 use std::{collections::HashMap, sync::Arc};
 
 use parking_lot::RwLock;
-use slim_datapath::messages::{Agent, AgentType};
+use slim_datapath::messages::Name;
 use slim_service::SlimHeaderFlags;
 use testing::parse_line;
 use tokio_util::sync::CancellationToken;
@@ -172,7 +172,7 @@ async fn main() {
     let svc = config.services.get_mut(&svc_id).unwrap();
 
     // create local agent
-    let agent_name = Agent::from_strings("cisco", "default", "publisher", id);
+    let agent_name = Name::from_strings(["agntcy", "default", "publisher"]).with_id(id);
 
     let (app, mut rx) = svc
         .create_app(
@@ -193,14 +193,7 @@ async fn main() {
     info!("remote connection id = {}", conn_id);
 
     // subscribe for local name
-    match app
-        .subscribe(
-            agent_name.agent_type(),
-            agent_name.agent_id_option(),
-            Some(conn_id),
-        )
-        .await
-    {
+    match app.subscribe(&agent_name, Some(conn_id)).await {
         Ok(_) => {}
         Err(e) => {
             panic!("an error accoured while adding a subscription {}", e);
@@ -214,19 +207,19 @@ async fn main() {
     if streaming || pubsub {
         // set route for the topic
         let topic = match streaming {
-            true => AgentType::from_strings("cisco", "default", "subscriber"),
-            false => AgentType::from_strings("topic", "topic", "topic"),
+            true => Name::from_strings(["agntcy", "default", "subscriber"]),
+            false => Name::from_strings(["topic", "topic", "topic"]),
         };
 
         // subscribe for the topic
-        match app.subscribe(&topic, None, Some(conn_id)).await {
+        match app.subscribe(&topic, Some(conn_id)).await {
             Ok(_) => {}
             Err(e) => {
                 panic!("an error accoured while adding a subscription {}", e);
             }
         }
 
-        app.set_route(&topic, None, conn_id).await.unwrap();
+        app.set_route(&topic, conn_id).await.unwrap();
 
         // create session
         let res = match streaming {
@@ -235,7 +228,7 @@ async fn main() {
                 app.create_session(
                     slim_service::session::SessionConfig::Streaming(StreamingConfiguration::new(
                         slim_service::session::SessionDirection::Sender,
-                        None,
+                        topic.clone(),
                         false,
                         None,
                         None,
@@ -250,7 +243,7 @@ async fn main() {
                 app.create_session(
                     slim_service::session::SessionConfig::Streaming(StreamingConfiguration::new(
                         slim_service::session::SessionDirection::Bidirectional,
-                        Some(topic.clone()),
+                        topic.clone(),
                         false,
                         Some(10),
                         Some(Duration::from_millis(1000)),
@@ -280,8 +273,7 @@ async fn main() {
                                 panic!("received message from slim, this should never happen");
                             }
                             if pubsub {
-                                let publisher_id =
-                                    msg.message.get_slim_header().get_source().agent_id();
+                                let publisher_id = msg.message.get_slim_header().get_source();
                                 info!(
                                     "received message {} from publisher {}",
                                     msg.info.message_id.unwrap(),
@@ -306,7 +298,7 @@ async fn main() {
             // set fanout > 1 to send the message in broadcast
             let flags = SlimHeaderFlags::new(10, None, None, None, None);
             if app
-                .publish_with_flags(session_info.clone(), &topic, None, flags, payload)
+                .publish_with_flags(session_info.clone(), &topic, flags, payload)
                 .await
                 .is_err()
             {
@@ -359,10 +351,7 @@ async fn main() {
 
     // set routes for all subscriptions
     for r in routes {
-        match app
-            .set_route(r.agent_type(), r.agent_id_option(), conn_id)
-            .await
-        {
+        match app.set_route(&r, conn_id).await {
             Ok(_) => {}
             Err(e) => {
                 panic!("an error accoured while adding a route {}", e);
@@ -472,16 +461,10 @@ async fn main() {
         }
         payload[pid.len()] = 0;
 
-        // send message
-        // at the moment we have only one connection so we can use it to send all messages there
-        // the match will be performed by the remote SLIM.
-        let agent_id = p.1.agent_id();
-        let name_id = if agent_id == 0 { None } else { Some(agent_id) };
-
         // for the moment we send the message in anycast
         // we need to test also the match_all function
         if app
-            .publish(session_info.clone(), p.1.agent_type(), name_id, payload)
+            .publish(session_info.clone(), &p.1, payload)
             .await
             .is_err()
         {
