@@ -30,6 +30,13 @@ group "data-plane" {
   ]
 }
 
+group "control-plane" {
+  targets = [
+    "control-plane",
+  ]
+}
+
+
 target "_common" {
   output = [
     "type=image",
@@ -119,4 +126,30 @@ target "testutils" {
     "docker-metadata-action",
   ]
   tags = get_tag(target.docker-metadata-action.tags, "${target.testutils.name}")
+}
+
+target "control-plane" {
+  contexts = {
+    src = "."
+  }
+  dockerfile = "./control-plane/Dockerfile"
+  target     = "control-plane"
+  inherits = [
+    "_common",
+    "docker-metadata-action",
+  ]
+  tags = get_tag(target.docker-metadata-action.tags, "${target.control-plane.name}")
+}
+
+target "slim-bindings-examples" {
+  contexts = {
+    src = "."
+  }
+  dockerfile = "./data-plane/python-bindings/examples/Dockerfile"
+  target     = "slim-bindings-examples"
+  inherits = [
+    "_common",
+    "docker-metadata-action",
+  ]
+  tags = get_tag(target.docker-metadata-action.tags, "${target.slim-bindings-examples.name}")
 }

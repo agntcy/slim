@@ -1,0 +1,137 @@
+// Copyright AGNTCY Contributors (https://github.com/agntcy)
+// SPDX-License-Identifier: Apache-2.0
+
+syntax = "proto3";
+package controlplane.proto.v1;
+
+import "controller/v1/controller.proto";
+
+option go_package = "github.com/agntcy/slim/control-plane/common/proto/controlplane/v1;controlplanev1";
+
+service ControlPlaneService {
+  rpc CreateConnection(CreateConnectionRequest) returns (CreateConnectionResponse) {}
+  rpc CreateSubscription(CreateSubscriptionRequest) returns (CreateSubscriptionResponse) {}
+  rpc ListSubscriptions(Node) returns (controller.proto.v1.SubscriptionListResponse) {}
+  rpc ListConnections(Node) returns (controller.proto.v1.ConnectionListResponse) {}
+  rpc DeleteSubscription(DeleteSubscriptionRequest) returns (DeleteSubscriptionResponse) {}
+
+  rpc ListNodes(NodeListRequest) returns (NodeListResponse) {}
+  rpc DeregisterNode(Node) returns (DeregisterNodeResponse) {}
+
+  rpc CreateChannel(CreateChannelRequest) returns (CreateChannelResponse) {}
+  rpc DeleteChannel(DeleteChannelRequest) returns (controller.proto.v1.Ack) {}
+  rpc AddParticipant(AddParticipantRequest) returns (controller.proto.v1.Ack) {}
+  rpc DeleteParticipant(DeleteParticipantRequest) returns (controller.proto.v1.Ack) {}
+  rpc ListChannels(ListChannelsRequest) returns (ListChannelsResponse) {}
+  rpc ListParticipants(ListParticipantsRequest) returns (ListParticipantsResponse) {}
+}
+
+message ConfigurationCommand {
+  controller.proto.v1.ConfigurationCommand configuration_command = 1;
+  string nodeId = 2;
+}
+
+message Node { 
+  string id = 1;
+ }
+
+message NodeListRequest {}
+
+enum NodeStatus {
+  NODE_STATUS_UNSPECIFIED = 0;
+  CONNECTED = 1;
+  NOT_CONNECTED = 2;
+}
+
+message NodeEntry {
+  string id = 1;
+  string host = 2;
+  uint32 port = 3;
+  NodeStatus status = 4;
+}
+
+message NodeListResponse {
+    repeated NodeEntry entries = 1;
+}
+
+message CreateConnectionRequest {
+  controller.proto.v1.Connection connection = 1;
+  string nodeId = 2;
+}
+
+message CreateConnectionResponse {
+  bool success = 1;
+  string connectionId = 2;
+}
+
+message CreateSubscriptionRequest {
+  controller.proto.v1.Subscription subscription = 1;
+  string nodeId = 2;
+}
+
+message CreateSubscriptionResponse {
+  bool success = 1;
+  string subscriptionId = 2;
+
+}
+
+message DeleteSubscriptionRequest {
+  string subscriptionId = 1;
+  string nodeId = 2;
+}
+
+message DeleteSubscriptionResponse {
+  bool success = 1;
+}
+
+message DeregisterNodeResponse {
+  bool success = 1;
+}
+
+message CreateChannelRequest {
+  // list of moderators for the channel (e.g. spiffe SVID)
+  repeated string moderators = 1;
+}
+
+message CreateChannelResponse {
+  // ID of the channel, to which clients will subscribe (e.g. spiffe SVID)
+  string channel_id = 1;
+}
+
+message DeleteChannelRequest {
+  // ID of the channel
+  string channel_id = 1;
+}
+
+message AddParticipantRequest {
+  // ID of the channel
+  string channel_id = 1;
+
+  // ID of participant (e.g. spiffe SVID)
+  string participant_id = 2;
+}
+
+message DeleteParticipantRequest {
+  // ID of the channel
+  string channel_id = 1;
+
+  // ID of participant (e.g. spiffe SVID)
+  string participant_id = 2;
+}
+
+message ListChannelsRequest {}
+
+message ListChannelsResponse {
+  // IDs of the channels available in the control plane
+  repeated string channel_id = 1;
+}
+
+message ListParticipantsRequest {
+  // ID of the channel
+  string channel_id = 1;
+}
+
+message ListParticipantsResponse {
+  // list of participants in the channel
+  repeated string participant_id = 1;
+}

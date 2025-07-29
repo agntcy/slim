@@ -8,6 +8,8 @@ from typing import Optional
 from ._slim_bindings import (  # type: ignore[attr-defined]
     SESSION_UNSPECIFIED,
     PyAgentType,
+    PyIdentityProvider,
+    PyIdentityVerifier,
     PyService,
     PySessionConfiguration,
     PySessionInfo,
@@ -33,6 +35,18 @@ from ._slim_bindings import (  # type: ignore[attr-defined]
     stop_server,
     subscribe,
     unsubscribe,
+)
+from ._slim_bindings import (
+    PyAlgorithm as PyAlgorithm,
+)
+from ._slim_bindings import (
+    PyKey as PyKey,
+)
+from ._slim_bindings import (
+    PyKeyData as PyKeyData,
+)
+from ._slim_bindings import (
+    PyKeyFormat as PyKeyFormat,
 )
 from ._slim_bindings import (
     PySessionDirection as PySessionDirection,
@@ -202,7 +216,8 @@ class Slim:
         organization: str,
         namespace: str,
         agent: str,
-        agent_id: Optional[int] = None,
+        provider: PyIdentityProvider,
+        verifier: PyIdentityVerifier,
     ) -> "Slim":
         """
         Create a new SLIM instance. A SLIM instamce is associated to one single
@@ -220,7 +235,7 @@ class Slim:
         """
 
         return cls(
-            await create_pyservice(organization, namespace, agent, agent_id),
+            await create_pyservice(organization, namespace, agent, provider, verifier),
             organization,
             namespace,
             agent,

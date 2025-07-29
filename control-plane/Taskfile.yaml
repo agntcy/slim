@@ -2,7 +2,6 @@
 # SPDX-License-Identifier: Apache-2.0
 
 ---
-
 version: "3"
 
 silent: true
@@ -123,11 +122,11 @@ tasks:
     cmds:
       - >
         {{.REPO_ROOT}}/.tools/protoc --proto_path=../proto \
-          --go_out=paths=source_relative:./slimctl/internal/proto \
-          --go-grpc_out=paths=source_relative:./slimctl/internal/proto \
+          --go_out=paths=source_relative:./common/proto \
+          --go-grpc_out=paths=source_relative:./common/proto \
           --plugin={{.REPO_ROOT}}/.tools/protoc-gen-go \
           --plugin={{.REPO_ROOT}}/.tools/protoc-gen-go-grpc \
-          controller/v1/controller.proto
+          controller/v1/controller.proto controlplane/v1/controlplane.proto
 
   control-plane:slimctl:build:
     desc: Build slimctl
@@ -179,6 +178,35 @@ tasks:
 
   control-plane:build:
     desc: Build go binaries
+    deps: [control-plane:modtidy]
     cmds:
+      - task: control-plane:control-plane:build
       - task: control-plane:token-service:build
       - task: control-plane:slimctl:build
+
+
+  #  control plane related tasks
+  control-plane:control-plane:build:
+    desc: Builds the control plane binary
+    dir: control-plane/cmd
+    deps:
+      - control-plane:proto:generate
+    cmds:
+      - |
+        go mod tidy
+      - |
+        go mod download
+      - |
+        go generate ./../...
+      - |
+        go build -o \
+          {{.OUTPUT_DIR}}/bin/control-plane
+
+  control-plane:control-plane:run:
+    desc: Runs the control plane binary
+    deps:
+      - control-plane:control-plane:build
+    cmds:
+      - |
+        {{.OUTPUT_DIR}}/bin/control-plane \
+          --config {{.REPO_ROOT}}/control-plane/control-plane/config/config.yaml

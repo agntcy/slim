@@ -10,7 +10,7 @@ use clap::Parser;
 use tokio::sync::mpsc;
 
 use slim::runtime::RuntimeConfiguration;
-use slim_auth::simple::SimpleGroup;
+use slim_auth::shared_secret::SharedSecret;
 use slim_config::component::{Component, id::ID};
 use slim_config::grpc::client::ClientConfig as GrpcClientConfig;
 use slim_config::grpc::server::ServerConfig as GrpcServerConfig;
@@ -673,8 +673,8 @@ async fn run_moderator_task(
     let (app, mut rx) = svc
         .create_app(
             &local_name,
-            SimpleGroup::new(local_name_str, "group"),
-            SimpleGroup::new(local_name_str, "group"),
+            SharedSecret::new(local_name_str, "group"),
+            SharedSecret::new(local_name_str, "group"),
         )
         .await
         .map_err(|e| format!("Failed to create moderator app: {}", e))?;
@@ -930,8 +930,8 @@ async fn run_participant_task(
     let (app, mut rx) = svc
         .create_app(
             &local_name,
-            SimpleGroup::new(&local_name_str, "group"),
-            SimpleGroup::new(&local_name_str, "group"),
+            SharedSecret::new(&local_name_str, "group"),
+            SharedSecret::new(&local_name_str, "group"),
         )
         .await
         .map_err(|e| format!("Failed to create participant {} app: {}", id, e))?;

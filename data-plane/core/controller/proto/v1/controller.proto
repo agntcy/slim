@@ -6,7 +6,7 @@ package controller.proto.v1;
 
 import "google/protobuf/wrappers.proto";
 
-option go_package = "github.com/agntcy/slim/control-plane/internal/proto/controller/v1;controllerv1";
+option go_package = "github.com/agntcy/slim/control-plane/common/proto/controller/v1;controllerv1";
 
 service ControllerService {
   rpc OpenControlChannel(stream ControlMessage) returns (stream ControlMessage) {}

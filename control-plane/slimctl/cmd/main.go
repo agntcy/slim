@@ -19,10 +19,10 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 
-	connectionCmd "github.com/agntcy/slim/control-plane/slimctl/internal/cmd/connection"
-	routeCmd "github.com/agntcy/slim/control-plane/slimctl/internal/cmd/route"
+	"github.com/agntcy/slim/control-plane/common/options"
+	controllerCmd "github.com/agntcy/slim/control-plane/slimctl/internal/cmd/controller"
+	nodectrlCmd "github.com/agntcy/slim/control-plane/slimctl/internal/cmd/nodecontroller"
 	versionCmd "github.com/agntcy/slim/control-plane/slimctl/internal/cmd/version"
-	"github.com/agntcy/slim/control-plane/slimctl/internal/options"
 )
 
 var k = koanf.New(".")
@@ -130,8 +130,11 @@ func main() {
 		"path to client TLS key",
 	)
 
-	rootCmd.AddCommand(routeCmd.NewRouteCmd(opts))
-	rootCmd.AddCommand(connectionCmd.NewConnectionCmd(opts))
+	rootCmd.AddCommand(controllerCmd.NewNodeCmd(opts))
+	rootCmd.AddCommand(controllerCmd.NewConnectionCmd(opts))
+	rootCmd.AddCommand(controllerCmd.NewRouteCmd(opts))
+
+	rootCmd.AddCommand(nodectrlCmd.NewNodeCmd(opts))
 	rootCmd.AddCommand(versionCmd.NewVersionCmd(opts))
 
 	if err := rootCmd.Execute(); err != nil {

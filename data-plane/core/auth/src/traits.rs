@@ -25,7 +25,7 @@ pub struct StandardClaims {
 
     /// Audience (who the JWT is intended for)
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub aud: Option<String>,
+    pub aud: Option<Vec<String>>,
 
     /// Expiration time (when the JWT expires)
     pub exp: u64,
