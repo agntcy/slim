@@ -1,9 +1,15 @@
 package nodecontrol
 
 import (
+	"context"
+	"fmt"
 	"reflect"
+	"strings"
+	"sync"
 	"testing"
 	"time"
+
+	"google.golang.org/grpc/metadata"
 
 	controllerapi "github.com/agntcy/slim/control-plane/common/proto/controller/v1"
 )
@@ -93,4 +99,134 @@ func TestWaitForResponseByType_Timeout(t *testing.T) {
 	if duration < 9*time.Second || duration > 11*time.Second {
 		t.Errorf("expected timeout around 10 seconds, got %v", duration)
 	}
+}
+
+func TestSendMessage_NodeIDEmpty(t *testing.T) {
+	ms := DefaultNodeCommandHandler()
+	err := ms.SendMessage("", &controllerapi.ControlMessage{MessageId: "msg1"})
+	if err == nil || err.Error() != "nodeID cannot be empty" {
+		t.Fatalf("expected error for empty nodeID, got: %v", err)
+	}
+}
+
+type mockStream struct {
+	sentMessages []*controllerapi.ControlMessage
+	sendMu       sync.Mutex
+	sendDelay    time.Duration
+	failSend     bool
+}
+
+func (m *mockStream) Send(msg *controllerapi.ControlMessage) error {
+	m.sendMu.Lock()
+	defer m.sendMu.Unlock()
+	if m.failSend {
+		return fmt.Errorf("send failed")
+	}
+	if m.sendDelay > 0 {
+		time.Sleep(m.sendDelay)
+	}
+	m.sentMessages = append(m.sentMessages, msg)
+	return nil
+}
+
+func (m *mockStream) Recv() (*controllerapi.ControlMessage, error) {
+	return nil, nil
+}
+
+func (m *mockStream) SetHeader(metadata.MD) error  { return nil }
+func (m *mockStream) SendHeader(metadata.MD) error { return nil }
+func (m *mockStream) SetTrailer(metadata.MD)       {}
+func (m *mockStream) Context() context.Context     { return context.Background() }
+func (m *mockStream) SendMsg(interface{}) error    { return nil }
+func (m *mockStream) RecvMsg(interface{}) error    { return nil }
+
+func TestSendMessage_NodeNotConnected(t *testing.T) {
+	ms := DefaultNodeCommandHandler()
+	nodeID := "node1"
+	// No connection status set, so should error
+	err := ms.SendMessage(nodeID, &controllerapi.ControlMessage{MessageId: "msg1"})
+	if err == nil || !contains(err.Error(), "failed to get connection status") {
+		t.Fatalf("expected error for missing connection status, got: %v", err)
+	}
+}
+
+func TestSendMessage_NodeNotConnectedStatus(t *testing.T) {
+	ms := DefaultNodeCommandHandler()
+	nodeID := "node1"
+	ms.UpdateConnectionStatus(nodeID, NodeStatusNotConnected)
+	err := ms.SendMessage(nodeID, &controllerapi.ControlMessage{MessageId: "msg1"})
+	if err == nil || !contains(err.Error(), "is not connected") {
+		t.Fatalf("expected error for not connected node, got: %v", err)
+	}
+}
+
+func TestSendMessage_NoStream(t *testing.T) {
+	ms := DefaultNodeCommandHandler()
+	nodeID := "node1"
+	ms.UpdateConnectionStatus(nodeID, NodeStatusConnected)
+	// No stream added
+	err := ms.SendMessage(nodeID, &controllerapi.ControlMessage{MessageId: "msg1"})
+	if err == nil || !contains(err.Error(), "no stream found") {
+		t.Fatalf("expected error for missing stream, got: %v", err)
+	}
+}
+
+func TestSendMessage_SendFails(t *testing.T) {
+	ms := DefaultNodeCommandHandler()
+	nodeID := "node1"
+	ms.UpdateConnectionStatus(nodeID, NodeStatusConnected)
+	mock := &mockStream{failSend: true}
+	ms.AddStream(nodeID, mock)
+	err := ms.SendMessage(nodeID, &controllerapi.ControlMessage{MessageId: "msg1"})
+	if err == nil || !contains(err.Error(), "failed to send message") {
+		t.Fatalf("expected error for send failure, got: %v", err)
+	}
+}
+
+func TestSendMessage_Success(t *testing.T) {
+	ms := DefaultNodeCommandHandler()
+	nodeID := "node1"
+	ms.UpdateConnectionStatus(nodeID, NodeStatusConnected)
+	mock := &mockStream{}
+	ms.AddStream(nodeID, mock)
+	msg := &controllerapi.ControlMessage{MessageId: "msg1"}
+	err := ms.SendMessage(nodeID, msg)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(mock.sentMessages) != 1 || mock.sentMessages[0] != msg {
+		t.Fatalf("expected message to be sent")
+	}
+}
+
+func TestSendMessage_SerializesPerNodeID(t *testing.T) {
+	ms := DefaultNodeCommandHandler()
+	nodeID := "node1"
+	ms.UpdateConnectionStatus(nodeID, NodeStatusConnected)
+	mock := &mockStream{sendDelay: 200 * time.Millisecond}
+	ms.AddStream(nodeID, mock)
+
+	var wg sync.WaitGroup
+	start := time.Now()
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		_ = ms.SendMessage(nodeID, &controllerapi.ControlMessage{MessageId: "msg1"})
+	}()
+	go func() {
+		defer wg.Done()
+		_ = ms.SendMessage(nodeID, &controllerapi.ControlMessage{MessageId: "msg2"})
+	}()
+	wg.Wait()
+	elapsed := time.Since(start)
+	if elapsed < 400*time.Millisecond {
+		t.Errorf("expected serialization, got elapsed=%v", elapsed)
+	}
+	if len(mock.sentMessages) != 2 {
+		t.Errorf("expected 2 messages sent, got %d", len(mock.sentMessages))
+	}
+}
+
+func contains(s, substr string) bool {
+	return strings.Contains(s, substr)
 }
