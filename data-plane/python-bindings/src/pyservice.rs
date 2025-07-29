@@ -55,13 +55,16 @@ impl PyService {
     pub fn id(&self) -> u64 {
         self.sdk.agent.id()
     }
+
+    #[getter]
+    pub fn name(&self) -> PyName {
+        PyName::from(self.sdk.agent.clone())
+    }
 }
 
 impl PyService {
     async fn create_pyservice(
-        organization: String,
-        namespace: String,
-        agent_type: String,
+        name: PyName,
         provider: PyIdentityProvider,
         verifier: PyIdentityVerifier,
     ) -> Result<Self, ServiceError> {
@@ -76,8 +79,8 @@ impl PyService {
         })?;
 
         // TODO(msardara): we can likely get more information from the token here, like a global instance ID
-        let agent = Name::from_strings([&organization, &namespace, &agent_type])
-            .with_id(rand::random::<u64>());
+        let agent: Name = name.into();
+        let agent = agent.with_id(rand::random::<u64>());
 
         // create service ID
         let svc_id = slim_config::component::id::ID::new_with_str("service/0").unwrap();
@@ -433,12 +436,7 @@ pub fn set_route(py: Python, svc: PyService, conn: u64, name: PyName) -> PyResul
 #[gen_stub_pyfunction]
 #[pyfunction]
 #[pyo3(signature = (svc, conn, name))]
-pub fn remove_route(
-    py: Python,
-    svc: PyService,
-    conn: u64,
-    name: PyName,
-) -> PyResult<Bound<PyAny>> {
+pub fn remove_route(py: Python, svc: PyService, conn: u64, name: PyName) -> PyResult<Bound<PyAny>> {
     pyo3_async_runtimes::tokio::future_into_py(py, async move {
         svc.remove_route(conn, name)
             .await
@@ -513,17 +511,15 @@ pub fn receive(py: Python, svc: PyService) -> PyResult<Bound<PyAny>> {
 
 #[gen_stub_pyfunction]
 #[pyfunction]
-#[pyo3(signature = (organization, namespace, agent_type, provider, verifier))]
+#[pyo3(signature = (name, provider, verifier))]
 pub fn create_pyservice(
     py: Python,
-    organization: String,
-    namespace: String,
-    agent_type: String,
+    name: PyName,
     provider: PyIdentityProvider,
     verifier: PyIdentityVerifier,
 ) -> PyResult<Bound<PyAny>> {
     pyo3_async_runtimes::tokio::future_into_py(py, async move {
-        PyService::create_pyservice(organization, namespace, agent_type, provider, verifier)
+        PyService::create_pyservice(name, provider, verifier)
             .await
             .map_err(|e| PyErr::new::<PyException, _>(e.to_string()))
     })

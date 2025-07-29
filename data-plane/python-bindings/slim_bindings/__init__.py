@@ -138,9 +138,7 @@ class Slim:
     def __init__(
         self,
         svc: PyService,
-        organization: str,
-        namespace: str,
-        agent: str,
+        name: PyName,
     ):
         """
         Initialize a new SLIM instance. A SLIM instance is associated with a single
@@ -163,7 +161,7 @@ class Slim:
         }
 
         # Save local names
-        self.local_name = PyName(organization, namespace, agent, self.svc.id)
+        self.local_name = name
 
         # Create connection ID map
         self.conn_ids: dict[str, int] = {}
@@ -212,9 +210,7 @@ class Slim:
     @classmethod
     async def new(
         cls,
-        organization: str,
-        namespace: str,
-        agent: str,
+        name: PyName,
         provider: PyIdentityProvider,
         verifier: PyIdentityVerifier,
     ) -> "Slim":
@@ -234,10 +230,8 @@ class Slim:
         """
 
         return cls(
-            await create_pyservice(organization, namespace, agent, provider, verifier),
-            organization,
-            namespace,
-            agent,
+            await create_pyservice(name, provider, verifier),
+            name,
         )
 
     def get_agent_id(self) -> int:
@@ -472,6 +466,7 @@ class Slim:
         await set_route(self.svc, self.conn_id, name)
 
     async def remove_route(
+            self,
         name: PyName,
     ):
         """

@@ -74,6 +74,14 @@ impl PyName {
     pub fn agent_type(&self) -> String {
         self.name.components_strings().unwrap()[2].to_string()
     }
+
+    fn __repr__(&self) -> String {
+        self.name.to_string()
+    }
+
+    fn __str__(&self) -> String {
+        self.name.to_string()
+    }
 }
 
 async fn init_tracing_impl(config: TracingConfiguration) -> Result<(), slim_tracing::ConfigError> {
