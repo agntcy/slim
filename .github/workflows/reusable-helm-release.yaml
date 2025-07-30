@@ -56,6 +56,9 @@ jobs:
           
           # Extract the chart name from the release tag
           echo "value=${_chart_name%-v*}/" >> "$GITHUB_OUTPUT"
+          
+          # extract the chart version form the tag
+          echo "version=${_chart_name##*-v}" >> "$GITHUB_OUTPUT"
 
 
       - name: Helm lint
@@ -69,8 +72,8 @@ jobs:
         id: build
         shell: bash
         run: |
-          helm package charts/${{ steps.chart-name.outputs.value }} --dependency-update --version ${{ inputs.release_tag }}
-          echo "package=${{ steps.chart-name.outputs.value }}-${{ inputs.release_tag }}.tgz" >> "$GITHUB_OUTPUT"
+          helm package charts/${{ steps.chart-name.outputs.value }} --dependency-update --version ${{ steps.chart_name.outputs.version }}
+          echo "package=${{ steps.chart-name.outputs.value }}-${{ steps.chart_name.outputs.version }}.tgz" >> "$GITHUB_OUTPUT"
 
       - name: Helm push to GHCR OCI registry
         shell: bash
