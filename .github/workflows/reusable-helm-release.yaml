@@ -47,21 +47,33 @@ jobs:
         with:
           version: ${{ inputs.helm-version }}
 
-      - name: Helm lint
-        shell: bash
-        run: helm lint charts/slim --with-subcharts
-
       - name: Set chart name
         id: chart-name
         shell: bash
-        run: echo "value=${{ github.event.repository.name }}" >> "$GITHUB_OUTPUT"
+        run: |
+          echo "Resolving chart name from release tag: ${{ inputs.release_tag }}"
+          _chart_name=${{ inputs.release_tag }}
+          
+          # Extract the chart name from the release tag
+          echo "value=${_chart_name%-v*}/" >> "$GITHUB_OUTPUT"
+          
+          # extract the chart version form the tag
+          echo "version=${_chart_name##*-v}" >> "$GITHUB_OUTPUT"
+
+
+      - name: Helm lint
+        shell: bash
+        run: |
+          ## By convention the name of the chart is the name of the folder under charts/
+          helm lint charts/${{ steps.chart-name.outputs.value }} --with-subcharts
+
 
       - name: Helm package
         id: build
         shell: bash
         run: |
-          helm package charts/slim --dependency-update --version ${{ inputs.release_tag }}
-          echo "package=${{ steps.chart-name.outputs.value }}-${{ inputs.release_tag }}.tgz" >> "$GITHUB_OUTPUT"
+          helm package charts/${{ steps.chart-name.outputs.value }} --dependency-update --version ${{ steps.chart_name.outputs.version }}
+          echo "package=${{ steps.chart-name.outputs.value }}-${{ steps.chart_name.outputs.version }}.tgz" >> "$GITHUB_OUTPUT"
 
       - name: Helm push to GHCR OCI registry
         shell: bash
