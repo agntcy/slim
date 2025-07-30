@@ -53,10 +53,10 @@ jobs:
         run: |
           echo "Resolving chart name from release tag: ${{ inputs.release_tag }}"
           _chart_name=${{ inputs.release_tag }}
-          
+
           # Extract the chart name from the release tag
-          echo "value=${_chart_name%-v*}/" >> "$GITHUB_OUTPUT"
-          
+          echo "value=${_chart_name%-v*}" >> "$GITHUB_OUTPUT"
+
           # extract the chart version form the tag
           echo "version=${_chart_name##*-v}" >> "$GITHUB_OUTPUT"
 
@@ -67,13 +67,12 @@ jobs:
           ## By convention the name of the chart is the name of the folder under charts/
           helm lint charts/${{ steps.chart-name.outputs.value }} --with-subcharts
 
-
       - name: Helm package
         id: build
         shell: bash
         run: |
-          helm package charts/${{ steps.chart-name.outputs.value }} --dependency-update --version ${{ steps.chart_name.outputs.version }}
-          echo "package=${{ steps.chart-name.outputs.value }}-${{ steps.chart_name.outputs.version }}.tgz" >> "$GITHUB_OUTPUT"
+          helm package charts/${{ steps.chart-name.outputs.value }} --dependency-update --version ${{ steps.chart-name.outputs.version }}
+          echo "package=${{ steps.chart-name.outputs.value }}-${{ steps.chart-name.outputs.version }}.tgz" >> "$GITHUB_OUTPUT"
 
       - name: Helm push to GHCR OCI registry
         shell: bash
