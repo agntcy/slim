@@ -21,12 +21,17 @@ path = "src/bin/publisher.rs"
 name = "channel"
 path = "src/bin/channel.rs"
 
+[[bin]]
+name = "group-test"
+path = "src/bin/group_test.rs"
+
 [dependencies]
 agntcy-slim = { workspace = true }
 agntcy-slim-auth = { workspace = true }
 agntcy-slim-config = { workspace = true }
 agntcy-slim-datapath = { workspace = true }
 agntcy-slim-service = { workspace = true }
+agntcy-slim-tracing = { workspace = true }
 clap = { workspace = true }
 indicatif = { workspace = true }
 parking_lot = { workspace = true }

@@ -90,5 +90,7 @@ tasks:
     cmds:
       - cargo run --release --bin channel -- --config $CONFIG_CLIENT --name org/ns/t3/1 --moderator-name org/ns/moderator/1 --is-attacker
 
-
-
+  run:mls-group:test:
+    desc: "start MLS dynamic group test"
+    cmds:
+      - cargo run --release --bin group-test
