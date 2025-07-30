@@ -164,7 +164,7 @@ async fn main() {
         format!("Hello from the participant {}. msg id: ", local_name_str)
     };
 
-    // start local agent
+    // start local app
     // get service
     let mut config = config::load_config(config_file).expect("failed to load configuration");
     let _guard = config.tracing.setup_tracing_subscriber();
@@ -183,7 +183,7 @@ async fn main() {
             SharedSecret::new(&local_name_str, "group"),
         )
         .await
-        .expect("failed to create agent");
+        .expect("failed to create app");
 
     // run the service - this will create all the connections provided via the config file.
     svc.run().await.unwrap();

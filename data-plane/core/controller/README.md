@@ -67,15 +67,15 @@ match payload {
 ### Subscription Configuration
 
 Users can dynamically configure routing by managing subscriptions for specific
-organizations, namespaces, and agent types:
+organizations, namespaces, and application types:
 
 ```rust
 // Example of handling subscription configuration
 for sub in &config.subscriptions_to_set {
     let organization = sub.organization.clone();
     let namespace = sub.namespace.clone();
-    let agent_type = sub.agent_type.clone();
-    let agent_id = sub.agent_id.as_ref().map(|id| id.value);
+    let app_type = sub.app_type.clone();
+    let app_instance = sub.app_instance.as_ref().map(|id| id.value);
 
     // Add subscription to routing table
 }

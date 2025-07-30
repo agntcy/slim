@@ -200,10 +200,7 @@ async def test_slim_wrapper(server):
         {"endpoint": "http://127.0.0.1:12345", "tls": {"insecure": True}}
     )
 
-    # # subscribe to the service
-    # await slim1.subscribe(org, ns, agent1)
-
-    # create second local agent
+    # create second local app
     slim2 = await create_slim(name2, "secret")
 
     # Connect to SLIM server
@@ -346,7 +343,7 @@ async def test_error_on_nonexistent_subscription(server):
         svc_alice, slim_bindings.PySessionConfiguration.FireAndForget()
     )
 
-    # create Bob's agent class, but do not instantiate or subscribe Bob
+    # create Bob's name, but do not instantiate or subscribe Bob
     bob_name = slim_bindings.PyName("org", "default", "bob")
 
     # publish a message from Alice intended for Bob (who is not there)

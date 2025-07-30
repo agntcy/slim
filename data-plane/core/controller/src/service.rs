@@ -287,7 +287,7 @@ impl ControllerService {
                 match payload {
                     Payload::ConfigCommand(config) => {
                         for conn in &config.connections_to_create {
-                            error!("received a connection to create: {:?}", conn);
+                            info!("received a connection to create: {:?}", conn);
                             let client_config =
                                 serde_json::from_str::<ClientConfig>(&conn.config_data)
                                     .map_err(|e| ControllerError::ConfigError(e.to_string()))?;
@@ -357,7 +357,7 @@ impl ControllerService {
                                 subscription.component_2.as_str(),
                             ])
                             .with_id(0);
-                            let agent_type = Name::from_strings([
+                            let name = Name::from_strings([
                                 subscription.component_0.as_str(),
                                 subscription.component_1.as_str(),
                                 subscription.component_2.as_str(),
@@ -366,7 +366,7 @@ impl ControllerService {
 
                             let msg = PubsubMessage::new_subscribe(
                                 &source,
-                                &agent_type,
+                                &name,
                                 Some(SlimHeaderFlags::default().with_recv_from(conn)),
                             );
 
@@ -399,7 +399,7 @@ impl ControllerService {
                                 subscription.component_2.as_str(),
                             ])
                             .with_id(0);
-                            let agent_type = Name::from_strings([
+                            let name = Name::from_strings([
                                 subscription.component_0.as_str(),
                                 subscription.component_1.as_str(),
                                 subscription.component_2.as_str(),
@@ -408,7 +408,7 @@ impl ControllerService {
 
                             let msg = PubsubMessage::new_unsubscribe(
                                 &source,
-                                &agent_type,
+                                &name,
                                 Some(SlimHeaderFlags::default().with_recv_from(conn)),
                             );
 
@@ -439,15 +439,15 @@ impl ControllerService {
                         let mut entries = Vec::new();
 
                         self.inner.message_processor.subscription_table().for_each(
-                            |agent_type, agent_id, local, remote| {
+                            |name, id, local, remote| {
                                 let mut entry = SubscriptionEntry {
-                                    component_0: agent_type.components_strings().unwrap()[0]
+                                    component_0: name.components_strings().unwrap()[0]
                                         .to_string(),
-                                    component_1: agent_type.components_strings().unwrap()[1]
+                                    component_1: name.components_strings().unwrap()[1]
                                         .to_string(),
-                                    component_2: agent_type.components_strings().unwrap()[2]
+                                    component_2: name.components_strings().unwrap()[2]
                                         .to_string(),
-                                    id: Some(agent_id),
+                                    id: Some(id),
                                     ..Default::default()
                                 };
 

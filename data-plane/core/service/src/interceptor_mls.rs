@@ -165,10 +165,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_mls_interceptor_without_group() {
-        let agent =
+        let name =
             slim_datapath::messages::Name::from_strings(["org", "default", "test_user"]).with_id(0);
         let mut mls = Mls::new(
-            agent,
+            name,
             SharedSecret::new("test", "group"),
             SharedSecret::new("test", "group"),
             std::path::PathBuf::from("/tmp/mls_interceptor_test_without_group"),
@@ -198,19 +198,19 @@ mod tests {
 
     #[tokio::test]
     async fn test_mls_interceptor_with_group() {
-        let alice_agent =
+        let alice =
             slim_datapath::messages::Name::from_strings(["org", "default", "alice"]).with_id(0);
-        let bob_agent =
+        let bob =
             slim_datapath::messages::Name::from_strings(["org", "default", "bob"]).with_id(1);
 
         let mut alice_mls = Mls::new(
-            alice_agent,
+            alice,
             SharedSecret::new("alice", "group"),
             SharedSecret::new("alice", "group"),
             std::path::PathBuf::from("/tmp/mls_interceptor_test_alice"),
         );
         let mut bob_mls = Mls::new(
-            bob_agent,
+            bob,
             SharedSecret::new("bob", "group"),
             SharedSecret::new("bob", "group"),
             std::path::PathBuf::from("/tmp/mls_interceptor_test_bob"),
@@ -262,10 +262,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_mls_interceptor_non_encrypted_message() {
-        let agent =
+        let name =
             slim_datapath::messages::Name::from_strings(["org", "default", "test_user"]).with_id(0);
         let mut mls = Mls::new(
-            agent,
+            name,
             SharedSecret::new("test", "group"),
             SharedSecret::new("test", "group"),
             std::path::PathBuf::from("/tmp/mls_interceptor_test_non_encrypted"),

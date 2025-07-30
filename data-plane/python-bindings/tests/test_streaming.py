@@ -15,13 +15,13 @@ import slim_bindings
 async def test_streaming(server):
     org = "cisco"
     ns = "default"
-    agent = "producer"
+    app_name = "producer"
 
     broadcast_topic = "broadcast"
 
     pub_msg = "Hello from producer"
 
-    name = slim_bindings.PyName(org, ns, agent)
+    name = slim_bindings.PyName(org, ns, app_name)
     channel_name = slim_bindings.PyName(org, ns, broadcast_topic)
 
     # create new SLIM object
@@ -131,7 +131,7 @@ async def test_streaming(server):
 
     # send a message to all consumers
     for i in range(count):
-        print(f"{agent} -> Sending message to all consumers...")
+        print(f"{app_name} -> Sending message to all consumers...")
         await producer.publish(
             session_info,
             f"{pub_msg} - {i}".encode(),

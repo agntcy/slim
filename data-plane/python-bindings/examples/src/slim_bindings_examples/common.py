@@ -251,13 +251,13 @@ async def create_local_app(
         local_name, provider, verifier
     )
 
-    format_message_print(f"{local_app.get_agent_id()}", "Created app")
+    format_message_print(f"{local_app.get_id()}", "Created app")
 
     # Connect to slim server
     _ = await local_app.connect(slim)
 
     format_message_print(
-        f"{local_app.get_agent_id()}", f"Connected to {slim['endpoint']}"
+        f"{local_app.get_id()}", f"Connected to {slim['endpoint']}"
     )
 
     return local_app

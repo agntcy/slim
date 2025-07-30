@@ -78,24 +78,24 @@ ARG TARGETARCH
 COPY --from=rust /app/data-plane/target/${TARGETARCH}-unknown-linux-gnu/release/slim /slim
 COPY --from=rust /app/data-plane/target/${TARGETARCH}-unknown-linux-gnu/release/slim.dbg /slim.dbg
 
-FROM debian:bookworm-slim AS mock-agent-client
+FROM debian:bookworm-slim AS mock-app-client
 
 ARG TARGETARCH
 
 # copy the artifacts from the build stage
 COPY --from=rust /app/data-plane/target/${TARGETARCH}-unknown-linux-gnu/release/sdk-mock /usr/local/bin/
 
-# Run the mock agent client
+# Run the mock app client
 ENTRYPOINT ["/usr/local/bin/sdk-mock"]
-CMD ["--config", "/config/client-config.yaml", "--local-agent", "client", "--remote-agent", "server", "--message", "hello from Docker!"]
+CMD ["--config", "/config/client-config.yaml", "--local-app", "client", "--remote-app", "server", "--message", "hello from Docker!"]
 
-FROM debian:bookworm-slim AS mock-agent-server
+FROM debian:bookworm-slim AS mock-app-server
 
 ARG TARGETARCH
 
 # copy the artifacts from the build stage
 COPY --from=rust /app/data-plane/target/${TARGETARCH}-unknown-linux-gnu/release/sdk-mock /usr/local/bin/
 
-# Run the mock agent server
+# Run the mock app server
 ENTRYPOINT ["/usr/local/bin/sdk-mock"]
-CMD ["--config", "/config/client-config.yaml", "--local-agent", "server", "--remote-agent", "client"]
+CMD ["--config", "/config/client-config.yaml", "--local-app", "server", "--remote-app", "client"]

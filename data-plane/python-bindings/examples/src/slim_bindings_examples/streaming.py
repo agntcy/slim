@@ -42,7 +42,7 @@ async def run_client(
     if remote:
         broadcast_channel = split_id(remote)
 
-    instance = local_app.get_agent_id()
+    instance = local_app.get_id()
 
     async with local_app:
         if message:

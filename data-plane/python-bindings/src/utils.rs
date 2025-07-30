@@ -13,7 +13,7 @@ use tokio::sync::OnceCell;
 
 use slim_datapath::messages::encoder::Name;
 
-/// agent class
+/// name class
 #[gen_stub_pyclass]
 #[pyclass(eq)]
 #[derive(Clone, PartialEq)]
@@ -43,9 +43,9 @@ impl From<Name> for PyName {
 #[pymethods]
 impl PyName {
     #[new]
-    #[pyo3(signature = (agent_org, agent_ns, agent_class, id=None))]
-    pub fn new(agent_org: String, agent_ns: String, agent_class: String, id: Option<u64>) -> Self {
-        let name = Name::from_strings([&agent_org, &agent_ns, &agent_class]);
+    #[pyo3(signature = (component0, component1, component2, id=None))]
+    pub fn new(component0: String, component1: String, component2: String, id: Option<u64>) -> Self {
+        let name = Name::from_strings([&component0, &component1, &component2]);
 
         PyName {
             name: match id {
@@ -65,19 +65,8 @@ impl PyName {
         self.name.set_id(id);
     }
 
-    #[getter]
-    pub fn organization(&self) -> String {
-        self.name.components_strings().unwrap()[0].to_string()
-    }
-
-    #[getter]
-    pub fn namespace(&self) -> String {
-        self.name.components_strings().unwrap()[1].to_string()
-    }
-
-    #[getter]
-    pub fn agent_type(&self) -> String {
-        self.name.components_strings().unwrap()[2].to_string()
+    pub fn components(&self) -> Vec<u64> {
+        self.name.components().to_vec()
     }
 
     fn __repr__(&self) -> String {

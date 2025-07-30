@@ -80,17 +80,17 @@ where
 
     pub fn on_subscription_msg(
         &self,
-        agent_type: Name,
+        name: Name,
         conn_index: u64,
         is_local: bool,
         add: bool,
     ) -> Result<(), SubscriptionTableError> {
         if add {
             self.subscription_table
-                .add_subscription(agent_type, conn_index, is_local)
+                .add_subscription(name, conn_index, is_local)
         } else {
             self.subscription_table
-                .remove_subscription(&agent_type, conn_index, is_local)
+                .remove_subscription(&name, conn_index, is_local)
         }
     }
 
@@ -112,21 +112,21 @@ where
 
     pub fn on_publish_msg_match(
         &self,
-        agent_type: Name,
+        name: Name,
         incoming_conn: u64,
         fanout: u32,
     ) -> Result<Vec<u64>, SubscriptionTableError> {
         if fanout == 1 {
             match self
                 .subscription_table
-                .match_one(&agent_type, incoming_conn)
+                .match_one(&name, incoming_conn)
             {
                 Ok(out) => Ok(vec![out]),
                 Err(e) => Err(e),
             }
         } else {
             self.subscription_table
-                .match_all(&agent_type, incoming_conn)
+                .match_all(&name, incoming_conn)
         }
     }
 
@@ -175,7 +175,7 @@ mod tests {
         );
         assert_eq!(
             fwd.on_subscription_msg(name.clone(), 10, false, false),
-            Err(SubscriptionTableError::AgentIdNotFound)
+            Err(SubscriptionTableError::IdNotFound)
         );
     }
 }

@@ -14,7 +14,7 @@ import slim_bindings
 @pytest.mark.parametrize("server", ["127.0.0.1:12375"], indirect=True)
 @pytest.mark.parametrize("mls_enabled", [True, False])
 async def test_pubsub(server, mls_enabled):  # noqa: C901
-    message = "Calling agent"
+    message = "Calling app"
 
     # participant count
     participants_count = 2

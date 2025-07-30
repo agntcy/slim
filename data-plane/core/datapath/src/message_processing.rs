@@ -357,13 +357,13 @@ impl MessageProcessor {
     async fn match_and_forward_msg(
         &self,
         msg: Message,
-        agent_type: Name,
+        name: Name,
         in_connection: u64,
         fanout: u32,
     ) -> Result<(), DataPathError> {
         debug!(
             "match and forward message: type: {} - fanout: {}",
-            agent_type, fanout,
+            name, fanout,
         );
 
         // if the message already contains an output connection, use that one
@@ -378,7 +378,7 @@ impl MessageProcessor {
 
         match self
             .forwarder()
-            .on_publish_msg_match(agent_type, in_connection, fanout)
+            .on_publish_msg_match(name, in_connection, fanout)
         {
             Ok(out_vec) => {
                 // in case out_vec.len = 1, do not clone the message.
@@ -416,7 +416,7 @@ impl MessageProcessor {
         // get header
         let header = msg.get_slim_header();
 
-        let agent_type = header.get_dst();
+        let dst = header.get_dst();
 
         // this function may panic, but at this point we are sure we are processing
         // a publish message
@@ -424,7 +424,7 @@ impl MessageProcessor {
 
         // if we get valid type also the name is valid so we can safely unwrap
         return self
-            .match_and_forward_msg(msg, agent_type, in_connection, fanout)
+            .match_and_forward_msg(msg, dst, in_connection, fanout)
             .await;
     }
 
@@ -450,7 +450,7 @@ impl MessageProcessor {
         );
         //////////////////////////////////////////////////////
 
-        let agent_type = msg.get_dst();
+        let dst = msg.get_dst();
 
         // get header
         let header = msg.get_slim_header();
@@ -466,12 +466,12 @@ impl MessageProcessor {
             .ok_or_else(|| DataPathError::SubscriptionError("connection not found".to_string()))?;
 
         debug!(
-            "subscription update (add = {}) for agent type: {} - connection: {}",
-            add, agent_type, conn
+            "subscription update (add = {}) for name: {} - connection: {}",
+            add, dst, conn
         );
 
         if let Err(e) = self.forwarder().on_subscription_msg(
-            agent_type.clone(),
+            dst.clone(),
             conn,
             connection.is_local_connection(),
             add,
@@ -488,14 +488,14 @@ impl MessageProcessor {
                 debug!("forward subscription (add = {}) to {}", add, out_conn);
 
                 // get source name
-                let source_agent = msg.get_source();
+                let source = msg.get_source();
 
                 // send message
                 match self.send_msg(msg, out_conn).await {
                     Ok(_) => {
                         self.forwarder().on_forwarded_subscription(
-                            source_agent,
-                            agent_type,
+                            source,
+                            dst,
                             out_conn,
                             add,
                         );

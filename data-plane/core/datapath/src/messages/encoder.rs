@@ -55,13 +55,13 @@ impl std::fmt::Display for Name {
 }
 
 impl From<&ProtoName> for Name {
-    fn from(agent: &ProtoName) -> Self {
+    fn from(proto_name: &ProtoName) -> Self {
         Self {
             components: [
-                agent.component_0,
-                agent.component_1,
-                agent.component_2,
-                agent.component_3,
+                proto_name.component_0,
+                proto_name.component_1,
+                proto_name.component_2,
+                proto_name.component_3,
             ],
             strings: None,
         }
@@ -131,10 +131,10 @@ mod tests {
 
     #[test]
     fn test_name_encoder() {
-        let name1 = Name::from_strings(["Org", "Default", "Agent_ONE"]).with_id(1);
-        let name2 = Name::from_strings(["Org", "Default", "Agent_ONE"]).with_id(1);
+        let name1 = Name::from_strings(["Org", "Default", "App_ONE"]).with_id(1);
+        let name2 = Name::from_strings(["Org", "Default", "App_ONE"]).with_id(1);
         assert_eq!(name1, name2);
-        let name3 = Name::from_strings(["Another_Org", "Not_Default", "not_Agent_ONE"]).with_id(2);
+        let name3 = Name::from_strings(["Another_Org", "Not_Default", "not_App_ONE"]).with_id(2);
         assert_ne!(name1, name3);
     }
 }

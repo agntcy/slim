@@ -35,14 +35,14 @@ pub enum MessageError {
 // Metadata Keys
 pub const SLIM_IDENTITY: &str = "SLIM_IDENTITY";
 
-/// ProtoAgent from Agent
+/// ProtoName from Name
 impl From<&Name> for ProtoName {
-    fn from(agent: &Name) -> Self {
+    fn from(name: &Name) -> Self {
         Self {
-            component_0: agent.components()[0],
-            component_1: agent.components()[1],
-            component_2: agent.components()[2],
-            component_3: agent.components()[3],
+            component_0: name.components()[0],
+            component_1: name.components()[1],
+            component_2: name.components()[2],
+            component_3: name.components()[3],
         }
     }
 }
@@ -349,7 +349,7 @@ impl From<ProtoMessage> for ProtoUnsubscribe {
 }
 
 /// ProtoPublish
-/// This message is used to publish a message to a topic/agent
+/// This message is used to publish a message, either to a shared channel or to a specific application
 impl ProtoPublish {
     pub fn with_header(
         header: Option<SlimHeader>,
@@ -630,14 +630,10 @@ impl ProtoMessage {
         self.get_slim_header().get_incoming_conn()
     }
 
-    pub fn get_source_agent(&self) -> Name {
-        self.get_slim_header().get_source()
-    }
-
     pub fn get_dst(&self) -> Name {
         let dst = self.get_slim_header().get_dst();
 
-        // complete agent_type with the original name if the message is a subscribe
+        // complete name with the original strings if the message is a subscribe
         if let Some(ProtoSubscribeType(subscribe)) = &self.message_type {
             return Name::from_strings([
                 subscribe.component_0.clone(),
@@ -915,11 +911,11 @@ mod tests {
         assert_eq!(proto_name.component_3, name.components()[3]);
 
         // ProtoName to Name
-        let agent_from_proto = Name::from(&proto_name);
-        assert_eq!(agent_from_proto.components()[0], proto_name.component_0);
-        assert_eq!(agent_from_proto.components()[1], proto_name.component_1);
-        assert_eq!(agent_from_proto.components()[2], proto_name.component_2);
-        assert_eq!(agent_from_proto.components()[3], proto_name.component_3);
+        let name_from_proto = Name::from(&proto_name);
+        assert_eq!(name_from_proto.components()[0], proto_name.component_0);
+        assert_eq!(name_from_proto.components()[1], proto_name.component_1);
+        assert_eq!(name_from_proto.components()[2], proto_name.component_2);
+        assert_eq!(name_from_proto.components()[3], proto_name.component_3);
 
         // ProtoMessage to ProtoSubscribe
         let dst = Name::from_strings(["org", "ns", "type"]).with_id(1);

@@ -3,7 +3,7 @@
 
 use clap::Parser;
 use slim::config;
-use slim_datapath::messages::AgentType;
+use slim_datapath::messages::Name;
 use tracing::{error, info};
 
 mod proxy;
@@ -76,8 +76,7 @@ async fn main() {
     let _guard = config.tracing.setup_tracing_subscriber();
 
     let mut proxy = proxy::Proxy::new(
-        AgentType::from_strings(v_name[0], v_name[1], v_name[2]),
-        None,
+        Name::from_strings([v_name[0], v_name[1], v_name[2]]),
         id.copied(),
         config,
         svc_id,

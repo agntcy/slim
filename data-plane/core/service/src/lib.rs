@@ -246,12 +246,12 @@ impl Service {
         // Create storage path for the app
         let mut hasher = DefaultHasher::new();
         app_name.to_string().hash(&mut hasher);
-        let hashed_agent = hasher.finish();
+        let hashed_name = hasher.finish();
 
         let home_dir = dirs::home_dir().ok_or_else(|| {
             ServiceError::StorageError("Unable to determine home directory".to_string())
         })?;
-        let storage_path = home_dir.join(".slim").join(hashed_agent.to_string());
+        let storage_path = home_dir.join(".slim").join(hashed_name.to_string());
         std::fs::create_dir_all(&storage_path).map_err(|e| {
             ServiceError::StorageError(format!("Failed to create storage directory: {}", e))
         })?;
@@ -497,28 +497,28 @@ mod tests {
             .unwrap();
 
         // create a subscriber
-        let subscriber_agent =
-            Name::from_strings(["cisco", "default", "subscriber_agent"]).with_id(0);
+        let subscriber_name =
+            Name::from_strings(["cisco", "default", "subscriber"]).with_id(0);
         let (sub_app, mut sub_rx) = service
             .create_app(
-                &subscriber_agent,
+                &subscriber_name,
                 SharedSecret::new("a", "group"),
                 SharedSecret::new("a", "group"),
             )
             .await
-            .expect("failed to create agent");
+            .expect("failed to create app");
 
         // create a publisher
-        let publisher_agent =
-            Name::from_strings(["cisco", "default", "publisher_agent"]).with_id(0);
+        let publisher_name =
+            Name::from_strings(["cisco", "default", "publisher"]).with_id(0);
         let (pub_app, _rx) = service
             .create_app(
-                &publisher_agent,
+                &publisher_name,
                 SharedSecret::new("a", "group"),
                 SharedSecret::new("a", "group"),
             )
             .await
-            .expect("failed to create agent");
+            .expect("failed to create app");
 
         // sleep to allow the subscription to be processed
         time::sleep(Duration::from_millis(100)).await;
@@ -541,7 +541,7 @@ mod tests {
         pub_app
             .publish(
                 session_info.clone(),
-                &subscriber_agent,
+                &subscriber_name,
                 message_blob.clone(),
             )
             .await
@@ -567,7 +567,7 @@ mod tests {
         // make also sure the session ids correspond
         assert_eq!(session_info.id, msg.info.id);
 
-        // Now remove the session from the 2 agents
+        // Now remove the session from the 2 apps
         pub_app.delete_session(session_info.id).await.unwrap();
         sub_app.delete_session(session_info.id).await.unwrap();
 
@@ -594,16 +594,16 @@ mod tests {
             .build_server(ID::new_with_name(Kind::new(KIND).unwrap(), "test").unwrap())
             .unwrap();
 
-        // register local agent
-        let agent = Name::from_strings(["cisco", "default", "session_agent"]).with_id(0);
+        // register local app
+        let name = Name::from_strings(["cisco", "default", "session"]).with_id(0);
         let (app, _) = service
             .create_app(
-                &agent,
+                &name,
                 SharedSecret::new("a", "group"),
                 SharedSecret::new("a", "group"),
             )
             .await
-            .expect("failed to create agent");
+            .expect("failed to create app");
 
         //////////////////////////// ff session ////////////////////////////////////////////////////////////////////////
         let session_config = SessionConfig::FireAndForget(FireAndForgetConfiguration::default());

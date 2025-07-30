@@ -35,7 +35,7 @@ async def run_client(
         audience=audience,
     )
 
-    instance = local_app.get_agent_id()
+    instance = local_app.get_id()
 
     if message:
         if not remote:

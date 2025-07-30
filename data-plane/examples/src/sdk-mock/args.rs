@@ -13,13 +13,13 @@ pub struct Args {
 
     /// Set the topic to subscribe to.
     #[clap(long, env, required = true)]
-    #[arg(short, long, value_name = "LOCAL_AGENT")]
-    local_agent: String,
+    #[arg(short, long, value_name = "LOCAL_NAME")]
+    local_name: String,
 
     /// Set the topic to subscribe to.
     #[clap(long, env, required = true)]
-    #[arg(short, long, value_name = "REMOTE_AGENT")]
-    remote_agent: String,
+    #[arg(short, long, value_name = "REMOTE_NAME")]
+    remote_name: String,
 
     /// Set the message to publish. If not set, the program will subscribe to the topic.
     #[clap(long, env)]
@@ -37,12 +37,12 @@ impl Args {
         &self.config
     }
 
-    pub fn local_agent(&self) -> &str {
-        &self.local_agent
+    pub fn local_name(&self) -> &str {
+        &self.local_name
     }
 
-    pub fn remote_agent(&self) -> &str {
-        &self.remote_agent
+    pub fn remote_name(&self) -> &str {
+        &self.remote_name
     }
 
     pub fn message(&self) -> Option<&str> {

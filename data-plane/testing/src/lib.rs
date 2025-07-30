@@ -44,18 +44,18 @@ fn parse_ids(iter: &mut SplitWhitespace<'_>) -> Result<Name, ParsingError> {
         .ok_or(ParsingError::ParsingError("missing namespace".to_string()))?
         .parse::<String>()
         .map_err(|e| ParsingError::ParsingError(format!("failed to parse namespace: {}", e)))?;
-    let agent_type_val = iter
+    let app_val = iter
         .next()
-        .ok_or(ParsingError::ParsingError("missing agent_type".to_string()))?
+        .ok_or(ParsingError::ParsingError("missing app".to_string()))?
         .parse::<String>()
-        .map_err(|e| ParsingError::ParsingError(format!("failed to parse agent type: {}", e)))?;
-    let agent_id = iter
+        .map_err(|e| ParsingError::ParsingError(format!("failed to parse app name: {}", e)))?;
+    let id = iter
         .next()
-        .ok_or(ParsingError::ParsingError("missing agent_id".to_string()))?
+        .ok_or(ParsingError::ParsingError("missing id".to_string()))?
         .parse::<u64>()
-        .map_err(|e| ParsingError::ParsingError(format!("failed to parse agent id: {}", e)))?;
+        .map_err(|e| ParsingError::ParsingError(format!("failed to parse app id: {}", e)))?;
 
-    Ok(Name::from_strings([org, namespace, agent_type_val]).with_id(agent_id))
+    Ok(Name::from_strings([org, namespace, app_val]).with_id(id))
 }
 
 pub fn parse_sub(mut iter: SplitWhitespace<'_>) -> Result<ParsedMessage, ParsingError> {

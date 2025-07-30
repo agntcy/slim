@@ -15,9 +15,9 @@ import slim_bindings
 async def test_request_reply(server):
     org = "cisco"
     ns = "default"
-    agent1 = "slim1"
+    app1 = "slim1"
 
-    name1 = slim_bindings.PyName(org, ns, agent1)
+    name1 = slim_bindings.PyName(org, ns, app1)
 
     # create new slim object
     slim1 = await create_slim(name1, "secret")
@@ -27,7 +27,7 @@ async def test_request_reply(server):
         {"endpoint": "http://127.0.0.1:12356", "tls": {"insecure": True}}
     )
 
-    # create second local agent
+    # create second local app
     name2 = slim_bindings.PyName(org, ns, "slim2")
     slim2 = await create_slim(name2, "secret")
 

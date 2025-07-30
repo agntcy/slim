@@ -135,7 +135,7 @@ mod tests {
 
         tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
 
-        let expected_msg = "subscription update (add = true) for agent type";
+        let expected_msg = "subscription update (add = true) for name";
         assert!(logs_contain(expected_msg));
 
         // try to send a forward_to message
@@ -147,24 +147,24 @@ mod tests {
         assert!(logs_contain(expected_msg));
     }
 
-    fn make_message(org: &str, ns: &str, agent_type: &str) -> Message {
-        let source = Name::from_strings([org, ns, agent_type]).with_id(0);
-        let name = Name::from_strings([org, ns, agent_type]).with_id(1);
+    fn make_message(org: &str, ns: &str, name: &str) -> Message {
+        let source = Name::from_strings([org, ns, name]).with_id(0);
+        let name = Name::from_strings([org, ns, name]).with_id(1);
         Message::new_subscribe(&source, &name, None)
     }
 
-    fn make_sub_from_command(org: &str, ns: &str, agent_type: &str, from_conn: u64) -> Message {
-        let name = Name::from_strings([org, ns, agent_type]);
+    fn make_sub_from_command(org: &str, ns: &str, name_str: &str, from_conn: u64) -> Message {
+        let name = Name::from_strings([org, ns, name_str]);
         Message::new_subscribe(
-            &Name::from_strings([org, ns, agent_type]).with_id(0),
+            &Name::from_strings([org, ns, name_str]).with_id(0),
             &name,
             Some(SlimHeaderFlags::default().with_recv_from(from_conn)),
         )
     }
 
-    fn make_fwd_to_command(org: &str, ns: &str, agent_type: &str, to_conn: u64) -> Message {
-        let source = Name::from_strings([org, ns, agent_type]).with_id(0);
-        let name = Name::from_strings([org, ns, agent_type]);
+    fn make_fwd_to_command(org: &str, ns: &str, name_str: &str, to_conn: u64) -> Message {
+        let source = Name::from_strings([org, ns, name_str]).with_id(0);
+        let name = Name::from_strings([org, ns, name_str]);
         Message::new_subscribe(
             &source,
             &name,

@@ -1,6 +1,6 @@
 # Data plane
 
-Rust-based forwarder for agent-to-agent communications.
+Rust-powered message forwarder for inter-process communication.
 
 ## Build
 

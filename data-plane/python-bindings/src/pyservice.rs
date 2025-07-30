@@ -44,7 +44,7 @@ where
 {
     app: App<P, V>,
     service: Service,
-    agent: Name,
+    name: Name,
     rx: RwLock<session::AppChannelReceiver>,
 }
 
@@ -53,12 +53,12 @@ where
 impl PyService {
     #[getter]
     pub fn id(&self) -> u64 {
-        self.sdk.agent.id()
+        self.sdk.name.id()
     }
 
     #[getter]
     pub fn name(&self) -> PyName {
-        PyName::from(self.sdk.agent.clone())
+        PyName::from(self.sdk.name.clone())
     }
 }
 
@@ -79,8 +79,8 @@ impl PyService {
         })?;
 
         // TODO(msardara): we can likely get more information from the token here, like a global instance ID
-        let agent: Name = name.into();
-        let agent = agent.with_id(rand::random::<u64>());
+        let name: Name = name.into();
+        let name = name.with_id(rand::random::<u64>());
 
         // create service ID
         let svc_id = slim_config::component::id::ID::new_with_str("service/0").unwrap();
@@ -89,13 +89,13 @@ impl PyService {
         let svc = Service::new(svc_id);
 
         // Get the rx channel
-        let (app, rx) = svc.create_app(&agent, provider, verifier).await?;
+        let (app, rx) = svc.create_app(&name, provider, verifier).await?;
 
         // create the service
         let sdk = Arc::new(PyServiceInternal {
             service: svc,
             app,
-            agent,
+            name,
             rx: RwLock::new(rx),
         });
 
@@ -160,9 +160,9 @@ impl PyService {
             None => {
                 // use the session_info to set a name
                 match &session_info.message_source {
-                    Some(agent) => (agent.clone(), session_info.input_connection),
+                    Some(name_in_session) => (name_in_session.clone(), session_info.input_connection),
                     None => {
-                        return Err(ServiceError::ConfigError("no agent specified".to_string()));
+                        return Err(ServiceError::ConfigError("no destination name specified".to_string()));
                     }
                 }
             }
@@ -203,7 +203,7 @@ impl PyService {
 
                 let msg = msg.unwrap().map_err(|e| ServiceError::ReceiveError(e.to_string()))?;
 
-                // extract agent and payload
+                // extract payload
                 let content = match msg.message.message_type {
                     Some(ref msg_type) => match msg_type {
                         slim_datapath::api::ProtoPublishType(publish) => &publish.get_payload().blob,

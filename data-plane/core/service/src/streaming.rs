@@ -239,7 +239,7 @@ where
         id: Id,
         session_config: StreamingConfiguration,
         session_direction: SessionDirection,
-        agent: Name,
+        name: Name,
         tx_slim_app: T,
         identity_provider: P,
         identity_verifier: V,
@@ -251,7 +251,7 @@ where
             id,
             session_direction.clone(),
             SessionConfig::Streaming(session_config.clone()),
-            agent.clone(),
+            name.clone(),
             tx_slim_app.clone(),
             identity_provider,
             identity_verifier,
@@ -1143,7 +1143,7 @@ mod tests {
             tx_app: tx_app.clone(),
         };
 
-        let source = Name::from_strings(["agntcy", "ns", "local_agent"]).with_id(0);
+        let source = Name::from_strings(["agntcy", "ns", "local"]).with_id(0);
         let stream = Name::from_strings(["agntcy", "ns", "local_stream"]).with_id(0);
 
         let session_config: StreamingConfiguration = StreamingConfiguration::new(
@@ -1722,7 +1722,7 @@ mod tests {
 
         let tx: MockTransmitter = MockTransmitter { tx_slim, tx_app };
 
-        let source = Name::from_strings(["agntcy", "ns", "local_agent"]).with_id(0);
+        let source = Name::from_strings(["agntcy", "ns", "local"]).with_id(0);
         let stream = Name::from_strings(["agntcy", "ns", "stream"]);
 
         let session_config: StreamingConfiguration =

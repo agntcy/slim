@@ -167,45 +167,45 @@ impl Connections {
 }
 
 #[derive(Debug, Default)]
-struct AgentTypeState {
-    // map agent id -> [local connection ids, remote connection ids]
+struct NameState {
+    // map name -> [local connection ids, remote connection ids]
     // the array contains the local connections at position 0 and the
     // remote ones at position 1
-    // the number of connections per agent id is expected to be small
+    // the number of connections per name is expected to be small
     ids: HashMap<u64, [Vec<u64>; 2]>,
-    // List of all the connections that are available for this agent type
+    // List of all the connections that are available for this name
     // as for the ids map position 0 stores local connections and position
     // 1 store remotes ones
     connections: [Connections; 2],
 }
 
-impl AgentTypeState {
-    fn new(agent_id: u64, conn: u64, is_local: bool) -> Self {
-        let mut type_state = AgentTypeState::default();
+impl NameState {
+    fn new(id: u64, conn: u64, is_local: bool) -> Self {
+        let mut type_state = NameState::default();
         let v = vec![conn];
         if is_local {
             type_state.connections[0].insert(conn);
-            type_state.ids.insert(agent_id, [v, vec![]]);
+            type_state.ids.insert(id, [v, vec![]]);
         } else {
             type_state.connections[1].insert(conn);
-            type_state.ids.insert(agent_id, [vec![], v]);
+            type_state.ids.insert(id, [vec![], v]);
         }
         type_state
     }
 
-    fn insert(&mut self, agent_id: u64, conn: u64, is_local: bool) {
+    fn insert(&mut self, id: u64, conn: u64, is_local: bool) {
         let mut index = 0;
         if !is_local {
             index = 1;
         }
         self.connections[index].insert(conn);
 
-        match self.ids.get_mut(&agent_id) {
+        match self.ids.get_mut(&id) {
             None => {
-                // the agent id does not exists
+                // the id does not exists
                 let mut connections = [vec![], vec![]];
                 connections[index].push(conn);
-                self.ids.insert(agent_id, connections);
+                self.ids.insert(id, connections);
             }
             Some(v) => {
                 v[index].push(conn);
@@ -215,14 +215,14 @@ impl AgentTypeState {
 
     fn remove(
         &mut self,
-        agent_id: &u64,
+        id: &u64,
         conn: u64,
         is_local: bool,
     ) -> Result<(), SubscriptionTableError> {
-        match self.ids.get_mut(agent_id) {
+        match self.ids.get_mut(id) {
             None => {
-                warn!("agent id {} not found", agent_id);
-                Err(SubscriptionTableError::AgentIdNotFound)
+                warn!("id {} not found", id);
+                Err(SubscriptionTableError::IdNotFound)
             }
             Some(connection_ids) => {
                 let mut index = 0;
@@ -233,9 +233,9 @@ impl AgentTypeState {
                 for (i, c) in connection_ids[index].iter().enumerate() {
                     if *c == conn {
                         connection_ids[index].swap_remove(i);
-                        // if both vectors are empty remove the agent id from the tabales
+                        // if both vectors are empty remove the id from the tabales
                         if connection_ids[0].is_empty() && connection_ids[1].is_empty() {
-                            self.ids.remove(agent_id);
+                            self.ids.remove(id);
                         }
                         break;
                     }
@@ -247,7 +247,7 @@ impl AgentTypeState {
 
     fn get_one_connection(
         &self,
-        agent_id: u64,
+        id: u64,
         incoming_conn: u64,
         get_local_connection: bool,
     ) -> Option<u64> {
@@ -256,23 +256,23 @@ impl AgentTypeState {
             index = 1;
         }
 
-        if agent_id == Name::NULL_COMPONENT {
+        if id == Name::NULL_COMPONENT {
             return self.connections[index].get_one(incoming_conn);
         }
 
-        let val = self.ids.get(&agent_id);
+        let val = self.ids.get(&id);
         match val {
             None => {
-                // If there is only 1 connection for the agent type, we can still
+                // If there is only 1 connection for the name, we can still
                 // try to use it
                 if self.connections[index].index.len() == 1 {
                     return self.connections[index].get_one(incoming_conn);
                 }
 
-                // We cannot return any connection for this agent id
+                // We cannot return any connection for this name
                 debug!(
-                    "cannot find out connection, agent id does not exists {:?}",
-                    agent_id
+                    "cannot find out connection, name does not exists {:?}",
+                    id
                 );
                 None
             }
@@ -314,7 +314,7 @@ impl AgentTypeState {
 
     fn get_all_connections(
         &self,
-        agent_id: u64,
+        id: u64,
         incoming_conn: u64,
         get_local_connection: bool,
     ) -> Option<Vec<u64>> {
@@ -323,16 +323,16 @@ impl AgentTypeState {
             index = 1;
         }
 
-        if agent_id == Name::NULL_COMPONENT {
+        if id == Name::NULL_COMPONENT {
             return self.connections[index].get_all(incoming_conn);
         }
 
-        let val = self.ids.get(&agent_id);
+        let val = self.ids.get(&id);
         match val {
             None => {
                 debug!(
-                    "cannot find out connection, agent id does not exists {:?}",
-                    agent_id
+                    "cannot find out connection, id does not exists {:?}",
+                    id
                 );
                 None
             }
@@ -368,13 +368,13 @@ impl AgentTypeState {
 #[derive(Debug, Default)]
 pub struct SubscriptionTableImpl {
     // subscriptions table
-    // agent_type -> type state
-    // if a subscription comes for a specific agent_id, it is added
-    // to that specific agent_id, otherwise the connection is added
+    // name -> name state
+    // if a subscription comes for a specific id, it is added
+    // to that specific id, otherwise the connection is added
     // to the Name::NULL_COMPONENT id
-    table: RwLock<HashMap<InternalName, AgentTypeState>>,
+    table: RwLock<HashMap<InternalName, NameState>>,
     // connections tables
-    // conn_index -> set(agent)
+    // conn_index -> set(name)
     connections: RwLock<HashMap<u64, HashSet<Name>>>,
 }
 
@@ -385,9 +385,9 @@ impl Display for SubscriptionTableImpl {
         writeln!(f, "Subscription Table")?;
         for (k, v) in table.iter() {
             writeln!(f, "Type: {:?}", k)?;
-            writeln!(f, "  Agents:")?;
+            writeln!(f, "  Names:")?;
             for (id, conn) in v.ids.iter() {
-                writeln!(f, "    Agent id: {}", id)?;
+                writeln!(f, "    Id: {}", id)?;
                 if conn[0].is_empty() {
                     writeln!(f, "       Local Connections:")?;
                     writeln!(f, "         None")?;
@@ -417,7 +417,7 @@ fn add_subscription_to_sub_table(
     name: Name,
     conn: u64,
     is_local: bool,
-    mut table: RwLockWriteGuard<'_, RawRwLock, HashMap<InternalName, AgentTypeState>>,
+    mut table: RwLockWriteGuard<'_, RawRwLock, HashMap<InternalName, NameState>>,
 ) {
     let uid = name.id();
     let internal_name = InternalName(name);
@@ -430,7 +430,7 @@ fn add_subscription_to_sub_table(
             );
             // the subscription does not exists, init
             // create and init type state
-            let state = AgentTypeState::new(uid, conn, is_local);
+            let state = NameState::new(uid, conn, is_local);
 
             // insert the map in the table
             table.insert(internal_name, state);
@@ -485,7 +485,7 @@ fn remove_subscription_from_sub_table(
     name: &Name,
     conn_index: u64,
     is_local: bool,
-    mut table: RwLockWriteGuard<'_, RawRwLock, HashMap<InternalName, AgentTypeState>>,
+    mut table: RwLockWriteGuard<'_, RawRwLock, HashMap<InternalName, NameState>>,
 ) -> Result<(), SubscriptionTableError> {
     // Convert &Name to &InternalName. This is unsafe, but we know the types are compatible.
     let query_name = unsafe { std::mem::transmute::<&Name, &InternalName>(&name) };
@@ -608,10 +608,10 @@ impl SubscriptionTable for SubscriptionTableImpl {
             if set.is_none() {
                 return Err(SubscriptionTableError::ConnectionIdNotFound);
             }
-            for agent in set.unwrap() {
+            for name in set.unwrap() {
                 let table = self.table.write();
-                debug!("remove subscription {} from connection {}", agent, conn);
-                remove_subscription_from_sub_table(agent, conn, is_local, table)?;
+                debug!("remove subscription {} from connection {}", name, conn);
+                remove_subscription_from_sub_table(name, conn, is_local, table)?;
             }
         }
         {
@@ -828,7 +828,7 @@ mod tests {
         );
         assert_eq!(
             t.remove_subscription(&name2, 2, false),
-            Err(SubscriptionTableError::AgentIdNotFound)
+            Err(SubscriptionTableError::IdNotFound)
         );
     }
 

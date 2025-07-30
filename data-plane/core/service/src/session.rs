@@ -97,7 +97,7 @@ pub struct Info {
     pub session_message_type: ProtoSessionMessageType,
     // The session Type
     pub session_type: ProtoSessionType,
-    /// The identifier of the agent that sent the message
+    /// The identifier of the app that sent the message
     pub message_source: Option<Name>,
     /// The input connection id
     pub input_connection: Option<u64>,
@@ -339,7 +339,7 @@ where
     #[allow(dead_code)]
     session_direction: SessionDirection,
 
-    /// Source agent
+    /// Source name
     source: Name,
 
     /// MLS state (used only in pub/sub section for the moment)

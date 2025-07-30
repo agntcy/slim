@@ -85,7 +85,7 @@ async def test_identity_verification(server, audience):
         {"endpoint": "http://127.0.0.1:52345", "tls": {"insecure": True}}
     )
 
-    # create second local agent. note that the receiver will use the public key of the sender
+    # create second local app. note that the receiver will use the public key of the sender
     # to verify the JWT of the request message
     slim_receiver = await create_slim(
         receiver_name,

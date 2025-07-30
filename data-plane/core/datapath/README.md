@@ -13,7 +13,7 @@ The datapath module manages the flow of messages between SLIM instances,
 handling the low-level transport and routing mechanisms. It implements several
 key features:
 
-- Message routing based on organization, namespace, and agent identifiers
+- Message routing based on 4 tuple identifiers
 - Connection management for reliable communication
 - Flexible subscription model for dynamic service discovery
 - Protocol buffer-based message serialization
@@ -53,7 +53,7 @@ session types:
 
 ### Flexible Routing and Subscription
 
-The datapath supports dynamic routing based on agent identifiers:
+The datapath supports dynamic routing based on identifiers:
 
 - Dynamic subscription table for efficient message routing
 - Connection pooling for optimized resource utilization

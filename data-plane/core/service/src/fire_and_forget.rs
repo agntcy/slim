@@ -308,7 +308,7 @@ where
 
     async fn start_sticky_session_discovery(
         &mut self,
-        agent_type: &Name,
+        name: &Name,
     ) -> Result<(), SessionError> {
         debug!("starting sticky session discovery");
 
@@ -319,7 +319,7 @@ where
         // Create a probe message to discover the sticky session
         let mut probe_message = Message::new_publish(
             &self.state.source,
-            agent_type,
+            name,
             None,
             "sticky_session_discovery",
             payload,
@@ -724,7 +724,7 @@ where
         id: Id,
         session_config: FireAndForgetConfiguration,
         session_direction: SessionDirection,
-        agent: Name,
+        name: Name,
         tx_slim_app: T,
         identity_provider: P,
         identity_verifier: V,
@@ -737,7 +737,7 @@ where
             id,
             session_direction,
             SessionConfig::FireAndForget(session_config.clone()),
-            agent,
+            name,
             tx_slim_app.clone(),
             identity_provider,
             identity_verifier,
@@ -929,7 +929,7 @@ mod tests {
 
         let tx = MockTransmitter { tx_app, tx_slim };
 
-        let source = Name::from_strings(["cisco", "default", "local_agent"]).with_id(0);
+        let source = Name::from_strings(["cisco", "default", "local"]).with_id(0);
 
         let session = FireAndForget::new(
             0,
@@ -957,7 +957,7 @@ mod tests {
 
         let tx = MockTransmitter { tx_app, tx_slim };
 
-        let source = Name::from_strings(["cisco", "default", "local_agent"]).with_id(0);
+        let source = Name::from_strings(["cisco", "default", "local"]).with_id(0);
 
         let session = FireAndForget::new(
             0,
@@ -972,7 +972,7 @@ mod tests {
 
         let mut message = ProtoMessage::new_publish(
             &source,
-            &Name::from_strings(["cisco", "default", "remote_agent"]).with_id(0),
+            &Name::from_strings(["cisco", "default", "remote"]).with_id(0),
             None,
             "msg",
             vec![0x1, 0x2, 0x3, 0x4],
@@ -1007,7 +1007,7 @@ mod tests {
 
         let tx = MockTransmitter { tx_app, tx_slim };
 
-        let source = Name::from_strings(["cisco", "default", "local_agent"]).with_id(0);
+        let source = Name::from_strings(["cisco", "default", "local"]).with_id(0);
 
         let session = FireAndForget::new(
             0,
@@ -1022,7 +1022,7 @@ mod tests {
 
         let mut message = ProtoMessage::new_publish(
             &source,
-            &Name::from_strings(["cisco", "default", "remote_agent"]).with_id(0),
+            &Name::from_strings(["cisco", "default", "remote"]).with_id(0),
             Some(SlimHeaderFlags::default().with_incoming_conn(0)),
             "msg",
             vec![0x1, 0x2, 0x3, 0x4],
@@ -1072,7 +1072,7 @@ mod tests {
 
         let tx = MockTransmitter { tx_app, tx_slim };
 
-        let source = Name::from_strings(["cisco", "default", "local_agent"]).with_id(0);
+        let source = Name::from_strings(["cisco", "default", "local"]).with_id(0);
 
         let session = FireAndForget::new(
             0,
@@ -1093,7 +1093,7 @@ mod tests {
 
         let mut message = ProtoMessage::new_publish(
             &source,
-            &Name::from_strings(["cisco", "default", "remote_agent"]).with_id(0),
+            &Name::from_strings(["cisco", "default", "remote"]).with_id(0),
             None,
             "msg",
             vec![0x1, 0x2, 0x3, 0x4],
@@ -1147,8 +1147,8 @@ mod tests {
             tx_slim: tx_slim_receiver,
         };
 
-        let local = Name::from_strings(["cisco", "default", "local_agent"]).with_id(0);
-        let remote = Name::from_strings(["cisco", "default", "remote_agent"]).with_id(0);
+        let local = Name::from_strings(["cisco", "default", "local"]).with_id(0);
+        let remote = Name::from_strings(["cisco", "default", "remote"]).with_id(0);
 
         let session_sender = FireAndForget::new(
             0,
@@ -1181,7 +1181,7 @@ mod tests {
 
         let mut message = ProtoMessage::new_publish(
             &local,
-            &Name::from_strings(["cisco", "default", "remote_agent"]).with_id(0),
+            &Name::from_strings(["cisco", "default", "remote"]).with_id(0),
             Some(SlimHeaderFlags::default().with_incoming_conn(0)),
             "msg",
             vec![0x1, 0x2, 0x3, 0x4],
@@ -1266,7 +1266,7 @@ mod tests {
 
         let tx = MockTransmitter { tx_app, tx_slim };
 
-        let source = Name::from_strings(["cisco", "default", "local_agent"]).with_id(0);
+        let source = Name::from_strings(["cisco", "default", "local"]).with_id(0);
 
         {
             let _session = FireAndForget::new(
@@ -1309,8 +1309,8 @@ mod tests {
             interceptors: Arc::new(RwLock::new(Vec::new())),
         };
 
-        let local = Name::from_strings(["cisco", "default", "local_agent"]).with_id(0);
-        let remote = Name::from_strings(["cisco", "default", "remote_agent"]).with_id(0);
+        let local = Name::from_strings(["cisco", "default", "local"]).with_id(0);
+        let remote = Name::from_strings(["cisco", "default", "remote"]).with_id(0);
 
         let sender_session = FireAndForget::new(
             0,
@@ -1349,7 +1349,7 @@ mod tests {
         // Create a message to send
         let mut message = ProtoMessage::new_publish(
             &local,
-            &Name::from_strings(["cisco", "default", "remote_agent"]).with_id(0),
+            &Name::from_strings(["cisco", "default", "remote"]).with_id(0),
             None,
             "msg",
             vec![0x1, 0x2, 0x3, 0x4],
