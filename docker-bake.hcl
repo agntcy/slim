@@ -6,12 +6,12 @@
 
 # Docker build args
 variable "IMAGE_REPO" { default = "" }
-variable "IMAGE_TAG" { default = "v0.0.0-dev" }
+variable "IMAGE_TAG" { default = "latest" }
 
 function "get_tag" {
   params = [tags, name]
   // Check if IMAGE_REPO ends with name to avoid repetition
-  result = [for tag in tags:
+  result = [for tag in coalescelist(tags, [IMAGE_TAG]):
     can(regex("${name}$", IMAGE_REPO)) ?
       "${IMAGE_REPO}:${tag}" :
       "${IMAGE_REPO}/${name}:${tag}"
