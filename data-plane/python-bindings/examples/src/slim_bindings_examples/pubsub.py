@@ -62,7 +62,7 @@ async def run_client(
             to_add = split_id(p)
             await local_app.set_route(to_add)
             await local_app.invite(session_info, to_add)
-            print(f"{local} -> add {to_add.agent_type} to the group")
+            print(f"{local} -> add {to_add} to the group")
 
     # define the background task
     async def background_task():

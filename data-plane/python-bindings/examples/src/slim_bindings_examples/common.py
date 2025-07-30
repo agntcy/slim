@@ -32,17 +32,17 @@ def format_message_print(message1, message2=""):
 
 
 # Split an ID into its components
-# Expected format: organization/namespace/agent
+# Expected format: organization/namespace/application
 # Raises ValueError if the format is incorrect
-# Returns a tuple of (organization, namespace, agent)
+# Returns a PyName with the 3 components
 def split_id(id):
     try:
-        local_organization, local_namespace, local_agent = id.split("/")
+        organization, namespace, app = id.split("/")
     except ValueError as e:
-        print("Error: IDs must be in the format organization/namespace/agent.")
+        print("Error: IDs must be in the format organization/namespace/app-or-stream.")
         raise e
 
-    return slim_bindings.PyName(local_organization, local_namespace, local_agent)
+    return slim_bindings.PyName(organization, namespace, app)
 
 
 # Create a shared secret identity provider and verifier
@@ -135,13 +135,13 @@ def common_options(function):
         "--local",
         type=str,
         required=True,
-        help="Local ID in the format organization/namespace/agent",
+        help="Local ID in the format organization/namespace/application",
     )(function)
 
     function = click.option(
         "--remote",
         type=str,
-        help="Remote ID in the format organization/namespace/agent",
+        help="Remote ID in the format organization/namespace/application-or-stream",
     )(function)
 
     function = click.option(

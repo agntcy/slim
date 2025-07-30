@@ -289,7 +289,7 @@ impl Proxy {
                 SharedSecret::new("id", "secret"),
             )
             .await
-            .expect("failed to create agent");
+            .expect("failed to create app");
 
         // run the service - this will create all the connections provided via the config file.
         svc.run().await.unwrap();
@@ -412,7 +412,7 @@ impl Proxy {
                                         debug!("sent message to destination {:?}", src);
                                     }
                                     Err(e) => {
-                                        error!("error while sending message to agent {:?}: {}", src, e.to_string());
+                                        error!("error while sending message to app {:?}: {}", src, e.to_string());
                                     }
                                 }
                             }
