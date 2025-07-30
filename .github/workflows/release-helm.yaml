@@ -7,7 +7,7 @@ name: ci-release-helm
 on:
   push:
     tags:
-      - 'slim-helm-*'
+      - 'helm-*'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -28,7 +28,7 @@ jobs:
       - name: Resolve release tag
         id: resolve
         run: |
-          echo "release_tag=$(echo ${GITHUB_REF#refs/*/} | sed 's/^slim-helm-//')" >> $GITHUB_OUTPUT
+          echo "release_tag=$(echo ${GITHUB_REF#refs/*/} | sed 's/^helm-//')" >> $GITHUB_OUTPUT
 
   release:
     name: Release Helm charts

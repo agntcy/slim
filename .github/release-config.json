@@ -10,11 +10,11 @@
             "release-type": "python"
         },
         "charts/slim": {
-            "package-name": "slim-helm",
+            "package-name": "helm-slim",
             "release-type": "helm"
         },
         "charts/slim-control-plane": {
-            "package-name": "slim-helm-control-plane",
+            "package-name": "helm-control-plane",
             "release-type": "helm"
         },
         "data-plane/integrations/mcp/slim-mcp/packages/slim-mcp": {

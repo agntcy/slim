@@ -52,9 +52,10 @@ jobs:
         shell: bash
         run: |
           echo "Resolving chart name from release tag: ${{ inputs.release_tag }}"
+          _chart_name=${{ inputs.release_tag }}
           
           # Extract the chart name from the release tag
-          echo "value=${ ${{ inputs.release_tag }}%-v*}/" >> "$GITHUB_OUTPUT"
+          echo "value=${_chart_name%-v*}/" >> "$GITHUB_OUTPUT"
 
 
       - name: Helm lint
