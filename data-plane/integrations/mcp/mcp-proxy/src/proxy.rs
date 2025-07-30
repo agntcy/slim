@@ -12,10 +12,7 @@ use rmcp::{
 };
 use slim::config::ConfigResult;
 use slim_auth::shared_secret::SharedSecret;
-use slim_datapath::{
-    api::ProtoMessage as Message,
-    messages::{Name},
-};
+use slim_datapath::{api::ProtoMessage as Message, messages::Name};
 use slim_service::{
     FireAndForgetConfiguration,
     session::{self, SessionConfig},
@@ -268,23 +265,12 @@ pub struct Proxy {
 impl Proxy {
     pub fn new(
         name: Name,
-        identity: Option<String>,
         config: ConfigResult,
         svc_id: slim_config::component::id::ID,
         mcp_server: String,
     ) -> Self {
-        let agent_id = match identity {
-            None => match id {
-                None => rand::random::<u64>(),
-                Some(id) => id,
-            },
-            Some(i) => Name::agent_id_from_identity(&i),
-        };
-
-        let agent_name = Agent::new(name, agent_id);
-
-        Proxy {
-            name: agent_name,
+        Self {
+            name,
             config,
             svc_id,
             mcp_server,
@@ -314,14 +300,7 @@ impl Proxy {
             .unwrap();
 
         // subscribe for local name
-        match app
-            .subscribe(
-                self.name.agent_type(),
-                self.name.agent_id_option(),
-                Some(conn_id),
-            )
-            .await
-        {
+        match app.subscribe(&self.name, Some(conn_id)).await {
             Ok(_) => {}
             Err(e) => {
                 panic!("an error accoured while adding a subscription {}", e);
@@ -425,8 +404,7 @@ impl Proxy {
                                 };
                                 match app.publish_to(
                                     info,
-                                    src.agent_type(),
-                                    Some(src.agent_id()),
+                                    &src,
                                     conn_id,
                                     msg,
                                 ).await {

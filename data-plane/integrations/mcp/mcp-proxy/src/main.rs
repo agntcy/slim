@@ -62,7 +62,7 @@ async fn main() {
     let config_file = args.config();
     let svc_name = args.svc_name();
     let name = args.name();
-    let id = args.id();
+    let _id = args.id();
     let server = args.mcp_server();
 
     let v_name: Vec<&str> = name.split('/').collect();
@@ -77,7 +77,6 @@ async fn main() {
 
     let mut proxy = proxy::Proxy::new(
         Name::from_strings([v_name[0], v_name[1], v_name[2]]),
-        id.copied(),
         config,
         svc_id,
         server.clone(),
