@@ -17,7 +17,7 @@ async def test_pubsub(server, mls_enabled):  # noqa: C901
     message = "Calling app"
 
     # participant count
-    participants_count = 2
+    participants_count = 10
     participants = []
 
     chat_name = slim_bindings.PyName("org", "default", "chat")
