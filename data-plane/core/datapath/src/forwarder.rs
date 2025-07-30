@@ -94,13 +94,7 @@ where
         }
     }
 
-    pub fn on_forwarded_subscription(
-        &self,
-        source: Name,
-        name: Name,
-        conn_index: u64,
-        add: bool,
-    ) {
+    pub fn on_forwarded_subscription(&self, source: Name, name: Name, conn_index: u64, add: bool) {
         if add {
             self.remote_subscription_table
                 .add_subscription(source, name, conn_index);

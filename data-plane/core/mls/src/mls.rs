@@ -491,7 +491,7 @@ where
 
 #[cfg(test)]
 mod tests {
-    use slim_datapath::messages::{self, Name};
+    use slim_datapath::messages::Name;
     use tokio::time;
 
     use super::*;
@@ -795,8 +795,7 @@ mod tests {
 
         let alice_name = Name::from_strings(["org", "default", "alice"]).with_id(0);
         let bob_name = Name::from_strings(["org", "default", "bob"]).with_id(1);
-        let moderator_name =
-            Name::from_strings(["org", "default", "moderator"]).with_id(2);
+        let moderator_name = Name::from_strings(["org", "default", "moderator"]).with_id(2);
 
         let mut moderator = Mls::new(
             moderator_name.clone(),
