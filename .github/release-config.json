@@ -14,7 +14,7 @@
             "release-type": "helm"
         },
         "charts/slim-control-plane": {
-            "package-name": "helm-control-plane",
+            "package-name": "helm-slim-control-plane",
             "release-type": "helm"
         },
         "data-plane/integrations/mcp/slim-mcp/packages/slim-mcp": {
