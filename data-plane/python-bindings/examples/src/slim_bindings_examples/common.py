@@ -42,7 +42,7 @@ def split_id(id):
         print("Error: IDs must be in the format organization/namespace/agent.")
         raise e
 
-    return local_organization, local_namespace, local_agent
+    return slim_bindings.PyName(local_organization, local_namespace, local_agent)
 
 
 # Create a shared secret identity provider and verifier
