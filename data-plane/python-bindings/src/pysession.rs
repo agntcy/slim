@@ -5,6 +5,7 @@ use pyo3::prelude::*;
 use pyo3_stub_gen::derive::gen_stub_pyclass;
 use pyo3_stub_gen::derive::gen_stub_pyclass_enum;
 use pyo3_stub_gen::derive::gen_stub_pymethods;
+use slim_datapath::messages::Name;
 
 use crate::utils::PyName;
 use slim_service::FireAndForgetConfiguration;
@@ -38,6 +39,24 @@ impl PySessionInfo {
     #[getter]
     fn id(&self) -> u32 {
         self.session_info.id
+    }
+
+    #[getter]
+    fn source_name(&self) -> PyName {
+        let name = match &self.session_info.message_source {
+            Some(n) => n.clone(),
+            None => Name::from_strings(["", "", ""]),
+        };
+        PyName::from(name)
+    }
+
+    #[getter]
+    pub fn destination_name(&self) -> PyName {
+        let name = match &self.session_info.message_destination {
+            Some(n) => n.clone(),
+            None => Name::from_strings(["", "", ""]),
+        };
+        PyName::from(name)
     }
 }
 

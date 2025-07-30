@@ -48,10 +48,11 @@ async def test_sticky_session(server, mls_enabled):
 
             # new session received! listen for the message
             while True:
-                _, _ = await receiver.receive(session=session_info_rec.id)
+                info, _ = await receiver.receive(session=session_info_rec.id)
 
-                # store the count in dictionary
-                receiver_counts[i] += 1
+                if info.destination_name.equal_without_id(receiver_name):
+                    # store the count in dictionary
+                    receiver_counts[i] += 1
 
     # run 10 receivers concurrently
     tasks = []

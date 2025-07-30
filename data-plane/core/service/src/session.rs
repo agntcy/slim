@@ -99,6 +99,8 @@ pub struct Info {
     pub session_type: ProtoSessionType,
     /// The identifier of the app that sent the message
     pub message_source: Option<Name>,
+    /// The destination name of the message
+    pub message_destination: Option<Name>,
     /// The input connection id
     pub input_connection: Option<u64>,
 }
@@ -112,6 +114,7 @@ impl Info {
             session_message_type: ProtoSessionMessageType::Unspecified,
             session_type: ProtoSessionType::SessionUnknown,
             message_source: None,
+            message_destination: None,
             input_connection: None,
         }
     }
@@ -130,6 +133,10 @@ impl Info {
 
     pub fn set_message_source(&mut self, message_source: Name) {
         self.message_source = Some(message_source);
+    }
+
+    pub fn set_message_destination(&mut self, message_destination: Name) {
+        self.message_destination = Some(message_destination);
     }
 
     pub fn set_input_connection(&mut self, input_connection: u64) {
@@ -160,6 +167,10 @@ impl Info {
         self.message_source.clone()
     }
 
+    pub fn get_message_destination(&self) -> Option<Name> {
+        self.message_destination.clone()
+    }
+
     pub fn get_input_connection(&self) -> Option<u64> {
         self.input_connection
     }
@@ -173,6 +184,7 @@ impl From<&Message> for Info {
         let id = session_header.session_id;
         let message_id = session_header.message_id;
         let message_source = message.get_source();
+        let message_destination = message.get_dst();
         let input_connection = slim_header.incoming_conn;
         let session_message_type = session_header.session_message_type();
         let session_type = session_header.session_type();
@@ -183,6 +195,7 @@ impl From<&Message> for Info {
             session_message_type,
             session_type,
             message_source: Some(message_source),
+            message_destination: Some(message_destination),
             input_connection,
         }
     }

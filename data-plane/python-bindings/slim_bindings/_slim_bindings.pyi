@@ -23,6 +23,9 @@ class PyName:
     def components(self) -> builtins.list[builtins.int]:
         ...
 
+    def equal_without_id(self, name:PyName) -> builtins.bool:
+        ...
+
     def __repr__(self) -> builtins.str:
         ...
 
@@ -36,6 +39,8 @@ class PyService:
 
 class PySessionInfo:
     id: builtins.int
+    source_name: PyName
+    destination_name: PyName
     def __new__(cls,session_id:builtins.int): ...
 
 class PyAlgorithm(Enum):

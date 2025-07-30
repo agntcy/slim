@@ -74,6 +74,12 @@ impl PyName {
         self.name.components().to_vec()
     }
 
+    pub fn equal_without_id(&self, name: &PyName) -> bool {
+        self.name.components()[0] == name.name.components()[0]
+            && self.name.components()[1] == name.name.components()[1]
+            && self.name.components()[2] == name.name.components()[2]
+    }
+
     fn __repr__(&self) -> String {
         self.name.to_string()
     }
