@@ -2,6 +2,7 @@ package sbapiservice
 
 import (
 	"context"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/rs/zerolog"
@@ -20,19 +21,22 @@ type SouthboundAPIServer interface {
 type sbAPIService struct {
 	config config.APIConfig
 	controllerapi.UnimplementedControllerServiceServer
-	dbService        db.DataAccess
-	messagingService nodecontrol.NodeCommandHandler
+	dbService                 db.DataAccess
+	messagingService          nodecontrol.NodeCommandHandler
+	nodeRegistrationListeners []nodecontrol.NodeRegistrationHandler
 }
 
 func NewSBAPIService(
 	config config.APIConfig,
 	dbService db.DataAccess,
-	messagingService nodecontrol.NodeCommandHandler,
+	cmdHandler nodecontrol.NodeCommandHandler,
+	nodeRegistrationListeners []nodecontrol.NodeRegistrationHandler,
 ) SouthboundAPIServer {
 	return &sbAPIService{
-		config:           config,
-		dbService:        dbService,
-		messagingService: messagingService,
+		config:                    config,
+		dbService:                 dbService,
+		messagingService:          cmdHandler,
+		nodeRegistrationListeners: nodeRegistrationListeners,
 	}
 }
 
@@ -56,11 +60,32 @@ func (s *sbAPIService) OpenControlChannel(stream controllerapi.ControllerService
 		return err
 	}
 
-	// TODO: receive with timeout, if no register request received within a certain time, close the stream
-	msg, err = stream.Recv()
-	if err != nil {
+	// if no register request received within a certain time, close the stream
+	recvTimeout := 15 * time.Second // assume this is a time.Duration field in your config
+	recvCtx, cancel := context.WithTimeout(ctx, recvTimeout)
+	defer cancel()
+
+	msgCh := make(chan *controllerapi.ControlMessage, 1)
+	errCh := make(chan error, 1)
+
+	go func() {
+		rmsg, rerr := stream.Recv()
+		if err != nil {
+			errCh <- rerr
+			return
+		}
+		msgCh <- rmsg
+	}()
+
+	select {
+	case <-recvCtx.Done():
+		zlog.Error().Msgf("Timeout waiting for register node request")
+		return recvCtx.Err()
+	case rerr := <-errCh:
 		zlog.Error().Msgf("Error receiving message: %v", err)
-		return err
+		return rerr
+	case m := <-msgCh:
+		msg = m
 	}
 
 	registeredNodeID := ""
@@ -68,7 +93,7 @@ func (s *sbAPIService) OpenControlChannel(stream controllerapi.ControllerService
 	// Check for ControlMessage_RegisterNodeRequest
 	if regReq, ok := msg.Payload.(*controllerapi.ControlMessage_RegisterNodeRequest); ok {
 		registeredNodeID = regReq.RegisterNodeRequest.NodeId
-		zlog.Info().Msgf("Register node with ID: %v", registeredNodeID)
+		zlog.Info().Msgf("Registering node with ID: %v", registeredNodeID)
 		_, err = s.dbService.SaveNode(db.Node{
 			ID: registeredNodeID,
 		})
@@ -78,6 +103,27 @@ func (s *sbAPIService) OpenControlChannel(stream controllerapi.ControllerService
 		}
 		s.messagingService.AddStream(registeredNodeID, stream)
 		s.messagingService.UpdateConnectionStatus(registeredNodeID, nodecontrol.NodeStatusConnected)
+
+		// Acknowledge the registration
+		ackMsg := &controllerapi.ControlMessage{
+			MessageId: uuid.NewString(),
+			Payload: &controllerapi.ControlMessage_Ack{
+				Ack: &controllerapi.Ack{
+					Success:  true,
+					Messages: []string{"Node registered successfully"},
+				},
+			},
+		}
+		_ = stream.Send(ackMsg)
+
+		// call all registered listeners in a goroutine
+		go func() {
+			for _, listener := range s.nodeRegistrationListeners {
+				if err := listener.NodeRegistered(ctx, registeredNodeID); err != nil {
+					zlog.Error().Msgf("Error in node registration listener: %v", err)
+				}
+			}
+		}()
 	}
 
 	if registeredNodeID == "" {
@@ -85,10 +131,25 @@ func (s *sbAPIService) OpenControlChannel(stream controllerapi.ControllerService
 		return nil
 	}
 
+	return s.handleNodeMessages(stream, zlog, registeredNodeID)
+}
+
+func (s *sbAPIService) handleNodeMessages(stream controllerapi.ControllerService_OpenControlChannelServer,
+	zlog *zerolog.Logger, registeredNodeID string) error {
 	for {
 		msg, err := stream.Recv()
 		if err != nil {
-			zlog.Error().Msgf("Error receiving message: %v", err)
+			zlog.Error().Msgf("Stream connection failed for node %s: %v", registeredNodeID, err)
+
+			// Update the node status to not connected
+			s.messagingService.UpdateConnectionStatus(registeredNodeID, nodecontrol.NodeStatusNotConnected)
+			zlog.Error().Msgf("Node %s status set to: %v", registeredNodeID, nodecontrol.NodeStatusNotConnected)
+
+			err := s.messagingService.RemoveStream(registeredNodeID)
+			if err != nil {
+				zlog.Error().Msgf("Error removing stream for node %s: %v", registeredNodeID, err)
+			}
+
 			return err
 		}
 		switch payload := msg.Payload.(type) {

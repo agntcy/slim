@@ -14,20 +14,29 @@ import (
 )
 
 var _ = Describe("Routing", func() {
+
 	var (
 		clientASession *gexec.Session
 		clientBSession *gexec.Session
 	)
 
 	BeforeEach(func() {
+		// start control plane
+		var errCP error
+		controlPlaneSession, errCP = gexec.Start(
+			exec.Command(controlPlanePath),
+			GinkgoWriter, GinkgoWriter,
+		)
+
+		Expect(errCP).NotTo(HaveOccurred())
 		// start SLIMs
 		var errA, errB error
 		serverASession, errA = gexec.Start(
-			exec.Command(slimPath, "--config", "./testdata/server-a-config.yaml"),
+			exec.Command(slimPath, "--config", "./testdata/server-a-config-cp.yaml"),
 			GinkgoWriter, GinkgoWriter,
 		)
 		serverBSession, errB = gexec.Start(
-			exec.Command(slimPath, "--config", "./testdata/server-b-config.yaml"),
+			exec.Command(slimPath, "--config", "./testdata/server-b-config-cp.yaml"),
 			GinkgoWriter, GinkgoWriter,
 		)
 		Expect(errA).NotTo(HaveOccurred())
@@ -37,21 +46,23 @@ var _ = Describe("Routing", func() {
 		time.Sleep(2000 * time.Millisecond)
 
 		// add routes
-		Expect(exec.Command(slimctlPath, "nc",
+		Expect(exec.Command(slimctlPath,
 			"route", "add", "org/default/b/0",
 			"via", "./testdata/client-b-config-data.json",
-			"-s", "127.0.0.1:46358",
+			"-s", "127.0.0.1:50051",
+			"-n", "slim/a",
 		).Run()).To(Succeed())
 
-		Expect(exec.Command(slimctlPath, "nc",
+		Expect(exec.Command(slimctlPath,
 			"route", "add", "org/default/a/0",
 			"via", "./testdata/client-a-config-data.json",
-			"-s", "127.0.0.1:46368",
+			"-s", "127.0.0.1:50051",
+			"-n", "slim/b",
 		).Run()).To(Succeed())
 	})
 
 	AfterEach(func() {
-		// terminate apps
+		// terminate agents
 		if clientASession != nil {
 			clientASession.Terminate().Wait(2 * time.Second)
 		}
@@ -65,23 +76,16 @@ var _ = Describe("Routing", func() {
 		if serverBSession != nil {
 			serverBSession.Terminate().Wait(30 * time.Second)
 		}
+		// terminate control plane
+		if controlPlaneSession != nil {
+			controlPlaneSession.Terminate().Wait(30 * time.Second)
+		}
 	})
 
-	Describe("message routing", func() {
+	Describe("message routing with control plane", func() {
 		It("should deliver at least one message each way", func() {
 			var err error
 
-<<<<<<< HEAD
-		clientBSession, err = gexec.Start(
-			exec.Command(sdkMockPath,
-				"--config", "./testdata/client-b-config.yaml",
-				"--local-name", "b",
-				"--remote-name", "a",
-			),
-			GinkgoWriter, GinkgoWriter,
-		)
-		Expect(err).NotTo(HaveOccurred())
-=======
 			clientBSession, err = gexec.Start(
 				exec.Command(sdkMockPath,
 					"--config", "./testdata/client-b-config.yaml",
@@ -91,22 +95,9 @@ var _ = Describe("Routing", func() {
 				GinkgoWriter, GinkgoWriter,
 			)
 			Expect(err).NotTo(HaveOccurred())
->>>>>>> main
 
 			time.Sleep(3000 * time.Millisecond)
 
-<<<<<<< HEAD
-		clientASession, err = gexec.Start(
-			exec.Command(sdkMockPath,
-				"--config", "./testdata/client-a-config.yaml",
-				"--local-name", "a",
-				"--remote-name", "b",
-				"--message", "hey",
-			),
-			GinkgoWriter, GinkgoWriter,
-		)
-		Expect(err).NotTo(HaveOccurred())
-=======
 			clientASession, err = gexec.Start(
 				exec.Command(sdkMockPath,
 					"--config", "./testdata/client-a-config.yaml",
@@ -117,37 +108,64 @@ var _ = Describe("Routing", func() {
 				GinkgoWriter, GinkgoWriter,
 			)
 			Expect(err).NotTo(HaveOccurred())
->>>>>>> main
 
 			Eventually(clientBSession.Out, 5*time.Second).
 				Should(gbytes.Say(`received message: hello from the a`))
 
 			Eventually(clientASession.Out, 5*time.Second).
 				Should(gbytes.Say(`received message: hello from the b`))
+
 		})
 
 		It("should have the valid routes and connections", func() {
-			// test listing routes
-			routeListOut, err := exec.Command(
-				slimctlPath, "nc",
+			// test listing routes for node a
+			routeListOutA, err := exec.Command(
+				slimctlPath,
 				"route", "list",
-				"-s", "127.0.0.1:46358",
+				"-s", "127.0.0.1:50051",
+				"-n", "slim/a",
 			).CombinedOutput()
-			Expect(err).NotTo(HaveOccurred(), "slimctl route list failed: %s", string(routeListOut))
+			Expect(err).NotTo(HaveOccurred(), "slimctl route list failed: %s", string(routeListOutA))
 
-			routeListOutput := string(routeListOut)
-			Expect(routeListOutput).To(ContainSubstring("org/default/b id=0"))
+			routeListOutputA := string(routeListOutA)
+			Expect(routeListOutputA).To(ContainSubstring("org/default/b"))
 
-			// test listing connections
-			connectionListOut, err := exec.Command(
-				slimctlPath, "nc",
+			// test listing connections for node a
+			connectionListOutA, err := exec.Command(
+				slimctlPath,
 				"connection", "list",
-				"-s", "127.0.0.1:46358",
+				"-s", "127.0.0.1:50051",
+				"-n", "slim/a",
 			).CombinedOutput()
-			Expect(err).NotTo(HaveOccurred(), "slimctl connection list failed: %s", string(connectionListOut))
+			Expect(err).NotTo(HaveOccurred(), "slimctl connection list failed: %s", string(connectionListOutA))
 
-			connectionOutput := string(connectionListOut)
-			Expect(connectionOutput).To(ContainSubstring(":46367"))
+			connectionOutputA := string(connectionListOutA)
+			Expect(connectionOutputA).To(ContainSubstring(":46367"))
+
+			// test listing routes for node b
+			routeListOutB, err := exec.Command(
+				slimctlPath,
+				"route", "list",
+				"-s", "127.0.0.1:50051",
+				"-n", "slim/b",
+			).CombinedOutput()
+			Expect(err).NotTo(HaveOccurred(), "slimctl route list failed: %s", string(routeListOutB))
+
+			routeListOutputB := string(routeListOutB)
+			Expect(routeListOutputB).To(ContainSubstring("org/default/a"))
+
+			// test listing connections for node a
+			connectionListOutB, err := exec.Command(
+				slimctlPath,
+				"connection", "list",
+				"-s", "127.0.0.1:50051",
+				"-n", "slim/b",
+			).CombinedOutput()
+			Expect(err).NotTo(HaveOccurred(), "slimctl connection list failed: %s", string(connectionListOutB))
+
+			connectionOutputB := string(connectionListOutB)
+			Expect(connectionOutputB).To(ContainSubstring(":46357"))
 		})
 	})
+
 })

@@ -14,12 +14,12 @@ import (
 )
 
 type RouteService struct {
-	messagingService nodecontrol.NodeCommandHandler
+	cmdHandler nodecontrol.NodeCommandHandler
 }
 
 func NewRouteService(messagingService nodecontrol.NodeCommandHandler) *RouteService {
 	return &RouteService{
-		messagingService: messagingService,
+		cmdHandler: messagingService,
 	}
 }
 
@@ -32,10 +32,10 @@ func (s *RouteService) ListSubscriptions(
 		Payload:   &controllerapi.ControlMessage_SubscriptionListRequest{},
 	}
 
-	if err := s.messagingService.SendMessage(nodeEntry.Id, msg); err != nil {
+	if err := s.cmdHandler.SendMessage(nodeEntry.Id, msg); err != nil {
 		return nil, fmt.Errorf("failed to send message: %w", err)
 	}
-	resp, err := s.messagingService.WaitForResponse(nodeEntry.Id,
+	resp, err := s.cmdHandler.WaitForResponse(nodeEntry.Id,
 		reflect.TypeOf(&controllerapi.ControlMessage_SubscriptionListResponse{}))
 	if err != nil {
 		return nil, fmt.Errorf("failed to receive SubscriptionListResponse: %w", err)
@@ -72,10 +72,10 @@ func (s *RouteService) ListConnections(
 		Payload:   &controllerapi.ControlMessage_ConnectionListRequest{},
 	}
 
-	if err := s.messagingService.SendMessage(nodeEntry.Id, msg); err != nil {
+	if err := s.cmdHandler.SendMessage(nodeEntry.Id, msg); err != nil {
 		return nil, fmt.Errorf("failed to send message: %w", err)
 	}
-	response, err := s.messagingService.WaitForResponse(nodeEntry.Id,
+	response, err := s.cmdHandler.WaitForResponse(nodeEntry.Id,
 		reflect.TypeOf(&controllerapi.ControlMessage_ConnectionListResponse{}))
 	if err != nil {
 		return nil, fmt.Errorf("failed to receive ConnectionListResponse: %w", err)
@@ -111,12 +111,12 @@ func (s *RouteService) CreateConnection(
 		},
 	}
 
-	err := s.messagingService.SendMessage(nodeEntry.Id, createCommandMessage)
+	err := s.cmdHandler.SendMessage(nodeEntry.Id, createCommandMessage)
 	if err != nil {
 		return err
 	}
 	// wait for ACK response
-	response, err := s.messagingService.WaitForResponse(nodeEntry.Id, reflect.TypeOf(&controllerapi.ControlMessage_Ack{}))
+	response, err := s.cmdHandler.WaitForResponse(nodeEntry.Id, reflect.TypeOf(&controllerapi.ControlMessage_Ack{}))
 	if err != nil {
 		return err
 	}
@@ -153,12 +153,12 @@ func (s *RouteService) CreateSubscription(
 		},
 	}
 
-	err := s.messagingService.SendMessage(nodeEntry.Id, msg)
+	err := s.cmdHandler.SendMessage(nodeEntry.Id, msg)
 	if err != nil {
 		return err
 	}
 	// wait for ACK response
-	response, err := s.messagingService.WaitForResponse(nodeEntry.Id,
+	response, err := s.cmdHandler.WaitForResponse(nodeEntry.Id,
 		reflect.TypeOf(&controllerapi.ControlMessage_Ack{}))
 	if err != nil {
 		return err
@@ -193,12 +193,12 @@ func (s *RouteService) DeleteSubscription(
 		},
 	}
 
-	err := s.messagingService.SendMessage(nodeEntry.Id, msg)
+	err := s.cmdHandler.SendMessage(nodeEntry.Id, msg)
 	if err != nil {
 		return err
 	}
 	// wait for ACK response
-	response, err := s.messagingService.WaitForResponse(nodeEntry.Id, reflect.TypeOf(&controllerapi.ControlMessage_Ack{}))
+	response, err := s.cmdHandler.WaitForResponse(nodeEntry.Id, reflect.TypeOf(&controllerapi.ControlMessage_Ack{}))
 	if err != nil {
 		return err
 	}
@@ -214,6 +214,7 @@ func (s *RouteService) DeleteSubscription(
 	return nil
 }
 
+// logAckMessage logs the details of an ACK message received from a node.
 func logAckMessage(ctx context.Context, ack *controllerapi.Ack) {
 	zlog := zerolog.Ctx(ctx)
 	zlog.Debug().Msgf(

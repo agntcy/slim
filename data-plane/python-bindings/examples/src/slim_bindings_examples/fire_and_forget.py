@@ -8,7 +8,12 @@ import click
 
 import slim_bindings
 
-from .common import create_local_app, format_message_print, split_id, common_options
+from .common import (
+    common_options,
+    create_local_app,
+    format_message_print,
+    split_id,
+)
 
 
 async def run_client(

@@ -106,7 +106,7 @@ tasks:
     env:
       SLIM_INSTANCE_ID: server
     cmds:
-      - uv run --package slim-bindings-examples slim {{.EXTRA_ARGS}}
+      - uv run --package slim-bindings-examples slim --slim "127.0.0.1:46357" {{.EXTRA_ARGS}}
     vars:
       EXTRA_ARGS: '{{.EXTRA_ARGS | default ""}}'
 
@@ -163,32 +163,6 @@ tasks:
     vars:
       EXTRA_ARGS: '{{.EXTRA_ARGS | default ""}}'
 
-  python-bindings:example:stream:producer:
-    desc: "Stream producer example - Sends messages to shared stream"
-    cmds:
-      - |
-        uv run --package slim-bindings-examples streaming                             \
-          --local agntcy/ns/producer                                                  \
-          --slim '{"endpoint": "http://localhost:46357", "tls": {"insecure": true}}'  \
-          --shared-secret "secret"                                                    \
-          --remote agntcy/ns/stream                                                   \
-          --message "hello"                                                           \
-          --iterations 1000
-    vars:
-      EXTRA_ARGS: '{{.EXTRA_ARGS | default ""}}'
-
-  python-bindings:example:stream:consumer:
-    desc: "Stream consumer example - Receives messages from shared stream"
-    cmds:
-      - |
-        uv run --package slim-bindings-examples streaming                             \
-          --local agntcy/ns/consumer                                                  \
-          --slim '{"endpoint": "http://localhost:46357", "tls": {"insecure": true}}'  \
-          --shared-secret "secret"                                                    \
-          --remote agntcy/ns/stream
-    vars:
-      EXTRA_ARGS: '{{.EXTRA_ARGS | default ""}}'
-
   python-bindings:example:pubsub:moderator:
     desc: "PubSub moderator example - Creates a channel, invites participants, and sends messages"
     cmds:
@@ -205,7 +179,7 @@ tasks:
       EXTRA_ARGS: '{{.EXTRA_ARGS | default ""}}'
 
   python-bindings:example:pubsub:client-1:
-    desc: "PubSub moderator example - Creates a channel, invites participants, and sends messages"
+    desc: "PubSub client example - Waits to be invited to a channel and receives messages"
     cmds:
       - |
         uv run --package slim-bindings-examples pubsub                                \
@@ -216,7 +190,7 @@ tasks:
       EXTRA_ARGS: '{{.EXTRA_ARGS | default ""}}'
 
   python-bindings:example:pubsub:client-2:
-    desc: "PubSub moderator example - Creates a channel, invites participants, and sends messages"
+    desc: "PubSub client example - Waits to be invited to a channel and receives messages"
     cmds:
       - |
         uv run --package slim-bindings-examples pubsub                                \

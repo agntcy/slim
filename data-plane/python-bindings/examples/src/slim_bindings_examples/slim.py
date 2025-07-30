@@ -31,7 +31,9 @@ async def run_server(address: str, enable_opentelemetry: bool):
         secret="secret",
     )
     # create new slim object
-    slim = await slim_bindings.Slim.new(slim_bindings.PyName("cisco", "default", "slim"), provider, verifier)
+    slim = await slim_bindings.Slim.new(
+        slim_bindings.PyName("cisco", "default", "slim"), provider, verifier
+    )
 
     # Run as server
     await slim.run_server({"endpoint": address, "tls": {"insecure": True}})

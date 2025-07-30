@@ -37,10 +37,17 @@ message Node {
 
 message NodeListRequest {}
 
+enum NodeStatus {
+  NODE_STATUS_UNSPECIFIED = 0;
+  CONNECTED = 1;
+  NOT_CONNECTED = 2;
+}
+
 message NodeEntry {
-    string id = 1;
-    string host = 2;
-    uint32 port = 3;
+  string id = 1;
+  string host = 2;
+  uint32 port = 3;
+  NodeStatus status = 4;
 }
 
 message NodeListResponse {

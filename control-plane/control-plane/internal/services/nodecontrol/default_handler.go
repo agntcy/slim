@@ -14,6 +14,8 @@ type defaultNodeCommandHandler struct {
 	nodeStreamMap sync.Map
 	// Maps node ID to its connection status
 	nodeConnectionStatusMap sync.Map
+	// Contains send locks for each node ID to serialize SendMessage calls
+	nodeSendLockMap sync.Map // Maps node IDs to their send locks
 	// Maps contains received *controllerapi.ControlMessage responses for a node IDs and message type
 	nodeResponseMsgMap sync.Map
 }
@@ -121,6 +123,13 @@ func (m *defaultNodeCommandHandler) SendMessage(nodeID string, controlMessage *c
 	if nodeID == "" {
 		return fmt.Errorf("nodeID cannot be empty")
 	}
+
+	// Use a per-nodeID mutex to serialize SendMessage calls for the same nodeID
+	mutexIface, _ := m.nodeSendLockMap.LoadOrStore(nodeID+"_send_lock", &sync.Mutex{})
+	nodeMutex := mutexIface.(*sync.Mutex)
+
+	nodeMutex.Lock()
+	defer nodeMutex.Unlock()
 
 	// check status of the node
 	status, err := m.GetConnectionStatus(nodeID)

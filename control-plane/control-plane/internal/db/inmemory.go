@@ -264,10 +264,7 @@ func (d *dbService) ListConnectionsByNodeID(nodeID string) ([]Connection, error)
 		}
 	}
 
-	if len(connections) == 0 {
-		return nil, fmt.Errorf("no connections found for node ID %s", nodeID)
-	}
-
+	// Return empty slice instead of error when no connections found
 	return connections, nil
 }
 
@@ -287,9 +284,6 @@ func (d *dbService) ListSubscriptionsByNodeID(nodeID string) ([]Subscription, er
 		}
 	}
 
-	if len(subscriptions) == 0 {
-		return nil, fmt.Errorf("no subscriptions found for node ID %s", nodeID)
-	}
-
+	// Return empty slice instead of error when no subscriptions found
 	return subscriptions, nil
 }

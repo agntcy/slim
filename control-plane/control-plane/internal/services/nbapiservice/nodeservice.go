@@ -9,15 +9,18 @@ import (
 	controllerapi "github.com/agntcy/slim/control-plane/common/proto/controller/v1"
 	controlplaneApi "github.com/agntcy/slim/control-plane/common/proto/controlplane/v1"
 	"github.com/agntcy/slim/control-plane/control-plane/internal/db"
+	"github.com/agntcy/slim/control-plane/control-plane/internal/services/nodecontrol"
 )
 
 type NodeService struct {
-	dbService db.DataAccess
+	dbService  db.DataAccess
+	cmdHandler nodecontrol.NodeCommandHandler
 }
 
-func NewNodeService(dbService db.DataAccess) *NodeService {
+func NewNodeService(dbService db.DataAccess, cmdHandler nodecontrol.NodeCommandHandler) *NodeService {
 	return &NodeService{
-		dbService: dbService,
+		dbService:  dbService,
+		cmdHandler: cmdHandler,
 	}
 }
 
@@ -34,6 +37,13 @@ func (s *NodeService) ListNodes(
 			Id:   node.ID,
 			Host: node.Host,
 			Port: node.Port,
+		}
+		nodeStatus, _ := s.cmdHandler.GetConnectionStatus(node.ID)
+		switch nodeStatus {
+		case nodecontrol.NodeStatusConnected:
+			nodeEntry.Status = controlplaneApi.NodeStatus_CONNECTED
+		case nodecontrol.NodeStatusNotConnected:
+			nodeEntry.Status = controlplaneApi.NodeStatus_NOT_CONNECTED
 		}
 		nodeEntries = append(nodeEntries, nodeEntry)
 	}
