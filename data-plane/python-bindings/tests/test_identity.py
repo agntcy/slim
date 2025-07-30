@@ -48,9 +48,7 @@ def create_slim(
         require_aud=True,
     )
 
-    return slim_bindings.Slim.new(
-        name, provider, verifier
-    )
+    return slim_bindings.Slim.new(name, provider, verifier)
 
 
 @pytest.mark.asyncio
@@ -142,7 +140,7 @@ async def test_identity_verification(server, audience):
         if audience == test_audience:
             # As audience matches, we expect a successful request/reply
             session_info, message = await slim_sender.request_reply(
-                session_info, pub_msg,receiver_name
+                session_info, pub_msg, receiver_name
             )
 
             # check if the message is correct

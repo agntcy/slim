@@ -4,9 +4,9 @@
 //! gRPC bindings for pubsub service.
 pub(crate) mod proto;
 
-pub use proto::pubsub::v1::Name as ProtoName;
 pub use proto::pubsub::v1::Content;
 pub use proto::pubsub::v1::Message as ProtoMessage;
+pub use proto::pubsub::v1::Name as ProtoName;
 pub use proto::pubsub::v1::Publish as ProtoPublish;
 pub use proto::pubsub::v1::SessionHeader;
 pub use proto::pubsub::v1::SessionMessageType as ProtoSessionMessageType;

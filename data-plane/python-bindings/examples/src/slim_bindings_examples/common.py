@@ -247,17 +247,13 @@ async def create_local_app(
     # Split the local IDs into their respective components
     local_name = split_id(local)
 
-    local_app = await slim_bindings.Slim.new(
-        local_name, provider, verifier
-    )
+    local_app = await slim_bindings.Slim.new(local_name, provider, verifier)
 
     format_message_print(f"{local_app.get_id()}", "Created app")
 
     # Connect to slim server
     _ = await local_app.connect(slim)
 
-    format_message_print(
-        f"{local_app.get_id()}", f"Connected to {slim['endpoint']}"
-    )
+    format_message_print(f"{local_app.get_id()}", f"Connected to {slim['endpoint']}")
 
     return local_app

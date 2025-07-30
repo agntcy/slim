@@ -44,7 +44,12 @@ impl From<Name> for PyName {
 impl PyName {
     #[new]
     #[pyo3(signature = (component0, component1, component2, id=None))]
-    pub fn new(component0: String, component1: String, component2: String, id: Option<u64>) -> Self {
+    pub fn new(
+        component0: String,
+        component1: String,
+        component2: String,
+        id: Option<u64>,
+    ) -> Self {
         let name = Name::from_strings([&component0, &component1, &component2]);
 
         PyName {

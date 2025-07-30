@@ -7,9 +7,9 @@ from typing import Optional
 
 from ._slim_bindings import (  # type: ignore[attr-defined]
     SESSION_UNSPECIFIED,
-    PyName,
     PyIdentityProvider,
     PyIdentityVerifier,
+    PyName,
     PyService,
     PySessionConfiguration,
     PySessionInfo,

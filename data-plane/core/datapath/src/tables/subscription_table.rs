@@ -270,10 +270,7 @@ impl NameState {
                 }
 
                 // We cannot return any connection for this name
-                debug!(
-                    "cannot find out connection, name does not exists {:?}",
-                    id
-                );
+                debug!("cannot find out connection, name does not exists {:?}", id);
                 None
             }
             Some(vec) => {
@@ -330,10 +327,7 @@ impl NameState {
         let val = self.ids.get(&id);
         match val {
             None => {
-                debug!(
-                    "cannot find out connection, id does not exists {:?}",
-                    id
-                );
+                debug!("cannot find out connection, id does not exists {:?}", id);
                 None
             }
             Some(vec) => {
@@ -488,7 +482,7 @@ fn remove_subscription_from_sub_table(
     mut table: RwLockWriteGuard<'_, RawRwLock, HashMap<InternalName, NameState>>,
 ) -> Result<(), SubscriptionTableError> {
     // Convert &Name to &InternalName. This is unsafe, but we know the types are compatible.
-    let query_name = unsafe { std::mem::transmute::<&Name, &InternalName>(&name) };
+    let query_name = unsafe { std::mem::transmute::<&Name, &InternalName>(name) };
 
     match table.get_mut(query_name) {
         None => {
@@ -736,10 +730,7 @@ mod tests {
         // return no match
         assert_eq!(
             t.match_all(&name1, 1),
-            Err(SubscriptionTableError::NoMatch(format!(
-                "{}",
-                name1,
-            )))
+            Err(SubscriptionTableError::NoMatch(format!("{}", name1,)))
         );
 
         // add subscription again

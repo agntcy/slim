@@ -497,8 +497,7 @@ mod tests {
             .unwrap();
 
         // create a subscriber
-        let subscriber_name =
-            Name::from_strings(["cisco", "default", "subscriber"]).with_id(0);
+        let subscriber_name = Name::from_strings(["cisco", "default", "subscriber"]).with_id(0);
         let (sub_app, mut sub_rx) = service
             .create_app(
                 &subscriber_name,
@@ -509,8 +508,7 @@ mod tests {
             .expect("failed to create app");
 
         // create a publisher
-        let publisher_name =
-            Name::from_strings(["cisco", "default", "publisher"]).with_id(0);
+        let publisher_name = Name::from_strings(["cisco", "default", "publisher"]).with_id(0);
         let (pub_app, _rx) = service
             .create_app(
                 &publisher_name,
@@ -539,11 +537,7 @@ mod tests {
         // publish a message
         let message_blob = "very complicated message".as_bytes().to_vec();
         pub_app
-            .publish(
-                session_info.clone(),
-                &subscriber_name,
-                message_blob.clone(),
-            )
+            .publish(session_info.clone(), &subscriber_name, message_blob.clone())
             .await
             .unwrap();
 

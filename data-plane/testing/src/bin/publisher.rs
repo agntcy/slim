@@ -464,7 +464,7 @@ async fn main() {
         // for the moment we send the message in anycast
         // we need to test also the match_all function
         if app
-            .publish(session_info.clone(), &p.1, payload)
+            .publish(session_info.clone(), p.1, payload)
             .await
             .is_err()
         {

@@ -188,9 +188,7 @@ fn main() {
         // 1) the nunmber of apps ids is equal to max_apps_per_type in this type
         // 2) the random bool add_app is false
         // 3) the total number of subscrptions is equal to max_subscription
-        while (apps_per_type < max_apps_per_type)
-            && add_app
-            && (subscriptions < max_subscriptions)
+        while (apps_per_type < max_apps_per_type) && add_app && (subscriptions < max_subscriptions)
         {
             // the id in the subscription is always a random numb
             let sub = name.clone().with_id(rng.random_range(0..u64::MAX));

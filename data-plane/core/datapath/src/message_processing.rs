@@ -493,12 +493,8 @@ impl MessageProcessor {
                 // send message
                 match self.send_msg(msg, out_conn).await {
                     Ok(_) => {
-                        self.forwarder().on_forwarded_subscription(
-                            source,
-                            dst,
-                            out_conn,
-                            add,
-                        );
+                        self.forwarder()
+                            .on_forwarded_subscription(source, dst, out_conn, add);
                         Ok(())
                     }
                     Err(e) => Err(DataPathError::UnsubscriptionError(e.to_string())),

@@ -117,16 +117,12 @@ where
         fanout: u32,
     ) -> Result<Vec<u64>, SubscriptionTableError> {
         if fanout == 1 {
-            match self
-                .subscription_table
-                .match_one(&name, incoming_conn)
-            {
+            match self.subscription_table.match_one(&name, incoming_conn) {
                 Ok(out) => Ok(vec![out]),
                 Err(e) => Err(e),
             }
         } else {
-            self.subscription_table
-                .match_all(&name, incoming_conn)
+            self.subscription_table.match_all(&name, incoming_conn)
         }
     }
 
@@ -162,7 +158,10 @@ mod tests {
             fwd.on_subscription_msg(name.clone().with_id(1), 12, false, true),
             Ok(())
         );
-        assert_eq!(fwd.on_publish_msg_match(name.clone().with_id(1), 100, 1), Ok(vec![12]));
+        assert_eq!(
+            fwd.on_publish_msg_match(name.clone().with_id(1), 100, 1),
+            Ok(vec![12])
+        );
 
         let expected = name.clone().with_id(2);
         assert_eq!(

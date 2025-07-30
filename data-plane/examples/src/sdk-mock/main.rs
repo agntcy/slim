@@ -66,9 +66,7 @@ async fn main() {
         .unwrap();
 
     let local_app_name = Name::from_strings(["org", "default", local_name]).with_id(id);
-    app.subscribe(&local_app_name, Some(conn_id))
-        .await
-        .unwrap();
+    app.subscribe(&local_app_name, Some(conn_id)).await.unwrap();
 
     // Set a route for the remote app
     let route = Name::from_strings(["org", "default", remote_name]);
@@ -203,9 +201,7 @@ async fn main() {
         }
 
         // publish message
-        app.publish(session, &route,  msg.into())
-            .await
-            .unwrap();
+        app.publish(session, &route, msg.into()).await.unwrap();
     }
 
     // wait for messages

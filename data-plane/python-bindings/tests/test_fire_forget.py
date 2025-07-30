@@ -75,11 +75,7 @@ async def test_sticky_session(server, mls_enabled):
 
     # send a message to the receiver
     for i in range(1000):
-        await sender.publish(
-            session_info,
-            b"Hello from sender",
-            receiver_name
-        )
+        await sender.publish(session_info, b"Hello from sender", receiver_name)
 
     # Wait for all receivers to finish
     await asyncio.sleep(1)

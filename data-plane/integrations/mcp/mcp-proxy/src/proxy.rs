@@ -278,7 +278,7 @@ impl Proxy {
                 None => rand::random::<u64>(),
                 Some(id) => id,
             },
-            Some(i) => Agent::agent_id_from_identity(&i),
+            Some(i) => Name::agent_id_from_identity(&i),
         };
 
         let agent_name = Agent::new(name, agent_id);

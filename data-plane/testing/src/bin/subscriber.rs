@@ -199,7 +199,7 @@ async fn main() {
     info!("register subscriptions for subscriber {}", id);
     let bar = ProgressBar::new(subscriptions_list.len() as u64);
     for s in subscriptions_list.iter() {
-        match app.subscribe(&s, Some(conn_id)).await {
+        match app.subscribe(s, Some(conn_id)).await {
             Ok(_) => {}
             Err(e) => {
                 panic!("an error accoured while adding a subscription {}", e);

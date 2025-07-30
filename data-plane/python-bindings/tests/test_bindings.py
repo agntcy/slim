@@ -111,9 +111,9 @@ async def test_session_config(server):
     assert isinstance(
         session_config, slim_bindings.PySessionConfiguration.FireAndForget
     )
-    assert (
-        session_config == session_config_ret
-    ), f"session config are not equal: {session_config} vs {session_config_ret}"
+    assert session_config == session_config_ret, (
+        f"session config are not equal: {session_config} vs {session_config_ret}"
+    )
 
     # check default values
     await slim_bindings.set_default_session_config(
@@ -130,9 +130,9 @@ async def test_session_config(server):
     assert isinstance(
         session_config_ret, slim_bindings.PySessionConfiguration.FireAndForget
     )
-    assert (
-        session_config == session_config_ret
-    ), f"session config are not equal: {session_config} vs {session_config_ret}"
+    assert session_config == session_config_ret, (
+        f"session config are not equal: {session_config} vs {session_config_ret}"
+    )
 
     # Streaming session
     session_config = slim_bindings.PySessionConfiguration.Streaming(
@@ -162,9 +162,9 @@ async def test_session_config(server):
             session_config,
         )
     except Exception as e:
-        assert "cannot change session direction" in str(
-            e
-        ), f"Unexpected error message: {str(e)}"
+        assert "cannot change session direction" in str(e), (
+            f"Unexpected error message: {str(e)}"
+        )
 
     # Use a receiver direction
     session_config = slim_bindings.PySessionConfiguration.Streaming(

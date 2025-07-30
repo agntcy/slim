@@ -72,9 +72,7 @@ async def test_request_reply(server):
         t = asyncio.create_task(background_task())
 
         # send a request and expect a response in slim2
-        session_info, message = await slim2.request_reply(
-            session_info, pub_msg, name1
-        )
+        session_info, message = await slim2.request_reply(session_info, pub_msg, name1)
 
         # check if the message is correct
         assert message == bytes(res_msg)

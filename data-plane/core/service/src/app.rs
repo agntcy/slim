@@ -297,11 +297,7 @@ where
     }
 
     /// Subscribe the app to receive messages for a name
-    pub async fn subscribe(
-        &self,
-        name: &Name,
-        conn: Option<u64>,
-    ) -> Result<(), ServiceError> {
+    pub async fn subscribe(&self, name: &Name, conn: Option<u64>) -> Result<(), ServiceError> {
         debug!("subscribe {} - conn {:?}", name, conn);
 
         let header = if let Some(c) = conn {
@@ -314,11 +310,7 @@ where
     }
 
     /// Unsubscribe the app
-    pub async fn unsubscribe(
-        &self,
-        name: &Name,
-        conn: Option<u64>,
-    ) -> Result<(), ServiceError> {
+    pub async fn unsubscribe(&self, name: &Name, conn: Option<u64>) -> Result<(), ServiceError> {
         debug!("unsubscribe from {} - {:?}", name, conn);
 
         let header = if let Some(c) = conn {

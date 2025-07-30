@@ -160,9 +160,13 @@ impl PyService {
             None => {
                 // use the session_info to set a name
                 match &session_info.message_source {
-                    Some(name_in_session) => (name_in_session.clone(), session_info.input_connection),
+                    Some(name_in_session) => {
+                        (name_in_session.clone(), session_info.input_connection)
+                    }
                     None => {
-                        return Err(ServiceError::ConfigError("no destination name specified".to_string()));
+                        return Err(ServiceError::ConfigError(
+                            "no destination name specified".to_string(),
+                        ));
                     }
                 }
             }

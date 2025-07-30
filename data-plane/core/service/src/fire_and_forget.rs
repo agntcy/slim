@@ -306,10 +306,7 @@ where
         }
     }
 
-    async fn start_sticky_session_discovery(
-        &mut self,
-        name: &Name,
-    ) -> Result<(), SessionError> {
+    async fn start_sticky_session_discovery(&mut self, name: &Name) -> Result<(), SessionError> {
         debug!("starting sticky session discovery");
 
         // Set payload

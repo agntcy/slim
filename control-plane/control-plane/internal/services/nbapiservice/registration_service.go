@@ -66,10 +66,10 @@ func (s *NodeRegistrationService) NodeRegistered(ctx context.Context, nodeID str
 	for _, sub := range subscriptions {
 		apiSubscription := &controllerapi.Subscription{
 			ConnectionId: sub.ConnectionID,
-			Organization: sub.Organization,
-			Namespace:    sub.Namespace,
-			AgentType:    sub.AgentType,
-			AgentId:      sub.AgentID,
+			Component_0:  sub.Component0,
+			Component_1:  sub.Component1,
+			Component_2:  sub.Component2,
+			Id:           sub.ComponentID,
 		}
 		apiSubscriptions = append(apiSubscriptions, apiSubscription)
 	}

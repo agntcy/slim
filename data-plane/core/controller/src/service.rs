@@ -441,12 +441,9 @@ impl ControllerService {
                         self.inner.message_processor.subscription_table().for_each(
                             |name, id, local, remote| {
                                 let mut entry = SubscriptionEntry {
-                                    component_0: name.components_strings().unwrap()[0]
-                                        .to_string(),
-                                    component_1: name.components_strings().unwrap()[1]
-                                        .to_string(),
-                                    component_2: name.components_strings().unwrap()[2]
-                                        .to_string(),
+                                    component_0: name.components_strings().unwrap()[0].to_string(),
+                                    component_1: name.components_strings().unwrap()[1].to_string(),
+                                    component_2: name.components_strings().unwrap()[2].to_string(),
                                     id: Some(id),
                                     ..Default::default()
                                 };

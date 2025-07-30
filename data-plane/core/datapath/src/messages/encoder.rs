@@ -28,7 +28,7 @@ impl Hash for Name {
 
 impl PartialEq for Name {
     fn eq(&self, other: &Self) -> bool {
-        return self.components == other.components;
+        self.components == other.components
     }
 }
 
