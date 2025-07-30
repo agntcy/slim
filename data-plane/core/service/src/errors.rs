@@ -9,10 +9,10 @@ use crate::session::SessionMessage;
 pub enum ServiceError {
     #[error("configuration error {0}")]
     ConfigError(String),
-    #[error("agent already registered")]
-    AgentAlreadyRegistered,
-    #[error("agent not found: {0}")]
-    AgentNotFound(String),
+    #[error("app already registered")]
+    AppAlreadyRegistered,
+    #[error("app not found: {0}")]
+    AppNotFound(String),
     #[error("connection error: {0}")]
     ConnectionError(String),
     #[error("disconnect error: {0}")]

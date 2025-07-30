@@ -7,7 +7,7 @@ use tracing::info;
 
 use slim::config;
 use slim_auth::shared_secret::SharedSecret;
-use slim_datapath::messages::{Agent, AgentType};
+use slim_datapath::messages::Name;
 use slim_service::{
     FireAndForgetConfiguration,
     session::{self, SessionConfig},
@@ -23,11 +23,11 @@ async fn main() {
     // get config file
     let config_file = args.config();
 
-    // get local agent id
-    let local_agent = args.local_agent();
+    // get local name
+    let local_name = args.local_name();
 
-    // get remote agent id
-    let remote_agent = args.remote_agent();
+    // get remote name
+    let remote_name = args.remote_name();
 
     // get message
     let message = args.message();
@@ -39,23 +39,23 @@ async fn main() {
     let mut config = config::load_config(config_file).expect("failed to load configuration");
     let _guard = config.tracing.setup_tracing_subscriber();
 
-    info!(%config_file, %local_agent, %remote_agent, "starting client");
+    info!(%config_file, %local_name, %remote_name, "starting client");
 
     // get service
     let id = slim_config::component::id::ID::new_with_str("slim/0").unwrap();
     let mut svc = config.services.remove(&id).unwrap();
 
-    // create local agent
-    let agent_id = 0;
-    let agent_name = Agent::from_strings("org", "default", local_agent, agent_id);
+    // create local app
+    let id = 0;
+    let name = Name::from_strings(["org", "default", local_name]).with_id(id);
     let (app, mut rx) = svc
         .create_app(
-            &agent_name,
+            &name,
             SharedSecret::new("a", "group"),
             SharedSecret::new("a", "group"),
         )
         .await
-        .expect("failed to create agent");
+        .expect("failed to create app");
 
     // run the service - this will create all the connections provided via the config file.
     svc.run().await.unwrap();
@@ -65,15 +65,13 @@ async fn main() {
         .get_connection_id(&svc.config().clients()[0].endpoint)
         .unwrap();
 
-    let local_agent_type = AgentType::from_strings("org", "default", local_agent);
-    app.subscribe(&local_agent_type, Some(agent_id), Some(conn_id))
-        .await
-        .unwrap();
+    let local_app_name = Name::from_strings(["org", "default", local_name]).with_id(id);
+    app.subscribe(&local_app_name, Some(conn_id)).await.unwrap();
 
-    // Set a route for the remote agent
-    let route = AgentType::from_strings("org", "default", remote_agent);
-    info!("allowing messages to remote agent: {:?}", route);
-    app.set_route(&route, None, conn_id).await.unwrap();
+    // Set a route for the remote app
+    let route = Name::from_strings(["org", "default", remote_name]);
+    info!("allowing messages to remote app: {:?}", route);
+    app.set_route(&route, conn_id).await.unwrap();
 
     // wait for the connection to be established
     tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
@@ -90,7 +88,7 @@ async fn main() {
         let _ = std::fs::remove_file(&welcome_path);
 
         // Clean up MLS identity directories
-        let identity_path = format!("/tmp/mls_identities_{}", local_agent);
+        let identity_path = format!("/tmp/mls_identities_{}", local_name);
         let _ = std::fs::remove_dir_all(&identity_path);
 
         if message.is_some() {
@@ -101,7 +99,7 @@ async fn main() {
             let identity_provider = SharedSecret::new("server", "group");
             let identity_verifier = SharedSecret::new("server", "group");
             let mut server_mls = slim_mls::mls::Mls::new(
-                agent_name.clone(),
+                name.clone(),
                 identity_provider,
                 identity_verifier,
                 std::path::PathBuf::from("/tmp/server_mls"),
@@ -167,7 +165,7 @@ async fn main() {
             let identity_provider = SharedSecret::new("client", "group");
             let identity_verifier = SharedSecret::new("client", "group");
             let mut client_mls = slim_mls::mls::Mls::new(
-                agent_name.clone(),
+                name.clone(),
                 identity_provider,
                 identity_verifier,
                 std::path::PathBuf::from("/tmp/client_mls"),
@@ -203,9 +201,7 @@ async fn main() {
         }
 
         // publish message
-        app.publish(session, &route, None, msg.into())
-            .await
-            .unwrap();
+        app.publish(session, &route, msg.into()).await.unwrap();
     }
 
     // wait for messages
@@ -220,7 +216,7 @@ async fn main() {
                 // send a message back
                 let msg = messages.pop_front();
                 if let Some(msg) = msg {
-                    app.publish(msg.1, &route, None, msg.0.into())
+                    app.publish(msg.1, &route, msg.0.into())
                         .await
                         .unwrap();
                 }
@@ -250,7 +246,7 @@ async fn main() {
                     }
                 }
 
-                let msg = format!("hello from the {}", local_agent);
+                let msg = format!("hello from the {}", local_name);
                 messages.push_back((msg, session_msg.info));
             }
         }

@@ -67,10 +67,10 @@ func (s *fakeServer) OpenControlChannel(
 	case *grpcapi.ControlMessage_SubscriptionListRequest:
 		entries := []*grpcapi.SubscriptionEntry{
 			{
-				Organization: "org1",
-				Namespace:    "ns1",
-				AgentType:    "alice",
-				AgentId:      &wrapperspb.UInt64Value{Value: 42},
+				Component_0: "org1",
+				Component_1: "ns1",
+				Component_2: "alice",
+				Id:          &wrapperspb.UInt64Value{Value: 42},
 				LocalConnections: []*grpcapi.ConnectionEntry{
 					{
 						Id:             1,
@@ -87,10 +87,10 @@ func (s *fakeServer) OpenControlChannel(
 				},
 			},
 			{
-				Organization:     "org2",
-				Namespace:        "ns2",
-				AgentType:        "bob",
-				AgentId:          &wrapperspb.UInt64Value{Value: 7},
+				Component_0:      "org2",
+				Component_1:      "ns2",
+				Component_2:      "bob",
+				Id:               &wrapperspb.UInt64Value{Value: 7},
 				LocalConnections: []*grpcapi.ConnectionEntry{},
 				RemoteConnections: []*grpcapi.ConnectionEntry{
 					{
@@ -170,10 +170,10 @@ func TestSendConfigMessage(t *testing.T) {
 					ConfigData:   "{\"endpoint\":\"10.0.0.1:8080\"}",
 				}},
 				SubscriptionsToSet: []*grpcapi.Subscription{{
-					Organization: "acme",
-					Namespace:    "outshift",
-					AgentType:    "agent",
-					AgentId:      &wrapperspb.UInt64Value{Value: 1},
+					Component_0:  "acme",
+					Component_1:  "outshift",
+					Component_2:  "agent",
+					Id:           &wrapperspb.UInt64Value{Value: 1},
 					ConnectionId: "c1",
 				}},
 			},
@@ -274,13 +274,13 @@ func TestListSubscriptions(t *testing.T) {
 	}
 
 	e1 := received[0]
-	if e1.GetOrganization() != "org1" ||
-		e1.GetNamespace() != "ns1" ||
-		e1.GetAgentType() != "alice" {
+	if e1.GetComponent_0() != "org1" ||
+		e1.GetComponent_1() != "ns1" ||
+		e1.GetComponent_2() != "alice" {
 		t.Errorf("unexpected metadata: %+v", e1)
 	}
-	if e1.GetAgentId().GetValue() != 42 {
-		t.Errorf("expected AgentId=42, got %d", e1.GetAgentId().GetValue())
+	if e1.GetId().GetValue() != 42 {
+		t.Errorf("expected Id=42, got %d", e1.GetId().GetValue())
 	}
 	if len(e1.LocalConnections) != 1 {
 		t.Fatalf("expected 1 local connection, got %d", len(e1.LocalConnections))
@@ -301,7 +301,7 @@ func TestListSubscriptions(t *testing.T) {
 	}
 
 	e2 := received[1]
-	if e2.GetOrganization() != "org2" || e2.GetAgentType() != "bob" {
+	if e2.GetComponent_0() != "org2" || e2.GetComponent_2() != "bob" {
 		t.Errorf("unexpected metadata: %+v", e2)
 	}
 	if len(e2.LocalConnections) != 0 {

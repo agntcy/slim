@@ -14,24 +14,24 @@ import slim_bindings
 @pytest.mark.parametrize("server", ["127.0.0.1:12375"], indirect=True)
 @pytest.mark.parametrize("mls_enabled", [True, False])
 async def test_pubsub(server, mls_enabled):  # noqa: C901
-    org = "cisco"
-    ns = "default"
-    chat = "chat"
-
-    message = "Calling agent"
+    message = "Calling app"
 
     # participant count
     participants_count = 10
     participants = []
 
+    chat_name = slim_bindings.PyName("org", "default", "chat")
+
     # define the background task
     async def background_task(index):
-        name = f"participant-{index}"
+        part_name = f"participant-{index}"
         local_count = 0
 
-        print(f"Creating participant {name}...")
+        print(f"Creating participant {part_name}...")
 
-        participant = await create_slim(org, ns, name, "secret")
+        name = slim_bindings.PyName("org", "default", part_name)
+
+        participant = await create_slim(name, "secret")
 
         # Connect to SLIM server
         _ = await participant.connect(
@@ -39,13 +39,13 @@ async def test_pubsub(server, mls_enabled):  # noqa: C901
         )
 
         if index == 0:
-            print(f"{name} -> Creating new pubsub sessions...")
+            print(f"{part_name} -> Creating new pubsub sessions...")
             # create pubsubb session. index 0 is the moderator of the session
             # and it will invite all the other participants to the session
             session_info = await participant.create_session(
                 slim_bindings.PySessionConfiguration.Streaming(
                     slim_bindings.PySessionDirection.BIDIRECTIONAL,
-                    topic=slim_bindings.PyAgentType(org, ns, chat),
+                    topic=chat_name,
                     moderator=True,
                     max_retries=5,
                     timeout=datetime.timedelta(seconds=5),
@@ -58,11 +58,11 @@ async def test_pubsub(server, mls_enabled):  # noqa: C901
             # invite all participants
             for i in range(participants_count):
                 if i != 0:
-                    type_to_add = f"participant-{i}"
-                    to_add = slim_bindings.PyAgentType(org, ns, type_to_add)
-                    await participant.set_route(org, ns, type_to_add)
+                    name_to_add = f"participant-{i}"
+                    to_add = slim_bindings.PyName("org", "default", name_to_add)
+                    await participant.set_route(to_add)
                     await participant.invite(session_info, to_add)
-                    print(f"{name} -> add {type_to_add} to the group")
+                    print(f"{part_name} -> add {name_to_add} to the group")
 
         # wait a bit for all chat participants to be ready
         await asyncio.sleep(5)
@@ -80,16 +80,14 @@ async def test_pubsub(server, mls_enabled):  # noqa: C901
 
                 msg = f"{message} - {next_participant_name}"
 
-                print(f"{name} -> Publishing message as first participant: {msg}")
+                print(f"{part_name} -> Publishing message as first participant: {msg}")
 
                 called = True
 
                 await participant.publish(
                     session_info,
                     f"{msg}".encode(),
-                    org,
-                    ns,
-                    chat,
+                    chat_name,
                 )
 
             while True:
@@ -115,10 +113,10 @@ async def test_pubsub(server, mls_enabled):  # noqa: C901
 
                     # Check if the message is calling this specific participant
                     # if not, ignore it
-                    if (not called) and msg_rcv.decode().endswith(name):
+                    if (not called) and msg_rcv.decode().endswith(part_name):
                         # print the message
                         print(
-                            f"{name} -> Receiving message: {msg_rcv.decode()}, local count: {local_count}"
+                            f"{part_name} -> Receiving message: {msg_rcv.decode()}, local count: {local_count}"
                         )
 
                         called = True
@@ -130,27 +128,25 @@ async def test_pubsub(server, mls_enabled):  # noqa: C901
                         # reply to the session and call out the next participant
                         next_participant = (index + 1) % participants_count
                         next_participant_name = f"participant-{next_participant}"
-                        print(f"{name} -> Calling out {next_participant_name}...")
+                        print(f"{part_name} -> Calling out {next_participant_name}...")
                         await participant.publish(
                             recv_session,
                             f"{message} - {next_participant_name}".encode(),
-                            org,
-                            ns,
-                            chat,
+                            chat_name,
                         )
                     else:
                         print(
-                            f"{name} -> Receiving message: {msg_rcv.decode()} - not for me. Local count: {local_count}"
+                            f"{part_name} -> Receiving message: {msg_rcv.decode()} - not for me. Local count: {local_count}"
                         )
 
                     # If we received as many messages as the number of participants, we can exit
                     if local_count >= (participants_count - 1):
-                        print(f"{name} -> Received all messages, exiting...")
+                        print(f"{part_name} -> Received all messages, exiting...")
                         await participant.delete_session(recv_session.id)
                         break
 
                 except Exception as e:
-                    print(f"{name} -> Error receiving message: {e}")
+                    print(f"{part_name} -> Error receiving message: {e}")
                     break
 
     # start participants in background

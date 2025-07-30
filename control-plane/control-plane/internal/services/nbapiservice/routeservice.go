@@ -53,8 +53,8 @@ func (s *RouteService) ListSubscriptions(
 					fmt.Sprintf("remote:%d:%s", rc.GetId(), rc.GetConfigData()))
 			}
 			fmt.Printf("%s/%s/%s id=%d local=%v remote=%v\n",
-				e.GetOrganization(), e.GetNamespace(), e.GetAgentType(),
-				e.GetAgentId().GetValue(),
+				e.GetComponent_0(), e.GetComponent_1(), e.GetComponent_2(),
+				e.GetId().GetValue(),
 				localNames, remoteNames,
 			)
 		}

@@ -15,19 +15,21 @@ import slim_bindings
 async def test_request_reply(server):
     org = "cisco"
     ns = "default"
-    agent1 = "slim1"
+    app1 = "slim1"
+
+    name1 = slim_bindings.PyName(org, ns, app1)
 
     # create new slim object
-    slim1 = await create_slim(org, ns, agent1, "secret")
+    slim1 = await create_slim(name1, "secret")
 
     # Connect to the service and subscribe for the local name
     _ = await slim1.connect(
         {"endpoint": "http://127.0.0.1:12356", "tls": {"insecure": True}}
     )
 
-    # create second local agent
-    agent2 = "slim2"
-    slim2 = await create_slim(org, ns, agent2, "secret")
+    # create second local app
+    name2 = slim_bindings.PyName(org, ns, "slim2")
+    slim2 = await create_slim(name2, "secret")
 
     # Connect to SLIM server
     _ = await slim2.connect(
@@ -35,7 +37,7 @@ async def test_request_reply(server):
     )
 
     # set route
-    await slim2.set_route("cisco", "default", agent1)
+    await slim2.set_route(name1)
 
     # create request/reply session with default config
     session_info = await slim2.create_session(
@@ -70,9 +72,7 @@ async def test_request_reply(server):
         t = asyncio.create_task(background_task())
 
         # send a request and expect a response in slim2
-        session_info, message = await slim2.request_reply(
-            session_info, pub_msg, org, ns, agent1
-        )
+        session_info, message = await slim2.request_reply(session_info, pub_msg, name1)
 
         # check if the message is correct
         assert message == bytes(res_msg)
@@ -87,8 +87,6 @@ async def test_request_reply(server):
             session_info, message = await slim2.request_reply(
                 session_info,
                 pub_msg,
-                org,
-                ns,
-                agent1,
+                name1,
                 timeout=datetime.timedelta(seconds=5),
             )

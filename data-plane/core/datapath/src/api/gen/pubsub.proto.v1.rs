@@ -4,11 +4,11 @@ pub struct Subscribe {
     #[prost(message, optional, tag = "1")]
     pub header: ::core::option::Option<SlimHeader>,
     #[prost(string, tag = "2")]
-    pub organization: ::prost::alloc::string::String,
+    pub component_0: ::prost::alloc::string::String,
     #[prost(string, tag = "3")]
-    pub namespace: ::prost::alloc::string::String,
+    pub component_1: ::prost::alloc::string::String,
     #[prost(string, tag = "4")]
-    pub agent_type: ::prost::alloc::string::String,
+    pub component_2: ::prost::alloc::string::String,
 }
 #[derive(Clone, Copy, PartialEq, ::prost::Message)]
 pub struct Unsubscribe {
@@ -31,9 +31,9 @@ pub struct Publish {
 #[derive(Clone, Copy, PartialEq, ::prost::Message)]
 pub struct SlimHeader {
     #[prost(message, optional, tag = "1")]
-    pub source: ::core::option::Option<Agent>,
+    pub source: ::core::option::Option<Name>,
     #[prost(message, optional, tag = "2")]
-    pub destination: ::core::option::Option<Agent>,
+    pub destination: ::core::option::Option<Name>,
     #[prost(uint32, tag = "3")]
     pub fanout: u32,
     #[prost(uint64, optional, tag = "4")]
@@ -46,15 +46,15 @@ pub struct SlimHeader {
     pub error: ::core::option::Option<bool>,
 }
 #[derive(Clone, Copy, PartialEq, ::prost::Message)]
-pub struct Agent {
+pub struct Name {
     #[prost(uint64, tag = "1")]
-    pub organization: u64,
+    pub component_0: u64,
     #[prost(uint64, tag = "2")]
-    pub namespace: u64,
+    pub component_1: u64,
     #[prost(uint64, tag = "3")]
-    pub agent_type: u64,
-    #[prost(uint64, optional, tag = "4")]
-    pub agent_id: ::core::option::Option<u64>,
+    pub component_2: u64,
+    #[prost(uint64, tag = "4")]
+    pub component_3: u64,
 }
 #[derive(Clone, Copy, PartialEq, ::prost::Message)]
 pub struct SessionHeader {

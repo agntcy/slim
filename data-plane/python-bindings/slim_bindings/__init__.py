@@ -7,9 +7,9 @@ from typing import Optional
 
 from ._slim_bindings import (  # type: ignore[attr-defined]
     SESSION_UNSPECIFIED,
-    PyAgentType,
     PyIdentityProvider,
     PyIdentityVerifier,
+    PyName,
     PyService,
     PySessionConfiguration,
     PySessionInfo,
@@ -138,20 +138,18 @@ class Slim:
     def __init__(
         self,
         svc: PyService,
-        organization: str,
-        namespace: str,
-        agent: str,
+        name: PyName,
     ):
         """
         Initialize a new SLIM instance. A SLIM instance is associated with a single
-        local agent. The agent is identified by its organization, namespace, and name.
-        The agent ID is determined by the provided service (svc).
+        local app. The app is identified by its organization, namespace, and name.
+        The unique ID is determined by the provided service (svc).
 
         Args:
             svc (PyService): The Python service instance for SLIM.
-            organization (str): The organization of the agent.
-            namespace (str): The namespace of the agent.
-            agent (str): The name of the agent.
+            organization (str): The organization of the app.
+            namespace (str): The namespace of the app.
+            app (str): The name of the app.
         """
 
         # Initialize service
@@ -163,8 +161,8 @@ class Slim:
         }
 
         # Save local names
-        self.local_name = PyAgentType(organization, namespace, agent)
-        self.local_id = self.svc.id
+        name.id = svc.id
+        self.local_name = name
 
         # Create connection ID map
         self.conn_ids: dict[str, int] = {}
@@ -213,43 +211,39 @@ class Slim:
     @classmethod
     async def new(
         cls,
-        organization: str,
-        namespace: str,
-        agent: str,
+        name: PyName,
         provider: PyIdentityProvider,
         verifier: PyIdentityVerifier,
     ) -> "Slim":
         """
-        Create a new SLIM instance. A SLIM instamce is associated to one single
-        local agent. The agent is identified by its organization, namespace and name.
-        The agent ID is optional. If not provided, the agent will be created with a new ID.
+        Create a new SLIM instance. A SLIM instance is associated to one single
+        local app. The app is identified by its organization, namespace and name.
+        The app ID is optional. If not provided, the app will be created with a new ID.
 
         Args:
-            organization (str): The organization of the agent.
-            namespace (str): The namespace of the agent.
-            agent (str): The name of the agent.
-            agent_id (int): The ID of the agent. If not provided, a new ID will be created.
+            organization (str): The organization of the app.
+            namespace (str): The namespace of the app.
+            app (str): The name of the app.
+            app_id (int): The ID of the app. If not provided, a new ID will be created.
 
         Returns:
             Slim: A new SLIM instance
         """
 
         return cls(
-            await create_pyservice(organization, namespace, agent, provider, verifier),
-            organization,
-            namespace,
-            agent,
+            await create_pyservice(name, provider, verifier),
+            name,
         )
 
-    def get_agent_id(self) -> int:
+    def get_id(self) -> int:
         """
-        Get the ID of the agent.
+        Get the ID of the app.
 
         Args:
             None
 
         Returns:
-            int: The ID of the agent.
+            int: The ID of the app.
         """
 
         return self.svc.id
@@ -433,7 +427,7 @@ class Slim:
         self.conn_id = conn_id
 
         # Subscribe to the local name
-        await subscribe(self.svc, conn_id, self.local_name, self.local_id)
+        await subscribe(self.svc, conn_id, self.local_name)
 
         # return the connection ID
         return conn_id
@@ -455,103 +449,75 @@ class Slim:
 
     async def set_route(
         self,
-        organization: str,
-        namespace: str,
-        agent: str,
-        id: Optional[int] = None,
+        name: PyName,
     ):
         """
         Set route for outgoing messages via the connected SLIM instance.
 
         Args:
-            organization (str): The organization of the agent.
-            namespace (str): The namespace of the agent.
-            agent (str): The name of the agent.
-            id (int): Optional ID of the agent.
+            name (PyName): The name of the app or channel to route messages to.
 
         Returns:
             None
         """
 
-        name = PyAgentType(organization, namespace, agent)
-        await set_route(self.svc, self.conn_id, name, id)
+        await set_route(self.svc, self.conn_id, name)
 
     async def remove_route(
-        self, organization: str, namespace: str, agent: str, id: Optional[int] = None
+        self,
+        name: PyName,
     ):
         """
         Remove route for outgoing messages via the connected SLIM instance.
 
         Args:
-            organization (str): The organization of the agent.
-            namespace (str): The namespace of the agent.
-            agent (str): The name of the agent.
-            id (int): Optional ID of the agent.
+            name (PyName): The name of the app or channel to remove the route for.
 
         Returns:
             None
         """
 
-        name = PyAgentType(organization, namespace, agent)
-        await remove_route(self.svc, self.conn_id, name, id)
+        await remove_route(self.svc, self.conn_id, name)
 
-    async def subscribe(
-        self, organization: str, namespace: str, agent: str, id: Optional[int] = None
-    ):
+    async def subscribe(self, name: PyName):
         """
-        Subscribe to receive messages for the given agent.
+        Subscribe to receive messages for the given name.
 
         Args:
-            organization (str): The organization of the agent.
-            namespace (str): The namespace of the agent.
-            agent (str): The name of the agent.
-            id (int): Optional ID of the agent.
+            name (PyName): The name to subscribe to. This can be an app or a channel.
 
         Returns:
             None
         """
 
-        sub = PyAgentType(organization, namespace, agent)
-        await subscribe(self.svc, self.conn_id, sub, id)
+        await subscribe(self.svc, self.conn_id, name)
 
-    async def unsubscribe(
-        self, organization: str, namespace: str, agent: str, id: Optional[int] = None
-    ):
+    async def unsubscribe(self, name: PyName):
         """
-        Unsubscribe from receiving messages for the given agent.
+        Unsubscribe from receiving messages for the given name.
 
         Args:
-            organization (str): The organization of the agent.
-            namespace (str): The namespace of the agent.
-            agent (str): The name of the agent.
-            id (int): Optional ID of the agent.
+            name (PyName): The name to unsubscribe from. This can be an app or a channel.
 
         Returns:
             None
         """
 
-        unsub = PyAgentType(organization, namespace, agent)
-        await unsubscribe(self.svc, self.conn_id, unsub, id)
+        await unsubscribe(self.svc, self.conn_id, name)
 
     async def publish(
         self,
         session: PySessionInfo,
         msg: bytes,
-        organization: str,
-        namespace: str,
-        agent: str,
-        agent_id: Optional[int] = None,
+        dest: PyName,
     ):
         """
-        Publish a message to an agent via normal matching in subscription table.
+        Publish a message to an app or channel via normal matching in subscription table.
 
         Args:
             session (PySessionInfo): The session information.
             msg (str): The message to publish.
-            organization (str): The organization of the agent.
-            namespace (str): The namespace of the agent.
-            agent (str): The name of the agent.
-            agent_id (int): Optional ID of the agent.
+            dest (PyName): The destination name to publish the message to.
 
         Returns:
             None
@@ -561,13 +527,12 @@ class Slim:
         if session.id not in self.sessions:
             raise Exception("session not found", session.id)
 
-        dest = PyAgentType(organization, namespace, agent)
-        await publish(self.svc, session, 1, msg, dest, agent_id)
+        await publish(self.svc, session, 1, msg, dest)
 
     async def invite(
         self,
         session: PySessionInfo,
-        name: PyAgentType,
+        name: PyName,
     ):
         # Make sure the sessions exists
         if session.id not in self.sessions:
@@ -579,22 +544,16 @@ class Slim:
         self,
         session: PySessionInfo,
         msg: bytes,
-        organization: str,
-        namespace: str,
-        agent: str,
-        agent_id: Optional[int] = None,
+        dest: PyName,
         timeout: Optional[datetime.timedelta] = None,
     ) -> tuple[PySessionInfo, Optional[bytes]]:
         """
         Publish a message and wait for the first response.
 
         Args:
-            msg (str): The message to publish.
             session (PySessionInfo): The session information.
-            organization (str): The organization of the agent.
-            namespace (str): The namespace of the agent.
-            agent (str): The name of the agent.
-            agent_id (int): Optional ID of the agent.
+            msg (str): The message to publish.
+            dest (PyName): The destination name to publish the message to.
 
         Returns:
             tuple: The PySessionInfo and the message.
@@ -604,8 +563,7 @@ class Slim:
         if session.id not in self.sessions:
             raise Exception("Session ID not found")
 
-        dest = PyAgentType(organization, namespace, agent)
-        await publish(self.svc, session, 1, msg, dest, agent_id)
+        await publish(self.svc, session, 1, msg, dest)
 
         # Wait for a reply in the corresponding session queue with timeout
         if timeout is not None:
@@ -619,8 +577,8 @@ class Slim:
 
     async def publish_to(self, session, msg):
         """
-        Publish a message back to the agent that sent it.
-        The information regarding the source agent is stored in the session.
+        Publish a message back to the application that sent it.
+        The information regarding the source app is stored in the session.
 
         Args:
             session (PySessionInfo): The session information.

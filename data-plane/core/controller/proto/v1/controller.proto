@@ -9,7 +9,8 @@ import "google/protobuf/wrappers.proto";
 option go_package = "github.com/agntcy/slim/control-plane/common/proto/controller/v1;controllerv1";
 
 service ControllerService {
-  rpc OpenControlChannel(stream ControlMessage) returns (stream ControlMessage) {}
+  rpc OpenControlChannel(stream ControlMessage)
+      returns (stream ControlMessage) {}
 }
 
 message ControlMessage {
@@ -35,10 +36,10 @@ message Connection {
 }
 
 message Subscription {
-  string organization = 1;
-  string namespace = 2;
-  string agent_type = 3;
-  google.protobuf.UInt64Value agent_id = 4;
+  string component_0 = 1;
+  string component_1 = 2;
+  string component_2 = 3;
+  google.protobuf.UInt64Value id = 4;
   string connection_id = 5;
 }
 
@@ -56,21 +57,19 @@ message Ack {
 
 message SubscriptionListRequest {}
 
-message SubscriptionListResponse {
-  repeated SubscriptionEntry entries = 1;
-}
+message SubscriptionListResponse { repeated SubscriptionEntry entries = 1; }
 
 message SubscriptionEntry {
-  string organization = 1;
-  string namespace = 2;
-  string agent_type = 3;
-  google.protobuf.UInt64Value agent_id = 4;
-  repeated ConnectionEntry local_connections  = 5;
+  string component_0 = 1;
+  string component_1 = 2;
+  string component_2 = 3;
+  google.protobuf.UInt64Value id = 4;
+  repeated ConnectionEntry local_connections = 5;
   repeated ConnectionEntry remote_connections = 6;
 }
 
 enum ConnectionType {
-  CONNECTION_TYPE_LOCAL  = 0;
+  CONNECTION_TYPE_LOCAL = 0;
   CONNECTION_TYPE_REMOTE = 1;
 }
 
@@ -82,24 +81,14 @@ message ConnectionEntry {
 
 message ConnectionListRequest {}
 
-message ConnectionListResponse {
-  repeated ConnectionEntry entries = 1;
-}
+message ConnectionListResponse { repeated ConnectionEntry entries = 1; }
 
 message Node { string id = 1; }
 
-message RegisterNodeRequest {
-  string nodeId = 1;
-}
+message RegisterNodeRequest { string nodeId = 1; }
 
-message RegisterNodeResponse {
-  bool success = 1;
-}
+message RegisterNodeResponse { bool success = 1; }
 
-message DeregisterNodeRequest {
-  Node node = 1;
-}
+message DeregisterNodeRequest { Node node = 1; }
 
-message DeregisterNodeResponse {
-  bool success = 1;
-}
+message DeregisterNodeResponse { bool success = 1; }

@@ -9,8 +9,8 @@ pub enum SubscriptionTableError {
     NoMatch(String),
     #[error("subscription not fund")]
     SubscriptionNotFound,
-    #[error("agent id not fund")]
-    AgentIdNotFound,
+    #[error("id not fund")]
+    IdNotFound,
     #[error("connection id not fund")]
     ConnectionIdNotFound,
 }

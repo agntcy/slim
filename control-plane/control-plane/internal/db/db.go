@@ -44,10 +44,10 @@ type Subscription struct {
 	NodeID       string
 	ConnectionID string
 
-	Organization string
-	Namespace    string
-	AgentType    string
-	AgentID      *wrapperspb.UInt64Value
+	Component0  string
+	Component1  string
+	Component2  string
+	ComponentID *wrapperspb.UInt64Value
 }
 
 type Channel struct {

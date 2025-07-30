@@ -14,12 +14,12 @@ services:
     volumes:
       - ../config/base/server-config.yaml:/config/server-config.yaml
 
-  # Mock agent server
-  mock-agent-server:
+  # Mock app server
+  mock-app-server:
     build:
       context: ../..
-      dockerfile: ./data-plane/examples/Dockerfile.mock-agent
-      target: mock-agent-server
+      dockerfile: ./data-plane/examples/Dockerfile.mock-app
+      target: mock-app-server
     depends_on:
       - slim-server
     networks:
@@ -27,15 +27,15 @@ services:
     volumes:
       - ./config/docker-client-config.yaml:/config/client-config.yaml
 
-  # Mock agent client
-  mock-agent-client:
+  # Mock app client
+  mock-app-client:
     build:
       context: ../..
-      dockerfile: ./data-plane/examples/Dockerfile.mock-agent
-      target: mock-agent-client
+      dockerfile: ./data-plane/examples/Dockerfile.mock-app
+      target: mock-app-client
     depends_on:
       - slim-server
-      - mock-agent-server
+      - mock-app-server
     networks:
       - slim-network
     volumes:

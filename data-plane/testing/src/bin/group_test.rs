@@ -13,7 +13,7 @@ use slim_config::grpc::client::ClientConfig as GrpcClientConfig;
 use slim_config::grpc::server::ServerConfig as GrpcServerConfig;
 use slim_config::tls::client::TlsClientConfig;
 use slim_config::tls::server::TlsServerConfig;
-use slim_datapath::messages::{Agent, AgentType};
+use slim_datapath::messages::Name;
 use slim_service::{ServiceConfiguration, SlimHeaderFlags, StreamingConfiguration};
 use slim_tracing::TracingConfiguration;
 
@@ -88,7 +88,7 @@ fn create_service_configuration(
     Ok(config)
 }
 
-async fn run_participant_task(name: Agent) -> Result<(), String> {
+async fn run_participant_task(name: Name) -> Result<(), String> {
     println!("Participant {:?} task starting...", name);
 
     let pubsub_client_config =
@@ -120,12 +120,12 @@ async fn run_participant_task(name: Agent) -> Result<(), String> {
             name,
         ))?;
 
-    app.subscribe(name.agent_type(), name.agent_id_option(), Some(conn_id))
+    app.subscribe(&name, Some(conn_id))
         .await
         .map_err(|_| format!("Failed to subscribe for participant {}", name))?;
 
-    let moderator = Agent::from_strings("org", "ns", "moderator", 1);
-    let channel_name = AgentType::from_strings("channel", "channel", "channel");
+    let moderator = Name::from_strings(["org", "ns", "moderator"]).with_id(1);
+    let channel_name = Name::from_strings(["channel", "channel", "channel"]);
 
     loop {
         tokio::select! {
@@ -153,7 +153,7 @@ async fn run_participant_task(name: Agent) -> Result<(), String> {
                                              let payload = msg_id.to_ne_bytes().to_vec();
                                              let flags = SlimHeaderFlags::new(10, None, None, None, None);
                                              if app
-                                                 .publish_with_flags(msg.info, &channel_name, None, flags, payload)
+                                                 .publish_with_flags(msg.info, &channel_name, flags, payload)
                                                  .await
                                                  .is_err()
                                              {
@@ -192,7 +192,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut participants = vec![];
 
     for i in 0..tot_participants {
-        let p = Agent::from_strings("org", "ns", &format!("t{}", i), 1);
+        let p = Name::from_strings(["org", "ns", &format!("t{}", i)]).with_id(1);
         participants.push(p.clone());
         tokio::spawn(async move {
             let _ = run_participant_task(p).await;
@@ -203,8 +203,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tokio::time::sleep(tokio::time::Duration::from_millis(10000)).await;
 
     // start moderator
-    let name = Agent::from_strings("org", "ns", "moderator", 1);
-    let channel_name = AgentType::from_strings("channel", "channel", "channel");
+    let name = Name::from_strings(["org", "ns", "moderator"]).with_id(1);
+    let channel_name = Name::from_strings(["channel", "channel", "channel"]);
 
     let pubsub_client_config =
         GrpcClientConfig::with_endpoint(&format!("http://localhost:{}", DEFAULT_PUBSUB_PORT))
@@ -235,7 +235,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             name,
         ))?;
 
-    app.subscribe(name.agent_type(), name.agent_id_option(), Some(conn_id))
+    app.subscribe(&name, Some(conn_id))
         .await
         .map_err(|_| format!("Failed to subscribe for participant {}", name))?;
 
@@ -243,7 +243,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .create_session(
             slim_service::session::SessionConfig::Streaming(StreamingConfiguration::new(
                 slim_service::session::SessionDirection::Bidirectional,
-                Some(channel_name.clone()),
+                channel_name.clone(),
                 true,
                 Some(10),
                 Some(Duration::from_secs(1)),
@@ -256,7 +256,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     for c in &participants {
         // add routes
-        app.set_route(c.agent_type(), None, conn_id)
+        app.set_route(c, conn_id)
             .await
             .expect("an error occurred while adding a route");
     }
@@ -264,7 +264,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // invite N-1 participants
     for c in participants.iter().take(tot_participants - 1) {
         println!("Invite participant {}", c);
-        app.invite_participant(c.agent_type(), info.clone())
+        app.invite_participant(c, info.clone())
             .await
             .expect("error sending invite message");
     }
@@ -318,7 +318,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let flags = SlimHeaderFlags::new(10, None, None, None, None);
 
         if app
-            .publish_with_flags(info.clone(), &channel_name, None, flags, p.clone())
+            .publish_with_flags(info.clone(), &channel_name, flags, p.clone())
             .await
             .is_err()
         {
@@ -337,7 +337,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .remove_participant(&participants[to_remove], info.clone())
                 .await;
             let _ = app
-                .invite_participant(participants[to_add].agent_type(), info.clone())
+                .invite_participant(&participants[to_add], info.clone())
                 .await;
             to_remove = (to_remove + 1) % tot_participants;
             to_add = (to_add + 1) % tot_participants;

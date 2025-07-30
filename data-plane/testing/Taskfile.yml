@@ -11,8 +11,8 @@ env:
   CONFIG_SERVER: ./config/base/server-config.yaml
   SUB: 1000000
   PUB: 3000000
-  SUB_AGENTS: 10
-  PUB_AGENTS: 1
+  SUB_APPS: 10
+  PUB_APPS: 1
 
 tasks:
   default:
@@ -22,7 +22,7 @@ tasks:
   run:workload-gen:
     desc: "Run workload generator"
     cmds:
-      - cargo run --release --bin workload-gen -- -s $SUB -p $PUB -i $SUB_AGENTS -a $SUB_AGENTS
+      - cargo run --release --bin workload-gen -- -s $SUB -p $PUB -i $SUB_APPS -a $SUB_APPS
 
   run:slim:
     desc: "Run the SLIM server"
@@ -34,15 +34,15 @@ tasks:
     desc: "Run subscriber applications"
     cmds:
       - |
-        for ((i = 0 ; i < $SUB_AGENTS ; i++ )); do
-          cargo run --release --bin subscriber -- -w sub${SUB}_pub${PUB}_i${SUB_AGENTS}_s${SUB_AGENTS}.dat -c $CONFIG_CLIENT -i $i &
+        for ((i = 0 ; i < $SUB_APPS ; i++ )); do
+          cargo run --release --bin subscriber -- -w sub${SUB}_pub${PUB}_i${SUB_APPS}_s${SUB_APPS}.dat -c $CONFIG_CLIENT -i $i &
           sleep 1
         done
 
   run:publisher:
     desc: "Run publisher application"
     cmds:
-      - cargo run --release --bin publisher -- -w sub${SUB}_pub${PUB}_i${SUB_AGENTS}_s${SUB_AGENTS}.dat -c $CONFIG_CLIENT -i 0
+      - cargo run --release --bin publisher -- -w sub${SUB}_pub${PUB}_i${SUB_APPS}_s${SUB_APPS}.dat -c $CONFIG_CLIENT -i 0
 
   run:shutdown:
     desc: "Shutdown test"

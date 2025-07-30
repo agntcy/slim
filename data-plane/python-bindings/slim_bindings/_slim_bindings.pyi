@@ -5,23 +5,34 @@ import builtins
 import typing
 from enum import Enum, auto
 
-class PyAgentType:
-    r"""
-    agent class
-    """
-    organization: builtins.str
-    namespace: builtins.str
-    agent_type: builtins.str
-    def __new__(cls,agent_org:builtins.str, agent_ns:builtins.str, agent_class:builtins.str): ...
-
 class PyKey:
     algorithm: PyAlgorithm
     format: PyKeyFormat
     key: PyKeyData
     def __new__(cls,algorithm:PyAlgorithm, format:PyKeyFormat, key:PyKeyData): ...
 
+class PyName:
+    r"""
+    name class
+    """
+    id: builtins.int
+    def __new__(cls,component0:builtins.str, component1:builtins.str, component2:builtins.str, id:typing.Optional[builtins.int]=None): ...
+    def set_id(self, id:builtins.int) -> None:
+        ...
+
+    def components(self) -> builtins.list[builtins.int]:
+        ...
+
+    def __repr__(self) -> builtins.str:
+        ...
+
+    def __str__(self) -> builtins.str:
+        ...
+
+
 class PyService:
     id: builtins.int
+    name: PyName
 
 class PySessionInfo:
     id: builtins.int
@@ -57,6 +68,7 @@ class PyKeyData(Enum):
 class PyKeyFormat(Enum):
     Pem = auto()
     Jwk = auto()
+    Jwks = auto()
 
 class PySessionConfiguration(Enum):
     FireAndForget = auto()
@@ -80,7 +92,7 @@ class PySessionType(Enum):
 def connect(svc:PyService, config:dict) -> typing.Any:
     ...
 
-def create_pyservice(organization:builtins.str, namespace:builtins.str, agent_type:builtins.str, provider:PyIdentityProvider, verifier:PyIdentityVerifier) -> typing.Any:
+def create_pyservice(name:PyName, provider:PyIdentityProvider, verifier:PyIdentityVerifier) -> typing.Any:
     ...
 
 def create_session(svc:PyService, config:PySessionConfiguration) -> typing.Any:
@@ -101,19 +113,19 @@ def get_session_config(svc:PyService, session_id:builtins.int) -> typing.Any:
 def init_tracing(config:dict) -> typing.Any:
     ...
 
-def invite(svc:PyService, session_info:PySessionInfo, name:PyAgentType) -> typing.Any:
+def invite(svc:PyService, session_info:PySessionInfo, name:PyName) -> typing.Any:
     ...
 
-def publish(svc:PyService, session_info:PySessionInfo, fanout:builtins.int, blob:typing.Sequence[builtins.int], name:typing.Optional[PyAgentType]=None, id:typing.Optional[builtins.int]=None) -> typing.Any:
+def publish(svc:PyService, session_info:PySessionInfo, fanout:builtins.int, blob:typing.Sequence[builtins.int], name:typing.Optional[PyName]=None) -> typing.Any:
     ...
 
 def receive(svc:PyService) -> typing.Any:
     ...
 
-def remove(svc:PyService, session_info:PySessionInfo, name:PyAgentType, id:builtins.int) -> typing.Any:
+def remove(svc:PyService, session_info:PySessionInfo, name:PyName) -> typing.Any:
     ...
 
-def remove_route(svc:PyService, conn:builtins.int, name:PyAgentType, id:typing.Optional[builtins.int]=None) -> typing.Any:
+def remove_route(svc:PyService, conn:builtins.int, name:PyName) -> typing.Any:
     ...
 
 def run_server(svc:PyService, config:dict) -> typing.Any:
@@ -122,7 +134,7 @@ def run_server(svc:PyService, config:dict) -> typing.Any:
 def set_default_session_config(svc:PyService, config:PySessionConfiguration) -> typing.Any:
     ...
 
-def set_route(svc:PyService, conn:builtins.int, name:PyAgentType, id:typing.Optional[builtins.int]=None) -> typing.Any:
+def set_route(svc:PyService, conn:builtins.int, name:PyName) -> typing.Any:
     ...
 
 def set_session_config(svc:PyService, session_id:builtins.int, config:PySessionConfiguration) -> typing.Any:
@@ -131,9 +143,9 @@ def set_session_config(svc:PyService, session_id:builtins.int, config:PySessionC
 def stop_server(svc:PyService, endpoint:builtins.str) -> typing.Any:
     ...
 
-def subscribe(svc:PyService, conn:builtins.int, name:PyAgentType, id:typing.Optional[builtins.int]=None) -> typing.Any:
+def subscribe(svc:PyService, conn:builtins.int, name:PyName) -> typing.Any:
     ...
 
-def unsubscribe(svc:PyService, conn:builtins.int, name:PyAgentType, id:typing.Optional[builtins.int]=None) -> typing.Any:
+def unsubscribe(svc:PyService, conn:builtins.int, name:PyName) -> typing.Any:
     ...
 

@@ -11,45 +11,75 @@ use serde_pyobject::from_pyobject;
 use slim_tracing::TracingConfiguration;
 use tokio::sync::OnceCell;
 
-use slim_datapath::messages::encoder::AgentType;
+use slim_datapath::messages::encoder::Name;
 
-/// agent class
+/// name class
 #[gen_stub_pyclass]
 #[pyclass(eq)]
 #[derive(Clone, PartialEq)]
-pub struct PyAgentType {
-    #[pyo3(get, set)]
-    pub organization: String,
-
-    #[pyo3(get, set)]
-    pub namespace: String,
-
-    #[pyo3(get, set)]
-    pub agent_type: String,
+pub struct PyName {
+    name: Name,
 }
 
-impl From<PyAgentType> for AgentType {
-    fn from(value: PyAgentType) -> AgentType {
-        AgentType::from_strings(&value.organization, &value.namespace, &value.agent_type)
+impl From<PyName> for Name {
+    fn from(value: PyName) -> Name {
+        value.name
     }
 }
 
-impl From<&PyAgentType> for AgentType {
-    fn from(value: &PyAgentType) -> AgentType {
-        AgentType::from_strings(&value.organization, &value.namespace, &value.agent_type)
+impl From<&PyName> for Name {
+    fn from(value: &PyName) -> Name {
+        value.name.clone()
+    }
+}
+
+impl From<Name> for PyName {
+    fn from(name: Name) -> Self {
+        PyName { name }
     }
 }
 
 #[gen_stub_pymethods]
 #[pymethods]
-impl PyAgentType {
+impl PyName {
     #[new]
-    pub fn new(agent_org: String, agent_ns: String, agent_class: String) -> Self {
-        PyAgentType {
-            organization: agent_org,
-            namespace: agent_ns,
-            agent_type: agent_class,
+    #[pyo3(signature = (component0, component1, component2, id=None))]
+    pub fn new(
+        component0: String,
+        component1: String,
+        component2: String,
+        id: Option<u64>,
+    ) -> Self {
+        let name = Name::from_strings([&component0, &component1, &component2]);
+
+        PyName {
+            name: match id {
+                Some(id) => name.with_id(id),
+                None => name,
+            },
         }
+    }
+
+    #[getter]
+    pub fn id(&self) -> u64 {
+        self.name.id()
+    }
+
+    #[setter]
+    pub fn set_id(&mut self, id: u64) {
+        self.name.set_id(id);
+    }
+
+    pub fn components(&self) -> Vec<u64> {
+        self.name.components().to_vec()
+    }
+
+    fn __repr__(&self) -> String {
+        self.name.to_string()
+    }
+
+    fn __str__(&self) -> String {
+        self.name.to_string()
     }
 }
 

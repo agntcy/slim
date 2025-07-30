@@ -38,7 +38,7 @@ async def run_client(
 
     # If provided, split the remote IDs into their respective components
     if remote:
-        remote_organization, remote_namespace, broadcast_topic = split_id(remote)
+        broadcast_topic = split_id(remote)
 
     tasks = []
 
@@ -49,9 +49,7 @@ async def run_client(
         session_info = await local_app.create_session(
             slim_bindings.PySessionConfiguration.Streaming(
                 slim_bindings.PySessionDirection.BIDIRECTIONAL,
-                topic=slim_bindings.PyAgentType(
-                    remote_organization, remote_namespace, broadcast_topic
-                ),
+                topic=broadcast_topic,
                 moderator=True,
                 max_retries=5,
                 timeout=datetime.timedelta(seconds=5),
@@ -61,11 +59,10 @@ async def run_client(
 
         # invite all participants
         for p in invites:
-            org, ns, type_to_add = split_id(p)
-            to_add = slim_bindings.PyAgentType(org, ns, type_to_add)
-            await local_app.set_route(org, ns, type_to_add)
+            to_add = split_id(p)
+            await local_app.set_route(to_add)
             await local_app.invite(session_info, to_add)
-            print(f"{local} -> add {type_to_add} to the group")
+            print(f"{local} -> add {to_add} to the group")
 
     # define the background task
     async def background_task():
@@ -112,8 +109,6 @@ async def run_client(
                 await local_app.publish(
                     session_info,
                     f"{user_input}".encode(),
-                    remote_organization,
-                    remote_namespace,
                     broadcast_topic,
                 )
 

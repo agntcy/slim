@@ -21,37 +21,37 @@ tasks:
     cmds:
       - cargo run --bin slim -- --config ./config/base/server-config.yaml
 
-  run:mock-agent:server:
-    desc: "Run the mock agent server"
+  run:mock-app:server:
+    desc: "Run the mock app server"
     dir: src/sdk-mock
     cmds:
-      - cargo run -- --config ../../../config/base/client-config.yaml --local-agent server --remote-agent client
+      - cargo run -- --config ../../../config/base/client-config.yaml --local-app server --remote-app client
 
-  run:mock-agent:server-mls:
-    desc: "Run the mock agent server"
+  run:mock-app:server-mls:
+    desc: "Run the mock app server"
     dir: src/sdk-mock
     cmds:
-      - cargo run -- --config ../../../config/base/client-config.yaml --local-agent server --remote-agent client --mls-group-id mls-group
+      - cargo run -- --config ../../../config/base/client-config.yaml --local-app server --remote-app client --mls-group-id mls-group
 
-  run:mock-agent:client:
-    desc: "Run the mock agent client"
+  run:mock-app:client:
+    desc: "Run the mock app client"
     dir: src/sdk-mock
     cmds:
-      - cargo run -- --config ../../../config/base/client-config.yaml --local-agent client --remote-agent server --message "hey there!"
+      - cargo run -- --config ../../../config/base/client-config.yaml --local-app client --remote-app server --message "hey there!"
 
-  run:mock-agent:client-mls:
-    desc: "Run the mock agent client"
+  run:mock-app:client-mls:
+    desc: "Run the mock app client"
     dir: src/sdk-mock
     cmds:
-      - cargo run -- --config ../../../config/base/client-config.yaml --local-agent client --remote-agent server --mls-group-id mls-group --message "hey there!"
+      - cargo run -- --config ../../../config/base/client-config.yaml --local-app client --remote-app server --mls-group-id mls-group --message "hey there!"
 
   docker:build-all:
     desc: "Build all Docker images"
     dir: "../.."
     cmds:
       - docker build -t slim-server -f data-plane/Dockerfile .
-      - docker build -t mock-agent-server -f data-plane/examples/Dockerfile.mock-agent --target=mock-agent-server .
-      - docker build -t mock-agent-client -f data-plane/examples/Dockerfile.mock-agent --target=mock-agent-client .
+      - docker build -t mock-app-server -f data-plane/examples/Dockerfile.mock-app --target=mock-app-server .
+      - docker build -t mock-app-client -f data-plane/examples/Dockerfile.mock-app --target=mock-app-client .
 
   docker:compose-up:
     desc: "Start all services with Docker Compose"

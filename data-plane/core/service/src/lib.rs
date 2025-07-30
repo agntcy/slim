@@ -23,12 +23,12 @@ mod moderator_task;
 pub use fire_and_forget::FireAndForgetConfiguration;
 pub use session::SessionMessage;
 use slim_controller::config::Config as ControllerConfig;
+use slim_datapath::messages::Name;
 pub use slim_datapath::messages::utils::SlimHeaderFlags;
 pub use streaming::StreamingConfiguration;
 
 use serde::Deserialize;
 use session::{AppChannelReceiver, MessageDirection};
-use slim_datapath::messages::Agent;
 use std::collections::HashMap;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
@@ -233,7 +233,7 @@ impl Service {
     // APP APIs
     pub async fn create_app<P, V>(
         &self,
-        app_name: &Agent,
+        app_name: &Name,
         identity_provider: P,
         identity_verifier: V,
     ) -> Result<(App<P, V>, AppChannelReceiver), ServiceError>
@@ -246,12 +246,12 @@ impl Service {
         // Create storage path for the app
         let mut hasher = DefaultHasher::new();
         app_name.to_string().hash(&mut hasher);
-        let hashed_agent = hasher.finish();
+        let hashed_name = hasher.finish();
 
         let home_dir = dirs::home_dir().ok_or_else(|| {
             ServiceError::StorageError("Unable to determine home directory".to_string())
         })?;
-        let storage_path = home_dir.join(".slim").join(hashed_agent.to_string());
+        let storage_path = home_dir.join(".slim").join(hashed_name.to_string());
         std::fs::create_dir_all(&storage_path).map_err(|e| {
             ServiceError::StorageError(format!("Failed to create storage directory: {}", e))
         })?;
@@ -436,6 +436,7 @@ mod tests {
     use slim_config::grpc::server::ServerConfig;
     use slim_config::tls::server::TlsServerConfig;
     use slim_datapath::api::MessageType;
+    use slim_datapath::messages::Name;
     use std::time::Duration;
     use tokio::time;
     use tracing_test::traced_test;
@@ -496,26 +497,26 @@ mod tests {
             .unwrap();
 
         // create a subscriber
-        let subscriber_agent = Agent::from_strings("cisco", "default", "subscriber_agent", 0);
+        let subscriber_name = Name::from_strings(["cisco", "default", "subscriber"]).with_id(0);
         let (sub_app, mut sub_rx) = service
             .create_app(
-                &subscriber_agent,
+                &subscriber_name,
                 SharedSecret::new("a", "group"),
                 SharedSecret::new("a", "group"),
             )
             .await
-            .expect("failed to create agent");
+            .expect("failed to create app");
 
         // create a publisher
-        let publisher_agent = Agent::from_strings("cisco", "default", "publisher_agent", 0);
+        let publisher_name = Name::from_strings(["cisco", "default", "publisher"]).with_id(0);
         let (pub_app, _rx) = service
             .create_app(
-                &publisher_agent,
+                &publisher_name,
                 SharedSecret::new("a", "group"),
                 SharedSecret::new("a", "group"),
             )
             .await
-            .expect("failed to create agent");
+            .expect("failed to create app");
 
         // sleep to allow the subscription to be processed
         time::sleep(Duration::from_millis(100)).await;
@@ -536,12 +537,7 @@ mod tests {
         // publish a message
         let message_blob = "very complicated message".as_bytes().to_vec();
         pub_app
-            .publish(
-                session_info.clone(),
-                subscriber_agent.agent_type(),
-                Some(subscriber_agent.agent_id()),
-                message_blob.clone(),
-            )
+            .publish(session_info.clone(), &subscriber_name, message_blob.clone())
             .await
             .unwrap();
 
@@ -565,7 +561,7 @@ mod tests {
         // make also sure the session ids correspond
         assert_eq!(session_info.id, msg.info.id);
 
-        // Now remove the session from the 2 agents
+        // Now remove the session from the 2 apps
         pub_app.delete_session(session_info.id).await.unwrap();
         sub_app.delete_session(session_info.id).await.unwrap();
 
@@ -592,16 +588,16 @@ mod tests {
             .build_server(ID::new_with_name(Kind::new(KIND).unwrap(), "test").unwrap())
             .unwrap();
 
-        // register local agent
-        let agent = Agent::from_strings("cisco", "default", "session_agent", 0);
+        // register local app
+        let name = Name::from_strings(["cisco", "default", "session"]).with_id(0);
         let (app, _) = service
             .create_app(
-                &agent,
+                &name,
                 SharedSecret::new("a", "group"),
                 SharedSecret::new("a", "group"),
             )
             .await
-            .expect("failed to create agent");
+            .expect("failed to create app");
 
         //////////////////////////// ff session ////////////////////////////////////////////////////////////////////////
         let session_config = SessionConfig::FireAndForget(FireAndForgetConfiguration::default());
@@ -654,9 +650,12 @@ mod tests {
         ////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
         ////////////// stream session //////////////////////////////////////////////////////////////////////////////////
+
+        let stream = Name::from_strings(["agntcy", "ns", "stream"]);
+
         let session_config = SessionConfig::Streaming(StreamingConfiguration::new(
             session::SessionDirection::Receiver,
-            None,
+            stream.clone(),
             false,
             Some(1000),
             Some(time::Duration::from_secs(123)),
@@ -679,7 +678,7 @@ mod tests {
 
         let session_config = SessionConfig::Streaming(StreamingConfiguration::new(
             session::SessionDirection::Sender,
-            None,
+            stream.clone(),
             false,
             Some(2000),
             Some(time::Duration::from_secs(1234)),
@@ -692,7 +691,7 @@ mod tests {
 
         let session_config = SessionConfig::Streaming(StreamingConfiguration::new(
             session::SessionDirection::Receiver,
-            None,
+            stream.clone(),
             false,
             Some(2000),
             Some(time::Duration::from_secs(1234)),
@@ -717,7 +716,7 @@ mod tests {
         // set default session config
         let session_config = SessionConfig::Streaming(StreamingConfiguration::new(
             session::SessionDirection::Sender,
-            None,
+            stream.clone(),
             false,
             Some(20000),
             Some(time::Duration::from_secs(12345)),
@@ -730,7 +729,7 @@ mod tests {
 
         let session_config = SessionConfig::Streaming(StreamingConfiguration::new(
             session::SessionDirection::Receiver,
-            None,
+            stream.clone(),
             false,
             Some(20000),
             Some(time::Duration::from_secs(123456)),

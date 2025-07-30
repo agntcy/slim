@@ -9,7 +9,7 @@ use async_trait::async_trait;
 use rand::Rng;
 use slim_auth::traits::{TokenProvider, Verifier};
 use slim_datapath::api::{ProtoSessionType, SessionHeader, SlimHeader};
-use slim_datapath::messages::AgentType;
+use slim_datapath::messages::Name;
 use tokio::sync::mpsc::{self, Receiver, Sender};
 use tokio::time::{self, Instant};
 use tokio_util::sync::CancellationToken;
@@ -25,7 +25,6 @@ use crate::session::{
 };
 use crate::timer;
 use slim_datapath::api::{ProtoMessage as Message, ProtoSessionMessageType};
-use slim_datapath::messages::encoder::Agent;
 use slim_datapath::messages::utils::SlimHeaderFlags;
 
 /// Configuration for the Fire and Forget session
@@ -135,11 +134,11 @@ where
     T: SessionTransmitter + Send + Sync + Clone + 'static,
 {
     session_id: u32,
-    source: Agent,
+    source: Name,
     tx: T,
     config: FireAndForgetConfiguration,
     timers: HashMap<u32, (timer::Timer, Message)>,
-    sticky_name: Option<Agent>,
+    sticky_name: Option<Name>,
     sticky_connection: Option<u64>,
     sticky_session_status: StickySessionStatus,
     sticky_buffer: VecDeque<Message>,
@@ -307,10 +306,7 @@ where
         }
     }
 
-    async fn start_sticky_session_discovery(
-        &mut self,
-        agent_type: &AgentType,
-    ) -> Result<(), SessionError> {
+    async fn start_sticky_session_discovery(&mut self, name: &Name) -> Result<(), SessionError> {
         debug!("starting sticky session discovery");
 
         // Set payload
@@ -320,8 +316,7 @@ where
         // Create a probe message to discover the sticky session
         let mut probe_message = Message::new_publish(
             &self.state.source,
-            agent_type,
-            None,
+            name,
             None,
             "sticky_session_discovery",
             payload,
@@ -535,7 +530,7 @@ where
                     let ret = match self.state.sticky_session_status {
                         StickySessionStatus::Uninitialized => {
                             self.start_sticky_session_discovery(
-                                &message.message.get_slim_header().get_dst().0,
+                                &message.message.get_slim_header().get_dst(),
                             )
                             .await?;
 
@@ -600,8 +595,7 @@ where
                 let src = message.message.get_source();
                 let slim_header = Some(SlimHeader::new(
                     &self.state.source,
-                    src.agent_type(),
-                    Some(src.agent_id()),
+                    &src,
                     Some(
                         SlimHeaderFlags::default()
                             .with_forward_to(message.message.get_incoming_conn()),
@@ -727,7 +721,7 @@ where
         id: Id,
         session_config: FireAndForgetConfiguration,
         session_direction: SessionDirection,
-        agent: Agent,
+        name: Name,
         tx_slim_app: T,
         identity_provider: P,
         identity_verifier: V,
@@ -740,7 +734,7 @@ where
             id,
             session_direction,
             SessionConfig::FireAndForget(session_config.clone()),
-            agent,
+            name,
             tx_slim_app.clone(),
             identity_provider,
             identity_verifier,
@@ -758,8 +752,7 @@ where
             true => {
                 let cm = ChannelModerator::new(
                     common.source().clone(),
-                    common.source().agent_type().clone(),
-                    common.source().agent_id_option(),
+                    common.source().clone(),
                     id,
                     ProtoSessionType::SessionFireForget,
                     60,
@@ -772,8 +765,7 @@ where
             false => {
                 let cp = ChannelParticipant::new(
                     common.source().clone(),
-                    common.source().agent_type().clone(),
-                    common.source().agent_id_option(),
+                    common.source().clone(),
                     id,
                     ProtoSessionType::SessionFireForget,
                     60,
@@ -861,7 +853,7 @@ where
         Ok(())
     }
 
-    fn source(&self) -> &Agent {
+    fn source(&self) -> &Name {
         self.common.source()
     }
 
@@ -925,10 +917,7 @@ mod tests {
         channel_endpoint::handle_channel_discovery_message, testutils::MockTransmitter,
         transmitter::Transmitter,
     };
-    use slim_datapath::{
-        api::ProtoMessage,
-        messages::{Agent, AgentType},
-    };
+    use slim_datapath::{api::ProtoMessage, messages::Name};
 
     #[tokio::test]
     async fn test_fire_and_forget_create() {
@@ -937,7 +926,7 @@ mod tests {
 
         let tx = MockTransmitter { tx_app, tx_slim };
 
-        let source = Agent::from_strings("cisco", "default", "local_agent", 0);
+        let source = Name::from_strings(["cisco", "default", "local"]).with_id(0);
 
         let session = FireAndForget::new(
             0,
@@ -965,7 +954,7 @@ mod tests {
 
         let tx = MockTransmitter { tx_app, tx_slim };
 
-        let source = Agent::from_strings("cisco", "default", "local_agent", 0);
+        let source = Name::from_strings(["cisco", "default", "local"]).with_id(0);
 
         let session = FireAndForget::new(
             0,
@@ -979,9 +968,8 @@ mod tests {
         );
 
         let mut message = ProtoMessage::new_publish(
-            &Agent::from_strings("cisco", "default", "local_agent", 0),
-            &AgentType::from_strings("cisco", "default", "remote_agent"),
-            Some(0),
+            &source,
+            &Name::from_strings(["cisco", "default", "remote"]).with_id(0),
             None,
             "msg",
             vec![0x1, 0x2, 0x3, 0x4],
@@ -1016,7 +1004,7 @@ mod tests {
 
         let tx = MockTransmitter { tx_app, tx_slim };
 
-        let source = Agent::from_strings("cisco", "default", "local_agent", 0);
+        let source = Name::from_strings(["cisco", "default", "local"]).with_id(0);
 
         let session = FireAndForget::new(
             0,
@@ -1030,9 +1018,8 @@ mod tests {
         );
 
         let mut message = ProtoMessage::new_publish(
-            &Agent::from_strings("cisco", "default", "local_agent", 0),
-            &AgentType::from_strings("cisco", "default", "remote_agent"),
-            Some(0),
+            &source,
+            &Name::from_strings(["cisco", "default", "remote"]).with_id(0),
             Some(SlimHeaderFlags::default().with_incoming_conn(0)),
             "msg",
             vec![0x1, 0x2, 0x3, 0x4],
@@ -1082,7 +1069,7 @@ mod tests {
 
         let tx = MockTransmitter { tx_app, tx_slim };
 
-        let source = Agent::from_strings("cisco", "default", "local_agent", 0);
+        let source = Name::from_strings(["cisco", "default", "local"]).with_id(0);
 
         let session = FireAndForget::new(
             0,
@@ -1102,9 +1089,8 @@ mod tests {
         );
 
         let mut message = ProtoMessage::new_publish(
-            &Agent::from_strings("cisco", "default", "local_agent", 0),
-            &AgentType::from_strings("cisco", "default", "remote_agent"),
-            Some(0),
+            &source,
+            &Name::from_strings(["cisco", "default", "remote"]).with_id(0),
             None,
             "msg",
             vec![0x1, 0x2, 0x3, 0x4],
@@ -1158,8 +1144,8 @@ mod tests {
             tx_slim: tx_slim_receiver,
         };
 
-        let local = Agent::from_strings("cisco", "default", "local_agent", 0);
-        let remote = Agent::from_strings("cisco", "default", "remote_agent", 0);
+        let local = Name::from_strings(["cisco", "default", "local"]).with_id(0);
+        let remote = Name::from_strings(["cisco", "default", "remote"]).with_id(0);
 
         let session_sender = FireAndForget::new(
             0,
@@ -1192,8 +1178,7 @@ mod tests {
 
         let mut message = ProtoMessage::new_publish(
             &local,
-            &AgentType::from_strings("cisco", "default", "remote_agent"),
-            Some(0),
+            &Name::from_strings(["cisco", "default", "remote"]).with_id(0),
             Some(SlimHeaderFlags::default().with_incoming_conn(0)),
             "msg",
             vec![0x1, 0x2, 0x3, 0x4],
@@ -1261,7 +1246,7 @@ mod tests {
         );
 
         // Check that the ack is sent back to the sender
-        assert_eq!(message.get_source(), ack.get_name_as_agent());
+        assert_eq!(message.get_source(), ack.get_dst());
 
         // deliver the ack to the sender
         let res = session_sender
@@ -1278,7 +1263,7 @@ mod tests {
 
         let tx = MockTransmitter { tx_app, tx_slim };
 
-        let source = Agent::from_strings("cisco", "default", "local_agent", 0);
+        let source = Name::from_strings(["cisco", "default", "local"]).with_id(0);
 
         {
             let _session = FireAndForget::new(
@@ -1321,8 +1306,8 @@ mod tests {
             interceptors: Arc::new(RwLock::new(Vec::new())),
         };
 
-        let local = Agent::from_strings("cisco", "default", "local_agent", 0);
-        let remote = Agent::from_strings("cisco", "default", "remote_agent", 0);
+        let local = Name::from_strings(["cisco", "default", "local"]).with_id(0);
+        let remote = Name::from_strings(["cisco", "default", "remote"]).with_id(0);
 
         let sender_session = FireAndForget::new(
             0,
@@ -1361,8 +1346,7 @@ mod tests {
         // Create a message to send
         let mut message = ProtoMessage::new_publish(
             &local,
-            &AgentType::from_strings("cisco", "default", "remote_agent"),
-            Some(0),
+            &Name::from_strings(["cisco", "default", "remote"]).with_id(0),
             None,
             "msg",
             vec![0x1, 0x2, 0x3, 0x4],

@@ -40,7 +40,7 @@ async def run_client(
         audience=audience,
     )
 
-    instance = local_app.get_agent_id()
+    instance = local_app.get_id()
 
     if message:
         if not remote:
@@ -49,12 +49,10 @@ async def run_client(
     async with local_app:
         if message:
             # Split the IDs into their respective components
-            remote_organization, remote_namespace, remote_agent = split_id(remote)
+            remote_name = split_id(remote)
 
             # Create a route to the remote ID
-            await local_app.set_route(
-                remote_organization, remote_namespace, remote_agent
-            )
+            await local_app.set_route(remote_name)
 
             # create a session
             if sticky or enable_mls:
@@ -77,9 +75,7 @@ async def run_client(
                     _, reply = await local_app.request_reply(
                         session,
                         message.encode(),
-                        remote_organization,
-                        remote_namespace,
-                        remote_agent,
+                        remote_name,
                         timeout=datetime.timedelta(seconds=5),
                     )
 

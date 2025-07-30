@@ -12,13 +12,13 @@ import slim_bindings
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("server", ["127.0.0.1:22345"], indirect=True)
-async def test_sticky_session(server):
-    org = "org"
-    ns = "default"
-    sender = "sender"
+@pytest.mark.parametrize("mls_enabled", [True, False])
+async def test_sticky_session(server, mls_enabled):
+    sender_name = slim_bindings.PyName("org", "default", "sender")
+    receiver_name = slim_bindings.PyName("org", "default", "receiver")
 
     # create new slim object
-    sender = await create_slim(org, ns, sender, "secret")
+    sender = await create_slim(sender_name, "secret")
 
     # Connect to the service and subscribe for the local name
     _ = await sender.connect(
@@ -26,14 +26,14 @@ async def test_sticky_session(server):
     )
 
     # set route to receiver
-    await sender.set_route(org, ns, "receiver")
+    await sender.set_route(receiver_name)
 
     receiver_counts = {i: 0 for i in range(10)}
 
     # run 10 receivers concurrently
     async def run_receiver(i: int):
         # create new receiver object
-        receiver = await create_slim(org, ns, "receiver", "secret")
+        receiver = await create_slim(receiver_name, "secret")
 
         # Connect to the service and subscribe for the local name
         _ = await receiver.connect(
@@ -66,6 +66,7 @@ async def test_sticky_session(server):
             max_retries=5,
             timeout=datetime.timedelta(seconds=5),
             sticky=True,
+            mls_enabled=mls_enabled,
         )
     )
 
@@ -74,13 +75,7 @@ async def test_sticky_session(server):
 
     # send a message to the receiver
     for i in range(1000):
-        await sender.publish(
-            session_info,
-            b"Hello from sender",
-            org,
-            ns,
-            "receiver",
-        )
+        await sender.publish(session_info, b"Hello from sender", receiver_name)
 
     # Wait for all receivers to finish
     await asyncio.sleep(1)

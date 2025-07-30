@@ -14,9 +14,7 @@ test_audience = ["test.audience"]
 
 
 def create_slim(
-    organization,
-    namespace,
-    agent_type,
+    name: slim_bindings.PyName,
     private_key,
     private_key_algorithm,
     public_key,
@@ -40,7 +38,7 @@ def create_slim(
         duration=datetime.timedelta(seconds=60),
         issuer="test-issuer",
         audience=test_audience,
-        subject=agent_type,
+        subject=f"{name}",
     )
     verifier = slim_bindings.PyIdentityVerifier.Jwt(
         public_key=public_key,
@@ -50,18 +48,15 @@ def create_slim(
         require_aud=True,
     )
 
-    return slim_bindings.Slim.new(
-        organization, namespace, agent_type, provider, verifier
-    )
+    return slim_bindings.Slim.new(name, provider, verifier)
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("server", ["127.0.0.1:52345"], indirect=True)
 @pytest.mark.parametrize("audience", [test_audience, ["wrong.audience"]])
 async def test_identity_verification(server, audience):
-    org = "org"
-    ns = "default"
-    sender = "sender"
+    sender_name = slim_bindings.PyName("org", "default", "sender")
+    receiver_name = slim_bindings.PyName("org", "default", "receiver")
 
     # Keys used for signing JWTs of sender
     private_key_sender = f"{keys_folder}/ec256.pem"
@@ -76,9 +71,7 @@ async def test_identity_verification(server, audience):
     # create new slim object. note that the verifier will use the public key of the receiver
     # to verify the JWT of the reply message
     slim_sender = await create_slim(
-        org,
-        ns,
-        sender,
+        sender_name,
         private_key_sender,
         algorithm_sender,
         public_key_receiver,
@@ -90,13 +83,10 @@ async def test_identity_verification(server, audience):
         {"endpoint": "http://127.0.0.1:52345", "tls": {"insecure": True}}
     )
 
-    # create second local agent. note that the receiver will use the public key of the sender
+    # create second local app. note that the receiver will use the public key of the sender
     # to verify the JWT of the request message
-    receiver = "receiver"
     slim_receiver = await create_slim(
-        org,
-        ns,
-        receiver,
+        receiver_name,
         private_key_receiver,
         algorithm_receiver,
         public_key_sender,
@@ -110,7 +100,7 @@ async def test_identity_verification(server, audience):
     )
 
     # set route
-    await slim_sender.set_route(org, ns, receiver)
+    await slim_sender.set_route(receiver_name)
 
     # create request/reply session with default config
     session_info = await slim_sender.create_session(
@@ -150,7 +140,7 @@ async def test_identity_verification(server, audience):
         if audience == test_audience:
             # As audience matches, we expect a successful request/reply
             session_info, message = await slim_sender.request_reply(
-                session_info, pub_msg, org, ns, receiver
+                session_info, pub_msg, receiver_name
             )
 
             # check if the message is correct
@@ -164,9 +154,7 @@ async def test_identity_verification(server, audience):
                 session_info, message = await slim_sender.request_reply(
                     session_info,
                     pub_msg,
-                    org,
-                    ns,
-                    receiver,
+                    receiver_name,
                     timeout=datetime.timedelta(seconds=3),
                 )
 

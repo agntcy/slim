@@ -28,8 +28,7 @@ use slim_datapath::Status;
 use slim_datapath::api::ProtoMessage as Message;
 use slim_datapath::api::{MessageType, SessionHeader, SlimHeader};
 use slim_datapath::api::{ProtoSessionMessageType, ProtoSessionType};
-use slim_datapath::messages::AgentType;
-use slim_datapath::messages::encoder::Agent;
+use slim_datapath::messages::Name;
 use slim_datapath::messages::utils::SlimHeaderFlags;
 
 use crate::interceptor_mls::METADATA_MLS_ENABLED;
@@ -44,10 +43,10 @@ where
     /// Session pool
     pool: AsyncRwLock<HashMap<Id, Session<P, V, T>>>,
 
-    /// Name of the local agent
-    agent_name: Agent,
+    /// Name of the local app
+    app_name: Name,
 
-    /// Identity provider for the local agent
+    /// Identity provider for the local app
     identity_provider: P,
 
     /// Identity verifier
@@ -111,7 +110,7 @@ where
 {
     /// Create new App instance
     pub(crate) fn new(
-        agent_name: &Agent,
+        app_name: &Name,
         identity_provider: P,
         identity_verifier: V,
         conn_id: u64,
@@ -141,7 +140,7 @@ where
         // Create the session layer
         let session_layer = Arc::new(SessionLayer {
             pool: AsyncRwLock::new(HashMap::new()),
-            agent_name: agent_name.clone(),
+            app_name: app_name.clone(),
             identity_provider,
             identity_verifier,
             conn_id,
@@ -252,13 +251,12 @@ where
     /// Invite a new participant to a session
     pub async fn invite_participant(
         &self,
-        destination: &AgentType,
+        destination: &Name,
         session_info: session::Info,
     ) -> Result<(), ServiceError> {
         let slim_header = Some(SlimHeader::new(
-            self.session_layer.agent_name(),
+            self.session_layer.app_name(),
             destination,
-            None,
             None,
         ));
 
@@ -277,13 +275,12 @@ where
     /// Remove a participant from a session
     pub async fn remove_participant(
         &self,
-        destination: &Agent,
+        destination: &Name,
         session_info: session::Info,
     ) -> Result<(), ServiceError> {
         let slim_header = Some(SlimHeader::new(
-            self.session_layer.agent_name(),
-            destination.agent_type(),
-            destination.agent_id_option(),
+            self.session_layer.app_name(),
+            destination,
             None,
         ));
 
@@ -300,83 +297,51 @@ where
     }
 
     /// Subscribe the app to receive messages for a name
-    pub async fn subscribe(
-        &self,
-        agent_type: &AgentType,
-        agent_id: Option<u64>,
-        conn: Option<u64>,
-    ) -> Result<(), ServiceError> {
-        debug!("subscribe to {}/{:?}", agent_type, agent_id);
+    pub async fn subscribe(&self, name: &Name, conn: Option<u64>) -> Result<(), ServiceError> {
+        debug!("subscribe {} - conn {:?}", name, conn);
 
         let header = if let Some(c) = conn {
             Some(SlimHeaderFlags::default().with_forward_to(c))
         } else {
             Some(SlimHeaderFlags::default())
         };
-        let msg = Message::new_subscribe(
-            self.session_layer.agent_name(),
-            agent_type,
-            agent_id,
-            header,
-        );
+        let msg = Message::new_subscribe(self.session_layer.app_name(), name, header);
         self.send_message(msg, None).await
     }
 
     /// Unsubscribe the app
-    pub async fn unsubscribe(
-        &self,
-        agent_type: &AgentType,
-        agent_id: Option<u64>,
-        conn: Option<u64>,
-    ) -> Result<(), ServiceError> {
-        debug!("unsubscribe from {}/{:?}", agent_type, agent_id);
+    pub async fn unsubscribe(&self, name: &Name, conn: Option<u64>) -> Result<(), ServiceError> {
+        debug!("unsubscribe from {} - {:?}", name, conn);
 
         let header = if let Some(c) = conn {
             Some(SlimHeaderFlags::default().with_forward_to(c))
         } else {
             Some(SlimHeaderFlags::default())
         };
-        let msg = Message::new_subscribe(
-            self.session_layer.agent_name(),
-            agent_type,
-            agent_id,
-            header,
-        );
+        let msg = Message::new_subscribe(self.session_layer.app_name(), name, header);
         self.send_message(msg, None).await
     }
 
     /// Set a route towards another app
-    pub async fn set_route(
-        &self,
-        agent_type: &AgentType,
-        agent_id: Option<u64>,
-        conn: u64,
-    ) -> Result<(), ServiceError> {
-        debug!("set route to {}/{:?}", agent_type, agent_id);
+    pub async fn set_route(&self, name: &Name, conn: u64) -> Result<(), ServiceError> {
+        debug!("set route: {} - {:?}", name, conn);
 
         // send a message with subscription from
         let msg = Message::new_subscribe(
-            self.session_layer.agent_name(),
-            agent_type,
-            agent_id,
+            self.session_layer.app_name(),
+            name,
             Some(SlimHeaderFlags::default().with_recv_from(conn)),
         );
         self.send_message(msg, None).await
     }
 
-    pub async fn remove_route(
-        &self,
-        agent_type: &AgentType,
-        agent_id: Option<u64>,
-        conn: u64,
-    ) -> Result<(), ServiceError> {
-        debug!("unset route to {}/{:?}", agent_type, agent_id);
+    pub async fn remove_route(&self, name: &Name, conn: u64) -> Result<(), ServiceError> {
+        debug!("unset route to {} - {}", name, conn);
 
         //  send a message with unsubscription from
         let msg = Message::new_unsubscribe(
-            self.session_layer.agent_name(),
-            agent_type,
-            agent_id,
+            self.session_layer.app_name(),
+            name,
             Some(SlimHeaderFlags::default().with_recv_from(conn)),
         );
         self.send_message(msg, None).await
@@ -386,15 +351,13 @@ where
     pub async fn publish_to(
         &self,
         session_info: session::Info,
-        agent_type: &AgentType,
-        agent_id: Option<u64>,
+        name: &Name,
         forward_to: u64,
         blob: Vec<u8>,
     ) -> Result<(), ServiceError> {
         self.publish_with_flags(
             session_info,
-            agent_type,
-            agent_id,
+            name,
             SlimHeaderFlags::default().with_forward_to(forward_to),
             blob,
         )
@@ -405,38 +368,26 @@ where
     pub async fn publish(
         &self,
         session_info: session::Info,
-        agent_type: &AgentType,
-        agent_id: Option<u64>,
+        name: &Name,
         blob: Vec<u8>,
     ) -> Result<(), ServiceError> {
-        self.publish_with_flags(
-            session_info,
-            agent_type,
-            agent_id,
-            SlimHeaderFlags::default(),
-            blob,
-        )
-        .await
+        self.publish_with_flags(session_info, name, SlimHeaderFlags::default(), blob)
+            .await
     }
 
     /// Publish a message with specific flags
     pub async fn publish_with_flags(
         &self,
         session_info: session::Info,
-        agent_type: &AgentType,
-        agent_id: Option<u64>,
+        name: &Name,
         flags: SlimHeaderFlags,
         blob: Vec<u8>,
     ) -> Result<(), ServiceError> {
-        debug!(
-            "sending publication to {}/{:?}. Flags: {}",
-            agent_type, agent_id, flags
-        );
+        debug!("sending publication to {} - Flags: {}", name, flags);
 
         let msg = Message::new_publish(
-            self.session_layer.agent_name(),
-            agent_type,
-            agent_id,
+            self.session_layer.app_name(),
+            name,
             Some(flags),
             "msg",
             blob,
@@ -447,20 +398,15 @@ where
 
     /// SLIM receiver loop
     pub(crate) fn process_messages(&self, mut rx: mpsc::Receiver<Result<Message, Status>>) {
-        let agent_name = self.session_layer.agent_name.clone();
+        let app_name = self.session_layer.app_name.clone();
         let session_layer = self.session_layer.clone();
         let token_clone = self.cancel_token.clone();
 
         tokio::spawn(async move {
-            debug!("starting message processing loop for agent {}", agent_name);
+            debug!("starting message processing loop for {}", app_name);
 
-            // subscribe for local agent running this loop
-            let subscribe_msg = Message::new_subscribe(
-                &agent_name,
-                agent_name.agent_type(),
-                Some(agent_name.agent_id()),
-                None,
-            );
+            // subscribe for local name running this loop
+            let subscribe_msg = Message::new_subscribe(&app_name, &app_name, None);
             let tx = session_layer.tx_slim();
             tx.send(Ok(subscribe_msg))
                 .await
@@ -541,8 +487,8 @@ where
         self.conn_id
     }
 
-    pub(crate) fn agent_name(&self) -> &Agent {
-        &self.agent_name
+    pub(crate) fn app_name(&self) -> &Name {
+        &self.app_name
     }
 
     pub(crate) async fn create_session(
@@ -551,7 +497,7 @@ where
         id: Option<Id>,
     ) -> Result<Info, SessionError> {
         // TODO(msardara): the session identifier should be a combination of the
-        // session ID and the agent ID, to prevent collisions.
+        // session ID and the app ID, to prevent collisions.
 
         // get a lock on the session pool
         let mut pool = self.pool.write().await;
@@ -599,7 +545,7 @@ where
                     id,
                     conf,
                     SessionDirection::Bidirectional,
-                    self.agent_name().clone(),
+                    self.app_name().clone(),
                     tx,
                     self.identity_provider.clone(),
                     self.identity_verifier.clone(),
@@ -613,7 +559,7 @@ where
                     id,
                     conf,
                     direction,
-                    self.agent_name().clone(),
+                    self.app_name().clone(),
                     tx,
                     self.identity_provider.clone(),
                     self.identity_verifier.clone(),
@@ -702,7 +648,7 @@ where
                 // reply direcetly without creating any new Session
                 let msg = handle_channel_discovery_message(
                     message,
-                    self.agent_name(),
+                    self.app_name(),
                     session_id,
                     session_type,
                 );
@@ -795,7 +741,7 @@ where
             ProtoSessionMessageType::FnfMsg | ProtoSessionMessageType::FnfReliable => {
                 let mut conf = self.default_ff_conf.read().clone();
 
-                // Set that the session was initiated by another agent
+                // Set that the session was initiated by another app
                 conf.initiator = false;
 
                 // If other session is reliable, set the timeout
@@ -813,7 +759,10 @@ where
                     .await?
             }
             ProtoSessionMessageType::StreamMsg | ProtoSessionMessageType::BeaconStream => {
-                let conf = self.default_stream_conf.read().clone();
+                let mut conf = self.default_stream_conf.read().clone();
+
+                conf.channel_name = message.message.get_dst();
+
                 self.create_session(session::SessionConfig::Streaming(conf), Some(id))
                     .await?
             }
@@ -997,16 +946,16 @@ mod tests {
     use slim_auth::shared_secret::SharedSecret;
     use slim_datapath::{
         api::ProtoMessage,
-        messages::{Agent, AgentType, utils::SLIM_IDENTITY},
+        messages::{Name, utils::SLIM_IDENTITY},
     };
 
     fn create_app() -> App<SharedSecret, SharedSecret> {
         let (tx_slim, _) = tokio::sync::mpsc::channel(128);
         let (tx_app, _) = tokio::sync::mpsc::channel(128);
-        let agent = Agent::from_strings("org", "ns", "type", 0);
+        let name = Name::from_strings(["org", "ns", "type"]).with_id(0);
 
         App::new(
-            &agent,
+            &name,
             SharedSecret::new("a", "group"),
             SharedSecret::new("a", "group"),
             0,
@@ -1027,10 +976,10 @@ mod tests {
     async fn test_remove_session() {
         let (tx_slim, _) = tokio::sync::mpsc::channel(1);
         let (tx_app, _) = tokio::sync::mpsc::channel(1);
-        let agent = Agent::from_strings("org", "ns", "type", 0);
+        let name = Name::from_strings(["org", "ns", "type"]).with_id(0);
 
         let app = App::new(
-            &agent,
+            &name,
             SharedSecret::new("a", "group"),
             SharedSecret::new("a", "group"),
             0,
@@ -1053,10 +1002,10 @@ mod tests {
     async fn test_create_session() {
         let (tx_slim, _) = tokio::sync::mpsc::channel(1);
         let (tx_app, _) = tokio::sync::mpsc::channel(1);
-        let agent = Agent::from_strings("org", "ns", "type", 0);
+        let name = Name::from_strings(["org", "ns", "type"]).with_id(0);
 
         let session_layer = App::new(
-            &agent,
+            &name,
             SharedSecret::new("a", "group"),
             SharedSecret::new("a", "group"),
             0,
@@ -1078,10 +1027,10 @@ mod tests {
     async fn test_delete_session() {
         let (tx_slim, _) = tokio::sync::mpsc::channel(1);
         let (tx_app, _) = tokio::sync::mpsc::channel(1);
-        let agent = Agent::from_strings("org", "ns", "type", 0);
+        let name = Name::from_strings(["org", "ns", "type"]).with_id(0);
 
         let session_layer = App::new(
-            &agent,
+            &name,
             SharedSecret::new("a", "group"),
             SharedSecret::new("a", "group"),
             0,
@@ -1109,12 +1058,12 @@ mod tests {
     async fn test_handle_message_from_slim() {
         let (tx_slim, _) = tokio::sync::mpsc::channel(1);
         let (tx_app, mut rx_app) = tokio::sync::mpsc::channel(1);
-        let agent = Agent::from_strings("org", "ns", "type", 0);
+        let name = Name::from_strings(["org", "ns", "type"]).with_id(0);
 
         let identity = SharedSecret::new("a", "group");
 
         let app = App::new(
-            &agent,
+            &name,
             identity.clone(),
             identity.clone(),
             0,
@@ -1132,9 +1081,8 @@ mod tests {
         assert!(res.is_ok());
 
         let mut message = ProtoMessage::new_publish(
-            &Agent::from_strings("cisco", "default", "local_agent", 0),
-            &AgentType::from_strings("cisco", "default", "remote_agent"),
-            Some(0),
+            &name,
+            &Name::from_strings(["cisco", "default", "remote"]).with_id(0),
             None,
             "msg",
             vec![0x1, 0x2, 0x3, 0x4],
@@ -1188,12 +1136,12 @@ mod tests {
     async fn test_handle_message_from_app() {
         let (tx_slim, mut rx_slim) = tokio::sync::mpsc::channel(1);
         let (tx_app, _) = tokio::sync::mpsc::channel(1);
-        let agent = Agent::from_strings("org", "ns", "type", 0);
+        let name = Name::from_strings(["org", "ns", "type"]).with_id(0);
 
         let identity = SharedSecret::new("a", "group");
 
         let app = App::new(
-            &agent,
+            &name,
             identity.clone(),
             identity.clone(),
             0,
@@ -1210,12 +1158,11 @@ mod tests {
             .await;
         assert!(res.is_ok());
 
-        let source = Agent::from_strings("cisco", "default", "local_agent", 0);
+        let source = Name::from_strings(["cisco", "default", "local"]).with_id(0);
 
         let mut message = ProtoMessage::new_publish(
-            &source.clone(),
-            &AgentType::from_strings("cisco", "default", "remote_agent"),
-            Some(0),
+            &source,
+            &Name::from_strings(["cisco", "default", "remote"]).with_id(0),
             None,
             "msg",
             vec![0x1, 0x2, 0x3, 0x4],

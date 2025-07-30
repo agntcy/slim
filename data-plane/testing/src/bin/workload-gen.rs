@@ -8,7 +8,7 @@ use std::{
 };
 
 use rand::Rng;
-use slim_datapath::messages::{Agent, AgentType};
+use slim_datapath::messages::Name;
 
 use clap::Parser;
 use indicatif::ProgressBar;
@@ -24,7 +24,7 @@ pub struct Args {
     #[arg(short, long, value_name = "PUBLICATIONS", required = true)]
     publications: u32,
 
-    /// Maximum number of agent instances for the same type
+    /// Maximum number of app instances for the same type
     #[arg(
         short,
         long,
@@ -34,15 +34,15 @@ pub struct Args {
     )]
     instances: u32,
 
-    /// Number of subscriber agents
+    /// Number of subscriber apps
     #[arg(
         short,
         long,
-        value_name = "AGENTS",
+        value_name = "APPS",
         required = false,
         default_value_t = 1
     )]
-    agents: u32,
+    apps: u32,
 
     /// Output file where to store the workload
     #[arg(
@@ -68,8 +68,8 @@ impl Args {
         &self.instances
     }
 
-    pub fn agents(&self) -> &u32 {
-        &self.agents
+    pub fn apps(&self) -> &u32 {
+        &self.apps
     }
 
     pub fn output(&mut self) -> &String {
@@ -81,7 +81,7 @@ impl Args {
             self.output.push_str("_i");
             self.output.push_str(&self.instances().to_string());
             self.output.push_str("_s");
-            self.output.push_str(&self.agents().to_string());
+            self.output.push_str(&self.apps().to_string());
             self.output.push_str(".dat");
         }
 
@@ -91,8 +91,8 @@ impl Args {
 
 #[derive(Default, Debug)]
 struct SubscriptionPair {
-    /// agent id to which the subscriber subscribes
-    agent_id: u64,
+    /// app id to which the subscriber subscribes
+    app_id: u64,
     /// subscriber id
     subscriber: u32,
 }
@@ -106,10 +106,10 @@ struct TypeState {
 }
 
 impl TypeState {
-    fn insert(&mut self, agent_id: u64, subscriber: u32) {
+    fn insert(&mut self, id: u64, subscriber: u32) {
         self.subscribers.insert(subscriber);
         let pair = SubscriptionPair {
-            agent_id,
+            app_id: id,
             subscriber,
         };
         self.subscription.push(pair);
@@ -124,7 +124,7 @@ impl TypeState {
 
 struct Publication {
     /// publication name
-    publication: Agent,
+    publication: Name,
     /// list of ids that can receive the publication
     subscribers: HashSet<u32>,
 }
@@ -135,13 +135,13 @@ fn main() {
 
     let max_subscriptions = *args.subscriptions();
     let max_publications = *args.publications();
-    let max_agents_per_type = *args.instances();
-    let subscribers = *args.agents();
+    let max_apps_per_type = *args.instances();
+    let subscribers = *args.apps();
     let output = args.output();
 
     println!(
-        "configuration -- subscriptions: {}, publications: {}, agents per type: {}, agents: {}, output: {}",
-        max_subscriptions, max_publications, max_agents_per_type, subscribers, output
+        "configuration -- subscriptions: {}, publications: {}, apps per type: {}, apps: {}, output: {}",
+        max_subscriptions, max_publications, max_apps_per_type, subscribers, output
     );
 
     // number of subscription created
@@ -175,38 +175,36 @@ fn main() {
             .map(char::from)
             .collect::<String>();
 
-        let agent_type = AgentType::from_strings(&org, &ns, &atype);
+        let name = Name::from_strings([&org, &ns, &atype]);
 
         let mut type_state = TypeState::default();
 
-        // for each type create at most max_agent_per_type
+        // for each type create at most max_apps_per_type
         // but at least one
-        let mut agent_per_type = 0;
-        let mut add_agent = true;
+        let mut apps_per_type = 0;
+        let mut add_app = true;
 
         // stop if:
-        // 1) the nunmber of agents ids is equal to max_agent_per_type in this type
-        // 2) the random bool add_agent is false
+        // 1) the nunmber of apps ids is equal to max_apps_per_type in this type
+        // 2) the random bool add_app is false
         // 3) the total number of subscrptions is equal to max_subscription
-        while (agent_per_type < max_agents_per_type)
-            && add_agent
-            && (subscriptions < max_subscriptions)
+        while (apps_per_type < max_apps_per_type) && add_app && (subscriptions < max_subscriptions)
         {
-            // the agent id in the subscription is always a random numb
-            let sub = Agent::new(agent_type.clone(), rng.random_range(0..u64::MAX));
+            // the id in the subscription is always a random numb
+            let sub = name.clone().with_id(rng.random_range(0..u64::MAX));
 
-            // decide which agent will send the subscription
+            // decide which app will send the subscription
             let subscriber = rng.random_range(..subscribers);
-            agent_per_type += 1;
+            apps_per_type += 1;
             subscriptions += 1;
-            add_agent = rng.random_bool(0.8);
+            add_app = rng.random_bool(0.8);
 
             bar.inc(1);
 
-            type_state.insert(sub.agent_id(), subscriber);
+            type_state.insert(sub.id(), subscriber);
         }
 
-        subscription_list.insert(agent_type, type_state);
+        subscription_list.insert(name, type_state);
     }
     bar.finish();
 
@@ -219,13 +217,13 @@ fn main() {
     let bar = ProgressBar::new(max_publications as u64);
     while publications < max_publications {
         for s in subscription_list.iter() {
-            // randomly decided to use the agent id or not
-            let use_agent_id = rng.random_bool(0.5);
-            if use_agent_id {
+            // randomly decided to use the app id or not
+            let use_app_id = rng.random_bool(0.5);
+            if use_app_id {
                 // pick a random pair for this type
                 let pair = s.1.get_pair();
 
-                let name = Agent::new(s.0.clone(), pair.agent_id);
+                let name = s.0.clone().with_id(pair.app_id);
 
                 let mut p = Publication {
                     publication: name,
@@ -235,7 +233,7 @@ fn main() {
 
                 publications_list.push(p);
             } else {
-                let name = Agent::new(s.0.clone(), 0);
+                let name = s.0.clone().with_id(0);
                 let mut p = Publication {
                     publication: name,
                     subscribers: HashSet::new(),
@@ -277,10 +275,10 @@ fn main() {
                 "SUB {} {} {} {} {} {}\n",
                 i,
                 p.subscriber,
-                s.0.organization(),
-                s.0.namespace(),
-                s.0.agent_type(),
-                p.agent_id
+                s.0.components()[0],
+                s.0.components()[1],
+                s.0.components()[2],
+                p.app_id
             );
             let res = file.write_all(s.as_bytes());
             if res.is_err() {
@@ -305,10 +303,10 @@ fn main() {
         let s = format!(
             "PUB {} {} {} {} {} {}{}\n", //do not add the space between m.subscribers.len() and sub_str
             i,
-            m.publication.agent_type().organization(),
-            m.publication.agent_type().namespace(),
-            m.publication.agent_type().agent_type(),
-            m.publication.agent_id(),
+            m.publication.components()[0],
+            m.publication.components()[1],
+            m.publication.components()[2],
+            m.publication.id(),
             m.subscribers.len(),
             sub_str
         );

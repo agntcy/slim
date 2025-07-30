@@ -12,7 +12,7 @@ use pyo3_stub_gen::derive::gen_stub_pymethods;
 use serde_pyobject::from_pyobject;
 use slim_auth::traits::TokenProvider;
 use slim_auth::traits::Verifier;
-use slim_datapath::messages::encoder::{Agent, AgentType};
+use slim_datapath::messages::encoder::Name;
 use slim_datapath::messages::utils::SlimHeaderFlags;
 use slim_service::app::App;
 use slim_service::errors::SessionError;
@@ -26,7 +26,7 @@ use crate::pyidentity::PyIdentityProvider;
 use crate::pyidentity::PyIdentityVerifier;
 use crate::pysession::PySessionType;
 use crate::pysession::{PySessionConfiguration, PySessionInfo};
-use crate::utils::PyAgentType;
+use crate::utils::PyName;
 use slim_config::grpc::client::ClientConfig as PyGrpcClientConfig;
 use slim_config::grpc::server::ServerConfig as PyGrpcServerConfig;
 
@@ -44,7 +44,7 @@ where
 {
     app: App<P, V>,
     service: Service,
-    agent: Agent,
+    name: Name,
     rx: RwLock<session::AppChannelReceiver>,
 }
 
@@ -53,15 +53,18 @@ where
 impl PyService {
     #[getter]
     pub fn id(&self) -> u64 {
-        self.sdk.agent.agent_id()
+        self.sdk.name.id()
+    }
+
+    #[getter]
+    pub fn name(&self) -> PyName {
+        PyName::from(self.sdk.name.clone())
     }
 }
 
 impl PyService {
     async fn create_pyservice(
-        organization: String,
-        namespace: String,
-        agent_type: String,
+        name: PyName,
         provider: PyIdentityProvider,
         verifier: PyIdentityVerifier,
     ) -> Result<Self, ServiceError> {
@@ -71,16 +74,13 @@ impl PyService {
         // Convert the PyIdentityVerifier into IdentityVerifier
         let verifier: IdentityVerifier = verifier.into();
 
-        let identity_token = provider.get_token().map_err(|e| {
+        let _identity_token = provider.get_token().map_err(|e| {
             ServiceError::ConfigError(format!("Failed to get token from provider: {}", e))
         })?;
 
         // TODO(msardara): we can likely get more information from the token here, like a global instance ID
-        let id =
-            Agent::agent_id_from_identity(&format!("{}-{}", identity_token, rand::random::<u32>()));
-
-        // create local agent
-        let agent = Agent::from_strings(&organization, &namespace, &agent_type, id);
+        let name: Name = name.into();
+        let name = name.with_id(rand::random::<u64>());
 
         // create service ID
         let svc_id = slim_config::component::id::ID::new_with_str("service/0").unwrap();
@@ -89,13 +89,13 @@ impl PyService {
         let svc = Service::new(svc_id);
 
         // Get the rx channel
-        let (app, rx) = svc.create_app(&agent, provider, verifier).await?;
+        let (app, rx) = svc.create_app(&name, provider, verifier).await?;
 
         // create the service
         let sdk = Arc::new(PyServiceInternal {
             service: svc,
             app,
-            agent,
+            name,
             rx: RwLock::new(rx),
         });
 
@@ -132,45 +132,20 @@ impl PyService {
         self.sdk.service.disconnect(conn)
     }
 
-    async fn subscribe(
-        &self,
-        conn: u64,
-        name: PyAgentType,
-        id: Option<u64>,
-    ) -> Result<(), ServiceError> {
-        let class = AgentType::from_strings(&name.organization, &name.namespace, &name.agent_type);
-
-        self.sdk.app.subscribe(&class, id, Some(conn)).await
+    async fn subscribe(&self, conn: u64, name: PyName) -> Result<(), ServiceError> {
+        self.sdk.app.subscribe(&name.into(), Some(conn)).await
     }
 
-    async fn unsubscribe(
-        &self,
-        conn: u64,
-        name: PyAgentType,
-        id: Option<u64>,
-    ) -> Result<(), ServiceError> {
-        let class = AgentType::from_strings(&name.organization, &name.namespace, &name.agent_type);
-        self.sdk.app.unsubscribe(&class, id, Some(conn)).await
+    async fn unsubscribe(&self, conn: u64, name: PyName) -> Result<(), ServiceError> {
+        self.sdk.app.unsubscribe(&name.into(), Some(conn)).await
     }
 
-    async fn set_route(
-        &self,
-        conn: u64,
-        name: PyAgentType,
-        id: Option<u64>,
-    ) -> Result<(), ServiceError> {
-        let class = AgentType::from_strings(&name.organization, &name.namespace, &name.agent_type);
-        self.sdk.app.set_route(&class, id, conn).await
+    async fn set_route(&self, conn: u64, name: PyName) -> Result<(), ServiceError> {
+        self.sdk.app.set_route(&name.into(), conn).await
     }
 
-    async fn remove_route(
-        &self,
-        conn: u64,
-        name: PyAgentType,
-        id: Option<u64>,
-    ) -> Result<(), ServiceError> {
-        let class = AgentType::from_strings(&name.organization, &name.namespace, &name.agent_type);
-        self.sdk.app.remove_route(&class, id, conn).await
+    async fn remove_route(&self, conn: u64, name: PyName) -> Result<(), ServiceError> {
+        self.sdk.app.remove_route(&name.into(), conn).await
     }
 
     async fn publish(
@@ -178,21 +153,20 @@ impl PyService {
         session_info: session::Info,
         fanout: u32,
         blob: Vec<u8>,
-        name: Option<PyAgentType>,
-        id: Option<u64>,
+        name: Option<PyName>,
     ) -> Result<(), ServiceError> {
-        let (agent_type, agent_id, conn_out) = match name {
-            Some(name) => (name.into(), id, None),
+        let (name, conn_out) = match name {
+            Some(name) => (name.into(), None),
             None => {
                 // use the session_info to set a name
                 match &session_info.message_source {
-                    Some(agent) => (
-                        agent.agent_type().clone(),
-                        Some(agent.agent_id()),
-                        session_info.input_connection,
-                    ),
+                    Some(name_in_session) => {
+                        (name_in_session.clone(), session_info.input_connection)
+                    }
                     None => {
-                        return Err(ServiceError::ConfigError("no agent specified".to_string()));
+                        return Err(ServiceError::ConfigError(
+                            "no destination name specified".to_string(),
+                        ));
                     }
                 }
             }
@@ -203,29 +177,22 @@ impl PyService {
 
         self.sdk
             .app
-            .publish_with_flags(session_info, &agent_type, agent_id, flags, blob)
+            .publish_with_flags(session_info, &name, flags, blob)
             .await
     }
 
-    async fn invite(
-        &self,
-        session_info: session::Info,
-        name: PyAgentType,
-    ) -> Result<(), ServiceError> {
+    async fn invite(&self, session_info: session::Info, name: PyName) -> Result<(), ServiceError> {
         self.sdk
             .app
             .invite_participant(&name.into(), session_info)
             .await
     }
 
-    async fn remove(
-        &self,
-        session_info: session::Info,
-        name: PyAgentType,
-        id: u64,
-    ) -> Result<(), ServiceError> {
-        let name = Agent::new(name.into(), id);
-        self.sdk.app.remove_participant(&name, session_info).await
+    async fn remove(&self, session_info: session::Info, name: PyName) -> Result<(), ServiceError> {
+        self.sdk
+            .app
+            .remove_participant(&name.into(), session_info)
+            .await
     }
 
     async fn receive(&self) -> Result<(PySessionInfo, Vec<u8>), ServiceError> {
@@ -240,7 +207,7 @@ impl PyService {
 
                 let msg = msg.unwrap().map_err(|e| ServiceError::ReceiveError(e.to_string()))?;
 
-                // extract agent and payload
+                // extract payload
                 let content = match msg.message.message_type {
                     Some(ref msg_type) => match msg_type {
                         slim_datapath::api::ProtoPublishType(publish) => &publish.get_payload().blob,
@@ -439,16 +406,10 @@ pub fn disconnect(py: Python, svc: PyService, conn: u64) -> PyResult<Bound<PyAny
 
 #[gen_stub_pyfunction]
 #[pyfunction]
-#[pyo3(signature = (svc, conn, name, id=None))]
-pub fn subscribe(
-    py: Python,
-    svc: PyService,
-    conn: u64,
-    name: PyAgentType,
-    id: Option<u64>,
-) -> PyResult<Bound<PyAny>> {
+#[pyo3(signature = (svc, conn, name))]
+pub fn subscribe(py: Python, svc: PyService, conn: u64, name: PyName) -> PyResult<Bound<PyAny>> {
     pyo3_async_runtimes::tokio::future_into_py(py, async move {
-        svc.subscribe(conn, name, id)
+        svc.subscribe(conn, name)
             .await
             .map_err(|e| PyErr::new::<PyException, _>(e.to_string()))
     })
@@ -456,16 +417,10 @@ pub fn subscribe(
 
 #[gen_stub_pyfunction]
 #[pyfunction]
-#[pyo3(signature = (svc, conn, name, id=None))]
-pub fn unsubscribe(
-    py: Python,
-    svc: PyService,
-    conn: u64,
-    name: PyAgentType,
-    id: Option<u64>,
-) -> PyResult<Bound<PyAny>> {
+#[pyo3(signature = (svc, conn, name))]
+pub fn unsubscribe(py: Python, svc: PyService, conn: u64, name: PyName) -> PyResult<Bound<PyAny>> {
     pyo3_async_runtimes::tokio::future_into_py(py, async move {
-        svc.unsubscribe(conn, name, id)
+        svc.unsubscribe(conn, name)
             .await
             .map_err(|e| PyErr::new::<PyException, _>(e.to_string()))
     })
@@ -473,16 +428,10 @@ pub fn unsubscribe(
 
 #[gen_stub_pyfunction]
 #[pyfunction]
-#[pyo3(signature = (svc, conn, name, id=None))]
-pub fn set_route(
-    py: Python,
-    svc: PyService,
-    conn: u64,
-    name: PyAgentType,
-    id: Option<u64>,
-) -> PyResult<Bound<PyAny>> {
+#[pyo3(signature = (svc, conn, name))]
+pub fn set_route(py: Python, svc: PyService, conn: u64, name: PyName) -> PyResult<Bound<PyAny>> {
     pyo3_async_runtimes::tokio::future_into_py(py, async move {
-        svc.set_route(conn, name, id)
+        svc.set_route(conn, name)
             .await
             .map_err(|e| PyErr::new::<PyException, _>(e.to_string()))
     })
@@ -490,16 +439,10 @@ pub fn set_route(
 
 #[gen_stub_pyfunction]
 #[pyfunction]
-#[pyo3(signature = (svc, conn, name, id=None))]
-pub fn remove_route(
-    py: Python,
-    svc: PyService,
-    conn: u64,
-    name: PyAgentType,
-    id: Option<u64>,
-) -> PyResult<Bound<PyAny>> {
+#[pyo3(signature = (svc, conn, name))]
+pub fn remove_route(py: Python, svc: PyService, conn: u64, name: PyName) -> PyResult<Bound<PyAny>> {
     pyo3_async_runtimes::tokio::future_into_py(py, async move {
-        svc.remove_route(conn, name, id)
+        svc.remove_route(conn, name)
             .await
             .map_err(|e| PyErr::new::<PyException, _>(e.to_string()))
     })
@@ -507,18 +450,17 @@ pub fn remove_route(
 
 #[gen_stub_pyfunction]
 #[pyfunction]
-#[pyo3(signature = (svc, session_info, fanout, blob, name=None, id=None))]
+#[pyo3(signature = (svc, session_info, fanout, blob, name=None))]
 pub fn publish(
     py: Python,
     svc: PyService,
     session_info: PySessionInfo,
     fanout: u32,
     blob: Vec<u8>,
-    name: Option<PyAgentType>,
-    id: Option<u64>,
+    name: Option<PyName>,
 ) -> PyResult<Bound<PyAny>> {
     pyo3_async_runtimes::tokio::future_into_py(py, async move {
-        svc.publish(session_info.session_info, fanout, blob, name, id)
+        svc.publish(session_info.session_info, fanout, blob, name)
             .await
             .map_err(|e| PyErr::new::<PyException, _>(e.to_string()))
     })
@@ -531,7 +473,7 @@ pub fn invite(
     py: Python,
     svc: PyService,
     session_info: PySessionInfo,
-    name: PyAgentType,
+    name: PyName,
 ) -> PyResult<Bound<PyAny>> {
     pyo3_async_runtimes::tokio::future_into_py(py, async move {
         svc.invite(session_info.session_info, name)
@@ -542,16 +484,15 @@ pub fn invite(
 
 #[gen_stub_pyfunction]
 #[pyfunction]
-#[pyo3(signature = (svc, session_info, name, id))]
+#[pyo3(signature = (svc, session_info, name))]
 pub fn remove(
     py: Python,
     svc: PyService,
     session_info: PySessionInfo,
-    name: PyAgentType,
-    id: u64,
+    name: PyName,
 ) -> PyResult<Bound<PyAny>> {
     pyo3_async_runtimes::tokio::future_into_py(py, async move {
-        svc.remove(session_info.session_info, name, id)
+        svc.remove(session_info.session_info, name)
             .await
             .map_err(|e| PyErr::new::<PyException, _>(e.to_string()))
     })
@@ -574,17 +515,15 @@ pub fn receive(py: Python, svc: PyService) -> PyResult<Bound<PyAny>> {
 
 #[gen_stub_pyfunction]
 #[pyfunction]
-#[pyo3(signature = (organization, namespace, agent_type, provider, verifier))]
+#[pyo3(signature = (name, provider, verifier))]
 pub fn create_pyservice(
     py: Python,
-    organization: String,
-    namespace: String,
-    agent_type: String,
+    name: PyName,
     provider: PyIdentityProvider,
     verifier: PyIdentityVerifier,
 ) -> PyResult<Bound<PyAny>> {
     pyo3_async_runtimes::tokio::future_into_py(py, async move {
-        PyService::create_pyservice(organization, namespace, agent_type, provider, verifier)
+        PyService::create_pyservice(name, provider, verifier)
             .await
             .map_err(|e| PyErr::new::<PyException, _>(e.to_string()))
     })

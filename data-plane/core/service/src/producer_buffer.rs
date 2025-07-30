@@ -3,14 +3,14 @@
 
 use std::collections::HashMap;
 
-use slim_datapath::{api::ProtoMessage as Message, messages::AgentType};
+use slim_datapath::{api::ProtoMessage as Message, messages::Name};
 
 pub struct ProducerBuffer {
     capacity: usize,
     next: usize,
     buffer: Vec<Option<Message>>,
     map: HashMap<usize, usize>,
-    destination_name: AgentType,
+    destination_name: Name,
     destination_id: Option<u64>,
 }
 
@@ -22,7 +22,7 @@ impl ProducerBuffer {
             next: 0,
             buffer: vec![None; capacity],
             map: HashMap::new(),
-            destination_name: AgentType::default(),
+            destination_name: Name::from_strings(["unknown", "unknown", "unknown"]),
             destination_id: None,
         }
     }
@@ -31,7 +31,7 @@ impl ProducerBuffer {
         self.capacity
     }
 
-    pub fn get_destination_name(&self) -> &AgentType {
+    pub fn get_destination_name(&self) -> &Name {
         &self.destination_name
     }
 
@@ -44,7 +44,7 @@ impl ProducerBuffer {
     pub fn push(&mut self, msg: Message) -> bool {
         // if map is empty init the destination name
         if self.map.is_empty() {
-            (self.destination_name, self.destination_id) = msg.get_name();
+            self.destination_name = msg.get_dst();
         }
 
         // get message id
@@ -103,7 +103,7 @@ mod tests {
         ProtoSessionMessageType as SessionMessageType, ProtoSessionType as SessionType,
         SessionHeader, SlimHeader,
     };
-    use slim_datapath::messages::encoder::{Agent, AgentType};
+    use slim_datapath::messages::encoder::Name;
 
     #[test]
     fn test_producer_buffer() {
@@ -111,10 +111,10 @@ mod tests {
 
         assert_eq!(buffer.get_capacity(), 3);
 
-        let src = Agent::from_strings("org", "ns", "type", 0);
-        let name_type = AgentType::from_strings("org", "ns", "type");
+        let src = Name::from_strings(["org", "ns", "type"]).with_id(0);
+        let name_type = Name::from_strings(["org", "ns", "type"]).with_id(1);
 
-        let slim_header = SlimHeader::new(&src, &name_type, Some(1), None);
+        let slim_header = SlimHeader::new(&src, &name_type, None);
 
         let h0 = SessionHeader::new(
             SessionType::SessionUnknown.into(),
@@ -208,10 +208,10 @@ mod tests {
 
     #[test]
     fn test_iter_producer_buffer() {
-        let src = Agent::from_strings("org", "ns", "type", 0);
-        let name_type = AgentType::from_strings("org", "ns", "type");
+        let src = Name::from_strings(["org", "ns", "type"]).with_id(0);
+        let name_type = Name::from_strings(["org", "ns", "type"]).with_id(1);
 
-        let slim_header = SlimHeader::new(&src, &name_type, Some(1), None);
+        let slim_header = SlimHeader::new(&src, &name_type, None);
         let h = SessionHeader::new(
             SessionType::SessionUnknown.into(),
             SessionMessageType::FnfMsg.into(),

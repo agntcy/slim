@@ -12,10 +12,7 @@ use rmcp::{
 };
 use slim::config::ConfigResult;
 use slim_auth::shared_secret::SharedSecret;
-use slim_datapath::{
-    api::ProtoMessage as Message,
-    messages::{Agent, AgentType},
-};
+use slim_datapath::{api::ProtoMessage as Message, messages::Name};
 use slim_service::{
     FireAndForgetConfiguration,
     session::{self, SessionConfig},
@@ -59,7 +56,7 @@ impl timer::TimerObserver for PingTimerObserver {
 }
 
 struct ProxySession {
-    // name of the agent connect to this session
+    // name of the app connected to this session
     slim_session: session::Info,
     // send messages to proxy
     tx_proxy: mpsc::Sender<Result<(session::Info, Vec<u8>), session::Info>>,
@@ -252,13 +249,13 @@ impl ProxySession {
 #[derive(Debug, Eq, Hash, PartialEq)]
 struct SessionId {
     /// name of the source of the packet
-    source: Agent,
+    source: Name,
     /// SLIM session id
     id: u32,
 }
 
 pub struct Proxy {
-    name: Agent,
+    name: Name,
     config: ConfigResult,
     svc_id: slim_config::component::id::ID,
     mcp_server: String,
@@ -267,25 +264,13 @@ pub struct Proxy {
 
 impl Proxy {
     pub fn new(
-        name: AgentType,
-        identity: Option<String>,
-        id: Option<u64>,
+        name: Name,
         config: ConfigResult,
         svc_id: slim_config::component::id::ID,
         mcp_server: String,
     ) -> Self {
-        let agent_id = match identity {
-            None => match id {
-                None => rand::random::<u64>(),
-                Some(id) => id,
-            },
-            Some(i) => Agent::agent_id_from_identity(&i),
-        };
-
-        let agent_name = Agent::new(name, agent_id);
-
-        Proxy {
-            name: agent_name,
+        Self {
+            name,
             config,
             svc_id,
             mcp_server,
@@ -304,7 +289,7 @@ impl Proxy {
                 SharedSecret::new("id", "secret"),
             )
             .await
-            .expect("failed to create agent");
+            .expect("failed to create app");
 
         // run the service - this will create all the connections provided via the config file.
         svc.run().await.unwrap();
@@ -315,14 +300,7 @@ impl Proxy {
             .unwrap();
 
         // subscribe for local name
-        match app
-            .subscribe(
-                self.name.agent_type(),
-                self.name.agent_id_option(),
-                Some(conn_id),
-            )
-            .await
-        {
+        match app.subscribe(&self.name, Some(conn_id)).await {
             Ok(_) => {}
             Err(e) => {
                 panic!("an error accoured while adding a subscription {}", e);
@@ -426,8 +404,7 @@ impl Proxy {
                                 };
                                 match app.publish_to(
                                     info,
-                                    src.agent_type(),
-                                    Some(src.agent_id()),
+                                    &src,
                                     conn_id,
                                     msg,
                                 ).await {
@@ -435,7 +412,7 @@ impl Proxy {
                                         debug!("sent message to destination {:?}", src);
                                     }
                                     Err(e) => {
-                                        error!("error while sending message to agent {:?}: {}", src, e.to_string());
+                                        error!("error while sending message to app {:?}: {}", src, e.to_string());
                                     }
                                 }
                             }

@@ -78,8 +78,8 @@ func newListRoutesCmd(opts *options.CommonOptions) *cobra.Command {
 								fmt.Sprintf("remote:%d:%s", rc.GetId(), rc.GetConfigData()))
 						}
 						fmt.Printf("%s/%s/%s id=%d local=%v remote=%v\n",
-							e.GetOrganization(), e.GetNamespace(), e.GetAgentType(),
-							e.GetAgentId().GetValue(),
+							e.GetComponent_0(), e.GetComponent_1(), e.GetComponent_2(),
+							e.GetId().GetValue(),
 							localNames, remoteNames,
 						)
 					}
@@ -121,11 +121,11 @@ func newAddCmd(opts *options.CommonOptions) *cobra.Command {
 			}
 
 			subscription := &grpcapi.Subscription{
-				Organization: organization,
-				Namespace:    namespace,
-				AgentType:    agentType,
+				Component_0:  organization,
+				Component_1:  namespace,
+				Component_2:  agentType,
 				ConnectionId: conn.ConnectionId,
-				AgentId:      wrapperspb.UInt64(agentID),
+				Id:           wrapperspb.UInt64(agentID),
 			}
 
 			msg := &grpcapi.ControlMessage{
@@ -211,11 +211,11 @@ func newDelCmd(opts *options.CommonOptions) *cobra.Command {
 			}
 
 			subscription := &grpcapi.Subscription{
-				Organization: organization,
-				Namespace:    namespace,
-				AgentType:    agentType,
+				Component_0:  organization,
+				Component_1:  namespace,
+				Component_2:  agentType,
 				ConnectionId: connID,
-				AgentId:      wrapperspb.UInt64(agentID),
+				Id:           wrapperspb.UInt64(agentID),
 			}
 
 			msg := &grpcapi.ControlMessage{

@@ -27,8 +27,8 @@ use crate::errors::ControllerError;
 use slim_config::grpc::client::ClientConfig;
 use slim_datapath::api::ProtoMessage as PubsubMessage;
 use slim_datapath::message_processing::MessageProcessor;
+use slim_datapath::messages::Name;
 use slim_datapath::messages::utils::SlimHeaderFlags;
-use slim_datapath::messages::{Agent, AgentType};
 use slim_datapath::tables::SubscriptionTable;
 
 type TxChannel = mpsc::Sender<Result<ControlMessage, Status>>;
@@ -287,7 +287,7 @@ impl ControllerService {
                 match payload {
                     Payload::ConfigCommand(config) => {
                         for conn in &config.connections_to_create {
-                            error!("received a connection to create: {:?}", conn);
+                            info!("received a connection to create: {:?}", conn);
                             let client_config =
                                 serde_json::from_str::<ClientConfig>(&conn.config_data)
                                     .map_err(|e| ControllerError::ConfigError(e.to_string()))?;
@@ -351,22 +351,22 @@ impl ControllerService {
                                 .get(&subscription.connection_id)
                                 .cloned()
                                 .unwrap();
-                            let source = Agent::from_strings(
-                                subscription.organization.as_str(),
-                                subscription.namespace.as_str(),
-                                subscription.agent_type.as_str(),
-                                0,
-                            );
-                            let agent_type = AgentType::from_strings(
-                                subscription.organization.as_str(),
-                                subscription.namespace.as_str(),
-                                subscription.agent_type.as_str(),
-                            );
+                            let source = Name::from_strings([
+                                subscription.component_0.as_str(),
+                                subscription.component_1.as_str(),
+                                subscription.component_2.as_str(),
+                            ])
+                            .with_id(0);
+                            let name = Name::from_strings([
+                                subscription.component_0.as_str(),
+                                subscription.component_1.as_str(),
+                                subscription.component_2.as_str(),
+                            ])
+                            .with_id(subscription.id.unwrap_or(Name::NULL_COMPONENT));
 
                             let msg = PubsubMessage::new_subscribe(
                                 &source,
-                                &agent_type,
-                                subscription.agent_id,
+                                &name,
                                 Some(SlimHeaderFlags::default().with_recv_from(conn)),
                             );
 
@@ -393,22 +393,22 @@ impl ControllerService {
                                 .get(&subscription.connection_id)
                                 .cloned()
                                 .unwrap();
-                            let source = Agent::from_strings(
-                                subscription.organization.as_str(),
-                                subscription.namespace.as_str(),
-                                subscription.agent_type.as_str(),
-                                0,
-                            );
-                            let agent_type = AgentType::from_strings(
-                                subscription.organization.as_str(),
-                                subscription.namespace.as_str(),
-                                subscription.agent_type.as_str(),
-                            );
+                            let source = Name::from_strings([
+                                subscription.component_0.as_str(),
+                                subscription.component_1.as_str(),
+                                subscription.component_2.as_str(),
+                            ])
+                            .with_id(0);
+                            let name = Name::from_strings([
+                                subscription.component_0.as_str(),
+                                subscription.component_1.as_str(),
+                                subscription.component_2.as_str(),
+                            ])
+                            .with_id(subscription.id.unwrap_or(Name::NULL_COMPONENT));
 
                             let msg = PubsubMessage::new_unsubscribe(
                                 &source,
-                                &agent_type,
-                                subscription.agent_id,
+                                &name,
                                 Some(SlimHeaderFlags::default().with_recv_from(conn)),
                             );
 
@@ -439,18 +439,12 @@ impl ControllerService {
                         let mut entries = Vec::new();
 
                         self.inner.message_processor.subscription_table().for_each(
-                            |agent_type, agent_id, local, remote| {
+                            |name, id, local, remote| {
                                 let mut entry = SubscriptionEntry {
-                                    organization: agent_type
-                                        .organization_string()
-                                        .unwrap_or_else(|| agent_type.organization().to_string()),
-                                    namespace: agent_type
-                                        .namespace_string()
-                                        .unwrap_or_else(|| agent_type.organization().to_string()),
-                                    agent_type: agent_type
-                                        .agent_type_string()
-                                        .unwrap_or_else(|| agent_type.organization().to_string()),
-                                    agent_id: Some(agent_id),
+                                    component_0: name.components_strings().unwrap()[0].to_string(),
+                                    component_1: name.components_strings().unwrap()[1].to_string(),
+                                    component_2: name.components_strings().unwrap()[2].to_string(),
+                                    id: Some(id),
                                     ..Default::default()
                                 };
 

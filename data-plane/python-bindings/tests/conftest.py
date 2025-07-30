@@ -13,6 +13,7 @@ async def server(request):
     # create new server
     global svc_server
 
+    name = slim_bindings.PyName("agntcy", "default", "server")
     provider = slim_bindings.PyIdentityProvider.SharedSecret(
         identity="server", shared_secret="secret"
     )
@@ -20,9 +21,7 @@ async def server(request):
         identity="server", shared_secret="secret"
     )
 
-    svc_server = await slim_bindings.create_pyservice(
-        "cisco", "default", "server", provider, verifier
-    )
+    svc_server = await slim_bindings.create_pyservice(name, provider, verifier)
 
     # init tracing
     await slim_bindings.init_tracing({"log_level": "info"})

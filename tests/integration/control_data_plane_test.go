@@ -51,7 +51,7 @@ var _ = Describe("Routing", func() {
 	})
 
 	AfterEach(func() {
-		// terminate agents
+		// terminate apps
 		if clientASession != nil {
 			clientASession.Terminate().Wait(2 * time.Second)
 		}
@@ -74,8 +74,8 @@ var _ = Describe("Routing", func() {
 			clientBSession, err = gexec.Start(
 				exec.Command(sdkMockPath,
 					"--config", "./testdata/client-b-config.yaml",
-					"--local-agent", "b",
-					"--remote-agent", "a",
+					"--local-name", "b",
+					"--remote-name", "a",
 				),
 				GinkgoWriter, GinkgoWriter,
 			)
@@ -86,8 +86,8 @@ var _ = Describe("Routing", func() {
 			clientASession, err = gexec.Start(
 				exec.Command(sdkMockPath,
 					"--config", "./testdata/client-a-config.yaml",
-					"--local-agent", "a",
-					"--remote-agent", "b",
+					"--local-name", "a",
+					"--remote-name", "b",
 					"--message", "hey",
 				),
 				GinkgoWriter, GinkgoWriter,

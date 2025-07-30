@@ -28,8 +28,8 @@ In this case `server` should point to the SLIM instance endpoint.
 
 * `slimctl connection list --node-id=<slim_node_id>` List connection on a SLIM instance.
 * `slimctl route list --node-id=<slim_node_id>` List routes on a SLIM instance.
-* `slimctl route add <organization/namespace/agentName/agentId> via <config_file> --node-id=<slim_node_id>` Add a route to the SLIM instance.
-* `slimctl route del <organization/namespace/agentName/agentId> via <host:port> --node-id=<slim_node_id>` Delete a route from the SLIM instance.
+* `slimctl route add <organization/namespace/appName/appInstance> via <config_file> --node-id=<slim_node_id>` Add a route to the SLIM instance.
+* `slimctl route del <organization/namespace/appName/appInstance> via <host:port> --node-id=<slim_node_id>` Delete a route from the SLIM instance.
 
 * `slimctl version` Print version information.
 
@@ -58,5 +58,5 @@ slimctl route del org/default/alice/0 via http://localhost:46367
 
 * `slimctl node-connect connection list --server=<node_control_endpoint>` List connection on a SLIM instance.
 * `slimctl node-connect route list --server=<node_control_endpoint>` List routes on a SLIM instance.
-* `slimctl node-connect route add <organization/namespace/agentName/agentId> via <config_file> --server=<node_control_endpoint>` Add a route to the SLIM instance.
-* `slimctl node-connect route del <organization/namespace/agentName/agentId> via <host:port> --server=<node_control_endpoint>` Delete a route from the SLIM instance.
+* `slimctl node-connect route add <organization/namespace/appName/appInstance> via <config_file> --server=<node_control_endpoint>` Add a route to the SLIM instance.
+* `slimctl node-connect route del <organization/namespace/appName/appInstance> via <host:port> --server=<node_control_endpoint>` Delete a route from the SLIM instance.

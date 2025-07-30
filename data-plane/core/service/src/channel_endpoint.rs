@@ -27,7 +27,7 @@ use slim_datapath::{
         ProtoMessage as Message, ProtoSessionMessageType, ProtoSessionType, SessionHeader,
         SlimHeader,
     },
-    messages::{Agent, AgentType, utils::SlimHeaderFlags},
+    messages::{Name, utils::SlimHeaderFlags},
 };
 use slim_mls::mls::{CommitMsg, KeyPackageMsg, Mls, MlsIdentity, ProposalMsg, WelcomeMsg};
 
@@ -226,7 +226,7 @@ where
     fn process_control_message(
         &mut self,
         msg: Message,
-        local_name: &Agent,
+        local_name: &Name,
     ) -> Result<bool, SessionError> {
         if !self.is_valid_msg_id(msg)? {
             // message already processed, drop it
@@ -284,7 +284,7 @@ where
     fn process_proposal_message(
         &mut self,
         proposal: Message,
-        local_name: &Agent,
+        local_name: &Name,
     ) -> Result<(), SessionError> {
         trace!("processing stored proposal {}", proposal.get_id());
 
@@ -367,7 +367,7 @@ where
 
     /// map of the participants with package keys
     /// used to remove participants from the channel
-    participants: HashMap<Agent, MlsIdentity>,
+    participants: HashMap<Name, MlsIdentity>,
 
     /// message id of the next msl message to send
     next_msg_id: u32,
@@ -420,7 +420,7 @@ where
 
     fn remove_participant(&mut self, msg: &Message) -> Result<CommitMsg, SessionError> {
         debug!("Remove participant from the MLS group");
-        let name = msg.get_name_as_agent();
+        let name = msg.get_dst();
         let id = match self.participants.get(&name) {
             Some(id) => id,
             None => {
@@ -478,31 +478,29 @@ where
     }
 }
 
-#[derive(Debug, Clone, Default, Encode, Decode)]
+#[derive(Debug, Clone, Encode, Decode)]
 pub struct JoinMessagePayload {
-    channel_name: AgentType,
-    channel_id: Option<u64>,
-    moderator_name: Agent,
+    channel_name: Name,
+    moderator_name: Name,
 }
 
 impl JoinMessagePayload {
-    fn new(channel_name: AgentType, channel_id: Option<u64>, moderator_name: Agent) -> Self {
+    fn new(channel_name: Name, moderator_name: Name) -> Self {
         JoinMessagePayload {
             channel_name,
-            channel_id,
             moderator_name,
         }
     }
 }
 
-#[derive(Debug, Clone, Default, Encode, Decode)]
+#[derive(Debug, Clone, Encode, Decode)]
 pub struct MlsProposalMessagePayload {
-    source_name: Agent,
+    source_name: Name,
     mls_msg: Vec<u8>,
 }
 
 impl MlsProposalMessagePayload {
-    fn new(source_name: Agent, mls_msg: Vec<u8>) -> Self {
+    fn new(source_name: Name, mls_msg: Vec<u8>) -> Self {
         MlsProposalMessagePayload {
             source_name,
             mls_msg,
@@ -516,14 +514,10 @@ where
     T: SessionTransmitter + Send + Sync + Clone + 'static,
 {
     /// endpoint name
-    name: Agent,
+    name: Name,
 
     /// channel name
-    channel_name: AgentType,
-
-    /// Optional channel id, when the channel is a single endpoint
-    /// (e.g. a pipe)
-    channel_id: Option<u64>,
+    channel_name: Name,
 
     /// id of the current session
     session_id: Id,
@@ -555,9 +549,8 @@ where
 
     #[allow(clippy::too_many_arguments)]
     pub fn new(
-        name: Agent,
-        channel_name: AgentType,
-        channel_id: Option<u64>,
+        name: Name,
+        channel_name: Name,
         session_id: Id,
         session_type: ProtoSessionType,
         max_retries: u32,
@@ -567,7 +560,6 @@ where
         Endpoint {
             name,
             channel_name,
-            channel_id,
             session_id,
             session_type,
             conn: None,
@@ -580,8 +572,7 @@ where
 
     fn create_channel_message(
         &self,
-        destination: &AgentType,
-        destination_id: Option<u64>,
+        destination: &Name,
         broadcast: bool,
         request_type: ProtoSessionMessageType,
         message_id: u32,
@@ -599,12 +590,7 @@ where
             None
         };
 
-        let slim_header = Some(SlimHeader::new(
-            &self.name,
-            destination,
-            destination_id,
-            flags,
-        ));
+        let slim_header = Some(SlimHeader::new(&self.name, destination, flags));
 
         let session_header = Some(SessionHeader::new(
             self.session_type.into(),
@@ -626,40 +612,30 @@ where
 
         // subscribe for the channel
         let header = Some(SlimHeaderFlags::default().with_forward_to(self.conn.unwrap()));
-        let sub = Message::new_subscribe(&self.name, &self.channel_name, self.channel_id, header);
+        let sub = Message::new_subscribe(&self.name, &self.channel_name, header);
 
         self.send(sub).await?;
 
         // set route for the channel
-        self.set_route(&self.channel_name, self.channel_id).await
+        self.set_route(&self.channel_name).await
     }
 
-    async fn set_route(
-        &self,
-        route_name: &AgentType,
-        route_id: Option<u64>,
-    ) -> Result<(), SessionError> {
+    async fn set_route(&self, route_name: &Name) -> Result<(), SessionError> {
         // send a message with subscription from
         let msg = Message::new_subscribe(
             &self.name,
             route_name,
-            route_id,
             Some(SlimHeaderFlags::default().with_recv_from(self.conn.unwrap())),
         );
 
         self.send(msg).await
     }
 
-    async fn delete_route(
-        &self,
-        route_name: &AgentType,
-        route_id: Option<u64>,
-    ) -> Result<(), SessionError> {
+    async fn delete_route(&self, route_name: &Name) -> Result<(), SessionError> {
         // send a message with subscription from
         let msg = Message::new_unsubscribe(
             &self.name,
             route_name,
-            route_id,
             Some(SlimHeaderFlags::default().with_recv_from(self.conn.unwrap())),
         );
 
@@ -669,13 +645,12 @@ where
     async fn leave(&self) -> Result<(), SessionError> {
         // unsubscribe for the channel
         let header = Some(SlimHeaderFlags::default().with_forward_to(self.conn.unwrap()));
-        let unsub =
-            Message::new_unsubscribe(&self.name, &self.channel_name, self.channel_id, header);
+        let unsub = Message::new_unsubscribe(&self.name, &self.channel_name, header);
 
         self.send(unsub).await?;
 
         // remove route for the channel
-        self.delete_route(&self.channel_name, None).await
+        self.delete_route(&self.channel_name).await
     }
 
     async fn send(&self, msg: Message) -> Result<(), SessionError> {
@@ -685,7 +660,7 @@ where
 
 pub fn handle_channel_discovery_message(
     message: &Message,
-    source: &Agent,
+    source: &Name,
     session_id: Id,
     session_type: ProtoSessionType,
 ) -> Message {
@@ -694,8 +669,7 @@ pub fn handle_channel_discovery_message(
 
     let slim_header = Some(SlimHeader::new(
         source,
-        destination.agent_type(),
-        destination.agent_id_option(),
+        &destination,
         Some(SlimHeaderFlags::default().with_forward_to(message.get_incoming_conn())),
     ));
 
@@ -719,7 +693,7 @@ where
     T: SessionTransmitter + Send + Sync + Clone + 'static,
 {
     /// name of the moderator, used to send mls proposal messages
-    moderator_name: Option<Agent>,
+    moderator_name: Option<Name>,
 
     /// timer used for retransmission of mls proposal messages
     timer: Option<crate::timer::Timer>,
@@ -739,9 +713,8 @@ where
 {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
-        name: Agent,
-        channel_name: AgentType,
-        channel_id: Option<u64>,
+        name: Name,
+        channel_name: Name,
         session_id: Id,
         session_type: ProtoSessionType,
         max_retries: u32,
@@ -752,7 +725,6 @@ where
         let endpoint = Endpoint::new(
             name,
             channel_name,
-            channel_id,
             session_id,
             session_type,
             max_retries,
@@ -791,17 +763,10 @@ where
         self.endpoint.channel_name = names.channel_name.clone();
 
         // set route in order to be able to send packets to the moderator
-        self.endpoint
-            .set_route(
-                names.moderator_name.agent_type(),
-                names.moderator_name.agent_id_option(),
-            )
-            .await?;
+        self.endpoint.set_route(&names.moderator_name).await?;
 
         // If names.moderator_name and names.channel_name are the same, skip the join
-        self.endpoint.subscribed = names
-            .channel_id
-            .is_some_and(|id| names.moderator_name == Agent::new(names.channel_name, id));
+        self.endpoint.subscribed = names.channel_name == names.moderator_name;
 
         // set the moderator name after the set route
         self.moderator_name = Some(names.moderator_name);
@@ -824,8 +789,7 @@ where
 
         // reply to the request
         let reply = self.endpoint.create_channel_message(
-            src.agent_type(),
-            src.agent_id_option(),
+            &src,
             false,
             ProtoSessionMessageType::ChannelJoinReply,
             msg.get_id(),
@@ -849,8 +813,7 @@ where
         // send an ack back to the moderator
         let src = msg.get_source();
         let ack = self.endpoint.create_channel_message(
-            src.agent_type(),
-            src.agent_id_option(),
+            &src,
             false,
             ProtoSessionMessageType::ChannelMlsAck,
             msg.get_id(),
@@ -881,8 +844,7 @@ where
 
         // send an ack back to the moderator
         let ack = self.endpoint.create_channel_message(
-            msg_source.agent_type(),
-            msg_source.agent_id_option(),
+            &msg_source,
             false,
             ProtoSessionMessageType::ChannelMlsAck,
             msg_id,
@@ -899,8 +861,7 @@ where
         // reply to the request
         let src = msg.get_source();
         let reply = self.endpoint.create_channel_message(
-            src.agent_type(),
-            src.agent_id_option(),
+            &src,
             false,
             ProtoSessionMessageType::ChannelLeaveReply,
             msg.get_id(),
@@ -910,11 +871,7 @@ where
         self.endpoint.send(reply).await?;
 
         match &self.moderator_name {
-            Some(m) => {
-                self.endpoint
-                    .delete_route(m.agent_type(), m.agent_id_option())
-                    .await?
-            }
+            Some(m) => self.endpoint.delete_route(m).await?,
             None => {
                 error!("moderator name is not set, cannot remove the route");
             }
@@ -1003,8 +960,7 @@ where
         // get msg id
         let proposal_id = rand::random::<u32>();
         let proposal = self.endpoint.create_channel_message(
-            dest.agent_type(),
-            dest.agent_id_option(),
+            dest,
             true,
             ProtoSessionMessageType::ChannelMlsProposal,
             proposal_id,
@@ -1147,9 +1103,8 @@ where
     T: SessionTransmitter + Send + Sync + Clone + 'static,
 {
     pub fn new(
-        name: Agent,
-        channel_name: AgentType,
-        channel_id: Option<u64>,
+        name: Name,
+        channel_name: Name,
         session_id: Id,
         session_type: ProtoSessionType,
         max_retries: u32,
@@ -1157,7 +1112,7 @@ where
         mls: Option<MlsState<P, V>>,
         tx: T,
     ) -> Self {
-        let p = JoinMessagePayload::new(channel_name.clone(), channel_id, name.clone());
+        let p = JoinMessagePayload::new(channel_name.clone(), name.clone());
         let invite_payload: Vec<u8> = bincode::encode_to_vec(p, bincode::config::standard())
             .expect("unable to parse channel name as payload");
 
@@ -1166,7 +1121,6 @@ where
         let endpoint = Endpoint::new(
             name,
             channel_name,
-            channel_id,
             session_id,
             session_type,
             max_retries,
@@ -1320,7 +1274,6 @@ where
 
                     let commit = self.endpoint.create_channel_message(
                         &self.endpoint.channel_name,
-                        self.endpoint.channel_id,
                         true,
                         ProtoSessionMessageType::ChannelMlsCommit,
                         commit_id,
@@ -1373,8 +1326,7 @@ where
 
         // this message cannot be received but it is created here
         let mut join = self.endpoint.create_channel_message(
-            src.agent_type(),
-            src.agent_id_option(),
+            &src,
             false,
             ProtoSessionMessageType::ChannelJoinRequest,
             new_msg_id,
@@ -1422,15 +1374,13 @@ where
 
             let commit = self.endpoint.create_channel_message(
                 &self.endpoint.channel_name,
-                None,
                 true,
                 ProtoSessionMessageType::ChannelMlsCommit,
                 commit_id,
                 commit_payload,
             );
             let mut welcome = self.endpoint.create_channel_message(
-                src.agent_type(),
-                src.agent_id_option(),
+                &src,
                 false,
                 ProtoSessionMessageType::ChannelMlsWelcome,
                 welcome_id,
@@ -1520,8 +1470,7 @@ where
         // ack the MLS proposal
         debug!("Received proposal from a participant, send ack");
         let ack = self.endpoint.create_channel_message(
-            source.agent_type(),
-            source.agent_id_option(),
+            &source,
             false,
             ProtoSessionMessageType::ChannelMlsAck,
             msg_id,
@@ -1582,7 +1531,6 @@ where
 
             let commit = self.endpoint.create_channel_message(
                 &self.endpoint.channel_name,
-                self.endpoint.channel_id,
                 true,
                 ProtoSessionMessageType::ChannelMlsCommit,
                 commit_id,
@@ -1609,7 +1557,6 @@ where
             let broadcast_msg_id = self.mls_state.as_mut().unwrap().get_next_mls_mgs_id();
             let broadcast_msg = self.endpoint.create_channel_message(
                 &self.endpoint.channel_name,
-                self.endpoint.channel_id,
                 true,
                 ProtoSessionMessageType::ChannelMlsProposal,
                 broadcast_msg_id,
@@ -1648,7 +1595,6 @@ where
 
                 let commit = self.endpoint.create_channel_message(
                     &self.endpoint.channel_name,
-                    self.endpoint.channel_id,
                     true,
                     ProtoSessionMessageType::ChannelMlsCommit,
                     commit_id,
@@ -1783,7 +1729,6 @@ where
             // a fake one with empty payload and push it to the todo list
             let empty_msg = self.endpoint.create_channel_message(
                 &self.endpoint.channel_name,
-                self.endpoint.channel_id,
                 true,
                 ProtoSessionMessageType::ChannelMlsProposal,
                 rand::random::<u32>(),
@@ -1814,7 +1759,6 @@ where
         let proposal_id = self.mls_state.as_mut().unwrap().get_next_mls_mgs_id();
         let proposal = self.endpoint.create_channel_message(
             &self.endpoint.channel_name,
-            self.endpoint.channel_id,
             true,
             ProtoSessionMessageType::ChannelMlsProposal,
             proposal_id,
@@ -1952,7 +1896,7 @@ mod tests {
     use slim_auth::shared_secret::SharedSecret;
     use tracing_test::traced_test;
 
-    use slim_datapath::messages::AgentType;
+    use slim_datapath::messages::Name;
 
     const SESSION_ID: u32 = 10;
 
@@ -1973,9 +1917,9 @@ mod tests {
             tx_slim: participant_tx,
         };
 
-        let moderator = Agent::from_strings("org", "default", "moderator", 12345);
-        let participant = Agent::from_strings("org", "default", "participant", 5120);
-        let channel_name = AgentType::from_strings("channel", "channel", "channel");
+        let moderator = Name::from_strings(["org", "default", "moderator"]).with_id(12345);
+        let participant = Name::from_strings(["org", "default", "participant"]).with_id(5120);
+        let channel_name = Name::from_strings(["channel", "channel", "channel"]);
         let conn = 1;
 
         let moderator_mls = MlsState::new(Arc::new(Mutex::new(Mls::new(
@@ -1997,7 +1941,6 @@ mod tests {
         let mut cm = ChannelModerator::new(
             moderator.clone(),
             channel_name.clone(),
-            None,
             SESSION_ID,
             ProtoSessionType::SessionUnknown,
             3,
@@ -2008,7 +1951,6 @@ mod tests {
         let mut cp = ChannelParticipant::new(
             participant.clone(),
             channel_name.clone(),
-            None,
             SESSION_ID,
             ProtoSessionType::SessionUnknown,
             3,
@@ -2020,12 +1962,7 @@ mod tests {
         // create a discovery request
         let flags = SlimHeaderFlags::default().with_incoming_conn(conn);
 
-        let slim_header = Some(SlimHeader::new(
-            &moderator,
-            participant.agent_type(),
-            None,
-            Some(flags),
-        ));
+        let slim_header = Some(SlimHeader::new(&moderator, &participant, Some(flags)));
 
         let session_header = Some(SessionHeader::new(
             ProtoSessionType::SessionUnknown.into(),
@@ -2052,8 +1989,7 @@ mod tests {
 
         let slim_header = Some(SlimHeader::new(
             &participant,
-            destination.agent_type(),
-            destination.agent_id_option(),
+            &destination,
             Some(SlimHeaderFlags::default().with_forward_to(msg.get_incoming_conn())),
         ));
 
@@ -2072,27 +2008,25 @@ mod tests {
 
         // the first message is the subscription for the channel name
         let header = Some(SlimHeaderFlags::default().with_forward_to(conn));
-        let sub = Message::new_subscribe(&moderator, &channel_name, None, header);
+        let sub = Message::new_subscribe(&moderator, &channel_name, header);
         let msg = moderator_rx.recv().await.unwrap().unwrap();
         assert_eq!(msg, sub);
 
         // then we have the set route for the channel name
         let header = Some(SlimHeaderFlags::default().with_recv_from(conn));
-        let sub = Message::new_subscribe(&moderator, &channel_name, None, header);
+        let sub = Message::new_subscribe(&moderator, &channel_name, header);
         let msg = moderator_rx.recv().await.unwrap().unwrap();
         assert_eq!(msg, sub);
 
         // create a request to compare with the output of on_message
         let jp = JoinMessagePayload {
             channel_name: channel_name.clone(),
-            channel_id: None,
             moderator_name: moderator.clone(),
         };
 
         let payload: Vec<u8> = bincode::encode_to_vec(&jp, bincode::config::standard()).unwrap();
         let mut request = cm.endpoint.create_channel_message(
-            participant.agent_type(),
-            participant.agent_id_option(),
+            &participant,
             false,
             ProtoSessionMessageType::ChannelJoinRequest,
             0,
@@ -2112,19 +2046,13 @@ mod tests {
 
         // the first message is the set route for moderator name
         let header = Some(SlimHeaderFlags::default().with_recv_from(conn));
-        let sub = Message::new_subscribe(
-            &participant,
-            moderator.agent_type(),
-            moderator.agent_id_option(),
-            header,
-        );
+        let sub = Message::new_subscribe(&participant, &moderator, header);
         let msg = participant_rx.recv().await.unwrap().unwrap();
         assert_eq!(msg, sub);
 
         // create a reply to compare with the output of on_message
         let reply = cp.endpoint.create_channel_message(
-            moderator.agent_type(),
-            moderator.agent_id_option(),
+            &moderator,
             false,
             ProtoSessionMessageType::ChannelJoinReply,
             msg_id,
@@ -2142,8 +2070,7 @@ mod tests {
 
         // create a reply to compare with the output of on_message
         let mut reply = cm.endpoint.create_channel_message(
-            participant.agent_type(),
-            participant.agent_id_option(),
+            &participant,
             false,
             ProtoSessionMessageType::ChannelMlsWelcome,
             0,
@@ -2164,21 +2091,20 @@ mod tests {
 
         // the first message generated is a subscription for the channel name
         let header = Some(SlimHeaderFlags::default().with_forward_to(conn));
-        let sub = Message::new_subscribe(&participant, &channel_name, None, header);
+        let sub = Message::new_subscribe(&participant, &channel_name, header);
         let msg = participant_rx.recv().await.unwrap().unwrap();
         assert_eq!(msg, sub);
 
         // then we have the set route for the channel name
         let header = Some(SlimHeaderFlags::default().with_recv_from(conn));
-        let sub = Message::new_subscribe(&participant, &channel_name, None, header);
+        let sub = Message::new_subscribe(&participant, &channel_name, header);
         let msg = participant_rx.recv().await.unwrap().unwrap();
         assert_eq!(msg, sub);
 
         // the third is the ack
         // create a reply to compare with the output of on_message
         let reply = cp.endpoint.create_channel_message(
-            moderator.agent_type(),
-            moderator.agent_id_option(),
+            &moderator,
             false,
             ProtoSessionMessageType::ChannelMlsAck,
             msg_id,

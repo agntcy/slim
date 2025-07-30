@@ -263,7 +263,7 @@ mod tests {
     use slim_datapath::api::{
         ProtoSessionMessageType, ProtoSessionType, SessionHeader, SlimHeader,
     };
-    use slim_datapath::messages::encoder::{Agent, AgentType};
+    use slim_datapath::messages::encoder::Name;
     use tracing_test::traced_test;
 
     use super::*;
@@ -271,10 +271,10 @@ mod tests {
     #[test]
     #[traced_test]
     fn test_receiver_buffer() {
-        let src = Agent::from_strings("org", "ns", "type", 0);
-        let name_type = AgentType::from_strings("org", "ns", "type");
+        let src = Name::from_strings(["org", "ns", "type"]).with_id(0);
+        let name_type = Name::from_strings(["org", "ns", "type"]).with_id(1);
 
-        let slim_header = SlimHeader::new(&src, &name_type, Some(1), None);
+        let slim_header = SlimHeader::new(&src, &name_type, None);
 
         let h0 = SessionHeader::new(
             ProtoSessionType::SessionFireForget.into(),
