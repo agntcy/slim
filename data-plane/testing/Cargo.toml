@@ -22,8 +22,8 @@ name = "channel"
 path = "src/bin/channel.rs"
 
 [[bin]]
-name = "mls_group"
-path = "src/bin/mls_group.rs"
+name = "group-test"
+path = "src/bin/group_test.rs"
 
 [dependencies]
 agntcy-slim = { workspace = true }

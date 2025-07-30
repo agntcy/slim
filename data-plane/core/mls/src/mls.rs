@@ -16,6 +16,7 @@ use mls_rs::{
 use mls_rs_crypto_awslc::AwsLcCryptoProvider;
 use serde::{Deserialize, Serialize};
 use slim_auth::traits::{TokenProvider, Verifier};
+use std::collections::HashSet;
 use std::fs::File;
 use std::io::{Read, Write};
 use tracing::debug;
@@ -268,6 +269,17 @@ where
         let group = self.group.as_mut().ok_or(MlsError::GroupNotExists)?;
         let key_package = Self::map_mls_error(MlsMessage::from_bytes(key_package_bytes))?;
 
+        // create a set of the current identifiers in the group
+        // to detect the new one after the insertion
+        let old_roster = group.roster().members();
+        let mut ids = HashSet::new();
+        for m in old_roster {
+            let identifier = Self::map_mls_error(
+                basic::BasicIdentityProvider::new().identity(&m.signing_identity, &m.extensions),
+            )?;
+            ids.insert(identifier);
+        }
+
         let commit = Self::map_mls_error(
             group
                 .commit_builder()
@@ -288,17 +300,22 @@ where
         // apply the commit locally
         Self::map_mls_error(group.apply_pending_commit())?;
 
-        let binding = group.roster().members();
-        let member = binding.last().unwrap();
-        let identifier = Self::map_mls_error(
-            basic::BasicIdentityProvider::new()
-                .identity(&member.signing_identity, &member.extensions),
-        )?;
+        let new_roster = group.roster().members();
+        let mut new_id = vec![];
+        for m in new_roster {
+            let identifier = Self::map_mls_error(
+                basic::BasicIdentityProvider::new().identity(&m.signing_identity, &m.extensions),
+            )?;
+            if !ids.contains(&identifier) {
+                new_id = identifier;
+                break;
+            }
+        }
 
         let ret = MlsAddMemberResult {
             welcome_message: welcome,
             commit_message: commit_msg,
-            member_identity: identifier,
+            member_identity: new_id,
         };
         Ok(ret)
     }

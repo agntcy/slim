@@ -93,4 +93,4 @@ tasks:
   run:mls-group:test:
     desc: "start MLS dynamic group test"
     cmds:
-      - cargo run --release --bin mls_group -- --participants 5 --rotation-interval 2 --max-messages 10 --test-timeout 60
+      - cargo run --release --bin group-test

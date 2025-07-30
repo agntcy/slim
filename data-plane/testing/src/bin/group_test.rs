@@ -199,6 +199,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         });
     }
 
+    // wait for all the processes to start
+    tokio::time::sleep(tokio::time::Duration::from_millis(10000)).await;
+
     // start moderator
     let name = Agent::from_strings("org", "ns", "moderator", 1);
     let channel_name = AgentType::from_strings("channel", "channel", "channel");
@@ -255,7 +258,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         // add routes
         app.set_route(c.agent_type(), None, conn_id)
             .await
-            .expect("an error accoured while adding a route");
+            .expect("an error occurred while adding a route");
     }
 
     // invite N-1 participants
@@ -276,7 +279,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         loop {
             match rx.recv().await {
                 None => {
-                    println!("end of stream");
                     break;
                 }
                 Some(msg_info) => match msg_info {
@@ -347,11 +349,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     for i in 0..max_packets {
         let lock = recv_msgs.read();
         if lock[i] != (tot_participants - 1) {
-            println!("we miss some message with id {}", i);
-        } else {
-            println!("id {} ok", i);
+            println!(
+                "error for message id {}. expected {} packets, received {}. exit with error",
+                i,
+                (tot_participants - 1),
+                lock[i]
+            );
+            std::process::exit(1);
         }
     }
-
+    println!("test succeeded");
     Ok(())
 }
