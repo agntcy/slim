@@ -13,14 +13,14 @@ class PyKey:
 
 class PyName:
     r"""
-    agent class
+    name class
     """
     id: builtins.int
-    organization: builtins.str
-    namespace: builtins.str
-    agent_type: builtins.str
-    def __new__(cls,agent_org:builtins.str, agent_ns:builtins.str, agent_class:builtins.str, id:typing.Optional[builtins.int]=None): ...
+    def __new__(cls,component0:builtins.str, component1:builtins.str, component2:builtins.str, id:typing.Optional[builtins.int]=None): ...
     def set_id(self, id:builtins.int) -> None:
+        ...
+
+    def components(self) -> builtins.list[builtins.int]:
         ...
 
     def __repr__(self) -> builtins.str:
