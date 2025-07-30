@@ -362,7 +362,7 @@ impl MessageProcessor {
         fanout: u32,
     ) -> Result<(), DataPathError> {
         debug!(
-            "match and forward message: type: {} - fanout: {}",
+            "match and forward message: name: {} - fanout: {}",
             name, fanout,
         );
 

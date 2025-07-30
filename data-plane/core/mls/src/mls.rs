@@ -499,7 +499,7 @@ mod tests {
 
     #[test]
     fn test_group_creation() -> Result<(), Box<dyn std::error::Error>> {
-        let name = messages::Name::from_strings(["org", "default", "alice"]).with_id(0);
+        let name = Name::from_strings(["org", "default", "alice"]).with_id(0);
         let mut mls = Mls::new(
             name,
             SharedSecret::new("alice", "group"),
@@ -717,8 +717,8 @@ mod tests {
 
     #[test]
     fn test_shared_secret_rotation_same_identity() -> Result<(), Box<dyn std::error::Error>> {
-        let alice_name = messages::Name::from_strings(["org", "default", "alice"]).with_id(0);
-        let bob_name = messages::Name::from_strings(["org", "default", "bob"]).with_id(1);
+        let alice_name = Name::from_strings(["org", "default", "alice"]).with_id(0);
+        let bob_name = Name::from_strings(["org", "default", "bob"]).with_id(1);
 
         let mut alice = Mls::new(
             alice_name.clone(),
@@ -776,10 +776,10 @@ mod tests {
         let _ = std::fs::remove_dir_all(bob_path);
         let _ = std::fs::remove_dir_all(moderator_path);
 
-        let alice_name = messages::Name::from_strings(["org", "default", "alice"]).with_id(0);
-        let bob_name = messages::Name::from_strings(["org", "default", "bob"]).with_id(1);
+        let alice_name = Name::from_strings(["org", "default", "alice"]).with_id(0);
+        let bob_name = Name::from_strings(["org", "default", "bob"]).with_id(1);
         let moderator_name =
-            messages::Name::from_strings(["org", "default", "moderator"]).with_id(2);
+            Name::from_strings(["org", "default", "moderator"]).with_id(2);
 
         let mut moderator = Mls::new(
             moderator_name.clone(),

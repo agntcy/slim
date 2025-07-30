@@ -97,16 +97,16 @@ where
     pub fn on_forwarded_subscription(
         &self,
         source: Name,
-        name_type: Name,
+        name: Name,
         conn_index: u64,
         add: bool,
     ) {
         if add {
             self.remote_subscription_table
-                .add_subscription(source, name_type, conn_index);
+                .add_subscription(source, name, conn_index);
         } else {
             self.remote_subscription_table
-                .remove_subscription(source, name_type, conn_index);
+                .remove_subscription(source, name, conn_index);
         }
     }
 
