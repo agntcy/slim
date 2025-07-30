@@ -10,6 +10,7 @@ import (
 	controllerapi "github.com/agntcy/slim/control-plane/common/proto/controller/v1"
 	"github.com/agntcy/slim/control-plane/control-plane/internal/config"
 	"github.com/agntcy/slim/control-plane/control-plane/internal/db"
+	"github.com/agntcy/slim/control-plane/control-plane/internal/services/groupservice"
 	"github.com/agntcy/slim/control-plane/control-plane/internal/services/nodecontrol"
 	"github.com/agntcy/slim/control-plane/control-plane/internal/util"
 )
@@ -22,8 +23,9 @@ type sbAPIService struct {
 	config config.APIConfig
 	controllerapi.UnimplementedControllerServiceServer
 	dbService                 db.DataAccess
-	messagingService          nodecontrol.NodeCommandHandler
+	nodeCommandHandler        nodecontrol.NodeCommandHandler
 	nodeRegistrationListeners []nodecontrol.NodeRegistrationHandler
+	groupservice              *groupservice.GroupService
 }
 
 func NewSBAPIService(
@@ -31,12 +33,14 @@ func NewSBAPIService(
 	dbService db.DataAccess,
 	cmdHandler nodecontrol.NodeCommandHandler,
 	nodeRegistrationListeners []nodecontrol.NodeRegistrationHandler,
+	groupservice *groupservice.GroupService,
 ) SouthboundAPIServer {
 	return &sbAPIService{
 		config:                    config,
 		dbService:                 dbService,
-		messagingService:          cmdHandler,
+		nodeCommandHandler:        cmdHandler,
 		nodeRegistrationListeners: nodeRegistrationListeners,
+		groupservice:              groupservice,
 	}
 }
 
@@ -101,8 +105,8 @@ func (s *sbAPIService) OpenControlChannel(stream controllerapi.ControllerService
 			zlog.Error().Msgf("Error saving node: %v", err)
 			return err
 		}
-		s.messagingService.AddStream(registeredNodeID, stream)
-		s.messagingService.UpdateConnectionStatus(registeredNodeID, nodecontrol.NodeStatusConnected)
+		s.nodeCommandHandler.AddStream(registeredNodeID, stream)
+		s.nodeCommandHandler.UpdateConnectionStatus(registeredNodeID, nodecontrol.NodeStatusConnected)
 
 		// Acknowledge the registration
 		ackMsg := &controllerapi.ControlMessage{
@@ -142,10 +146,10 @@ func (s *sbAPIService) handleNodeMessages(stream controllerapi.ControllerService
 			zlog.Error().Msgf("Stream connection failed for node %s: %v", registeredNodeID, err)
 
 			// Update the node status to not connected
-			s.messagingService.UpdateConnectionStatus(registeredNodeID, nodecontrol.NodeStatusNotConnected)
+			s.nodeCommandHandler.UpdateConnectionStatus(registeredNodeID, nodecontrol.NodeStatusNotConnected)
 			zlog.Error().Msgf("Node %s status set to: %v", registeredNodeID, nodecontrol.NodeStatusNotConnected)
 
-			err := s.messagingService.RemoveStream(registeredNodeID)
+			err := s.nodeCommandHandler.RemoveStream(registeredNodeID)
 			if err != nil {
 				zlog.Error().Msgf("Error removing stream for node %s: %v", registeredNodeID, err)
 			}
@@ -159,14 +163,14 @@ func (s *sbAPIService) handleNodeMessages(stream controllerapi.ControllerService
 				nodeID := payload.DeregisterNodeRequest.Node.Id
 				zlog.Info().Msgf("Deregister node with ID: %v", nodeID)
 				// Update the node status to not connected
-				s.messagingService.UpdateConnectionStatus(nodeID, nodecontrol.NodeStatusNotConnected)
+				s.nodeCommandHandler.UpdateConnectionStatus(nodeID, nodecontrol.NodeStatusNotConnected)
 
-				err := s.messagingService.RemoveStream(nodeID)
+				err := s.nodeCommandHandler.RemoveStream(nodeID)
 				if err != nil {
 					zlog.Error().Msgf("Error removing stream for node %s: %v", nodeID, err)
 				}
 
-				if err = s.messagingService.SendMessage(nodeID, &controllerapi.ControlMessage{
+				if err = s.nodeCommandHandler.SendMessage(nodeID, &controllerapi.ControlMessage{
 					MessageId: uuid.NewString(),
 					Payload: &controllerapi.ControlMessage_DeregisterNodeResponse{
 						DeregisterNodeResponse: &controllerapi.DeregisterNodeResponse{
@@ -181,19 +185,20 @@ func (s *sbAPIService) handleNodeMessages(stream controllerapi.ControllerService
 			continue
 		case *controllerapi.ControlMessage_Ack:
 			zlog.Debug().Msgf("Received ACK for message ID: %s, Success: %t", msg.MessageId, payload.Ack.Success)
-			s.messagingService.ResponseReceived(registeredNodeID, msg)
+			s.nodeCommandHandler.ResponseReceived(registeredNodeID, msg)
 			continue
 		case *controllerapi.ControlMessage_ConnectionListResponse:
 			zlog.Debug().Msgf(
 				"Received ConnectionListResponse for node %s: %v",
 				registeredNodeID, payload.ConnectionListResponse,
 			)
-			s.messagingService.ResponseReceived(registeredNodeID, msg)
+			s.nodeCommandHandler.ResponseReceived(registeredNodeID, msg)
 		case *controllerapi.ControlMessage_SubscriptionListResponse:
 			zlog.Debug().Msgf(
 				"Received SubscriptionListResponse for node %s: %v",
 				registeredNodeID, payload.SubscriptionListResponse)
-			s.messagingService.ResponseReceived(registeredNodeID, msg)
+			s.nodeCommandHandler.ResponseReceived(registeredNodeID, msg)
+
 		default:
 			zlog.Debug().Msgf(
 				"Invalid payload received from node %s: %s : %v",
