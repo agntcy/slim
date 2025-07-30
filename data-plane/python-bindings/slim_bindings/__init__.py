@@ -161,6 +161,7 @@ class Slim:
         }
 
         # Save local names
+        name.id = svc.id
         self.local_name = name
 
         # Create connection ID map
@@ -466,7 +467,7 @@ class Slim:
         await set_route(self.svc, self.conn_id, name)
 
     async def remove_route(
-            self,
+        self,
         name: PyName,
     ):
         """

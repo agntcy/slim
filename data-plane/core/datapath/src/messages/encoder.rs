@@ -45,7 +45,7 @@ impl std::fmt::Display for Name {
         if let Some(strings) = &self.strings {
             write!(
                 f,
-                " ({}/{}/{}/{})",
+                " ({}/{}/{}/{:x})",
                 strings[0], strings[1], strings[2], self.components[3]
             )?;
         }

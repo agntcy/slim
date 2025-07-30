@@ -8,7 +8,7 @@ import click
 
 import slim_bindings
 
-from .common import create_local_app, format_message_print, split_id
+from .common import create_local_app, format_message_print, split_id, common_options
 
 
 async def run_client(
@@ -44,12 +44,10 @@ async def run_client(
     async with local_app:
         if message:
             # Split the IDs into their respective components
-            remote_organization, remote_namespace, remote_agent = split_id(remote)
+            remote_name = split_id(remote)
 
             # Create a route to the remote ID
-            await local_app.set_route(
-                remote_organization, remote_namespace, remote_agent
-            )
+            await local_app.set_route(remote_name)
 
             # create a session
             if sticky:
@@ -71,9 +69,7 @@ async def run_client(
                     _, reply = await local_app.request_reply(
                         session,
                         message.encode(),
-                        remote_organization,
-                        remote_namespace,
-                        remote_agent,
+                        remote_name,
                         timeout=datetime.timedelta(seconds=5),
                     )
 

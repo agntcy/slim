@@ -44,12 +44,10 @@ async def run_client(
     async with local_app:
         if message:
             # Split the IDs into their respective components
-            remote_organization, remote_namespace, remote_agent = split_id(remote)
+            remote_name = split_id(remote)
 
             # Create a route to the remote ID
-            await local_app.set_route(
-                remote_organization, remote_namespace, remote_agent
-            )
+            await local_app.set_route(remote_name)
 
             # create a session
             if sticky or enable_mls:
@@ -72,9 +70,7 @@ async def run_client(
                     await local_app.publish(
                         session,
                         message.encode(),
-                        remote_organization,
-                        remote_namespace,
-                        remote_agent,
+                        remote_name,
                     )
 
                     format_message_print(

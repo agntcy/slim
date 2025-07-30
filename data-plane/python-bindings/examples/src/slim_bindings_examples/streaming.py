@@ -40,22 +40,20 @@ async def run_client(
 
     # If provided, split the remote IDs into their respective components
     if remote:
-        remote_organization, remote_namespace, broadcast_topic = split_id(remote)
+        broadcast_channel = split_id(remote)
 
     instance = local_app.get_agent_id()
 
     async with local_app:
         if message:
             # Create a route to the remote ID
-            await local_app.set_route(
-                remote_organization, remote_namespace, broadcast_topic
-            )
+            await local_app.set_route(broadcast_channel)
 
             # create streaming session with default config
             session_info = await local_app.create_session(
                 slim_bindings.PySessionConfiguration.Streaming(
                     slim_bindings.PySessionDirection.SENDER,
-                    topic=None,
+                    topic=broadcast_channel,
                     max_retries=5,
                     timeout=datetime.timedelta(seconds=5),
                 )
@@ -69,7 +67,7 @@ async def run_client(
                     # Send a message
                     print(
                         format_message(
-                            f"{instance} streaming message to {remote_organization}/{remote_namespace}/{broadcast_topic}: ",
+                            f"{instance} streaming message to {broadcast_channel}: ",
                             f"{count}",
                         )
                     )
@@ -78,9 +76,7 @@ async def run_client(
                     await local_app.publish(
                         session_info,
                         f"{count}".encode(),
-                        remote_organization,
-                        remote_namespace,
-                        broadcast_topic,
+                        broadcast_channel,
                     )
 
                     count += 1
@@ -90,9 +86,7 @@ async def run_client(
                     await asyncio.sleep(0.5)
         else:
             # subscribe to streaming session
-            await local_app.subscribe(
-                remote_organization, remote_namespace, broadcast_topic
-            )
+            await local_app.subscribe(broadcast_channel)
 
             # Wait for messages and don't reply
             while True:
@@ -110,7 +104,7 @@ async def run_client(
                         session, msg = await local_app.receive(session=session_info)
                         print(
                             format_message(
-                                f"{instance} received from {remote_organization}/{remote_namespace}/{broadcast_topic}: ",
+                                f"{instance} received from {broadcast_channel}: ",
                                 f"{msg.decode()}",
                             )
                         )

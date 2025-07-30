@@ -60,6 +60,11 @@ impl PyName {
         self.name.id()
     }
 
+    #[setter]
+    pub fn set_id(&mut self, id: u64) {
+        self.name.set_id(id);
+    }
+
     #[getter]
     pub fn organization(&self) -> String {
         self.name.components_strings().unwrap()[0].to_string()

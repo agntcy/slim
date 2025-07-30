@@ -133,10 +133,10 @@ func (s *NodeService) SaveSubscription(nodeID string, subscription *controllerap
 		ID:           controlplane.GetSubscriptionID(subscription),
 		NodeID:       nodeID,
 		ConnectionID: subscription.ConnectionId,
-		Organization: subscription.Organization,
-		Namespace:    subscription.Namespace,
-		AgentType:    subscription.AgentType,
-		AgentID:      subscription.AgentId,
+		Component0:   subscription.Component_0,
+		Component1:   subscription.Component_1,
+		Component2:   subscription.Component_2,
+		ComponentID:  subscription.Id,
 	}
 
 	return s.dbService.SaveSubscription(subscriptionEntry)
@@ -154,9 +154,9 @@ func (s *NodeService) GetSubscription(nodeID string, subscriptionID string) (*co
 
 	return &controllerapi.Subscription{
 		ConnectionId: subscription.ConnectionID,
-		Organization: subscription.Organization,
-		Namespace:    subscription.Namespace,
-		AgentType:    subscription.AgentType,
-		AgentId:      subscription.AgentID,
+		Component_0:  subscription.Component0,
+		Component_1:  subscription.Component1,
+		Component_2:  subscription.Component2,
+		Id:           subscription.ComponentID,
 	}, nil
 }

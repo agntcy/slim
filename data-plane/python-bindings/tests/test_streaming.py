@@ -21,8 +21,11 @@ async def test_streaming(server):
 
     pub_msg = "Hello from producer"
 
+    name = slim_bindings.PyName(org, ns, agent)
+    channel_name = slim_bindings.PyName(org, ns, broadcast_topic)
+
     # create new SLIM object
-    producer = await create_slim(org, ns, agent, "secret")
+    producer = await create_slim(name, "secret")
 
     # Connect to the service and subscribe for the local name
     _ = await producer.connect(
@@ -31,7 +34,7 @@ async def test_streaming(server):
 
     # set route for the producer, so that messages can be sent to consumer that
     # subscribed to the producer topic
-    await producer.set_route(org, ns, broadcast_topic)
+    await producer.set_route(channel_name)
 
     # message count
     count = 10000
@@ -46,11 +49,13 @@ async def test_streaming(server):
 
     # define the background task
     async def background_task(index):
-        name = f"consumer-{index}"
+        consumer_name = f"consumer-{index}"
+
+        name = slim_bindings.PyName(org, ns, consumer_name)
 
         print(f"Creating consumer {name}...")
 
-        consumer = await create_slim(org, ns, name, "secret")
+        consumer = await create_slim(name, "secret")
 
         # Connect to SLIM server
         _ = await consumer.connect(
@@ -58,14 +63,14 @@ async def test_streaming(server):
         )
 
         # Subscribe to the producer topic
-        await consumer.subscribe(org, ns, broadcast_topic)
+        await consumer.subscribe(channel_name)
 
         async with consumer:
-            print(f"{name} -> Waiting for new sessions...")
+            print(f"{consumer_name} -> Waiting for new sessions...")
             recv_session, _ = await consumer.receive()
 
             # new session!
-            print(f"{name} -> New session:", recv_session.id)
+            print(f"{consumer_name} -> New session:", recv_session.id)
 
             local_count = 0
 
@@ -84,7 +89,7 @@ async def test_streaming(server):
 
                     # print the message
                     print(
-                        f"{name} -> Received: {msg_rcv.decode()}, local count: {local_count}"
+                        f"{consumer_name} -> Received: {msg_rcv.decode()}, local count: {local_count}"
                     )
 
                     # increment the count
@@ -92,13 +97,13 @@ async def test_streaming(server):
 
                     # if we reached the count, exit
                     if local_count >= count:
-                        print(f"{name} -> Received all messages, exiting...")
+                        print(f"{consumer_name} -> Received all messages, exiting...")
                         break
                 except Exception as e:
-                    print(f"{name} -> Error receiving message: {e}")
+                    print(f"{consumer_name} -> Error receiving message: {e}")
                     break
 
-            print(f"{name} -> Exiting...")
+            print(f"{consumer_name} -> Exiting...")
 
     # start consumers in background
     for i in range(consumers_count):
@@ -114,7 +119,7 @@ async def test_streaming(server):
         slim_bindings.PySessionConfiguration.Streaming(
             slim_bindings.PySessionDirection.SENDER,
             moderator=False,
-            topic=None,
+            topic=channel_name,
             max_retries=5,
             timeout=datetime.timedelta(seconds=5),
         )
@@ -130,9 +135,7 @@ async def test_streaming(server):
         await producer.publish(
             session_info,
             f"{pub_msg} - {i}".encode(),
-            org,
-            ns,
-            broadcast_topic,
+            channel_name,
         )
 
     # Wait for the task to complete

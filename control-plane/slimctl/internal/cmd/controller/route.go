@@ -77,8 +77,8 @@ func newListCmd(opts *options.CommonOptions) *cobra.Command {
 						fmt.Sprintf("remote:%s:%v:%d", c.ConnectionType, c.ConfigData, c.Id))
 				}
 				fmt.Printf("%s/%s/%s id=%v local=%v remote=%v\n",
-					e.Organization, e.Namespace, e.AgentType,
-					e.AgentId,
+					e.Component_0, e.Component_1, e.Component_2,
+					e.Id,
 					localNames, remoteNames,
 				)
 			}
@@ -142,11 +142,11 @@ func newAddCmd(opts *options.CommonOptions) *cobra.Command {
 			fmt.Printf("Connection created successfully with ID: %v\n", connectionID)
 
 			subscription := &grpcapi.Subscription{
-				Organization: organization,
-				Namespace:    namespace,
-				AgentType:    agentType,
+				Component_0:  organization,
+				Component_1:  namespace,
+				Component_2:  agentType,
 				ConnectionId: connectionID,
-				AgentId:      wrapperspb.UInt64(agentID),
+				Id:           wrapperspb.UInt64(agentID),
 			}
 
 			createSubscriptionResponse, err := cpClient.CreateSubscription(ctx, &controlplaneApi.CreateSubscriptionRequest{
@@ -199,11 +199,11 @@ func newDelCmd(opts *options.CommonOptions) *cobra.Command {
 			}
 
 			subscription := &grpcapi.Subscription{
-				Organization: organization,
-				Namespace:    namespace,
-				AgentType:    agentType,
+				Component_0:  organization,
+				Component_1:  namespace,
+				Component_2:  agentType,
 				ConnectionId: connID,
-				AgentId:      wrapperspb.UInt64(agentID),
+				Id:           wrapperspb.UInt64(agentID),
 			}
 
 			subscriptionID := cpApi.GetSubscriptionID(subscription)

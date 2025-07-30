@@ -19,10 +19,20 @@ class PyName:
     organization: builtins.str
     namespace: builtins.str
     agent_type: builtins.str
-    def __new__(cls,agent_org:builtins.str, agent_ns:builtins.str, agent_class:builtins.str, id:builtins.int): ...
+    def __new__(cls,agent_org:builtins.str, agent_ns:builtins.str, agent_class:builtins.str, id:typing.Optional[builtins.int]=None): ...
+    def set_id(self, id:builtins.int) -> None:
+        ...
+
+    def __repr__(self) -> builtins.str:
+        ...
+
+    def __str__(self) -> builtins.str:
+        ...
+
 
 class PyService:
     id: builtins.int
+    name: PyName
 
 class PySessionInfo:
     id: builtins.int
@@ -82,7 +92,7 @@ class PySessionType(Enum):
 def connect(svc:PyService, config:dict) -> typing.Any:
     ...
 
-def create_pyservice(organization:builtins.str, namespace:builtins.str, agent_type:builtins.str, provider:PyIdentityProvider, verifier:PyIdentityVerifier) -> typing.Any:
+def create_pyservice(name:PyName, provider:PyIdentityProvider, verifier:PyIdentityVerifier) -> typing.Any:
     ...
 
 def create_session(svc:PyService, config:PySessionConfiguration) -> typing.Any:
