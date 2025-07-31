@@ -275,7 +275,8 @@ func (s *sbAPIService) handleNodeMessages(stream controllerapi.ControllerService
 				zlog.Error().Msgf("Error sending AddParticipantResponse to node %s: %v", registeredNodeID, err)
 				return err
 			}
-			zlog.Info().Msgf("Participant added successfully for node %s: %s", registeredNodeID, payload.AddParticipantRequest.ParticipantId)
+			zlog.Info().Msgf(
+				"Participant added successfully for node %s: %s", registeredNodeID, payload.AddParticipantRequest.ParticipantId)
 
 		case *controllerapi.ControlMessage_DeleteParticipantRequest:
 			zlog.Debug().Msgf(
@@ -302,7 +303,11 @@ func (s *sbAPIService) handleNodeMessages(stream controllerapi.ControllerService
 				zlog.Error().Msgf("Error sending DeleteParticipantResponse to node %s: %v", registeredNodeID, err)
 				return err
 			}
-			zlog.Info().Msgf("Participant deleted successfully for node %s: %s", registeredNodeID, payload.DeleteParticipantRequest.ParticipantId)
+			zlog.Info().Msgf(
+				"Participant deleted successfully for node %s: %s",
+				registeredNodeID,
+				payload.DeleteParticipantRequest.ParticipantId,
+			)
 
 		case *controllerapi.ControlMessage_ListChannelRequest:
 			zlog.Debug().Msgf(
