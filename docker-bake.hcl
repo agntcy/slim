@@ -118,8 +118,8 @@ target "llamaindex-time-agent" {
 }
 
 target "testutils" {
-  context = "./data-plane"
-  dockerfile = "./testing/Dockerfile"
+  context = "."
+  dockerfile = "./data-plane/Dockerfile"
   target = "testutils"
   inherits = [
     "_common",
