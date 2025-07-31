@@ -29,13 +29,6 @@ jobs:
       matrix:
         os: [darwin, linux]
         arch: [amd64, arm64]
-        exclude:
-          - os: darwin
-            arch: arm64
-          - os: linux
-            arch: arm64
-          - os: darwin
-            arch: amd64
 
     steps:
       - name: Checkout Repo
@@ -45,7 +38,7 @@ jobs:
         uses: ./.github/actions/setup-go
 
       - name: Build
-        run: CGO_ENABLED=0 task control-plane:slimctl:build
+        run: CGO_ENABLED=0 GOOS=${{ matrix.os }} GOARCH=${{ matrix.arch }} task control-plane:build
 
       - name: Authenticate
         run: gh auth login --with-token <<< "${{ secrets.GITHUB_TOKEN }}"
