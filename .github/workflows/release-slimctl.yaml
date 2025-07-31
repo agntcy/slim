@@ -45,7 +45,7 @@ jobs:
         uses: ./.github/actions/setup-go
 
       - name: Build
-        run: CGO_ENABLED=0 task control-plane:slimctl:build
+        run: CGO_ENABLED=0 task control-plane:build
 
       - name: Authenticate
         run: gh auth login --with-token <<< "${{ secrets.GITHUB_TOKEN }}"
