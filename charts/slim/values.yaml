@@ -13,6 +13,9 @@ slim:
     # Overrides the image tag whose default is the chart appVersion.
     tag: ""
 
+  # This is for overriding the default config below
+  overrideConfig:
+
   config:
     tracing:
       log_level: debug
@@ -37,8 +40,8 @@ slim:
           servers:
             - endpoint: "0.0.0.0:{{ .Values.slim.service.control.port }}"
               tls:
-                insecure: true
-
+                insecure: true    
+    
   # This is for setting up a service more information can be found here: https://kubernetes.io/docs/concepts/services-networking/service/
   service:
     # This sets the service type more information can be found here: https://kubernetes.io/docs/concepts/services-networking/service/#publishing-services-service-types
@@ -47,6 +50,7 @@ slim:
       port: 46357
     control:
       port: 46358
+  # This is for the secretes for pulling an image from a private repository more information can be found here: https://kubernetes.io/docs/tasks/configure-pod-container/pull-image-private-registry/
 
   # This block is for setting up the ingress for more information can be found here: https://kubernetes.io/docs/concepts/services-networking/ingress/
   ingress:
