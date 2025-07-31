@@ -19,7 +19,7 @@ checksum = "320119579fcad9c21884f5c4861d16174d0e06250625266f50fe6898340abefa"
 
 [[package]]
 name = "agntcy-slim"
-version = "0.3.16"
+version = "0.4.0"
 dependencies = [
  "agntcy-slim-config",
  "agntcy-slim-service",
