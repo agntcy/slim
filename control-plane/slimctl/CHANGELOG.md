@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.1.5](https://github.com/agntcy/slim/compare/slimctl-v0.1.4...slimctl-v0.1.5) (2025-07-31)
+
+
+### Features
+
+* add auth support in sessions ([#382](https://github.com/agntcy/slim/issues/382)) ([242e38a](https://github.com/agntcy/slim/commit/242e38a96c9e8b3d9e4a69de3d35740a53fcf252))
+* add client connections to control plane ([#429](https://github.com/agntcy/slim/issues/429)) ([26cfee6](https://github.com/agntcy/slim/commit/26cfee6565c7be933afd7edab36dca032753e132))
+* add node register call to proto ([#406](https://github.com/agntcy/slim/issues/406)) ([bdce118](https://github.com/agntcy/slim/commit/bdce1181dd0d05d78eb4f577aa012c4033cad3b2))
+* control plane service & slimctl cp commands ([#388](https://github.com/agntcy/slim/issues/388)) ([8a17dba](https://github.com/agntcy/slim/commit/8a17dbad99fa679e07585ca4fbcefe9cb3fa8a29))
+* **control-plane:** handle all configuration parameters when creating a new connection ([#360](https://github.com/agntcy/slim/issues/360)) ([9fe6230](https://github.com/agntcy/slim/commit/9fe623093614cf075d36e938734625003087e465))
+
+
+### Bug Fixes
+
+* slimctl: add scheme to endpoint param ([#459](https://github.com/agntcy/slim/issues/459)) ([6716ff0](https://github.com/agntcy/slim/commit/6716ff0c53f6b090170ff6cd64bd44ec9e4d387f))
+
 ## [0.1.4](https://github.com/agntcy/slim/compare/slimctl-v0.1.3...slimctl-v0.1.4) (2025-05-07)
 
 
