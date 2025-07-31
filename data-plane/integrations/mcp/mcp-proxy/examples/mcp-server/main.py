@@ -21,6 +21,7 @@ SAMPLE_RESOURCES = {
     "about": "This is the simple-resource MCP server implementation.",
 }
 
+
 async def fetch_website(
     url: str,
 ) -> list[types.TextContent | types.ImageContent | types.EmbeddedResource]:
@@ -31,7 +32,8 @@ async def fetch_website(
         response = await client.get(url)
         response.raise_for_status()
         return [types.TextContent(type="text", text=response.text)]
-    
+
+
 def create_messages(
     context: str | None = None, topic: str | None = None
 ) -> list[types.PromptMessage]:
@@ -64,9 +66,9 @@ def create_messages(
 
     return messages
 
+
 @click.command()
 @click.option("--port", default=8000, help="Port to listen on for SSE")
-
 def main(port: int):
     app = Server("mcp-server")
 
@@ -99,7 +101,7 @@ def main(port: int):
                 },
             )
         ]
-    
+
     # Resources
     @app.list_resources()
     async def list_resources() -> list[types.Resource]:
@@ -121,19 +123,29 @@ def main(port: int):
             raise ValueError(f"Unknown resource: {uri}")
 
         # send a log notification for the resource read
-        await app.request_context.session.send_log_message("info", "read_resource", f"client read resource {uri}")
+        await app.request_context.session.send_log_message(
+            "info", "read_resource", f"client read resource {uri}"
+        )
 
         return SAMPLE_RESOURCES[name]
 
     @app.subscribe_resource()
     async def subscribe_resources(uri: FileUrl):
         # send a log notification for the subscription
-        await app.request_context.session.send_log_message("info", "subscribe_resource", f"client sent a subscription for resource {uri}")
+        await app.request_context.session.send_log_message(
+            "info",
+            "subscribe_resource",
+            f"client sent a subscription for resource {uri}",
+        )
 
     @app.unsubscribe_resource()
     async def unsubscribe_resources(uri: FileUrl):
         # send a log notification for the usubscription
-        await app.request_context.session.send_log_message("info", "unsubscribe_resource", f"client sent an unsubscription resource {uri}")
+        await app.request_context.session.send_log_message(
+            "info",
+            "unsubscribe_resource",
+            f"client sent an unsubscription resource {uri}",
+        )
 
     # Prompt
     @app.list_prompts()
@@ -182,9 +194,7 @@ def main(port: int):
         async with sse.connect_sse(
             request.scope, request.receive, request._send
         ) as streams:
-            await app.run(
-                streams[0], streams[1], app.create_initialization_options()
-            )
+            await app.run(streams[0], streams[1], app.create_initialization_options())
         return Response()
 
     starlette_app = Starlette(
@@ -196,6 +206,7 @@ def main(port: int):
     )
 
     uvicorn.run(starlette_app, host="0.0.0.0", port=port)
+
 
 if __name__ == "__main__":
     main()
