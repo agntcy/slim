@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.1.9](https://github.com/agntcy/slim/compare/helm-slim-v0.1.8...helm-slim-v0.1.9) (2025-07-31)
+
+
+### Features
+
+* **chart:** add extra Volumes and Volumemounts to the slim deployment ([#320](https://github.com/agntcy/slim/issues/320)) ([88a57c7](https://github.com/agntcy/slim/commit/88a57c748b62e1e454eeb57c256a8e5b669317d4))
+* **helm:** upgrade to SLIM 0.3.15 ([#299](https://github.com/agntcy/slim/issues/299)) ([381e2f9](https://github.com/agntcy/slim/commit/381e2f9376c86c06233112982c9a9867972c19f3))
+* **slim-helm:** upgrade helm to slim image 0.4.0 ([#495](https://github.com/agntcy/slim/issues/495)) ([3c20e75](https://github.com/agntcy/slim/commit/3c20e75294dfff1774152ffa64ec243adf086907))
+
+
+### Bug Fixes
+
+* add slim.overrideConfig to helm values ([#490](https://github.com/agntcy/slim/issues/490)) ([4121aa6](https://github.com/agntcy/slim/commit/4121aa6eef54915c9af169c638d8c13b5a20202a))
+* **chart:** extraVolumes and mount intentation ([#323](https://github.com/agntcy/slim/issues/323)) ([0eea40d](https://github.com/agntcy/slim/commit/0eea40dac4ffe165908de55b69f6d38b1bca75d3))
+* **helm-chart:** use release-please to release new chart version ([#375](https://github.com/agntcy/slim/issues/375)) ([6603c71](https://github.com/agntcy/slim/commit/6603c7185849ef256ca9adf14bac0dcc444411f7))
+
 ## [0.1.8](https://github.com/agntcy/slim/compare/slim-helm-v0.1.7...slim-helm-v0.1.8) (2025-06-30)
 
 ### Features
