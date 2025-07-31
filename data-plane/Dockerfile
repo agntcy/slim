@@ -103,3 +103,18 @@ ARG TARGETARCH
 
 # copy the artifacts from the build stage
 COPY --from=rust /app/data-plane/integrations/mcp/mcp-proxy/target/${TARGETARCH}-unknown-linux-gnu/release/slim-mcp-proxy /slim-mcp-proxy
+
+FROM debian:bookworm-slim AS testutils
+ARG TARGETARCH
+
+RUN apt-get update && apt-get install -y \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+# copy artifacts from build stage
+COPY --from=rust /app/data-plane/target/${TARGETARCH}-unknown-linux-gnu/release/workload-gen /app/workload-gen
+COPY --from=rust /app/data-plane/target/${TARGETARCH}-unknown-linux-gnu/release/publisher /app/publisher
+COPY --from=rust /app/data-plane/target/${TARGETARCH}-unknown-linux-gnu/release/subscriber /app/subscriber
+
+CMD ["/app/workload-gen"]
