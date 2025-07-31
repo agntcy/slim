@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.1](https://github.com/agntcy/slim/compare/slim-testutils-v0.2.0...slim-testutils-v0.2.1) (2025-07-31)
+
+
+### Bug Fixes
+
+* **testutils:** use common dockerfile to build testutils ([#499](https://github.com/agntcy/slim/issues/499)) ([4f9d127](https://github.com/agntcy/slim/commit/4f9d12780df33fc375673e584a7415a57c2c2b7f))
+
 ## [0.2.0](https://github.com/agntcy/slim/compare/slim-testutils-v0.1.0...slim-testutils-v0.2.0) (2025-07-31)
 
 
