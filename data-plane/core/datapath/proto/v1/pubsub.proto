@@ -104,8 +104,6 @@ message Content {
   bytes blob = 2;
 }
 
-
-
 message Message {
   oneof messageType {
     Subscribe subscribe = 1;
