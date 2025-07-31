@@ -36,7 +36,6 @@ tasks:
         for dir in {{.MODULES}}; do
           pushd ${dir} > /dev/null
           echo "${dir}: running {{.CMD}}"
-          go generate ./...
           {{.CMD}}
           popd > /dev/null
         done
@@ -47,6 +46,13 @@ tasks:
       - task: control-plane:foreach-module
         vars:
           CMD: go mod tidy
+
+  control-plane:gogen:
+    desc: Run go generate
+    cmds:
+      - task: control-plane:foreach-module
+        vars:
+          CMD: go generate ./...
 
   control-plane:lint:
     desc: Run go linter
@@ -62,6 +68,7 @@ tasks:
     deps:
       - tools
     cmds:
+      - task: control-plane:gogen
       - task: control-plane:foreach-module
         vars:
           CMD: |
@@ -76,6 +83,7 @@ tasks:
     deps:
       - tools
     cmds:
+      - task: control-plane:gogen
       - task: control-plane:foreach-module
         vars:
           CMD: "{{.TOOLS_INSTALL_DIR}}/govulncheck ./..."
@@ -85,6 +93,7 @@ tasks:
     deps:
       - tools
     cmds:
+      - task: control-plane:gogen
       - task: control-plane:foreach-module
         vars:
           CMD: |
@@ -102,6 +111,7 @@ tasks:
     deps:
       - tools
     cmds:
+      - task: control-plane:gogen
       - task: control-plane:foreach-module
         vars:
           CMD: go test --tags=test -failfast -v 2>&1 ./...
@@ -111,6 +121,7 @@ tasks:
     deps:
       - tools
     cmds:
+      - task: control-plane:gogen
       - task: control-plane:foreach-module
         vars:
           CMD: "echo ${PWD} && go env && go mod download"
@@ -134,8 +145,7 @@ tasks:
       - control-plane:proto:generate
     dir: slimctl/cmd
     cmds:
-      - |
-        go generate ./../...
+      - task: control-plane:gogen
       - |
         go build -o \
           {{.OUTPUT_DIR}}/bin/slimctl \
@@ -178,7 +188,8 @@ tasks:
 
   control-plane:build:
     desc: Build go binaries
-    deps: [control-plane:modtidy]
+    deps:
+      - control-plane:modtidy
     cmds:
       - task: control-plane:control-plane:build
       - task: control-plane:token-service:build
@@ -192,12 +203,8 @@ tasks:
     deps:
       - control-plane:proto:generate
     cmds:
-      - |
-        go mod tidy
-      - |
-        go mod download
-      - |
-        go generate ./../...
+      - task: control-plane:modtidy
+      - task: control-plane:gogen
       - |
         go build -o \
           {{.OUTPUT_DIR}}/bin/control-plane
