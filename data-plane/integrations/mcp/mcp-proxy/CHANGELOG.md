@@ -7,6 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.6](https://github.com/agntcy/slim/compare/slim-mcp-proxy-v0.1.5...slim-mcp-proxy-v0.1.6) - 2025-07-31
+
+### Added
+
+- add identity and mls options to python bindings ([#436](https://github.com/agntcy/slim/pull/436))
+- add client connections to control plane ([#429](https://github.com/agntcy/slim/pull/429))
+- implement MLS key rotation ([#412](https://github.com/agntcy/slim/pull/412))
+- *(proto)* introduce SessionType in message header ([#410](https://github.com/agntcy/slim/pull/410))
+- integrate MLS with auth ([#385](https://github.com/agntcy/slim/pull/385))
+- *(control-plane)* handle all configuration parameters when creating a new connection ([#360](https://github.com/agntcy/slim/pull/360))
+- add mls message types in slim messages ([#386](https://github.com/agntcy/slim/pull/386))
+- add auth support in sessions ([#382](https://github.com/agntcy/slim/pull/382))
+- channel creation in session layer ([#374](https://github.com/agntcy/slim/pull/374))
+- support hot reload of TLS certificates ([#359](https://github.com/agntcy/slim/pull/359))
+- *(config)* update the public/private key on file change ([#356](https://github.com/agntcy/slim/pull/356))
+- *(config)* add watcher for file modifications ([#353](https://github.com/agntcy/slim/pull/353))
+- *(auth)* jwt middleware ([#352](https://github.com/agntcy/slim/pull/352))
+- derive name id from provided identity ([#345](https://github.com/agntcy/slim/pull/345))
+
+### Fixed
+
+- *(channel_endpoint)* extend mls for all sessions ([#411](https://github.com/agntcy/slim/pull/411))
+- *(auth)* make simple identity usable for groups ([#387](https://github.com/agntcy/slim/pull/387))
+
+### Other
+
+- release ([#319](https://github.com/agntcy/slim/pull/319))
+- remove Agent and AgentType and adopt Name as application identifier ([#477](https://github.com/agntcy/slim/pull/477))
+
 ## [0.1.5](https://github.com/agntcy/agp/compare/slim-mcp-proxy-v0.1.4...slim-mcp-proxy-v0.1.5) - 2025-06-03
 
 ### Fixed
