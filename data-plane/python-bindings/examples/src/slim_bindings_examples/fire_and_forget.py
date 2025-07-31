@@ -41,6 +41,7 @@ async def run_client(
     )
 
     instance = local_app.get_id()
+    local_name = split_id(local)
 
     if message:
         if not remote:
@@ -91,6 +92,12 @@ async def run_client(
                         f"received (from session {session_info.id}): {msg.decode()}",
                     )
 
+                    if not session_info.destination_name.equal_without_id(local_name):
+                        format_message_print(
+                            f"received message with wrong name, exit. local {local_name}, dst {session_info.destination_name}"
+                        )
+                        exit(1)
+
                 except Exception as e:
                     print("received error: ", e)
 
@@ -117,6 +124,12 @@ async def run_client(
                             f"{instance}",
                             f"received (from session {session_id}): {msg.decode()}",
                         )
+
+                        if not session.destination_name.equal_without_id(local_name):
+                            format_message_print(
+                                f"received message with wrong name, exit. local {local_name}, dst {session.destination_name}"
+                            )
+                            exit(1)
 
                         ret = f"{msg.decode()} from {instance}"
 

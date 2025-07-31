@@ -63,6 +63,7 @@ async def test_request_reply(server):
 
                 # make sure the message is correct
                 assert msg_rcv == bytes(pub_msg)
+                assert recv_session.destination_name.equal_without_id(name1)
 
                 # reply to the session
                 await slim1.publish_to(recv_session, res_msg)
@@ -76,6 +77,7 @@ async def test_request_reply(server):
 
         # check if the message is correct
         assert message == bytes(res_msg)
+        assert session_info.destination_name.equal_without_id(name2)
 
         # wait for task to finish
         await t
