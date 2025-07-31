@@ -6,7 +6,7 @@
     "control-plane/control-pane": "0.0.1",
     "data-plane/integrations/mcp/slim-mcp/examples/llamaindex-time-agent": "0.1.2",
     "data-plane/integrations/mcp/slim-mcp/examples/mcp-server-time": "0.1.2",
-    "data-plane/testing": "0.1.0",
+    "data-plane/testing": "1.0.0",
     "control-plane/control-plane": "0.0.1",
     "charts/slim-control-plane": "0.1.2"
 }
