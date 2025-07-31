@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.3](https://github.com/agntcy/slim/compare/slim-signal-v0.1.2...slim-signal-v0.1.3) - 2025-07-31
+
+### Other
+
+- remove Agent and AgentType and adopt Name as application identifier ([#477](https://github.com/agntcy/slim/pull/477))
+
 ## [0.1.2](https://github.com/agntcy/slim/compare/slim-signal-v0.1.1...slim-signal-v0.1.2) - 2025-04-24
 
 ### Other

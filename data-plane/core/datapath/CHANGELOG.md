@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.0](https://github.com/agntcy/slim/compare/slim-datapath-v0.7.0...slim-datapath-v0.8.0) - 2025-07-31
+
+### Added
+
+- implement key rotation proposal message exchange ([#434](https://github.com/agntcy/slim/pull/434))
+- *(proto)* introduce SessionType in message header ([#410](https://github.com/agntcy/slim/pull/410))
+- *(control-plane)* handle all configuration parameters when creating a new connection ([#360](https://github.com/agntcy/slim/pull/360))
+- add mls message types in slim messages ([#386](https://github.com/agntcy/slim/pull/386))
+- push and verify identities in message headers ([#384](https://github.com/agntcy/slim/pull/384))
+- add auth support in sessions ([#382](https://github.com/agntcy/slim/pull/382))
+- channel creation in session layer ([#374](https://github.com/agntcy/slim/pull/374))
+- implement MLS ([#307](https://github.com/agntcy/slim/pull/307))
+- derive name id from provided identity ([#345](https://github.com/agntcy/slim/pull/345))
+- add identity into the SLIM message ([#342](https://github.com/agntcy/slim/pull/342))
+- *(data-plane)* upgrade to rust 1.87 ([#317](https://github.com/agntcy/slim/pull/317))
+
+### Fixed
+
+- *(channel_endpoint)* extend mls for all sessions ([#411](https://github.com/agntcy/slim/pull/411))
+- [**breaking**] remove request-reply session type ([#416](https://github.com/agntcy/slim/pull/416))
+
+### Other
+
+- remove Agent and AgentType and adopt Name as application identifier ([#477](https://github.com/agntcy/slim/pull/477))
+
 ## [0.7.0](https://github.com/agntcy/slim/compare/slim-datapath-v0.6.0...slim-datapath-v0.7.0) - 2025-05-14
 
 ### Added
