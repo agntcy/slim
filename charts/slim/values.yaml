@@ -40,8 +40,8 @@ slim:
           servers:
             - endpoint: "0.0.0.0:{{ .Values.slim.service.control.port }}"
               tls:
-                insecure: true    
-    
+                insecure: true
+
   # This is for setting up a service more information can be found here: https://kubernetes.io/docs/concepts/services-networking/service/
   service:
     # This sets the service type more information can be found here: https://kubernetes.io/docs/concepts/services-networking/service/#publishing-services-service-types
