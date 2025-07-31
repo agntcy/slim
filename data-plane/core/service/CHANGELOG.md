@@ -7,6 +7,49 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0](https://github.com/agntcy/slim/compare/slim-service-v0.4.2...slim-service-v0.5.0) - 2025-07-31
+
+### Added
+
+- get source and destination name form python ([#485](https://github.com/agntcy/slim/pull/485))
+- *(python-bindings)* update examples and make them packageable ([#468](https://github.com/agntcy/slim/pull/468))
+- process concurrent modification to the group ([#451](https://github.com/agntcy/slim/pull/451))
+- add identity and mls options to python bindings ([#436](https://github.com/agntcy/slim/pull/436))
+- improve handling of commit broadcast ([#433](https://github.com/agntcy/slim/pull/433))
+- implement key rotation proposal message exchange ([#434](https://github.com/agntcy/slim/pull/434))
+- add client connections to control plane ([#429](https://github.com/agntcy/slim/pull/429))
+- implement MLS key rotation ([#412](https://github.com/agntcy/slim/pull/412))
+- *(proto)* introduce SessionType in message header ([#410](https://github.com/agntcy/slim/pull/410))
+- *(channel_endpoint)* add error handling ([#409](https://github.com/agntcy/slim/pull/409))
+- do no create session on discovery request ([#402](https://github.com/agntcy/slim/pull/402))
+- integrate MLS with auth ([#385](https://github.com/agntcy/slim/pull/385))
+- add mls message types in slim messages ([#386](https://github.com/agntcy/slim/pull/386))
+- push and verify identities in message headers ([#384](https://github.com/agntcy/slim/pull/384))
+- add auth support in sessions ([#382](https://github.com/agntcy/slim/pull/382))
+- channel creation in session layer ([#374](https://github.com/agntcy/slim/pull/374))
+- add the ability to drop messages from the interceptor ([#371](https://github.com/agntcy/slim/pull/371))
+- implement MLS ([#307](https://github.com/agntcy/slim/pull/307))
+- add identity into the SLIM message ([#342](https://github.com/agntcy/slim/pull/342))
+- *(data-plane)* upgrade to rust 1.87 ([#317](https://github.com/agntcy/slim/pull/317))
+
+### Fixed
+
+- prevent message publication before mls setup ([#458](https://github.com/agntcy/slim/pull/458))
+- remove all state on session close ([#449](https://github.com/agntcy/slim/pull/449))
+- mls update timer duration ([#437](https://github.com/agntcy/slim/pull/437))
+- *(channel_endpoint)* extend mls for all sessions ([#411](https://github.com/agntcy/slim/pull/411))
+- fix building problem ([#422](https://github.com/agntcy/slim/pull/422))
+- [**breaking**] remove request-reply session type ([#416](https://github.com/agntcy/slim/pull/416))
+- *(auth)* make simple identity usable for groups ([#387](https://github.com/agntcy/slim/pull/387))
+
+### Other
+
+- remove Agent and AgentType and adopt Name as application identifier ([#477](https://github.com/agntcy/slim/pull/477))
+- 397 remove endpoints in mls groups ([#413](https://github.com/agntcy/slim/pull/413))
+- *(session)* use parking_lot to sync access to MlsState ([#401](https://github.com/agntcy/slim/pull/401))
+- fix test channel endpoint ([#405](https://github.com/agntcy/slim/pull/405))
+- *(streaming)* remove lock from channel_endpoint ([#399](https://github.com/agntcy/slim/pull/399))
+
 ## [0.4.2](https://github.com/agntcy/slim/compare/slim-service-v0.4.1...slim-service-v0.4.2) - 2025-05-14
 
 ### Other

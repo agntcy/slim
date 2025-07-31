@@ -11,9 +11,9 @@ spec:
   type: {{ .Values.slim.service.type }}
   ports:
     - port: {{ .Values.slim.service.data.port }}
-      targetPort: messenger
+      targetPort: data-plane
       protocol: TCP
-      name: messenger
+      name: data-plane
     - port: {{ .Values.slim.service.control.port }}
       targetPort: controller
       protocol: TCP

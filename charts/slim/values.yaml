@@ -13,6 +13,9 @@ slim:
     # Overrides the image tag whose default is the chart appVersion.
     tag: ""
 
+  # This is for overriding the default config below
+  overrideConfig:
+
   config:
     tracing:
       log_level: debug

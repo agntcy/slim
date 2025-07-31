@@ -58,7 +58,7 @@ jobs:
           echo "value=${_chart_name%-v*}" >> "$GITHUB_OUTPUT"
 
           # extract the chart version form the tag
-          echo "version=${_chart_name##*-v}" >> "$GITHUB_OUTPUT"
+          echo "version=v${_chart_name##*-v}" >> "$GITHUB_OUTPUT"
 
 
       - name: Helm lint
