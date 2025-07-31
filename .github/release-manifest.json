@@ -1,5 +1,5 @@
 {
-    "data-plane/python-bindings": "0.3.6",
+    "data-plane/python-bindings": "0.4.0",
     "charts/slim": "0.1.8",
     "data-plane/integrations/mcp/slim-mcp/packages/slim-mcp": "0.1.6",
     "control-plane/slimctl": "0.2.0",
