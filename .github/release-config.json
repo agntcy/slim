@@ -43,7 +43,7 @@
         },
         "data-plane/python-bindings/examples": {
             "package-name": "slim-bindings-examples",
-            "release-type": "simple"
+            "release-type": "python"
         }
     }
 }
