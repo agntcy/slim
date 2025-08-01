@@ -141,7 +141,7 @@ target "control-plane" {
   tags = get_tag(target.docker-metadata-action.tags, "${target.control-plane.name}")
 }
 
-target "slim-bindings-examples" {
+target "bindings-examples" {
   contexts = {
     src = "."
   }
@@ -151,5 +151,5 @@ target "slim-bindings-examples" {
     "_common",
     "docker-metadata-action",
   ]
-  tags = get_tag(target.docker-metadata-action.tags, "${target.slim-bindings-examples.name}")
+  tags = get_tag(target.docker-metadata-action.tags, "${target.bindings-examples.name}")
 }

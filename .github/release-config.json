@@ -40,6 +40,10 @@
         "data-plane/testing": {
             "package-name": "slim-testutils",
             "release-type": "simple"
+        },
+        "data-plane/python-bindings/examples": {
+            "package-name": "slim-bindings-examples",
+            "release-type": "python"
         }
     }
 }
