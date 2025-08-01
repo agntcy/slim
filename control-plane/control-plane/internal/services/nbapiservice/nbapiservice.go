@@ -7,6 +7,7 @@ import (
 	controllerapi "github.com/agntcy/slim/control-plane/common/proto/controller/v1"
 	controlplaneApi "github.com/agntcy/slim/control-plane/common/proto/controlplane/v1"
 	"github.com/agntcy/slim/control-plane/control-plane/internal/config"
+	"github.com/agntcy/slim/control-plane/control-plane/internal/services/groupservice"
 	"github.com/agntcy/slim/control-plane/control-plane/internal/util"
 )
 
@@ -19,14 +20,14 @@ type nbAPIService struct {
 	config       config.APIConfig
 	nodeService  *NodeService
 	routeService *RouteService
-	groupService *GroupService
+	groupService *groupservice.GroupService
 }
 
 func NewNorthboundAPIServer(
 	config config.APIConfig,
 	nodeService *NodeService,
 	routeService *RouteService,
-	groupService *GroupService,
+	groupService *groupservice.GroupService,
 ) NorthboundAPIServer {
 	cpServer := &nbAPIService{
 		config:       config,
@@ -179,37 +180,37 @@ func (s *nbAPIService) DeregisterNode(
 }
 
 func (s *nbAPIService) CreateChannel(
-	ctx context.Context, createChannelRequest *controlplaneApi.CreateChannelRequest) (
-	*controlplaneApi.CreateChannelResponse, error) {
+	ctx context.Context, createChannelRequest *controllerapi.CreateChannelRequest) (
+	*controllerapi.CreateChannelResponse, error) {
 	return s.groupService.CreateChannel(ctx, createChannelRequest)
 }
 
 func (s *nbAPIService) DeleteChannel(
-	ctx context.Context, deleteChannelRequest *controlplaneApi.DeleteChannelRequest) (
+	ctx context.Context, deleteChannelRequest *controllerapi.DeleteChannelRequest) (
 	*controllerapi.Ack, error) {
 	return s.groupService.DeleteChannel(ctx, deleteChannelRequest)
 }
 
 func (s *nbAPIService) AddParticipant(
-	ctx context.Context, addParticipantRequest *controlplaneApi.AddParticipantRequest) (
+	ctx context.Context, addParticipantRequest *controllerapi.AddParticipantRequest) (
 	*controllerapi.Ack, error) {
 	return s.groupService.AddParticipant(ctx, addParticipantRequest)
 }
 
 func (s *nbAPIService) DeleteParticipant(
-	ctx context.Context, deleteParticipantRequest *controlplaneApi.DeleteParticipantRequest) (
+	ctx context.Context, deleteParticipantRequest *controllerapi.DeleteParticipantRequest) (
 	*controllerapi.Ack, error) {
 	return s.groupService.DeleteParticipant(ctx, deleteParticipantRequest)
 }
 
 func (s *nbAPIService) ListChannels(
-	ctx context.Context, listChannelsRequest *controlplaneApi.ListChannelsRequest) (
-	*controlplaneApi.ListChannelsResponse, error) {
+	ctx context.Context, listChannelsRequest *controllerapi.ListChannelsRequest) (
+	*controllerapi.ListChannelsResponse, error) {
 	return s.groupService.ListChannels(ctx, listChannelsRequest)
 }
 
 func (s *nbAPIService) ListParticipants(
-	ctx context.Context, listParticipantsRequest *controlplaneApi.ListParticipantsRequest) (
-	*controlplaneApi.ListParticipantsResponse, error) {
+	ctx context.Context, listParticipantsRequest *controllerapi.ListParticipantsRequest) (
+	*controllerapi.ListParticipantsResponse, error) {
 	return s.groupService.ListParticipants(ctx, listParticipantsRequest)
 }

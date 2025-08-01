@@ -10,6 +10,7 @@ import (
 	controllerapi "github.com/agntcy/slim/control-plane/common/proto/controller/v1"
 	"github.com/agntcy/slim/control-plane/control-plane/internal/config"
 	"github.com/agntcy/slim/control-plane/control-plane/internal/db"
+	"github.com/agntcy/slim/control-plane/control-plane/internal/services/groupservice"
 	"github.com/agntcy/slim/control-plane/control-plane/internal/services/nodecontrol"
 	"github.com/agntcy/slim/control-plane/control-plane/internal/util"
 )
@@ -22,8 +23,9 @@ type sbAPIService struct {
 	config config.APIConfig
 	controllerapi.UnimplementedControllerServiceServer
 	dbService                 db.DataAccess
-	messagingService          nodecontrol.NodeCommandHandler
+	nodeCommandHandler        nodecontrol.NodeCommandHandler
 	nodeRegistrationListeners []nodecontrol.NodeRegistrationHandler
+	groupservice              *groupservice.GroupService
 }
 
 func NewSBAPIService(
@@ -31,12 +33,14 @@ func NewSBAPIService(
 	dbService db.DataAccess,
 	cmdHandler nodecontrol.NodeCommandHandler,
 	nodeRegistrationListeners []nodecontrol.NodeRegistrationHandler,
+	groupservice *groupservice.GroupService,
 ) SouthboundAPIServer {
 	return &sbAPIService{
 		config:                    config,
 		dbService:                 dbService,
-		messagingService:          cmdHandler,
+		nodeCommandHandler:        cmdHandler,
 		nodeRegistrationListeners: nodeRegistrationListeners,
+		groupservice:              groupservice,
 	}
 }
 
@@ -101,8 +105,8 @@ func (s *sbAPIService) OpenControlChannel(stream controllerapi.ControllerService
 			zlog.Error().Msgf("Error saving node: %v", err)
 			return err
 		}
-		s.messagingService.AddStream(registeredNodeID, stream)
-		s.messagingService.UpdateConnectionStatus(registeredNodeID, nodecontrol.NodeStatusConnected)
+		s.nodeCommandHandler.AddStream(registeredNodeID, stream)
+		s.nodeCommandHandler.UpdateConnectionStatus(registeredNodeID, nodecontrol.NodeStatusConnected)
 
 		// Acknowledge the registration
 		ackMsg := &controllerapi.ControlMessage{
@@ -142,10 +146,10 @@ func (s *sbAPIService) handleNodeMessages(stream controllerapi.ControllerService
 			zlog.Error().Msgf("Stream connection failed for node %s: %v", registeredNodeID, err)
 
 			// Update the node status to not connected
-			s.messagingService.UpdateConnectionStatus(registeredNodeID, nodecontrol.NodeStatusNotConnected)
+			s.nodeCommandHandler.UpdateConnectionStatus(registeredNodeID, nodecontrol.NodeStatusNotConnected)
 			zlog.Error().Msgf("Node %s status set to: %v", registeredNodeID, nodecontrol.NodeStatusNotConnected)
 
-			err := s.messagingService.RemoveStream(registeredNodeID)
+			err := s.nodeCommandHandler.RemoveStream(registeredNodeID)
 			if err != nil {
 				zlog.Error().Msgf("Error removing stream for node %s: %v", registeredNodeID, err)
 			}
@@ -159,14 +163,14 @@ func (s *sbAPIService) handleNodeMessages(stream controllerapi.ControllerService
 				nodeID := payload.DeregisterNodeRequest.Node.Id
 				zlog.Info().Msgf("Deregister node with ID: %v", nodeID)
 				// Update the node status to not connected
-				s.messagingService.UpdateConnectionStatus(nodeID, nodecontrol.NodeStatusNotConnected)
+				s.nodeCommandHandler.UpdateConnectionStatus(nodeID, nodecontrol.NodeStatusNotConnected)
 
-				err := s.messagingService.RemoveStream(nodeID)
+				err := s.nodeCommandHandler.RemoveStream(nodeID)
 				if err != nil {
 					zlog.Error().Msgf("Error removing stream for node %s: %v", nodeID, err)
 				}
 
-				if err = s.messagingService.SendMessage(nodeID, &controllerapi.ControlMessage{
+				if err = s.nodeCommandHandler.SendMessage(nodeID, &controllerapi.ControlMessage{
 					MessageId: uuid.NewString(),
 					Payload: &controllerapi.ControlMessage_DeregisterNodeResponse{
 						DeregisterNodeResponse: &controllerapi.DeregisterNodeResponse{
@@ -181,19 +185,178 @@ func (s *sbAPIService) handleNodeMessages(stream controllerapi.ControllerService
 			continue
 		case *controllerapi.ControlMessage_Ack:
 			zlog.Debug().Msgf("Received ACK for message ID: %s, Success: %t", msg.MessageId, payload.Ack.Success)
-			s.messagingService.ResponseReceived(registeredNodeID, msg)
+			s.nodeCommandHandler.ResponseReceived(registeredNodeID, msg)
 			continue
 		case *controllerapi.ControlMessage_ConnectionListResponse:
 			zlog.Debug().Msgf(
 				"Received ConnectionListResponse for node %s: %v",
 				registeredNodeID, payload.ConnectionListResponse,
 			)
-			s.messagingService.ResponseReceived(registeredNodeID, msg)
+			s.nodeCommandHandler.ResponseReceived(registeredNodeID, msg)
 		case *controllerapi.ControlMessage_SubscriptionListResponse:
 			zlog.Debug().Msgf(
 				"Received SubscriptionListResponse for node %s: %v",
 				registeredNodeID, payload.SubscriptionListResponse)
-			s.messagingService.ResponseReceived(registeredNodeID, msg)
+			s.nodeCommandHandler.ResponseReceived(registeredNodeID, msg)
+
+		case *controllerapi.ControlMessage_CreateChannelRequest:
+			zlog.Debug().Msgf(
+				"Received CreateChannelRequest for node %s: %v", registeredNodeID, payload.CreateChannelRequest,
+			)
+			resp, err := s.groupservice.CreateChannel(
+				util.GetContextWithLogger(context.Background(), s.config.LogConfig),
+				payload.CreateChannelRequest,
+			)
+			if err != nil {
+				zlog.Error().Msgf("Error creating channel: %v", err)
+				return err
+			}
+			ackMsg := &controllerapi.ControlMessage{
+				MessageId: uuid.NewString(),
+				Payload: &controllerapi.ControlMessage_CreateChannelResponse{
+					CreateChannelResponse: resp,
+				},
+			}
+			if err := s.nodeCommandHandler.SendMessage(registeredNodeID, ackMsg); err != nil {
+				zlog.Error().Msgf("Error sending CreateChannelResponse to node %s: %v", registeredNodeID, err)
+				return err
+			}
+			zlog.Info().Msgf("Channel created successfully for node %s: %s", registeredNodeID, resp.ChannelId)
+
+		case *controllerapi.ControlMessage_DeleteChannelRequest:
+			zlog.Debug().Msgf(
+				"Received DeleteChannelRequest for node %s: %v", registeredNodeID, payload.DeleteChannelRequest,
+			)
+			resp, err := s.groupservice.DeleteChannel(
+				util.GetContextWithLogger(context.Background(), s.config.LogConfig),
+				payload.DeleteChannelRequest,
+			)
+			if err != nil {
+				zlog.Error().Msgf("Error deleting channel: %v", err)
+				return err
+			}
+			ackMsg := &controllerapi.ControlMessage{
+				MessageId: uuid.NewString(),
+				Payload: &controllerapi.ControlMessage_Ack{
+					Ack: &controllerapi.Ack{
+						Success:           resp.Success,
+						OriginalMessageId: msg.MessageId,
+					},
+				},
+			}
+			if err := s.nodeCommandHandler.SendMessage(registeredNodeID, ackMsg); err != nil {
+				zlog.Error().Msgf("Error sending DeleteChannelResponse to node %s: %v", registeredNodeID, err)
+				return err
+			}
+			zlog.Info().Msgf("Channel deleted successfully for node %s", registeredNodeID)
+
+		case *controllerapi.ControlMessage_AddParticipantRequest:
+			zlog.Debug().Msgf(
+				"Received AddParticipantRequest for node %s: %v", registeredNodeID, payload.AddParticipantRequest,
+			)
+			resp, err := s.groupservice.AddParticipant(
+				util.GetContextWithLogger(context.Background(), s.config.LogConfig),
+				payload.AddParticipantRequest,
+			)
+			if err != nil {
+				zlog.Error().Msgf("Error adding participant: %v", err)
+				return err
+			}
+			ackMsg := &controllerapi.ControlMessage{
+				MessageId: uuid.NewString(),
+				Payload: &controllerapi.ControlMessage_Ack{
+					Ack: &controllerapi.Ack{
+						Success:           resp.Success,
+						OriginalMessageId: msg.MessageId,
+					},
+				},
+			}
+			if err := s.nodeCommandHandler.SendMessage(registeredNodeID, ackMsg); err != nil {
+				zlog.Error().Msgf("Error sending AddParticipantResponse to node %s: %v", registeredNodeID, err)
+				return err
+			}
+			zlog.Info().Msgf(
+				"Participant added successfully for node %s: %s", registeredNodeID, payload.AddParticipantRequest.ParticipantId)
+
+		case *controllerapi.ControlMessage_DeleteParticipantRequest:
+			zlog.Debug().Msgf(
+				"Received DeleteParticipantRequest for node %s: %v", registeredNodeID, payload.DeleteParticipantRequest,
+			)
+			resp, err := s.groupservice.DeleteParticipant(
+				util.GetContextWithLogger(context.Background(), s.config.LogConfig),
+				payload.DeleteParticipantRequest,
+			)
+			if err != nil {
+				zlog.Error().Msgf("Error deleting participant: %v", err)
+				return err
+			}
+			ackMsg := &controllerapi.ControlMessage{
+				MessageId: uuid.NewString(),
+				Payload: &controllerapi.ControlMessage_Ack{
+					Ack: &controllerapi.Ack{
+						Success:           resp.Success,
+						OriginalMessageId: msg.MessageId,
+					},
+				},
+			}
+			if err := s.nodeCommandHandler.SendMessage(registeredNodeID, ackMsg); err != nil {
+				zlog.Error().Msgf("Error sending DeleteParticipantResponse to node %s: %v", registeredNodeID, err)
+				return err
+			}
+			zlog.Info().Msgf(
+				"Participant deleted successfully for node %s: %s",
+				registeredNodeID,
+				payload.DeleteParticipantRequest.ParticipantId,
+			)
+
+		case *controllerapi.ControlMessage_ListChannelRequest:
+			zlog.Debug().Msgf(
+				"Received ListChannelRequest for node %s: %v", registeredNodeID, payload.ListChannelRequest,
+			)
+			resp, err := s.groupservice.ListChannels(
+				util.GetContextWithLogger(context.Background(), s.config.LogConfig),
+				payload.ListChannelRequest,
+			)
+			if err != nil {
+				zlog.Error().Msgf("Error listing channels: %v", err)
+				return err
+			}
+			ackMsg := &controllerapi.ControlMessage{
+				MessageId: uuid.NewString(),
+				Payload: &controllerapi.ControlMessage_ListChannelResponse{
+					ListChannelResponse: resp,
+				},
+			}
+			if err := s.nodeCommandHandler.SendMessage(registeredNodeID, ackMsg); err != nil {
+				zlog.Error().Msgf("Error sending ListChannelResponse to node %s: %v", registeredNodeID, err)
+				return err
+			}
+			zlog.Info().Msgf("Channels listed successfully for node %s", registeredNodeID)
+
+		case *controllerapi.ControlMessage_ListParticipantsRequest:
+			zlog.Debug().Msgf(
+				"Received ListParticipantsRequest for node %s: %v", registeredNodeID, payload.ListParticipantsRequest,
+			)
+			resp, err := s.groupservice.ListParticipants(
+				util.GetContextWithLogger(context.Background(), s.config.LogConfig),
+				payload.ListParticipantsRequest,
+			)
+			if err != nil {
+				zlog.Error().Msgf("Error listing participants: %v", err)
+				return err
+			}
+			ackMsg := &controllerapi.ControlMessage{
+				MessageId: uuid.NewString(),
+				Payload: &controllerapi.ControlMessage_ListParticipantsResponse{
+					ListParticipantsResponse: resp,
+				},
+			}
+			if err := s.nodeCommandHandler.SendMessage(registeredNodeID, ackMsg); err != nil {
+				zlog.Error().Msgf("Error sending ListParticipantsResponse to node %s: %v", registeredNodeID, err)
+				return err
+			}
+			zlog.Info().Msgf("Participants listed successfully for node %s", registeredNodeID)
+
 		default:
 			zlog.Debug().Msgf(
 				"Invalid payload received from node %s: %s : %v",
