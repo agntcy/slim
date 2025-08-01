@@ -59,6 +59,7 @@ tasks:
     deps:
       - tools
     cmds:
+      - task: control-plane:gogen
       - task: control-plane:foreach-module
         vars:
           CMD: "echo ${PWD} && {{.TOOLS_INSTALL_DIR}}/golangci-lint run"
