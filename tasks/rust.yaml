@@ -409,6 +409,8 @@ tasks:
     desc: "Run a command"
     internal: true
     dir: '{{.DIR | default ""}}'
+    deps:
+      - task: toolchain:build:install-target
     cmds:
       - "{{.COMMAND}}"
     vars:

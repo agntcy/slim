@@ -20,6 +20,9 @@ tasks:
     cmds:
       - task -l
 
+  python:install-for-target:
+    desc: "Install python distribution corresponding to RUST target"
+
   python-bindings:build:
     desc: "Build the Python bindings"
     vars:
@@ -32,6 +35,10 @@ tasks:
         vars:
           COMMAND: |
             uv run maturin develop --uv {{.RELEASE}}
+          TARGET: '{{.TARGET}}'
+        env:
+          CARGO_BUILD_TARGET: '{{.TARGET}}'
+
 
   python-bindings:examples:build:
     desc: "Build the Python bindings examples"
