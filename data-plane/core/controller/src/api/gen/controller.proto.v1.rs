@@ -3,7 +3,10 @@
 pub struct ControlMessage {
     #[prost(string, tag = "1")]
     pub message_id: ::prost::alloc::string::String,
-    #[prost(oneof = "control_message::Payload", tags = "2, 3, 4, 5, 6, 7, 8, 9, 10, 11")]
+    #[prost(
+        oneof = "control_message::Payload",
+        tags = "2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20"
+    )]
     pub payload: ::core::option::Option<control_message::Payload>,
 }
 /// Nested message and enum types in `ControlMessage`.
@@ -30,6 +33,24 @@ pub mod control_message {
         DeregisterNodeRequest(super::DeregisterNodeRequest),
         #[prost(message, tag = "11")]
         DeregisterNodeResponse(super::DeregisterNodeResponse),
+        #[prost(message, tag = "12")]
+        CreateChannelRequest(super::CreateChannelRequest),
+        #[prost(message, tag = "13")]
+        CreateChannelResponse(super::CreateChannelResponse),
+        #[prost(message, tag = "14")]
+        DeleteChannelRequest(super::DeleteChannelRequest),
+        #[prost(message, tag = "15")]
+        AddParticipantRequest(super::AddParticipantRequest),
+        #[prost(message, tag = "16")]
+        DeleteParticipantRequest(super::DeleteParticipantRequest),
+        #[prost(message, tag = "17")]
+        ListChannelRequest(super::ListChannelsRequest),
+        #[prost(message, tag = "18")]
+        ListChannelResponse(super::ListChannelsResponse),
+        #[prost(message, tag = "19")]
+        ListParticipantsRequest(super::ListParticipantsRequest),
+        #[prost(message, tag = "20")]
+        ListParticipantsResponse(super::ListParticipantsResponse),
     }
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -132,6 +153,62 @@ pub struct DeregisterNodeRequest {
 pub struct DeregisterNodeResponse {
     #[prost(bool, tag = "1")]
     pub success: bool,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct CreateChannelRequest {
+    /// list of moderators for the channel (e.g. spiffe SVID)
+    #[prost(string, repeated, tag = "1")]
+    pub moderators: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct CreateChannelResponse {
+    /// ID of the channel, to which clients will subscribe (e.g. spiffe SVID)
+    #[prost(string, tag = "1")]
+    pub channel_id: ::prost::alloc::string::String,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct DeleteChannelRequest {
+    /// ID of the channel
+    #[prost(string, tag = "1")]
+    pub channel_id: ::prost::alloc::string::String,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct AddParticipantRequest {
+    /// ID of the channel
+    #[prost(string, tag = "1")]
+    pub channel_id: ::prost::alloc::string::String,
+    /// ID of participant (e.g. spiffe SVID)
+    #[prost(string, tag = "2")]
+    pub participant_id: ::prost::alloc::string::String,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct DeleteParticipantRequest {
+    /// ID of the channel
+    #[prost(string, tag = "1")]
+    pub channel_id: ::prost::alloc::string::String,
+    /// ID of participant (e.g. spiffe SVID)
+    #[prost(string, tag = "2")]
+    pub participant_id: ::prost::alloc::string::String,
+}
+#[derive(Clone, Copy, PartialEq, ::prost::Message)]
+pub struct ListChannelsRequest {}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ListChannelsResponse {
+    /// IDs of the channels available in the control plane
+    #[prost(string, repeated, tag = "1")]
+    pub channel_id: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ListParticipantsRequest {
+    /// ID of the channel
+    #[prost(string, tag = "1")]
+    pub channel_id: ::prost::alloc::string::String,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ListParticipantsResponse {
+    /// list of participants in the channel
+    #[prost(string, repeated, tag = "1")]
+    pub participant_id: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]
