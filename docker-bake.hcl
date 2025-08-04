@@ -146,7 +146,7 @@ target "bindings-examples" {
     src = "."
   }
   dockerfile = "./data-plane/python-bindings/examples/Dockerfile"
-  target     = "builder"
+  target     = "slim-bindings-examples"
   inherits = [
     "_common",
     "docker-metadata-action",
