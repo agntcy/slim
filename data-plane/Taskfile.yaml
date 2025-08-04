@@ -82,6 +82,13 @@ tasks:
     vars:
       TESTS: '{{.TESTS | default ""}}'
 
+  data-plane:core:test:
+    desc: "Run core end to end tests"
+    dir: ./testing
+    cmds:
+      - task run:mls-group:test
+
+
   data-plane:slim:version:
     desc: "Get version from corresponding git tag"
     cmds:
