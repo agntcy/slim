@@ -1,8 +1,8 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
-use std::hash::Hash;
 use std::collections::hash_map::DefaultHasher;
+use std::hash::Hash;
 use std::hash::Hasher;
 
 use pyo3::exceptions::PyException;

@@ -13,8 +13,8 @@ class Rpc:
         self,
         method_name: str,
         handler: Awaitable,  # Or Callable?
-        request_deserializer: callable,
-        response_serializer: callable,
+        request_deserializer: callable = lambda x: x,
+        response_serializer: callable = lambda x: x,
         service_name: str | None = None,
         request_streaming: bool = False,
         response_streaming: bool = False,
