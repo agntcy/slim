@@ -36,14 +36,24 @@ def main():
         shared_secret="my_shared_secret",
     )
 
-    # Create RPC
-    rpc = Rpc(
-        name="example_rpc",
-        handler=lambda x: f"Hello, {x}!",
-        request_deserializer= lambda x: x.decode('utf-8'),
-        response_serializer=lambda x: x.encode('utf-8'),
+    # Create RPCs
+    server.register_method_handlers(
+        "example_service",
+        {
+            "example_method_1": Rpc(
+                method_name="example_method_1",
+                handler=lambda request: f"Hello, {request}!",
+                request_deserializer=lambda x: x.decode("utf-8"),
+                response_serializer=lambda x: x.encode("utf-8"),
+            ),
+            "example_method_2": Rpc(
+                method_name="example_method_2",
+                handler=lambda request: f"Hello, {request}!",
+                request_deserializer=lambda x: x.decode("utf-8"),
+                response_serializer=lambda x: x.encode("utf-8"),
+            ),
+        },
     )
-    server.register_rpc(rpc)
 
     try:
         asyncio.run(server.run())
