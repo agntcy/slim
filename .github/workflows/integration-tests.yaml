@@ -62,4 +62,4 @@ jobs:
 
       - name: Run MLS group integration test
         working-directory: ./data-plane/testing
-        run: task run:mls-group:test
+        run: task test:group
