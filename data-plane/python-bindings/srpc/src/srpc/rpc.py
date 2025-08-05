@@ -11,10 +11,10 @@ class Rpc:
         self,
         name: str,
         handler: dict,
-        request_serializer: callable,
+        request_deserializer: callable,
         response_serializer: callable,
     ):
         self.name = name
         self.handler = handler
-        self.request_serializer = request_serializer
+        self.request_deserializer = request_deserializer
         self.response_serializer = response_serializer

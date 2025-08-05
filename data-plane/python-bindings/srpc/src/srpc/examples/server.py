@@ -32,9 +32,18 @@ def main():
                 "insecure": True,
             },
         },
-        enable_opentelemetry=True,
+        enable_opentelemetry=False,
         shared_secret="my_shared_secret",
     )
+
+    # Create RPC
+    rpc = Rpc(
+        name="example_rpc",
+        handler=lambda x: f"Hello, {x}!",
+        request_deserializer= lambda x: x.decode('utf-8'),
+        response_serializer=lambda x: x.encode('utf-8'),
+    )
+    server.register_rpc(rpc)
 
     try:
         asyncio.run(server.run())
