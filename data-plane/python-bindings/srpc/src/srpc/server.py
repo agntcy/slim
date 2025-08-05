@@ -9,8 +9,8 @@ from srpc.common import (
     create_local_app,
     split_id,
 )
-from srpc.rpc import Rpc
 from srpc.context import Context
+from srpc.rpc import Rpc
 
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
