@@ -118,12 +118,12 @@ class Server:
 
                     return
 
-                response = await rpc_handler.call_handler(request, context)
+                code, response = await rpc_handler.call_handler(request, context)
                 response_bytes = rpc_handler.response_serializer(response)
                 await local_app.publish_to(
                     session_info,
                     response_bytes,
-                    metadata={"code": 200},
+                    metadata={"code": code},
                 )
 
                 # TODO(msardara): handle cleanup
