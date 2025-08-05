@@ -2,14 +2,17 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import asyncio
+import logging
 
 import slim_bindings
-from srpc.rpc import Rpc
-
 from srpc.common import (
     create_local_app,
-    format_message_print,
+    split_id,
 )
+from srpc.rpc import Rpc
+
+logging.basicConfig(level=logging.DEBUG)
+logger = logging.getLogger(__name__)
 
 
 class Server:
@@ -20,7 +23,7 @@ class Server:
         enable_opentelemetry: bool = False,
         shared_secret: str | None = None,
     ):
-        self.local = local
+        self.local = split_id(local)
         self.slim = slim
         self.enable_opentelemetry = enable_opentelemetry
         self.shared_secret = shared_secret
@@ -39,23 +42,21 @@ class Server:
             handler.method_name = method_name
             handler.service_name = service_name
 
-            await self.register_rpc(handler)
+            self.register_rpc(handler)
 
-    async def register_rpc(self, rpc_handler: Rpc):
+    def register_rpc(self, rpc_handler: Rpc):
         """
         Register an RPC handler for the server.
         """
 
         # Compose a PyName using the fist components of the local name and the RPC name
         subscription_name = self.handler_name_to_pyname(rpc_handler)
-        await self.local_app.subscribe(
-            subscription_name,
-        )
 
         # Register the RPC handler
         self.handlers[subscription_name] = rpc_handler
 
     async def run(self):
+        # Create local SLIM instance
         local_app = await create_local_app(
             self.local,
             self.slim,
@@ -63,20 +64,20 @@ class Server:
             shared_secret=self.shared_secret,
         )
 
+        # Subscribe
+        for s, h in self.handlers.items():
+            await local_app.subscribe(s)
+
         instance = local_app.get_id()
 
         async with local_app:
             # Wait for a message and reply in a loop
             while True:
-                format_message_print(
-                    f"{instance}",
-                    "waiting for new session to be established",
-                )
+                logging.info(f"{instance} waiting for new session to be established")
 
                 session_info, _ = await local_app.receive()
-                format_message_print(
-                    f"{instance} received a new session:",
-                    f"{session_info.id}",
+                logging.info(
+                    f"{instance} received a new session: {session_info.id}",
                 )
 
                 asyncio.create_task(self.handle_session(session_info, local_app))
@@ -88,9 +89,8 @@ class Server:
         while True:
             # Receive the message from the session
             _session, msg = await local_app.receive(session=session_id)
-            format_message_print(
-                f"{instance}",
-                f"received (from session {session_id}): {msg.decode()}",
+            logging.info(
+                f"{instance} received (from session {session_id}): {msg.decode()}",
             )
 
             # Call the RPC handler
@@ -99,9 +99,8 @@ class Server:
                 if rpc_handler.request_deserializer:
                     request = rpc_handler.request_deserializer(msg)
 
-                format_message_print(
-                    f"{instance}",
-                    f"calling handler {rpc_handler.name} for session {session_id.id}",
+                logging.info(
+                    f"{instance} calling handler {rpc_handler.name} for session {session_id.id}",
                 )
 
                 # Call the RPC handler and get the response
@@ -127,12 +126,12 @@ class Server:
         Convert a handler name to a PyName.
         """
 
-        components = self.local_app.local_name.components
+        components = self.local.components_strings()
 
         subscription_name = slim_bindings.PyName(
             components[0],
             components[1],
-            f"{components[3]}-{rpc_handler.service_name}-{rpc_handler.method_name}",
+            f"{components[2]}-{rpc_handler.service_name}-{rpc_handler.method_name}",
         )
 
         return subscription_name

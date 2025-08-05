@@ -23,7 +23,7 @@ def create_server(
     return server
 
 
-def main():
+async def amain():
     server = create_server(
         local="agntcy/grpc/server",
         slim={
@@ -55,7 +55,14 @@ def main():
         },
     )
 
+    await server.run()
+
+
+def main():
+    """
+    Main entry point for the server.
+    """
     try:
-        asyncio.run(server.run())
+        asyncio.run(amain())
     except KeyboardInterrupt:
         print("Server interrupted by user.")

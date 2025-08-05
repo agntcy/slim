@@ -3,10 +3,13 @@
 
 import base64
 import json
+import logging
 
 import click
 
 import slim_bindings
+
+logger = logging.getLogger(__name__)
 
 
 class color:
@@ -20,15 +23,6 @@ class color:
     BOLD = "\033[1m"
     UNDERLINE = "\033[4m"
     END = "\033[0m"
-
-
-# Format a message for display
-def format_message(message1, message2=""):
-    return f"{color.BOLD}{color.CYAN}{message1.capitalize():<45}{color.END}{message2}"
-
-
-def format_message_print(message1, message2=""):
-    print(format_message(message1, message2))
 
 
 # Split an ID into its components
@@ -203,7 +197,7 @@ def common_options(function):
 
 
 async def create_local_app(
-    local: str,
+    local_name: slim_bindings.PyName,
     slim: dict,
     enable_opentelemetry: bool = False,
     shared_secret: str | None = None,
@@ -222,20 +216,17 @@ async def create_local_app(
     )
 
     provider, verifier = shared_secret_identity(
-        identity=local,
+        identity=str(local_name),
         secret=shared_secret,
     )
 
-    # Split the local IDs into their respective components
-    local_name = split_id(local)
-
     local_app = await slim_bindings.Slim.new(local_name, provider, verifier)
 
-    format_message_print(f"{local_app.get_id()}", "Created app")
+    logging.info(f"{local_app.get_id()} Created app")
 
     # Connect to slim server
     _ = await local_app.connect(slim)
 
-    format_message_print(f"{local_app.get_id()}", f"Connected to {slim['endpoint']}")
+    logging.info(f"{local_app.get_id()} Connected to {slim['endpoint']}")
 
     return local_app

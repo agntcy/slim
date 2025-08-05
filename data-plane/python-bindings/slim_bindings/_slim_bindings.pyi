@@ -23,6 +23,9 @@ class PyName:
     def components(self) -> builtins.list[builtins.int]:
         ...
 
+    def components_strings(self) -> builtins.list[builtins.str]:
+        ...
+
     def equal_without_id(self, name:PyName) -> builtins.bool:
         ...
 
