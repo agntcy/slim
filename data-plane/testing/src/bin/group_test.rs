@@ -153,7 +153,7 @@ async fn run_participant_task(name: Name) -> Result<(), String> {
                                              let payload = msg_id.to_ne_bytes().to_vec();
                                              let flags = SlimHeaderFlags::new(10, None, None, None, None);
                                              if app
-                                                 .publish_with_flags(msg.info, &channel_name, flags, payload)
+                                                 .publish_with_flags(msg.info, &channel_name, flags, payload, None, None)
                                                  .await
                                                  .is_err()
                                              {
@@ -318,7 +318,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let flags = SlimHeaderFlags::new(10, None, None, None, None);
 
         if app
-            .publish_with_flags(info.clone(), &channel_name, flags, p.clone())
+            .publish_with_flags(info.clone(), &channel_name, flags, p.clone(), None, None)
             .await
             .is_err()
         {

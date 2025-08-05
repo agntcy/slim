@@ -41,6 +41,8 @@ class PySessionInfo:
     id: builtins.int
     source_name: PyName
     destination_name: PyName
+    payload_type: builtins.str
+    metadata: builtins.dict[builtins.str, builtins.str]
     def __new__(cls,session_id:builtins.int): ...
 
 class PyAlgorithm(Enum):
@@ -121,7 +123,7 @@ def init_tracing(config:dict) -> typing.Any:
 def invite(svc:PyService, session_info:PySessionInfo, name:PyName) -> typing.Any:
     ...
 
-def publish(svc:PyService, session_info:PySessionInfo, fanout:builtins.int, blob:typing.Sequence[builtins.int], name:typing.Optional[PyName]=None) -> typing.Any:
+def publish(svc:PyService, session_info:PySessionInfo, fanout:builtins.int, blob:typing.Sequence[builtins.int], name:typing.Optional[PyName]=None, payload_type:typing.Optional[builtins.str]=None, metadata:typing.Optional[typing.Mapping[builtins.str, builtins.str]]=None) -> typing.Any:
     ...
 
 def receive(svc:PyService) -> typing.Any:

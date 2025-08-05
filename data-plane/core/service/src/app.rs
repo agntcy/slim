@@ -354,12 +354,16 @@ where
         name: &Name,
         forward_to: u64,
         blob: Vec<u8>,
+        payload_type: Option<String>,
+        metadata: Option<HashMap<String, String>>,
     ) -> Result<(), ServiceError> {
         self.publish_with_flags(
             session_info,
             name,
             SlimHeaderFlags::default().with_forward_to(forward_to),
             blob,
+            payload_type,
+            metadata,
         )
         .await
     }
@@ -370,9 +374,18 @@ where
         session_info: session::Info,
         name: &Name,
         blob: Vec<u8>,
+        payload_type: Option<String>,
+        metadata: Option<HashMap<String, String>>,
     ) -> Result<(), ServiceError> {
-        self.publish_with_flags(session_info, name, SlimHeaderFlags::default(), blob)
-            .await
+        self.publish_with_flags(
+            session_info,
+            name,
+            SlimHeaderFlags::default(),
+            blob,
+            payload_type,
+            metadata,
+        )
+        .await
     }
 
     /// Publish a message with specific flags
@@ -382,16 +395,22 @@ where
         name: &Name,
         flags: SlimHeaderFlags,
         blob: Vec<u8>,
+        payload_type: Option<String>,
+        metadata: Option<HashMap<String, String>>,
     ) -> Result<(), ServiceError> {
         debug!("sending publication to {} - Flags: {}", name, flags);
 
-        let msg = Message::new_publish(
-            self.session_layer.app_name(),
-            name,
-            Some(flags),
-            "msg",
-            blob,
-        );
+        let ct = match payload_type {
+            Some(ct) => ct,
+            None => "msg".to_string(),
+        };
+
+        let mut msg =
+            Message::new_publish(self.session_layer.app_name(), name, Some(flags), &ct, blob);
+
+        if let Some(map) = metadata {
+            msg.set_metadata_map(map);
+        }
 
         self.send_message(msg, Some(session_info)).await
     }

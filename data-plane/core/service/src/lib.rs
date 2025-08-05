@@ -537,7 +537,13 @@ mod tests {
         // publish a message
         let message_blob = "very complicated message".as_bytes().to_vec();
         pub_app
-            .publish(session_info.clone(), &subscriber_name, message_blob.clone())
+            .publish(
+                session_info.clone(),
+                &subscriber_name,
+                message_blob.clone(),
+                None,
+                None,
+            )
             .await
             .unwrap();
 

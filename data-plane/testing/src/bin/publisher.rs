@@ -298,7 +298,7 @@ async fn main() {
             // set fanout > 1 to send the message in broadcast
             let flags = SlimHeaderFlags::new(10, None, None, None, None);
             if app
-                .publish_with_flags(session_info.clone(), &topic, flags, payload)
+                .publish_with_flags(session_info.clone(), &topic, flags, payload, None, None)
                 .await
                 .is_err()
             {
@@ -464,7 +464,7 @@ async fn main() {
         // for the moment we send the message in anycast
         // we need to test also the match_all function
         if app
-            .publish(session_info.clone(), p.1, payload)
+            .publish(session_info.clone(), p.1, payload, None, None)
             .await
             .is_err()
         {
