@@ -83,7 +83,7 @@ class Server:
 
                 asyncio.create_task(self.handle_session(session_info, local_app))
 
-    async def handle_session(self, session_info, local_app):
+    async def handle_session(self, session_info, local_app: slim_bindings.Slim):
         session_id = session_info.id
         instance = local_app.get_id()
 
@@ -108,17 +108,18 @@ class Server:
 
                 # Send the response back to the client
                 if rpc_handler.response_streaming:
-                    async for response in rpc_handler.handler(request, context):
+                    async for code, response in rpc_handler.call_handler(request, context):
                         response_bytes = rpc_handler.response_serializer(response)
-                        await local_app.publish_to(session_info, response_bytes)
+                        await local_app.publish_to(session_info, response_bytes, metadata={"code": code})
 
                     return
 
-                response = await rpc_handler.handler(request, context)
+                response = await rpc_handler.call_handler(request, context)
                 response_bytes = rpc_handler.response_serializer(response)
                 await local_app.publish_to(
                     session_info,
                     response_bytes,
+                    metadata={"code": 200},
                 )
 
                 # TODO(msardara): handle cleanup

@@ -579,7 +579,13 @@ class Slim:
 
         return session_info, message
 
-    async def publish_to(self, session, msg):
+    async def publish_to(
+        self,
+        session: PySessionInfo,
+        msg: bytes,
+        payload_type: Optional[str] = None,
+        metadata: Optional[dict] = None,
+    ):
         """
         Publish a message back to the application that sent it.
         The information regarding the source app is stored in the session.
@@ -592,7 +598,7 @@ class Slim:
             None
         """
 
-        await publish(self.svc, session, 1, msg)
+        await publish(self.svc, session, 1, msg, payload_type, metadata)
 
     async def receive(
         self, session: Optional[int] = None

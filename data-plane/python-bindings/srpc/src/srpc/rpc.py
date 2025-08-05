@@ -2,7 +2,16 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from collections.abc import Awaitable
+from typing import Any
 
+from google.rpc import status_pb2, code_pb2
+
+class ErrorResponse(Exception):
+    def __init__(self, code, message, details=None):
+        self.code = code
+        self.message = message
+        self.details = details
+        super().__init__(message)
 
 class Rpc:
     """
@@ -26,3 +35,21 @@ class Rpc:
         self.response_serializer = response_serializer
         self.request_streaming = request_streaming
         self.response_streaming = response_streaming
+
+    async def call_handler(self, *args, **kwargs) -> tuple[int, Any]:
+        """
+        Call the handler with the given arguments.
+        """
+
+        code = 0
+
+        try:
+            response = await self.handler(*args, **kwargs)
+        except ErrorResponse as e:
+            response = status_pb2.Status(code=e.code, message=e.message, details=e.details)
+            code = e.code
+        except Exception as e:
+            response = status_pb2.Status(code=code_pb2.UNKNOWN, message="Internal Error", details=None)
+            code = code_pb2.UNKNOWN
+
+        return code, response
