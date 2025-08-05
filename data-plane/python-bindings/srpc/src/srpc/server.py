@@ -6,7 +6,7 @@ import asyncio
 import slim_bindings
 from srpc.rpc import Rpc
 
-from .common import (
+from srpc.common import (
     create_local_app,
     format_message_print,
 )
