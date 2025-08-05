@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 [tool.uv.workspace]
-members = [".", "examples", "srpc"]
+members = [".", "examples", "srpc", "slima2a"]
 
 [build-system]
 requires = ["maturin>=1,<2"]
