@@ -108,9 +108,13 @@ class Server:
 
                 # Send the response back to the client
                 if rpc_handler.response_streaming:
-                    async for code, response in rpc_handler.call_handler(request, context):
+                    async for code, response in rpc_handler.call_handler(
+                        request, context
+                    ):
                         response_bytes = rpc_handler.response_serializer(response)
-                        await local_app.publish_to(session_info, response_bytes, metadata={"code": code})
+                        await local_app.publish_to(
+                            session_info, response_bytes, metadata={"code": code}
+                        )
 
                     return
 
