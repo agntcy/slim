@@ -9,7 +9,7 @@ import click
 
 import slim_bindings
 
-from .rpc import Rpc
+from srpc.rpc import Rpc
 
 from .common import (
     common_options,
