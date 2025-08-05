@@ -102,7 +102,7 @@ class Server:
 
             # Call the RPC handler
             if session_id.destination_name in self.handlers:
-                rpc_handler = self.handlers[session_id.destination_name]
+                rpc_handler: Rpc = self.handlers[session_id.destination_name]
                 if rpc_handler.request_deserializer:
                     request = rpc_handler.request_deserializer(msg)
 
@@ -118,10 +118,14 @@ class Server:
                     response = rpc_handler.response_serializer(response)
 
                 # Send the response back to the client
-                await local_app.publish_to(
-                    session_info,
-                    response,
-                )
+                if rpc_handler.response_streaming:
+                    async for response in rpc_handler.handler(request):
+                        await local_app.publish_to(session_info, response)
+                else:
+                    await local_app.publish_to(
+                        session_info,
+                        response,
+                    )
 
                 # TODO(msardara): handle cleanup
 
