@@ -1,0 +1,138 @@
+# Copyright AGNTCY Contributors (https://github.com/agntcy)
+# SPDX-License-Identifier: Apache-2.0
+
+import asyncio
+import datetime
+
+
+import click
+
+import slim_bindings
+
+from .rpc import Rpc
+
+from .common import (
+    common_options,
+    create_local_app,
+    format_message_print,
+    split_id,
+)
+
+
+class Server:
+    def __init__(
+        self,
+        local: str,
+        slim: dict,
+        enable_opentelemetry: bool = False,
+        shared_secret: str | None = None,
+    ):
+        self.local = local
+        self.slim = slim
+        self.enable_opentelemetry = enable_opentelemetry
+        self.shared_secret = shared_secret
+
+        self.handlers = {}
+
+        self.local_app = asyncio.run(
+            create_local_app(
+                local,
+                slim,
+                enable_opentelemetry=enable_opentelemetry,
+                shared_secret=shared_secret,
+            )
+        )
+
+    async def register_rpc(self, rpc_handler: Rpc):
+        """
+        Register an RPC handler for the server.
+        """
+
+        # Compose a PyName using the fist components of the local name and the RPC name
+        components = self.local_app.local_name.components
+
+        subscription_name = slim_bindings.PyName(
+            components[0],
+            components[1],
+            rpc_handler.name,
+        )
+        await self.local_app.subscribe(
+            subscription_name,
+        )
+
+        # Register the RPC handler
+        self.handlers[subscription_name] = rpc_handler
+
+    async def run(self):
+        instance = self.local_app.get_id()
+
+        async with self.local_app:
+            # Wait for a message and reply in a loop
+            while True:
+                format_message_print(
+                    f"{instance}",
+                    "waiting for new session to be established",
+                )
+
+                session_info, _ = await self.local_app.receive()
+                format_message_print(
+                    f"{instance} received a new session:",
+                    f"{session_info.id}",
+                )
+
+                async def background_task(session_id):
+                    while True:
+                        # Receive the message from the session
+                        _session, msg = await self.local_app.receive(session=session_id)
+                        format_message_print(
+                            f"{instance}",
+                            f"received (from session {session_id}): {msg.decode()}",
+                        )
+
+                        # Call the RPC handler
+                        if session_id.destination_name in self.handlers:
+                            rpc_handler = self.handlers[session_id.destination_name]
+
+                            request = rpc_handler.request_deserializer(msg)
+
+                            format_message_print(
+                                f"{instance}",
+                                f"calling handler {rpc_handler.name} for session {session_id.id}",
+                            )
+
+                            # Call the RPC handler and get the response
+                            response = await rpc_handler.handler(request)
+
+                            # Send the response back to the client
+                            await self.local_app.publish_to(
+                                session_info,
+                                response,
+                            )
+
+                            # TODO(msardara): handle cleanup
+
+                asyncio.create_task(background_task(session_info.id))
+
+    def handler_name_to_pyname(self, rpc_handler: Rpc) -> slim_bindings.PyName:
+        """
+        Convert a handler name to a PyName.
+        """
+
+        components = self.local_app.local_name.components
+
+        subscription_name = slim_bindings.PyName(
+            components[0],
+            components[1],
+            f"{components[3]}-{rpc_handler.name}",
+        )
+
+        return subscription_name
+
+    def pyname_to_handler_name(
+        self, subscription_name: slim_bindings.PyName
+    ) -> str:
+        """
+        Convert a PyName to a handler name.
+        """
+
+        return subscription_name.components[3]
