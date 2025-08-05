@@ -17,7 +17,8 @@ class ErrorResponse(Exception):
 
 class Rpc:
     """
-    Base class for RPC object. It holds
+    Base class for RPC object. It holds the method name, handler, serializers, and
+    deserializers for the request and response.
     """
 
     def __init__(
