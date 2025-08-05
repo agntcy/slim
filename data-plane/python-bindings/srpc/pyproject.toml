@@ -1,0 +1,23 @@
+# Copyright AGNTCY Contributors (https://github.com/agntcy)
+# SPDX-License-Identifier: Apache-2.0
+
+[project]
+name = "srpc"
+version = "0.1.0"
+description = "RPC over Slim Library"
+requires-python = ">=3.9"
+license = "Apache-2.0"
+dependencies = ["slim-bindings>=0.3.6", "click>=8.1.8", "grpcio>=1.64.0", "grpcio-tools>=1.64.0"]
+
+[tool.uv.sources]
+slim-bindings = { workspace = true }
+
+[project.scripts]
+server = "srpc.examples.server:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/srpc"]
