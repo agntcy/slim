@@ -252,7 +252,7 @@ async fn main() {
         }
 
         // send message
-        app.publish_to(recv_msg.info, &source, conn_id, out_vec)
+        app.publish_to(recv_msg.info, &source, conn_id, out_vec, None, None)
             .await
             .unwrap();
     }

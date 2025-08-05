@@ -535,8 +535,14 @@ impl ProtoMessage {
         self.metadata.get(key)
     }
 
-    pub fn get_metadata_map(&self) -> HashMap<String,String> {
+    pub fn get_metadata_map(&self) -> HashMap<String, String> {
         self.metadata.clone()
+    }
+
+    pub fn set_metadata_map(&mut self, map: HashMap<String, String>) {
+        for (k, v) in map.iter() {
+            self.insert_metadata(k.to_string(), v.to_string());
+        }
     }
 
     pub fn get_slim_header(&self) -> &SlimHeader {

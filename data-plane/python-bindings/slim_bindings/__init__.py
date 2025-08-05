@@ -510,6 +510,8 @@ class Slim:
         session: PySessionInfo,
         msg: bytes,
         dest: PyName,
+        payload_type: Optional[str] = None,
+        metadata: Optional[dict] = None,
     ):
         """
         Publish a message to an app or channel via normal matching in subscription table.
@@ -518,6 +520,8 @@ class Slim:
             session (PySessionInfo): The session information.
             msg (str): The message to publish.
             dest (PyName): The destination name to publish the message to.
+            payload_type (str): The type of the message payload (optional)
+            metadata (dict): The metadata associated to the message (optional)
 
         Returns:
             None
@@ -527,7 +531,7 @@ class Slim:
         if session.id not in self.sessions:
             raise Exception("session not found", session.id)
 
-        await publish(self.svc, session, 1, msg, dest)
+        await publish(self.svc, session, 1, msg, dest, payload_type, metadata)
 
     async def invite(
         self,

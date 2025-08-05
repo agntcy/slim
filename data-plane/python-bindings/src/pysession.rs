@@ -62,15 +62,15 @@ impl PySessionInfo {
     }
 
     #[getter]
-    pub fn content_type(&self) -> String {
-        match &self.session_info.content_type {
+    pub fn payload_type(&self) -> String {
+        match &self.session_info.payload_type {
             Some(t) => t.clone(),
             None => "".to_string(),
         }
     }
 
     #[getter]
-    pub fn metadata(&self) -> HashMap<String,String> {
+    pub fn metadata(&self) -> HashMap<String, String> {
         self.session_info.metadata.clone()
     }
 }
