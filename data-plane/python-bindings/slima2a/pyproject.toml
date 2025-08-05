@@ -4,10 +4,14 @@ version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.10, <4.0"
-dependencies = []
+dependencies = ["a2a-sdk>=0.3.0", "uvicorn>=0.34.2"]
 
 [tool.uv.sources]
 srpc = { workspace = true }
 
 [tool.ruff.lint.per-file-ignores]
 "slima2a/types" = ["UP"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
