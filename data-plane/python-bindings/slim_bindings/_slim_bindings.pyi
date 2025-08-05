@@ -41,6 +41,8 @@ class PySessionInfo:
     id: builtins.int
     source_name: PyName
     destination_name: PyName
+    content_type: builtins.str
+    metadata: builtins.dict[builtins.str, builtins.str]
     def __new__(cls,session_id:builtins.int): ...
 
 class PyAlgorithm(Enum):

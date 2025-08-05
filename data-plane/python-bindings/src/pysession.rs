@@ -1,6 +1,8 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
+use std::collections::HashMap;
+
 use pyo3::prelude::*;
 use pyo3_stub_gen::derive::gen_stub_pyclass;
 use pyo3_stub_gen::derive::gen_stub_pyclass_enum;
@@ -57,6 +59,19 @@ impl PySessionInfo {
             None => Name::from_strings(["", "", ""]),
         };
         PyName::from(name)
+    }
+
+    #[getter]
+    pub fn content_type(&self) -> String {
+        match &self.session_info.content_type {
+            Some(t) => t.clone(),
+            None => "".to_string(),
+        }
+    }
+
+    #[getter]
+    pub fn metadata(&self) -> HashMap<String,String> {
+        self.session_info.metadata.clone()
     }
 }
 

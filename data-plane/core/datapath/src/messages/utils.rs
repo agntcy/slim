@@ -535,6 +535,10 @@ impl ProtoMessage {
         self.metadata.get(key)
     }
 
+    pub fn get_metadata_map(&self) -> HashMap<String,String> {
+        self.metadata.clone()
+    }
+
     pub fn get_slim_header(&self) -> &SlimHeader {
         match &self.message_type {
             Some(ProtoPublishType(publish)) => publish.header.as_ref().unwrap(),
