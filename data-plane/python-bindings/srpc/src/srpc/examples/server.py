@@ -22,10 +22,16 @@ def create_server(
 
     return server
 
+
 def main():
     server = create_server(
         local="agntcy/grpc/server",
-        slim={"endpoint": "http://localhost:46357"},
+        slim={
+            "endpoint": "http://localhost:46357",
+            "tls": {
+                "insecure": True,
+            },
+        },
         enable_opentelemetry=True,
         shared_secret="my_shared_secret",
     )
