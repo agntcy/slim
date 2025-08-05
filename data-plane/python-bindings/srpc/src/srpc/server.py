@@ -2,20 +2,13 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import asyncio
-import datetime
-
-
-import click
 
 import slim_bindings
-
 from srpc.rpc import Rpc
 
 from .common import (
-    common_options,
     create_local_app,
     format_message_print,
-    split_id,
 )
 
 

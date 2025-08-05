@@ -6,9 +6,8 @@ import asyncio
 from .common import (
     common_options,
 )
-from .server import Server as Server
 from .rpc import Rpc as Rpc
-
+from .server import Server as Server
 
 HELP = """
 SRPC Server implementation.

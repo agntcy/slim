@@ -1,7 +1,7 @@
 import asyncio
 
-from srpc.server import Server
 from srpc.rpc import Rpc
+from srpc.server import Server
 
 
 def create_server(

@@ -3,6 +3,7 @@
 
 from collections.abc import Awaitable
 
+
 class Rpc:
     """
     Base class for RPC object. It holds
@@ -11,7 +12,7 @@ class Rpc:
     def __init__(
         self,
         method_name: str,
-        handler: Awaitable, # Or Callable?
+        handler: Awaitable,  # Or Callable?
         request_deserializer: callable,
         response_serializer: callable,
         service_name: str | None = None,
