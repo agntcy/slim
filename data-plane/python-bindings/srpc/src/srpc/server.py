@@ -10,6 +10,7 @@ from srpc.common import (
     split_id,
 )
 from srpc.rpc import Rpc
+from srpc.context import Context
 
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
@@ -88,10 +89,13 @@ class Server:
 
         while True:
             # Receive the message from the session
-            _session, msg = await local_app.receive(session=session_id)
+            session, msg = await local_app.receive(session=session_id)
             logging.info(
                 f"{instance} received (from session {session_id}): {msg.decode()}",
             )
+
+            # build the context for the RPC call
+            context = Context.from_sessioninfo(session)
 
             # Call the RPC handler
             if session_id.destination_name in self.handlers:
@@ -104,13 +108,13 @@ class Server:
 
                 # Send the response back to the client
                 if rpc_handler.response_streaming:
-                    async for response in rpc_handler.handler(request):
+                    async for response in rpc_handler.handler(request, context):
                         response_bytes = rpc_handler.response_serializer(response)
                         await local_app.publish_to(session_info, response_bytes)
 
                     return
 
-                response = await rpc_handler.handler(request)
+                response = await rpc_handler.handler(request, context)
                 response_bytes = rpc_handler.response_serializer(response)
                 await local_app.publish_to(
                     session_info,
