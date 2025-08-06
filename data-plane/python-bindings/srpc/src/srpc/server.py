@@ -137,7 +137,7 @@ class Server:
         async def generator():
             try:
                 while True:
-                    session_recv, request_bytes = await self.local_app.receive(
+                    session_recv, request_bytes = await local_app.receive(
                         session=session_info.id,
                     )
 

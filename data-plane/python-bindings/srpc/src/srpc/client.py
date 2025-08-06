@@ -65,12 +65,8 @@ class SRPCChannel:
         request_serializer: callable = lambda x: x,
         response_deserializer: callable = lambda x: x,
     ):
-        """
-        Create a stream-stream callable for the given method.
-        """
-
         async def call_stream_stream(
-            requests,
+            request_stream: AsyncIterable,
             timeout=None,
             metadata=None,
             credentials=None,
@@ -83,19 +79,55 @@ class SRPCChannel:
                 service_name,
             )
 
-            async with self.multi_callable_streams(
-                service_name,
-                request_serializer=request_serializer,
-                response_deserializer=response_deserializer,
-                stream_request=True,
-                stream_response=True,
-            ) as (recv_stream, send_stream):
-                # Send stream of requests
-                async for request in requests:
-                    await send_stream.send(request)
+            # Create a session
+            session = await self.local_app.create_session(
+                slim_bindings.PySessionConfiguration.FireAndForget()
+            )
 
-                # Wait for 1 response
-                return await recv_stream.receive()
+            # TODO: check how this is done in grpc
+
+            # Send the request
+            async for request in request_stream:
+                request_bytes = request_serializer(request)
+                await self.local_app.publish(
+                    session,
+                    request_bytes,
+                    dest=service_name,
+                    metadata=metadata,
+                )
+
+            # Send end of streaming message
+            await self.local_app.publish(
+                session,
+                b"",
+                dest=service_name,
+                metadata={"code": str(Code.OK)},
+            )
+
+            # Wait for the responses
+            async def generator():
+                try:
+                    while True:
+                        session_recv, response_bytes = await self.local_app.receive(
+                            session=session.id,
+                        )
+
+                        print(session_recv.metadata)
+                        if (
+                            session_recv.metadata.get("code") == str(Code.OK)
+                            and not response_bytes
+                        ):
+                            logger.info("End of stream received")
+                            break
+
+                        response = response_deserializer(response_bytes)
+                        yield response
+                except Exception as e:
+                    logger.error(f"Error receiving messages: {e}")
+                    raise
+
+            async for response in generator():
+                yield response
 
         return call_stream_stream
 
@@ -106,39 +138,50 @@ class SRPCChannel:
         response_deserializer: callable = lambda x: x,
     ):
         async def call_stream_unary(
-            requests: AsyncIterable,
+            request_stream: AsyncIterable,
             timeout=None,
             metadata=None,
             credentials=None,
             wait_for_ready=None,
             compression=None,
         ):
-            logger.info(f"----------------------------------------------")
-
             service_name = service_and_method_to_pyname(self.slim_service_name, method)
 
             await self.local_app.set_route(
                 service_name,
             )
 
-            async with self.multi_callable_streams(
-                service_name,
-                request_serializer=request_serializer,
-                response_deserializer=response_deserializer,
-                stream_request=True,
-                stream_response=False,
-            ) as (recv_stream, send_stream):
-                logger.info(f"Sending stream-unary request to {service_name}")
+            # Create a session
+            session = await self.local_app.create_session(
+                slim_bindings.PySessionConfiguration.FireAndForget()
+            )
 
-                # Send stream of requests
-                async for request in requests:
-                    await send_stream.send(request)
+            # Send the request
+            async for request in request_stream:
+                request_bytes = request_serializer(request)
+                await self.local_app.publish(
+                    session,
+                    request_bytes,
+                    dest=service_name,
+                    metadata=metadata,
+                )
 
-                # Send a message to signal the stream is complete
-                await send_stream.send()
+            # Send enf of streaming message
+            await self.local_app.publish(
+                session,
+                b"",
+                dest=service_name,
+                metadata={"code": str(Code.OK)},
+            )
 
-                # Wait for 1 response
-                return await recv_stream.receive()
+            # Wait for response
+            session_recv, response_bytes = await self.local_app.receive(
+                session=session.id,
+            )
+
+            response = response_deserializer(response_bytes)
+
+            return response
 
         return call_stream_unary
 
@@ -191,7 +234,10 @@ class SRPCChannel:
                         )
 
                         print(session_recv.metadata)
-                        if session_recv.metadata.get("code") == str(Code.OK) and not response_bytes:
+                        if (
+                            session_recv.metadata.get("code") == str(Code.OK)
+                            and not response_bytes
+                        ):
                             logger.info("End of stream received")
                             break
 
