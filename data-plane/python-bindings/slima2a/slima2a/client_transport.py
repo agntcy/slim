@@ -1,7 +1,7 @@
 import logging
 from collections.abc import AsyncGenerator
-from typing import Callable
 from dataclasses import dataclass
+from typing import Callable
 
 import srpc
 from a2a.client.client import ClientConfig as A2AClientConfig

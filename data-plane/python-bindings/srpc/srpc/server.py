@@ -4,9 +4,9 @@
 import asyncio
 import logging
 
+import slim_bindings
 from google.rpc import code_pb2
 
-import slim_bindings
 from srpc.common import (
     create_local_app,
     handler_name_to_pyname,
@@ -71,7 +71,7 @@ class Server:
         )
 
         # Subscribe
-        for s, h in self.handlers.items():
+        for s in self.handlers:
             logger.info(
                 f"Subscribing to {s}",
             )

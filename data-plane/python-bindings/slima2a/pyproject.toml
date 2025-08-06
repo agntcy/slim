@@ -12,6 +12,9 @@ srpc = { workspace = true }
 [tool.ruff.lint.per-file-ignores]
 "slima2a/types" = ["UP"]
 
+[tool.ruff.lint]
+extend-select = ["I", "ASYNC", "SIM", "B"]
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
