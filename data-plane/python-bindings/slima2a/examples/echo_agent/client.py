@@ -68,10 +68,10 @@ async def main() -> None:
         return channel
 
     client_config = ClientConfig(
-            supported_transports=["JSONRPC", "srpc"],
-            streaming=args.stream,
-            httpx_client=httpx_client,
-            srpc_channel_factory=channel_factory,
+        supported_transports=["JSONRPC", "srpc"],
+        streaming=args.stream,
+        httpx_client=httpx_client,
+        srpc_channel_factory=channel_factory,
     )
     client_factory = ClientFactory(client_config)
     client_factory.register("srpc", SRPCTransport.create)
