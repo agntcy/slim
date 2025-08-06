@@ -1,8 +1,8 @@
 import logging
+from collections.abc import AsyncGenerator
 from typing import Callable
 
-from collections.abc import AsyncGenerator
-
+import srpc
 from a2a.client.client import ClientConfig as A2AClientConfig
 from a2a.client.middleware import ClientCallContext, ClientCallInterceptor
 from a2a.client.transports.base import ClientTransport
@@ -20,9 +20,7 @@ from a2a.types import (
 )
 from a2a.utils import proto_utils
 from a2a.utils.telemetry import SpanKind, trace_class
-
-import srpc
-from srpc import SRPCChannel
+from srpc.client import SRPCChannel
 
 from slima2a.types import a2a_pb2, a2a_pb2_srpc
 
