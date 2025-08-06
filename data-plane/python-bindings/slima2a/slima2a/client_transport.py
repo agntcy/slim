@@ -1,6 +1,7 @@
 import logging
 from collections.abc import AsyncGenerator
-from typing import Callable
+from typing import Callable, Awaitable
+from dataclasses import dataclass
 
 import srpc
 from a2a.client.client import ClientConfig as A2AClientConfig
@@ -26,7 +27,7 @@ from slima2a.types import a2a_pb2, a2a_pb2_srpc
 
 logger = logging.getLogger(__name__)
 
-
+@dataclass
 class ClientConfig(A2AClientConfig):
     srpc_channel_factory: Callable[[str], SRPCChannel] | None = None
 
@@ -37,11 +38,13 @@ class SRPCTransport(ClientTransport):
 
     def __init__(
         self,
+        channel_task: Awaitable,
         channel: SRPCChannel,
         agent_card: AgentCard | None,
     ):
         """Initializes the GrpcTransport."""
         self.agent_card = agent_card
+        self.channel_task = channel_task
         self.channel = channel
         self.stub = a2a_pb2_srpc.A2AServiceStub(channel)
         self._needs_extended_card = (
@@ -59,8 +62,10 @@ class SRPCTransport(ClientTransport):
         """Creates a gRPC transport for the A2A client."""
         if config.srpc_channel_factory is None:
             raise ValueError("srpc_channel_factory is required when using sRPC")
+        task, channel = config.srpc_channel_factory(url)
         return cls(
-            config.srpc_channel_factory(url),
+            task,
+            channel,
             card,
         )
 
@@ -71,6 +76,7 @@ class SRPCTransport(ClientTransport):
         context: ClientCallContext | None = None,
     ) -> Task | Message:
         """Sends a non-streaming message request to the agent."""
+        await self.channel_task
         response = await self.stub.SendMessage(
             a2a_pb2.SendMessageRequest(
                 request=proto_utils.ToProto.message(request.message),
@@ -93,6 +99,7 @@ class SRPCTransport(ClientTransport):
         Message | Task | TaskStatusUpdateEvent | TaskArtifactUpdateEvent
     ]:
         """Sends a streaming message request to the agent and yields responses as they arrive."""
+        await self.channel_task
         stream = self.stub.SendStreamingMessage(
             a2a_pb2.SendMessageRequest(
                 request=proto_utils.ToProto.message(request.message),
@@ -114,6 +121,7 @@ class SRPCTransport(ClientTransport):
         Task | Message | TaskStatusUpdateEvent | TaskArtifactUpdateEvent
     ]:
         """Reconnects to get task updates."""
+        await self.channel_task
         stream = self.stub.TaskSubscription(
             a2a_pb2.TaskSubscriptionRequest(name=f"tasks/{request.id}")
         )
@@ -130,6 +138,7 @@ class SRPCTransport(ClientTransport):
         context: ClientCallContext | None = None,
     ) -> Task:
         """Retrieves the current state and history of a specific task."""
+        await self.channel_task
         task = await self.stub.GetTask(
             a2a_pb2.GetTaskRequest(name=f"tasks/{request.id}")
         )
@@ -142,6 +151,7 @@ class SRPCTransport(ClientTransport):
         context: ClientCallContext | None = None,
     ) -> Task:
         """Requests the agent to cancel a specific task."""
+        await self.channel_task
         task = await self.stub.CancelTask(
             a2a_pb2.CancelTaskRequest(name=f"tasks/{request.id}")
         )
@@ -154,6 +164,7 @@ class SRPCTransport(ClientTransport):
         context: ClientCallContext | None = None,
     ) -> TaskPushNotificationConfig:
         """Sets or updates the push notification configuration for a specific task."""
+        await self.channel_task
         config = await self.stub.CreateTaskPushNotificationConfig(
             a2a_pb2.CreateTaskPushNotificationConfigRequest(
                 parent=f"tasks/{request.task_id}",
@@ -170,6 +181,7 @@ class SRPCTransport(ClientTransport):
         context: ClientCallContext | None = None,
     ) -> TaskPushNotificationConfig:
         """Retrieves the push notification configuration for a specific task."""
+        await self.channel_task
         config = await self.stub.GetTaskPushNotificationConfig(
             a2a_pb2.GetTaskPushNotificationConfigRequest(
                 name=f"tasks/{request.id}/pushNotificationConfigs/{request.push_notification_config_id}",
@@ -183,6 +195,7 @@ class SRPCTransport(ClientTransport):
         context: ClientCallContext | None = None,
     ) -> AgentCard:
         """Retrieves the agent's card."""
+        await self.channel_task
         card = self.agent_card
         if card and not self._needs_extended_card:
             return card
