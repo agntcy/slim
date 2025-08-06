@@ -198,7 +198,7 @@ class Server:
 
             # Send a end-of-stream message
             logger.info(f"Sending end of stream message")
-            local_app.publish_to(
+            await local_app.publish_to(
                 session_info,
                 b"",
                 metadata={"code": str(Code.OK)},

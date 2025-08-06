@@ -191,7 +191,7 @@ class SRPCChannel:
                         )
 
                         print(session_recv.metadata)
-                        if session_recv.metadata.get("code") == str(Code.OK) and not request_bytes:
+                        if session_recv.metadata.get("code") == str(Code.OK) and not response_bytes:
                             logger.info("End of stream received")
                             break
 
