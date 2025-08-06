@@ -21,7 +21,6 @@ from a2a.types import (
 )
 from a2a.utils import proto_utils
 from a2a.utils.telemetry import SpanKind, trace_class
-from srpc.client import SRPCChannel
 
 from slima2a.types import a2a_pb2, a2a_pb2_srpc
 
@@ -29,7 +28,7 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class ClientConfig(A2AClientConfig):
-    srpc_channel_factory: Callable[[str], SRPCChannel] | None = None
+    srpc_channel_factory: Callable[[str], srpc.Channel] | None = None
 
 
 @trace_class(kind=SpanKind.CLIENT)
@@ -38,7 +37,7 @@ class SRPCTransport(ClientTransport):
 
     def __init__(
         self,
-        channel: SRPCChannel,
+        channel: srpc.Channel,
         agent_card: AgentCard | None,
     ):
         """Initializes the GrpcTransport."""
