@@ -4,7 +4,14 @@ import logging
 from uuid import uuid4
 
 import httpx
-from a2a.client import A2ACardResolver, Client, ClientConfig, ClientFactory
+import srpc
+from a2a.client import (
+    A2ACardResolver,
+    Client,
+    ClientConfig,
+    ClientFactory,
+    minimal_agent_card,
+)
 from a2a.types import (
     AgentCard,
     Message,
@@ -15,6 +22,8 @@ from a2a.types import (
 from a2a.utils.constants import (
     AGENT_CARD_WELL_KNOWN_PATH,
 )
+
+from slima2a.client_transport import SRPCTransport
 
 BASE_URL = "http://localhost:9999"
 
@@ -44,21 +53,27 @@ async def main() -> None:
     logging.basicConfig(level=args.log_level)
 
     async with httpx.AsyncClient() as httpx_client:
-        agent_card = await fetch_agent_card(
-            resolver=A2ACardResolver(
-                httpx_client=httpx_client,
-                base_url=BASE_URL,
-            )
+        client_config = ClientConfig(
+            httpx_client=httpx_client,
+            streaming=args.stream,
         )
+        client_factory = ClientFactory(client_config)
 
-        client = ClientFactory(
-            config=ClientConfig(
-                httpx_client=httpx_client,
-                streaming=args.stream,
-            ),
-        ).create(
-            card=agent_card,
-        )
+        agent_card = None
+        match args.type:
+            case "srpc":
+                client_factory.register("srpc", SRPCTransport.create)
+
+                agent_card = minimal_agent_card("Echo Agent", ["srpc"])
+            case "starlette":
+                agent_card = await fetch_agent_card(
+                    resolver=A2ACardResolver(
+                        httpx_client=httpx_client,
+                        base_url=BASE_URL,
+                    )
+                )
+
+        client = client_factory.create(card=agent_card)
         logger.info("A2AClient initialized.")
 
         response_text = await send_message(client, args.text)
@@ -68,6 +83,7 @@ async def main() -> None:
 
 def parse_arguments() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
+
     parser.add_argument(
         "--log-level",
         type=str,
@@ -85,7 +101,19 @@ def parse_arguments() -> argparse.Namespace:
         type=str,
         required=True,
     )
-    return parser.parse_args()
+    parser.add_argument(
+        "--type",
+        type=str,
+        required=False,
+        default="srpc",
+    )
+
+    args = parser.parse_args()
+
+    if args.type not in ["srpc", "starlette"]:
+        raise ValueError(f"Invalid client type: {args.type}")
+
+    return args
 
 
 async def send_message(
@@ -119,6 +147,14 @@ async def send_message(
 
                 if update:
                     logger.info(f"update: {update.model_dump(mode='json')}")
+    except srpc.ErrorResponse as e:
+        logger.error(
+            f"failed sending message or processing response on SRPC: {e}",
+            exc_info=True,
+        )
+        raise RuntimeError(
+            "failed sending message or processing response on SRPC"
+        ) from e
     except Exception as e:
         logger.error(
             f"failed sending message or processing response: {e}",
