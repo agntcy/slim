@@ -57,6 +57,7 @@ async def main() -> None:
     def channel_factory(topic) -> SRPCChannel:
         channel = SRPCChannel(
             local="agntcy/demo/client",
+            remote=topic,
             slim={
                 "endpoint": "http://localhost:46357",
                 "tls": {
@@ -65,8 +66,7 @@ async def main() -> None:
             },
             shared_secret="secret",
         )
-        task = asyncio.get_running_loop().create_task(channel.connect(topic))
-        return task, channel
+        return channel
 
     client_config = ClientConfig(
             supported_transports=["JSONRPC", "srpc"],
