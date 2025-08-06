@@ -6,8 +6,8 @@ import json
 import logging
 
 import click
-
 import slim_bindings
+
 from srpc.rpc import Rpc
 
 logger = logging.getLogger(__name__)

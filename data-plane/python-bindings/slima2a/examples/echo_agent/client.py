@@ -22,7 +22,7 @@ from a2a.utils.constants import (
     AGENT_CARD_WELL_KNOWN_PATH,
 )
 
-from slima2a.client_transport import SRPCTransport, ClientConfig
+from slima2a.client_transport import ClientConfig, SRPCTransport
 
 BASE_URL = "http://localhost:9999"
 

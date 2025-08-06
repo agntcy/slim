@@ -2,8 +2,8 @@ import asyncio
 import logging
 from collections.abc import AsyncIterable
 
-from srpc.grpc.example_pb2 import ExampleRequest, ExampleResponse
-from srpc.grpc.example_pb2_srpc import TestServicer, add_TestServicer_to_server
+from srpc.examples.simple.types.example_pb2 import ExampleRequest, ExampleResponse
+from srpc.examples.simple.types.example_pb2_srpc import TestServicer, add_TestServicer_to_server
 from srpc.server import Server
 
 logging.basicConfig(level=logging.DEBUG)
