@@ -127,66 +127,72 @@ class Server:
 
         rpc_handler: Rpc = self.handlers[session_info.destination_name]
 
-        async with self.multi_callable_streams(
-            local_app,
-            session_info,
-            rpc_handler.request_deserializer,
-            rpc_handler.response_serializer,
-        ) as (read_stream, write_stream):
-            # Call the RPC handler
-            if session_info.destination_name not in self.handlers:
-                logger.error(
-                    f"{instance} no handler found for session {session_info.id} with destination {session_info.destination_name}",
-                )
-                return
+        # Call the RPC handler
+        if session_info.destination_name not in self.handlers:
+            logger.error(
+                f"{instance} no handler found for session {session_info.id} with destination {session_info.destination_name}",
+            )
+            return
 
-            if not rpc_handler.request_streaming:
-                # Read the request from the stream
-                request, context = await self.recv_message(local_app, session_info, rpc_handler.request_deserializer)
-            else:
-                async def generator():
-                    async for request, context in read_stream:
-                        yield (request, context)
+        if not rpc_handler.request_streaming:
+            # Read the request from the stream
+            request, context = await self.recv_message(local_app, session_info, rpc_handler.request_deserializer)
+        else:
+            async def generator():
+                try:
+                    while True:
+                        session_recv, response_bytes = await self.local_app.receive(
+                            session=session_info.id,
+                        )
+                        if session_recv.metadata.get("code") == Code.END_OF_STREAM:
+                            logger.info("End of stream received")
+                            break
 
-                request, context = generator(), Context.from_sessioninfo(session_info)
+                        response = rpc_handler.request_deserializer(response_bytes)
+                        yield response
+                except Exception as e:
+                    logger.error(f"Error receiving messages: {e}")
+                    raise
 
-            logger.info(f"Handling request {request} with context {context}")
-            if not rpc_handler.response_streaming:
-                logger.info(f"handling unary response")
+            request, context = generator(), Context.from_sessioninfo(session_info)
 
-                # Call the handler with the request and context
-                response = await rpc_handler.handler(request, context)
+        logger.info(f"Handling request {request} with context {context}")
+        if not rpc_handler.response_streaming:
+            logger.info(f"handling unary response")
 
-                logger.info(f"Response------->: {response}")
+            # Call the handler with the request and context
+            response = await rpc_handler.handler(request, context)
 
-                # Create generator to send the response
-                async def generator():
-                    yield response
+            logger.info(f"Response------->: {response}")
 
-                response_generator = generator()
-            else:
-                # If the response is streaming, we need to handle it differently
-                logger.info(f"handling streaming response")
-                response_generator = rpc_handler.handler(request, context)
-                logger.info(f"----------------------> {response_generator}")
+            # Create generator to send the response
+            async def generator():
+                yield response
 
-            # Send the response back to the client
-            code = 0
-            try:
-                async for response in response_generator:
-                    await write_stream.send((response, {"code": code}))
-            except ErrorResponse as e:
-                logger.error("Error while calling handler 1")
-                response = status_pb2.Status(
-                    code=e.code, message=e.message, details=e.details
-                )
-                code = e.code
-            except Exception as e:
-                logger.error(f"Error while calling handler 2 {e}")
-                response = status_pb2.Status(
-                    code=code_pb2.UNKNOWN, message="Internal Error", details=None
-                )
-                code = code_pb2.UNKNOWN
-            finally:
-                # Close the write stream
-                await write_stream.aclose()
+            response_generator = generator()
+        else:
+            # If the response is streaming, we need to handle it differently
+            logger.info(f"handling streaming response")
+            response_generator = rpc_handler.handler(request, context)
+            logger.info(f"----------------------> {response_generator}")
+
+        # Send the response back to the client
+        code = 0
+        try:
+            async for response in response_generator:
+                await write_stream.send((response, {"code": code}))
+        except ErrorResponse as e:
+            logger.error("Error while calling handler 1")
+            response = status_pb2.Status(
+                code=e.code, message=e.message, details=e.details
+            )
+            code = e.code
+        except Exception as e:
+            logger.error(f"Error while calling handler 2 {e}")
+            response = status_pb2.Status(
+                code=code_pb2.UNKNOWN, message="Internal Error", details=None
+            )
+            code = code_pb2.UNKNOWN
+        finally:
+            # Close the write stream
+            await write_stream.aclose()
