@@ -18,7 +18,7 @@ logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
 
 
-class SRPCChannel:
+class Channel:
     def __init__(
         self,
         local: str,

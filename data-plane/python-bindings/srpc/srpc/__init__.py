@@ -3,7 +3,7 @@
 
 from grpc import StatusCode
 
-from srpc.client import SRPCChannel
+from srpc.client import Channel
 from srpc.context import Context
 from srpc.rpc import (
     ErrorResponse,
@@ -25,5 +25,5 @@ __all__ = [
     "unary_stream_rpc_method_handler",
     "unary_unary_rpc_method_handler",
     "Server",
-    "SRPCChannel",
+    "Channel",
 ]

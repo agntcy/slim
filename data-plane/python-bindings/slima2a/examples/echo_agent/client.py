@@ -22,7 +22,6 @@ from a2a.utils.constants import (
     AGENT_CARD_WELL_KNOWN_PATH,
 )
 
-from srpc.client import SRPCChannel
 from slima2a.client_transport import SRPCTransport, ClientConfig
 
 BASE_URL = "http://localhost:9999"
@@ -54,8 +53,8 @@ async def main() -> None:
 
     httpx_client = httpx.AsyncClient()
 
-    def channel_factory(topic) -> SRPCChannel:
-        channel = SRPCChannel(
+    def channel_factory(topic) -> srpc.Channel:
+        channel = srpc.Channel(
             local="agntcy/demo/client",
             remote=topic,
             slim={
