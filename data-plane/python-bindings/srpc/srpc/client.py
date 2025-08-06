@@ -34,7 +34,9 @@ class SRPCChannel:
         self.handlers = {}
         self.remote = split_id(remote)
         self.local_app: slim_bindings.Slim = None
-        self.prepare_task = asyncio.get_running_loop().create_task(self.prepare_channel())
+        self.prepare_task = asyncio.get_running_loop().create_task(
+            self.prepare_channel()
+        )
 
     async def prepare_channel(self):
         # Create local SLIM instance
@@ -218,7 +220,9 @@ class SRPCChannel:
             service_name, session = await self.common_setup(method)
 
             # Send the requests
-            await self.send_stream(request_stream, session, service_name, metadata, request_serializer)
+            await self.send_stream(
+                request_stream, session, service_name, metadata, request_serializer
+            )
 
             # Wait for response
             return await self.receive_unary(session, response_deserializer)
@@ -243,7 +247,9 @@ class SRPCChannel:
             service_name, session = await self.common_setup(method)
 
             # Send the request
-            await self.send_unary(request, session, service_name, metadata, request_serializer)
+            await self.send_unary(
+                request, session, service_name, metadata, request_serializer
+            )
 
             # Wait for the responses
             async for response in self.receive_stream(session, response_deserializer):
@@ -269,10 +275,14 @@ class SRPCChannel:
             service_name, session = await self.common_setup(method)
 
             # Send request
-            await self.send_unary(request, session, service_name, metadata, request_serializer)
+            await self.send_unary(
+                request, session, service_name, metadata, request_serializer
+            )
 
             # Wait for the response
-            session_recv, response = await self.receive_unary(session, response_deserializer)
+            session_recv, response = await self.receive_unary(
+                session, response_deserializer
+            )
 
             return response
 
