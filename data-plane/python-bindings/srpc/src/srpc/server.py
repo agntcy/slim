@@ -84,6 +84,8 @@ class Server:
         request = request_deserializer(request_bytes)
         context = Context.from_sessioninfo(recv_session)
 
+        return request, context
+
     async def run(self):
         """
         Run the server, creating a local SLIM instance and subscribing to the handlers.
@@ -140,7 +142,7 @@ class Server:
 
             if not rpc_handler.request_streaming:
                 # Read the request from the stream
-                request, context = await read_stream.receive()
+                request, context = await self.recv_message(local_app, session_info, rpc_handler.request_deserializer)
             else:
                 async def generator():
                     async for request, context in read_stream:
