@@ -46,7 +46,7 @@ class DefaultCallContextBuilder(CallContextBuilder):
             user=user,
             state=state,
             requested_extensions=get_requested_extensions(
-                json.loads(context.metadata[HTTP_EXTENSION_HEADER]),
+                context.metadata.get(HTTP_EXTENSION_HEADER, ""),
             ),
         )
 
@@ -103,7 +103,6 @@ class SRPCHandler(a2a_pb2_srpc.A2AServiceServicer):
             task_or_message = await self.request_handler.on_message_send(
                 a2a_request, server_context
             )
-            self._set_extension_metadata(context, server_context)
             return proto_utils.ToProto.task_or_message(task_or_message)
         except ServerError as e:
             await self.raise_error_response(e)
@@ -142,7 +141,6 @@ class SRPCHandler(a2a_pb2_srpc.A2AServiceServicer):
                 a2a_request, server_context
             ):
                 yield proto_utils.ToProto.stream_response(event)
-            self._set_extension_metadata(context, server_context)
         except ServerError as e:
             await self.raise_error_response(e)
         return
