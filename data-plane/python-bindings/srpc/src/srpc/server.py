@@ -3,12 +3,9 @@
 
 import asyncio
 import logging
-from contextlib import asynccontextmanager
 
 from google.rpc import code_pb2, status_pb2
-
-import anyio
-from srpc.codes import Code
+from google.rpc.code_pb2 import Code
 
 import slim_bindings
 from srpc.common import (

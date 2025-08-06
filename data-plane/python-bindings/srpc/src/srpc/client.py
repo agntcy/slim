@@ -1,15 +1,11 @@
 # Copyright AGNTCY Contributors (https://github.com/agntcy)
 # SPDX-License-Identifier: Apache-2.0
 
-from collections.abc import AsyncIterable
-import datetime
+
 import logging
-from contextlib import asynccontextmanager
+from collections.abc import AsyncIterable
 
-from google.rpc import code_pb2
-
-import anyio
-from srpc.codes import Code
+from google.rpc.code_pb2 import Code
 
 import slim_bindings
 from srpc.common import (
