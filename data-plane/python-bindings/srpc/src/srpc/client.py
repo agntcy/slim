@@ -189,7 +189,9 @@ class SRPCChannel:
                         session_recv, response_bytes = await self.local_app.receive(
                             session=session.id,
                         )
-                        if session_recv.metadata.get("code") == Code.END_OF_STREAM:
+
+                        print(session_recv.metadata)
+                        if session_recv.metadata.get("code") == str(Code.OK) and not request_bytes:
                             logger.info("End of stream received")
                             break
 

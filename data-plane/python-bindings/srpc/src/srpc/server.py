@@ -134,26 +134,37 @@ class Server:
             )
             return
 
+        async def generator():
+            try:
+                while True:
+                    session_recv, request_bytes = await self.local_app.receive(
+                        session=session_info.id,
+                    )
+
+                    if not rpc_handler.request_streaming:
+                        break
+
+                    if session_recv.metadata.get("code") == str(Code.OK) and not request_bytes:
+                        logger.info("End of stream received")
+                        break
+
+                    request = rpc_handler.request_deserializer(request_bytes)
+                    context = Context.from_sessioninfo(session_recv)
+
+                    yield request, context
+            except Exception as e:
+                logger.error(f"Error receiving messages: {e}")
+                raise
+
         if not rpc_handler.request_streaming:
-            # Read the request from the stream
-            request, context = await self.recv_message(local_app, session_info, rpc_handler.request_deserializer)
+            # Read the request from slim
+            session_recv, request_bytes = await local_app.receive(
+                session=session_info.id,
+            )
+
+            request = rpc_handler.request_deserializer(request_bytes)
+            context = Context.from_sessioninfo(session_recv)
         else:
-            async def generator():
-                try:
-                    while True:
-                        session_recv, request_bytes = await self.local_app.receive(
-                            session=session_info.id,
-                        )
-                        if session_recv.metadata.get("code") == Code.END_OF_STREAM:
-                            logger.info("End of stream received")
-                            break
-
-                        request = rpc_handler.request_deserializer(request_bytes)
-                        yield request
-                except Exception as e:
-                    logger.error(f"Error receiving messages: {e}")
-                    raise
-
             request, context = generator(), Context.from_sessioninfo(session_info)
 
         logger.info(f"Handling request {request} with context {context}")
@@ -177,14 +188,21 @@ class Server:
             logger.info(f"----------------------> {response_generator}")
 
         # Send the response back to the client
-        code = 0
         try:
             async for response in response_generator:
                 await local_app.publish_to(
                     session_info,
                     rpc_handler.response_serializer(response),
-                    metadata={"code": code_pb2.OK},
+                    metadata={"code": str(code_pb2.OK)},
                 )
+
+            # Send a end-of-stream message
+            logger.info(f"Sending end of stream message")
+            local_app.publish_to(
+                session_info,
+                b"",
+                metadata={"code": str(Code.OK)},
+            )
         except ErrorResponse as e:
             logger.error("Error while calling handler 1")
             response = status_pb2.Status(
