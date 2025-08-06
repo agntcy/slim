@@ -3,7 +3,7 @@ import logging
 
 from srpc.client import SRPCChannel
 from srpc.grpc.example_pb2 import ExampleRequest
-from srpc.grpc.example_pb2_grpc import TestStub
+from srpc.grpc.example_pb2_srpc import TestStub
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
