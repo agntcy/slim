@@ -598,7 +598,9 @@ class Slim:
             None
         """
 
-        await publish(self.svc, session, 1, msg, payload_type, metadata)
+        await publish(
+            self.svc, session, 1, msg, payload_type=payload_type, metadata=metadata
+        )
 
     async def receive(
         self, session: Optional[int] = None
@@ -625,7 +627,7 @@ class Slim:
         else:
             # Check if the session ID is in the sessions map
             if session not in self.sessions:
-                raise Exception("Session ID not found")
+                raise Exception(f"Session ID not found: {session}")
 
             # Get the queue for the session
             queue = self.sessions[session][1]

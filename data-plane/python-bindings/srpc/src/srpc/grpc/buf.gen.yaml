@@ -1,0 +1,13 @@
+# buf generate
+# Configuration for the buf generate command
+# Uses remote plugins, no separate install required.
+# This config generates python, go and java (protobuf) source.
+version: v2
+plugins:
+  # Python
+  - remote: buf.build/protocolbuffers/python:v29.3
+    out: .
+  - remote: buf.build/grpc/python
+    out: .
+  - remote: buf.build/protocolbuffers/pyi:v31.1
+    out: .
