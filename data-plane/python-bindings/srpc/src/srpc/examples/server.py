@@ -14,13 +14,13 @@ logger = logging.getLogger(__name__)
 class TestService(TestServicer):
     async def ExampleUnaryUnary(self, request, context) -> ExampleResponse:
         logger.info(f"Received unary-unary request: {request}")
+
         response = ExampleResponse(example_integer=1, example_string="Hello, World!")
         return response
 
     async def ExampleUnaryStream(
         self, request, context
     ) -> AsyncIterable[ExampleResponse]:
-        """Missing associated documentation comment in .proto file."""
         logger.info(f"Received unary-stream request: {request}")
 
         # generate async responses stream
@@ -31,10 +31,12 @@ class TestService(TestServicer):
     async def ExampleStreamUnary(
         self, request_iterator: AsyncIterable[ExampleRequest], context
     ) -> ExampleResponse:
-        """Missing associated documentation comment in .proto file."""
-        context.set_code(StatusCode.UNIMPLEMENTED)
-        context.set_details("Method not implemented!")
-        raise NotImplementedError("Method not implemented!")
+        logger.info(f"Received stream-unary request: {request}")
+
+        async for request in request_iterator:
+            logger.info(f"Received stream-unary request: {request}")
+        response = ExampleResponse(example_integer=1, example_string="Stream Unary Response")
+        return response
 
     async def ExampleStreamStream(
         self, request_iterator: AsyncIterable[ExampleRequest], context

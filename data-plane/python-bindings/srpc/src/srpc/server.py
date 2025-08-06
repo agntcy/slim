@@ -135,8 +135,10 @@ class Server:
                 code, response = await rpc_handler.call_handler(request, context)
 
                 # Create generator to send the response
-                async def response_generator():
+                async def generator():
                     yield response
+
+                response_generator = generator()
             else:
                 # If the response is streaming, we need to handle it differently
                 logger.info(f"handling streaming response")
@@ -145,7 +147,7 @@ class Server:
             # Send the response back to the client
             code = 0
             try:
-                async for response in response_generator():
+                async for response in response_generator:
                     await write_stream.send((response, {"code": code}))
             except ErrorResponse as e:
                 logger.error("Error while calling handler 1")
