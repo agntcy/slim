@@ -141,15 +141,15 @@ class Server:
             async def generator():
                 try:
                     while True:
-                        session_recv, response_bytes = await self.local_app.receive(
+                        session_recv, request_bytes = await self.local_app.receive(
                             session=session_info.id,
                         )
                         if session_recv.metadata.get("code") == Code.END_OF_STREAM:
                             logger.info("End of stream received")
                             break
 
-                        response = rpc_handler.request_deserializer(response_bytes)
-                        yield response
+                        request = rpc_handler.request_deserializer(request_bytes)
+                        yield request
                 except Exception as e:
                     logger.error(f"Error receiving messages: {e}")
                     raise
@@ -180,7 +180,12 @@ class Server:
         code = 0
         try:
             async for response in response_generator:
-                await write_stream.send((response, {"code": code}))
+                await local_app.publish_to(
+                    session_info,
+                    rpc_handler.response_serializer(response),
+                    metadata={"code": code_pb2.OK},
+                )
+                )
         except ErrorResponse as e:
             logger.error("Error while calling handler 1")
             response = status_pb2.Status(
