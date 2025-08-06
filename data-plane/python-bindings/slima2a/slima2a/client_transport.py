@@ -1,6 +1,6 @@
 import logging
 from collections.abc import AsyncGenerator
-from typing import Callable, Awaitable
+from typing import Callable
 from dataclasses import dataclass
 
 import srpc
@@ -25,6 +25,7 @@ from a2a.utils.telemetry import SpanKind, trace_class
 from slima2a.types import a2a_pb2, a2a_pb2_srpc
 
 logger = logging.getLogger(__name__)
+
 
 @dataclass
 class ClientConfig(A2AClientConfig):
