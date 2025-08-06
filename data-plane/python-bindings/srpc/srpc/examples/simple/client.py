@@ -1,7 +1,7 @@
 import asyncio
 import logging
 
-from srpc.client import SRPCChannel
+import srpc
 from srpc.grpc.example_pb2 import ExampleRequest
 from srpc.grpc.example_pb2_srpc import TestStub
 
@@ -18,7 +18,7 @@ def create_channel(
     """
     Create a new SRPC channel instance.
     """
-    channel = SRPCChannel(
+    channel = srpc.Channel(
         local=local,
         slim=slim,
         enable_opentelemetry=enable_opentelemetry,
