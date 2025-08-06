@@ -1,7 +1,48 @@
 import asyncio
+import logging
+from collections.abc import AsyncIterable
 
-from srpc.rpc import Rpc
+from srpc.grpc.example_pb2 import ExampleRequest, ExampleResponse
+from srpc.grpc.example_pb2_srpc import TestServicer, add_TestServicer_to_server
 from srpc.server import Server
+
+logging.basicConfig(level=logging.DEBUG)
+logger = logging.getLogger(__name__)
+
+
+class TestService(TestServicer):
+    async def ExampleUnaryUnary(self, request, context) -> ExampleResponse:
+        logger.info(f"Received unary-unary request: {request}")
+
+        return ExampleResponse(example_integer=1, example_string="Hello, World!")
+
+    async def ExampleUnaryStream(
+        self, request, context
+    ) -> AsyncIterable[ExampleResponse]:
+        logger.info(f"Received unary-stream request: {request}")
+
+        # generate async responses stream
+        for i in range(5):
+            logger.info(f"Sending response {i}")
+            yield ExampleResponse(example_integer=i, example_string=f"Response {i}")
+
+    async def ExampleStreamUnary(
+        self, request_iterator: AsyncIterable[ExampleRequest], context
+    ) -> ExampleResponse:
+        logger.info(f"Received stream-unary request: {request_iterator}")
+
+        async for request in request_iterator:
+            logger.info(f"Received stream-unary request: {request}")
+        response = ExampleResponse(
+            example_integer=1, example_string="Stream Unary Response"
+        )
+        return response
+
+    async def ExampleStreamStream(
+        self, request_iterator: AsyncIterable[ExampleRequest], context
+    ) -> AsyncIterable[ExampleResponse]:
+        """Missing associated documentation comment in .proto file."""
+        raise NotImplementedError("Method not implemented!")
 
 
 def create_server(
@@ -37,22 +78,9 @@ async def amain():
     )
 
     # Create RPCs
-    server.register_method_handlers(
-        "example_service",
-        {
-            "example_method_1": Rpc(
-                method_name="example_method_1",
-                handler=lambda request: f"Hello, {request}!",
-                request_deserializer=lambda x: x.decode("utf-8"),
-                response_serializer=lambda x: x.encode("utf-8"),
-            ),
-            "example_method_2": Rpc(
-                method_name="example_method_2",
-                handler=lambda request: f"Hello, {request}!",
-                request_deserializer=lambda x: x.decode("utf-8"),
-                response_serializer=lambda x: x.encode("utf-8"),
-            ),
-        },
+    add_TestServicer_to_server(
+        TestService(),
+        server,
     )
 
     await server.run()

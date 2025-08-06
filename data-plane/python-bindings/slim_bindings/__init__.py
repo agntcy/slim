@@ -579,7 +579,13 @@ class Slim:
 
         return session_info, message
 
-    async def publish_to(self, session, msg):
+    async def publish_to(
+        self,
+        session: PySessionInfo,
+        msg: bytes,
+        payload_type: Optional[str] = None,
+        metadata: Optional[dict] = None,
+    ):
         """
         Publish a message back to the application that sent it.
         The information regarding the source app is stored in the session.
@@ -592,7 +598,9 @@ class Slim:
             None
         """
 
-        await publish(self.svc, session, 1, msg)
+        await publish(
+            self.svc, session, 1, msg, payload_type=payload_type, metadata=metadata
+        )
 
     async def receive(
         self, session: Optional[int] = None
@@ -619,7 +627,7 @@ class Slim:
         else:
             # Check if the session ID is in the sessions map
             if session not in self.sessions:
-                raise Exception("Session ID not found")
+                raise Exception(f"Session ID not found: {session}")
 
             # Get the queue for the session
             queue = self.sessions[session][1]
