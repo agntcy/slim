@@ -2,8 +2,8 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import logging
-from collections.abc import Awaitable
-from typing import Any, AsyncIterable
+from collections.abc import AsyncIterable, Awaitable
+from typing import Any
 
 from google.rpc import code_pb2, status_pb2
 

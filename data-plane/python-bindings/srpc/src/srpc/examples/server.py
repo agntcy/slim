@@ -1,6 +1,6 @@
 import asyncio
-from collections.abc import AsyncIterable
 import logging
+from collections.abc import AsyncIterable
 
 from srpc import StatusCode
 from srpc.grpc.example_pb2 import ExampleRequest, ExampleResponse
@@ -34,7 +34,9 @@ class TestService(TestServicer):
 
         async for request in request_iterator:
             logger.info(f"Received stream-unary request: {request}")
-        response = ExampleResponse(example_integer=1, example_string="Stream Unary Response")
+        response = ExampleResponse(
+            example_integer=1, example_string="Stream Unary Response"
+        )
 
         logger.info(f"Response-222------>: {response}")
         return response

@@ -3,12 +3,8 @@
 
 import asyncio
 import logging
-from contextlib import asynccontextmanager
 
 from google.rpc import code_pb2, status_pb2
-
-import anyio
-from srpc.codes import Code
 
 import slim_bindings
 from srpc.common import (
@@ -60,31 +56,6 @@ class Server:
 
         # Register the RPC handler
         self.handlers[subscription_name] = rpc_handler
-
-    async def recv_message(
-        self,
-        local_app: slim_bindings.Slim,
-        session: slim_bindings.PySessionInfo,
-        request_deserializer: callable,
-    ):
-        recv_session, request_bytes = await local_app.receive(session=session.id)
-        logger.debug("Received message")
-
-        if recv_session.metadata.get("code") != code_pb2.OK:
-            logger.error(f"Error receiving message: {recv_session.metadata.get('code')}")
-            raise ErrorResponse(
-                code=recv_session.metadata.get("code"),
-                message="Error receiving message",
-                details=recv_session.metadata,
-            )
-        elif recv_session.metadata.get("code") == code_pb2.OK and not request_bytes:
-            logger.info("End of stream received")
-            return
-
-        request = request_deserializer(request_bytes)
-        context = Context.from_sessioninfo(recv_session)
-
-        return request, context
 
     async def run(self):
         """
@@ -144,7 +115,10 @@ class Server:
                     if not rpc_handler.request_streaming:
                         break
 
-                    if session_recv.metadata.get("code") == str(Code.OK) and not request_bytes:
+                    if (
+                        session_recv.metadata.get("code") == str(code_pb2.OK)
+                        and not request_bytes
+                    ):
                         logger.info("End of stream received")
                         break
 
@@ -169,7 +143,7 @@ class Server:
 
         logger.info(f"Handling request {request} with context {context}")
         if not rpc_handler.response_streaming:
-            logger.info(f"handling unary response")
+            logger.info("handling unary response")
 
             # Call the handler with the request and context
             response = await rpc_handler.handler(request, context)
@@ -183,7 +157,7 @@ class Server:
             response_generator = generator()
         else:
             # If the response is streaming, we need to handle it differently
-            logger.info(f"handling streaming response")
+            logger.info("handling streaming response")
             response_generator = rpc_handler.handler(request, context)
             logger.info(f"----------------------> {response_generator}")
 
@@ -197,11 +171,11 @@ class Server:
                 )
 
             # Send a end-of-stream message
-            logger.info(f"Sending end of stream message")
+            logger.info("Sending end of stream message")
             await local_app.publish_to(
                 session_info,
                 b"",
-                metadata={"code": str(Code.OK)},
+                metadata={"code": str(code_pb2.OK)},
             )
         except ErrorResponse as e:
             logger.error("Error while calling handler 1")

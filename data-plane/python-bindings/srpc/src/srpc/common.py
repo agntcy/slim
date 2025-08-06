@@ -8,10 +8,9 @@ import logging
 import click
 
 import slim_bindings
+from srpc.rpc import Rpc
 
 logger = logging.getLogger(__name__)
-
-from srpc.rpc import Rpc
 
 
 class color:
@@ -25,6 +24,7 @@ class color:
     BOLD = "\033[1m"
     UNDERLINE = "\033[4m"
     END = "\033[0m"
+
 
 # Split an ID into its components
 # Expected format: organization/namespace/application
@@ -62,7 +62,10 @@ def method_to_pyname(
 
     return subscription_name
 
-def service_and_method_to_pyname(name: slim_bindings.PyName, service_method: str) -> slim_bindings.PyName:
+
+def service_and_method_to_pyname(
+    name: slim_bindings.PyName, service_method: str
+) -> slim_bindings.PyName:
     """
     Convert a method name to a PyName.
     """
@@ -72,6 +75,7 @@ def service_and_method_to_pyname(name: slim_bindings.PyName, service_method: str
     method_name = service_method.split("/")[2]
 
     return method_to_pyname(name, service_name, method_name)
+
 
 def handler_name_to_pyname(
     name: slim_bindings.PyName, rpc_handler: Rpc
