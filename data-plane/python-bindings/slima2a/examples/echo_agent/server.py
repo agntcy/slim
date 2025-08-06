@@ -88,5 +88,6 @@ def parse_arguments() -> argparse.Namespace:
 
     return args
 
+
 if __name__ == "__main__":
     asyncio.run(main())
