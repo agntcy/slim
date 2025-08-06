@@ -34,61 +34,51 @@ class A2AServiceStub:
             "/a2a.v1.A2AService/SendMessage",
             request_serializer=a2a__pb2.SendMessageRequest.SerializeToString,
             response_deserializer=a2a__pb2.SendMessageResponse.FromString,
-            _registered_method=True,
         )
         self.SendStreamingMessage = channel.unary_stream(
             "/a2a.v1.A2AService/SendStreamingMessage",
             request_serializer=a2a__pb2.SendMessageRequest.SerializeToString,
             response_deserializer=a2a__pb2.StreamResponse.FromString,
-            _registered_method=True,
         )
         self.GetTask = channel.unary_unary(
             "/a2a.v1.A2AService/GetTask",
             request_serializer=a2a__pb2.GetTaskRequest.SerializeToString,
             response_deserializer=a2a__pb2.Task.FromString,
-            _registered_method=True,
         )
         self.CancelTask = channel.unary_unary(
             "/a2a.v1.A2AService/CancelTask",
             request_serializer=a2a__pb2.CancelTaskRequest.SerializeToString,
             response_deserializer=a2a__pb2.Task.FromString,
-            _registered_method=True,
         )
         self.TaskSubscription = channel.unary_stream(
             "/a2a.v1.A2AService/TaskSubscription",
             request_serializer=a2a__pb2.TaskSubscriptionRequest.SerializeToString,
             response_deserializer=a2a__pb2.StreamResponse.FromString,
-            _registered_method=True,
         )
         self.CreateTaskPushNotificationConfig = channel.unary_unary(
             "/a2a.v1.A2AService/CreateTaskPushNotificationConfig",
             request_serializer=a2a__pb2.CreateTaskPushNotificationConfigRequest.SerializeToString,
             response_deserializer=a2a__pb2.TaskPushNotificationConfig.FromString,
-            _registered_method=True,
         )
         self.GetTaskPushNotificationConfig = channel.unary_unary(
             "/a2a.v1.A2AService/GetTaskPushNotificationConfig",
             request_serializer=a2a__pb2.GetTaskPushNotificationConfigRequest.SerializeToString,
             response_deserializer=a2a__pb2.TaskPushNotificationConfig.FromString,
-            _registered_method=True,
         )
         self.ListTaskPushNotificationConfig = channel.unary_unary(
             "/a2a.v1.A2AService/ListTaskPushNotificationConfig",
             request_serializer=a2a__pb2.ListTaskPushNotificationConfigRequest.SerializeToString,
             response_deserializer=a2a__pb2.ListTaskPushNotificationConfigResponse.FromString,
-            _registered_method=True,
         )
         self.GetAgentCard = channel.unary_unary(
             "/a2a.v1.A2AService/GetAgentCard",
             request_serializer=a2a__pb2.GetAgentCardRequest.SerializeToString,
             response_deserializer=a2a__pb2.AgentCard.FromString,
-            _registered_method=True,
         )
         self.DeleteTaskPushNotificationConfig = channel.unary_unary(
             "/a2a.v1.A2AService/DeleteTaskPushNotificationConfig",
             request_serializer=a2a__pb2.DeleteTaskPushNotificationConfigRequest.SerializeToString,
             response_deserializer=google_dot_protobuf_dot_empty__pb2.Empty.FromString,
-            _registered_method=True,
         )
 
 
