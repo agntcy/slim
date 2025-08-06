@@ -54,6 +54,81 @@ class SRPCChannel:
         """
         self.local_app.__aexit__(None, None, None)
 
+    async def common_setup(self, method: str):
+        service_name = service_and_method_to_pyname(self.slim_service_name, method)
+
+        await self.local_app.set_route(
+            service_name,
+        )
+
+        # Create a session
+        session = await self.local_app.create_session(
+            slim_bindings.PySessionConfiguration.FireAndForget()
+        )
+
+        return service_name, session
+
+    async def send_unary(
+        self, request, session, service_name, metadata, request_serializer
+    ):
+        # Send the request
+        request_bytes = request_serializer(request)
+        await self.local_app.publish(
+            session,
+            request_bytes,
+            dest=service_name,
+            metadata=metadata,
+        )
+
+    async def send_stream(
+        self, request_stream, session, service_name, metadata, request_serializer
+    ):
+        # Send the request
+        async for request in request_stream:
+            request_bytes = request_serializer(request)
+            await self.local_app.publish(
+                session,
+                request_bytes,
+                dest=service_name,
+                metadata=metadata,
+            )
+
+    async def receive_unary(self, session, response_deserializer):
+        # Wait for the response
+        session_recv, response_bytes = await self.local_app.receive(
+            session=session.id,
+        )
+
+        response = response_deserializer(response_bytes)
+
+        return session_recv, response
+
+    async def receive_stream(self, session, response_deserializer):
+        # Wait for the responses
+        async def generator():
+            try:
+                while True:
+                    session_recv, response_bytes = await self.local_app.receive(
+                        session=session.id,
+                    )
+
+                    print(session_recv.metadata)
+                    if (
+                        session_recv.metadata.get("code") == str(code_pb2.OK)
+                        and not response_bytes
+                    ):
+                        logger.info("End of stream received")
+                        break
+
+                    response = response_deserializer(response_bytes)
+                    yield response
+            except Exception as e:
+                logger.error(f"Error receiving messages: {e}")
+                raise
+
+        async for response in generator():
+            yield response
+
     def stream_stream(
         self,
         method: str,
@@ -68,18 +143,7 @@ class SRPCChannel:
             wait_for_ready=None,
             compression=None,
         ):
-            # TODO: check how this is done in grpc
-
-            service_name = service_and_method_to_pyname(self.slim_service_name, method)
-
-            await self.local_app.set_route(
-                service_name,
-            )
-
-            # Create a session
-            session = await self.local_app.create_session(
-                slim_bindings.PySessionConfiguration.FireAndForget()
-            )
+            service_name, session = await self.common_setup(method)
 
             # Send the request
             async for request in request_stream:
@@ -180,12 +244,6 @@ class SRPCChannel:
 
         return call_stream_unary
 
-    # def subscribe(
-    #     self,
-    #     callback: Callable[[ChannelConnectivity], None],
-    #     try_to_connect: bool = False,
-    # ) -> None: ...
-
     def unary_stream(
         self,
         method: str,
@@ -261,35 +319,14 @@ class SRPCChannel:
             wait_for_ready=None,
             compression=None,
         ):
-            service_name = service_and_method_to_pyname(self.slim_service_name, method)
+            service_name, session = await self.common_setup(method)
 
-            await self.local_app.set_route(
-                service_name,
-            )
-
-            # Create a session
-            session = await self.local_app.create_session(
-                slim_bindings.PySessionConfiguration.FireAndForget()
-            )
-
-            # Send the request
-            request_bytes = request_serializer(request)
-            await self.local_app.publish(
-                session,
-                request_bytes,
-                dest=service_name,
-                metadata=metadata,
-            )
+            # Send request
+            await self.send_unary(request, session, service_name, metadata, request_serializer)
 
             # Wait for the response
-            session_recv, response_bytes = await self.local_app.receive(
-                session=session.id,
-            )
-
-            response = response_deserializer(response_bytes)
+            session_recv, response = await self.receive_unary(session, response_deserializer)
 
             return response
 
         return call_unary_unary
-
-    # def unsubscribe(self, callback: Callable[[ChannelConnectivity], None]) -> None: ...
