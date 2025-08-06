@@ -103,31 +103,6 @@ class Server:
             )
             return
 
-        async def generator():
-            try:
-                while True:
-                    session_recv, request_bytes = await local_app.receive(
-                        session=session_info.id,
-                    )
-
-                    if not rpc_handler.request_streaming:
-                        break
-
-                    if (
-                        session_recv.metadata.get("code") == str(code_pb2.OK)
-                        and not request_bytes
-                    ):
-                        logger.info("End of stream received")
-                        break
-
-                    request = rpc_handler.request_deserializer(request_bytes)
-                    context = Context.from_sessioninfo(session_recv)
-
-                    yield request, context
-            except Exception as e:
-                logger.error(f"Error receiving messages from SLIM: {e}")
-                raise
-
         if not rpc_handler.request_streaming:
             # Read the request from slim
             session_recv, request_bytes = await local_app.receive(
@@ -137,7 +112,10 @@ class Server:
             request = rpc_handler.request_deserializer(request_bytes)
             context = Context.from_sessioninfo(session_recv)
         else:
-            request, context = generator(), Context.from_sessioninfo(session_info)
+            request, context = (
+                rpc_handler.request_generator(local_app, session_info),
+                Context.from_sessioninfo(session_info),
+            )
 
         logger.debug(f"handling request {request} with context {context}")
 
@@ -147,4 +125,12 @@ class Server:
                 session_info,
                 rpc_handler.response_serializer(response),
                 metadata={"code": str(code)},
+            )
+
+        # Send end of stream message if the response was streaming
+        if rpc_handler.response_streaming:
+            await local_app.publish_to(
+                session_info,
+                b"",
+                metadata={"code": str(code_pb2.OK)},
             )

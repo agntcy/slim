@@ -67,25 +67,21 @@ class TestServicer:
 def add_TestServicer_to_server(servicer, server: srpc.Server):
     rpc_method_handlers = {
         "ExampleUnaryUnary": srpc.unary_unary_rpc_method_handler(
-            method_name="ExampleUnaryUnary",
             handler=servicer.ExampleUnaryUnary,
             request_deserializer=example__pb2.ExampleRequest.FromString,
             response_serializer=example__pb2.ExampleResponse.SerializeToString,
         ),
         "ExampleUnaryStream": srpc.unary_stream_rpc_method_handler(
-            method_name="ExampleUnaryStream",
             handler=servicer.ExampleUnaryStream,
             request_deserializer=example__pb2.ExampleRequest.FromString,
             response_serializer=example__pb2.ExampleResponse.SerializeToString,
         ),
         "ExampleStreamUnary": srpc.stream_unary_rpc_method_handler(
-            method_name="ExampleStreamUnary",
             handler=servicer.ExampleStreamUnary,
             request_deserializer=example__pb2.ExampleRequest.FromString,
             response_serializer=example__pb2.ExampleResponse.SerializeToString,
         ),
         "ExampleStreamStream": srpc.stream_stream_rpc_method_handler(
-            method_name="ExampleStreamStream",
             handler=servicer.ExampleStreamStream,
             request_deserializer=example__pb2.ExampleRequest.FromString,
             response_serializer=example__pb2.ExampleResponse.SerializeToString,

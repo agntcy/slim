@@ -7,6 +7,9 @@ from typing import Any
 
 from google.rpc import code_pb2, status_pb2
 
+import slim_bindings
+from srpc.context import Context
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -27,10 +30,10 @@ class Rpc:
 
     def __init__(
         self,
-        method_name: str,
         handler: Awaitable,  # Or Callable?
         request_deserializer: callable = lambda x: x,
         response_serializer: callable = lambda x: x,
+        method_name: str | None = None,
         service_name: str | None = None,
         request_streaming: bool = False,
         response_streaming: bool = False,
@@ -42,6 +45,36 @@ class Rpc:
         self.response_serializer = response_serializer
         self.request_streaming = request_streaming
         self.response_streaming = response_streaming
+
+    def request_generator(
+        self, local_app: slim_bindings.Slim, session_info: slim_bindings.PySessionInfo
+    ) -> AsyncGenerator[Any, Context]:
+        async def generator():
+            try:
+                while True:
+                    session_recv, request_bytes = await local_app.receive(
+                        session=session_info.id,
+                    )
+
+                    if not self.request_streaming:
+                        break
+
+                    if (
+                        session_recv.metadata.get("code") == str(code_pb2.OK)
+                        and not request_bytes
+                    ):
+                        logger.info("End of stream received")
+                        break
+
+                    request = self.request_deserializer(request_bytes)
+                    context = Context.from_sessioninfo(session_recv)
+
+                    yield request, context
+            except Exception as e:
+                logger.error(f"Error receiving messages from SLIM: {e}")
+                raise
+
+        return generator()
 
     async def call_handler(self, *args, **kwargs) -> AsyncGenerator[int, Any]:
         """
@@ -76,13 +109,11 @@ class Rpc:
 
 
 def unary_unary_rpc_method_handler(
-    method_name: str,
     handler: Awaitable,
     request_deserializer: callable = lambda x: x,
     response_serializer: callable = lambda x: x,
 ) -> Rpc:
     return Rpc(
-        method_name="ExampleUnaryUnary",
         handler=handler,
         request_deserializer=request_deserializer,
         response_serializer=response_serializer,
@@ -92,13 +123,11 @@ def unary_unary_rpc_method_handler(
 
 
 def unary_stream_rpc_method_handler(
-    method_name: str,
     handler: AsyncIterable,
     request_deserializer: callable = lambda x: x,
     response_serializer: callable = lambda x: x,
 ) -> Rpc:
     return Rpc(
-        method_name=method_name,
         handler=handler,
         request_deserializer=request_deserializer,
         response_serializer=response_serializer,
@@ -108,13 +137,11 @@ def unary_stream_rpc_method_handler(
 
 
 def stream_unary_rpc_method_handler(
-    method_name: str,
     handler: Awaitable,
     request_deserializer: callable = lambda x: x,
     response_serializer: callable = lambda x: x,
 ) -> Rpc:
     return Rpc(
-        method_name=method_name,
         handler=handler,
         request_deserializer=request_deserializer,
         response_serializer=response_serializer,
@@ -124,13 +151,11 @@ def stream_unary_rpc_method_handler(
 
 
 def stream_stream_rpc_method_handler(
-    method_name: str,
     handler: Awaitable,
     request_deserializer: callable = lambda x: x,
     response_serializer: callable = lambda x: x,
 ) -> Rpc:
     return Rpc(
-        method_name=method_name,
         handler=handler,
         request_deserializer=request_deserializer,
         response_serializer=response_serializer,
