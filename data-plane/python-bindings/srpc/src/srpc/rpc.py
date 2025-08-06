@@ -63,7 +63,7 @@ class Rpc:
                         session_recv.metadata.get("code") == str(code_pb2.OK)
                         and not request_bytes
                     ):
-                        logger.info("End of stream received")
+                        logger.debug("end of stream received")
                         break
 
                     request = self.request_deserializer(request_bytes)

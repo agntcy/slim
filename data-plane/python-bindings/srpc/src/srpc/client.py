@@ -93,6 +93,14 @@ class SRPCChannel:
                 metadata=metadata,
             )
 
+        # Send enf of streaming message
+        await self.local_app.publish(
+            session,
+            b"",
+            dest=service_name,
+            metadata={"code": str(code_pb2.OK)},
+        )
+
     async def receive_unary(self, session, response_deserializer):
         # Wait for the response
         session_recv, response_bytes = await self.local_app.receive(
@@ -117,13 +125,13 @@ class SRPCChannel:
                         session_recv.metadata.get("code") == str(code_pb2.OK)
                         and not response_bytes
                     ):
-                        logger.info("End of stream received")
+                        logger.debug("end of stream received")
                         break
 
                     response = response_deserializer(response_bytes)
                     yield response
             except Exception as e:
-                logger.error(f"Error receiving messages: {e}")
+                logger.error(f"error receiving messages: {e}")
                 raise
 
         async for response in generator():
@@ -176,13 +184,13 @@ class SRPCChannel:
                             session_recv.metadata.get("code") == str(code_pb2.OK)
                             and not response_bytes
                         ):
-                            logger.info("End of stream received")
+                            logger.debug("end of stream received")
                             break
 
                         response = response_deserializer(response_bytes)
                         yield response
                 except Exception as e:
-                    logger.error(f"Error receiving messages: {e}")
+                    logger.error(f"error receiving messages: {e}")
                     raise
 
             async for response in generator():
@@ -204,43 +212,13 @@ class SRPCChannel:
             wait_for_ready=None,
             compression=None,
         ):
-            service_name = service_and_method_to_pyname(self.slim_service_name, method)
+            service_name, session = await self.common_setup(method)
 
-            await self.local_app.set_route(
-                service_name,
-            )
-
-            # Create a session
-            session = await self.local_app.create_session(
-                slim_bindings.PySessionConfiguration.FireAndForget()
-            )
-
-            # Send the request
-            async for request in request_stream:
-                request_bytes = request_serializer(request)
-                await self.local_app.publish(
-                    session,
-                    request_bytes,
-                    dest=service_name,
-                    metadata=metadata,
-                )
-
-            # Send enf of streaming message
-            await self.local_app.publish(
-                session,
-                b"",
-                dest=service_name,
-                metadata={"code": str(code_pb2.OK)},
-            )
+            # Send the requests
+            await self.send_stream(request_stream, session, service_name, metadata, request_serializer)
 
             # Wait for response
-            session_recv, response_bytes = await self.local_app.receive(
-                session=session.id,
-            )
-
-            response = response_deserializer(response_bytes)
-
-            return response
+            return await self.receive_unary(session, response_deserializer)
 
         return call_stream_unary
 
@@ -258,49 +236,13 @@ class SRPCChannel:
             wait_for_ready=None,
             compression=None,
         ):
-            service_name = service_and_method_to_pyname(self.slim_service_name, method)
-
-            await self.local_app.set_route(
-                service_name,
-            )
-
-            # Create a session
-            session = await self.local_app.create_session(
-                slim_bindings.PySessionConfiguration.FireAndForget()
-            )
+            service_name, session = await self.common_setup(method)
 
             # Send the request
-            request_bytes = request_serializer(request)
-            await self.local_app.publish(
-                session,
-                request_bytes,
-                dest=service_name,
-                metadata=metadata,
-            )
+            await self.send_unary(request, session, service_name, metadata, request_serializer)
 
             # Wait for the responses
-            async def generator():
-                try:
-                    while True:
-                        session_recv, response_bytes = await self.local_app.receive(
-                            session=session.id,
-                        )
-
-                        print(session_recv.metadata)
-                        if (
-                            session_recv.metadata.get("code") == str(code_pb2.OK)
-                            and not response_bytes
-                        ):
-                            logger.info("End of stream received")
-                            break
-
-                        response = response_deserializer(response_bytes)
-                        yield response
-                except Exception as e:
-                    logger.error(f"Error receiving messages: {e}")
-                    raise
-
-            async for response in generator():
+            async for response in self.receive_stream(session, response_deserializer):
                 yield response
 
         return call_unary_stream

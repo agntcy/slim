@@ -25,5 +25,5 @@ __all__ = [
     "unary_stream_rpc_method_handler",
     "unary_unary_rpc_method_handler",
     "Server",
-    "SRPCChannel"
+    "SRPCChannel",
 ]

@@ -36,8 +36,6 @@ class TestService(TestServicer):
         response = ExampleResponse(
             example_integer=1, example_string="Stream Unary Response"
         )
-
-        logger.info(f"Response-222------>: {response}")
         return response
 
     async def ExampleStreamStream(
