@@ -5,9 +5,9 @@ import asyncio
 import logging
 from collections.abc import AsyncIterable
 
+import slim_bindings
 from google.rpc import code_pb2
 
-import slim_bindings
 from srpc.common import (
     create_local_app,
     service_and_method_to_pyname,

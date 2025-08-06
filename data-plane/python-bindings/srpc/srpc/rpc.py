@@ -5,9 +5,9 @@ import logging
 from collections.abc import AsyncGenerator, AsyncIterable, Awaitable
 from typing import Any
 
+import slim_bindings
 from google.rpc import code_pb2, status_pb2
 
-import slim_bindings
 from srpc.context import Context
 
 logging.basicConfig(level=logging.INFO)

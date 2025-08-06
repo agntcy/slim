@@ -1,7 +1,5 @@
 from abc import ABC, abstractmethod
-from collections.abc import AsyncIterable
-
-from collections.abc import Callable
+from collections.abc import AsyncIterable, Callable
 
 from a2a import types
 from a2a.auth.user import UnauthenticatedUser
@@ -15,14 +13,11 @@ from a2a.types import AgentCard, TaskNotFoundError
 from a2a.utils import proto_utils
 from a2a.utils.errors import ServerError
 from a2a.utils.helpers import validate, validate_async_generator
-
 from google.rpc import code_pb2
-
 from srpc import ErrorResponse
 from srpc import context as srpc_context
 
-from slima2a.types import a2a_pb2
-from slima2a.types import a2a_pb2_srpc
+from slima2a.types import a2a_pb2, a2a_pb2_srpc
 
 
 class CallContextBuilder(ABC):
