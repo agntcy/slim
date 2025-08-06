@@ -185,7 +185,6 @@ class Server:
                     rpc_handler.response_serializer(response),
                     metadata={"code": code_pb2.OK},
                 )
-                )
         except ErrorResponse as e:
             logger.error("Error while calling handler 1")
             response = status_pb2.Status(
@@ -198,6 +197,3 @@ class Server:
                 code=code_pb2.UNKNOWN, message="Internal Error", details=None
             )
             code = code_pb2.UNKNOWN
-        finally:
-            # Close the write stream
-            await write_stream.aclose()
