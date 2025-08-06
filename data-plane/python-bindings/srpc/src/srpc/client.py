@@ -4,8 +4,9 @@
 import logging
 from collections.abc import AsyncIterable
 
+from google.rpc import code_pb2, status_pb2
+
 import slim_bindings
-from srpc.codes import Code
 from srpc.common import (
     create_local_app,
     service_and_method_to_pyname,
@@ -165,7 +166,7 @@ class SRPCChannel:
                 session,
                 b"",
                 dest=service_name,
-                metadata={"code": str(Code.OK)},
+                metadata={"code": str(code_pb2.OK)},
             )
 
             # Wait for response
@@ -229,7 +230,7 @@ class SRPCChannel:
 
                         print(session_recv.metadata)
                         if (
-                            session_recv.metadata.get("code") == str(Code.OK)
+                            session_recv.metadata.get("code") == str(code_pb2.OK)
                             and not response_bytes
                         ):
                             logger.info("End of stream received")
