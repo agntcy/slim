@@ -1,9 +1,8 @@
 """Client and server classes corresponding to protobuf-defined services."""
 
+import srpc
 from google.protobuf import empty_pb2 as google_dot_protobuf_dot_empty__pb2
 from google.rpc import code_pb2 as code__pb2
-
-import srpc
 from srpc import rpc as srpc_rpc
 
 from . import a2a_pb2 as a2a__pb2
@@ -183,6 +182,7 @@ class A2AServiceServicer:
 def add_A2AServiceServicer_to_server(servicer, server):
     rpc_method_handlers = {
         "SendMessage": srpc.Rpc(
+            method_name="SendMessage",
             handler=servicer.SendMessage,
             request_deserializer=a2a__pb2.SendMessageRequest.FromString,
             response_serializer=a2a__pb2.SendMessageResponse.SerializeToString,
@@ -190,6 +190,7 @@ def add_A2AServiceServicer_to_server(servicer, server):
             response_streaming=False,
         ),
         "SendStreamingMessage": srpc.Rpc(
+            method_name="SendStreamingMessage",
             handler=servicer.SendStreamingMessage,
             request_deserializer=a2a__pb2.SendMessageRequest.FromString,
             response_serializer=a2a__pb2.StreamResponse.SerializeToString,
@@ -197,6 +198,7 @@ def add_A2AServiceServicer_to_server(servicer, server):
             response_streaming=True,
         ),
         "GetTask": srpc.Rpc(
+            method_name="GetTask",
             handler=servicer.GetTask,
             request_deserializer=a2a__pb2.GetTaskRequest.FromString,
             response_serializer=a2a__pb2.Task.SerializeToString,
@@ -204,6 +206,7 @@ def add_A2AServiceServicer_to_server(servicer, server):
             response_streaming=False,
         ),
         "CancelTask": srpc.Rpc(
+            method_name="CancelTask",
             handler=servicer.CancelTask,
             request_deserializer=a2a__pb2.CancelTaskRequest.FromString,
             response_serializer=a2a__pb2.Task.SerializeToString,
@@ -211,6 +214,7 @@ def add_A2AServiceServicer_to_server(servicer, server):
             response_streaming=False,
         ),
         "TaskSubscription": srpc.Rpc(
+            method_name="TaskSubscription",
             handler=servicer.TaskSubscription,
             request_deserializer=a2a__pb2.TaskSubscriptionRequest.FromString,
             response_serializer=a2a__pb2.StreamResponse.SerializeToString,
@@ -218,6 +222,7 @@ def add_A2AServiceServicer_to_server(servicer, server):
             response_streaming=True,
         ),
         "CreateTaskPushNotificationConfig": srpc.Rpc(
+            method_name="CreateTaskPushNotificationConfig",
             handler=servicer.CreateTaskPushNotificationConfig,
             request_deserializer=a2a__pb2.CreateTaskPushNotificationConfigRequest.FromString,
             response_serializer=a2a__pb2.TaskPushNotificationConfig.SerializeToString,
@@ -225,6 +230,7 @@ def add_A2AServiceServicer_to_server(servicer, server):
             response_streaming=False,
         ),
         "GetTaskPushNotificationConfig": srpc.Rpc(
+            method_name="GetTaskPushNotificationConfig",
             handler=servicer.GetTaskPushNotificationConfig,
             request_deserializer=a2a__pb2.GetTaskPushNotificationConfigRequest.FromString,
             response_serializer=a2a__pb2.TaskPushNotificationConfig.SerializeToString,
@@ -232,6 +238,7 @@ def add_A2AServiceServicer_to_server(servicer, server):
             response_streaming=False,
         ),
         "ListTaskPushNotificationConfig": srpc.Rpc(
+            method_name="ListTaskPushNotificationConfig",
             handler=servicer.ListTaskPushNotificationConfig,
             request_deserializer=a2a__pb2.ListTaskPushNotificationConfigRequest.FromString,
             response_serializer=a2a__pb2.ListTaskPushNotificationConfigResponse.SerializeToString,
@@ -239,6 +246,7 @@ def add_A2AServiceServicer_to_server(servicer, server):
             response_streaming=False,
         ),
         "GetAgentCard": srpc.Rpc(
+            method_name="GetAgentCard",
             handler=servicer.GetAgentCard,
             request_deserializer=a2a__pb2.GetAgentCardRequest.FromString,
             response_serializer=a2a__pb2.AgentCard.SerializeToString,
@@ -246,6 +254,7 @@ def add_A2AServiceServicer_to_server(servicer, server):
             response_streaming=False,
         ),
         "DeleteTaskPushNotificationConfig": srpc.Rpc(
+            method_name="DeleteTaskPushNotificationConfig",
             handler=servicer.DeleteTaskPushNotificationConfig,
             request_deserializer=a2a__pb2.DeleteTaskPushNotificationConfigRequest.FromString,
             response_serializer=google_dot_protobuf_dot_empty__pb2.Empty.SerializeToString,
@@ -253,4 +262,4 @@ def add_A2AServiceServicer_to_server(servicer, server):
             response_streaming=False,
         ),
     }
-    server.add_registered_method_handlers("a2a.v1.A2AService", rpc_method_handlers)
+    server.register_method_handlers("a2a.v1.A2AService", rpc_method_handlers)
