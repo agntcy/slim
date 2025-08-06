@@ -3,11 +3,14 @@
 # Uses remote plugins, no separate install required.
 # This config generates python, go and java (protobuf) source.
 version: v2
+clean: false
+managed:
+  enabled: true
+inputs:
+  - proto_file: example.proto
 plugins:
   # Python
   - remote: buf.build/protocolbuffers/python:v29.3
-    out: .
-  - remote: buf.build/grpc/python
-    out: .
+    out: types
   - remote: buf.build/protocolbuffers/pyi:v31.1
-    out: .
+    out: types
