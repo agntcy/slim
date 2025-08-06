@@ -70,11 +70,25 @@ class Server:
             shared_secret=self.shared_secret,
         )
 
+        print(f" ----_ id {local_app.local_name.id}")
+
+        await local_app.subscribe(local_app.local_name)
+        logger.info(
+                f"Subscribing to {local_app.local_name}",
+        )
+
         # Subscribe
+<<<<<<< Updated upstream:data-plane/python-bindings/srpc/srpc/server.py
         for s in self.handlers:
+=======
+        for s, h in self.handlers.items():
+            #name = cop
+            s.id = local_app.local_name.id
+>>>>>>> Stashed changes:data-plane/python-bindings/srpc/src/srpc/server.py
             logger.info(
                 f"Subscribing to {s}",
             )
+
             await local_app.subscribe(s)
 
         instance = local_app.get_id()
@@ -94,6 +108,7 @@ class Server:
     async def handle_session(
         self, session_info: slim_bindings.PySessionInfo, local_app: slim_bindings.Slim
     ):
+        print(f"services {self.handlers}")
         rpc_handler: Rpc = self.handlers[session_info.destination_name]
 
         # Call the RPC handler

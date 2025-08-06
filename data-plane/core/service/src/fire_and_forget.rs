@@ -308,6 +308,7 @@ where
 
     async fn start_sticky_session_discovery(&mut self, name: &Name) -> Result<(), SessionError> {
         debug!("starting sticky session discovery");
+        println!("start sticky session and search for {}", name);
 
         // Set payload
         let payload = bincode::encode_to_vec(&self.state.source, bincode::config::standard())
@@ -337,6 +338,7 @@ where
         &mut self,
         message: SessionMessage,
     ) -> Result<(), SessionError> {
+        //println!("received discovery reply: {:?}", message);
         self.state
             .channel_endpoint
             .on_message(message.message)
@@ -397,6 +399,7 @@ where
 
                 // If MLS is not enabled, send all buffered messages
                 if !self.state.config.mls_enabled {
+                    println!("DRAIN 402");
                     // Collect messages first to avoid multiple mutable borrows
                     let messages: Vec<Message> = self.state.sticky_buffer.drain(..).collect();
 
@@ -435,6 +438,7 @@ where
         mut message: Message,
         message_id: Option<u32>,
     ) -> Result<(), SessionError> {
+        println!("send MESSAGE");
         // Set the message id to a random value
         let message_id = message_id.unwrap_or_else(|| rand::rng().random_range(0..u32::MAX));
 
@@ -448,7 +452,10 @@ where
         // If we have a sticky name, set the destination to the sticky name
         // and force the message to be sent to the sticky connection
         if let Some(ref name) = self.state.sticky_name {
-            message.get_slim_header_mut().set_destination(name);
+            println!("the app wants to send to {}, but I will send to {}", message.get_dst(), name);
+            let mut new_name = message.get_dst();
+            new_name.set_id(name.id());
+            message.get_slim_header_mut().set_destination(&new_name);
             message
                 .get_slim_header_mut()
                 .set_forward_to(self.state.sticky_connection);
@@ -491,6 +498,7 @@ where
         &mut self,
         mut message: SessionMessage,
     ) -> Result<(), SessionError> {
+        println!("MSG to slim");
         // Reference to session info
         let info = &message.info;
 
@@ -520,6 +528,7 @@ where
         if self.state.config.sticky {
             match self.state.sticky_name {
                 Some(ref name) => {
+                    println!("to app wants to send the message to {}, but I will send to {}", message.message.get_source(), name);
                     message.message.get_slim_header_mut().set_destination(name);
                     message
                         .message
@@ -527,6 +536,7 @@ where
                         .set_forward_to(self.state.sticky_connection);
                 }
                 None => {
+                     println!("NONE name");
                     let ret = match self.state.sticky_session_status {
                         StickySessionStatus::Uninitialized => {
                             self.start_sticky_session_discovery(
@@ -652,6 +662,7 @@ where
 
                 // Flush the sticky buffer if MLS is enabled
                 if self.state.channel_endpoint.is_mls_up()? {
+                    println!("DRAIN 661");
                     // If MLS is up, send all buffered messages
                     let messages: Vec<Message> = self.state.sticky_buffer.drain(..).collect();
 
