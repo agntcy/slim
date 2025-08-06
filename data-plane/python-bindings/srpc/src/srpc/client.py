@@ -1,6 +1,7 @@
 # Copyright AGNTCY Contributors (https://github.com/agntcy)
 # SPDX-License-Identifier: Apache-2.0
 
+import asyncio
 import logging
 from collections.abc import AsyncIterable
 
@@ -22,6 +23,7 @@ class SRPCChannel:
         self,
         local: str,
         slim: dict,
+        remote: str,
         enable_opentelemetry: bool = False,
         shared_secret: str | None = None,
     ):
@@ -29,12 +31,12 @@ class SRPCChannel:
         self.slim = slim
         self.enable_opentelemetry = enable_opentelemetry
         self.shared_secret = shared_secret
-
         self.handlers = {}
-
+        self.remote = split_id(remote)
         self.local_app: slim_bindings.Slim = None
+        self.prepare_task = asyncio.get_running_loop().create_task(self.prepare_channel())
 
-    async def connect(self, slim_service_name: str):
+    async def prepare_channel(self):
         # Create local SLIM instance
         self.local_app = await create_local_app(
             self.local,
@@ -43,8 +45,6 @@ class SRPCChannel:
             shared_secret=self.shared_secret,
         )
 
-        self.slim_service_name = split_id(slim_service_name)
-
         # Start receiving messages
         await self.local_app.__aenter__()
 
@@ -52,10 +52,11 @@ class SRPCChannel:
         """
         Close the channel.
         """
-        self.local_app.__aexit__(None, None, None)
+        if self.local_app is not None:
+            self.local_app.__aexit__(None, None, None)
 
     async def common_setup(self, method: str):
-        service_name = service_and_method_to_pyname(self.slim_service_name, method)
+        service_name = service_and_method_to_pyname(self.remote, method)
 
         await self.local_app.set_route(
             service_name,
@@ -151,6 +152,7 @@ class SRPCChannel:
             wait_for_ready=None,
             compression=None,
         ):
+            await self.prepare_task
             service_name, session = await self.common_setup(method)
 
             # Send the request
@@ -212,6 +214,7 @@ class SRPCChannel:
             wait_for_ready=None,
             compression=None,
         ):
+            await self.prepare_task
             service_name, session = await self.common_setup(method)
 
             # Send the requests
@@ -236,6 +239,7 @@ class SRPCChannel:
             wait_for_ready=None,
             compression=None,
         ):
+            await self.prepare_task
             service_name, session = await self.common_setup(method)
 
             # Send the request
@@ -261,6 +265,7 @@ class SRPCChannel:
             wait_for_ready=None,
             compression=None,
         ):
+            await self.prepare_task
             service_name, session = await self.common_setup(method)
 
             # Send request
