@@ -4,9 +4,12 @@
 import asyncio
 import logging
 
+from google.rpc import code_pb2
+
 import slim_bindings
 from srpc.common import (
     create_local_app,
+    handler_name_to_pyname,
     split_id,
 )
 from srpc.context import Context
@@ -24,7 +27,7 @@ class Server:
         enable_opentelemetry: bool = False,
         shared_secret: str | None = None,
     ):
-        self.local = split_id(local)
+        self.local_name = split_id(local)
         self.slim = slim
         self.enable_opentelemetry = enable_opentelemetry
         self.shared_secret = shared_secret
@@ -33,9 +36,7 @@ class Server:
 
         self.local_app: slim_bindings.Slim = None
 
-    async def register_method_handlers(
-        self, service_name: str, handlers: dict[str, Rpc]
-    ):
+    def register_method_handlers(self, service_name: str, handlers: dict[str, Rpc]):
         """
         Register method handlers for the server.
         """
@@ -51,15 +52,19 @@ class Server:
         """
 
         # Compose a PyName using the fist components of the local name and the RPC name
-        subscription_name = self.handler_name_to_pyname(rpc_handler)
+        subscription_name = handler_name_to_pyname(self.local_name, rpc_handler)
 
         # Register the RPC handler
         self.handlers[subscription_name] = rpc_handler
 
     async def run(self):
+        """
+        Run the server, creating a local SLIM instance and subscribing to the handlers.
+        """
+
         # Create local SLIM instance
         local_app = await create_local_app(
-            self.local,
+            self.local_name,
             self.slim,
             enable_opentelemetry=self.enable_opentelemetry,
             shared_secret=self.shared_secret,
@@ -67,6 +72,9 @@ class Server:
 
         # Subscribe
         for s, h in self.handlers.items():
+            logger.info(
+                f"Subscribing to {s}",
+            )
             await local_app.subscribe(s)
 
         instance = local_app.get_id()
@@ -83,64 +91,46 @@ class Server:
 
                 asyncio.create_task(self.handle_session(session_info, local_app))
 
-    async def handle_session(self, session_info, local_app):
-        session_id = session_info.id
-        instance = local_app.get_id()
+    async def handle_session(
+        self, session_info: slim_bindings.PySessionInfo, local_app: slim_bindings.Slim
+    ):
+        rpc_handler: Rpc = self.handlers[session_info.destination_name]
 
-        while True:
-            # Receive the message from the session
-            session, msg = await local_app.receive(session=session_id)
-            logging.info(
-                f"{instance} received (from session {session_id}): {msg.decode()}",
+        # Call the RPC handler
+        if session_info.destination_name not in self.handlers:
+            logger.error(
+                f"no handler found for session {session_info.id} with destination {session_info.destination_name}",
+            )
+            return
+
+        if not rpc_handler.request_streaming:
+            # Read the request from slim
+            session_recv, request_bytes = await local_app.receive(
+                session=session_info.id,
             )
 
-            # build the context for the RPC call
-            context = Context.from_sessioninfo(session)
+            request = rpc_handler.request_deserializer(request_bytes)
+            context = Context.from_sessioninfo(session_recv)
+        else:
+            request, context = (
+                rpc_handler.request_generator(local_app, session_info),
+                Context.from_sessioninfo(session_info),
+            )
 
-            # Call the RPC handler
-            if session_id.destination_name in self.handlers:
-                rpc_handler: Rpc = self.handlers[session_id.destination_name]
-                request = rpc_handler.request_deserializer(msg)
+        logger.debug(f"handling request {request} with context {context}")
 
-                logging.info(
-                    f"{instance} calling handler {rpc_handler.name} for session {session_id.id}",
-                )
+        # Send the response back to the client
+        async for code, response in rpc_handler.call_handler(request, context):
+            await local_app.publish_to(
+                session_info,
+                rpc_handler.response_serializer(response),
+                metadata={"code": str(code)},
+            )
 
-                # Send the response back to the client
-                if rpc_handler.response_streaming:
-                    async for response in rpc_handler.handler(request, context):
-                        response_bytes = rpc_handler.response_serializer(response)
-                        await local_app.publish_to(session_info, response_bytes)
-
-                    return
-
-                response = await rpc_handler.handler(request, context)
-                response_bytes = rpc_handler.response_serializer(response)
-                await local_app.publish_to(
-                    session_info,
-                    response_bytes,
-                )
-
-                # TODO(msardara): handle cleanup
-
-    def handler_name_to_pyname(self, rpc_handler: Rpc) -> slim_bindings.PyName:
-        """
-        Convert a handler name to a PyName.
-        """
-
-        components = self.local.components_strings()
-
-        subscription_name = slim_bindings.PyName(
-            components[0],
-            components[1],
-            f"{components[2]}-{rpc_handler.service_name}-{rpc_handler.method_name}",
-        )
-
-        return subscription_name
-
-    def pyname_to_handler_name(self, subscription_name: slim_bindings.PyName) -> str:
-        """
-        Convert a PyName to a handler name.
-        """
-
-        return subscription_name.components[3]
+        # Send end of stream message if the response was streaming
+        if rpc_handler.response_streaming:
+            await local_app.publish_to(
+                session_info,
+                b"",
+                metadata={"code": str(code_pb2.OK)},
+            )

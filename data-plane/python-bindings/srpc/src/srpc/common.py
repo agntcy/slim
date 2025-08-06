@@ -8,6 +8,7 @@ import logging
 import click
 
 import slim_bindings
+from srpc.rpc import Rpc
 
 logger = logging.getLogger(__name__)
 
@@ -37,6 +38,53 @@ def split_id(id):
         raise e
 
     return slim_bindings.PyName(organization, namespace, app)
+
+
+def method_to_pyname(
+    name: slim_bindings.PyName, service_name: str, method_name: str
+) -> slim_bindings.PyName:
+    """
+    Convert a method name to a PyName.
+    """
+
+    components = name.components_strings()
+
+    if len(components) < 3:
+        raise ValueError("PyName must have at least 3 components.")
+
+    subscription_name = slim_bindings.PyName(
+        components[0],
+        components[1],
+        f"{components[2]}-{service_name}-{method_name}",
+    )
+
+    logger.debug(f"Name after conversion from service/method: {subscription_name}")
+
+    return subscription_name
+
+
+def service_and_method_to_pyname(
+    name: slim_bindings.PyName, service_method: str
+) -> slim_bindings.PyName:
+    """
+    Convert a method name to a PyName.
+    """
+
+    # Split method in service and method name
+    service_name = service_method.split("/")[1]
+    method_name = service_method.split("/")[2]
+
+    return method_to_pyname(name, service_name, method_name)
+
+
+def handler_name_to_pyname(
+    name: slim_bindings.PyName, rpc_handler: Rpc
+) -> slim_bindings.PyName:
+    """
+    Convert a handler name to a PyName.
+    """
+
+    return method_to_pyname(name, rpc_handler.service_name, rpc_handler.method_name)
 
 
 # Create a shared secret identity provider and verifier
