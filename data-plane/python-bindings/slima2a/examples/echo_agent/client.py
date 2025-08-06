@@ -8,7 +8,6 @@ import srpc
 from a2a.client import (
     A2ACardResolver,
     Client,
-    ClientConfig,
     ClientFactory,
     minimal_agent_card,
 )
@@ -23,7 +22,8 @@ from a2a.utils.constants import (
     AGENT_CARD_WELL_KNOWN_PATH,
 )
 
-from slima2a.client_transport import SRPCTransport
+from srpc.client import SRPCChannel
+from slima2a.client_transport import SRPCTransport, ClientConfig
 
 BASE_URL = "http://localhost:9999"
 
@@ -52,33 +52,49 @@ async def main() -> None:
 
     logging.basicConfig(level=args.log_level)
 
-    async with httpx.AsyncClient() as httpx_client:
-        client_config = ClientConfig(
-            httpx_client=httpx_client,
-            streaming=args.stream,
+    httpx_client = httpx.AsyncClient()
+
+    def channel_factory(topic) -> SRPCChannel:
+        channel = SRPCChannel(
+            local="agntcy/demo/client",
+            slim={
+                "endpoint": "http://localhost:46357",
+                "tls": {
+                    "insecure": True,
+                },
+            },
+            shared_secret="secret",
         )
-        client_factory = ClientFactory(client_config)
+        task = asyncio.get_running_loop().create_task(channel.connect(topic))
+        return task, channel
 
-        agent_card = None
-        match args.type:
-            case "srpc":
-                client_factory.register("srpc", SRPCTransport.create)
+    client_config = ClientConfig(
+            supported_transports=["JSONRPC", "srpc"],
+            streaming=args.stream,
+            httpx_client=httpx_client,
+            srpc_channel_factory=channel_factory,
+    )
+    client_factory = ClientFactory(client_config)
+    client_factory.register("srpc", SRPCTransport.create)
 
-                agent_card = minimal_agent_card("Echo Agent", ["srpc"])
-            case "starlette":
-                agent_card = await fetch_agent_card(
-                    resolver=A2ACardResolver(
-                        httpx_client=httpx_client,
-                        base_url=BASE_URL,
-                    )
+    agent_card = None
+    match args.type:
+        case "srpc":
+            agent_card = minimal_agent_card("agntcy/demo/echo_agent", ["srpc"])
+        case "starlette":
+            agent_card = await fetch_agent_card(
+                resolver=A2ACardResolver(
+                    httpx_client=httpx_client,
+                    base_url=BASE_URL,
                 )
+            )
 
-        client = client_factory.create(card=agent_card)
-        logger.info("A2AClient initialized.")
+    client = client_factory.create(card=agent_card)
+    logger.info("A2AClient initialized.")
 
-        response_text = await send_message(client, args.text)
-        print(f"> {args.text}")
-        print(response_text)
+    response_text = await send_message(client, args.text)
+    print(f"> {args.text}")
+    print(response_text)
 
 
 def parse_arguments() -> argparse.Namespace:

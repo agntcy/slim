@@ -52,7 +52,7 @@ async def main():
             servicer = SRPCHandler(agent_card, default_request_handler)
 
             server = srpc.Server(
-                local="agntcy/grpc/server",
+                local="agntcy/demo/echo_agent",
                 slim={
                     "endpoint": "http://localhost:46357",
                     "tls": {
