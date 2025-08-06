@@ -4,7 +4,7 @@
 import logging
 from collections.abc import AsyncIterable
 
-from google.rpc import code_pb2, status_pb2
+from google.rpc import code_pb2
 
 import slim_bindings
 from srpc.common import (

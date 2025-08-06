@@ -4,7 +4,7 @@
 import asyncio
 import logging
 
-from google.rpc import code_pb2, status_pb2
+from google.rpc import code_pb2
 
 import slim_bindings
 from srpc.common import (
@@ -13,7 +13,7 @@ from srpc.common import (
     split_id,
 )
 from srpc.context import Context
-from srpc.rpc import ErrorResponse, Rpc
+from srpc.rpc import Rpc
 
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)

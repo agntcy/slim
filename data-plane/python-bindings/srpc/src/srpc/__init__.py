@@ -3,14 +3,14 @@
 
 from grpc import StatusCode as StatusCode
 
+from srpc.context import (
+    Context as Context,
+)
 from srpc.rpc import (
     ErrorResponse as ErrorResponse,
 )
 from srpc.rpc import (
     Rpc as Rpc,
-)
-from srpc.context import (
-    Context as Context,
 )
 from srpc.rpc import (
     stream_stream_rpc_method_handler as stream_stream_rpc_method_handler,
