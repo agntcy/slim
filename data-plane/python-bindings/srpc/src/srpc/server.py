@@ -94,14 +94,12 @@ class Server:
     async def handle_session(
         self, session_info: slim_bindings.PySessionInfo, local_app: slim_bindings.Slim
     ):
-        instance = local_app.get_id()
-
         rpc_handler: Rpc = self.handlers[session_info.destination_name]
 
         # Call the RPC handler
         if session_info.destination_name not in self.handlers:
             logger.error(
-                f"{instance} no handler found for session {session_info.id} with destination {session_info.destination_name}",
+                f"no handler found for session {session_info.id} with destination {session_info.destination_name}",
             )
             return
 
@@ -127,7 +125,7 @@ class Server:
 
                     yield request, context
             except Exception as e:
-                logger.error(f"Error receiving messages: {e}")
+                logger.error(f"Error receiving messages from SLIM: {e}")
                 raise
 
         if not rpc_handler.request_streaming:
@@ -141,51 +139,12 @@ class Server:
         else:
             request, context = generator(), Context.from_sessioninfo(session_info)
 
-        logger.info(f"Handling request {request} with context {context}")
-        if not rpc_handler.response_streaming:
-            logger.info("handling unary response")
-
-            # Call the handler with the request and context
-            response = await rpc_handler.handler(request, context)
-
-            logger.info(f"Response------->: {response}")
-
-            # Create generator to send the response
-            async def generator():
-                yield response
-
-            response_generator = generator()
-        else:
-            # If the response is streaming, we need to handle it differently
-            logger.info("handling streaming response")
-            response_generator = rpc_handler.handler(request, context)
-            logger.info(f"----------------------> {response_generator}")
+        logger.debug(f"handling request {request} with context {context}")
 
         # Send the response back to the client
-        try:
-            async for response in response_generator:
-                await local_app.publish_to(
-                    session_info,
-                    rpc_handler.response_serializer(response),
-                    metadata={"code": str(code_pb2.OK)},
-                )
-
-            # Send a end-of-stream message
-            logger.info("Sending end of stream message")
+        async for code, response in rpc_handler.call_handler(request, context):
             await local_app.publish_to(
                 session_info,
-                b"",
-                metadata={"code": str(code_pb2.OK)},
+                rpc_handler.response_serializer(response),
+                metadata={"code": str(code)},
             )
-        except ErrorResponse as e:
-            logger.error("Error while calling handler 1")
-            response = status_pb2.Status(
-                code=e.code, message=e.message, details=e.details
-            )
-            code = e.code
-        except Exception as e:
-            logger.error(f"Error while calling handler 2 {e}")
-            response = status_pb2.Status(
-                code=code_pb2.UNKNOWN, message="Internal Error", details=None
-            )
-            code = code_pb2.UNKNOWN

@@ -45,8 +45,6 @@ class TestService(TestServicer):
         self, request_iterator: AsyncIterable[ExampleRequest], context
     ) -> AsyncIterable[ExampleResponse]:
         """Missing associated documentation comment in .proto file."""
-        context.set_code(StatusCode.UNIMPLEMENTED)
-        context.set_details("Method not implemented!")
         raise NotImplementedError("Method not implemented!")
 
 

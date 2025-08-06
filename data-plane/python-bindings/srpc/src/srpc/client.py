@@ -68,6 +68,8 @@ class SRPCChannel:
             wait_for_ready=None,
             compression=None,
         ):
+            # TODO: check how this is done in grpc
+
             service_name = service_and_method_to_pyname(self.slim_service_name, method)
 
             await self.local_app.set_route(
@@ -78,8 +80,6 @@ class SRPCChannel:
             session = await self.local_app.create_session(
                 slim_bindings.PySessionConfiguration.FireAndForget()
             )
-
-            # TODO: check how this is done in grpc
 
             # Send the request
             async for request in request_stream:

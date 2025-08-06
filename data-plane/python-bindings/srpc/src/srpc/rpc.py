@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import logging
-from collections.abc import AsyncIterable, Awaitable
+from collections.abc import AsyncGenerator, AsyncIterable, Awaitable
 from typing import Any
 
 from google.rpc import code_pb2, status_pb2
@@ -43,15 +43,22 @@ class Rpc:
         self.request_streaming = request_streaming
         self.response_streaming = response_streaming
 
-    async def call_handler(self, *args, **kwargs) -> tuple[int, Any]:
+    async def call_handler(self, *args, **kwargs) -> AsyncGenerator[int, Any]:
         """
         Call the handler with the given arguments.
         """
 
-        code = 0
+        code = code_pb2.OK
 
         try:
-            response = await self.handler(*args, **kwargs)
+            if not self.response_streaming:
+                response = await self.handler(*args, **kwargs)
+                yield code, response
+            else:
+                async for response in self.handler(*args, **kwargs):
+                    yield code, response
+
+            return
         except ErrorResponse as e:
             logger.error("Error while calling handler 1")
             response = status_pb2.Status(
@@ -65,7 +72,7 @@ class Rpc:
             )
             code = code_pb2.UNKNOWN
 
-        return code, response
+        yield code, response
 
 
 def unary_unary_rpc_method_handler(
