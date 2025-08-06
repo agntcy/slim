@@ -96,7 +96,7 @@ class SRPCChannel:
                 session,
                 b"",
                 dest=service_name,
-                metadata={"code": str(Code.OK)},
+                metadata={"code": str(code_pb2.OK)},
             )
 
             # Wait for the responses
@@ -109,7 +109,7 @@ class SRPCChannel:
 
                         print(session_recv.metadata)
                         if (
-                            session_recv.metadata.get("code") == str(Code.OK)
+                            session_recv.metadata.get("code") == str(code_pb2.OK)
                             and not response_bytes
                         ):
                             logger.info("End of stream received")
