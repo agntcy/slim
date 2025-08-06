@@ -6,7 +6,10 @@ import datetime
 import logging
 from contextlib import asynccontextmanager
 
+from google.rpc import code_pb2
+
 import anyio
+from srpc.codes import Code
 
 import slim_bindings
 from srpc.common import (
@@ -102,10 +105,6 @@ class SRPCChannel:
         request_serializer: callable = lambda x: x,
         response_deserializer: callable = lambda x: x,
     ):
-        """
-        Create a stream-unary callable for the given method.
-        """
-
         async def call_stream_unary(
             requests: AsyncIterable,
             timeout=None,
@@ -114,6 +113,8 @@ class SRPCChannel:
             wait_for_ready=None,
             compression=None,
         ):
+            logger.info(f"----------------------------------------------")
+
             service_name = service_and_method_to_pyname(self.slim_service_name, method)
 
             await self.local_app.set_route(
@@ -127,9 +128,14 @@ class SRPCChannel:
                 stream_request=True,
                 stream_response=False,
             ) as (recv_stream, send_stream):
+                logger.info(f"Sending stream-unary request to {service_name}")
+
                 # Send stream of requests
                 async for request in requests:
                     await send_stream.send(request)
+
+                # Send a message to signal the stream is complete
+                await send_stream.send()
 
                 # Wait for 1 response
                 return await recv_stream.receive()
@@ -162,19 +168,39 @@ class SRPCChannel:
                 service_name,
             )
 
-            async with self.multi_callable_streams(
-                service_name,
-                request_serializer=request_serializer,
-                response_deserializer=response_deserializer,
-                stream_request=False,
-                stream_response=True,
-            ) as (recv_stream, send_stream):
-                # Send 1 message
-                await send_stream.send(request)
+            # Create a session
+            session = await self.local_app.create_session(
+                slim_bindings.PySessionConfiguration.FireAndForget()
+            )
 
-                # Return stream of responses
-                async for response in recv_stream:
-                    yield response
+            # Send the request
+            request_bytes = request_serializer(request)
+            await self.local_app.publish(
+                session,
+                request_bytes,
+                dest=service_name,
+                metadata=metadata,
+            )
+
+            # Wait for the responses
+            async def generator():
+                try:
+                    while True:
+                        session_recv, response_bytes = await self.local_app.receive(
+                            session=session.id,
+                        )
+                        if session_recv.metadata.get("code") == Code.END_OF_STREAM:
+                            logger.info("End of stream received")
+                            break
+
+                        response = response_deserializer(response_bytes)
+                        yield response
+                except Exception as e:
+                    logger.error(f"Error receiving messages: {e}")
+                    raise
+
+            async for response in generator():
+                yield response
 
         return call_unary_stream
 
@@ -198,18 +224,28 @@ class SRPCChannel:
                 service_name,
             )
 
-            async with self.multi_callable_streams(
-                service_name,
-                request_serializer=request_serializer,
-                response_deserializer=response_deserializer,
-                stream_request=False,
-                stream_response=False,
-            ) as (recv_stream, send_stream):
-                # Send 1 message
-                await send_stream.send(request)
+            # Create a session
+            session = await self.local_app.create_session(
+                slim_bindings.PySessionConfiguration.FireAndForget()
+            )
 
-                # Wait for 1 response
-                return await recv_stream.receive()
+            # Send the request
+            request_bytes = request_serializer(request)
+            await self.local_app.publish(
+                session,
+                request_bytes,
+                dest=service_name,
+                metadata=metadata,
+            )
+
+            # Wait for the response
+            session_recv, response_bytes = await self.local_app.receive(
+                session=session.id,
+            )
+
+            response = response_deserializer(response_bytes)
+
+            return response
 
         return call_unary_unary
 
@@ -254,14 +290,16 @@ class SRPCChannel:
                         )
                         logger.debug(f"Received message {response_bytes}")
 
+                        if session_recv.metadata.get("code") == Code.END_OF_STREAM:
+                            logger.info("End of stream received")
+                            break
+
                         # TODO(msardara): handle errors
                         response = response_deserializer(response_bytes)
 
                         logger.debug(f"Response: {response}")
 
                         await read_stream_writer.send(response)
-
-                        # TODO(msardara): send message to signal end of stream
 
                         if not stream_response:
                             # If not streaming, break after receiving one message
@@ -274,7 +312,6 @@ class SRPCChannel:
                         break
             finally:
                 await read_stream_writer.aclose()
-
 
         async def slim_writer():
             try:
@@ -291,6 +328,15 @@ class SRPCChannel:
                         logger.error("Error sending message", exc_info=True)
                         raise
             finally:
+                # await self.local_app.publish(
+                #     session,
+                #     b"",
+                #     dest=dest,
+                #     metadata={
+                #         "code": str(Code.END_OF_STREAM)
+                #     }
+                # )
+
                 await write_stream_reader.aclose()
 
         async with anyio.create_task_group() as tg:

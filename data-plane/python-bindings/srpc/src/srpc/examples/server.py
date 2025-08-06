@@ -15,8 +15,7 @@ class TestService(TestServicer):
     async def ExampleUnaryUnary(self, request, context) -> ExampleResponse:
         logger.info(f"Received unary-unary request: {request}")
 
-        response = ExampleResponse(example_integer=1, example_string="Hello, World!")
-        return response
+        return ExampleResponse(example_integer=1, example_string="Hello, World!")
 
     async def ExampleUnaryStream(
         self, request, context
@@ -31,11 +30,13 @@ class TestService(TestServicer):
     async def ExampleStreamUnary(
         self, request_iterator: AsyncIterable[ExampleRequest], context
     ) -> ExampleResponse:
-        logger.info(f"Received stream-unary request: {request}")
+        logger.info(f"Received stream-unary request: {request_iterator}")
 
         async for request in request_iterator:
             logger.info(f"Received stream-unary request: {request}")
         response = ExampleResponse(example_integer=1, example_string="Stream Unary Response")
+
+        logger.info(f"Response-222------>: {response}")
         return response
 
     async def ExampleStreamStream(

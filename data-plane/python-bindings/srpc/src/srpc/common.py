@@ -26,7 +26,6 @@ class color:
     UNDERLINE = "\033[4m"
     END = "\033[0m"
 
-
 # Split an ID into its components
 # Expected format: organization/namespace/application
 # Raises ValueError if the format is incorrect

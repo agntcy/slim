@@ -62,8 +62,10 @@ async def amain():
     #     for i in range(5):
     #         yield ExampleRequest(example_integer=i, example_string=f"Request {i}")
 
-    # response = stubs.ExampleStreamUnary(stream_requests())
+    # response = await stubs.ExampleStreamUnary(stream_requests())
     # logger.info(f"Stream Unary Response: {response}")
+
+    await asyncio.sleep(1)
 
 
 def main():
