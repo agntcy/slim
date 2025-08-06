@@ -2,7 +2,7 @@
 """Client and server classes corresponding to protobuf-defined services."""
 
 import srpc
-import srpc.grpc.example_pb2 as example__pb2
+import srpc.examples.simple.types.example_pb2 as example__pb2
 
 
 class TestStub:

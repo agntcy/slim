@@ -19,8 +19,8 @@ dependencies = [
 slim-bindings = { workspace = true }
 
 [project.scripts]
-server = "srpc.examples.simple.server:main"
-client = "srpc.examples.simple.client:main"
+simple-server = "srpc.examples.simple.server:main"
+simple-client = "srpc.examples.simple.client:main"
 
 [build-system]
 requires = ["hatchling"]
@@ -34,3 +34,6 @@ packages = ["srpc"]
 
 [tool.ruff.format]
 exclude = ["*_pb2.py", "*_pb2.pyi", "*_pb2_srpc.py"]
+
+[tool.ruff.lint]
+extend-select = ["I", "ASYNC", "SIM", "B"]

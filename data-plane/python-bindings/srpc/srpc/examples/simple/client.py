@@ -2,34 +2,15 @@ import asyncio
 import logging
 
 import srpc
-from srpc.grpc.example_pb2 import ExampleRequest
-from srpc.grpc.example_pb2_srpc import TestStub
+from srpc.examples.simple.types.example_pb2 import ExampleRequest
+from srpc.examples.simple.types.example_pb2_srpc import TestStub
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
-def create_channel(
-    local: str,
-    slim: dict,
-    enable_opentelemetry: bool = False,
-    shared_secret: str | None = None,
-):
-    """
-    Create a new SRPC channel instance.
-    """
-    channel = srpc.Channel(
-        local=local,
-        slim=slim,
-        enable_opentelemetry=enable_opentelemetry,
-        shared_secret=shared_secret,
-    )
-
-    return channel
-
-
 async def amain():
-    channel = create_channel(
+    channel = srpc.Channel(
         local="agntcy/grpc/client",
         slim={
             "endpoint": "http://localhost:46357",
@@ -39,10 +20,8 @@ async def amain():
         },
         enable_opentelemetry=False,
         shared_secret="my_shared_secret",
+        remote="agntcy/grpc/server"
     )
-
-    # Connect channel
-    await channel.connect("agntcy/grpc/server")
 
     # Stubs
     stubs = TestStub(channel)
