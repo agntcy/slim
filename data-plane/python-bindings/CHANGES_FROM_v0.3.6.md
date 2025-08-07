@@ -13,10 +13,10 @@ Breaking changes:
 - The `provider` and `verifier` parameters are now required when creating a SLIM
   instance.
 
+## Differences
+
 This document outlines the migration process from version v0.3.6 to v0.4.0 of
 the SLIM Python bindings.
-
-## Differences
 
 We will use the
 [pubsub.py](https://github.com/agntcy/slim/blob/slim-bindings-v0.3.6/data-plane/python-bindings/examples/pubsub.py),
