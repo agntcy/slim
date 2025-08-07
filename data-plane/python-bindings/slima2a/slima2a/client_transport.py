@@ -1,3 +1,6 @@
+# Copyright AGNTCY Contributors (https://github.com/agntcy)
+# SPDX-License-Identifier: Apache-2.0
+
 import logging
 from collections.abc import AsyncGenerator
 from dataclasses import dataclass
