@@ -7,7 +7,7 @@ from srpc import rpc as srpc_rpc
 
 from google.rpc import code_pb2 as code__pb2
 
-from a2a.grpc import a2a__pb2
+from a2a.grpc import a2a_pb2 as a2a__pb2
 import google.protobuf.empty_pb2 as google__protobuf__empty_pb2
 
 
