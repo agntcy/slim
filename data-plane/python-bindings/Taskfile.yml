@@ -14,6 +14,10 @@ includes:
   rust:
     taskfile: ../../tasks/rust.yaml
     internal: true
+  tools:
+    taskfile: ../../tasks/tools.yaml
+    internal: true
+    flatten: true
 
 tasks:
   default:
@@ -204,3 +208,22 @@ tasks:
     desc: "Generate stub file for the Python bindings"
     cmds:
       - cargo run --bin stub_gen
+
+  python-bindings:generate-proto:
+    desc: "Generate proto files for the Python bindings"
+    deps:
+      - task: rust:toolchain:run-command
+        vars:
+          COMMAND: |
+            cargo build --package agntcy-protoc-srpc-plugin --bin protoc-srpc-plugin
+      - task: tools:buf
+    cmds:
+      - |
+        # Find all the buf.gen.yaml files in the current directory and its subdirectories
+        find . -name 'buf.gen.yaml' | while read -r file; do
+          # Generate the proto files using buf
+          echo "Generating proto files for $file"
+          # get folder name
+          folder=$(dirname "$file")
+          pushd > /dev/null ${folder} && {{.TOOLS_INSTALL_DIR}}/buf generate && popd > /dev/null
+        done
