@@ -1,4 +1,6 @@
-// main.rs
+// Copyright AGNTCY Contributors (https://github.com/agntcy)
+// SPDX-License-Identifier: Apache-2.0
+
 use anyhow::{Context, Result};
 use heck::ToSnakeCase;
 use prost::Message;
