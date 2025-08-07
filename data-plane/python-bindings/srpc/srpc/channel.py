@@ -12,6 +12,7 @@ from google.rpc import code_pb2
 
 from srpc.common import (
     DEADLINE_KEY,
+    MAX_TIMEOUT,
     create_local_app,
     service_and_method_to_pyname,
     split_id,
@@ -59,7 +60,7 @@ class Channel:
         if self.local_app is not None:
             self.local_app.__aexit__(None, None, None)
 
-    async def _common_setup(self, method: str):
+    async def _common_setup(self, method: str, metadata: dict | None = None):
         service_name = service_and_method_to_pyname(self.remote, method)
 
         assert self.local_app is not None
@@ -72,14 +73,20 @@ class Channel:
             slim_bindings.PySessionConfiguration.FireAndForget()
         )
 
-        return service_name, session
+        return service_name, session, metadata or {}
 
     async def _delete_session(self, session: slim_bindings.PySessionInfo):
         assert self.local_app is not None
         await self.local_app.delete_session(session.id)
 
     async def _send_unary(
-        self, request, session, service_name, metadata, request_serializer, deadline: int
+        self,
+        request,
+        session,
+        service_name,
+        metadata,
+        request_serializer,
+        deadline: int,
     ):
         # Add deadline to metadata
         metadata[DEADLINE_KEY] = str(deadline)
@@ -123,7 +130,7 @@ class Channel:
             session,
             b"",
             dest=service_name,
-            metadata={"code": str(code_pb2.OK)},
+            metadata={**metadata, "code": str(code_pb2.OK)},
         )
 
     async def _receive_unary(self, session, response_deserializer, deadline: int):
@@ -173,7 +180,7 @@ class Channel:
     ):
         async def call_stream_stream(
             request_stream: AsyncIterable,
-            timeout=sys.maxsize,
+            timeout=MAX_TIMEOUT,
             metadata=None,
             credentials=None,
             wait_for_ready=None,
@@ -181,11 +188,16 @@ class Channel:
         ):
             try:
                 await self._prepare_task
-                service_name, session = await self._common_setup(method)
+                service_name, session, metadata = await self._common_setup(method)
 
                 # Send the requests
                 await self._send_stream(
-                    request_stream, session, service_name, metadata, request_serializer
+                    request_stream,
+                    session,
+                    service_name,
+                    metadata,
+                    request_serializer,
+                    _compute_deadline(timeout),
                 )
 
                 # Wait for the responses
@@ -204,7 +216,7 @@ class Channel:
     ):
         async def call_stream_unary(
             request_stream: AsyncIterable,
-            timeout=sys.maxsize,
+            timeout=MAX_TIMEOUT,
             metadata=None,
             credentials=None,
             wait_for_ready=None,
@@ -212,11 +224,16 @@ class Channel:
         ):
             try:
                 await self._prepare_task
-                service_name, session = await self._common_setup(method)
+                service_name, session, metadata = await self._common_setup(method)
 
                 # Send the requests
                 await self._send_stream(
-                    request_stream, session, service_name, metadata, request_serializer
+                    request_stream,
+                    session,
+                    service_name,
+                    metadata,
+                    request_serializer,
+                    _compute_deadline(timeout),
                 )
 
                 # Wait for response
@@ -236,7 +253,7 @@ class Channel:
     ):
         async def call_unary_stream(
             request,
-            timeout=sys.maxsize,
+            timeout=MAX_TIMEOUT,
             metadata=None,
             credentials=None,
             wait_for_ready=None,
@@ -244,11 +261,16 @@ class Channel:
         ):
             try:
                 await self._prepare_task
-                service_name, session = await self._common_setup(method)
+                service_name, session, metadata = await self._common_setup(method)
 
                 # Send the request
                 await self._send_unary(
-                    request, session, service_name, metadata, request_serializer
+                    request,
+                    session,
+                    service_name,
+                    metadata,
+                    request_serializer,
+                    _compute_deadline(timeout),
                 )
 
                 # Wait for the responses
@@ -269,7 +291,7 @@ class Channel:
     ):
         async def call_unary_unary(
             request,
-            timeout=sys.maxsize,
+            timeout=MAX_TIMEOUT,
             metadata=None,
             credentials=None,
             wait_for_ready=None,
@@ -277,11 +299,16 @@ class Channel:
         ):
             try:
                 await self._prepare_task
-                service_name, session = await self._common_setup(method)
+                service_name, session, metadata = await self._common_setup(method)
 
                 # Send request
                 await self._send_unary(
-                    request, session, service_name, metadata, request_serializer
+                    request,
+                    session,
+                    service_name,
+                    metadata,
+                    request_serializer,
+                    _compute_deadline(timeout),
                 )
 
                 # Wait for the response
@@ -295,5 +322,6 @@ class Channel:
 
         return call_unary_unary
 
-def _compute_deadline(timeout: int) -> int:
-    return asyncio.get_running_loop().time() + timeout
+
+def _compute_deadline(timeout: int) -> float:
+    return asyncio.get_running_loop().time() + float(timeout)

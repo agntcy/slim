@@ -38,10 +38,10 @@ async def amain():
             logger.info(f"Stream Response: {resp}")
 
         async def stream_requests():
-            for i in range(5):
+            for i in range(10):
                 yield ExampleRequest(example_integer=i, example_string=f"Request {i}")
 
-        response = await stubs.ExampleStreamUnary(stream_requests())
+        response = await stubs.ExampleStreamUnary(stream_requests(), timeout=2)
         logger.info(f"Stream Unary Response: {response}")
     except asyncio.TimeoutError:
         logger.error("timeout while waiting for response")

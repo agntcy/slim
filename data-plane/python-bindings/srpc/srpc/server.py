@@ -98,6 +98,8 @@ class Server:
     ):
         rpc_handler: RPCHandler = self.handlers[session_info.destination_name]
 
+        logging.info(f"new session from {session_info.source_name}")
+
         # Call the RPC handler
         if session_info.destination_name not in self.handlers:
             logger.error(
@@ -107,7 +109,7 @@ class Server:
 
         try:
             # Get deadline from request
-            deadline = int(session_info.metadata.get(DEADLINE_KEY))
+            deadline = float(session_info.metadata.get(DEADLINE_KEY))
 
             async with asyncio.timeout_at(deadline):
                 if not rpc_handler.request_streaming:
@@ -116,7 +118,9 @@ class Server:
                         session=session_info.id,
                     )
 
-                    request_or_iterator = rpc_handler.request_deserializer(request_bytes)
+                    request_or_iterator = rpc_handler.request_deserializer(
+                        request_bytes
+                    )
                     context = Context.from_sessioninfo(session_recv)
                 else:
                     request_or_iterator, context = (
@@ -143,8 +147,11 @@ class Server:
                         b"",
                         metadata={"code": str(code_pb2.OK)},
                     )
+        except asyncio.TimeoutError:
+            pass
         finally:
-            local_app.delete_session(session_info.id)
+            logger.info(f"deleting session {session_info.id}")
+            await local_app.delete_session(session_info.id)
 
 
 def request_generator(
