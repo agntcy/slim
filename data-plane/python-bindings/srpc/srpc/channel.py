@@ -192,51 +192,20 @@ class Channel:
         ):
             try:
                 await self._prepare_task
-                service_name, session, metadata = await self._common_setup(method)
+                service_name, session = await self._common_setup(method)
 
                 # Send the requests
                 await self._send_stream(
-                    request_stream,
-                    session,
-                    service_name,
-                    metadata,
-                    request_serializer,
-                    _compute_deadline(timeout),
+                    request_stream, session, service_name, metadata, request_serializer
                 )
 
-            # Send end of streaming message
-            await self.local_app.publish(
-                session,
-                b"",
-                dest=service_name,
-                metadata={"code": str(code_pb2.OK)},
-            )
-
-            # Wait for the responses
-            async def generator():
-                try:
-                    while True:
-                        session_recv, response_bytes = await self.local_app.receive(
-                            session=session.id,
-                        )
-
-                        if (
-                            session_recv.metadata.get("code") == str(code_pb2.OK)
-                            and not response_bytes
-                        ):
-                            logger.debug("end of stream received")
-                            break
-
-                        response = response_deserializer(response_bytes)
-                        yield response
-                except Exception as e:
-                    logger.error(f"error receiving messages: {e}")
-                    raise
-
-            async for response in generator():
-                yield response
-
-        return call_stream_stream
+                # Wait for the responses
+                async for response in self._receive_stream(
+                    session, response_deserializer, _compute_deadline(timeout)
+                ):
+                    yield response
+            finally:
+                await self._delete_session(session)
 
     def stream_unary(
         self,
