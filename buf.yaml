@@ -2,10 +2,12 @@
 # SPDX-License-Identifier: Apache-2.0
 
 version: v2
-name: buf.build/agntcy/slim
 lint:
   disallow_comment_ignores: true
   use:
     - STANDARD
 deps:
   - buf.build/googleapis/googleapis
+modules:
+  - path: proto
+    name: buf.build/agntcy/slim
