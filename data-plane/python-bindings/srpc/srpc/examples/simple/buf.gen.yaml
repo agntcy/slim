@@ -9,8 +9,13 @@ managed:
 inputs:
   - proto_file: example.proto
 plugins:
-  # Python
+  # Generates _pb2_srpc.py files
+  - local: ../../../../../target/aarch64-apple-darwin/debug/protoc-srpc-plugin
+    out: types
+  # Generate python protobuf related code
+  # Generates *_pb2.py files, one for each .proto
   - remote: buf.build/protocolbuffers/python:v29.3
     out: types
+  # Generates *_pb2.pyi files.
   - remote: buf.build/protocolbuffers/pyi:v31.1
     out: types

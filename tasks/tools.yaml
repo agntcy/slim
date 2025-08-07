@@ -52,6 +52,20 @@ tasks:
     cmds:
       - cd {{.TOOLS_MODULE_DIR}} && go mod tidy
 
+  tools:buf:
+    internal: true
+    desc: Install buf
+    cmds:
+      - |
+        BIN="{{.TOOLS_INSTALL_DIR}}" && \
+        VERSION="1.56.0" && \
+        curl -sSL \
+        "https://github.com/bufbuild/buf/releases/download/v${VERSION}/buf-$(uname -s)-$(uname -m)" \
+        -o "${BIN}/buf" && \
+        chmod +x "${BIN}/buf"
+    status:
+      - test -f {{.TOOLS_INSTALL_DIR}}/buf
+
   tools:protoc:
     deps:
       - tools:dir

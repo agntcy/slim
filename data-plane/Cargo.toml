@@ -13,6 +13,7 @@ members = [
     "core/tracing",
     "examples",
     "python-bindings",
+    "srpc-compiler",
     "testing",
 ]
 
@@ -24,6 +25,7 @@ default-members = [
     "core/service",
     "core/signal",
     "core/tracing",
+    "srpc-compiler",
     "examples",
     "testing",
 ]
