@@ -7,6 +7,7 @@ from a2a.extensions.common import (
     HTTP_EXTENSION_HEADER,
     get_requested_extensions,
 )
+from a2a.grpc import a2a_pb2
 from a2a.server.context import ServerCallContext
 from a2a.server.request_handlers.request_handler import RequestHandler
 from a2a.types import AgentCard, TaskNotFoundError
@@ -17,7 +18,7 @@ from google.rpc import code_pb2
 from srpc import ErrorResponse
 from srpc import context as srpc_context
 
-from slima2a.types import a2a_pb2, a2a_pb2_srpc
+from slima2a.types import a2a_pb2_srpc
 
 
 class CallContextBuilder(ABC):
@@ -39,9 +40,15 @@ class DefaultCallContextBuilder(CallContextBuilder):
             user=user,
             state=state,
             requested_extensions=get_requested_extensions(
-                context.metadata.get(HTTP_EXTENSION_HEADER, ""),
+                [get_metadata_value(context, HTTP_EXTENSION_HEADER)],
             ),
         )
+
+
+def get_metadata_value(context: srpc_context.Context, key: str) -> str:
+    if context.metadata is None:
+        return ""
+    return context.metadata.get(HTTP_EXTENSION_HEADER, "")
 
 
 class SRPCHandler(a2a_pb2_srpc.A2AServiceServicer):
@@ -160,7 +167,7 @@ class SRPCHandler(a2a_pb2_srpc.A2AServiceServicer):
             )
             if task:
                 return proto_utils.ToProto.task(task)
-            await self.abort_context(ServerError(error=TaskNotFoundError()), context)
+            await self.raise_error_response(ServerError(error=TaskNotFoundError()))
         except ServerError as e:
             await self.raise_error_response(e)
         return a2a_pb2.Task()
@@ -279,7 +286,7 @@ class SRPCHandler(a2a_pb2_srpc.A2AServiceServicer):
             )
             if task:
                 return proto_utils.ToProto.task(task)
-            await self.abort_context(ServerError(error=TaskNotFoundError()), context)
+            await self.raise_error_response(ServerError(error=TaskNotFoundError()))
         except ServerError as e:
             await self.raise_error_response(e)
         return a2a_pb2.Task()

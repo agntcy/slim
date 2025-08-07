@@ -1,11 +1,10 @@
 """Client and server classes corresponding to protobuf-defined services."""
 
 import srpc
+from a2a.grpc import a2a_pb2 as a2a__pb2
 from google.protobuf import empty_pb2 as google_dot_protobuf_dot_empty__pb2
 from google.rpc import code_pb2 as code__pb2
 from srpc import rpc as srpc_rpc
-
-from . import a2a_pb2 as a2a__pb2
 
 
 class A2AServiceStub:
