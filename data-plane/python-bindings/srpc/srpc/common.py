@@ -8,8 +8,6 @@ import logging
 import click
 import slim_bindings
 
-from srpc.rpc import Rpc
-
 logger = logging.getLogger(__name__)
 
 
@@ -78,13 +76,15 @@ def service_and_method_to_pyname(
 
 
 def handler_name_to_pyname(
-    name: slim_bindings.PyName, rpc_handler: Rpc
+    name: slim_bindings.PyName,
+    service_name,
+    method_name,
 ) -> slim_bindings.PyName:
     """
     Convert a handler name to a PyName.
     """
 
-    return method_to_pyname(name, rpc_handler.service_name, rpc_handler.method_name)
+    return method_to_pyname(name, service_name, method_name)
 
 
 # Create a shared secret identity provider and verifier
@@ -113,9 +113,9 @@ def shared_secret_identity(identity, secret):
 def jwt_identity(
     jwt_path: str,
     jwk_path: str,
-    iss: str = None,
-    sub: str = None,
-    aud: list = None,
+    iss: str | None = None,
+    sub: str | None = None,
+    aud: list | None = None,
 ):
     """
     Parse the JWK and JWT from the provided strings.
