@@ -6,8 +6,8 @@ from google.rpc.code_pb2 import Code as StatusCode
 from srpc.channel import Channel
 from srpc.context import Context
 from srpc.rpc import (
-    ErrorResponse,
     RPCHandler,
+    SRPCResponseError,
     stream_stream_rpc_method_handler,
     stream_unary_rpc_method_handler,
     unary_stream_rpc_method_handler,
@@ -18,7 +18,7 @@ from srpc.server import Server
 __all__ = [
     "StatusCode",
     "Context",
-    "ErrorResponse",
+    "SRPCResponseError",
     "RPCHandler",
     "stream_stream_rpc_method_handler",
     "stream_unary_rpc_method_handler",

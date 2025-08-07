@@ -9,7 +9,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
-class ErrorResponse(Exception):
+class SRPCResponseError(Exception):
     def __init__(self, code, message, details=None):
         self.code = code
         self.message = message

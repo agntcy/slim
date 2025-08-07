@@ -15,7 +15,7 @@ from srpc.common import (
     split_id,
 )
 from srpc.context import Context
-from srpc.rpc import ErrorResponse, RPCHandler
+from srpc.rpc import RPCHandler, SRPCResponseError
 
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
@@ -185,7 +185,7 @@ async def call_handler(
         # For streaming responses yield each response from the handler
         async for response in handler.behaviour(request_or_iterator, context):
             yield code_pb2.OK, response
-    except ErrorResponse as e:
+    except SRPCResponseError as e:
         logger.error("Error while calling handler 1")
         yield (
             e.code,

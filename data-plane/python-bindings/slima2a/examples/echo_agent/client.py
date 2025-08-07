@@ -162,7 +162,7 @@ async def send_message(
 
                 if update:
                     logger.info(f"update: {update.model_dump(mode='json')}")
-    except srpc.ErrorResponse as e:
+    except srpc.SRPCResponseError as e:
         logger.error(
             f"failed sending message or processing response on SRPC: {e}",
             exc_info=True,
