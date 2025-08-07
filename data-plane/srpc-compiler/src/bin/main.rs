@@ -88,6 +88,8 @@ fn main() -> Result<()> {
     let request = CodeGeneratorRequest::decode(&input_bytes[..])
         .context("Failed to decode CodeGeneratorRequest")?;
 
+    eprintln!("Request: {:?}", request);
+
     let mut response = CodeGeneratorResponse::default();
 
     // Iterate through each .proto file provided in the request

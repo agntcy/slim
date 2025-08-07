@@ -1,3 +1,6 @@
+# Copyright AGNTCY Contributors (https://github.com/agntcy)
+# SPDX-License-Identifier: Apache-2.0
+
 import logging
 from collections.abc import AsyncGenerator
 from dataclasses import dataclass
@@ -7,6 +10,7 @@ import srpc
 from a2a.client.client import ClientConfig as A2AClientConfig
 from a2a.client.middleware import ClientCallContext, ClientCallInterceptor
 from a2a.client.transports.base import ClientTransport
+from a2a.grpc import a2a_pb2
 from a2a.types import (
     AgentCard,
     GetTaskPushNotificationConfigParams,
@@ -22,7 +26,7 @@ from a2a.types import (
 from a2a.utils import proto_utils
 from a2a.utils.telemetry import SpanKind, trace_class
 
-from slima2a.types import a2a_pb2, a2a_pb2_srpc
+from slima2a.types import a2a_pb2_srpc
 
 logger = logging.getLogger(__name__)
 
@@ -104,10 +108,7 @@ class SRPCTransport(ClientTransport):
                 metadata=proto_utils.ToProto.metadata(request.metadata),
             )
         )
-        while True:
-            response = await stream.read()
-            if response == srpc.aio.EOF:  # pyright: ignore[reportAttributeAccessIssue]
-                break
+        async for response in stream:
             yield proto_utils.FromProto.stream_response(response)
 
     async def resubscribe(
@@ -119,10 +120,7 @@ class SRPCTransport(ClientTransport):
         stream = self.stub.TaskSubscription(
             a2a_pb2.TaskSubscriptionRequest(name=f"tasks/{request.id}")
         )
-        while True:
-            response = await stream.read()
-            if response == srpc.aio.EOF:  # pyright: ignore[reportAttributeAccessIssue]
-                break
+        async for response in stream:
             yield proto_utils.FromProto.stream_response(response)
 
     async def get_task(
@@ -185,7 +183,6 @@ class SRPCTransport(ClientTransport):
         context: ClientCallContext | None = None,
     ) -> AgentCard:
         """Retrieves the agent's card."""
-        await self.channel_task
         card = self.agent_card
         if card and not self._needs_extended_card:
             return card
@@ -202,4 +199,4 @@ class SRPCTransport(ClientTransport):
 
     async def close(self) -> None:
         """Closes the gRPC channel."""
-        await self.channel.close()
+        self.channel.close()

@@ -6,6 +6,11 @@ readme = "README.md"
 requires-python = ">=3.10, <4.0"
 dependencies = ["a2a-sdk>=0.3.0", "uvicorn>=0.34.2", "srpc"]
 
+[dependency-groups]
+linting = [
+    "types-protobuf>=6.30.2.20250703",
+]
+
 [tool.uv.sources]
 srpc = { workspace = true }
 
