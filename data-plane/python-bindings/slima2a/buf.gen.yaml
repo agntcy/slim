@@ -8,6 +8,12 @@ managed:
   enabled: true
 plugins:
   # Generate python protobuf related code
+  # Generates _pb2_srpc.py files
+  - local: ../../target/debug/protoc-srpc-plugin
+    out: slima2a/types
+    opt:
+      - 'types_import=from a2a.grpc import a2a_pb2 as a2a__pb2'
+
   # Generates *_pb2.py files, one for each .proto
   #- remote: buf.build/protocolbuffers/python:v29.3
   #  out: slima2a/types
