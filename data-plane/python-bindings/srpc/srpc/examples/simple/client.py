@@ -27,21 +27,24 @@ async def amain():
     stubs = TestStub(channel)
 
     # Call method
-    request = ExampleRequest(example_integer=1, example_string="hello")
-    response = await stubs.ExampleUnaryUnary(request)
+    try:
+        request = ExampleRequest(example_integer=1, example_string="hello")
+        response = await stubs.ExampleUnaryUnary(request, timeout=2)
 
-    logger.info(f"Response: {response}")
+        logger.info(f"Response: {response}")
 
-    responses = stubs.ExampleUnaryStream(request)
-    async for resp in responses:
-        logger.info(f"Stream Response: {resp}")
+        responses = stubs.ExampleUnaryStream(request, timeout=2)
+        async for resp in responses:
+            logger.info(f"Stream Response: {resp}")
 
-    async def stream_requests():
-        for i in range(5):
-            yield ExampleRequest(example_integer=i, example_string=f"Request {i}")
+        async def stream_requests():
+            for i in range(5):
+                yield ExampleRequest(example_integer=i, example_string=f"Request {i}")
 
-    response = await stubs.ExampleStreamUnary(stream_requests())
-    logger.info(f"Stream Unary Response: {response}")
+        response = await stubs.ExampleStreamUnary(stream_requests())
+        logger.info(f"Stream Unary Response: {response}")
+    except asyncio.TimeoutError:
+        logger.error("timeout while waiting for response")
 
     await asyncio.sleep(1)
 

@@ -10,6 +10,7 @@ import slim_bindings
 
 logger = logging.getLogger(__name__)
 
+DEADLINE_KEY = "srpc-timeout"
 
 class color:
     PURPLE = "\033[95m"
