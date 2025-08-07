@@ -2,8 +2,13 @@
 # This file is generated from an embedded template. Do not edit directly.
 
 import abc
-import srpc # Assuming srpc is the custom RPC library
-from . import a2a_pb2 as pb2
+import srpc
+from srpc import rpc as srpc_rpc
+
+from google.rpc import code_pb2 as code__pb2
+
+from a2a.grpc import a2a__pb2
+import google.protobuf.empty_pb2 as google__protobuf__empty_pb2
 
 
 class A2AServiceStub:
@@ -16,53 +21,53 @@ class A2AServiceStub:
         """
         self.SendMessage = channel.unary_unary(
             "/a2a.v1.A2AService/SendMessage",
-            request_serializer=pb2.SendMessageRequest.SerializeToString,
-            response_deserializer=pb2.SendMessageResponse.FromString,
+            request_serializer=a2a__pb2.SendMessageRequest.SerializeToString,
+            response_deserializer=a2a__pb2.SendMessageResponse.FromString,
         )
         self.SendStreamingMessage = channel.unary_stream(
             "/a2a.v1.A2AService/SendStreamingMessage",
-            request_serializer=pb2.SendMessageRequest.SerializeToString,
-            response_deserializer=pb2.StreamResponse.FromString,
+            request_serializer=a2a__pb2.SendMessageRequest.SerializeToString,
+            response_deserializer=a2a__pb2.StreamResponse.FromString,
         )
         self.GetTask = channel.unary_unary(
             "/a2a.v1.A2AService/GetTask",
-            request_serializer=pb2.GetTaskRequest.SerializeToString,
-            response_deserializer=pb2.Task.FromString,
+            request_serializer=a2a__pb2.GetTaskRequest.SerializeToString,
+            response_deserializer=a2a__pb2.Task.FromString,
         )
         self.CancelTask = channel.unary_unary(
             "/a2a.v1.A2AService/CancelTask",
-            request_serializer=pb2.CancelTaskRequest.SerializeToString,
-            response_deserializer=pb2.Task.FromString,
+            request_serializer=a2a__pb2.CancelTaskRequest.SerializeToString,
+            response_deserializer=a2a__pb2.Task.FromString,
         )
         self.TaskSubscription = channel.unary_stream(
             "/a2a.v1.A2AService/TaskSubscription",
-            request_serializer=pb2.TaskSubscriptionRequest.SerializeToString,
-            response_deserializer=pb2.StreamResponse.FromString,
+            request_serializer=a2a__pb2.TaskSubscriptionRequest.SerializeToString,
+            response_deserializer=a2a__pb2.StreamResponse.FromString,
         )
         self.CreateTaskPushNotificationConfig = channel.unary_unary(
             "/a2a.v1.A2AService/CreateTaskPushNotificationConfig",
-            request_serializer=pb2.CreateTaskPushNotificationConfigRequest.SerializeToString,
-            response_deserializer=pb2.TaskPushNotificationConfig.FromString,
+            request_serializer=a2a__pb2.CreateTaskPushNotificationConfigRequest.SerializeToString,
+            response_deserializer=a2a__pb2.TaskPushNotificationConfig.FromString,
         )
         self.GetTaskPushNotificationConfig = channel.unary_unary(
             "/a2a.v1.A2AService/GetTaskPushNotificationConfig",
-            request_serializer=pb2.GetTaskPushNotificationConfigRequest.SerializeToString,
-            response_deserializer=pb2.TaskPushNotificationConfig.FromString,
+            request_serializer=a2a__pb2.GetTaskPushNotificationConfigRequest.SerializeToString,
+            response_deserializer=a2a__pb2.TaskPushNotificationConfig.FromString,
         )
         self.ListTaskPushNotificationConfig = channel.unary_unary(
             "/a2a.v1.A2AService/ListTaskPushNotificationConfig",
-            request_serializer=pb2.ListTaskPushNotificationConfigRequest.SerializeToString,
-            response_deserializer=pb2.ListTaskPushNotificationConfigResponse.FromString,
+            request_serializer=a2a__pb2.ListTaskPushNotificationConfigRequest.SerializeToString,
+            response_deserializer=a2a__pb2.ListTaskPushNotificationConfigResponse.FromString,
         )
         self.GetAgentCard = channel.unary_unary(
             "/a2a.v1.A2AService/GetAgentCard",
-            request_serializer=pb2.GetAgentCardRequest.SerializeToString,
-            response_deserializer=pb2.AgentCard.FromString,
+            request_serializer=a2a__pb2.GetAgentCardRequest.SerializeToString,
+            response_deserializer=a2a__pb2.AgentCard.FromString,
         )
         self.DeleteTaskPushNotificationConfig = channel.unary_unary(
             "/a2a.v1.A2AService/DeleteTaskPushNotificationConfig",
-            request_serializer=pb2.DeleteTaskPushNotificationConfigRequest.SerializeToString,
-            response_deserializer=pb2.Empty.FromString,
+            request_serializer=a2a__pb2.DeleteTaskPushNotificationConfigRequest.SerializeToString,
+            response_deserializer=google__protobuf__empty_pb2.Empty.FromString,
         )
 
 
@@ -72,43 +77,63 @@ class A2AServiceServicer(abc.ABC):
     @abc.abstractmethod
     def SendMessage(self, request, context):
         """Method for SendMessage. Implement your service logic here."""
-        raise NotImplementedError("Method not implemented!")
+        raise srpc_rpc.ErrorResponse(
+            code=code__pb2.UNIMPLEMENTED, message="Method not implemented!"
+        )
     @abc.abstractmethod
     def SendStreamingMessage(self, request, context):
         """Method for SendStreamingMessage. Implement your service logic here."""
-        raise NotImplementedError("Method not implemented!")
+        raise srpc_rpc.ErrorResponse(
+            code=code__pb2.UNIMPLEMENTED, message="Method not implemented!"
+        )
     @abc.abstractmethod
     def GetTask(self, request, context):
         """Method for GetTask. Implement your service logic here."""
-        raise NotImplementedError("Method not implemented!")
+        raise srpc_rpc.ErrorResponse(
+            code=code__pb2.UNIMPLEMENTED, message="Method not implemented!"
+        )
     @abc.abstractmethod
     def CancelTask(self, request, context):
         """Method for CancelTask. Implement your service logic here."""
-        raise NotImplementedError("Method not implemented!")
+        raise srpc_rpc.ErrorResponse(
+            code=code__pb2.UNIMPLEMENTED, message="Method not implemented!"
+        )
     @abc.abstractmethod
     def TaskSubscription(self, request, context):
         """Method for TaskSubscription. Implement your service logic here."""
-        raise NotImplementedError("Method not implemented!")
+        raise srpc_rpc.ErrorResponse(
+            code=code__pb2.UNIMPLEMENTED, message="Method not implemented!"
+        )
     @abc.abstractmethod
     def CreateTaskPushNotificationConfig(self, request, context):
         """Method for CreateTaskPushNotificationConfig. Implement your service logic here."""
-        raise NotImplementedError("Method not implemented!")
+        raise srpc_rpc.ErrorResponse(
+            code=code__pb2.UNIMPLEMENTED, message="Method not implemented!"
+        )
     @abc.abstractmethod
     def GetTaskPushNotificationConfig(self, request, context):
         """Method for GetTaskPushNotificationConfig. Implement your service logic here."""
-        raise NotImplementedError("Method not implemented!")
+        raise srpc_rpc.ErrorResponse(
+            code=code__pb2.UNIMPLEMENTED, message="Method not implemented!"
+        )
     @abc.abstractmethod
     def ListTaskPushNotificationConfig(self, request, context):
         """Method for ListTaskPushNotificationConfig. Implement your service logic here."""
-        raise NotImplementedError("Method not implemented!")
+        raise srpc_rpc.ErrorResponse(
+            code=code__pb2.UNIMPLEMENTED, message="Method not implemented!"
+        )
     @abc.abstractmethod
     def GetAgentCard(self, request, context):
         """Method for GetAgentCard. Implement your service logic here."""
-        raise NotImplementedError("Method not implemented!")
+        raise srpc_rpc.ErrorResponse(
+            code=code__pb2.UNIMPLEMENTED, message="Method not implemented!"
+        )
     @abc.abstractmethod
     def DeleteTaskPushNotificationConfig(self, request, context):
         """Method for DeleteTaskPushNotificationConfig. Implement your service logic here."""
-        raise NotImplementedError("Method not implemented!")
+        raise srpc_rpc.ErrorResponse(
+            code=code__pb2.UNIMPLEMENTED, message="Method not implemented!"
+        )
 
 
 
@@ -117,53 +142,53 @@ def add_A2AServiceServicer_to_server(servicer, server: srpc.Server):
     rpc_method_handlers = {
         "SendMessage": srpc.unary_unary_rpc_method_handler(
             handler=servicer.SendMessage,
-            request_deserializer=pb2.SendMessageRequest.FromString,
-            response_serializer=pb2.SendMessageResponse.SerializeToString,
+            request_deserializer=a2a__pb2.SendMessageRequest.FromString,
+            response_serializer=a2a__pb2.SendMessageResponse.SerializeToString,
         ),
         "SendStreamingMessage": srpc.unary_stream_rpc_method_handler(
             handler=servicer.SendStreamingMessage,
-            request_deserializer=pb2.SendMessageRequest.FromString,
-            response_serializer=pb2.StreamResponse.SerializeToString,
+            request_deserializer=a2a__pb2.SendMessageRequest.FromString,
+            response_serializer=a2a__pb2.StreamResponse.SerializeToString,
         ),
         "GetTask": srpc.unary_unary_rpc_method_handler(
             handler=servicer.GetTask,
-            request_deserializer=pb2.GetTaskRequest.FromString,
-            response_serializer=pb2.Task.SerializeToString,
+            request_deserializer=a2a__pb2.GetTaskRequest.FromString,
+            response_serializer=a2a__pb2.Task.SerializeToString,
         ),
         "CancelTask": srpc.unary_unary_rpc_method_handler(
             handler=servicer.CancelTask,
-            request_deserializer=pb2.CancelTaskRequest.FromString,
-            response_serializer=pb2.Task.SerializeToString,
+            request_deserializer=a2a__pb2.CancelTaskRequest.FromString,
+            response_serializer=a2a__pb2.Task.SerializeToString,
         ),
         "TaskSubscription": srpc.unary_stream_rpc_method_handler(
             handler=servicer.TaskSubscription,
-            request_deserializer=pb2.TaskSubscriptionRequest.FromString,
-            response_serializer=pb2.StreamResponse.SerializeToString,
+            request_deserializer=a2a__pb2.TaskSubscriptionRequest.FromString,
+            response_serializer=a2a__pb2.StreamResponse.SerializeToString,
         ),
         "CreateTaskPushNotificationConfig": srpc.unary_unary_rpc_method_handler(
             handler=servicer.CreateTaskPushNotificationConfig,
-            request_deserializer=pb2.CreateTaskPushNotificationConfigRequest.FromString,
-            response_serializer=pb2.TaskPushNotificationConfig.SerializeToString,
+            request_deserializer=a2a__pb2.CreateTaskPushNotificationConfigRequest.FromString,
+            response_serializer=a2a__pb2.TaskPushNotificationConfig.SerializeToString,
         ),
         "GetTaskPushNotificationConfig": srpc.unary_unary_rpc_method_handler(
             handler=servicer.GetTaskPushNotificationConfig,
-            request_deserializer=pb2.GetTaskPushNotificationConfigRequest.FromString,
-            response_serializer=pb2.TaskPushNotificationConfig.SerializeToString,
+            request_deserializer=a2a__pb2.GetTaskPushNotificationConfigRequest.FromString,
+            response_serializer=a2a__pb2.TaskPushNotificationConfig.SerializeToString,
         ),
         "ListTaskPushNotificationConfig": srpc.unary_unary_rpc_method_handler(
             handler=servicer.ListTaskPushNotificationConfig,
-            request_deserializer=pb2.ListTaskPushNotificationConfigRequest.FromString,
-            response_serializer=pb2.ListTaskPushNotificationConfigResponse.SerializeToString,
+            request_deserializer=a2a__pb2.ListTaskPushNotificationConfigRequest.FromString,
+            response_serializer=a2a__pb2.ListTaskPushNotificationConfigResponse.SerializeToString,
         ),
         "GetAgentCard": srpc.unary_unary_rpc_method_handler(
             handler=servicer.GetAgentCard,
-            request_deserializer=pb2.GetAgentCardRequest.FromString,
-            response_serializer=pb2.AgentCard.SerializeToString,
+            request_deserializer=a2a__pb2.GetAgentCardRequest.FromString,
+            response_serializer=a2a__pb2.AgentCard.SerializeToString,
         ),
         "DeleteTaskPushNotificationConfig": srpc.unary_unary_rpc_method_handler(
             handler=servicer.DeleteTaskPushNotificationConfig,
-            request_deserializer=pb2.DeleteTaskPushNotificationConfigRequest.FromString,
-            response_serializer=pb2.Empty.SerializeToString,
+            request_deserializer=a2a__pb2.DeleteTaskPushNotificationConfigRequest.FromString,
+            response_serializer=google__protobuf__empty_pb2.Empty.SerializeToString,
         ),
 
     }

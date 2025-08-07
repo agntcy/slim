@@ -2,7 +2,11 @@
 # This file is generated from an embedded template. Do not edit directly.
 
 import abc
-import srpc # Assuming srpc is the custom RPC library
+import srpc
+from srpc import rpc as srpc_rpc
+
+from google.rpc import code_pb2 as code__pb2
+
 from . import example_pb2 as pb2
 
 
@@ -42,19 +46,27 @@ class TestServicer(abc.ABC):
     @abc.abstractmethod
     def ExampleUnaryUnary(self, request, context):
         """Method for ExampleUnaryUnary. Implement your service logic here."""
-        raise NotImplementedError("Method not implemented!")
+        raise srpc_rpc.ErrorResponse(
+            code=code__pb2.UNIMPLEMENTED, message="Method not implemented!"
+        )
     @abc.abstractmethod
     def ExampleUnaryStream(self, request, context):
         """Method for ExampleUnaryStream. Implement your service logic here."""
-        raise NotImplementedError("Method not implemented!")
+        raise srpc_rpc.ErrorResponse(
+            code=code__pb2.UNIMPLEMENTED, message="Method not implemented!"
+        )
     @abc.abstractmethod
     def ExampleStreamUnary(self, request_iterator, context):
         """Method for ExampleStreamUnary. Implement your service logic here."""
-        raise NotImplementedError("Method not implemented!")
+        raise srpc_rpc.ErrorResponse(
+            code=code__pb2.UNIMPLEMENTED, message="Method not implemented!"
+        )
     @abc.abstractmethod
     def ExampleStreamStream(self, request_iterator, context):
         """Method for ExampleStreamStream. Implement your service logic here."""
-        raise NotImplementedError("Method not implemented!")
+        raise srpc_rpc.ErrorResponse(
+            code=code__pb2.UNIMPLEMENTED, message="Method not implemented!"
+        )
 
 
 

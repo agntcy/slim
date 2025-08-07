@@ -10,7 +10,7 @@ inputs:
   - proto_file: example.proto
 plugins:
   # Generates _pb2_srpc.py files
-  - local: ../../../../../target/aarch64-apple-darwin/debug/protoc-srpc-plugin
+  - local: ../../../../../target/debug/protoc-srpc-plugin
     out: types
   # Generate python protobuf related code
   # Generates *_pb2.py files, one for each .proto
