@@ -99,7 +99,10 @@ impl PyName {
 
     fn __hash__(&self) -> u64 {
         let mut hasher = DefaultHasher::new();
-        self.name.hash(&mut hasher);
+        self.name.components()[0].hash(&mut hasher);
+        self.name.components()[1].hash(&mut hasher);
+        self.name.components()[2].hash(&mut hasher);
+        self.name.components()[3].hash(&mut hasher);
         hasher.finish()
     }
 }

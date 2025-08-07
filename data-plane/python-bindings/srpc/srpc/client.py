@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import asyncio
+import datetime
 import logging
 from collections.abc import AsyncIterable
 
@@ -60,13 +61,19 @@ class Channel:
     async def common_setup(self, method: str):
         service_name = service_and_method_to_pyname(self.remote, method)
 
+        print(f"set route {service_name}")
         await self.local_app.set_route(
             service_name,
         )
 
         # Create a session
         session = await self.local_app.create_session(
-            slim_bindings.PySessionConfiguration.FireAndForget()
+            #slim_bindings.PySessionConfiguration.FireAndForget()
+            slim_bindings.PySessionConfiguration.FireAndForget(
+                max_retries=10,
+                timeout=datetime.timedelta(seconds=1),
+                sticky=True,
+            )
         )
 
         return service_name, session
@@ -74,6 +81,7 @@ class Channel:
     async def send_unary(
         self, request, session, service_name, metadata, request_serializer
     ):
+        print(f"dst = {service_name}")
         # Send the request
         request_bytes = request_serializer(request)
         await self.local_app.publish(
