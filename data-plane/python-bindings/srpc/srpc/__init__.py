@@ -3,7 +3,7 @@
 
 from grpc import StatusCode
 
-from srpc.client import Channel
+from srpc.channel import Channel
 from srpc.context import Context
 from srpc.rpc import (
     ErrorResponse,
