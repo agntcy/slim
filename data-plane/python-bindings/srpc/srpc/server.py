@@ -71,12 +71,28 @@ class Server:
             shared_secret=self.shared_secret,
         )
 
+        logger.info(f"Subscribing to {local_app.local_name.id}")
+
+        await local_app.subscribe(local_app.local_name)
+        logger.info(
+            f"Subscribing to {local_app.local_name}",
+        )
+
         # Subscribe
-        for s in self.handlers:
-            logger.info(
-                f"Subscribing to {s}",
+        new_handlers = {}
+        for s, h in self.handlers.items():
+            strs = s.components_strings()
+            s_clone = slim_bindings.PyName(
+                strs[0], strs[1], strs[2], local_app.local_name.id
             )
-            await local_app.subscribe(s)
+            logger.info(
+                f"Subscribing to {s_clone}",
+            )
+            await local_app.subscribe(s_clone)
+
+            new_handlers[s_clone] = h
+
+        self.handlers = new_handlers
 
         instance = local_app.get_id()
 
