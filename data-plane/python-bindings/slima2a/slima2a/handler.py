@@ -18,7 +18,7 @@ from a2a.utils import proto_utils
 from a2a.utils.errors import ServerError
 from a2a.utils.helpers import validate, validate_async_generator
 from google.rpc import code_pb2
-from srpc import ErrorResponse
+from srpc import SRPCResponseError
 from srpc import context as srpc_context
 
 from slima2a.types import a2a_pb2_srpc
@@ -309,62 +309,62 @@ class SRPCHandler(a2a_pb2_srpc.A2AServiceServicer):
         """Sets the srpc errors appropriately in the context."""
         match error.error:
             case types.JSONParseError():
-                raise ErrorResponse(
+                raise SRPCResponseError(
                     code=code_pb2.INTERNAL,
                     message=f"JSONParseError: {error.error.message}",
                 )
             case types.InvalidRequestError():
-                raise ErrorResponse(
+                raise SRPCResponseError(
                     code=code_pb2.INVALID_ARGUMENT,
                     message=f"InvalidRequestError: {error.error.message}",
                 )
             case types.MethodNotFoundError():
-                raise ErrorResponse(
+                raise SRPCResponseError(
                     code=code_pb2.NOT_FOUND,
                     message=f"MethodNotFoundError: {error.error.message}",
                 )
             case types.InvalidParamsError():
-                raise ErrorResponse(
+                raise SRPCResponseError(
                     code=code_pb2.INVALID_ARGUMENT,
                     message=f"InvalidParamsError: {error.error.message}",
                 )
             case types.InternalError():
-                raise ErrorResponse(
+                raise SRPCResponseError(
                     code=code_pb2.INTERNAL,
                     message=f"InternalError: {error.error.message}",
                 )
             case types.TaskNotFoundError():
-                raise ErrorResponse(
+                raise SRPCResponseError(
                     code=code_pb2.NOT_FOUND,
                     message=f"TaskNotFoundError: {error.error.message}",
                 )
             case types.TaskNotCancelableError():
-                raise ErrorResponse(
+                raise SRPCResponseError(
                     code=code_pb2.UNIMPLEMENTED,
                     message=f"TaskNotCancelableError: {error.error.message}",
                 )
             case types.PushNotificationNotSupportedError():
-                raise ErrorResponse(
+                raise SRPCResponseError(
                     code=code_pb2.UNIMPLEMENTED,
                     message=f"PushNotificationNotSupportedError: {error.error.message}",
                 )
             case types.UnsupportedOperationError():
-                raise ErrorResponse(
+                raise SRPCResponseError(
                     code=code_pb2.UNIMPLEMENTED,
                     message=f"UnsupportedOperationError: {error.error.message}",
                 )
             case types.ContentTypeNotSupportedError():
-                raise ErrorResponse(
+                raise SRPCResponseError(
                     code=code_pb2.UNIMPLEMENTED,
                     message=f"ContentTypeNotSupportedError: {error.error.message}",
                 )
             case types.InvalidAgentResponseError():
-                raise ErrorResponse(
+                raise SRPCResponseError(
                     code=code_pb2.INTERNAL,
                     message=f"InvalidAgentResponseError: {error.error.message}",
                 )
             case _:
-                raise ErrorResponse(
+                raise SRPCResponseError(
                     code=code_pb2.UNKNOWN,
                     message=f"Unknown error type: {error.error}",
                 )
