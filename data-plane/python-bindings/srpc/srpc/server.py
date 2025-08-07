@@ -3,9 +3,11 @@
 
 import asyncio
 import logging
+from collections.abc import AsyncGenerator, Callable
+from typing import Any, Tuple
 
 import slim_bindings
-from google.rpc import code_pb2
+from google.rpc import code_pb2, status_pb2
 
 from srpc.common import (
     create_local_app,
@@ -13,7 +15,7 @@ from srpc.common import (
     split_id,
 )
 from srpc.context import Context
-from srpc.rpc import Rpc
+from srpc.rpc import ErrorResponse, RPCHandler
 
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
@@ -32,27 +34,26 @@ class Server:
         self.enable_opentelemetry = enable_opentelemetry
         self.shared_secret = shared_secret
 
-        self.handlers = {}
+        self.handlers: dict[slim_bindings.PyName, RPCHandler] = {}
 
-        self.local_app: slim_bindings.Slim = None
-
-    def register_method_handlers(self, service_name: str, handlers: dict[str, Rpc]):
+    def register_method_handlers(
+        self, service_name: str, handlers: dict[str, RPCHandler]
+    ):
         """
         Register method handlers for the server.
         """
         for method_name, handler in handlers.items():
-            handler.method_name = method_name
-            handler.service_name = service_name
+            self.register_rpc(service_name, method_name, handler)
 
-            self.register_rpc(handler)
-
-    def register_rpc(self, rpc_handler: Rpc):
+    def register_rpc(self, service_name, method_name, rpc_handler: RPCHandler):
         """
         Register an RPC handler for the server.
         """
 
         # Compose a PyName using the fist components of the local name and the RPC name
-        subscription_name = handler_name_to_pyname(self.local_name, rpc_handler)
+        subscription_name = handler_name_to_pyname(
+            self.local_name, service_name, method_name
+        )
 
         # Register the RPC handler
         self.handlers[subscription_name] = rpc_handler
@@ -94,7 +95,7 @@ class Server:
     async def handle_session(
         self, session_info: slim_bindings.PySessionInfo, local_app: slim_bindings.Slim
     ):
-        rpc_handler: Rpc = self.handlers[session_info.destination_name]
+        rpc_handler: RPCHandler = self.handlers[session_info.destination_name]
 
         # Call the RPC handler
         if session_info.destination_name not in self.handlers:
@@ -109,18 +110,20 @@ class Server:
                 session=session_info.id,
             )
 
-            request = rpc_handler.request_deserializer(request_bytes)
+            request_or_iterator = rpc_handler.request_deserializer(request_bytes)
             context = Context.from_sessioninfo(session_recv)
         else:
-            request, context = (
-                rpc_handler.request_generator(local_app, session_info),
+            request_or_iterator, context = (
+                request_generator(
+                    local_app, rpc_handler.request_deserializer, session_info
+                ),
                 Context.from_sessioninfo(session_info),
             )
 
-        logger.debug(f"handling request {request} with context {context}")
-
         # Send the response back to the client
-        async for code, response in rpc_handler.call_handler(request, context):
+        async for code, response in call_handler(
+            rpc_handler, request_or_iterator, context
+        ):
             await local_app.publish_to(
                 session_info,
                 rpc_handler.response_serializer(response),
@@ -134,3 +137,65 @@ class Server:
                 b"",
                 metadata={"code": str(code_pb2.OK)},
             )
+
+
+def request_generator(
+    local_app: slim_bindings.Slim,
+    request_deserializer: Callable,
+    session_info: slim_bindings.PySessionInfo,
+) -> AsyncGenerator[Any, Context]:
+    async def generator():
+        try:
+            while True:
+                session_recv, request_bytes = await local_app.receive(
+                    session=session_info.id,
+                )
+
+                if (
+                    session_recv.metadata.get("code") == str(code_pb2.OK)
+                    and not request_bytes
+                ):
+                    logger.debug("end of stream received")
+                    break
+
+                request = request_deserializer(request_bytes)
+                context = Context.from_sessioninfo(session_recv)
+
+                yield request, context
+        except Exception as e:
+            logger.error(f"Error receiving messages from SLIM: {e}")
+            raise
+
+    return generator()
+
+
+async def call_handler(
+    handler: RPCHandler, request_or_iterator: Any, context: Context
+) -> AsyncGenerator[Tuple[code_pb2.Code, Any]]:
+    """
+    Call the handler with the given arguments.
+    """
+    try:
+        if not handler.response_streaming:
+            # If not streaming we expect a single response and then exit the generator.
+            response = await handler.behaviour(request_or_iterator, context)
+            yield code_pb2.OK, response
+            return
+
+        # For streaming responses yield each response from the handler
+        async for response in handler.behaviour(request_or_iterator, context):
+            yield code_pb2.OK, response
+    except ErrorResponse as e:
+        logger.error("Error while calling handler 1")
+        yield (
+            e.code,
+            status_pb2.Status(code=e.code, message=e.message, details=e.details),
+        )
+    except Exception as e:
+        logger.error(f"Error while calling handler 2 {e}")
+        yield (
+            code_pb2.UNKNOWN,
+            status_pb2.Status(
+                code=code_pb2.UNKNOWN, message="Internal Error", details=None
+            ),
+        )
