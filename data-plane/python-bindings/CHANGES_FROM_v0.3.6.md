@@ -1,8 +1,17 @@
 # Migration from v0.3.6 to v0.4.0
 
+## TL;DR
+
+Breaking changes:
+ - The SLIM instance creation method has changed.
+ - The `PyAgentType` class has been replaced with the `PyName` class.
+ - In groups, the session creation step is no longer mandatory for non-moderator applications.
+ - The channel invitation process is now mandatory for establishing secure communication.
+ - The `provider` and `verifier` parameters are now required when creating a SLIM instance.
+
 This document outlines the migration process from version v0.3.6 to v0.4.0 of the SLIM Python bindings.
 
-We will use the [pubsub.py](https://github.com/agntcy/slim/blob/slim-bindings-v0.3.6/data-plane/python-bindings/examples/pubsub.py), example from v0.3.6 as a starting point, highlighting the necessary changes to adapt it to v0.4.0. The code for version v0.4.0 instead can be found the SLIM [documentation](https://docs.agntcy.org/messaging/slim-core/). 
+We will use the [pubsub.py](https://github.com/agntcy/slim/blob/slim-bindings-v0.3.6/data-plane/python-bindings/examples/pubsub.py), example from v0.3.6 as a starting point, highlighting the necessary changes to adapt it to v0.4.0. The code for version v0.4.0 instead can be found the SLIM [documentation](https://docs.agntcy.org/messaging/slim-core/).
 For reference you can also check the new version of the
 [pubsub.py](https://github.com/agntcy/slim/blob/slim-bindings-v0.4.0/data-plane/python-bindings/examples/src/slim_bindings_examples/pubsub.py) example based on v0.4.0.
 
