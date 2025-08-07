@@ -278,16 +278,34 @@ Two primary authentication methods are supported:
 ```python
 # Uses a pre-shared secret for authentication
 # Note: Not recommended for production environments
-provider = SharedSecretProvider(secret)
-verifier = SharedSecretVerifier(secret)
+provider: PyIdentityProvider = PyIdentityProvider.SharedSecret(
+    identity=identity, shared_secret=secret
+)
+verifier: PyIdentityVerifier = PyIdentityVerifier.SharedSecret(
+    identity=identity, shared_secret=secret
+)
 ```
 
 **JWT Token Method (Recommended):**
 ```python
 # Uses JSON Web Token (JWT) with SPIRE
 # SPIRE (SPIFFE Runtime Environment) provides secure, scalable identity management
-provider = JWTProvider(jwt_token)
-verifier = JWTVerifier(jwt_config)
+provider = slim_bindings.PyIdentityProvider.StaticJwt(
+    path=jwt_path,
+)
+
+pykey = slim_bindings.PyKey(
+    algorithm=slim_bindings.PyAlgorithm.RS256,
+    format=slim_bindings.PyKeyFormat.Jwks,
+    key=slim_bindings.PyKeyData.Content(content=spire_jwks.decode("utf-8")),
+)
+
+verifier = slim_bindings.PyIdentityVerifier.Jwt(
+    public_key=pykey,
+    issuer=iss,
+    audience=aud,
+    subject=sub,
+)
 ```
 
 #### 4. Simplified Session Management
@@ -348,7 +366,8 @@ session_info = await slim_app.create_session(
 **Invitation Process:**
 ```python
 # Moderator invites participants to join the channel
-await slim_app.invite_to_channel(participant_names, channel_id)
+await slim_app.set_route(participant_name)
+await slim_app.invite(session_info, participant_name)
 ```
 
 #### 6. Message Reception
@@ -368,20 +387,20 @@ async def background_task():
 
 **v0.4.0:**
 ```python
-# Reception loop handles both invitations and messages
-async def background_task():
-    async with slim_app:
-        while True:
-            try:
-                # Listen for invitations and messages
-                recv_session, msg_rcv = await slim_app.receive()
-
-                # Handle invitation messages automatically
-                if msg_rcv.is_invitation():
-                    await slim_app.accept_invitation(msg_rcv)
-                else:
-                    # Process regular messages
-                    process_message(msg_rcv)
+# Reception loop handles both invitations and messages 
+session_info, _ = await local_app.receive()
+format_message_print(
+    f"{instance} received a new session:",
+    f"{session_info.id}",
+)
+async def background_task(session_id):
+    while True:
+        # Receive the message from the session
+        session, msg = await local_app.receive(session=session_id)
+        format_message_print(
+            f"{instance}",
+            f"received (from session {session_id}): {msg.decode()}",
+        )
 ```
 
 ### Migration Checklist
