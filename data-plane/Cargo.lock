@@ -22,7 +22,6 @@ name = "agntcy-protoc-srpc-plugin"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "bytes",
  "heck 0.5.0",
  "prost 0.14.1",
  "prost-types 0.14.1",

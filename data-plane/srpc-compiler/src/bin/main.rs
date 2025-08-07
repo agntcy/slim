@@ -11,7 +11,6 @@ use std::collections::{HashMap, HashSet};
 use std::io::{self, Read, Write};
 
 /// Supported parameters for the code generator plugin.
-
 const TYPES_IMPORT: &str = "types_import";
 
 // --- TEMPLATE DEFINITIONS ---
@@ -196,7 +195,7 @@ fn main() -> Result<()> {
                     );
                 }
 
-                return format!("{}{}", prefix, type_name);
+                format!("{}{}", prefix, type_name)
             } else {
                 let mut dep_file_base_name = String::new();
                 for (file_name, file_package) in file_to_package.iter() {
@@ -216,10 +215,10 @@ fn main() -> Result<()> {
                         "from . import {} as {}",
                         dep_pb2_module, dep_pb2_module
                     ));
-                    return format!("{}.{}", dep_pb2_module, type_name);
+                    format!("{}.{}", dep_pb2_module, type_name)
                 } else {
                     // Fallback to local import if package is not found
-                    return format!("pb2.{}", type_name);
+                    format!("pb2.{}", type_name)
                 }
             }
         };
