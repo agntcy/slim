@@ -47,6 +47,6 @@ client = factory.create(ac)
 
 try:
     response = client.send_message(...)
-except srpc.ErrorResponse as e:
+except srpc.SRPCResponseError as e:
     ...
 ```

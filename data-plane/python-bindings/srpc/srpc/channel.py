@@ -3,7 +3,7 @@
 
 import asyncio
 import logging
-from collections.abc import AsyncIterable
+from collections.abc import AsyncIterable, Callable
 
 import slim_bindings
 from google.rpc import code_pb2
@@ -31,14 +31,13 @@ class Channel:
         self.slim = slim
         self.enable_opentelemetry = enable_opentelemetry
         self.shared_secret = shared_secret
-        self.handlers = {}
         self.remote = split_id(remote)
-        self.local_app: slim_bindings.Slim = None
-        self.prepare_task = asyncio.get_running_loop().create_task(
-            self.prepare_channel()
+        self.local_app: slim_bindings.Slim | None = None
+        self._prepare_task = asyncio.get_running_loop().create_task(
+            self._prepare_channel()
         )
 
-    async def prepare_channel(self):
+    async def _prepare_channel(self):
         # Create local SLIM instance
         self.local_app = await create_local_app(
             self.local,
@@ -57,9 +56,10 @@ class Channel:
         if self.local_app is not None:
             self.local_app.__aexit__(None, None, None)
 
-    async def common_setup(self, method: str):
+    async def _common_setup(self, method: str):
         service_name = service_and_method_to_pyname(self.remote, method)
 
+        assert self.local_app is not None
         await self.local_app.set_route(
             service_name,
         )
@@ -71,11 +71,12 @@ class Channel:
 
         return service_name, session
 
-    async def send_unary(
+    async def _send_unary(
         self, request, session, service_name, metadata, request_serializer
     ):
         # Send the request
         request_bytes = request_serializer(request)
+        assert self.local_app is not None
         await self.local_app.publish(
             session,
             request_bytes,
@@ -83,10 +84,11 @@ class Channel:
             metadata=metadata,
         )
 
-    async def send_stream(
+    async def _send_stream(
         self, request_stream, session, service_name, metadata, request_serializer
     ):
         # Send the request
+        assert self.local_app is not None
         async for request in request_stream:
             request_bytes = request_serializer(request)
             await self.local_app.publish(
@@ -104,8 +106,9 @@ class Channel:
             metadata={"code": str(code_pb2.OK)},
         )
 
-    async def receive_unary(self, session, response_deserializer):
+    async def _receive_unary(self, session, response_deserializer):
         # Wait for the response
+        assert self.local_app is not None
         session_recv, response_bytes = await self.local_app.receive(
             session=session.id,
         )
@@ -114,7 +117,7 @@ class Channel:
 
         return session_recv, response
 
-    async def receive_stream(self, session, response_deserializer):
+    async def _receive_stream(self, session, response_deserializer):
         # Wait for the responses
         async def generator():
             try:
@@ -143,8 +146,8 @@ class Channel:
     def stream_stream(
         self,
         method: str,
-        request_serializer: callable = lambda x: x,
-        response_deserializer: callable = lambda x: x,
+        request_serializer: Callable = lambda x: x,
+        response_deserializer: Callable = lambda x: x,
     ):
         async def call_stream_stream(
             request_stream: AsyncIterable,
@@ -154,8 +157,10 @@ class Channel:
             wait_for_ready=None,
             compression=None,
         ):
-            await self.prepare_task
-            service_name, session = await self.common_setup(method)
+            await self._prepare_task
+            assert self.local_app is not None
+
+            service_name, session = await self._common_setup(method)
 
             # Send the request
             async for request in request_stream:
@@ -205,8 +210,8 @@ class Channel:
     def stream_unary(
         self,
         method: str,
-        request_serializer: callable = lambda x: x,
-        response_deserializer: callable = lambda x: x,
+        request_serializer: Callable = lambda x: x,
+        response_deserializer: Callable = lambda x: x,
     ):
         async def call_stream_unary(
             request_stream: AsyncIterable,
@@ -216,24 +221,24 @@ class Channel:
             wait_for_ready=None,
             compression=None,
         ):
-            await self.prepare_task
-            service_name, session = await self.common_setup(method)
+            await self._prepare_task
+            service_name, session = await self._common_setup(method)
 
             # Send the requests
-            await self.send_stream(
+            await self._send_stream(
                 request_stream, session, service_name, metadata, request_serializer
             )
 
             # Wait for response
-            return await self.receive_unary(session, response_deserializer)
+            return await self._receive_unary(session, response_deserializer)
 
         return call_stream_unary
 
     def unary_stream(
         self,
         method: str,
-        request_serializer: callable = lambda x: x,
-        response_deserializer: callable = lambda x: x,
+        request_serializer: Callable = lambda x: x,
+        response_deserializer: Callable = lambda x: x,
     ):
         async def call_unary_stream(
             request,
@@ -243,16 +248,16 @@ class Channel:
             wait_for_ready=None,
             compression=None,
         ):
-            await self.prepare_task
-            service_name, session = await self.common_setup(method)
+            await self._prepare_task
+            service_name, session = await self._common_setup(method)
 
             # Send the request
-            await self.send_unary(
+            await self._send_unary(
                 request, session, service_name, metadata, request_serializer
             )
 
             # Wait for the responses
-            async for response in self.receive_stream(session, response_deserializer):
+            async for response in self._receive_stream(session, response_deserializer):
                 yield response
 
         return call_unary_stream
@@ -260,8 +265,8 @@ class Channel:
     def unary_unary(
         self,
         method: str,
-        request_serializer: callable = lambda x: x,
-        response_deserializer: callable = lambda x: x,
+        request_serializer: Callable = lambda x: x,
+        response_deserializer: Callable = lambda x: x,
     ):
         async def call_unary_unary(
             request,
@@ -271,16 +276,16 @@ class Channel:
             wait_for_ready=None,
             compression=None,
         ):
-            await self.prepare_task
-            service_name, session = await self.common_setup(method)
+            await self._prepare_task
+            service_name, session = await self._common_setup(method)
 
             # Send request
-            await self.send_unary(
+            await self._send_unary(
                 request, session, service_name, metadata, request_serializer
             )
 
             # Wait for the response
-            session_recv, response = await self.receive_unary(
+            session_recv, response = await self._receive_unary(
                 session, response_deserializer
             )
 

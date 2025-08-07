@@ -46,25 +46,25 @@ class TestServicer(abc.ABC):
     @abc.abstractmethod
     def ExampleUnaryUnary(self, request, context):
         """Method for ExampleUnaryUnary. Implement your service logic here."""
-        raise srpc_rpc.ErrorResponse(
+        raise srpc_rpc.SRPCResponseError(
             code=code__pb2.UNIMPLEMENTED, message="Method not implemented!"
         )
     @abc.abstractmethod
     def ExampleUnaryStream(self, request, context):
         """Method for ExampleUnaryStream. Implement your service logic here."""
-        raise srpc_rpc.ErrorResponse(
+        raise srpc_rpc.SRPCResponseError(
             code=code__pb2.UNIMPLEMENTED, message="Method not implemented!"
         )
     @abc.abstractmethod
     def ExampleStreamUnary(self, request_iterator, context):
         """Method for ExampleStreamUnary. Implement your service logic here."""
-        raise srpc_rpc.ErrorResponse(
+        raise srpc_rpc.SRPCResponseError(
             code=code__pb2.UNIMPLEMENTED, message="Method not implemented!"
         )
     @abc.abstractmethod
     def ExampleStreamStream(self, request_iterator, context):
         """Method for ExampleStreamStream. Implement your service logic here."""
-        raise srpc_rpc.ErrorResponse(
+        raise srpc_rpc.SRPCResponseError(
             code=code__pb2.UNIMPLEMENTED, message="Method not implemented!"
         )
 
@@ -74,22 +74,22 @@ class TestServicer(abc.ABC):
 def add_TestServicer_to_server(servicer, server: srpc.Server):
     rpc_method_handlers = {
         "ExampleUnaryUnary": srpc.unary_unary_rpc_method_handler(
-            handler=servicer.ExampleUnaryUnary,
+            behaviour=servicer.ExampleUnaryUnary,
             request_deserializer=pb2.ExampleRequest.FromString,
             response_serializer=pb2.ExampleResponse.SerializeToString,
         ),
         "ExampleUnaryStream": srpc.unary_stream_rpc_method_handler(
-            handler=servicer.ExampleUnaryStream,
+            behaviour=servicer.ExampleUnaryStream,
             request_deserializer=pb2.ExampleRequest.FromString,
             response_serializer=pb2.ExampleResponse.SerializeToString,
         ),
         "ExampleStreamUnary": srpc.stream_unary_rpc_method_handler(
-            handler=servicer.ExampleStreamUnary,
+            behaviour=servicer.ExampleStreamUnary,
             request_deserializer=pb2.ExampleRequest.FromString,
             response_serializer=pb2.ExampleResponse.SerializeToString,
         ),
         "ExampleStreamStream": srpc.stream_stream_rpc_method_handler(
-            handler=servicer.ExampleStreamStream,
+            behaviour=servicer.ExampleStreamStream,
             request_deserializer=pb2.ExampleRequest.FromString,
             response_serializer=pb2.ExampleResponse.SerializeToString,
         ),

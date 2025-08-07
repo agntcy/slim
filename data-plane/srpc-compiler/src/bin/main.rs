@@ -60,7 +60,7 @@ class {{SERVICE_NAME}}Servicer(abc.ABC):
 const METHOD_SERVICER_TEMPLATE: &str = r#"    @abc.abstractmethod
     def {{METHOD_NAME}}(self, {{REQUEST_ARG}}, context):
         """Method for {{METHOD_NAME}}. Implement your service logic here."""
-        raise srpc_rpc.ErrorResponse(
+        raise srpc_rpc.SRPCResponseError(
             code=code__pb2.UNIMPLEMENTED, message="Method not implemented!"
         )
 "#;
@@ -78,7 +78,7 @@ def add_{{SERVICE_NAME}}Servicer_to_server(servicer, server: srpc.Server):
 "#;
 
 const RPC_METHOD_HANDLER_TEMPLATE: &str = r#"        "{{METHOD_NAME}}": srpc.{{RPC_TYPE}}_rpc_method_handler(
-            handler=servicer.{{METHOD_NAME}},
+            behaviour=servicer.{{METHOD_NAME}},
             request_deserializer={{INPUT_TYPE_FULL_PATH}}.FromString,
             response_serializer={{OUTPUT_TYPE_FULL_PATH}}.SerializeToString,
         ),
