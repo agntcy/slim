@@ -220,3 +220,185 @@ The following matrix shows compatibility between different component versions:
 - implement MLS key rotation ([#412](https://github.com/agntcy/slim/issues/412))
 - improve handling of commit broadcast ([#433](https://github.com/agntcy/slim/issues/433))
 - implement key rotation proposal message exchange ([#434](https://github.com/agntcy/slim/issues/434))
+
+## Migration Guide: v0.3.6 to v0.4.0
+
+> ⚠️ **DEPRECATION NOTICE**: SLIM v0.3.6 is now deprecated and will no longer receive updates or security patches. Users are strongly encouraged to migrate to v0.4.0 or later to benefit from enhanced security features, bug fixes, and ongoing support.
+
+This section provides detailed migration instructions for upgrading from SLIM v0.3.6 to v0.4.0, particularly focusing on the Python bindings changes.
+
+### Breaking Changes Summary
+
+The following breaking changes require code modifications when upgrading:
+
+- **SLIM instance creation method** has changed
+- **`PyAgentType` class** has been replaced with the `PyName` class
+- **Session creation** is no longer mandatory for non-moderator applications in groups
+- **Channel invitation process** is now mandatory for establishing secure communication
+- **`provider` and `verifier` parameters** are now required when creating a SLIM instance
+
+### SLIM Instance Creation Changes
+
+**v0.3.6 (Old):**
+```python
+async def run_client(local_id, remote_id, address, enable_opentelemetry: bool):
+    # Split the local IDs into their respective components
+    local_organization, local_namespace, local_agent = split_id(local_id)
+
+    # Create SLIM instance by passing the components of the local name
+    participant = await slim_bindings.Slim.new(
+        local_organization, local_namespace, local_agent
+    )
+```
+
+**v0.4.0 (New):**
+```python
+# Create SLIM instance with PyName object and required authentication
+slim_app = await Slim.new(local_name, provider, verifier)
+```
+
+### Key Changes Explained
+
+#### 1. PyName Class Replacement
+The `PyAgentType` class has been replaced with the more generic `PyName` class, reflecting that any application (not just agents) can utilize SLIM.
+
+#### 2. Required Authentication Parameters
+Two new required parameters must be provided:
+- **`provider`**: Establishes the application's identity within the SLIM ecosystem
+- **`verifier`**: Proves the application's identity within the SLIM ecosystem
+
+#### 3. Authentication Methods
+Two primary authentication methods are supported:
+
+**Shared Secret Method:**
+```python
+# Uses a pre-shared secret for authentication
+# Note: Not recommended for production environments
+provider = SharedSecretProvider(secret)
+verifier = SharedSecretVerifier(secret)
+```
+
+**JWT Token Method (Recommended):**
+```python
+# Uses JSON Web Token (JWT) with SPIRE
+# SPIRE (SPIFFE Runtime Environment) provides secure, scalable identity management
+provider = JWTProvider(jwt_token)
+verifier = JWTVerifier(jwt_config)
+```
+
+#### 4. Simplified Session Management
+
+**v0.3.6 (Manual Setup Required):**
+```python
+# Connect to slim server
+_ = await participant.connect({"endpoint": address, "tls": {"insecure": True}})
+
+# set route for the chat
+await participant.set_route(remote_organization, remote_namespace, broadcast_topic)
+
+# Subscribe to the producer topic
+await participant.subscribe(remote_organization, remote_namespace, broadcast_topic)
+
+# create pubsub session (mandatory for all applications)
+session_info = await participant.create_session(
+    slim_bindings.PySessionConfiguration.Streaming(
+        slim_bindings.PySessionDirection.BIDIRECTIONAL,
+        topic=slim_bindings.PyAgentType(
+            remote_organization, remote_namespace, broadcast_topic
+        ),
+        max_retries=5,
+        timeout=datetime.timedelta(seconds=5),
+    )
+)
+```
+
+**v0.4.0 (Automatic Management):**
+```python
+# Connect API remains unchanged
+await slim_app.connect({"endpoint": address, "tls": {"insecure": True}})
+
+# Routes and subscriptions are automatically managed by SLIM
+# Session creation only required for moderator applications
+```
+
+#### 5. Channel Invitation Process (New Requirement)
+
+v0.4.0 introduces a mandatory channel invitation process that enhances security and enables proper MLS (Message Layer Security) setup:
+
+**Moderator Session Creation:**
+```python
+# Only moderators need to explicitly create sessions
+session_info = await slim_app.create_session(
+    SessionConfiguration.Streaming(
+        SessionDirection.BIDIRECTIONAL,
+        topic=PyName(organization, namespace, topic_name),
+        moderator=True,        # New flag
+        mls_enabled=True,      # New flag for encryption
+        max_retries=5,
+        timeout=datetime.timedelta(seconds=5),
+    )
+)
+```
+
+**Invitation Process:**
+```python
+# Moderator invites participants to join the channel
+await slim_app.invite_to_channel(participant_names, channel_id)
+```
+
+#### 6. Message Reception
+
+**v0.3.6:**
+```python
+async def background_task():
+    msg = f"Hello from {local_agent}"
+    async with participant:
+        while True:
+            try:
+                # receive message from session
+                recv_session, msg_rcv = await participant.receive(
+                    session=session_info.id
+                )
+```
+
+**v0.4.0:**
+```python
+# Reception loop handles both invitations and messages
+async def background_task():
+    async with slim_app:
+        while True:
+            try:
+                # Listen for invitations and messages
+                recv_session, msg_rcv = await slim_app.receive()
+
+                # Handle invitation messages automatically
+                if msg_rcv.is_invitation():
+                    await slim_app.accept_invitation(msg_rcv)
+                else:
+                    # Process regular messages
+                    process_message(msg_rcv)
+```
+
+### Migration Checklist
+
+When upgrading from v0.3.6 to v0.4.0, ensure you:
+
+- [ ] **Update SLIM instance creation** to use `PyName` objects and authentication parameters
+- [ ] **Replace `PyAgentType`** with `PyName` throughout your codebase
+- [ ] **Configure authentication** using either shared secrets (development) or JWT tokens (production)
+- [ ] **Remove manual route/subscription setup** (now handled automatically)
+- [ ] **Update session creation** - only required for moderator applications
+- [ ] **Implement channel invitation logic** for moderators
+- [ ] **Update message reception loops** to handle invitations
+- [ ] **Test MLS encryption** functionality if using secure channels
+
+### Additional Resources
+
+- **[SLIM Group Tutorial](https://docs.agntcy.org/messaging/slim-group-tutorial/)** - Complete step-by-step guide
+- **[SPIRE Integration Guide](https://docs.agntcy.org/messaging/slim-group/#using-spire-with-slim)** - Production-ready authentication setup
+- **[Python Examples](https://github.com/agntcy/slim/tree/slim-bindings-v0.4.0/data-plane/python-bindings/examples/src/slim_bindings_examples)** - Updated code examples
+- **[API Documentation](https://docs.agntcy.org/messaging/slim-core/)** - Complete API reference
+
+### Future Enhancements
+
+The next release will integrate support for **Agntcy Identity**, allowing users to create SLIM applications using their agent badge for even more streamlined authentication.
