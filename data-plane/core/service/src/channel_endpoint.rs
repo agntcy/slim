@@ -10,7 +10,6 @@ use std::{
 use async_trait::async_trait;
 use bincode::{Decode, Encode};
 use parking_lot::Mutex;
-use slim_config::component::Component;
 use tracing::{debug, error, trace};
 
 use crate::{
@@ -661,15 +660,23 @@ where
 
 pub fn handle_channel_discovery_message(
     message: &Message,
-    source: &Name,
+    app_name: &Name,
     session_id: Id,
     session_type: ProtoSessionType,
 ) -> Message {
     let destination = message.get_source();
+
+    // the destination of the discovery message may be different from the name of
+    // application itself. This can happen if the application subscribes to multiple
+    // service names. So we can reply using as a source the destination name of
+    // the discovery message but setting the application id
+
+    let mut source = message.get_dst();
+    source.set_id(app_name.id());
     let msg_id = message.get_id();
 
     let slim_header = Some(SlimHeader::new(
-        source,
+        &source,
         &destination,
         Some(SlimHeaderFlags::default().with_forward_to(message.get_incoming_conn())),
     ));
@@ -741,7 +748,6 @@ where
     }
 
     async fn on_join_request(&mut self, msg: Message) -> Result<(), SessionError> {
-        println!("recv join {}", msg.get_source());
         // get the payload
         let names = msg
             .get_payload()
@@ -1342,8 +1348,6 @@ where
             debug!("Reply with the join request, MLS is disabled");
         }
 
-        println!("send a join message src = {} dest = {}", join.get_source(), join.get_dst());
-
         // add a new timer for the join message
         self.create_timer(new_msg_id, 1, join.clone(), None);
 
@@ -1351,15 +1355,11 @@ where
         // start the join phase
         self.current_task.as_mut().unwrap().join_start(new_msg_id)?;
 
-        let route_name = Name::from_strings(["agntcy", "grpc", "server"]);
-        self.endpoint.set_route(&route_name).await?;
-
         // send the message
         self.endpoint.send(join).await
     }
 
     async fn on_join_reply(&mut self, msg: Message) -> Result<(), SessionError> {
-        println!("received join reply");
         let src = msg.get_slim_header().get_source();
         let msg_id = msg.get_id();
 

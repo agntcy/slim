@@ -70,19 +70,20 @@ class Server:
             shared_secret=self.shared_secret,
         )
 
-
-        print(f" ----_ id {local_app.local_name.id}")
+        logger.info(f"Subscribing to {local_app.local_name.id}")
 
         await local_app.subscribe(local_app.local_name)
         logger.info(
-                f"Subscribing to {local_app.local_name}",
+            f"Subscribing to {local_app.local_name}",
         )
 
         # Subscribe
         new_handlers = {}
         for s, h in self.handlers.items():
             strs = s.components_strings()
-            s_clone = slim_bindings.PyName(strs[0], strs[1], strs[2], local_app.local_name.id)
+            s_clone = slim_bindings.PyName(
+                strs[0], strs[1], strs[2], local_app.local_name.id
+            )
             logger.info(
                 f"Subscribing to {s_clone}",
             )
@@ -109,7 +110,6 @@ class Server:
     async def handle_session(
         self, session_info: slim_bindings.PySessionInfo, local_app: slim_bindings.Slim
     ):
-        print(f"services {self.handlers}")
         rpc_handler: Rpc = self.handlers[session_info.destination_name]
 
         # Call the RPC handler
