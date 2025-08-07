@@ -34,11 +34,11 @@ class Channel:
         self.handlers = {}
         self.remote = split_id(remote)
         self.local_app: slim_bindings.Slim = None
-        self.prepare_task = asyncio.get_running_loop().create_task(
-            self.prepare_channel()
+        self._prepare_task = asyncio.get_running_loop().create_task(
+            self._prepare_channel()
         )
 
-    async def prepare_channel(self):
+    async def _prepare_channel(self):
         # Create local SLIM instance
         self.local_app = await create_local_app(
             self.local,
@@ -57,7 +57,7 @@ class Channel:
         if self.local_app is not None:
             self.local_app.__aexit__(None, None, None)
 
-    async def common_setup(self, method: str):
+    async def _common_setup(self, method: str):
         service_name = service_and_method_to_pyname(self.remote, method)
 
         await self.local_app.set_route(
@@ -71,7 +71,7 @@ class Channel:
 
         return service_name, session
 
-    async def send_unary(
+    async def _send_unary(
         self, request, session, service_name, metadata, request_serializer
     ):
         # Send the request
@@ -83,7 +83,7 @@ class Channel:
             metadata=metadata,
         )
 
-    async def send_stream(
+    async def _send_stream(
         self, request_stream, session, service_name, metadata, request_serializer
     ):
         # Send the request
@@ -104,7 +104,7 @@ class Channel:
             metadata={"code": str(code_pb2.OK)},
         )
 
-    async def receive_unary(self, session, response_deserializer):
+    async def _receive_unary(self, session, response_deserializer):
         # Wait for the response
         session_recv, response_bytes = await self.local_app.receive(
             session=session.id,
@@ -114,7 +114,7 @@ class Channel:
 
         return session_recv, response
 
-    async def receive_stream(self, session, response_deserializer):
+    async def _receive_stream(self, session, response_deserializer):
         # Wait for the responses
         async def generator():
             try:
@@ -154,8 +154,8 @@ class Channel:
             wait_for_ready=None,
             compression=None,
         ):
-            await self.prepare_task
-            service_name, session = await self.common_setup(method)
+            await self._prepare_task
+            service_name, session = await self._common_setup(method)
 
             # Send the request
             async for request in request_stream:
@@ -216,16 +216,16 @@ class Channel:
             wait_for_ready=None,
             compression=None,
         ):
-            await self.prepare_task
-            service_name, session = await self.common_setup(method)
+            await self._prepare_task
+            service_name, session = await self._common_setup(method)
 
             # Send the requests
-            await self.send_stream(
+            await self._send_stream(
                 request_stream, session, service_name, metadata, request_serializer
             )
 
             # Wait for response
-            return await self.receive_unary(session, response_deserializer)
+            return await self._receive_unary(session, response_deserializer)
 
         return call_stream_unary
 
@@ -243,16 +243,16 @@ class Channel:
             wait_for_ready=None,
             compression=None,
         ):
-            await self.prepare_task
-            service_name, session = await self.common_setup(method)
+            await self._prepare_task
+            service_name, session = await self._common_setup(method)
 
             # Send the request
-            await self.send_unary(
+            await self._send_unary(
                 request, session, service_name, metadata, request_serializer
             )
 
             # Wait for the responses
-            async for response in self.receive_stream(session, response_deserializer):
+            async for response in self._receive_stream(session, response_deserializer):
                 yield response
 
         return call_unary_stream
@@ -271,16 +271,16 @@ class Channel:
             wait_for_ready=None,
             compression=None,
         ):
-            await self.prepare_task
-            service_name, session = await self.common_setup(method)
+            await self._prepare_task
+            service_name, session = await self._common_setup(method)
 
             # Send request
-            await self.send_unary(
+            await self._send_unary(
                 request, session, service_name, metadata, request_serializer
             )
 
             # Wait for the response
-            session_recv, response = await self.receive_unary(
+            session_recv, response = await self._receive_unary(
                 session, response_deserializer
             )
 
