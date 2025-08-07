@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import asyncio
+import datetime
 import logging
 from collections.abc import AsyncIterable, Callable
 
@@ -66,7 +67,11 @@ class Channel:
 
         # Create a session
         session = await self.local_app.create_session(
-            slim_bindings.PySessionConfiguration.FireAndForget()
+            slim_bindings.PySessionConfiguration.FireAndForget(
+                max_retries=10,
+                timeout=datetime.timedelta(seconds=1),
+                sticky=True,
+            )
         )
 
         return service_name, session
@@ -126,7 +131,6 @@ class Channel:
                         session=session.id,
                     )
 
-                    print(session_recv.metadata)
                     if (
                         session_recv.metadata.get("code") == str(code_pb2.OK)
                         and not response_bytes
@@ -188,7 +192,6 @@ class Channel:
                             session=session.id,
                         )
 
-                        print(session_recv.metadata)
                         if (
                             session_recv.metadata.get("code") == str(code_pb2.OK)
                             and not response_bytes
