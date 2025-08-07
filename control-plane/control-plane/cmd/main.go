@@ -12,6 +12,7 @@ import (
 	controlplaneApi "github.com/agntcy/slim/control-plane/common/proto/controlplane/v1"
 	"github.com/agntcy/slim/control-plane/control-plane/internal/config"
 	"github.com/agntcy/slim/control-plane/control-plane/internal/db"
+	"github.com/agntcy/slim/control-plane/control-plane/internal/services/groupservice"
 	"github.com/agntcy/slim/control-plane/control-plane/internal/services/nbapiservice"
 	"github.com/agntcy/slim/control-plane/control-plane/internal/services/nodecontrol"
 	"github.com/agntcy/slim/control-plane/control-plane/internal/services/sbapiservice"
@@ -28,7 +29,7 @@ func main() {
 	cmdHandler := nodecontrol.DefaultNodeCommandHandler()
 	nodeService := nbapiservice.NewNodeService(dbService, cmdHandler)
 	routeService := nbapiservice.NewRouteService(cmdHandler)
-	groupService := nbapiservice.NewGroupService(dbService)
+	groupService := groupservice.NewGroupService(dbService)
 	registrationService := nbapiservice.NewNodeRegistrationService(dbService, cmdHandler)
 
 	go func() {
@@ -50,7 +51,7 @@ func main() {
 
 	sbGrpcServer := grpc.NewServer(opts...)
 	sbAPISvc := sbapiservice.NewSBAPIService(config.Southbound, dbService, cmdHandler,
-		[]nodecontrol.NodeRegistrationHandler{registrationService})
+		[]nodecontrol.NodeRegistrationHandler{registrationService}, groupService)
 	southboundApi.RegisterControllerServiceServer(sbGrpcServer, sbAPISvc)
 
 	sbListeningAddress := fmt.Sprintf("%s:%s", config.Southbound.HTTPHost, config.Southbound.HTTPPort)

@@ -1,4 +1,4 @@
-package nbapiservice
+package groupservice
 
 import (
 	"context"
@@ -7,7 +7,6 @@ import (
 	"github.com/rs/zerolog"
 
 	controllerapi "github.com/agntcy/slim/control-plane/common/proto/controller/v1"
-	controlplaneApi "github.com/agntcy/slim/control-plane/common/proto/controlplane/v1"
 	"github.com/agntcy/slim/control-plane/control-plane/internal/db"
 	util "github.com/agntcy/slim/control-plane/control-plane/internal/util"
 )
@@ -27,8 +26,8 @@ func NewGroupService(dbService db.DataAccess) *GroupService {
 
 func (s *GroupService) CreateChannel(
 	ctx context.Context,
-	createChannelRequest *controlplaneApi.CreateChannelRequest,
-) (*controlplaneApi.CreateChannelResponse, error) {
+	createChannelRequest *controllerapi.CreateChannelRequest,
+) (*controllerapi.CreateChannelResponse, error) {
 	zlog := zerolog.Ctx(ctx)
 
 	if len(createChannelRequest.Moderators) == 0 {
@@ -46,14 +45,14 @@ func (s *GroupService) CreateChannel(
 	}
 	zlog.Debug().Msg("Channel created successfully.")
 
-	return &controlplaneApi.CreateChannelResponse{
+	return &controllerapi.CreateChannelResponse{
 		ChannelId: channelID,
 	}, nil
 }
 
 func (s *GroupService) DeleteChannel(
 	ctx context.Context,
-	deleteChannelRequest *controlplaneApi.DeleteChannelRequest) (*controllerapi.Ack, error) {
+	deleteChannelRequest *controllerapi.DeleteChannelRequest) (*controllerapi.Ack, error) {
 	zlog := zerolog.Ctx(ctx)
 
 	if deleteChannelRequest.ChannelId == "" {
@@ -73,7 +72,7 @@ func (s *GroupService) DeleteChannel(
 
 func (s *GroupService) AddParticipant(
 	ctx context.Context,
-	addParticipantRequest *controlplaneApi.AddParticipantRequest) (*controllerapi.Ack, error) {
+	addParticipantRequest *controllerapi.AddParticipantRequest) (*controllerapi.Ack, error) {
 	zlog := zerolog.Ctx(ctx)
 
 	if addParticipantRequest.ChannelId == "" {
@@ -109,7 +108,7 @@ func (s *GroupService) AddParticipant(
 
 func (s *GroupService) DeleteParticipant(
 	ctx context.Context,
-	deleteParticipantRequest *controlplaneApi.DeleteParticipantRequest) (*controllerapi.Ack, error) {
+	deleteParticipantRequest *controllerapi.DeleteParticipantRequest) (*controllerapi.Ack, error) {
 	zlog := zerolog.Ctx(ctx)
 	if deleteParticipantRequest.ChannelId == "" {
 		return nil, fmt.Errorf("channel ID cannot be empty")
@@ -149,7 +148,7 @@ func (s *GroupService) DeleteParticipant(
 
 func (s *GroupService) ListChannels(
 	ctx context.Context,
-	_ *controlplaneApi.ListChannelsRequest) (*controlplaneApi.ListChannelsResponse, error) {
+	_ *controllerapi.ListChannelsRequest) (*controllerapi.ListChannelsResponse, error) {
 	zlog := zerolog.Ctx(ctx)
 	channels, err := s.dbService.ListChannels()
 	if err != nil {
@@ -162,15 +161,15 @@ func (s *GroupService) ListChannels(
 	}
 	zlog.Debug().Msg("Channels listed successfully.")
 
-	return &controlplaneApi.ListChannelsResponse{
+	return &controllerapi.ListChannelsResponse{
 		ChannelId: channelIDs,
 	}, nil
 }
 
 func (s *GroupService) ListParticipants(
 	ctx context.Context,
-	listParticipantsRequest *controlplaneApi.ListParticipantsRequest) (
-	*controlplaneApi.ListParticipantsResponse, error) {
+	listParticipantsRequest *controllerapi.ListParticipantsRequest) (
+	*controllerapi.ListParticipantsResponse, error) {
 	zlog := zerolog.Ctx(ctx)
 
 	if listParticipantsRequest.ChannelId == "" {
@@ -183,7 +182,7 @@ func (s *GroupService) ListParticipants(
 	}
 	zlog.Debug().Msg("Participants listed successfully.")
 
-	return &controlplaneApi.ListParticipantsResponse{
+	return &controllerapi.ListParticipantsResponse{
 		ParticipantId: channel.Participants,
 	}, nil
 }

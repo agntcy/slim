@@ -49,12 +49,12 @@ type ControlPlaneServiceClient interface {
 	DeleteSubscription(ctx context.Context, in *DeleteSubscriptionRequest, opts ...grpc.CallOption) (*DeleteSubscriptionResponse, error)
 	ListNodes(ctx context.Context, in *NodeListRequest, opts ...grpc.CallOption) (*NodeListResponse, error)
 	DeregisterNode(ctx context.Context, in *Node, opts ...grpc.CallOption) (*DeregisterNodeResponse, error)
-	CreateChannel(ctx context.Context, in *CreateChannelRequest, opts ...grpc.CallOption) (*CreateChannelResponse, error)
-	DeleteChannel(ctx context.Context, in *DeleteChannelRequest, opts ...grpc.CallOption) (*v1.Ack, error)
-	AddParticipant(ctx context.Context, in *AddParticipantRequest, opts ...grpc.CallOption) (*v1.Ack, error)
-	DeleteParticipant(ctx context.Context, in *DeleteParticipantRequest, opts ...grpc.CallOption) (*v1.Ack, error)
-	ListChannels(ctx context.Context, in *ListChannelsRequest, opts ...grpc.CallOption) (*ListChannelsResponse, error)
-	ListParticipants(ctx context.Context, in *ListParticipantsRequest, opts ...grpc.CallOption) (*ListParticipantsResponse, error)
+	CreateChannel(ctx context.Context, in *v1.CreateChannelRequest, opts ...grpc.CallOption) (*v1.CreateChannelResponse, error)
+	DeleteChannel(ctx context.Context, in *v1.DeleteChannelRequest, opts ...grpc.CallOption) (*v1.Ack, error)
+	AddParticipant(ctx context.Context, in *v1.AddParticipantRequest, opts ...grpc.CallOption) (*v1.Ack, error)
+	DeleteParticipant(ctx context.Context, in *v1.DeleteParticipantRequest, opts ...grpc.CallOption) (*v1.Ack, error)
+	ListChannels(ctx context.Context, in *v1.ListChannelsRequest, opts ...grpc.CallOption) (*v1.ListChannelsResponse, error)
+	ListParticipants(ctx context.Context, in *v1.ListParticipantsRequest, opts ...grpc.CallOption) (*v1.ListParticipantsResponse, error)
 }
 
 type controlPlaneServiceClient struct {
@@ -135,9 +135,9 @@ func (c *controlPlaneServiceClient) DeregisterNode(ctx context.Context, in *Node
 	return out, nil
 }
 
-func (c *controlPlaneServiceClient) CreateChannel(ctx context.Context, in *CreateChannelRequest, opts ...grpc.CallOption) (*CreateChannelResponse, error) {
+func (c *controlPlaneServiceClient) CreateChannel(ctx context.Context, in *v1.CreateChannelRequest, opts ...grpc.CallOption) (*v1.CreateChannelResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(CreateChannelResponse)
+	out := new(v1.CreateChannelResponse)
 	err := c.cc.Invoke(ctx, ControlPlaneService_CreateChannel_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
@@ -145,7 +145,7 @@ func (c *controlPlaneServiceClient) CreateChannel(ctx context.Context, in *Creat
 	return out, nil
 }
 
-func (c *controlPlaneServiceClient) DeleteChannel(ctx context.Context, in *DeleteChannelRequest, opts ...grpc.CallOption) (*v1.Ack, error) {
+func (c *controlPlaneServiceClient) DeleteChannel(ctx context.Context, in *v1.DeleteChannelRequest, opts ...grpc.CallOption) (*v1.Ack, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(v1.Ack)
 	err := c.cc.Invoke(ctx, ControlPlaneService_DeleteChannel_FullMethodName, in, out, cOpts...)
@@ -155,7 +155,7 @@ func (c *controlPlaneServiceClient) DeleteChannel(ctx context.Context, in *Delet
 	return out, nil
 }
 
-func (c *controlPlaneServiceClient) AddParticipant(ctx context.Context, in *AddParticipantRequest, opts ...grpc.CallOption) (*v1.Ack, error) {
+func (c *controlPlaneServiceClient) AddParticipant(ctx context.Context, in *v1.AddParticipantRequest, opts ...grpc.CallOption) (*v1.Ack, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(v1.Ack)
 	err := c.cc.Invoke(ctx, ControlPlaneService_AddParticipant_FullMethodName, in, out, cOpts...)
@@ -165,7 +165,7 @@ func (c *controlPlaneServiceClient) AddParticipant(ctx context.Context, in *AddP
 	return out, nil
 }
 
-func (c *controlPlaneServiceClient) DeleteParticipant(ctx context.Context, in *DeleteParticipantRequest, opts ...grpc.CallOption) (*v1.Ack, error) {
+func (c *controlPlaneServiceClient) DeleteParticipant(ctx context.Context, in *v1.DeleteParticipantRequest, opts ...grpc.CallOption) (*v1.Ack, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(v1.Ack)
 	err := c.cc.Invoke(ctx, ControlPlaneService_DeleteParticipant_FullMethodName, in, out, cOpts...)
@@ -175,9 +175,9 @@ func (c *controlPlaneServiceClient) DeleteParticipant(ctx context.Context, in *D
 	return out, nil
 }
 
-func (c *controlPlaneServiceClient) ListChannels(ctx context.Context, in *ListChannelsRequest, opts ...grpc.CallOption) (*ListChannelsResponse, error) {
+func (c *controlPlaneServiceClient) ListChannels(ctx context.Context, in *v1.ListChannelsRequest, opts ...grpc.CallOption) (*v1.ListChannelsResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(ListChannelsResponse)
+	out := new(v1.ListChannelsResponse)
 	err := c.cc.Invoke(ctx, ControlPlaneService_ListChannels_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
@@ -185,9 +185,9 @@ func (c *controlPlaneServiceClient) ListChannels(ctx context.Context, in *ListCh
 	return out, nil
 }
 
-func (c *controlPlaneServiceClient) ListParticipants(ctx context.Context, in *ListParticipantsRequest, opts ...grpc.CallOption) (*ListParticipantsResponse, error) {
+func (c *controlPlaneServiceClient) ListParticipants(ctx context.Context, in *v1.ListParticipantsRequest, opts ...grpc.CallOption) (*v1.ListParticipantsResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(ListParticipantsResponse)
+	out := new(v1.ListParticipantsResponse)
 	err := c.cc.Invoke(ctx, ControlPlaneService_ListParticipants_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
@@ -206,12 +206,12 @@ type ControlPlaneServiceServer interface {
 	DeleteSubscription(context.Context, *DeleteSubscriptionRequest) (*DeleteSubscriptionResponse, error)
 	ListNodes(context.Context, *NodeListRequest) (*NodeListResponse, error)
 	DeregisterNode(context.Context, *Node) (*DeregisterNodeResponse, error)
-	CreateChannel(context.Context, *CreateChannelRequest) (*CreateChannelResponse, error)
-	DeleteChannel(context.Context, *DeleteChannelRequest) (*v1.Ack, error)
-	AddParticipant(context.Context, *AddParticipantRequest) (*v1.Ack, error)
-	DeleteParticipant(context.Context, *DeleteParticipantRequest) (*v1.Ack, error)
-	ListChannels(context.Context, *ListChannelsRequest) (*ListChannelsResponse, error)
-	ListParticipants(context.Context, *ListParticipantsRequest) (*ListParticipantsResponse, error)
+	CreateChannel(context.Context, *v1.CreateChannelRequest) (*v1.CreateChannelResponse, error)
+	DeleteChannel(context.Context, *v1.DeleteChannelRequest) (*v1.Ack, error)
+	AddParticipant(context.Context, *v1.AddParticipantRequest) (*v1.Ack, error)
+	DeleteParticipant(context.Context, *v1.DeleteParticipantRequest) (*v1.Ack, error)
+	ListChannels(context.Context, *v1.ListChannelsRequest) (*v1.ListChannelsResponse, error)
+	ListParticipants(context.Context, *v1.ListParticipantsRequest) (*v1.ListParticipantsResponse, error)
 	mustEmbedUnimplementedControlPlaneServiceServer()
 }
 
@@ -240,22 +240,22 @@ func (UnimplementedControlPlaneServiceServer) ListNodes(context.Context, *NodeLi
 func (UnimplementedControlPlaneServiceServer) DeregisterNode(context.Context, *Node) (*DeregisterNodeResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method DeregisterNode not implemented")
 }
-func (UnimplementedControlPlaneServiceServer) CreateChannel(context.Context, *CreateChannelRequest) (*CreateChannelResponse, error) {
+func (UnimplementedControlPlaneServiceServer) CreateChannel(context.Context, *v1.CreateChannelRequest) (*v1.CreateChannelResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method CreateChannel not implemented")
 }
-func (UnimplementedControlPlaneServiceServer) DeleteChannel(context.Context, *DeleteChannelRequest) (*v1.Ack, error) {
+func (UnimplementedControlPlaneServiceServer) DeleteChannel(context.Context, *v1.DeleteChannelRequest) (*v1.Ack, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method DeleteChannel not implemented")
 }
-func (UnimplementedControlPlaneServiceServer) AddParticipant(context.Context, *AddParticipantRequest) (*v1.Ack, error) {
+func (UnimplementedControlPlaneServiceServer) AddParticipant(context.Context, *v1.AddParticipantRequest) (*v1.Ack, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method AddParticipant not implemented")
 }
-func (UnimplementedControlPlaneServiceServer) DeleteParticipant(context.Context, *DeleteParticipantRequest) (*v1.Ack, error) {
+func (UnimplementedControlPlaneServiceServer) DeleteParticipant(context.Context, *v1.DeleteParticipantRequest) (*v1.Ack, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method DeleteParticipant not implemented")
 }
-func (UnimplementedControlPlaneServiceServer) ListChannels(context.Context, *ListChannelsRequest) (*ListChannelsResponse, error) {
+func (UnimplementedControlPlaneServiceServer) ListChannels(context.Context, *v1.ListChannelsRequest) (*v1.ListChannelsResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ListChannels not implemented")
 }
-func (UnimplementedControlPlaneServiceServer) ListParticipants(context.Context, *ListParticipantsRequest) (*ListParticipantsResponse, error) {
+func (UnimplementedControlPlaneServiceServer) ListParticipants(context.Context, *v1.ListParticipantsRequest) (*v1.ListParticipantsResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ListParticipants not implemented")
 }
 func (UnimplementedControlPlaneServiceServer) mustEmbedUnimplementedControlPlaneServiceServer() {}
@@ -398,7 +398,7 @@ func _ControlPlaneService_DeregisterNode_Handler(srv interface{}, ctx context.Co
 }
 
 func _ControlPlaneService_CreateChannel_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(CreateChannelRequest)
+	in := new(v1.CreateChannelRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
@@ -410,13 +410,13 @@ func _ControlPlaneService_CreateChannel_Handler(srv interface{}, ctx context.Con
 		FullMethod: ControlPlaneService_CreateChannel_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(ControlPlaneServiceServer).CreateChannel(ctx, req.(*CreateChannelRequest))
+		return srv.(ControlPlaneServiceServer).CreateChannel(ctx, req.(*v1.CreateChannelRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
 func _ControlPlaneService_DeleteChannel_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(DeleteChannelRequest)
+	in := new(v1.DeleteChannelRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
@@ -428,13 +428,13 @@ func _ControlPlaneService_DeleteChannel_Handler(srv interface{}, ctx context.Con
 		FullMethod: ControlPlaneService_DeleteChannel_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(ControlPlaneServiceServer).DeleteChannel(ctx, req.(*DeleteChannelRequest))
+		return srv.(ControlPlaneServiceServer).DeleteChannel(ctx, req.(*v1.DeleteChannelRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
 func _ControlPlaneService_AddParticipant_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(AddParticipantRequest)
+	in := new(v1.AddParticipantRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
@@ -446,13 +446,13 @@ func _ControlPlaneService_AddParticipant_Handler(srv interface{}, ctx context.Co
 		FullMethod: ControlPlaneService_AddParticipant_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(ControlPlaneServiceServer).AddParticipant(ctx, req.(*AddParticipantRequest))
+		return srv.(ControlPlaneServiceServer).AddParticipant(ctx, req.(*v1.AddParticipantRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
 func _ControlPlaneService_DeleteParticipant_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(DeleteParticipantRequest)
+	in := new(v1.DeleteParticipantRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
@@ -464,13 +464,13 @@ func _ControlPlaneService_DeleteParticipant_Handler(srv interface{}, ctx context
 		FullMethod: ControlPlaneService_DeleteParticipant_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(ControlPlaneServiceServer).DeleteParticipant(ctx, req.(*DeleteParticipantRequest))
+		return srv.(ControlPlaneServiceServer).DeleteParticipant(ctx, req.(*v1.DeleteParticipantRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
 func _ControlPlaneService_ListChannels_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(ListChannelsRequest)
+	in := new(v1.ListChannelsRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
@@ -482,13 +482,13 @@ func _ControlPlaneService_ListChannels_Handler(srv interface{}, ctx context.Cont
 		FullMethod: ControlPlaneService_ListChannels_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(ControlPlaneServiceServer).ListChannels(ctx, req.(*ListChannelsRequest))
+		return srv.(ControlPlaneServiceServer).ListChannels(ctx, req.(*v1.ListChannelsRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
 func _ControlPlaneService_ListParticipants_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(ListParticipantsRequest)
+	in := new(v1.ListParticipantsRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
@@ -500,7 +500,7 @@ func _ControlPlaneService_ListParticipants_Handler(srv interface{}, ctx context.
 		FullMethod: ControlPlaneService_ListParticipants_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(ControlPlaneServiceServer).ListParticipants(ctx, req.(*ListParticipantsRequest))
+		return srv.(ControlPlaneServiceServer).ListParticipants(ctx, req.(*v1.ListParticipantsRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
