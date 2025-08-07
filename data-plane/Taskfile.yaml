@@ -86,8 +86,9 @@ tasks:
     desc: "Run core end to end tests"
     dir: ./testing
     cmds:
-      - task run:mls-group:test
-
+      - |
+        task test:group-session
+        task test:point-to-point-session
 
   data-plane:slim:version:
     desc: "Get version from corresponding git tag"

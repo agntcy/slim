@@ -14,9 +14,8 @@ use slim_config::grpc::client::ClientConfig as GrpcClientConfig;
 use slim_config::grpc::server::ServerConfig as GrpcServerConfig;
 use slim_config::tls::client::TlsClientConfig;
 use slim_config::tls::server::TlsServerConfig;
-use slim_datapath::message_processing;
 use slim_datapath::messages::Name;
-use slim_service::{FireAndForgetConfiguration, ServiceConfiguration, SlimHeaderFlags, StreamingConfiguration};
+use slim_service::{FireAndForgetConfiguration, ServiceConfiguration};
 use slim_tracing::TracingConfiguration;
 
 const DEFAULT_PUBSUB_PORT: u16 = 46357;
@@ -219,8 +218,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let msl_enabled = !*args.mls_disabled();
     let is_sticky = *args.is_sticky();
 
-    println!("run test with MLS {} and sticky session {}", msl_enabled, is_sticky);
-    
+    println!(
+        "run test with MLS {} and sticky session {}",
+        msl_enabled, is_sticky
+    );
+
     // start slim node
     tokio::spawn(async move {
         let _ = run_slim_node().await;
@@ -240,7 +242,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // wait for all the processes to start
     tokio::time::sleep(tokio::time::Duration::from_millis(10000)).await;
-
 
     // start moderator
     let name = Name::from_strings(["org", "ns", "main"]).with_id(1);
@@ -280,13 +281,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let info = app
         .create_session(
-            slim_service::session::SessionConfig::FireAndForget(
-                FireAndForgetConfiguration::new(
-                    Some(Duration::from_secs(1)), 
-                    Some(10),
+            slim_service::session::SessionConfig::FireAndForget(FireAndForgetConfiguration::new(
+                Some(Duration::from_secs(1)),
+                Some(10),
                 is_sticky,
-            msl_enabled)), 
-                    None)
+                msl_enabled,
+            )),
+            None,
+        )
         .await
         .expect("error creating session");
 
@@ -319,7 +321,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 .expect("error while parsing received message");
 
                             if val != *"hello there" {
-                                println!("recevied a currupted reply");
+                                println!("received a corrupted reply");
                                 continue;
                             }
 
@@ -347,7 +349,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!("main: send message {}", i);
 
         if app
-            .publish(info.clone(), &Name::from_strings(["org", "ns", "client"]), p.clone())
+            .publish(
+                info.clone(),
+                &Name::from_strings(["org", "ns", "client"]),
+                p.clone(),
+            )
             .await
             .is_err()
         {
@@ -362,10 +368,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // if sticky we must see a single sendere
     let mut found_sender = false;
     for (c, n) in recv_msgs.read().iter() {
-        println!("received {} messages from {}", *n, c );
+        println!("received {} messages from {}", *n, c);
         sum += *n;
         if is_sticky && found_sender && *n != 0 {
-            println!("this is a sticky session but we got messages from multiple clients. test failed");
+            println!(
+                "this is a sticky session but we got messages from multiple clients. test failed"
+            );
             std::process::exit(1);
         }
         if *n != 0 {
@@ -374,7 +382,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     if sum != max_packets {
-        println!("expected {} packets, received {}. test failed", sum, max_packets);
+        println!(
+            "expected {} packets, received {}. test failed",
+            sum, max_packets
+        );
         std::process::exit(1);
     }
 

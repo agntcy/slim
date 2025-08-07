@@ -209,7 +209,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     if msl_enabled {
         println!("start test with msl enabled");
     } else {
-         println!("start test with msl disabled");
+        println!("start test with msl disabled");
     }
     // start slim node
     tokio::spawn(async move {
@@ -230,7 +230,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // wait for all the processes to start
     tokio::time::sleep(tokio::time::Duration::from_millis(10000)).await;
-
 
     // start moderator
     let name = Name::from_strings(["org", "ns", "moderator"]).with_id(1);
