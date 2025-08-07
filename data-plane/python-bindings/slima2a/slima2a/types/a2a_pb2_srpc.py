@@ -101,7 +101,7 @@ class A2AServiceServicer:
         """Send a message to the agent. This is a blocking call that will return the
         task once it is completed, or a LRO if requested.
         """
-        raise srpc_rpc.ErrorResponse(
+        raise srpc_rpc.SRPCResponseError(
             code=code__pb2.UNIMPLEMENTED, message="Method not implemented!"
         )
 
@@ -109,13 +109,13 @@ class A2AServiceServicer:
         """SendStreamingMessage is a streaming call that will return a stream of
         task update events until the Task is in an interrupted or terminal state.
         """
-        raise srpc_rpc.ErrorResponse(
+        raise srpc_rpc.SRPCResponseError(
             code=code__pb2.UNIMPLEMENTED, message="Method not implemented!"
         )
 
     def GetTask(self, request, context):
         """Get the current state of a task from the agent."""
-        raise srpc_rpc.ErrorResponse(
+        raise srpc_rpc.SRPCResponseError(
             code=code__pb2.UNIMPLEMENTED, message="Method not implemented!"
         )
 
@@ -123,7 +123,7 @@ class A2AServiceServicer:
         """Cancel a task from the agent. If supported one should expect no
         more task updates for the task.
         """
-        raise srpc_rpc.ErrorResponse(
+        raise srpc_rpc.SRPCResponseError(
             code=code__pb2.UNIMPLEMENTED, message="Method not implemented!"
         )
 
@@ -133,37 +133,37 @@ class A2AServiceServicer:
         If the task is complete the stream will return the completed task (like
         GetTask) and close the stream.
         """
-        raise srpc_rpc.ErrorResponse(
+        raise srpc_rpc.SRPCResponseError(
             code=code__pb2.UNIMPLEMENTED, message="Method not implemented!"
         )
 
     def CreateTaskPushNotificationConfig(self, request, context):
         """Set a push notification config for a task."""
-        raise srpc_rpc.ErrorResponse(
+        raise srpc_rpc.SRPCResponseError(
             code=code__pb2.UNIMPLEMENTED, message="Method not implemented!"
         )
 
     def GetTaskPushNotificationConfig(self, request, context):
         """Get a push notification config for a task."""
-        raise srpc_rpc.ErrorResponse(
+        raise srpc_rpc.SRPCResponseError(
             code=code__pb2.UNIMPLEMENTED, message="Method not implemented!"
         )
 
     def ListTaskPushNotificationConfig(self, request, context):
         """Get a list of push notifications configured for a task."""
-        raise srpc_rpc.ErrorResponse(
+        raise srpc_rpc.SRPCResponseError(
             code=code__pb2.UNIMPLEMENTED, message="Method not implemented!"
         )
 
     def GetAgentCard(self, request, context):
         """GetAgentCard returns the agent card for the agent."""
-        raise srpc_rpc.ErrorResponse(
+        raise srpc_rpc.SRPCResponseError(
             code=code__pb2.UNIMPLEMENTED, message="Method not implemented!"
         )
 
     def DeleteTaskPushNotificationConfig(self, request, context):
         """Delete a push notification config for a task."""
-        raise srpc_rpc.ErrorResponse(
+        raise srpc_rpc.SRPCResponseError(
             code=code__pb2.UNIMPLEMENTED, message="Method not implemented!"
         )
 
