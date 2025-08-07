@@ -95,12 +95,15 @@ fn main() -> Result<()> {
         // Only process files that are explicitly requested for generation
         if !request
             .file_to_generate
-            .contains(&file_descriptor.name.clone().unwrap())
+            .contains(&file_descriptor.name.clone().context("Missing file name")?)
         {
             continue;
         }
 
-        let package_name = file_descriptor.package.clone().unwrap();
+        let package_name = file_descriptor
+            .package
+            .clone()
+            .context("Missing package name")?;
         let file_name_base = file_descriptor
             .name
             .as_ref()
@@ -120,7 +123,7 @@ fn main() -> Result<()> {
         // Iterate through services defined in the current .proto file
         for service in file_descriptor.service {
             services_found = true;
-            let service_name = service.name.clone().unwrap();
+            let service_name = service.name.clone().context("Service name missing")?;
 
             let mut method_stub_initializers_content = String::new();
             let mut method_servicers_content = String::new();
@@ -128,9 +131,9 @@ fn main() -> Result<()> {
 
             // Generate methods for the client stub and server servicer
             for method in service.method {
-                let method_name = method.name.clone().unwrap();
-                let input_type = method.input_type.clone().unwrap();
-                let output_type = method.output_type.clone().unwrap();
+                let method_name = method.name.clone().context("Method name missing")?;
+                let input_type = method.input_type.clone().context("Input type missing")?;
+                let output_type = method.output_type.clone().context("Output type missing")?;
 
                 // Extract just the type name without package prefix
                 let input_type_short = input_type.split('.').last().unwrap_or(&input_type);

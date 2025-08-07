@@ -225,5 +225,5 @@ tasks:
           echo "Generating proto files for $file"
           # get folder name
           folder=$(dirname "$file")
-          pushd ${folder} && {{.TOOLS_INSTALL_DIR}}/buf generate && popd
+          pushd > /dev/null ${folder} && {{.TOOLS_INSTALL_DIR}}/buf generate && popd > /dev/null
         done
