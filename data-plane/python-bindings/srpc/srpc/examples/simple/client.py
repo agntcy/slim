@@ -20,7 +20,7 @@ async def amain():
         },
         enable_opentelemetry=False,
         shared_secret="my_shared_secret",
-        remote="agntcy/grpc/server"
+        remote="agntcy/grpc/server",
     )
 
     # Stubs
