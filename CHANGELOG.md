@@ -223,9 +223,13 @@ The following matrix shows compatibility between different component versions:
 
 ## Migration Guide: v0.3.6 to v0.4.0
 
-> ⚠️ **DEPRECATION NOTICE**: SLIM v0.3.6 is now deprecated and will no longer receive updates or security patches. Users are strongly encouraged to migrate to v0.4.0 or later to benefit from enhanced security features, bug fixes, and ongoing support.
+> ⚠️ **DEPRECATION NOTICE**: SLIM v0.3.6 is now deprecated and will no longer
+receive updates or security patches. Users are strongly encouraged to migrate to
+v0.4.0 or later to benefit from enhanced security features, bug fixes, and
+ongoing support.
 
-This section provides detailed migration instructions for upgrading from SLIM v0.3.6 to v0.4.0, particularly focusing on the Python bindings changes.
+This section provides detailed migration instructions for upgrading from SLIM
+v0.3.6 to v0.4.0, particularly focusing on the Python bindings changes.
 
 ### Breaking Changes Summary
 
@@ -323,7 +327,8 @@ await slim_app.connect({"endpoint": address, "tls": {"insecure": True}})
 
 #### 5. Channel Invitation Process (New Requirement)
 
-v0.4.0 introduces a mandatory channel invitation process that enhances security and enables proper MLS (Message Layer Security) setup:
+v0.4.0 introduces a mandatory channel invitation process that enhances security
+and enables proper MLS (Message Layer Security) setup:
 
 **Moderator Session Creation:**
 ```python
@@ -401,4 +406,6 @@ When upgrading from v0.3.6 to v0.4.0, ensure you:
 
 ### Future Enhancements
 
-The next release will integrate support for **Agntcy Identity**, allowing users to create SLIM applications using their agent badge for even more streamlined authentication.
+The next release will integrate support for **Agntcy Identity**, allowing users
+to create SLIM applications using their agent badge for even more streamlined
+authentication.
