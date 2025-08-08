@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.1](https://github.com/agntcy/slim/compare/slim-bindings-v0.4.0...slim-bindings-v0.4.1) (2025-08-08)
+
+
+### Bug Fixes
+
+* fix ff session ([#538](https://github.com/agntcy/slim/issues/538)) ([e0d1f65](https://github.com/agntcy/slim/commit/e0d1f65b23556e1e8f045523daa9b93ff4d8635d))
+
 ## [0.4.0](https://github.com/agntcy/slim/compare/slim-bindings-v0.3.6...slim-bindings-v0.4.0) (2025-07-31)
 
 
