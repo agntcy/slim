@@ -1364,6 +1364,11 @@ dependencies = [
     { name = "slim-bindings" },
 ]
 
+[package.dev-dependencies]
+linting = [
+    { name = "types-protobuf" },
+]
+
 [package.metadata]
 requires-dist = [
     { name = "anyio", specifier = ">=4.9.0" },
@@ -1372,6 +1377,9 @@ requires-dist = [
     { name = "grpcio", specifier = ">=1.74.0" },
     { name = "slim-bindings", editable = "." },
 ]
+
+[package.metadata.requires-dev]
+linting = [{ name = "types-protobuf", specifier = ">=6.30.2.20250703" }]
 
 [[package]]
 name = "sse-starlette"

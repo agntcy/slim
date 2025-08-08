@@ -20,7 +20,7 @@ from slima2a.handler import SRPCHandler
 from slima2a.types.a2a_pb2_srpc import add_A2AServiceServicer_to_server
 
 
-async def main():
+async def main() -> None:
     skill = AgentSkill(
         id="travel_planner",
         name="travel planner agent",

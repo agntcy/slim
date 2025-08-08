@@ -1,27 +1,22 @@
 # Copyright AGNTCY Contributors (https://github.com/agntcy)
 # SPDX-License-Identifier: Apache-2.0
 
+from dataclasses import dataclass
+
 from slim_bindings import PySessionInfo
 
 
+@dataclass
 class Context:
     """
     Context for RPC calls.
     """
 
-    def __init__(
-        self,
-        session_id: int,
-        source_name: str,
-        destination_name: str,
-        payload_type: str,
-        metadata: dict[str, str] | None = None,
-    ):
-        self.session_id = session_id
-        self.source_name = source_name
-        self.destination_name = destination_name
-        self.payload_type = payload_type
-        self.metadata = metadata
+    session_id: int
+    source_name: str
+    destination_name: str
+    payload_type: str
+    metadata: dict[str, str] | None = None
 
     @classmethod
     def from_sessioninfo(cls, session_info: PySessionInfo) -> "Context":

@@ -4,13 +4,22 @@
 import logging
 from collections.abc import Callable
 from dataclasses import dataclass
+from typing import Iterable, Mapping, Optional, Union
+
+from google.protobuf.any_pb2 import Any as pb_Any
+from google.rpc import code_pb2
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
 class SRPCResponseError(Exception):
-    def __init__(self, code, message, details=None):
+    def __init__(
+        self,
+        code: code_pb2.Code,
+        message: str,
+        details: Optional[Iterable[Union[pb_Any, Mapping]]] = None,
+    ) -> None:
         self.code = code
         self.message = message
         self.details = details
