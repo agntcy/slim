@@ -1,6 +1,10 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
+use std::collections::hash_map::DefaultHasher;
+use std::hash::Hash;
+use std::hash::Hasher;
+
 use pyo3::exceptions::PyException;
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
@@ -74,6 +78,11 @@ impl PyName {
         self.name.components().to_vec()
     }
 
+    pub fn components_strings(&self) -> Vec<String> {
+        let default = ["".into(), "".into(), "".into()];
+        self.name.components_strings().unwrap_or(&default).to_vec()
+    }
+
     pub fn equal_without_id(&self, name: &PyName) -> bool {
         self.name.components()[0] == name.name.components()[0]
             && self.name.components()[1] == name.name.components()[1]
@@ -86,6 +95,15 @@ impl PyName {
 
     fn __str__(&self) -> String {
         self.name.to_string()
+    }
+
+    fn __hash__(&self) -> u64 {
+        let mut hasher = DefaultHasher::new();
+        self.name.components()[0].hash(&mut hasher);
+        self.name.components()[1].hash(&mut hasher);
+        self.name.components()[2].hash(&mut hasher);
+        self.name.components()[3].hash(&mut hasher);
+        hasher.finish()
     }
 }
 

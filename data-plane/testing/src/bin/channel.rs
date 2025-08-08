@@ -286,7 +286,7 @@ async fn main() {
             let flags = SlimHeaderFlags::new(10, None, None, None, None);
 
             if app
-                .publish_with_flags(info.clone(), &channel_name, flags, p)
+                .publish_with_flags(info.clone(), &channel_name, flags, p, None, None)
                 .await
                 .is_err()
             {
@@ -365,7 +365,7 @@ async fn main() {
 
                             let flags = SlimHeaderFlags::new(10, None, None, None, None);
                             if app
-                                .publish_with_flags(info, &channel_name, flags, p)
+                                .publish_with_flags(info, &channel_name, flags, p, None, None)
                                 .await
                                 .is_err()
                             {

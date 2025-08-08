@@ -201,7 +201,9 @@ async fn main() {
         }
 
         // publish message
-        app.publish(session, &route, msg.into()).await.unwrap();
+        app.publish(session, &route, msg.into(), None, None)
+            .await
+            .unwrap();
     }
 
     // wait for messages
@@ -216,7 +218,7 @@ async fn main() {
                 // send a message back
                 let msg = messages.pop_front();
                 if let Some(msg) = msg {
-                    app.publish(msg.1, &route, msg.0.into())
+                    app.publish(msg.1, &route, msg.0.into(), None, None)
                         .await
                         .unwrap();
                 }
