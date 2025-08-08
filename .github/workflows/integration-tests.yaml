@@ -46,7 +46,7 @@ jobs:
         working-directory: ./tests
         run: task tests:integration
 
-  mls-group-test:
+  sessions-test:
     runs-on: ubuntu-latest
 
     defaults:
@@ -60,6 +60,12 @@ jobs:
       - name: Setup Rust
         uses: ./.github/actions/setup-rust
 
-      - name: Run MLS group integration test
+      - name: Run group communication integration test
         working-directory: ./data-plane/testing
-        run: task run:mls-group:test
+        run: task test:group-session
+
+      - name: Run fire and forget integration test
+        working-directory: ./data-plane/testing
+        run: task test:point-to-point-session
+
+

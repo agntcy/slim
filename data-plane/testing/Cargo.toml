@@ -22,8 +22,12 @@ name = "channel"
 path = "src/bin/channel.rs"
 
 [[bin]]
-name = "group-test"
-path = "src/bin/group_test.rs"
+name = "test-group"
+path = "src/bin/test_group.rs"
+
+[[bin]]
+name = "test-ff"
+path = "src/bin/test_ff.rs"
 
 [dependencies]
 agntcy-slim = { workspace = true }

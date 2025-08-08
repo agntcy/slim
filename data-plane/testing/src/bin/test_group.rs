@@ -5,6 +5,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
+use clap::Parser;
 use parking_lot::RwLock;
 use slim::runtime::RuntimeConfiguration;
 use slim_auth::shared_secret::SharedSecret;
@@ -19,6 +20,25 @@ use slim_tracing::TracingConfiguration;
 
 const DEFAULT_PUBSUB_PORT: u16 = 46357;
 const DEFAULT_SERVICE_ID: &str = "slim/0";
+
+#[derive(Parser, Debug)]
+pub struct Args {
+    /// Runs the endpoint with MLS disabled.
+    #[arg(
+        short,
+        long,
+        value_name = "MSL_DISABLED",
+        required = false,
+        default_value_t = false
+    )]
+    mls_disabled: bool,
+}
+
+impl Args {
+    pub fn mls_disabled(&self) -> &bool {
+        &self.mls_disabled
+    }
+}
 
 async fn run_slim_node() -> Result<(), String> {
     println!("Server task starting...");
@@ -182,6 +202,15 @@ async fn run_participant_task(name: Name) -> Result<(), String> {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // get command line conf
+    let args = Args::parse();
+    let msl_enabled = !*args.mls_disabled();
+
+    if msl_enabled {
+        println!("start test with msl enabled");
+    } else {
+        println!("start test with msl disabled");
+    }
     // start slim node
     tokio::spawn(async move {
         let _ = run_slim_node().await;
@@ -247,7 +276,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 true,
                 Some(10),
                 Some(Duration::from_secs(1)),
-                true,
+                msl_enabled,
             )),
             None,
         )

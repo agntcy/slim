@@ -198,6 +198,7 @@ tasks:
         vars:
           ARGS: "{{.GLOBAL_ARGS}} --all-targets --locked --all-features -- --nocapture"
       - task: bindings:test
+      - task: core:test
 
   test:coverage:
     desc: "Run tests coverage"
