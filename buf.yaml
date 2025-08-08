@@ -5,7 +5,9 @@ version: v2
 lint:
   disallow_comment_ignores: true
   use:
-    - STANDARD
+    - MINIMAL
+  except:
+    - PACKAGE_DIRECTORY_MATCH
 deps:
   - buf.build/googleapis/googleapis
 modules:

@@ -27,5 +27,3 @@ jobs:
         with:
           token: ${{ secrets.BUF_TOKEN }}
           input: proto
-          format: false
-          lint: false
