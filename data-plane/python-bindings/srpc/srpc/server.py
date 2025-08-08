@@ -202,7 +202,7 @@ def request_generator(
 
 async def call_handler(
     handler: RPCHandler, request_or_iterator: Any, context: Context
-) -> AsyncGenerator[Tuple[code_pb2.Code, Any]]:
+) -> AsyncGenerator[Tuple[Any, Any]]:
     """
     Call the handler with the given arguments.
     """
