@@ -30,7 +30,7 @@ var k = koanf.New(".")
 func initConfig(opts *options.CommonOptions, flagSet *pflag.FlagSet) error {
 	// defaults
 	defaults := map[string]interface{}{
-		"server":        "localhost:46357",
+		"server":        "localhost:50051",
 		"timeout":       "5s",
 		"tls.insecure":  true,
 		"tls.ca_file":   "",
@@ -133,6 +133,8 @@ func main() {
 	rootCmd.AddCommand(controllerCmd.NewNodeCmd(opts))
 	rootCmd.AddCommand(controllerCmd.NewConnectionCmd(opts))
 	rootCmd.AddCommand(controllerCmd.NewRouteCmd(opts))
+	rootCmd.AddCommand(controllerCmd.NewChannelCmd(opts))
+	rootCmd.AddCommand(controllerCmd.NewParticipantCmd(opts))
 
 	rootCmd.AddCommand(nodectrlCmd.NewNodeCmd(opts))
 	rootCmd.AddCommand(versionCmd.NewVersionCmd(opts))
