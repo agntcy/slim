@@ -5,10 +5,11 @@ version: v2
 lint:
   disallow_comment_ignores: true
   use:
-    - STANDARD
-breaking:
-  use:
-    - WIRE_JSON
+    - MINIMAL
+  except:
+    - PACKAGE_DIRECTORY_MATCH
+deps:
+  - buf.build/googleapis/googleapis
 modules:
-  - path: .
+  - path: proto
     name: buf.build/agntcy/slim

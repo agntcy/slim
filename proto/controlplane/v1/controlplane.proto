@@ -31,9 +31,9 @@ message ConfigurationCommand {
   string nodeId = 2;
 }
 
-message Node { 
+message Node {
   string id = 1;
- }
+}
 
 message NodeListRequest {}
 
@@ -51,7 +51,7 @@ message NodeEntry {
 }
 
 message NodeListResponse {
-    repeated NodeEntry entries = 1;
+  repeated NodeEntry entries = 1;
 }
 
 message CreateConnectionRequest {
@@ -72,7 +72,6 @@ message CreateSubscriptionRequest {
 message CreateSubscriptionResponse {
   bool success = 1;
   string subscriptionId = 2;
-
 }
 
 message DeleteSubscriptionRequest {
