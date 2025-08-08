@@ -4,8 +4,6 @@
 import asyncio
 import datetime
 import logging
-import sys
-from time import time
 from collections.abc import AsyncIterable, Callable
 
 import slim_bindings
@@ -192,7 +190,9 @@ class Channel:
         ):
             try:
                 await self._prepare_task
-                service_name, session = await self._common_setup(method)
+                service_name, session, metadata = await self._common_setup(
+                    method, metadata
+                )
 
                 # Send the requests
                 await self._send_stream(
@@ -223,7 +223,9 @@ class Channel:
         ):
             try:
                 await self._prepare_task
-                service_name, session, metadata = await self._common_setup(method)
+                service_name, session, metadata = await self._common_setup(
+                    method, metadata
+                )
 
                 # Send the requests
                 await self._send_stream(
@@ -260,7 +262,9 @@ class Channel:
         ):
             try:
                 await self._prepare_task
-                service_name, session, metadata = await self._common_setup(method)
+                service_name, session, metadata = await self._common_setup(
+                    method, metadata
+                )
 
                 # Send the request
                 await self._send_unary(
@@ -298,7 +302,9 @@ class Channel:
         ):
             try:
                 await self._prepare_task
-                service_name, session, metadata = await self._common_setup(method)
+                service_name, session, metadata = await self._common_setup(
+                    method, metadata
+                )
 
                 # Send request
                 await self._send_unary(
