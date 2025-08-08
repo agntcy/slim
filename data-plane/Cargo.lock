@@ -19,7 +19,7 @@ checksum = "320119579fcad9c21884f5c4861d16174d0e06250625266f50fe6898340abefa"
 
 [[package]]
 name = "agntcy-slim"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "agntcy-slim-config",
  "agntcy-slim-service",
@@ -128,7 +128,7 @@ dependencies = [
 
 [[package]]
 name = "agntcy-slim-controller"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "agntcy-slim-config",
  "agntcy-slim-datapath",
@@ -154,7 +154,7 @@ dependencies = [
 
 [[package]]
 name = "agntcy-slim-datapath"
-version = "0.8.0"
+version = "0.8.1"
 dependencies = [
  "agntcy-slim-config",
  "agntcy-slim-tracing",
@@ -183,7 +183,7 @@ dependencies = [
 
 [[package]]
 name = "agntcy-slim-mls"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "agntcy-slim-auth",
  "agntcy-slim-datapath",
@@ -210,7 +210,7 @@ dependencies = [
 
 [[package]]
 name = "agntcy-slim-service"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "agntcy-slim-auth",
  "agntcy-slim-config",
