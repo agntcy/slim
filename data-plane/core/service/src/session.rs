@@ -1,6 +1,7 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -103,6 +104,10 @@ pub struct Info {
     pub message_destination: Option<Name>,
     /// The input connection id
     pub input_connection: Option<u64>,
+    /// The pyaload type in the packet
+    pub payload_type: Option<String>,
+    /// The metadata associated to the packet
+    pub metadata: HashMap<String, String>,
 }
 
 impl Info {
@@ -116,6 +121,8 @@ impl Info {
             message_source: None,
             message_destination: None,
             input_connection: None,
+            payload_type: None,
+            metadata: HashMap::new(),
         }
     }
 
@@ -174,6 +181,14 @@ impl Info {
     pub fn get_input_connection(&self) -> Option<u64> {
         self.input_connection
     }
+
+    pub fn get_payload_type(&self) -> Option<String> {
+        self.payload_type.clone()
+    }
+
+    pub fn get_metadata(&self) -> HashMap<String, String> {
+        self.metadata.clone()
+    }
 }
 
 impl From<&Message> for Info {
@@ -188,6 +203,8 @@ impl From<&Message> for Info {
         let input_connection = slim_header.incoming_conn;
         let session_message_type = session_header.session_message_type();
         let session_type = session_header.session_type();
+        let payload_type = message.get_payload().map(|c| c.content_type.clone());
+        let metadata = message.get_metadata_map();
 
         Info {
             id,
@@ -197,6 +214,8 @@ impl From<&Message> for Info {
             message_source: Some(message_source),
             message_destination: Some(message_destination),
             input_connection,
+            payload_type,
+            metadata,
         }
     }
 }

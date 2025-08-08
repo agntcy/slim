@@ -660,15 +660,23 @@ where
 
 pub fn handle_channel_discovery_message(
     message: &Message,
-    source: &Name,
+    app_name: &Name,
     session_id: Id,
     session_type: ProtoSessionType,
 ) -> Message {
     let destination = message.get_source();
+
+    // the destination of the discovery message may be different from the name of
+    // application itself. This can happen if the application subscribes to multiple
+    // service names. So we can reply using as a source the destination name of
+    // the discovery message but setting the application id
+
+    let mut source = message.get_dst();
+    source.set_id(app_name.id());
     let msg_id = message.get_id();
 
     let slim_header = Some(SlimHeader::new(
-        source,
+        &source,
         &destination,
         Some(SlimHeaderFlags::default().with_forward_to(message.get_incoming_conn())),
     ));

@@ -407,6 +407,8 @@ impl Proxy {
                                     &src,
                                     conn_id,
                                     msg,
+                                    None,
+                                    None
                                 ).await {
                                     Ok(()) => {
                                         debug!("sent message to destination {:?}", src);

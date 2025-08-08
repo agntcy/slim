@@ -50,7 +50,11 @@ async def test_sticky_session(server, mls_enabled):
             while True:
                 info, _ = await receiver.receive(session=session_info_rec.id)
 
-                if info.destination_name.equal_without_id(receiver_name):
+                if (
+                    info.destination_name.equal_without_id(receiver_name)
+                    and info.payload_type == "hello message"
+                    and info.metadata.get("sender") == "hello"
+                ):
                     # store the count in dictionary
                     receiver_counts[i] += 1
 
@@ -74,9 +78,14 @@ async def test_sticky_session(server, mls_enabled):
     # Wait a moment
     await asyncio.sleep(2)
 
+    payload_type = "hello message"
+    metadata = {"sender": "hello"}
+
     # send a message to the receiver
     for i in range(1000):
-        await sender.publish(session_info, b"Hello from sender", receiver_name)
+        await sender.publish(
+            session_info, b"Hello from sender", receiver_name, payload_type, metadata
+        )
 
     # Wait for all receivers to finish
     await asyncio.sleep(1)

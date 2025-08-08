@@ -1,6 +1,7 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use pyo3::exceptions::PyException;
@@ -154,6 +155,8 @@ impl PyService {
         fanout: u32,
         blob: Vec<u8>,
         name: Option<PyName>,
+        payload_type: Option<String>,
+        metadata: Option<HashMap<String, String>>,
     ) -> Result<(), ServiceError> {
         let (name, conn_out) = match name {
             Some(name) => (name.into(), None),
@@ -177,7 +180,7 @@ impl PyService {
 
         self.sdk
             .app
-            .publish_with_flags(session_info, &name, flags, blob)
+            .publish_with_flags(session_info, &name, flags, blob, payload_type, metadata)
             .await
     }
 
@@ -448,9 +451,10 @@ pub fn remove_route(py: Python, svc: PyService, conn: u64, name: PyName) -> PyRe
     })
 }
 
+#[allow(clippy::too_many_arguments)]
 #[gen_stub_pyfunction]
 #[pyfunction]
-#[pyo3(signature = (svc, session_info, fanout, blob, name=None))]
+#[pyo3(signature = (svc, session_info, fanout, blob, name=None, payload_type=None, metadata=None))]
 pub fn publish(
     py: Python,
     svc: PyService,
@@ -458,11 +462,20 @@ pub fn publish(
     fanout: u32,
     blob: Vec<u8>,
     name: Option<PyName>,
+    payload_type: Option<String>,
+    metadata: Option<HashMap<String, String>>,
 ) -> PyResult<Bound<PyAny>> {
     pyo3_async_runtimes::tokio::future_into_py(py, async move {
-        svc.publish(session_info.session_info, fanout, blob, name)
-            .await
-            .map_err(|e| PyErr::new::<PyException, _>(e.to_string()))
+        svc.publish(
+            session_info.session_info,
+            fanout,
+            blob,
+            name,
+            payload_type,
+            metadata,
+        )
+        .await
+        .map_err(|e| PyErr::new::<PyException, _>(e.to_string()))
     })
 }
 

@@ -510,6 +510,8 @@ class Slim:
         session: PySessionInfo,
         msg: bytes,
         dest: PyName,
+        payload_type: Optional[str] = None,
+        metadata: Optional[dict] = None,
     ):
         """
         Publish a message to an app or channel via normal matching in subscription table.
@@ -518,6 +520,8 @@ class Slim:
             session (PySessionInfo): The session information.
             msg (str): The message to publish.
             dest (PyName): The destination name to publish the message to.
+            payload_type (str): The type of the message payload (optional)
+            metadata (dict): The metadata associated to the message (optional)
 
         Returns:
             None
@@ -527,7 +531,7 @@ class Slim:
         if session.id not in self.sessions:
             raise Exception("session not found", session.id)
 
-        await publish(self.svc, session, 1, msg, dest)
+        await publish(self.svc, session, 1, msg, dest, payload_type, metadata)
 
     async def invite(
         self,
@@ -575,7 +579,13 @@ class Slim:
 
         return session_info, message
 
-    async def publish_to(self, session, msg):
+    async def publish_to(
+        self,
+        session: PySessionInfo,
+        msg: bytes,
+        payload_type: Optional[str] = None,
+        metadata: Optional[dict] = None,
+    ):
         """
         Publish a message back to the application that sent it.
         The information regarding the source app is stored in the session.
@@ -588,7 +598,9 @@ class Slim:
             None
         """
 
-        await publish(self.svc, session, 1, msg)
+        await publish(
+            self.svc, session, 1, msg, payload_type=payload_type, metadata=metadata
+        )
 
     async def receive(
         self, session: Optional[int] = None
@@ -615,7 +627,7 @@ class Slim:
         else:
             # Check if the session ID is in the sessions map
             if session not in self.sessions:
-                raise Exception("Session ID not found")
+                raise Exception(f"Session ID not found: {session}")
 
             # Get the queue for the session
             queue = self.sessions[session][1]
