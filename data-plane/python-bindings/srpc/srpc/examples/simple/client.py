@@ -1,5 +1,6 @@
 import asyncio
 import logging
+from collections.abc import AsyncGenerator
 
 import srpc
 from srpc.examples.simple.types.example_pb2 import ExampleRequest
@@ -9,7 +10,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
-async def amain():
+async def amain() -> None:
     channel = srpc.Channel(
         local="agntcy/grpc/client",
         slim={
@@ -37,7 +38,7 @@ async def amain():
         async for resp in responses:
             logger.info(f"Stream Response: {resp}")
 
-        async def stream_requests():
+        async def stream_requests() -> AsyncGenerator[ExampleRequest]:
             for i in range(10):
                 yield ExampleRequest(example_integer=i, example_string=f"Request {i}")
 
@@ -49,7 +50,7 @@ async def amain():
     await asyncio.sleep(1)
 
 
-def main():
+def main() -> None:
     """
     Main entry point for the server.
     """

@@ -2,6 +2,7 @@ import asyncio
 import logging
 from collections.abc import AsyncIterable
 
+from srpc.context import Context
 from srpc.examples.simple.types.example_pb2 import ExampleRequest, ExampleResponse
 from srpc.examples.simple.types.example_pb2_srpc import (
     TestServicer,
@@ -14,13 +15,15 @@ logger = logging.getLogger(__name__)
 
 
 class TestService(TestServicer):
-    async def ExampleUnaryUnary(self, request, context) -> ExampleResponse:
+    async def ExampleUnaryUnary(
+        self, request: ExampleRequest, context: Context
+    ) -> ExampleResponse:
         logger.info(f"Received unary-unary request: {request}")
 
         return ExampleResponse(example_integer=1, example_string="Hello, World!")
 
     async def ExampleUnaryStream(
-        self, request, context
+        self, request: ExampleRequest, context: Context
     ) -> AsyncIterable[ExampleResponse]:
         logger.info(f"Received unary-stream request: {request}")
 
@@ -30,7 +33,7 @@ class TestService(TestServicer):
             yield ExampleResponse(example_integer=i, example_string=f"Response {i}")
 
     async def ExampleStreamUnary(
-        self, request_iterator: AsyncIterable[ExampleRequest], context
+        self, request_iterator: AsyncIterable[ExampleRequest], context: Context
     ) -> ExampleResponse:
         logger.info(f"Received stream-unary request: {request_iterator}")
 
@@ -42,7 +45,7 @@ class TestService(TestServicer):
         return response
 
     async def ExampleStreamStream(
-        self, request_iterator: AsyncIterable[ExampleRequest], context
+        self, request_iterator: AsyncIterable[ExampleRequest], context: Context
     ) -> AsyncIterable[ExampleResponse]:
         """Missing associated documentation comment in .proto file."""
         raise NotImplementedError("Method not implemented!")
@@ -52,8 +55,8 @@ def create_server(
     local: str,
     slim: dict,
     enable_opentelemetry: bool = False,
-    shared_secret: str | None = None,
-):
+    shared_secret: str = "",
+) -> Server:
     """
     Create a new SRPC server instance.
     """
@@ -67,7 +70,7 @@ def create_server(
     return server
 
 
-async def amain():
+async def amain() -> None:
     server = create_server(
         local="agntcy/grpc/server",
         slim={
@@ -89,7 +92,7 @@ async def amain():
     await server.run()
 
 
-def main():
+def main() -> None:
     """
     Main entry point for the server.
     """

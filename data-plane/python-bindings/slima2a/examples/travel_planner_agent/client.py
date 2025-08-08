@@ -75,7 +75,7 @@ async def main() -> None:
 
     httpx_client = httpx.AsyncClient()
 
-    def channel_factory(topic) -> srpc.Channel:
+    def channel_factory(topic: str) -> srpc.Channel:
         channel = srpc.Channel(
             local="agntcy/demo/client",
             remote=topic,

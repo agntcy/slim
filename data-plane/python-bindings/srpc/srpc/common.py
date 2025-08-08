@@ -4,8 +4,8 @@
 import base64
 import json
 import logging
+from typing import Tuple, TypeVar
 
-import click
 import slim_bindings
 
 logger = logging.getLogger(__name__)
@@ -13,6 +13,10 @@ logger = logging.getLogger(__name__)
 DEADLINE_KEY = "srpc-timeout"
 
 MAX_TIMEOUT = 36000  # 10h
+
+# Types for SRPC API
+RequestType = TypeVar("RequestType")
+ResponseType = TypeVar("ResponseType")
 
 
 class color:
@@ -32,7 +36,7 @@ class color:
 # Expected format: organization/namespace/application
 # Raises ValueError if the format is incorrect
 # Returns a PyName with the 3 components
-def split_id(id):
+def split_id(id: str) -> slim_bindings.PyName:
     try:
         organization, namespace, app = id.split("/")
     except ValueError as e:
@@ -81,8 +85,8 @@ def service_and_method_to_pyname(
 
 def handler_name_to_pyname(
     name: slim_bindings.PyName,
-    service_name,
-    method_name,
+    service_name: str,
+    method_name: str,
 ) -> slim_bindings.PyName:
     """
     Convert a handler name to a PyName.
@@ -96,7 +100,9 @@ def handler_name_to_pyname(
 # Takes an identity and a shared secret as parameters
 # Returns a tuple of (provider, verifier)
 # This is used for shared secret authentication
-def shared_secret_identity(identity, secret):
+def shared_secret_identity(
+    identity: str, secret: str
+) -> Tuple[slim_bindings.PyIdentityProvider, slim_bindings.PyIdentityVerifier]:
     """
     Create a provider and verifier using a shared secret.
     """
@@ -120,7 +126,7 @@ def jwt_identity(
     iss: str | None = None,
     sub: str | None = None,
     aud: list | None = None,
-):
+) -> Tuple[slim_bindings.PyIdentityProvider, slim_bindings.PyIdentityVerifier]:
     """
     Parse the JWK and JWT from the provided strings.
     """
@@ -158,102 +164,12 @@ def jwt_identity(
     return provider, verifier
 
 
-# A custom click parameter type for parsing dictionaries from JSON strings
-# This is useful for passing complex configurations via command line arguments
-class DictParamType(click.ParamType):
-    name = "dict"
-
-    def convert(self, value, param, ctx):
-        import json
-
-        if isinstance(value, dict):
-            return value  # Already a dict (for default value)
-        try:
-            return json.loads(value)
-        except json.JSONDecodeError:
-            self.fail(f"{value} is not valid JSON", param, ctx)
-
-
-def common_options(function):
-    function = click.command(context_settings={"auto_envvar_prefix": "SLIM"})(function)
-
-    function = click.option(
-        "--local",
-        type=str,
-        required=True,
-        help="Local ID in the format organization/namespace/application",
-    )(function)
-
-    function = click.option(
-        "--remote",
-        type=str,
-        help="Remote ID in the format organization/namespace/application-or-stream",
-    )(function)
-
-    function = click.option(
-        "--slim",
-        default={
-            "endpoint": "http://127.0.0.1:46357",
-            "tls": {
-                "insecure": True,
-            },
-        },
-        type=DictParamType(),
-        help="slim connection parameters",
-    )(function)
-
-    function = click.option(
-        "--enable-opentelemetry",
-        is_flag=True,
-        help="Enable OpenTelemetry tracing",
-    )(function)
-
-    function = click.option(
-        "--shared-secret",
-        type=str,
-        help="Shared secret for authentication. Don't use this in production.",
-    )(function)
-
-    function = click.option(
-        "--jwt",
-        type=str,
-        help="JWT token for authentication.",
-    )(function)
-
-    function = click.option(
-        "--bundle",
-        type=str,
-        help="Key bundle for authentication, in JWKS format.",
-    )(function)
-
-    function = click.option(
-        "--audience",
-        type=str,
-        help="Audience for the JWT.",
-    )(function)
-
-    function = click.option(
-        "--invites",
-        type=str,
-        multiple=True,
-        help="Invite other participants to the pubsub session. Can be specified multiple times.",
-    )(function)
-
-    function = click.option(
-        "--enable-mls",
-        is_flag=True,
-        help="Enable MLS (Message Layer Security) for the pubsub session.",
-    )(function)
-
-    return function
-
-
 async def create_local_app(
     local_name: slim_bindings.PyName,
     slim: dict,
     enable_opentelemetry: bool = False,
-    shared_secret: str | None = None,
-):
+    shared_secret: str = "",
+) -> slim_bindings.Slim:
     # init tracing
     slim_bindings.init_tracing(
         {

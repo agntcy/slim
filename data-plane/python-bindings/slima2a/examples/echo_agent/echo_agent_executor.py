@@ -9,7 +9,7 @@ from examples.echo_agent.echo_agent import EchoAgent
 
 
 class EchoAgentExecutor(AgentExecutor):
-    def __init__(self):
+    def __init__(self) -> None:
         self.agent = EchoAgent()
 
     async def execute(
