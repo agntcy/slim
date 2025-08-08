@@ -1,13 +1,16 @@
 # Copyright AGNTCY Contributors (https://github.com/agntcy)
 # SPDX-License-Identifier: Apache-2.0
 
-FROM ghcr.io/astral-sh/uv:0.7.0-python3.13-bookworm AS builder
+# Build container with cross-compilation support
+FROM --platform=${BUILDPLATFORM} ghcr.io/astral-sh/uv:0.7.0-python3.13-bookworm AS builder
+
+SHELL ["/bin/bash", "-c"]
+
+ARG TARGETARCH
 
 ENV PATH="/root/.cargo/bin:${PATH}"
-
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONDONTWRITEBYTECODE=1
-
 ENV UV_LINK_MODE=copy \
     UV_COMPILE_BYTECODE=1 \
     UV_PYTHON_DOWNLOADS=never \
@@ -37,12 +40,49 @@ RUN sh -c "$(curl --location https://taskfile.dev/install.sh)" -- -d -b /usr/loc
 COPY . /src
 WORKDIR /src/data-plane/python-bindings
 
-RUN ls /root/.cargo/bin
+# Setup cross-compilation toolchain and Rust targets
+RUN <<EOF
+case ${TARGETARCH} in
+    "amd64")
+        PACKAGES="gcc-x86-64-linux-gnu g++-x86-64-linux-gnu"
+        RUSTARCH="x86_64-unknown-linux-gnu"
+        ;;
+    "arm64")
+        PACKAGES="gcc-aarch64-linux-gnu g++-aarch64-linux-gnu"
+        RUSTARCH="aarch64-unknown-linux-gnu"
+        ;;
+    *)
+        echo "Unsupported platform: ${TARGETPLATFORM}"
+        exit 1
+        ;;
+esac
 
-# Install just the slim-bindings-examples package
-RUN task -v python-bindings:examples:build PROFILE=release
+apt-get update && apt-get install -y ${PACKAGES}
+cargo fetch --target ${RUSTARCH}
+EOF
+
+# Build the Python bindings with cross-compilation
+RUN <<EOF
+case ${TARGETARCH} in
+    "amd64")
+        RUSTARCH=x86_64
+        ;;
+    "arm64")
+        RUSTARCH=aarch64
+        ;;
+    *)
+        echo "Unsupported platform: ${TARGETPLATFORM}"
+        exit 1
+        ;;
+esac
+
+# Build application
+task -v python-bindings:examples:build TARGET=${RUSTARCH}-unknown-linux-gnu PROFILE=release
+EOF
 
 FROM python:3.13-bookworm AS slim-bindings-examples
+
+ARG TARGETARCH
 
 # Copy venv from builder with just the dependencies we need + our package
 COPY --from=builder --chown=app:app /app /app
