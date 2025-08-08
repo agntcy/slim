@@ -10,6 +10,7 @@ import slim_bindings
 from google.rpc import code_pb2, status_pb2
 
 from srpc.common import (
+    DEADLINE_KEY,
     create_local_app,
     handler_name_to_pyname,
     split_id,
@@ -113,6 +114,8 @@ class Server:
     ):
         rpc_handler: RPCHandler = self.handlers[session_info.destination_name]
 
+        logging.info(f"new session from {session_info.source_name}")
+
         # Call the RPC handler
         if session_info.destination_name not in self.handlers:
             logger.error(
@@ -120,39 +123,51 @@ class Server:
             )
             return
 
-        if not rpc_handler.request_streaming:
-            # Read the request from slim
-            session_recv, request_bytes = await local_app.receive(
-                session=session_info.id,
-            )
+        try:
+            # Get deadline from request
+            deadline = float(session_info.metadata.get(DEADLINE_KEY))
 
-            request_or_iterator = rpc_handler.request_deserializer(request_bytes)
-            context = Context.from_sessioninfo(session_recv)
-        else:
-            request_or_iterator, context = (
-                request_generator(
-                    local_app, rpc_handler.request_deserializer, session_info
-                ),
-                Context.from_sessioninfo(session_info),
-            )
+            async with asyncio.timeout_at(deadline):
+                if not rpc_handler.request_streaming:
+                    # Read the request from slim
+                    session_recv, request_bytes = await local_app.receive(
+                        session=session_info.id,
+                    )
 
-        # Send the response back to the client
-        async for code, response in call_handler(
-            rpc_handler, request_or_iterator, context
-        ):
-            await local_app.publish_to(
-                session_info,
-                rpc_handler.response_serializer(response),
-                metadata={"code": str(code)},
-            )
+                    request_or_iterator = rpc_handler.request_deserializer(
+                        request_bytes
+                    )
+                    context = Context.from_sessioninfo(session_recv)
+                else:
+                    request_or_iterator, context = (
+                        request_generator(
+                            local_app, rpc_handler.request_deserializer, session_info
+                        ),
+                        Context.from_sessioninfo(session_info),
+                    )
 
-        # Send end of stream message if the response was streaming
-        if rpc_handler.response_streaming:
-            await local_app.publish_to(
-                session_info,
-                b"",
-                metadata={"code": str(code_pb2.OK)},
-            )
+                # Send the response back to the client
+                async for code, response in call_handler(
+                    rpc_handler, request_or_iterator, context
+                ):
+                    await local_app.publish_to(
+                        session_info,
+                        rpc_handler.response_serializer(response),
+                        metadata={"code": str(code)},
+                    )
+
+                # Send end of stream message if the response was streaming
+                if rpc_handler.response_streaming:
+                    await local_app.publish_to(
+                        session_info,
+                        b"",
+                        metadata={"code": str(code_pb2.OK)},
+                    )
+        except asyncio.TimeoutError:
+            pass
+        finally:
+            logger.info(f"deleting session {session_info.id}")
+            await local_app.delete_session(session_info.id)
 
 
 def request_generator(
