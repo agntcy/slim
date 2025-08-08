@@ -185,7 +185,7 @@ async fn run_client_task(name: Name) -> Result<(), String> {
                                         // reply with the same payload to be sure that is was
                                         // decoded correctly in case of MLS
                                         let payload = val.into_bytes().to_vec();
-                                        if app.publish_to(msg.info, &publisher, conn, payload)
+                                        if app.publish_to(msg.info, &publisher, conn, payload, None, None)
                                             .await
                                             .is_err()
                                         {
@@ -353,6 +353,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 info.clone(),
                 &Name::from_strings(["org", "ns", "client"]),
                 p.clone(),
+                None,
+                None,
             )
             .await
             .is_err()
