@@ -15,7 +15,7 @@ from examples.travel_planner_agent.agent import TravelPlannerAgent
 class TravelPlannerAgentExecutor(AgentExecutor):
     """travel planner AgentExecutor Example."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.agent = TravelPlannerAgent()
 
     @override

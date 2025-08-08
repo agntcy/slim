@@ -63,7 +63,7 @@ class SRPCHandler(a2a_pb2_srpc.A2AServiceServicer):
         request_handler: RequestHandler,
         context_builder: CallContextBuilder | None = None,
         card_modifier: Callable[[AgentCard], AgentCard] | None = None,
-    ):
+    ) -> None:
         """Initializes the SrpcHandler.
 
         Args:

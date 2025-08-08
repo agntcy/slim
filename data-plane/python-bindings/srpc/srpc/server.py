@@ -3,7 +3,7 @@
 
 import asyncio
 import logging
-from collections.abc import AsyncGenerator, Callable
+from collections.abc import AsyncGenerator, AsyncIterable, Callable
 from typing import Any, Tuple
 
 import slim_bindings
@@ -11,6 +11,8 @@ from google.rpc import code_pb2, status_pb2
 
 from srpc.common import (
     DEADLINE_KEY,
+    MAX_TIMEOUT,
+    RequestType,
     create_local_app,
     handler_name_to_pyname,
     split_id,
@@ -28,25 +30,26 @@ class Server:
         local: str,
         slim: dict,
         enable_opentelemetry: bool = False,
-        shared_secret: str | None = None,
-    ):
+        shared_secret: str = "",
+    ) -> None:
         self.local_name = split_id(local)
         self.slim = slim
         self.enable_opentelemetry = enable_opentelemetry
         self.shared_secret = shared_secret
-
         self.handlers: dict[slim_bindings.PyName, RPCHandler] = {}
 
     def register_method_handlers(
         self, service_name: str, handlers: dict[str, RPCHandler]
-    ):
+    ) -> None:
         """
         Register method handlers for the server.
         """
         for method_name, handler in handlers.items():
             self.register_rpc(service_name, method_name, handler)
 
-    def register_rpc(self, service_name, method_name, rpc_handler: RPCHandler):
+    def register_rpc(
+        self, service_name: str, method_name: str, rpc_handler: RPCHandler
+    ) -> None:
         """
         Register an RPC handler for the server.
         """
@@ -59,7 +62,7 @@ class Server:
         # Register the RPC handler
         self.handlers[subscription_name] = rpc_handler
 
-    async def run(self):
+    async def run(self) -> None:
         """
         Run the server, creating a local SLIM instance and subscribing to the handlers.
         """
@@ -111,7 +114,7 @@ class Server:
 
     async def handle_session(
         self, session_info: slim_bindings.PySessionInfo, local_app: slim_bindings.Slim
-    ):
+    ) -> None:
         rpc_handler: RPCHandler = self.handlers[session_info.destination_name]
 
         logging.info(f"new session from {session_info.source_name}")
@@ -125,7 +128,7 @@ class Server:
 
         try:
             # Get deadline from request
-            deadline = float(session_info.metadata.get(DEADLINE_KEY))
+            deadline = float(session_info.metadata.get(DEADLINE_KEY, str(MAX_TIMEOUT)))
 
             async with asyncio.timeout_at(deadline):
                 if not rpc_handler.request_streaming:
@@ -175,7 +178,7 @@ def request_generator(
     request_deserializer: Callable,
     session_info: slim_bindings.PySessionInfo,
 ) -> AsyncGenerator[Any, Context]:
-    async def generator():
+    async def generator() -> AsyncGenerator[Any, Context]:
         try:
             while True:
                 session_recv, request_bytes = await local_app.receive(
@@ -201,7 +204,9 @@ def request_generator(
 
 
 async def call_handler(
-    handler: RPCHandler, request_or_iterator: Any, context: Context
+    handler: RPCHandler,
+    request_or_iterator: RequestType | AsyncIterable[RequestType],
+    context: Context,
 ) -> AsyncGenerator[Tuple[Any, Any]]:
     """
     Call the handler with the given arguments.

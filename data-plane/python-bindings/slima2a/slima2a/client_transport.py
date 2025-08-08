@@ -44,7 +44,7 @@ class SRPCTransport(ClientTransport):
         self,
         channel: srpc.Channel,
         agent_card: AgentCard | None,
-    ):
+    ) -> None:
         """Initializes the GrpcTransport."""
         self.agent_card = agent_card
         self.channel = channel
