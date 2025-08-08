@@ -91,7 +91,7 @@ class Channel:
         service_name,
         metadata,
         request_serializer,
-        deadline: int,
+        deadline: float,
     ):
         # Add deadline to metadata
         metadata[DEADLINE_KEY] = str(deadline)
@@ -113,7 +113,7 @@ class Channel:
         service_name: slim_bindings.PyName,
         metadata: dict,
         request_serializer,
-        deadline: int,
+        deadline: float,
     ):
         assert self.local_app is not None
 
@@ -138,7 +138,7 @@ class Channel:
             metadata={**metadata, "code": str(code_pb2.OK)},
         )
 
-    async def _receive_unary(self, session, response_deserializer, deadline: int):
+    async def _receive_unary(self, session, response_deserializer, deadline: float):
         # Wait for the response
         assert self.local_app is not None
 
@@ -149,7 +149,7 @@ class Channel:
             response = response_deserializer(response_bytes)
             return session_recv, response
 
-    async def _receive_stream(self, session, response_deserializer, deadline: int):
+    async def _receive_stream(self, session, response_deserializer, deadline: float):
         # Wait for the responses
 
         async def generator():
