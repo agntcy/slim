@@ -654,7 +654,7 @@ mod tests {
 
         let claims = signer.create_claims();
         let token = signer.sign(&claims).unwrap();
-        let verified: crate::traits::StandardClaims = verifier.verify(&token).await.unwrap();
+        let verified: crate::traits::StandardClaims = verifier.get_claims(&token).await.unwrap();
 
         assert_eq!(verified.iss.unwrap(), "test-issuer");
         assert_eq!(verified.aud.unwrap(), &["test-audience"]);
@@ -710,7 +710,7 @@ mod tests {
         };
 
         let token = signer.sign(&custom_claims).unwrap();
-        let verified: CustomClaims = verifier.verify(&token).await.unwrap();
+        let verified: CustomClaims = verifier.get_claims(&token).await.unwrap();
 
         assert_eq!(verified, custom_claims);
     }

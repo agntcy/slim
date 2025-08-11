@@ -3,7 +3,6 @@
 
 use std::sync::Arc;
 
-use slim_auth::traits::StandardClaims;
 use slim_auth::traits::{TokenProvider, Verifier};
 use slim_datapath::api::ProtoMessage as Message;
 use slim_datapath::messages::utils::SLIM_IDENTITY;
@@ -99,16 +98,15 @@ where
         // Extract the identity from the message metadata
         if let Some(identity) = msg.metadata.get(SLIM_IDENTITY) {
             // Verify the identity using the verifier
-            match self.verifier.try_verify::<StandardClaims>(identity) {
+            match self.verifier.try_verify(identity) {
                 Ok(_) => {
                     // Identity is valid, we can proceed
                     Ok(())
                 }
                 Err(_e) => {
                     // Try async verification if the sync one fails
-                    let _claims = self
-                        .verifier
-                        .verify::<StandardClaims>(identity)
+                    self.verifier
+                        .verify(identity)
                         .await
                         .map_err(|e| SessionError::IdentityError(e.to_string()))?;
 

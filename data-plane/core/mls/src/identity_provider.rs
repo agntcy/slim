@@ -11,13 +11,6 @@ use mls_rs_core::identity::MemberValidationContext;
 use slim_auth::traits::Verifier;
 use tracing::debug;
 
-//TODO(zkacsand): what should we use for `.try_verify::<EmptyClaims>(&identity)`?
-#[derive(serde::Deserialize)]
-struct EmptyClaims {
-    #[allow(dead_code)]
-    exp: u64,
-}
-
 #[derive(Clone)]
 pub struct SlimIdentityProvider<V>
 where
@@ -63,7 +56,7 @@ where
         let identity = resolve_slim_identity(signing_identity)?;
 
         self.identity_verifier
-            .try_verify::<EmptyClaims>(&identity)
+            .try_verify(&identity)
             .map_err(|e| SlimIdentityError::VerificationFailed(e.to_string()))?;
 
         Ok(())
@@ -79,7 +72,7 @@ where
         let identity = resolve_slim_identity(signing_identity)?;
 
         self.identity_verifier
-            .try_verify::<EmptyClaims>(&identity)
+            .try_verify(&identity)
             .map_err(|e| SlimIdentityError::ExternalSenderFailed(e.to_string()))?;
 
         Ok(())

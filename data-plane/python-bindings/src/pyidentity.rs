@@ -305,7 +305,24 @@ impl From<PyIdentityVerifier> for IdentityVerifier {
 
 #[async_trait::async_trait]
 impl Verifier for IdentityVerifier {
-    async fn verify<Claims>(
+    async fn verify(
+        &self,
+        token: impl Into<String> + Send,
+    ) -> Result<(), slim_auth::errors::AuthError> {
+        match self {
+            IdentityVerifier::Jwt(verifier) => verifier.verify(token).await,
+            IdentityVerifier::SharedSecret(secret) => secret.verify(token).await,
+        }
+    }
+
+    fn try_verify(&self, token: impl Into<String>) -> Result<(), slim_auth::errors::AuthError> {
+        match self {
+            IdentityVerifier::Jwt(verifier) => verifier.try_verify(token),
+            IdentityVerifier::SharedSecret(secret) => secret.try_verify(token),
+        }
+    }
+
+    async fn get_claims<Claims>(
         &self,
         token: impl Into<String> + Send,
     ) -> Result<Claims, slim_auth::errors::AuthError>
@@ -313,12 +330,12 @@ impl Verifier for IdentityVerifier {
         Claims: serde::de::DeserializeOwned + Send,
     {
         match self {
-            IdentityVerifier::Jwt(verifier) => verifier.verify(token).await,
-            IdentityVerifier::SharedSecret(secret) => secret.verify(token).await,
+            IdentityVerifier::Jwt(verifier) => verifier.get_claims(token).await,
+            IdentityVerifier::SharedSecret(secret) => secret.get_claims(token).await,
         }
     }
 
-    fn try_verify<Claims>(
+    fn try_get_claims<Claims>(
         &self,
         token: impl Into<String>,
     ) -> Result<Claims, slim_auth::errors::AuthError>
@@ -326,8 +343,8 @@ impl Verifier for IdentityVerifier {
         Claims: serde::de::DeserializeOwned + Send,
     {
         match self {
-            IdentityVerifier::Jwt(verifier) => verifier.try_verify(token),
-            IdentityVerifier::SharedSecret(secret) => secret.try_verify(token),
+            IdentityVerifier::Jwt(verifier) => verifier.try_get_claims(token),
+            IdentityVerifier::SharedSecret(secret) => secret.try_get_claims(token),
         }
     }
 }
