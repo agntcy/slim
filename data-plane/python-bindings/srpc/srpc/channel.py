@@ -4,8 +4,14 @@
 import asyncio
 import datetime
 import logging
+import sys
 from collections.abc import AsyncGenerator, AsyncIterable, Callable
 from typing import Any
+
+if sys.version_info >= (3, 11):
+    from asyncio import asyncio_timeout_at
+else:
+    from async_timeout import timeout_at as asyncio_timeout_at
 
 import slim_bindings
 from google.rpc import code_pb2
@@ -151,7 +157,7 @@ class Channel:
         # Wait for the response
         assert self.local_app is not None
 
-        async with asyncio.timeout_at(deadline):
+        async with asyncio_timeout_at(deadline):
             session_recv, response_bytes = await self.local_app.receive(
                 session=session.id,
             )
@@ -186,7 +192,7 @@ class Channel:
                 logger.error(f"error receiving messages: {e}")
                 raise
 
-        async with asyncio.timeout_at(deadline):
+        async with asyncio_timeout_at(deadline):
             async for response in generator():
                 yield response
 
