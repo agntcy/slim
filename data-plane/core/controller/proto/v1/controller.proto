@@ -9,8 +9,7 @@ import "google/protobuf/wrappers.proto";
 option go_package = "github.com/agntcy/slim/control-plane/common/proto/controller/v1;controllerv1";
 
 service ControllerService {
-  rpc OpenControlChannel(stream ControlMessage)
-      returns (stream ControlMessage) {}
+  rpc OpenControlChannel(stream ControlMessage) returns (stream ControlMessage) {}
 }
 
 message ControlMessage {
@@ -67,7 +66,9 @@ message Ack {
 
 message SubscriptionListRequest {}
 
-message SubscriptionListResponse { repeated SubscriptionEntry entries = 1; }
+message SubscriptionListResponse {
+  repeated SubscriptionEntry entries = 1;
+}
 
 message SubscriptionEntry {
   string component_0 = 1;
@@ -91,15 +92,25 @@ message ConnectionEntry {
 
 message ConnectionListRequest {}
 
-message ConnectionListResponse { repeated ConnectionEntry entries = 1; }
+message ConnectionListResponse {
+  repeated ConnectionEntry entries = 1;
+}
 
-message Node { string id = 1; }
+message Node {
+  string id = 1;
+}
 
-message RegisterNodeRequest { string nodeId = 1; }
+message RegisterNodeRequest {
+  string nodeId = 1;
+}
 
-message RegisterNodeResponse { bool success = 1; }
+message RegisterNodeResponse {
+  bool success = 1;
+}
 
-message DeregisterNodeRequest { Node node = 1; }
+message DeregisterNodeRequest {
+  Node node = 1;
+}
 
 message DeregisterNodeResponse {
   bool success = 1;
