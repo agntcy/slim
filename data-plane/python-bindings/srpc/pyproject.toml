@@ -13,6 +13,7 @@ dependencies = [
     "googleapis-common-protos>=1.70.0",
     "anyio>=4.9.0",
     "grpcio>=1.74.0",
+    "async-timeout>=5.0.1",
 ]
 
 [dependency-groups]
