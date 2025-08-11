@@ -3,8 +3,14 @@
 
 import asyncio
 import logging
+import sys
 from collections.abc import AsyncGenerator, AsyncIterable, Callable
 from typing import Any, Tuple
+
+if sys.version_info >= (3, 11):
+    from asyncio import asyncio_timeout_at
+else:
+    from async_timeout import timeout_at as asyncio_timeout_at
 
 import slim_bindings
 from google.rpc import code_pb2, status_pb2
@@ -130,7 +136,7 @@ class Server:
             # Get deadline from request
             deadline = float(session_info.metadata.get(DEADLINE_KEY, str(MAX_TIMEOUT)))
 
-            async with asyncio.timeout_at(deadline):
+            async with asyncio_timeout_at(deadline):
                 if not rpc_handler.request_streaming:
                     # Read the request from slim
                     session_recv, request_bytes = await local_app.receive(
