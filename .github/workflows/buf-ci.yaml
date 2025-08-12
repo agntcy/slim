@@ -4,6 +4,14 @@
 name: Buf CI
 on:
   push:
+    paths:
+      # Caution: This workflow could miss changes if the paths are not correctly specified.
+      - "**.proto"
+      - "**/buf.yaml"
+      - "**/buf.lock"
+      - "**/buf.md"
+      - "**/README.md"
+      - "**/LICENSE"
   pull_request:
     types: [opened, synchronize, reopened, labeled, unlabeled]
   delete:
@@ -18,6 +26,4 @@ jobs:
       - uses: bufbuild/buf-action@v1
         with:
           token: ${{ secrets.BUF_TOKEN }}
-          input: proto
-          format: false
-          lint: false
+          breaking_against: buf.build/agntcy/slim
