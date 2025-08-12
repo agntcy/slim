@@ -9,7 +9,7 @@ from collections.abc import AsyncGenerator, AsyncIterable, Callable
 from typing import Any
 
 if sys.version_info >= (3, 11):
-    from asyncio import asyncio_timeout_at
+    from asyncio import timeout_at as asyncio_timeout_at
 else:
     from async_timeout import timeout_at as asyncio_timeout_at
 
