@@ -8,6 +8,10 @@ publish = false
 name = "sdk-mock"
 path = "src/sdk-mock/main.rs"
 
+[[bin]]
+name = "moderator"
+path = "src/moderator/main.rs"
+
 [dependencies]
 agntcy-slim = { workspace = true }
 agntcy-slim-auth = { workspace = true }
