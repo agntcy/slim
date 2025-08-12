@@ -545,8 +545,19 @@ impl ControllerService {
                         // received a deregister node response, do nothing
                     }
                     Payload::CreateChannelRequest(_) => {
-                        // TODO: for testing purposes
                         info!("received a create channel request, this should happen");
+
+                        let channel_id = uuid::Uuid::new_v4().to_string();
+                        let response = v1::CreateChannelResponse { channel_id };
+
+                        let reply = ControlMessage {
+                            message_id: uuid::Uuid::new_v4().to_string(),
+                            payload: Some(Payload::CreateChannelResponse(response)),
+                        };
+
+                        if let Err(e) = tx.send(Ok(reply)).await {
+                            error!("failed to send CreateChannelResponse: {}", e);
+                        }
                     }
                     Payload::CreateChannelResponse(_) => {}
                     Payload::DeleteChannelRequest(_) => {}
