@@ -100,7 +100,12 @@ async fn main() {
                         match std::str::from_utf8(&payload.blob) {
                             Ok(text) => {
                                 info!("Received request: {}", text);
-                                //TODO:
+                                
+                                // Check if this is a channel creation request from controller
+                                if text.starts_with("create_channel:") {
+                                    let channel_id = text.strip_prefix("create_channel:").unwrap_or("");
+                                    info!("Controller requested channel creation for channel_id: {}", channel_id);
+                                }
                             }
                             Err(_) => {
                                 info!("Received unknown message type");

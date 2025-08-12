@@ -544,12 +544,40 @@ impl ControllerService {
                     Payload::DeregisterNodeResponse(_) => {
                         // received a deregister node response, do nothing
                     }
-                    Payload::CreateChannelRequest(_) => {
+                    Payload::CreateChannelRequest(req) => {
                         info!("received a create channel request, this should happen");
-
+                        
                         let channel_id = uuid::Uuid::new_v4().to_string();
+                        
+                        // Send message to first moderator
+                        if let Some(first_moderator) = req.moderators.first() {
+                            info!("sending channel creation message to moderator: {}", first_moderator);
+                            
+                            // Create moderator name (org/default/{moderator_name})
+                            let moderator_name = Name::from_strings(["org", "default", first_moderator]).with_id(0);
+                            
+                            // Create source name (controller)
+                            let source_name = Name::from_strings(["controller", "controller", "controller"]).with_id(0);
+                            
+                            // Create message content with channel name
+                            let message_content = format!("create_channel:{}", channel_id);
+                            
+                            // Send publish message to moderator
+                            let publish_msg = PubsubMessage::new_publish(
+                                &source_name,
+                                &moderator_name,
+                                Some(SlimHeaderFlags::default()),
+                                "text/plain",
+                                message_content.into_bytes(),
+                            );
+                            
+                            if let Err(e) = self.send_control_message(publish_msg).await {
+                                error!("failed to send message to moderator {}: {}", first_moderator, e);
+                            }
+                        }
+                        
                         let response = v1::CreateChannelResponse { channel_id };
-
+                        
                         let reply = ControlMessage {
                             message_id: uuid::Uuid::new_v4().to_string(),
                             payload: Some(Payload::CreateChannelResponse(response)),
