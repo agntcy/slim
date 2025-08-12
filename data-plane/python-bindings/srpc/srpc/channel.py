@@ -8,7 +8,7 @@ from collections.abc import AsyncGenerator, AsyncIterable, Callable
 from typing import Any
 
 import slim_bindings
-from google.rpc import code_pb2
+from google.rpc import code_pb2, status_pb2
 
 from srpc.common import (
     DEADLINE_KEY,
@@ -19,6 +19,7 @@ from srpc.common import (
     service_and_method_to_pyname,
     split_id,
 )
+from srpc.rpc import SRPCResponseError
 
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
@@ -155,6 +156,12 @@ class Channel:
             session_recv, response_bytes = await self.local_app.receive(
                 session=session.id,
             )
+
+            code = session_recv.metadata.get("code")
+            if code != str(code_pb2.OK):
+                status = status_pb2.Status.FromString(response_bytes)
+                raise SRPCResponseError(status.code, status.message, status.details)
+
             response = response_deserializer(response_bytes)
             return session_recv, response
 
@@ -173,15 +180,21 @@ class Channel:
                         session=session.id,
                     )
 
-                    if (
-                        session_recv.metadata.get("code") == str(code_pb2.OK)
-                        and not response_bytes
-                    ):
+                    code = session_recv.metadata.get("code")
+                    if code != str(code_pb2.OK):
+                        status = status_pb2.Status.FromString(response_bytes)
+                        raise SRPCResponseError(
+                            status.code, status.message, status.details
+                        )
+
+                    if not response_bytes:
                         logger.debug("end of stream received")
                         break
 
                     response = response_deserializer(response_bytes)
                     yield response
+            except SRPCResponseError:
+                raise
             except Exception as e:
                 logger.error(f"error receiving messages: {e}")
                 raise
