@@ -27,7 +27,6 @@ from srpc.common import (
 )
 from srpc.rpc import SRPCResponseError
 
-logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
 
 
