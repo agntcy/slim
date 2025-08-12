@@ -6,7 +6,6 @@ import srpc
 from srpc.examples.simple.types.example_pb2 import ExampleRequest
 from srpc.examples.simple.types.example_pb2_srpc import TestStub
 
-logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
@@ -54,6 +53,7 @@ def main() -> None:
     """
     Main entry point for the server.
     """
+    logging.basicConfig(level=logging.INFO)
     try:
         asyncio.run(amain())
     except KeyboardInterrupt:

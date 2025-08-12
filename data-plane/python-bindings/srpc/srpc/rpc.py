@@ -9,7 +9,6 @@ from typing import Iterable, Mapping, Optional, Union
 from google.protobuf.any_pb2 import Any as pb_Any
 from google.rpc import code_pb2
 
-logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
