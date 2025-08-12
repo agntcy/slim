@@ -29,7 +29,7 @@ func main() {
 	cmdHandler := nodecontrol.DefaultNodeCommandHandler()
 	nodeService := nbapiservice.NewNodeService(dbService, cmdHandler)
 	routeService := nbapiservice.NewRouteService(cmdHandler)
-	groupService := groupservice.NewGroupService(dbService)
+	groupService := groupservice.NewGroupService(dbService, cmdHandler)
 	registrationService := nbapiservice.NewNodeRegistrationService(dbService, cmdHandler)
 
 	go func() {

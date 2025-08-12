@@ -17,9 +17,9 @@ type RouteService struct {
 	cmdHandler nodecontrol.NodeCommandHandler
 }
 
-func NewRouteService(messagingService nodecontrol.NodeCommandHandler) *RouteService {
+func NewRouteService(cmdHandler nodecontrol.NodeCommandHandler) *RouteService {
 	return &RouteService{
-		cmdHandler: messagingService,
+		cmdHandler: cmdHandler,
 	}
 }
 

@@ -4,15 +4,15 @@ import (
 	"context"
 	"time"
 
-	"github.com/google/uuid"
-	"github.com/rs/zerolog"
-
 	controllerapi "github.com/agntcy/slim/control-plane/common/proto/controller/v1"
+	controlplaneApi "github.com/agntcy/slim/control-plane/common/proto/controlplane/v1"
 	"github.com/agntcy/slim/control-plane/control-plane/internal/config"
 	"github.com/agntcy/slim/control-plane/control-plane/internal/db"
 	"github.com/agntcy/slim/control-plane/control-plane/internal/services/groupservice"
 	"github.com/agntcy/slim/control-plane/control-plane/internal/services/nodecontrol"
 	"github.com/agntcy/slim/control-plane/control-plane/internal/util"
+	"github.com/google/uuid"
+	"github.com/rs/zerolog"
 )
 
 type SouthboundAPIServer interface {
@@ -206,6 +206,7 @@ func (s *sbAPIService) handleNodeMessages(stream controllerapi.ControllerService
 			resp, err := s.groupservice.CreateChannel(
 				util.GetContextWithLogger(context.Background(), s.config.LogConfig),
 				payload.CreateChannelRequest,
+				&controlplaneApi.NodeEntry{},
 			)
 			if err != nil {
 				zlog.Error().Msgf("Error creating channel: %v", err)
