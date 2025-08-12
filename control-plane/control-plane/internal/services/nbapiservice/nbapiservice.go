@@ -182,7 +182,15 @@ func (s *nbAPIService) DeregisterNode(
 func (s *nbAPIService) CreateChannel(
 	ctx context.Context, createChannelRequest *controllerapi.CreateChannelRequest) (
 	*controllerapi.CreateChannelResponse, error) {
-	return s.groupService.CreateChannel(ctx, createChannelRequest)
+	nodeListResponse, err := s.ListNodes(ctx, &controlplaneApi.NodeListRequest{})
+	if err != nil {
+		return nil, fmt.Errorf("failed to list nodes: %w", err)
+	}
+	if nodeListResponse.GetEntries() == nil || len(nodeListResponse.GetEntries()) == 0 {
+		return nil, fmt.Errorf("no nodes available to create a channel")
+	}
+	entries := nodeListResponse.GetEntries()
+	return s.groupService.CreateChannel(ctx, createChannelRequest, entries[0])
 }
 
 func (s *nbAPIService) DeleteChannel(
