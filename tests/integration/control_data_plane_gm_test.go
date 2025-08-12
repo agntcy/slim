@@ -54,7 +54,7 @@ var _ = Describe("Group management through control plane", func() {
 
 	Describe("group management with control plane", func() {
 		It("SLIM node receives the 'create group API call'", func() {
-			//TODO: change these
+			//TODO: "received a create channel request, this should happen"
 			Eventually(slimNodeSession, 5*time.Second).Should(gbytes.Say("Runtime started"))
 			Eventually(slimNodeSession, 5*time.Second).Should(gbytes.Say("Starting service: .*"))
 		})

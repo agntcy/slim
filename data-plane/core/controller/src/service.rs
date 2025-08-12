@@ -544,7 +544,10 @@ impl ControllerService {
                     Payload::DeregisterNodeResponse(_) => {
                         // received a deregister node response, do nothing
                     }
-                    Payload::CreateChannelRequest(_) => {}
+                    Payload::CreateChannelRequest(_) => {
+                        // TODO: for testing purposes
+                        info!("received a create channel request, this should happen");
+                    }
                     Payload::CreateChannelResponse(_) => {}
                     Payload::DeleteChannelRequest(_) => {}
                     Payload::AddParticipantRequest(_) => {}
