@@ -202,7 +202,15 @@ func (s *nbAPIService) DeleteChannel(
 func (s *nbAPIService) AddParticipant(
 	ctx context.Context, addParticipantRequest *controllerapi.AddParticipantRequest) (
 	*controllerapi.Ack, error) {
-	return s.groupService.AddParticipant(ctx, addParticipantRequest)
+	nodeListResponse, err := s.ListNodes(ctx, &controlplaneApi.NodeListRequest{})
+	if err != nil {
+		return nil, fmt.Errorf("failed to list nodes: %w", err)
+	}
+	if nodeListResponse.GetEntries() == nil || len(nodeListResponse.GetEntries()) == 0 {
+		return nil, fmt.Errorf("no nodes available to add participant to a channel")
+	}
+	entries := nodeListResponse.GetEntries()
+	return s.groupService.AddParticipant(ctx, addParticipantRequest, entries[0])
 }
 
 func (s *nbAPIService) DeleteParticipant(

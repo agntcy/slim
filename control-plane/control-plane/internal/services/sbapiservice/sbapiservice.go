@@ -285,6 +285,7 @@ func (s *sbAPIService) handleNodeMessages(stream controllerapi.ControllerService
 			resp, err := s.groupservice.AddParticipant(
 				util.GetContextWithLogger(context.Background(), s.config.LogConfig),
 				payload.AddParticipantRequest,
+				&controlplaneApi.NodeEntry{},
 			)
 			if err != nil {
 				zlog.Error().Msgf("Error adding participant: %v", err)

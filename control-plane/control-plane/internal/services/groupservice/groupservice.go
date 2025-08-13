@@ -66,17 +66,17 @@ func (s *GroupService) CreateChannel(
 	// check if ack is successful
 	if ack := response.GetAck(); ack != nil {
 		if !ack.Success {
-			return nil, fmt.Errorf("failed to create subscription: %s", ack.Messages)
+			return nil, fmt.Errorf("failed to create channel: %s", ack.Messages)
 		}
 		logAckMessage(ctx, ack)
-		zlog.Debug().Msg("Subscription created successfully.")
+		zlog.Debug().Msg("Channel created successfully.")
 	}
 
 	err = s.dbService.SaveChannel(channelID, createChannelRequest.Moderators)
 	if err != nil {
 		return nil, fmt.Errorf("failed to save channel: %w", err)
 	}
-	zlog.Debug().Msg("Channel created successfully.")
+	zlog.Debug().Msg("Channel saved successfully.")
 
 	return &controllerapi.CreateChannelResponse{
 		ChannelId: channelID,
@@ -105,7 +105,9 @@ func (s *GroupService) DeleteChannel(
 
 func (s *GroupService) AddParticipant(
 	ctx context.Context,
-	addParticipantRequest *controllerapi.AddParticipantRequest) (*controllerapi.Ack, error) {
+	addParticipantRequest *controllerapi.AddParticipantRequest,
+	nodeEntry *controlplaneApi.NodeEntry,
+) (*controllerapi.Ack, error) {
 	zlog := zerolog.Ctx(ctx)
 
 	if addParticipantRequest.ChannelId == "" {
@@ -115,9 +117,34 @@ func (s *GroupService) AddParticipant(
 		return nil, fmt.Errorf("participant ID cannot be empty")
 	}
 
+	msg := &controllerapi.ControlMessage{
+		MessageId: uuid.NewString(),
+		Payload: &controllerapi.ControlMessage_AddParticipantRequest{
+			AddParticipantRequest: addParticipantRequest,
+		},
+	}
+
+	if err := s.cmdHandler.SendMessage(nodeEntry.Id, msg); err != nil {
+		return nil, fmt.Errorf("failed to send message: %w", err)
+	}
+	// wait for ACK response
+	response, err := s.cmdHandler.WaitForResponse(nodeEntry.Id,
+		reflect.TypeOf(&controllerapi.ControlMessage_Ack{}))
+	if err != nil {
+		return nil, err
+	}
+	// check if ack is successful
+	if ack := response.GetAck(); ack != nil {
+		if !ack.Success {
+			return nil, fmt.Errorf("failed to add participant: %s", ack.Messages)
+		}
+		logAckMessage(ctx, ack)
+		zlog.Debug().Msg("Participant added successfully.")
+	}
+
 	channel, err := s.dbService.GetChannel(addParticipantRequest.ChannelId)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get channel: %w", err)
+		return nil, fmt.Errorf("failed to get channel from DB: %w", err)
 	}
 
 	for _, participant := range channel.Participants {
