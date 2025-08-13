@@ -17,6 +17,7 @@ var _ = Describe("Group management through control plane", func() {
 	var (
 		controlPlaneSession *gexec.Session
 		slimNodeSession     *gexec.Session
+		moderatorSession    *gexec.Session
 	)
 
 	BeforeEach(func() {
@@ -40,10 +41,25 @@ var _ = Describe("Group management through control plane", func() {
 		time.Sleep(2000 * time.Millisecond)
 
 		// start moderator
+		var errModerator error
+		moderatorSession, errModerator = gexec.Start(
+			exec.Command(moderatorPath, "--config", "./testdata/moderator-config.yaml", "--name", "moderator1"),
+			GinkgoWriter, GinkgoWriter,
+		)
+		Expect(errModerator).NotTo(HaveOccurred())
+
+		// wait for moderator to connect
+		time.Sleep(1000 * time.Millisecond)
+
 		// set up routes
 	})
 
 	AfterEach(func() {
+		// terminate moderator
+		if moderatorSession != nil {
+			moderatorSession.Terminate().Wait(30 * time.Second)
+		}
+
 		// terminate control plane
 		if controlPlaneSession != nil {
 			controlPlaneSession.Terminate().Wait(30 * time.Second)

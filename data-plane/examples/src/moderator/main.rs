@@ -5,23 +5,14 @@ use clap::Parser;
 use std::collections::HashMap;
 use std::time::Duration;
 use tokio::time;
-use tracing::{error, info};
+use tracing::info;
 
 use slim::config;
 use slim_auth::shared_secret::SharedSecret;
-use slim_datapath::messages::{Name, utils::SlimHeaderFlags};
-use slim_service::{
-    session::{self, SessionConfig, SessionDirection},
-    streaming::StreamingConfiguration,
-};
+use slim_datapath::messages::Name;
 
 mod args;
 
-struct ChannelState {
-    session_info: session::Info,
-    channel_name: Name,
-    participant_count: u32,
-}
 
 #[tokio::main]
 async fn main() {
@@ -35,7 +26,7 @@ async fn main() {
     let moderator_name = args.name();
 
     // Get MLS setting for created channels
-    let mls_enabled = args.mls();
+    let _mls_enabled = args.mls();
 
     // Create configured components
     let mut config = config::load_config(config_file).expect("failed to load configuration");
@@ -76,8 +67,8 @@ async fn main() {
 
     info!("Starting moderator, waiting for requests...");
 
-    // Store channels
-    let mut channels: HashMap<String, ChannelState> = HashMap::new();
+    // Store channels (for future use)
+    let _channels: HashMap<String, String> = HashMap::new();
 
     loop {
         tokio::select! {
