@@ -13,7 +13,6 @@ ENV PYTHONUNBUFFERED=1
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV UV_LINK_MODE=copy \
     UV_COMPILE_BYTECODE=1 \
-    UV_PYTHON_DOWNLOADS=never \
     UV_PYTHON=python3.13 \
     UV_PROJECT_ENVIRONMENT=/app
 
@@ -76,7 +75,11 @@ case ${TARGETARCH} in
         ;;
 esac
 
-# Build application
+uv python install cpython-3.13.3-linux-${RUSTARCH}
+
+export PYO3_CROSS_INCLUDE_DIR=~/.local/share/uv/python/cpython-3.13.3-linux-${RUSTARCH}-gnu/include
+export PYO3_CROSS_LIB_DIR=~/.local/share/uv/python/cpython-3.13.3-linux-${RUSTARCH}-gnu/lib
+export CARGO_BUILD_TARGET=${RUSTARCH}-unknown-linux-gnu
 task -v python-bindings:examples:build TARGET=${RUSTARCH}-unknown-linux-gnu PROFILE=release
 EOF
 
