@@ -576,15 +576,19 @@ impl ControllerService {
                             }
                         }
                         
-                        let response = v1::CreateChannelResponse { channel_id };
+                        let ack = Ack {
+                            original_message_id: msg.message_id.clone(),
+                            success: true,
+                            messages: vec![msg.message_id.clone()],
+                        };
                         
                         let reply = ControlMessage {
                             message_id: uuid::Uuid::new_v4().to_string(),
-                            payload: Some(Payload::CreateChannelResponse(response)),
+                            payload: Some(Payload::Ack(ack)),
                         };
 
                         if let Err(e) = tx.send(Ok(reply)).await {
-                            error!("failed to send CreateChannelResponse: {}", e);
+                            error!("failed to send Ack: {}", e);
                         }
                     }
                     Payload::CreateChannelResponse(_) => {}
