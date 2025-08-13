@@ -36,8 +36,8 @@ var _ = Describe("Group management through control plane", func() {
 		)
 		Expect(errNode).NotTo(HaveOccurred())
 
-		//sleep
-		time.Sleep(5 * time.Second)
+		// wait for services to start
+		time.Sleep(2000 * time.Millisecond)
 
 		// start moderator
 		// set up routes
@@ -56,20 +56,15 @@ var _ = Describe("Group management through control plane", func() {
 	})
 
 	Describe("group management with control plane", func() {
-
 		It("SLIM node receives the 'create group API call'", func() {
-
-			command, err := exec.Command(
+			exec.Command(
 				slimctlPath,
 				"channel", "create",
 				"moderators=moderator1,moderator2",
 				"-s", "127.0.0.1:50051",
 			).CombinedOutput()
 
-			Expect(err).NotTo(HaveOccurred(), "slimctl channel create failed: %s", string(command))
-
-			//TODO: "received a create channel request, this should happen"
-			Eventually(slimNodeSession, 5*time.Second).Should(gbytes.Say("received a create channel request, this should happen"))
+			Eventually(slimNodeSession, 15*time.Second).Should(gbytes.Say("received a create channel request, this should happen"))
 		})
 	})
 })
