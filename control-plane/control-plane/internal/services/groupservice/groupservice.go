@@ -54,8 +54,8 @@ func (s *GroupService) CreateChannel(
 		},
 	}
 
-	if err := s.cmdHandler.SendMessage(nodeEntry.Id, msg); err != nil {
-		return nil, fmt.Errorf("failed to send message: %w", err)
+	if sendErr := s.cmdHandler.SendMessage(nodeEntry.Id, msg); sendErr != nil {
+		return nil, fmt.Errorf("failed to send message: %w", sendErr)
 	}
 	// wait for ACK response
 	response, err := s.cmdHandler.WaitForResponse(nodeEntry.Id,
