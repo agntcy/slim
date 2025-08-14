@@ -10,6 +10,7 @@ use tracing::info;
 use slim::config;
 use slim_auth::shared_secret::SharedSecret;
 use slim_datapath::messages::Name;
+use slim_service::{FireAndForgetConfiguration, session::SessionConfig};
 
 mod args;
 
@@ -57,17 +58,29 @@ async fn main() {
     let conn_id = svc
         .get_connection_id(&svc.config().clients()[0].endpoint)
         .unwrap();
+    info!("MODERATOR_CONN_ID: {:?}", conn_id);
+    info!("MODERATOR_ENDPOINT: {:?}", svc.config().clients()[0].endpoint);
 
     // Subscribe to moderator's own endpoint for control messages
     app.subscribe(&name, Some(conn_id)).await.unwrap();
-    info!("Moderator subscribed to: {:?}", name);
+    info!("Moderator subscribed to: {:?} with conn_id: {:?}", name, conn_id);
+
+    // Create a fire and forget session with ID 0 to handle incoming control messages
+    let _session_info = app
+        .create_session(
+            SessionConfig::FireAndForget(FireAndForgetConfiguration::default()),
+            Some(0), // Use session ID 0 to match controller messages
+        )
+        .await
+        .expect("failed to create session");
 
     // Wait for connection to be established
     tokio::time::sleep(Duration::from_millis(100)).await;
 
     info!("Starting moderator, waiting for requests...");
+    info!("Moderator subscribed and ready to receive messages");
 
-    // Store channels (for future use)
+    //TODO
     let _channels: HashMap<String, String> = HashMap::new();
 
     loop {
@@ -78,10 +91,14 @@ async fn main() {
             }
             next = rx.recv() => {
                 if next.is_none() {
+                    info!("Moderator: received None message, breaking");
                     break;
                 }
 
+                info!("Moderator: received a message from rx.recv()");
                 let session_msg = next.unwrap().expect("error");
+                info!("MODERATOR_MSG_DEBUG: session_info={:?}", session_msg.info);
+                info!("MODERATOR_MSG_DEBUG: message={:?}", session_msg.message);
 
                 // Process incoming messages
                 match &session_msg.message.message_type.unwrap() {

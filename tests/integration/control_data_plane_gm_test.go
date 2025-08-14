@@ -60,14 +60,14 @@ var _ = Describe("Group management through control plane", func() {
 			moderatorSession.Terminate().Wait(30 * time.Second)
 		}
 
-		// terminate control plane
-		if controlPlaneSession != nil {
-			controlPlaneSession.Terminate().Wait(30 * time.Second)
-		}
-
 		// terminate SLIM node plane
 		if slimNodeSession != nil {
 			slimNodeSession.Terminate().Wait(30 * time.Second)
+		}
+
+		// terminate control plane
+		if controlPlaneSession != nil {
+			controlPlaneSession.Terminate().Wait(30 * time.Second)
 		}
 	})
 
@@ -81,6 +81,7 @@ var _ = Describe("Group management through control plane", func() {
 			).CombinedOutput()
 
 			Eventually(slimNodeSession, 15*time.Second).Should(gbytes.Say("received a create channel request, this should happen"))
+			Eventually(moderatorSession, 15*time.Second).Should(gbytes.Say("Controller requested channel creation for channel_id:"))
 		})
 	})
 })
