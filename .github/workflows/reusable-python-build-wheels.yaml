@@ -7,6 +7,12 @@ on:
   workflow_call:
 
 jobs:
+  python-binding-examples-docker-build:
+    name: Build Python examples docker image
+    uses: ./.github/workflows/reusable-docker-build-push.yaml
+    with:
+      bake-targets: bindings-examples
+      image-tag: ${{ github.sha }}
   python-bindings-sdist:
     runs-on: ubuntu-latest
     steps:
