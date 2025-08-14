@@ -32,9 +32,9 @@ func NewGroupService(dbService db.DataAccess, cmdHandler nodecontrol.NodeCommand
 
 func (s *GroupService) CreateChannel(
 	ctx context.Context,
-	createChannelRequest *controllerapi.CreateChannelRequest,
+	createChannelRequest *controlplaneApi.CreateChannelRequest,
 	nodeEntry *controlplaneApi.NodeEntry,
-) (*controllerapi.CreateChannelResponse, error) {
+) (*controlplaneApi.CreateChannelResponse, error) {
 	zlog := zerolog.Ctx(ctx)
 
 	if len(createChannelRequest.Moderators) == 0 {
@@ -50,7 +50,10 @@ func (s *GroupService) CreateChannel(
 	msg := &controllerapi.ControlMessage{
 		MessageId: uuid.NewString(),
 		Payload: &controllerapi.ControlMessage_CreateChannelRequest{
-			CreateChannelRequest: createChannelRequest,
+			CreateChannelRequest: &controllerapi.CreateChannelRequest{
+				ChannelId:  channelID,
+				Moderators: createChannelRequest.Moderators,
+			},
 		},
 	}
 
@@ -78,7 +81,7 @@ func (s *GroupService) CreateChannel(
 	}
 	zlog.Debug().Msg("Channel saved successfully.")
 
-	return &controllerapi.CreateChannelResponse{
+	return &controlplaneApi.CreateChannelResponse{
 		ChannelId: channelID,
 	}, nil
 }

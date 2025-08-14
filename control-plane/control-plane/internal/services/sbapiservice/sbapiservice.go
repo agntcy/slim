@@ -232,17 +232,23 @@ func (s *sbAPIService) handleNodeMessages(stream controllerapi.ControllerService
 			)
 			resp, err := s.groupservice.CreateChannel(
 				util.GetContextWithLogger(context.Background(), s.config.LogConfig),
-				payload.CreateChannelRequest,
+				&controlplaneApi.CreateChannelRequest{
+					Moderators: payload.CreateChannelRequest.Moderators,
+				},
 				&controlplaneApi.NodeEntry{},
 			)
 			if err != nil {
 				zlog.Error().Msgf("Error creating channel: %v", err)
 				return err
 			}
+
 			ackMsg := &controllerapi.ControlMessage{
 				MessageId: uuid.NewString(),
-				Payload: &controllerapi.ControlMessage_CreateChannelResponse{
-					CreateChannelResponse: resp,
+				Payload: &controllerapi.ControlMessage_Ack{
+					Ack: &controllerapi.Ack{
+						Success:           true,
+						OriginalMessageId: msg.MessageId,
+					},
 				},
 			}
 			if err := s.nodeCommandHandler.SendMessage(registeredNodeID, ackMsg); err != nil {

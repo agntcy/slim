@@ -18,7 +18,7 @@ service ControlPlaneService {
   rpc ListNodes(NodeListRequest) returns (NodeListResponse) {}
   rpc DeregisterNode(Node) returns (DeregisterNodeResponse) {}
 
-  rpc CreateChannel(controller.proto.v1.CreateChannelRequest) returns (controller.proto.v1.CreateChannelResponse) {}
+  rpc CreateChannel(CreateChannelRequest) returns (CreateChannelResponse) {}
   rpc DeleteChannel(controller.proto.v1.DeleteChannelRequest) returns (controller.proto.v1.Ack) {}
   rpc AddParticipant(controller.proto.v1.AddParticipantRequest) returns (controller.proto.v1.Ack) {}
   rpc DeleteParticipant(controller.proto.v1.DeleteParticipantRequest) returns (controller.proto.v1.Ack) {}
@@ -85,4 +85,15 @@ message DeleteSubscriptionResponse {
 
 message DeregisterNodeResponse {
   bool success = 1;
+}
+
+message CreateChannelRequest {
+  // list of moderators for the channel (e.g. spiffe SVID)
+  repeated string moderators = 1;
+}
+
+
+message CreateChannelResponse {
+  // ID of the channel, to which clients will subscribe (e.g. spiffe SVID)
+  string channel_id = 1;
 }

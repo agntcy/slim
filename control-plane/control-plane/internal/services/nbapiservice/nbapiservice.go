@@ -180,8 +180,8 @@ func (s *nbAPIService) DeregisterNode(
 }
 
 func (s *nbAPIService) CreateChannel(
-	ctx context.Context, createChannelRequest *controllerapi.CreateChannelRequest) (
-	*controllerapi.CreateChannelResponse, error) {
+	ctx context.Context, createChannelRequest *controlplaneApi.CreateChannelRequest) (
+	*controlplaneApi.CreateChannelResponse, error) {
 	nodeListResponse, err := s.ListNodes(ctx, &controlplaneApi.NodeListRequest{})
 	if err != nil {
 		return nil, fmt.Errorf("failed to list nodes: %w", err)
