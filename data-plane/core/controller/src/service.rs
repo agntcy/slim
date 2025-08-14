@@ -557,7 +557,7 @@ impl ControllerService {
                         info!("RAW MODERATORS ARRAY: {:?}", req.moderators);
                         info!("MODERATORS LENGTH: {}", req.moderators.len());
 
-                        let channel_id = uuid::Uuid::new_v4().to_string();
+                        let channel_id = req.channel_id.clone();
 
                         // Send message to first moderator
                         if let Some(first_moderator) = req.moderators.first() {
@@ -623,9 +623,26 @@ impl ControllerService {
                             error!("failed to send Ack: {}", e);
                         }
                     }
-                    Payload::CreateChannelResponse(_) => {}
                     Payload::DeleteChannelRequest(_) => {}
-                    Payload::AddParticipantRequest(_) => {}
+                    Payload::AddParticipantRequest(_) => {
+                        info!("received a participant add request, this should happen");
+
+                        // TODO: for testing
+                        let ack = Ack {
+                            original_message_id: msg.message_id.clone(),
+                            success: true,
+                            messages: vec![msg.message_id.clone()],
+                        };
+
+                        let reply = ControlMessage {
+                            message_id: uuid::Uuid::new_v4().to_string(),
+                            payload: Some(Payload::Ack(ack)),
+                        };
+
+                        if let Err(e) = tx.send(Ok(reply)).await {
+                            error!("failed to send Ack: {}", e);
+                        }
+                    }
                     Payload::DeleteParticipantRequest(_) => {}
                     Payload::ListChannelRequest(_) => {}
                     Payload::ListChannelResponse(_) => {}

@@ -5,6 +5,7 @@ package integration
 
 import (
 	"os/exec"
+	"strings"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -73,27 +74,37 @@ var _ = Describe("Group management through control plane", func() {
 
 	Describe("group management with control plane", func() {
 		It("SLIM node receives the 'create group API call'", func() {
-			channelID, err := exec.Command(
+			output, err := exec.Command(
 				slimctlPath,
 				"channel", "create",
 				"moderators=moderator1,moderator2",
 				"-s", "127.0.0.1:50051",
 			).CombinedOutput()
 			Expect(err).NotTo(HaveOccurred())
-			Expect(channelID).NotTo(BeEmpty())
+			Expect(output).NotTo(BeEmpty())
 
 			Eventually(slimNodeSession, 15*time.Second).Should(gbytes.Say("received a create channel request, this should happen"))
 			Eventually(moderatorSession, 15*time.Second).Should(gbytes.Say("Controller requested channel creation for channel_id:"))
 
-			err := exec.Command(
+			// CombinedOutput is "Received response moderator1-... \n"
+			// Split channelID by spaces and get the chunk starting with moderator1
+			channelID := ""
+			for _, id := range strings.Fields(string(output)) {
+				if strings.HasPrefix(id, "moderator1-") {
+					channelID = id
+					break
+				}
+			}
+
+			_, errP := exec.Command(
 				slimctlPath,
 				"participant", "add",
 				"participant1",
 				"--channel-id", channelID,
 				"-s", "127.0.0.1:50051",
 			).CombinedOutput()
-			Expect(err).NotTo(HaveOccurred())
-			Expect(channelID).NotTo(BeEmpty())
+
+			Expect(errP).NotTo(HaveOccurred())
 
 			Eventually(slimNodeSession, 15*time.Second).Should(gbytes.Say("received a participant add request, this should happen"))
 
