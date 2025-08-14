@@ -1,0 +1,33 @@
+[project]
+name = "slima2a"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.10, <4.0"
+dependencies = [
+    "a2a-sdk[telemetry]>=0.3.0",
+    "uvicorn>=0.34.2",
+    "srpc",
+    "langchain-core",
+    "langchain-openai",
+    "typing-extensions",
+]
+
+[dependency-groups]
+linting = [
+    "types-protobuf>=6.30.2.20250703",
+]
+
+[tool.uv.sources]
+srpc = { workspace = true }
+
+[tool.ruff.format]
+exclude = ["*_pb2.py", "*_pb2.pyi", "*_pb2_srpc.py"]
+
+[tool.ruff.lint]
+extend-select = ["I", "ASYNC", "SIM", "B", "ANN"]
+exclude = ["*_pb2.py", "*_pb2.pyi", "*_pb2_srpc.py"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"

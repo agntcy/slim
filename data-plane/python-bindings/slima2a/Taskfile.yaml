@@ -1,0 +1,11 @@
+---
+
+version: '3'
+
+tasks:
+  generate_a2a_types:
+    desc: |
+      Generate the a2a protobuf lib
+    cmds:
+      - |
+        buf generate

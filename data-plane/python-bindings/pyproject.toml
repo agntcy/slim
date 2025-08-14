@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 [tool.uv.workspace]
-members = [".", "examples"]
+members = [".", "examples", "srpc", "slima2a"]
 
 [build-system]
 requires = ["maturin>=1,<2"]
@@ -38,20 +38,12 @@ Changelog = "https://github.com/agntcy/slim/blob/main/data-plane/python-bindings
 [dependency-groups]
 building = [
     "maturin>=1.8.2",
-    "maturin[patchelf]>=1.8.2; sys_platform == 'linux'"
+    "maturin[patchelf]>=1.8.2; sys_platform == 'linux'",
 ]
 
-testing = [
-    "pytest>=8.3.4",
-    "pytest-asyncio>=0.25.3"
-]
+testing = ["pytest>=8.3.4", "pytest-asyncio>=0.25.3"]
 
-linting = [
-    "griffe>=1.5.5",
-    "pyright>=1.1.0",
-    "ruff>=0.9.3",
-    "mypy>=1.14.1"
-]
+linting = ["griffe>=1.5.5", "pyright>=1.1.0", "ruff>=0.9.3", "mypy>=1.14.1"]
 
 [tool.uv]
 default-groups = ["building", "testing", "linting"]
