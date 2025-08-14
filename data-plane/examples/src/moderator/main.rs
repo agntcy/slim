@@ -14,7 +14,6 @@ use slim_service::{FireAndForgetConfiguration, session::SessionConfig};
 
 mod args;
 
-
 #[tokio::main]
 async fn main() {
     // Parse command line arguments
@@ -59,11 +58,17 @@ async fn main() {
         .get_connection_id(&svc.config().clients()[0].endpoint)
         .unwrap();
     info!("MODERATOR_CONN_ID: {:?}", conn_id);
-    info!("MODERATOR_ENDPOINT: {:?}", svc.config().clients()[0].endpoint);
+    info!(
+        "MODERATOR_ENDPOINT: {:?}",
+        svc.config().clients()[0].endpoint
+    );
 
     // Subscribe to moderator's own endpoint for control messages
     app.subscribe(&name, Some(conn_id)).await.unwrap();
-    info!("Moderator subscribed to: {:?} with conn_id: {:?}", name, conn_id);
+    info!(
+        "Moderator subscribed to: {:?} with conn_id: {:?}",
+        name, conn_id
+    );
 
     // Create a fire and forget session with ID 0 to handle incoming control messages
     let _session_info = app
@@ -108,7 +113,7 @@ async fn main() {
                         match std::str::from_utf8(&payload.blob) {
                             Ok(text) => {
                                 info!("Received request: {}", text);
-                                
+
                                 // Check if this is a channel creation request from controller
                                 if text.starts_with("create_channel:") {
                                     let channel_id = text.strip_prefix("create_channel:").unwrap_or("");
