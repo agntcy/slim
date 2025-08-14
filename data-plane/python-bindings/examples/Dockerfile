@@ -57,6 +57,7 @@ case ${TARGETARCH} in
 esac
 
 apt-get update && apt-get install -y ${PACKAGES}
+rustup target add ${RUSTARCH}
 cargo fetch --target ${RUSTARCH}
 EOF
 
@@ -76,7 +77,6 @@ case ${TARGETARCH} in
 esac
 
 uv python install cpython-3.13.3-linux-${RUSTARCH}
-
 export PYO3_CROSS_INCLUDE_DIR=~/.local/share/uv/python/cpython-3.13.3-linux-${RUSTARCH}-gnu/include
 export PYO3_CROSS_LIB_DIR=~/.local/share/uv/python/cpython-3.13.3-linux-${RUSTARCH}-gnu/lib
 export CARGO_BUILD_TARGET=${RUSTARCH}-unknown-linux-gnu
