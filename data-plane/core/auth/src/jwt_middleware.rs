@@ -274,7 +274,7 @@ where
                 let bearer_token = bearer.token().to_string();
 
                 // Let's first try to perform the verification without cloning the verifier
-                match self.verifier.try_verify::<Claim>(&bearer_token) {
+                match self.verifier.try_get_claims::<Claim>(&bearer_token) {
                     Ok(claims) => {
                         // Store claims in request extensions
                         req.extensions_mut().insert(claims);
@@ -294,7 +294,7 @@ where
                             request: req,
                             verifier_future: Box::pin(async move {
                                 // Perform the verification asynchronously
-                                verifier.verify::<Claim>(&bearer_token).await
+                                verifier.get_claims::<Claim>(&bearer_token).await
                             }),
                             service: inner,
                             _phantom: self._phantom,
@@ -702,7 +702,7 @@ mod tests {
         );
 
         let ret_claims = verifier
-            .try_verify::<StandardClaims>(&token)
+            .try_get_claims::<StandardClaims>(&token)
             .expect("Failed to verify token");
 
         // Check the claims are as expected

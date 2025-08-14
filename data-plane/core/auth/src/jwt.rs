@@ -540,14 +540,26 @@ impl TokenProvider for StaticTokenProvider {
 
 #[async_trait]
 impl Verifier for VerifierJwt {
-    async fn verify<Claims>(&self, token: impl Into<String> + Send) -> Result<Claims, AuthError>
+    async fn verify(&self, token: impl Into<String> + Send) -> Result<(), AuthError> {
+        // Just verify the token is valid, don't extract claims
+        self.verify_claims::<StandardClaims>(token)
+            .await
+            .map(|_| ())
+    }
+
+    fn try_verify(&self, token: impl Into<String>) -> Result<(), AuthError> {
+        // Just verify the token is valid, don't extract claims
+        self.try_verify_claims::<StandardClaims>(token).map(|_| ())
+    }
+
+    async fn get_claims<Claims>(&self, token: impl Into<String> + Send) -> Result<Claims, AuthError>
     where
         Claims: serde::de::DeserializeOwned + Send,
     {
         self.verify_claims(token).await
     }
 
-    fn try_verify<Claims>(&self, token: impl Into<String>) -> Result<Claims, AuthError>
+    fn try_get_claims<Claims>(&self, token: impl Into<String>) -> Result<Claims, AuthError>
     where
         Claims: serde::de::DeserializeOwned + Send,
     {
@@ -710,7 +722,7 @@ mod tests {
         let claims = signer.create_claims();
         let token = signer.sign(&claims).unwrap();
 
-        let verified_claims: StandardClaims = jwt.verify(token.clone()).await.unwrap();
+        let verified_claims: StandardClaims = jwt.get_claims(token.clone()).await.unwrap();
 
         assert_eq!(verified_claims.iss.unwrap(), "test-issuer");
         assert_eq!(verified_claims.aud.unwrap(), &["test-audience"]);
@@ -739,7 +751,7 @@ mod tests {
         let claims = signer.create_claims();
         let token = signer.sign(&claims).unwrap();
 
-        let verified_claims: StandardClaims = jwt.verify(token.clone()).await.unwrap();
+        let verified_claims: StandardClaims = jwt.get_claims(token.clone()).await.unwrap();
 
         assert_eq!(verified_claims.iss.unwrap(), "test-issuer");
         assert_eq!(verified_claims.aud.unwrap(), &["test-audience"]);
@@ -777,7 +789,7 @@ mod tests {
         let claims = signer.create_claims();
         let token = signer.sign_claims(&claims).unwrap();
 
-        let verified_claims: StandardClaims = verifier.verify(token.clone()).await.unwrap();
+        let verified_claims: StandardClaims = verifier.get_claims(token.clone()).await.unwrap();
 
         assert_eq!(verified_claims.iss.unwrap(), "test-issuer");
         assert_eq!(verified_claims.aud.unwrap(), ["test-audience"]);
@@ -786,7 +798,7 @@ mod tests {
         // Try to verify with an invalid token
         let invalid_token = "invalid.token.string";
         let result: Result<StandardClaims, AuthError> =
-            verifier.verify(invalid_token.to_string()).await;
+            verifier.get_claims(invalid_token.to_string()).await;
         assert!(
             result.is_err(),
             "Expected verification to fail for invalid token"
@@ -804,7 +816,8 @@ mod tests {
             })
             .build()
             .unwrap();
-        let wrong_result: Result<StandardClaims, AuthError> = wrong_verifier.verify(token).await;
+        let wrong_result: Result<StandardClaims, AuthError> =
+            wrong_verifier.get_claims(token).await;
         assert!(
             wrong_result.is_err(),
             "Expected verification to fail with wrong key"
@@ -854,7 +867,7 @@ mod tests {
         claims.custom_claims = custom_claims;
         let token = signer.sign_claims(&claims).unwrap();
 
-        let verified_claims: StandardClaims = verifier.verify(token).await.unwrap();
+        let verified_claims: StandardClaims = verifier.get_claims(token).await.unwrap();
 
         assert_eq!(verified_claims.custom_claims.get("role").unwrap(), "admin");
         assert_eq!(
@@ -897,7 +910,7 @@ mod tests {
 
         // Sign and verify the token
         let token = signer.sign_claims(&signer.create_claims()).unwrap();
-        let claims: StandardClaims = verifier.verify(token).await.unwrap();
+        let claims: StandardClaims = verifier.get_claims(token).await.unwrap();
 
         // Validate the claims
         assert_eq!(claims.iss.unwrap(), mock_server.uri());
@@ -982,14 +995,14 @@ mod tests {
         let token = signer.sign_claims(&claims).unwrap();
 
         // First verification
-        let first_result: StandardClaims = verifier.try_verify(token.clone()).unwrap();
+        let first_result: StandardClaims = verifier.try_get_claims(token.clone()).unwrap();
 
         // Alter the decoding_key to simulate a situation where signature verification would fail
         // if attempted again. Since we're using the cache, it should still work.
         verifier.decoding_key = None;
 
         // Second verification with the same token - should use the cache
-        let second_result: StandardClaims = verifier.try_verify(token.clone()).unwrap();
+        let second_result: StandardClaims = verifier.try_get_claims(token.clone()).unwrap();
 
         // Both results should be the same
         assert_eq!(first_result.iss, second_result.iss);
@@ -1010,7 +1023,7 @@ mod tests {
         let token2 = signer.sign_claims(&claims2).unwrap();
 
         // Verify the new token - should fail because we removed the decoding_key
-        let result = verifier.try_verify::<StandardClaims>(token2);
+        let result = verifier.try_get_claims::<StandardClaims>(token2);
         assert!(
             result.is_err(),
             "Should have failed due to missing decoding key"

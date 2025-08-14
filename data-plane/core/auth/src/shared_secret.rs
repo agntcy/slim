@@ -50,20 +50,11 @@ impl TokenProvider for SharedSecret {
 
 #[async_trait::async_trait]
 impl Verifier for SharedSecret {
-    async fn verify<Claims>(&self, token: impl Into<String> + Send) -> Result<Claims, AuthError>
-    where
-        Claims: serde::de::DeserializeOwned + Send,
-    {
+    async fn verify(&self, token: impl Into<String> + Send) -> Result<(), AuthError> {
         self.try_verify(token)
     }
 
-    fn try_verify<Claims>(
-        &self,
-        token: impl Into<String>,
-    ) -> Result<Claims, crate::errors::AuthError>
-    where
-        Claims: serde::de::DeserializeOwned + Send,
-    {
+    fn try_verify(&self, token: impl Into<String>) -> Result<(), AuthError> {
         let token = token.into();
 
         // Split the token into shared_secret and id
@@ -73,11 +64,26 @@ impl Verifier for SharedSecret {
         }
 
         if parts[0] == self.shared_secret {
-            Ok(serde_json::from_str(r#"{"exp":0}"#).unwrap())
+            Ok(())
         } else {
             Err(AuthError::TokenInvalid(
                 "shared secret mismatch".to_string(),
             ))
         }
+    }
+
+    async fn get_claims<Claims>(&self, token: impl Into<String> + Send) -> Result<Claims, AuthError>
+    where
+        Claims: serde::de::DeserializeOwned + Send,
+    {
+        self.try_get_claims(token)
+    }
+
+    fn try_get_claims<Claims>(&self, token: impl Into<String>) -> Result<Claims, AuthError>
+    where
+        Claims: serde::de::DeserializeOwned + Send,
+    {
+        self.try_verify(token.into())?;
+        Ok(serde_json::from_str(r#"{"exp":0}"#).unwrap())
     }
 }
