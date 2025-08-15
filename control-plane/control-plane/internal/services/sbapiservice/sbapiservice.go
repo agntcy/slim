@@ -2,10 +2,13 @@ package sbapiservice
 
 import (
 	"context"
+	"net"
+	"strconv"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/rs/zerolog"
+	"google.golang.org/grpc/peer"
 
 	controllerapi "github.com/agntcy/slim/control-plane/common/proto/controller/v1"
 	"github.com/agntcy/slim/control-plane/control-plane/internal/config"
@@ -74,7 +77,7 @@ func (s *sbAPIService) OpenControlChannel(stream controllerapi.ControllerService
 
 	go func() {
 		rmsg, rerr := stream.Recv()
-		if err != nil {
+		if rerr != nil {
 			errCh <- rerr
 			return
 		}
@@ -98,8 +101,32 @@ func (s *sbAPIService) OpenControlChannel(stream controllerapi.ControllerService
 	if regReq, ok := msg.Payload.(*controllerapi.ControlMessage_RegisterNodeRequest); ok {
 		registeredNodeID = regReq.RegisterNodeRequest.NodeId
 		zlog.Info().Msgf("Registering node with ID: %v", registeredNodeID)
+
+		// Extract host and port from gRPC peer info
+		var host string
+		var port uint32
+		if peerInfo, ok := peer.FromContext(stream.Context()); ok {
+			switch addr := peerInfo.Addr.(type) {
+			case *net.TCPAddr:
+				host = addr.IP.String()
+				if addr.Port >= 0 && addr.Port <= 65535 {
+					port = uint32(addr.Port)
+				}
+			default:
+				hostStr, portStr, splitErr := net.SplitHostPort(peerInfo.Addr.String())
+				if splitErr == nil {
+					host = hostStr
+					if p, parseErr := strconv.ParseUint(portStr, 10, 16); parseErr == nil { // validated to 0-65535 by bit size 16
+						port = uint32(p)
+					}
+				}
+			}
+		}
+
 		_, err = s.dbService.SaveNode(db.Node{
-			ID: registeredNodeID,
+			ID:   registeredNodeID,
+			Host: host,
+			Port: port,
 		})
 		if err != nil {
 			zlog.Error().Msgf("Error saving node: %v", err)
