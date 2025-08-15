@@ -2,10 +2,13 @@ package sbapiservice
 
 import (
 	"context"
+	"net"
+	"strconv"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/rs/zerolog"
+	"google.golang.org/grpc/peer"
 
 	controllerapi "github.com/agntcy/slim/control-plane/common/proto/controller/v1"
 	"github.com/agntcy/slim/control-plane/control-plane/internal/config"
@@ -98,8 +101,32 @@ func (s *sbAPIService) OpenControlChannel(stream controllerapi.ControllerService
 	if regReq, ok := msg.Payload.(*controllerapi.ControlMessage_RegisterNodeRequest); ok {
 		registeredNodeID = regReq.RegisterNodeRequest.NodeId
 		zlog.Info().Msgf("Registering node with ID: %v", registeredNodeID)
+		// Extract host and port from gRPC peer info
+		host := ""
+		port := uint32(0)
+		if peerInfo, ok := peer.FromContext(stream.Context()); ok {
+			if tcpAddr, ok := peerInfo.Addr.(*net.TCPAddr); ok {
+				host = tcpAddr.IP.String()
+				// Safely convert port with bounds checking
+				if tcpAddr.Port >= 0 && tcpAddr.Port <= 65535 {
+					port = uint32(tcpAddr.Port)
+				}
+			} else {
+				// Fallback: parse address string
+				addrStr := peerInfo.Addr.String()
+				if hostStr, portStr, parseErr := net.SplitHostPort(addrStr); parseErr == nil {
+					host = hostStr
+					if p, convertErr := strconv.Atoi(portStr); convertErr == nil && p >= 0 && p <= 65535 {
+						port = uint32(p) //nolint:gosec // Port range already validated above
+					}
+				}
+			}
+		}
+
 		_, err = s.dbService.SaveNode(db.Node{
-			ID: registeredNodeID,
+			ID:   registeredNodeID,
+			Host: host,
+			Port: port,
 		})
 		if err != nil {
 			zlog.Error().Msgf("Error saving node: %v", err)
