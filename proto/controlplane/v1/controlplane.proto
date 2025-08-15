@@ -92,7 +92,6 @@ message CreateChannelRequest {
   repeated string moderators = 1;
 }
 
-
 message CreateChannelResponse {
   // ID of the channel, to which clients will subscribe (e.g. spiffe SVID)
   string channel_id = 1;
