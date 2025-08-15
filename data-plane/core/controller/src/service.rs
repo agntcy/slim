@@ -5,6 +5,8 @@ use std::collections::HashMap;
 use std::pin::Pin;
 use std::sync::Arc;
 
+use uuid::Uuid;
+
 use slim_config::component::id::ID;
 use slim_config::grpc::server::ServerConfig;
 use tokio::sync::mpsc;
@@ -24,11 +26,14 @@ use crate::api::proto::api::v1::{
     controller_service_server::ControllerService as GrpcControllerService,
 };
 use crate::errors::ControllerError;
+use slim_auth::shared_secret::SharedSecret;
+use slim_auth::traits::TokenProvider;
 use slim_config::grpc::client::ClientConfig;
 use slim_datapath::api::ProtoMessage as PubsubMessage;
+use slim_datapath::api::{ProtoSessionMessageType, ProtoSessionType, SessionHeader, SlimHeader};
 use slim_datapath::message_processing::MessageProcessor;
 use slim_datapath::messages::Name;
-use slim_datapath::messages::utils::SlimHeaderFlags;
+use slim_datapath::messages::utils::{SLIM_IDENTITY, SlimHeaderFlags};
 use slim_datapath::tables::SubscriptionTable;
 
 type TxChannel = mpsc::Sender<Result<ControlMessage, Status>>;
@@ -544,11 +549,137 @@ impl ControllerService {
                     Payload::DeregisterNodeResponse(_) => {
                         // received a deregister node response, do nothing
                     }
-                    Payload::CreateChannelRequest(_) => {}
-                    Payload::CreateChannelResponse(_) => {}
-                    Payload::DeleteChannelRequest(_) => {}
-                    Payload::AddParticipantRequest(_) => {}
-                    Payload::DeleteParticipantRequest(_) => {}
+                    Payload::CreateChannelRequest(req) => {
+                        info!(
+                            "received a create channel request, this should happen. Moderators: {:?}",
+                            req.moderators
+                        );
+                        info!("RAW MODERATORS ARRAY: {:?}", req.moderators);
+                        info!("MODERATORS LENGTH: {}", req.moderators.len());
+
+                        let channel_id = req.channel_id.clone();
+
+                        // Send message to first moderator
+                        if let Some(first_moderator) = req.moderators.first() {
+                            let moderator_name =
+                                Name::from_strings(["org", "default", first_moderator]).with_id(0);
+                            let source_name =
+                                Name::from_strings(["controller", "controller", "controller"])
+                                    .with_id(0);
+                            let message_content = format!("create_channel:{}", channel_id);
+
+                            let slim_header = Some(SlimHeader::new(
+                                &source_name,
+                                &moderator_name,
+                                Some(SlimHeaderFlags::default()),
+                            ));
+                            let session_header = Some(SessionHeader::new(
+                                ProtoSessionType::SessionFireForget.into(),
+                                ProtoSessionMessageType::FnfMsg.into(),
+                                0,
+                                Uuid::new_v4().as_u128() as u32,
+                            ));
+
+                            let mut publish_msg = PubsubMessage::new_publish_with_headers(
+                                slim_header,
+                                session_header,
+                                "text/plain",
+                                message_content.into_bytes(),
+                            );
+
+                            let controller_identity = SharedSecret::new("controller", "group");
+                            let identity_token = controller_identity.get_token().map_err(|e| {
+                                error!("Failed to generate identity token: {}", e);
+                                ControllerError::DatapathError(e.to_string())
+                            })?;
+                            publish_msg.insert_metadata(SLIM_IDENTITY.to_string(), identity_token);
+                            info!(
+                                "PUBLISH_MSG created: source={:?}, dest={:?}",
+                                source_name, moderator_name
+                            );
+
+                            if let Err(e) = self.send_control_message(publish_msg).await {
+                                error!(
+                                    "FAILED to send message to moderator {}: {}",
+                                    first_moderator, e
+                                );
+                            } else {
+                                info!("SUCCESSFULLY sent message to moderator {}", first_moderator);
+                            }
+                        }
+
+                        let ack = Ack {
+                            original_message_id: msg.message_id.clone(),
+                            success: true,
+                            messages: vec![msg.message_id.clone()],
+                        };
+
+                        let reply = ControlMessage {
+                            message_id: uuid::Uuid::new_v4().to_string(),
+                            payload: Some(Payload::Ack(ack)),
+                        };
+
+                        if let Err(e) = tx.send(Ok(reply)).await {
+                            error!("failed to send Ack: {}", e);
+                        }
+                    }
+                    Payload::DeleteChannelRequest(_) => {
+                        info!("received a channel delete request, this should happen");
+
+                        // TODO: this is for testing, implement proper channel deletion
+                        let ack = Ack {
+                            original_message_id: msg.message_id.clone(),
+                            success: true,
+                            messages: vec![msg.message_id.clone()],
+                        };
+
+                        let reply = ControlMessage {
+                            message_id: uuid::Uuid::new_v4().to_string(),
+                            payload: Some(Payload::Ack(ack)),
+                        };
+
+                        if let Err(e) = tx.send(Ok(reply)).await {
+                            error!("failed to send Ack: {}", e);
+                        }
+                    }
+                    Payload::AddParticipantRequest(_) => {
+                        info!("received a participant add request, this should happen");
+
+                        // TODO: this is for testing, implement proper participant addition
+                        let ack = Ack {
+                            original_message_id: msg.message_id.clone(),
+                            success: true,
+                            messages: vec![msg.message_id.clone()],
+                        };
+
+                        let reply = ControlMessage {
+                            message_id: uuid::Uuid::new_v4().to_string(),
+                            payload: Some(Payload::Ack(ack)),
+                        };
+
+                        if let Err(e) = tx.send(Ok(reply)).await {
+                            error!("failed to send Ack: {}", e);
+                        }
+                    }
+                    Payload::DeleteParticipantRequest(_) => {
+                        info!("received a participant delete request, this should happen");
+
+                        // TODO: this is for testing, implement proper participant deletion
+                        let ack = Ack {
+                            original_message_id: msg.message_id.clone(),
+                            success: true,
+                            messages: vec![msg.message_id.clone()],
+                        };
+
+                        let reply = ControlMessage {
+                            message_id: uuid::Uuid::new_v4().to_string(),
+                            payload: Some(Payload::Ack(ack)),
+                        };
+
+                        if let Err(e) = tx.send(Ok(reply)).await {
+                            error!("failed to send Ack: {}", e);
+                        }
+                    }
                     Payload::ListChannelRequest(_) => {}
                     Payload::ListChannelResponse(_) => {}
                     Payload::ListParticipantsRequest(_) => {}

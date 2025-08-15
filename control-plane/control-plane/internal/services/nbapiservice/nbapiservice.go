@@ -180,27 +180,43 @@ func (s *nbAPIService) DeregisterNode(
 }
 
 func (s *nbAPIService) CreateChannel(
-	ctx context.Context, createChannelRequest *controllerapi.CreateChannelRequest) (
-	*controllerapi.CreateChannelResponse, error) {
-	return s.groupService.CreateChannel(ctx, createChannelRequest)
+	ctx context.Context, createChannelRequest *controlplaneApi.CreateChannelRequest) (
+	*controlplaneApi.CreateChannelResponse, error) {
+	node, err := s.getFirstAvailableNode(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get available node for channel creation: %w", err)
+	}
+	return s.groupService.CreateChannel(ctx, createChannelRequest, node)
 }
 
 func (s *nbAPIService) DeleteChannel(
 	ctx context.Context, deleteChannelRequest *controllerapi.DeleteChannelRequest) (
 	*controllerapi.Ack, error) {
-	return s.groupService.DeleteChannel(ctx, deleteChannelRequest)
+	node, err := s.getFirstAvailableNode(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get available node for channel deletion: %w", err)
+	}
+	return s.groupService.DeleteChannel(ctx, deleteChannelRequest, node)
 }
 
 func (s *nbAPIService) AddParticipant(
 	ctx context.Context, addParticipantRequest *controllerapi.AddParticipantRequest) (
 	*controllerapi.Ack, error) {
-	return s.groupService.AddParticipant(ctx, addParticipantRequest)
+	node, err := s.getFirstAvailableNode(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get available node for adding participant: %w", err)
+	}
+	return s.groupService.AddParticipant(ctx, addParticipantRequest, node)
 }
 
 func (s *nbAPIService) DeleteParticipant(
 	ctx context.Context, deleteParticipantRequest *controllerapi.DeleteParticipantRequest) (
 	*controllerapi.Ack, error) {
-	return s.groupService.DeleteParticipant(ctx, deleteParticipantRequest)
+	node, err := s.getFirstAvailableNode(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get available node for deleting participant: %w", err)
+	}
+	return s.groupService.DeleteParticipant(ctx, deleteParticipantRequest, node)
 }
 
 func (s *nbAPIService) ListChannels(
@@ -213,4 +229,17 @@ func (s *nbAPIService) ListParticipants(
 	ctx context.Context, listParticipantsRequest *controllerapi.ListParticipantsRequest) (
 	*controllerapi.ListParticipantsResponse, error) {
 	return s.groupService.ListParticipants(ctx, listParticipantsRequest)
+}
+
+func (s *nbAPIService) getFirstAvailableNode(ctx context.Context) (
+	*controlplaneApi.NodeEntry, error) {
+	nodeListResponse, err := s.ListNodes(ctx, &controlplaneApi.NodeListRequest{})
+	if err != nil {
+		return nil, fmt.Errorf("failed to list nodes: %w", err)
+	}
+	if nodeListResponse.GetEntries() == nil || len(nodeListResponse.GetEntries()) == 0 {
+		return nil, fmt.Errorf("no nodes available")
+	}
+
+	return nodeListResponse.GetEntries()[0], nil
 }

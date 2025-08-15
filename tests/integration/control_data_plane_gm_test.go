@@ -1,0 +1,151 @@
+// Copyright AGNTCY Contributors (https://github.com/agntcy)
+// SPDX-License-Identifier: Apache-2.0
+
+package integration
+
+import (
+	"os/exec"
+	"strings"
+	"time"
+
+	. "github.com/onsi/ginkgo/v2"
+	. "github.com/onsi/gomega"
+	"github.com/onsi/gomega/gbytes"
+	"github.com/onsi/gomega/gexec"
+)
+
+var _ = Describe("Group management through control plane", func() {
+	var (
+		controlPlaneSession *gexec.Session
+		slimNodeSession     *gexec.Session
+		moderatorSession    *gexec.Session
+	)
+
+	BeforeEach(func() {
+		// start control plane
+		var errCP error
+		controlPlaneSession, errCP = gexec.Start(
+			exec.Command(controlPlanePath),
+			GinkgoWriter, GinkgoWriter,
+		)
+		Expect(errCP).NotTo(HaveOccurred())
+
+		// start a SLIM node
+		var errNode error
+		slimNodeSession, errNode = gexec.Start(
+			exec.Command(slimPath, "--config", "./testdata/server-a-config-cp.yaml"),
+			GinkgoWriter, GinkgoWriter,
+		)
+		Expect(errNode).NotTo(HaveOccurred())
+
+		// wait for services to start
+		time.Sleep(2000 * time.Millisecond)
+
+		// start moderator
+		var errModerator error
+		moderatorSession, errModerator = gexec.Start(
+			exec.Command(moderatorPath, "--config", "./testdata/moderator-config.yaml", "--name", "moderator1"),
+			GinkgoWriter, GinkgoWriter,
+		)
+		Expect(errModerator).NotTo(HaveOccurred())
+
+		// wait for moderator to connect
+		time.Sleep(1000 * time.Millisecond)
+
+		// set up routes
+	})
+
+	AfterEach(func() {
+		// terminate moderator
+		if moderatorSession != nil {
+			moderatorSession.Terminate().Wait(30 * time.Second)
+		}
+
+		// terminate SLIM node plane
+		if slimNodeSession != nil {
+			slimNodeSession.Terminate().Wait(30 * time.Second)
+		}
+
+		// terminate control plane
+		if controlPlaneSession != nil {
+			controlPlaneSession.Terminate().Wait(30 * time.Second)
+		}
+	})
+
+	Describe("group management with control plane", func() {
+
+		var channelID string
+		It("SLIM node creates channel, adds participant, removes participant and deletes channel", func() {
+			addChannelOutput, err := exec.Command(
+				slimctlPath,
+				"channel", "create",
+				"moderators=moderator1,moderator2",
+				"-s", "127.0.0.1:50051",
+			).CombinedOutput()
+			Expect(err).NotTo(HaveOccurred())
+			Expect(addChannelOutput).NotTo(BeEmpty())
+
+			Eventually(slimNodeSession, 15*time.Second).Should(gbytes.Say("received a create channel request, this should happen"))
+			Eventually(moderatorSession, 15*time.Second).Should(gbytes.Say("Controller requested channel creation for channel_id:"))
+			Eventually(controlPlaneSession, 15*time.Second).Should(gbytes.Say("Channel created successfully"))
+			Eventually(controlPlaneSession, 15*time.Second).Should(gbytes.Say("Channel saved successfully"))
+
+			// CombinedOutput is "Received response moderator1-... \n"
+			// Split channelID by spaces and get the chunk starting with moderator1
+			for _, id := range strings.Fields(string(addChannelOutput)) {
+				if strings.HasPrefix(id, "moderator1-") {
+					channelID = id
+					break
+				}
+			}
+
+			participantID := "participant1"
+			addParticipantOutput, errP := exec.Command(
+				slimctlPath,
+				"participant", "add",
+				participantID,
+				"--channel-id", channelID,
+				"-s", "127.0.0.1:50051",
+			).CombinedOutput()
+
+			Expect(errP).NotTo(HaveOccurred())
+			Expect(addParticipantOutput).NotTo(BeEmpty())
+
+			Eventually(slimNodeSession, 15*time.Second).Should(gbytes.Say("received a participant add request, this should happen"))
+
+			Eventually(controlPlaneSession, 15*time.Second).Should(gbytes.Say("Ack message received, participant added successfully."))
+			Eventually(controlPlaneSession, 15*time.Second).Should(gbytes.Say("Channel updated, participant added successfully."))
+
+			deleteParticipantOutput, errP := exec.Command(
+				slimctlPath,
+				"participant", "delete",
+				participantID,
+				"--channel-id", channelID,
+				"-s", "127.0.0.1:50051",
+			).CombinedOutput()
+
+			Expect(errP).NotTo(HaveOccurred())
+			Expect(deleteParticipantOutput).NotTo(BeEmpty())
+
+			Eventually(slimNodeSession, 15*time.Second).Should(gbytes.Say("received a participant delete request, this should happen"))
+
+			Eventually(controlPlaneSession, 15*time.Second).Should(gbytes.Say("Ack message received, participant deleted successfully."))
+			Eventually(controlPlaneSession, 15*time.Second).Should(gbytes.Say("Channel updated, participant deleted successfully"))
+
+			deleteChannelOutput, errC := exec.Command(
+				slimctlPath,
+				"channel", "delete",
+				channelID,
+				"-s", "127.0.0.1:50051",
+			).CombinedOutput()
+
+			Expect(errC).NotTo(HaveOccurred())
+			Expect(deleteChannelOutput).NotTo(BeEmpty())
+
+			Eventually(slimNodeSession, 15*time.Second).Should(gbytes.Say("received a channel delete request, this should happen"))
+
+			Eventually(controlPlaneSession, 15*time.Second).Should(gbytes.Say("Ack message received, channel deleted successfully."))
+			Eventually(controlPlaneSession, 15*time.Second).Should(gbytes.Say("Channel deleted successfully"))
+		})
+	})
+})
