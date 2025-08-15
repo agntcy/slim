@@ -264,6 +264,7 @@ func (s *sbAPIService) handleNodeMessages(stream controllerapi.ControllerService
 			resp, err := s.groupservice.DeleteChannel(
 				util.GetContextWithLogger(context.Background(), s.config.LogConfig),
 				payload.DeleteChannelRequest,
+				&controlplaneApi.NodeEntry{},
 			)
 			if err != nil {
 				zlog.Error().Msgf("Error deleting channel: %v", err)
@@ -320,6 +321,7 @@ func (s *sbAPIService) handleNodeMessages(stream controllerapi.ControllerService
 			resp, err := s.groupservice.DeleteParticipant(
 				util.GetContextWithLogger(context.Background(), s.config.LogConfig),
 				payload.DeleteParticipantRequest,
+				&controlplaneApi.NodeEntry{},
 			)
 			if err != nil {
 				zlog.Error().Msgf("Error deleting participant: %v", err)

@@ -623,7 +623,25 @@ impl ControllerService {
                             error!("failed to send Ack: {}", e);
                         }
                     }
-                    Payload::DeleteChannelRequest(_) => {}
+                    Payload::DeleteChannelRequest(_) => {
+                        info!("received a channel delete request, this should happen");
+
+                        // TODO: for testing
+                        let ack = Ack {
+                            original_message_id: msg.message_id.clone(),
+                            success: true,
+                            messages: vec![msg.message_id.clone()],
+                        };
+
+                        let reply = ControlMessage {
+                            message_id: uuid::Uuid::new_v4().to_string(),
+                            payload: Some(Payload::Ack(ack)),
+                        };
+
+                        if let Err(e) = tx.send(Ok(reply)).await {
+                            error!("failed to send Ack: {}", e);
+                        }
+                    }
                     Payload::AddParticipantRequest(_) => {
                         info!("received a participant add request, this should happen");
 
@@ -643,7 +661,25 @@ impl ControllerService {
                             error!("failed to send Ack: {}", e);
                         }
                     }
-                    Payload::DeleteParticipantRequest(_) => {}
+                    Payload::DeleteParticipantRequest(_) => {
+                        info!("received a participant delete request, this should happen");
+
+                        // TODO: for testing
+                        let ack = Ack {
+                            original_message_id: msg.message_id.clone(),
+                            success: true,
+                            messages: vec![msg.message_id.clone()],
+                        };
+
+                        let reply = ControlMessage {
+                            message_id: uuid::Uuid::new_v4().to_string(),
+                            payload: Some(Payload::Ack(ack)),
+                        };
+
+                        if let Err(e) = tx.send(Ok(reply)).await {
+                            error!("failed to send Ack: {}", e);
+                        }
+                    }
                     Payload::ListChannelRequest(_) => {}
                     Payload::ListChannelResponse(_) => {}
                     Payload::ListParticipantsRequest(_) => {}
