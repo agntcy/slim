@@ -114,8 +114,8 @@ func (s *GroupService) DeleteChannel(
 	}
 
 	zlog.Debug().Msgf("Sending DeleteChannelRequest for channel %s", deleteChannelRequest.ChannelId)
-	if err := s.cmdHandler.SendMessage(nodeEntry.Id, msg); err != nil {
-		return nil, fmt.Errorf("failed to send message: %w", err)
+	if handlerError := s.cmdHandler.SendMessage(nodeEntry.Id, msg); handlerError != nil {
+		return nil, fmt.Errorf("failed to send message: %w", handlerError)
 	}
 
 	// wait for ACK response
@@ -249,8 +249,8 @@ func (s *GroupService) DeleteParticipant(
 	}
 
 	zlog.Debug().Msgf("Sending DeleteParticipantRequest for channel %s", deleteParticipantRequest.ChannelId)
-	if err := s.cmdHandler.SendMessage(nodeEntry.Id, msg); err != nil {
-		return nil, fmt.Errorf("failed to send message: %w", err)
+	if handlerError := s.cmdHandler.SendMessage(nodeEntry.Id, msg); handlerError != nil {
+		return nil, fmt.Errorf("failed to send message: %w", handlerError)
 	}
 
 	// wait for ACK response
