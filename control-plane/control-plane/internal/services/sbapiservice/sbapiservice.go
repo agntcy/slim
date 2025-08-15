@@ -77,7 +77,7 @@ func (s *sbAPIService) OpenControlChannel(stream controllerapi.ControllerService
 
 	go func() {
 		rmsg, rerr := stream.Recv()
-		if err != nil {
+		if rerr != nil {
 			errCh <- rerr
 			return
 		}
@@ -96,6 +96,7 @@ func (s *sbAPIService) OpenControlChannel(stream controllerapi.ControllerService
 	}
 
 	registeredNodeID := ""
+
 	// Check for ControlMessage_RegisterNodeRequest
 	if regReq, ok := msg.Payload.(*controllerapi.ControlMessage_RegisterNodeRequest); ok {
 		registeredNodeID = regReq.RegisterNodeRequest.NodeId
@@ -112,10 +113,10 @@ func (s *sbAPIService) OpenControlChannel(stream controllerapi.ControllerService
 					port = uint32(addr.Port)
 				}
 			default:
-				hostStr, portStr, err := net.SplitHostPort(peerInfo.Addr.String())
-				if err == nil {
+				hostStr, portStr, splitErr := net.SplitHostPort(peerInfo.Addr.String())
+				if splitErr == nil {
 					host = hostStr
-					if p, err := strconv.Atoi(portStr); err == nil && p >= 0 && p <= 65535 {
+					if p, parseErr := strconv.ParseUint(portStr, 10, 16); parseErr == nil { // validated to 0-65535 by bit size 16
 						port = uint32(p)
 					}
 				}
