@@ -626,7 +626,7 @@ impl ControllerService {
                     Payload::DeleteChannelRequest(_) => {
                         info!("received a channel delete request, this should happen");
 
-                        // TODO: for testing
+                        // TODO: this is for testing, implement proper channel deletion
                         let ack = Ack {
                             original_message_id: msg.message_id.clone(),
                             success: true,
@@ -645,7 +645,7 @@ impl ControllerService {
                     Payload::AddParticipantRequest(_) => {
                         info!("received a participant add request, this should happen");
 
-                        // TODO: for testing
+                        // TODO: this is for testing, implement proper participant addition
                         let ack = Ack {
                             original_message_id: msg.message_id.clone(),
                             success: true,
@@ -664,7 +664,7 @@ impl ControllerService {
                     Payload::DeleteParticipantRequest(_) => {
                         info!("received a participant delete request, this should happen");
 
-                        // TODO: for testing
+                        // TODO: this is for testing, implement proper participant deletion
                         let ack = Ack {
                             original_message_id: msg.message_id.clone(),
                             success: true,
