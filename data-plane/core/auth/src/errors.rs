@@ -25,4 +25,19 @@ pub enum AuthError {
 
     #[error("invalid header: {0}")]
     InvalidHeader(String),
+
+    #[error("OpenID Connect error: {0}")]
+    OpenIdConnectError(String),
+
+    #[error("JWT AWS LC error: {0}")]
+    JwtAwsLcError(#[from] jsonwebtoken_aws_lc::errors::Error),
+
+    #[error("unsupported operation: {0}")]
+    UnsupportedOperation(String),
+
+    #[error("HTTP request error: {0}")]
+    HttpError(#[from] reqwest::Error),
+
+    #[error("JSON serialization error: {0}")]
+    JsonError(#[from] serde_json::Error),
 }

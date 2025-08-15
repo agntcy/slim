@@ -6,6 +6,7 @@ pub mod errors;
 pub mod file_watcher;
 pub mod jwt;
 pub mod jwt_middleware;
+pub mod oidc;
 pub mod resolver;
 pub mod shared_secret;
 pub mod testutils;
