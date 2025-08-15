@@ -3,35 +3,32 @@
 
 use clap::Parser;
 use std::collections::HashMap;
-use std::time::{Duration, SystemTime};
+use std::time::Duration;
 use tokio::time;
-use tracing::{info, error};
+use tracing::{error, info};
 
 use slim::config;
 use slim_auth::shared_secret::SharedSecret;
 use slim_datapath::messages::Name;
 use slim_mls::mls::Mls;
-use slim_service::{FireAndForgetConfiguration, StreamingConfiguration, session::{SessionConfig, SessionDirection, Info as SessionInfo}};
+use slim_service::{
+    FireAndForgetConfiguration, StreamingConfiguration,
+    session::{Info as SessionInfo, SessionConfig, SessionDirection},
+};
 
 mod args;
 
 #[derive(Debug, Clone)]
 struct ChannelInfo {
-    channel_id: String,
-    moderators: Vec<String>,
     mls_group_id: Option<Vec<u8>>,
     session_info: Option<SessionInfo>,
-    created_at: SystemTime,
 }
 
 impl ChannelInfo {
-    fn new(channel_id: String, moderators: Vec<String>) -> Self {
+    fn new() -> Self {
         Self {
-            channel_id,
-            moderators,
             mls_group_id: None,
             session_info: None,
-            created_at: SystemTime::now(),
         }
     }
 }
@@ -43,53 +40,57 @@ async fn create_channel(
     channels: &mut HashMap<String, ChannelInfo>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     info!("Creating channel {}", channel_id);
-    
-    let mut channel_info = ChannelInfo::new(
-        channel_id.to_string(), 
-        vec![moderator_name.to_string()]
-    );
-    
+
+    let mut channel_info = ChannelInfo::new();
+
     info!("Creating MLS group for channel: {}", channel_id);
-    
+
     // Create MLS instance
     let identity_provider = SharedSecret::new(moderator_name, "group");
     let identity_verifier = SharedSecret::new(moderator_name, "group");
     let moderator_name_obj = Name::from_strings(["org", "default", moderator_name]).with_id(0);
-    let mls_storage_path = std::path::PathBuf::from(format!("/tmp/mls_moderator_{}", moderator_name));
-    
+    let mls_storage_path =
+        std::path::PathBuf::from(format!("/tmp/mls_moderator_{}", moderator_name));
+
     let mut mls = Mls::new(
         moderator_name_obj,
         identity_provider,
         identity_verifier,
         mls_storage_path,
     );
-    
+
     mls.initialize()?;
-    
+
     // Create MLS group
     let group_id = mls.create_group()?;
     info!("Created MLS group with ID: {:?}", group_id);
-    
+
     channel_info.mls_group_id = Some(group_id);
-    
+
     let channel_name = Name::from_strings(["channel", "channel", channel_id]).with_id(0);
-    let session_info = app.create_session(
-        SessionConfig::Streaming(StreamingConfiguration::new(
-            SessionDirection::Bidirectional,
-            channel_name.clone(),
-            true,
-            Some(10),
-            Some(Duration::from_secs(1)),
-            true,
-        )),
-        Some(channel_id.parse::<u32>().unwrap_or(12345)),
-    ).await?;
-    
+    let session_info = app
+        .create_session(
+            SessionConfig::Streaming(StreamingConfiguration::new(
+                SessionDirection::Bidirectional,
+                channel_name.clone(),
+                true,
+                Some(10),
+                Some(Duration::from_secs(1)),
+                true,
+            )),
+            Some(channel_id.parse::<u32>().unwrap_or(12345)),
+        )
+        .await?;
+
     channel_info.session_info = Some(session_info);
-    
+
     channels.insert(channel_id.to_string(), channel_info);
-    info!("Channel {} stored in channels map. Total channels: {}", channel_id, channels.len());
-    
+    info!(
+        "Channel {} stored in channels map. Total channels: {}",
+        channel_id,
+        channels.len()
+    );
+
     Ok(())
 }
 
@@ -194,7 +195,7 @@ async fn main() {
                                 if text.starts_with("create_channel:") {
                                     let channel_id = text.strip_prefix("create_channel:").unwrap_or("");
                                     info!("Controller requested channel creation for channel_id: {}", channel_id);
-                                    
+
                                     match create_channel(&app, channel_id, moderator_name, &mut channels).await {
                                         Ok(()) => {
                                             info!("Successfully created channel: {}", channel_id);
