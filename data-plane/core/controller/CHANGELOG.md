@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0](https://github.com/agntcy/slim/compare/slim-controller-v0.2.0...slim-controller-v0.3.0) - 2025-08-18
+
+### Added
+
+- Update buf ci config ([#532](https://github.com/agntcy/slim/pull/532))
+- Update SB API in control-plane to support group crud operations ([#478](https://github.com/agntcy/slim/pull/478))
+
 ## [0.2.0](https://github.com/agntcy/slim/compare/slim-controller-v0.1.1...slim-controller-v0.2.0) - 2025-07-31
 
 ### Added
