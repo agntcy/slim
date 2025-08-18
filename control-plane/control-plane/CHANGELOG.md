@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.1](https://github.com/agntcy/slim/compare/control-plane-v0.1.0...control-plane-v0.1.1) (2025-08-18)
+
+
+### Features
+
+* Update SB API in control-plane to support group crud operations ([#478](https://github.com/agntcy/slim/issues/478)) ([c7b9afb](https://github.com/agntcy/slim/commit/c7b9afb139bac536f22a99f2a4e8185ad95af788))
+
 ## [0.1.0](https://github.com/agntcy/slim/compare/control-plane-v0.0.1...control-plane-v0.1.0) (2025-07-31)
 
 
