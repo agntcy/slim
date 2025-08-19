@@ -108,10 +108,10 @@ class Server:
         async with local_app:
             # Wait for a message and reply in a loop
             while True:
-                logging.info(f"{instance} waiting for new session to be established")
+                logger.info(f"{instance} waiting for new session to be established")
 
                 session_info, _ = await local_app.receive()
-                logging.info(
+                logger.info(
                     f"{instance} received a new session: {session_info.id}",
                 )
 
@@ -122,7 +122,7 @@ class Server:
     ) -> None:
         rpc_handler: RPCHandler = self.handlers[session_info.destination_name]
 
-        logging.info(f"new session from {session_info.source_name}")
+        logger.info(f"new session from {session_info.source_name}")
 
         # Call the RPC handler
         if session_info.destination_name not in self.handlers:
