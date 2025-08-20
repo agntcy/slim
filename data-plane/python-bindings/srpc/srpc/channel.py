@@ -61,12 +61,13 @@ class Channel:
         # Start receiving messages
         await self.local_app.__aenter__()
 
-    def close(self) -> None:
+    async def close(self) -> None:
         """
         Close the channel.
         """
+        await self._prepare_task
         if self.local_app is not None:
-            self.local_app.__aexit__(None, None, None)
+            await self.local_app.__aexit__(None, None, None)
 
     async def _common_setup(
         self, method: str, metadata: dict[str, str] | None = None

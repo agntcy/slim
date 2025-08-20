@@ -199,4 +199,4 @@ class SRPCTransport(ClientTransport):
 
     async def close(self) -> None:
         """Closes the gRPC channel."""
-        self.channel.close()
+        await self.channel.close()
