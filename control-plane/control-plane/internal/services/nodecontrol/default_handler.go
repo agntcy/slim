@@ -22,7 +22,7 @@ type defaultNodeCommandHandler struct {
 
 // WaitForResponse implements NodeCommandHandler.
 func (m *defaultNodeCommandHandler) WaitForResponse(
-	nodeID string, messageType reflect.Type,
+	nodeID string, messageType reflect.Type, messageID string,
 ) (*controllerapi.ControlMessage, error) {
 	if nodeID == "" {
 		return nil, fmt.Errorf("nodeID cannot be empty")
@@ -41,11 +41,21 @@ func (m *defaultNodeCommandHandler) WaitForResponse(
 	fmt.Println("Waiting for message of type:", messageType)
 
 	// wait on that channel with timeout
-	select {
-	case msg := <-ch:
-		return msg, nil
-	case <-time.After(10 * time.Second):
-		return nil, fmt.Errorf("timeout waiting for message of type %v", messageType)
+	for {
+		select {
+		case msg := <-ch:
+			if reflect.TypeOf(msg.GetPayload()) == reflect.TypeOf(&controllerapi.ControlMessage_Ack{}) {
+				ackMsg := msg.GetAck()
+				if ackMsg != nil && ackMsg.GetOriginalMessageId() == messageID {
+					return msg, nil
+				}
+				continue
+			} else {
+				return msg, nil
+			}
+		case <-time.After(10 * time.Second):
+			return nil, fmt.Errorf("timeout waiting for message of type %v", messageType)
+		}
 	}
 }
 

@@ -23,7 +23,7 @@ type NodeCommandHandler interface {
 	GetConnectionStatus(nodeID string) (NodeStatus, error)
 	UpdateConnectionStatus(nodeID string, status NodeStatus)
 
-	WaitForResponse(nodeID string, messageType reflect.Type) (*controllerapi.ControlMessage, error)
+	WaitForResponse(nodeID string, messageType reflect.Type, messageID string) (*controllerapi.ControlMessage, error)
 	ResponseReceived(nodeID string, command *controllerapi.ControlMessage)
 }
 

@@ -106,6 +106,7 @@ func (s *NodeRegistrationService) NodeRegistered(ctx context.Context, nodeID str
 	response, err := s.nodeCommandHandler.WaitForResponse(
 		nodeID,
 		reflect.TypeOf(&controllerapi.ControlMessage_Ack{}),
+		messageID,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to receive ACK response from node %s: %w", nodeID, err)

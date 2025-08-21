@@ -14,6 +14,70 @@ import (
 	controllerapi "github.com/agntcy/slim/control-plane/common/proto/controller/v1"
 )
 
+func TestWaitForResponseByType_ControlMessage_Ack_Failure(t *testing.T) {
+	ms := DefaultNodeCommandHandler()
+
+	msg := &controllerapi.ControlMessage{
+		MessageId: "messageID",
+		Payload: &controllerapi.ControlMessage_Ack{
+			Ack: &controllerapi.Ack{
+				OriginalMessageId: "originalMessageId",
+			},
+		},
+	}
+
+	// Test that we can wait for and receive messages from specific nodes
+	// Start goroutines to simulate ResponseReceived calls
+	go func() {
+		time.Sleep(100 * time.Millisecond)
+		ms.ResponseReceived("node1", msg)
+	}()
+
+	// Wait for message from node1 specifically
+	start := time.Now()
+	_, err := ms.WaitForResponse("node1", reflect.TypeOf(&controllerapi.ControlMessage_Ack{}), "notReceivedMessageID")
+	duration := time.Since(start)
+
+	if err == nil {
+		t.Fatal("expected timeout error")
+	}
+
+	// Should timeout after approximately 10 seconds
+	if duration < 9*time.Second || duration > 11*time.Second {
+		t.Errorf("expected timeout around 10 seconds, got %v", duration)
+	}
+
+}
+
+func TestWaitForResponseByType_ControlMessage_Ack_Success(t *testing.T) {
+	ms := DefaultNodeCommandHandler()
+
+	msg := &controllerapi.ControlMessage{
+		MessageId: "messageID",
+		Payload: &controllerapi.ControlMessage_Ack{
+			Ack: &controllerapi.Ack{
+				OriginalMessageId: "originalMessageId",
+			},
+		},
+	}
+
+	// Test that we can wait for and receive messages from specific nodes
+	// Start goroutines to simulate ResponseReceived calls
+	go func() {
+		time.Sleep(100 * time.Millisecond)
+		ms.ResponseReceived("node1", msg)
+	}()
+
+	// Wait for message from node1 specifically
+	foundMsg, err := ms.WaitForResponse("node1", reflect.TypeOf(&controllerapi.ControlMessage_Ack{}), "originalMessageId")
+	if err != nil {
+		t.Fatalf("unexpected error waiting for node1 message: %v", err)
+	}
+	if foundMsg.MessageId != "messageID" {
+		t.Errorf("expected messageID, got %s", foundMsg.MessageId)
+	}
+}
+
 func TestWaitForResponseByType_MultipleNodes(t *testing.T) {
 	ms := DefaultNodeCommandHandler()
 
@@ -45,7 +109,7 @@ func TestWaitForResponseByType_MultipleNodes(t *testing.T) {
 	}()
 
 	// Wait for message from node1 specifically
-	foundMsg, err := ms.WaitForResponse("node1", reflect.TypeOf(&controllerapi.ControlMessage_ConfigCommand{}))
+	foundMsg, err := ms.WaitForResponse("node1", reflect.TypeOf(&controllerapi.ControlMessage_ConfigCommand{}), "")
 	if err != nil {
 		t.Fatalf("unexpected error waiting for node1 message: %v", err)
 	}
@@ -55,7 +119,7 @@ func TestWaitForResponseByType_MultipleNodes(t *testing.T) {
 	}
 
 	// Wait for message from node2 specifically
-	foundMsg, err = ms.WaitForResponse("node2", reflect.TypeOf(&controllerapi.ControlMessage_ConfigCommand{}))
+	foundMsg, err = ms.WaitForResponse("node2", reflect.TypeOf(&controllerapi.ControlMessage_ConfigCommand{}), "")
 	if err != nil {
 		t.Fatalf("unexpected error waiting for node2 message: %v", err)
 	}
@@ -68,7 +132,7 @@ func TestWaitForResponseByType_MultipleNodes(t *testing.T) {
 func TestWaitForResponseByType_EmptyNodeID(t *testing.T) {
 	ms := DefaultNodeCommandHandler()
 
-	_, err := ms.WaitForResponse("", reflect.TypeOf(&controllerapi.ControlMessage_ConfigCommand{}))
+	_, err := ms.WaitForResponse("", reflect.TypeOf(&controllerapi.ControlMessage_ConfigCommand{}), "")
 	if err == nil {
 		t.Fatal("expected error when nodeID is empty")
 	}
@@ -77,7 +141,7 @@ func TestWaitForResponseByType_EmptyNodeID(t *testing.T) {
 func TestWaitForResponseByType_NilMessageType(t *testing.T) {
 	ms := DefaultNodeCommandHandler()
 
-	_, err := ms.WaitForResponse("node1", nil)
+	_, err := ms.WaitForResponse("node1", nil, "")
 	if err == nil {
 		t.Fatal("expected error when messageType is nil")
 	}
@@ -88,7 +152,7 @@ func TestWaitForResponseByType_Timeout(t *testing.T) {
 
 	// This should timeout since no message will be received
 	start := time.Now()
-	_, err := ms.WaitForResponse("node1", reflect.TypeOf(&controllerapi.ControlMessage_ConfigCommand{}))
+	_, err := ms.WaitForResponse("node1", reflect.TypeOf(&controllerapi.ControlMessage_ConfigCommand{}), "")
 	duration := time.Since(start)
 
 	if err == nil {
