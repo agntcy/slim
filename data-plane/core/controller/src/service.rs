@@ -642,10 +642,56 @@ impl ControllerService {
                             error!("failed to send Ack: {}", e);
                         }
                     }
-                    Payload::AddParticipantRequest(_) => {
-                        info!("received a participant add request, this should happen");
+                    Payload::AddParticipantRequest(req) => {
+                        info!(
+                            "received a participant add request for channel: {}, participant: {}",
+                            req.channel_id, req.participant_id
+                        );
 
-                        // TODO: this is for testing, implement proper participant addition
+                        let channel_id = req.channel_id.clone();
+                        let participant_id = req.participant_id.clone();
+
+                        // Send message to moderator1 (hardcoded for now, same as CreateChannelRequest)
+                        let moderator_name =
+                            Name::from_strings(["org", "default", "moderator1"]).with_id(0);
+                        let source_name =
+                            Name::from_strings(["controller", "controller", "controller"])
+                                .with_id(0);
+                        let message_content =
+                            format!("add_participant:{}:{}", channel_id, participant_id);
+
+                        let slim_header = Some(SlimHeader::new(
+                            &source_name,
+                            &moderator_name,
+                            Some(SlimHeaderFlags::default()),
+                        ));
+                        let session_header = Some(SessionHeader::new(
+                            ProtoSessionType::SessionFireForget.into(),
+                            ProtoSessionMessageType::FnfMsg.into(),
+                            0,
+                            Uuid::new_v4().as_u128() as u32,
+                        ));
+
+                        let mut publish_msg = PubsubMessage::new_publish_with_headers(
+                            slim_header,
+                            session_header,
+                            "text/plain",
+                            message_content.into_bytes(),
+                        );
+
+                        let controller_identity = SharedSecret::new("controller", "group");
+                        let identity_token = controller_identity.get_token().map_err(|e| {
+                            error!("Failed to generate identity token: {}", e);
+                            ControllerError::DatapathError(e.to_string())
+                        })?;
+                        publish_msg.insert_metadata(SLIM_IDENTITY.to_string(), identity_token);
+
+                        if let Err(e) = self.send_control_message(publish_msg).await {
+                            error!("FAILED to send message to moderator1: {}", e);
+                        } else {
+                            info!("SUCCESSFULLY sent add_participant message to moderator1");
+                        }
+
                         let ack = Ack {
                             original_message_id: msg.message_id.clone(),
                             success: true,
