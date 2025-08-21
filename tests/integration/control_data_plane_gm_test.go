@@ -19,6 +19,8 @@ var _ = Describe("Group management through control plane", func() {
 		controlPlaneSession *gexec.Session
 		slimNodeSession     *gexec.Session
 		moderatorSession    *gexec.Session
+		clientASession      *gexec.Session
+		clientBSession      *gexec.Session
 	)
 
 	BeforeEach(func() {
@@ -52,10 +54,43 @@ var _ = Describe("Group management through control plane", func() {
 		// wait for moderator to connect
 		time.Sleep(1000 * time.Millisecond)
 
+		// start mock clients
+		var errClientA, errClientB error
+		clientASession, errClientA = gexec.Start(
+			exec.Command(sdkMockPath,
+				"--config", "./testdata/client-a-config.yaml",
+				"--local-name", "a",
+				"--remote-name", "b",
+			),
+			GinkgoWriter, GinkgoWriter,
+		)
+		Expect(errClientA).NotTo(HaveOccurred())
+
+		clientBSession, errClientB = gexec.Start(
+			exec.Command(sdkMockPath,
+				"--config", "./testdata/client-b-config.yaml",
+				"--local-name", "b",
+				"--remote-name", "a",
+			),
+			GinkgoWriter, GinkgoWriter,
+		)
+		Expect(errClientB).NotTo(HaveOccurred())
+
+		// wait for clients to connect
+		time.Sleep(1000 * time.Millisecond)
+
 		// set up routes
 	})
 
 	AfterEach(func() {
+		// terminate clients
+		if clientASession != nil {
+			clientASession.Terminate().Wait(2 * time.Second)
+		}
+		if clientBSession != nil {
+			clientBSession.Terminate().Wait(2 * time.Second)
+		}
+
 		// terminate moderator
 		if moderatorSession != nil {
 			moderatorSession.Terminate().Wait(30 * time.Second)
@@ -73,7 +108,6 @@ var _ = Describe("Group management through control plane", func() {
 	})
 
 	Describe("group management with control plane", func() {
-
 		var channelID string
 		It("SLIM node creates channel, adds participant, removes participant and deletes channel", func() {
 			addChannelOutput, err := exec.Command(
@@ -99,6 +133,47 @@ var _ = Describe("Group management through control plane", func() {
 				}
 			}
 
+			// Invite clientA to the channel
+			addClientAOutput, errA := exec.Command(
+				slimctlPath,
+				"participant", "add",
+				"a",
+				"--channel-id", channelID,
+				"-s", "127.0.0.1:50051",
+			).CombinedOutput()
+
+			Expect(errA).NotTo(HaveOccurred())
+			Expect(addClientAOutput).NotTo(BeEmpty())
+
+			Eventually(slimNodeSession, 15*time.Second).Should(gbytes.Say("received a participant add request for channel"))
+			Eventually(moderatorSession, 15*time.Second).Should(gbytes.Say("Controller requested to add participant a to channel"))
+			Eventually(moderatorSession, 15*time.Second).Should(gbytes.Say("Successfully invited participant a to channel"))
+			// TODO: Verify client receives invitation
+			// Eventually(clientASession, 15*time.Second).Should(gbytes.Say("received invitation"))
+			Eventually(controlPlaneSession, 15*time.Second).Should(gbytes.Say("Ack message received, participant added successfully."))
+			Eventually(controlPlaneSession, 15*time.Second).Should(gbytes.Say("Channel updated, participant added successfully."))
+
+			// Invite clientB to the channel
+			/*addClientBOutput, errB := exec.Command(
+			      slimctlPath,
+			      "participant", "add",
+			      "b",
+			      "--channel-id", channelID,
+			      "-s", "127.0.0.1:50051",
+			  ).CombinedOutput()
+
+			  Expect(errB).NotTo(HaveOccurred())
+			  Expect(addClientBOutput).NotTo(BeEmpty())
+
+			  Eventually(slimNodeSession, 15*time.Second).Should(gbytes.Say("received a participant add request for channel"))
+			  Eventually(moderatorSession, 15*time.Second).Should(gbytes.Say("Controller requested to add participant b to channel"))
+			  Eventually(moderatorSession, 15*time.Second).Should(gbytes.Say("Successfully invited participant b to channel"))
+			  // TODO: Verify client receives invitation
+			  // Eventually(clientBSession, 15*time.Second).Should(gbytes.Say("received invitation"))
+			  Eventually(controlPlaneSession, 15*time.Second).Should(gbytes.Say("Ack message received, participant added successfully."))
+			  Eventually(controlPlaneSession, 15*time.Second).Should(gbytes.Say("Channel updated, participant added successfully."))*/
+
+			// Add participant1 for testing removal
 			participantID := "participant1"
 			addParticipantOutput, errP := exec.Command(
 				slimctlPath,
@@ -111,7 +186,7 @@ var _ = Describe("Group management through control plane", func() {
 			Expect(errP).NotTo(HaveOccurred())
 			Expect(addParticipantOutput).NotTo(BeEmpty())
 
-			Eventually(slimNodeSession, 15*time.Second).Should(gbytes.Say("received a participant add request, this should happen"))
+			Eventually(slimNodeSession, 15*time.Second).Should(gbytes.Say("received a participant add request for channel"))
 
 			Eventually(controlPlaneSession, 15*time.Second).Should(gbytes.Say("Ack message received, participant added successfully."))
 			Eventually(controlPlaneSession, 15*time.Second).Should(gbytes.Say("Channel updated, participant added successfully."))

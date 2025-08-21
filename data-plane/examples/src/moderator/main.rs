@@ -204,6 +204,34 @@ async fn main() {
                                             error!("Failed to create channel {}: {}", channel_id, e);
                                         }
                                     }
+                                } else if text.starts_with("add_participant:") {
+                                    // Format: add_participant:channel_id:participant_id
+                                    let parts: Vec<&str> = text.strip_prefix("add_participant:").unwrap_or("").split(':').collect();
+                                    if parts.len() == 2 {
+                                        let channel_id = parts[0];
+                                        let participant_id = parts[1];
+                                        info!("Controller requested to add participant {} to channel {}", participant_id, channel_id);
+
+                                        if let Some(channel_info) = channels.get(channel_id) {
+                                            if let Some(session_info) = &channel_info.session_info {
+                                                // Invite the participant to the session
+                                                let participant_name = Name::from_strings(["org", "default", participant_id]).with_id(0);
+
+                                                match app.invite_participant(&participant_name, session_info.clone()).await {
+                                                    Ok(()) => {
+                                                        info!("Successfully invited participant {} to channel {}", participant_id, channel_id);
+                                                    }
+                                                    Err(e) => {
+                                                        error!("Failed to invite participant {} to channel {}: {}", participant_id, channel_id, e);
+                                                    }
+                                                }
+                                            } else {
+                                                error!("Channel {} has no session info", channel_id);
+                                            }
+                                        } else {
+                                            error!("Channel {} does not exist", channel_id);
+                                        }
+                                    }
                                 }
                             }
                             Err(_) => {
