@@ -18,6 +18,7 @@ import (
 	"github.com/knadh/koanf/providers/posflag"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
+	"go.uber.org/zap"
 
 	"github.com/agntcy/slim/control-plane/common/options"
 	controllerCmd "github.com/agntcy/slim/control-plane/slimctl/internal/cmd/controller"
@@ -89,7 +90,18 @@ func main() {
 		Use:   "slimctl",
 		Short: "SLIM control CLI",
 		PersistentPreRunE: func(cmd *cobra.Command, _ []string) error {
-			return initConfig(opts, cmd.Root().PersistentFlags())
+			if err := initConfig(opts, cmd.Root().PersistentFlags()); err != nil {
+				return err
+			}
+			// Initialize a default logger if none is provided to avoid nil dereference in commands.
+			if opts.Logger == nil {
+				l, err := zap.NewProduction()
+				if err != nil {
+					return fmt.Errorf("failed to initialize logger: %w", err)
+				}
+				opts.Logger = l
+			}
+			return nil
 		},
 	}
 
