@@ -27,8 +27,9 @@ func (s *RouteService) ListSubscriptions(
 	_ context.Context,
 	nodeEntry *controlplaneApi.NodeEntry,
 ) (*controllerapi.SubscriptionListResponse, error) {
+	messageID := uuid.NewString()
 	msg := &controllerapi.ControlMessage{
-		MessageId: uuid.NewString(),
+		MessageId: messageID,
 		Payload:   &controllerapi.ControlMessage_SubscriptionListRequest{},
 	}
 
@@ -36,7 +37,7 @@ func (s *RouteService) ListSubscriptions(
 		return nil, fmt.Errorf("failed to send message: %w", err)
 	}
 	resp, err := s.cmdHandler.WaitForResponse(nodeEntry.Id,
-		reflect.TypeOf(&controllerapi.ControlMessage_SubscriptionListResponse{}))
+		reflect.TypeOf(&controllerapi.ControlMessage_SubscriptionListResponse{}), messageID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to receive SubscriptionListResponse: %w", err)
 	}
@@ -67,8 +68,9 @@ func (s *RouteService) ListConnections(
 	_ context.Context,
 	nodeEntry *controlplaneApi.NodeEntry,
 ) (*controllerapi.ConnectionListResponse, error) {
+	messageID := uuid.NewString()
 	msg := &controllerapi.ControlMessage{
-		MessageId: uuid.NewString(),
+		MessageId: messageID,
 		Payload:   &controllerapi.ControlMessage_ConnectionListRequest{},
 	}
 
@@ -76,7 +78,7 @@ func (s *RouteService) ListConnections(
 		return nil, fmt.Errorf("failed to send message: %w", err)
 	}
 	response, err := s.cmdHandler.WaitForResponse(nodeEntry.Id,
-		reflect.TypeOf(&controllerapi.ControlMessage_ConnectionListResponse{}))
+		reflect.TypeOf(&controllerapi.ControlMessage_ConnectionListResponse{}), messageID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to receive ConnectionListResponse: %w", err)
 	}
@@ -116,7 +118,10 @@ func (s *RouteService) CreateConnection(
 		return err
 	}
 	// wait for ACK response
-	response, err := s.cmdHandler.WaitForResponse(nodeEntry.Id, reflect.TypeOf(&controllerapi.ControlMessage_Ack{}))
+	response, err := s.cmdHandler.WaitForResponse(nodeEntry.Id,
+		reflect.TypeOf(&controllerapi.ControlMessage_Ack{}),
+		messageID,
+	)
 	if err != nil {
 		return err
 	}
@@ -159,7 +164,9 @@ func (s *RouteService) CreateSubscription(
 	}
 	// wait for ACK response
 	response, err := s.cmdHandler.WaitForResponse(nodeEntry.Id,
-		reflect.TypeOf(&controllerapi.ControlMessage_Ack{}))
+		reflect.TypeOf(&controllerapi.ControlMessage_Ack{}),
+		messageID,
+	)
 	if err != nil {
 		return err
 	}
@@ -181,9 +188,9 @@ func (s *RouteService) DeleteSubscription(
 	subscription *controllerapi.Subscription,
 ) error {
 	zlog := zerolog.Ctx(ctx)
-
+	messageID := uuid.NewString()
 	msg := &controllerapi.ControlMessage{
-		MessageId: uuid.NewString(),
+		MessageId: messageID,
 		Payload: &controllerapi.ControlMessage_ConfigCommand{
 			ConfigCommand: &controllerapi.ConfigurationCommand{
 				ConnectionsToCreate:   []*controllerapi.Connection{},
@@ -198,7 +205,10 @@ func (s *RouteService) DeleteSubscription(
 		return err
 	}
 	// wait for ACK response
-	response, err := s.cmdHandler.WaitForResponse(nodeEntry.Id, reflect.TypeOf(&controllerapi.ControlMessage_Ack{}))
+	response, err := s.cmdHandler.WaitForResponse(nodeEntry.Id,
+		reflect.TypeOf(&controllerapi.ControlMessage_Ack{}),
+		messageID,
+	)
 	if err != nil {
 		return err
 	}
