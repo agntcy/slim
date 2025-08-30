@@ -68,7 +68,7 @@ pub struct PubsubConfig {
 pub struct ServiceConfiguration {
     /// Pubsub API configuration
     #[serde(default)]
-    pub pubsub: PubsubConfig,
+    pub dataplane: PubsubConfig,
 
     /// Controller API configuration
     #[serde(default)]
@@ -81,21 +81,21 @@ impl ServiceConfiguration {
     }
 
     pub fn with_server(mut self, server: Vec<ServerConfig>) -> Self {
-        self.pubsub.servers = server;
+        self.dataplane.servers = server;
         self
     }
 
     pub fn with_client(mut self, clients: Vec<ClientConfig>) -> Self {
-        self.pubsub.clients = clients;
+        self.dataplane.clients = clients;
         self
     }
 
     pub fn servers(&self) -> &[ServerConfig] {
-        self.pubsub.servers.as_ref()
+        self.dataplane.servers.as_ref()
     }
 
     pub fn clients(&self) -> &[ClientConfig] {
-        &self.pubsub.clients
+        &self.dataplane.clients
     }
 
     pub fn build_server(&self, id: ID) -> Result<Service, ServiceError> {
@@ -107,10 +107,10 @@ impl ServiceConfiguration {
 impl Configuration for ServiceConfiguration {
     fn validate(&self) -> Result<(), ConfigurationError> {
         // Validate client and server configurations
-        for server in self.pubsub.servers.iter() {
+        for server in self.dataplane.servers.iter() {
             server.validate()?;
         }
-        for client in &self.pubsub.clients {
+        for client in &self.dataplane.clients {
             client.validate()?;
         }
 
@@ -194,20 +194,20 @@ impl Service {
     /// Run the service
     pub async fn run(&mut self) -> Result<(), ServiceError> {
         // Check that at least one client or server is configured
-        if self.config.servers().is_empty() && self.config.pubsub.clients.is_empty() {
+        if self.config.servers().is_empty() && self.config.dataplane.clients.is_empty() {
             return Err(ServiceError::ConfigError(
-                "no pubsub server or clients configured".to_string(),
+                "no dataplane server or clients configured".to_string(),
             ));
         }
 
         // Run servers
-        for server in self.config.pubsub.servers.iter() {
+        for server in self.config.dataplane.servers.iter() {
             info!("starting server {}", server.endpoint);
             self.run_server(server)?;
         }
 
         // Run clients
-        for client in self.config.pubsub.clients.iter() {
+        for client in self.config.dataplane.clients.iter() {
             info!("connecting client to {}", client.endpoint);
             _ = self.connect(client).await?;
         }
