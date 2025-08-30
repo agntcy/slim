@@ -23,6 +23,7 @@ mod moderator_task;
 pub use fire_and_forget::FireAndForgetConfiguration;
 pub use session::SessionMessage;
 use slim_controller::config::Config as ControllerConfig;
+use slim_controller::config::Config as DataplaneConfig;
 use slim_datapath::messages::Name;
 pub use slim_datapath::messages::utils::SlimHeaderFlags;
 pub use streaming::StreamingConfiguration;
@@ -54,21 +55,10 @@ use crate::app::App;
 pub const KIND: &str = "slim";
 
 #[derive(Debug, Clone, Deserialize, Default)]
-pub struct PubsubConfig {
-    /// Pubsub GRPC server settings
-    #[serde(default)]
-    servers: Vec<ServerConfig>,
-
-    /// Pubsub client config to connect to other services
-    #[serde(default)]
-    clients: Vec<ClientConfig>,
-}
-
-#[derive(Debug, Clone, Deserialize, Default)]
 pub struct ServiceConfiguration {
     /// Pubsub API configuration
     #[serde(default)]
-    pub dataplane: PubsubConfig,
+    pub dataplane: DataplaneConfig,
 
     /// Controller API configuration
     #[serde(default)]
@@ -194,20 +184,21 @@ impl Service {
     /// Run the service
     pub async fn run(&mut self) -> Result<(), ServiceError> {
         // Check that at least one client or server is configured
-        if self.config.servers().is_empty() && self.config.dataplane.clients.is_empty() {
+
+        if self.config.servers().is_empty() && self.config.clients().is_empty() {
             return Err(ServiceError::ConfigError(
                 "no dataplane server or clients configured".to_string(),
             ));
         }
 
         // Run servers
-        for server in self.config.dataplane.servers.iter() {
+        for server in self.config.servers().iter() {
             info!("starting server {}", server.endpoint);
             self.run_server(server)?;
         }
 
         // Run clients
-        for client in self.config.dataplane.clients.iter() {
+        for client in self.config.clients().iter() {
             info!("connecting client to {}", client.endpoint);
             _ = self.connect(client).await?;
         }
