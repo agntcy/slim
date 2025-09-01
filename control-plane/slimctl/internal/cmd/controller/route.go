@@ -15,6 +15,7 @@ import (
 	"github.com/agntcy/slim/control-plane/common/options"
 	grpcapi "github.com/agntcy/slim/control-plane/common/proto/controller/v1"
 	controlplaneApi "github.com/agntcy/slim/control-plane/common/proto/controlplane/v1"
+	commonUtil "github.com/agntcy/slim/control-plane/common/util"
 	"github.com/agntcy/slim/control-plane/slimctl/internal/cmd/util"
 )
 
@@ -110,7 +111,7 @@ func newAddCmd(opts *options.CommonOptions) *cobra.Command {
 				)
 			}
 
-			organization, namespace, agentType, agentID, err := util.ParseRoute(routeID)
+			organization, namespace, agentType, agentID, err := commonUtil.ParseRoute(routeID)
 			if err != nil {
 				return err
 			}
@@ -188,7 +189,7 @@ func newDelCmd(opts *options.CommonOptions) *cobra.Command {
 				)
 			}
 
-			organization, namespace, agentType, agentID, err := util.ParseRoute(routeID)
+			organization, namespace, agentType, agentID, err := commonUtil.ParseRoute(routeID)
 			if err != nil {
 				return err
 			}

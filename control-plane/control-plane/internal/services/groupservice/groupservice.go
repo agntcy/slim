@@ -73,7 +73,7 @@ func (s *GroupService) CreateChannel(
 			return nil, fmt.Errorf("failed to create channel: %s", ack.Messages)
 		}
 		logAckMessage(ctx, ack)
-		zlog.Debug().Msg("Channel created successfully.")
+		zlog.Debug().Msgf("Channel created successfully: %s", channelID)
 	}
 
 	// Saving channel to DB
@@ -300,6 +300,21 @@ func (s *GroupService) ListChannels(
 	return &controllerapi.ListChannelsResponse{
 		ChannelId: channelIDs,
 	}, nil
+}
+
+func (s *GroupService) GetChannelDetails(
+	ctx context.Context,
+	channelID string) (
+	db.Channel, error) {
+	zlog := zerolog.Ctx(ctx)
+
+	storedChannel, err := s.dbService.GetChannel(channelID)
+	if err != nil {
+		return db.Channel{}, fmt.Errorf("failed to get channel: %w", err)
+	}
+	zlog.Debug().Msg("Channel details retrieved successfully.")
+
+	return storedChannel, nil
 }
 
 func (s *GroupService) ListParticipants(

@@ -17,7 +17,7 @@ type NodeService struct {
 	cmdHandler nodecontrol.NodeCommandHandler
 }
 
-func NewNodeService(dbService db.DataAccess, cmdHandler nodecontrol.NodeCommandHandler) *NodeService {
+func NewNodeService(dbService db.DataAccess, cmdHandler nodecontrol.NodeCommandHandler) NodeManager {
 	return &NodeService{
 		dbService:  dbService,
 		cmdHandler: cmdHandler,
