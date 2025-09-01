@@ -1,4 +1,9 @@
 {{/*
+Copyright AGNTCY Contributors (https://github.com/agntcy)
+SPDX-License-Identifier: Apache-2.0
+*/}}
+
+{{/*
 Expand the name of the chart.
 */}}
 {{- define "slim.name" -}}

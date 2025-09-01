@@ -1,6 +1,9 @@
-{{- if .Values.mcpProxy.enabled -}}
-# Copyright AGNTCY Contributors (https://github.com/agntcy)
-# SPDX-License-Identifier: Apache-2.0
+{{/*
+Copyright AGNTCY Contributors (https://github.com/agntcy)
+SPDX-License-Identifier: Apache-2.0
+*/}}
+
+{{ if .Values.mcpProxy.enabled }}
 
 apiVersion: v1
 kind: ConfigMap
@@ -29,4 +32,4 @@ data:
     jwt_svids = [{jwt_audience="test", jwt_svid_file_name="jwt_svid.token"}]
     daemon_mode = true
     {{- end}}
-{{- end }}
+{{ end }}
