@@ -18,7 +18,7 @@ use slim_datapath::messages::Name;
 use slim_service::{ServiceConfiguration, SlimHeaderFlags, StreamingConfiguration};
 use slim_tracing::TracingConfiguration;
 
-const DEFAULT_PUBSUB_PORT: u16 = 46357;
+const DEFAULT_DATAPLANE_PORT: u16 = 46357;
 const DEFAULT_SERVICE_ID: &str = "slim/0";
 
 #[derive(Parser, Debug)]
@@ -43,11 +43,11 @@ impl Args {
 async fn run_slim_node() -> Result<(), String> {
     println!("Server task starting...");
 
-    let pubsub_server_config =
-        GrpcServerConfig::with_endpoint(&format!("0.0.0.0:{}", DEFAULT_PUBSUB_PORT))
+    let dataplane_server_config =
+        GrpcServerConfig::with_endpoint(&format!("0.0.0.0:{}", DEFAULT_DATAPLANE_PORT))
             .with_tls_settings(TlsServerConfig::default().with_insecure(true));
 
-    let service_config = ServiceConfiguration::new().with_server(vec![pubsub_server_config]);
+    let service_config = ServiceConfiguration::new().with_server(vec![dataplane_server_config]);
 
     let svc_id = ID::new_with_str(DEFAULT_SERVICE_ID).unwrap();
     let service = service_config
@@ -111,11 +111,11 @@ fn create_service_configuration(
 async fn run_participant_task(name: Name) -> Result<(), String> {
     println!("Participant {:?} task starting...", name);
 
-    let pubsub_client_config =
-        GrpcClientConfig::with_endpoint(&format!("http://localhost:{}", DEFAULT_PUBSUB_PORT))
+    let dataplane_client_config =
+        GrpcClientConfig::with_endpoint(&format!("http://localhost:{}", DEFAULT_DATAPLANE_PORT))
             .with_tls_setting(TlsClientConfig::default().with_insecure(true));
 
-    let mut config = create_service_configuration(pubsub_client_config)?;
+    let mut config = create_service_configuration(dataplane_client_config)?;
 
     let svc_id = ID::new_with_str(DEFAULT_SERVICE_ID).unwrap();
     let svc = config.services.get_mut(&svc_id).unwrap();
@@ -235,11 +235,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let name = Name::from_strings(["org", "ns", "moderator"]).with_id(1);
     let channel_name = Name::from_strings(["channel", "channel", "channel"]);
 
-    let pubsub_client_config =
-        GrpcClientConfig::with_endpoint(&format!("http://localhost:{}", DEFAULT_PUBSUB_PORT))
+    let dataplane_client_config =
+        GrpcClientConfig::with_endpoint(&format!("http://localhost:{}", DEFAULT_DATAPLANE_PORT))
             .with_tls_setting(TlsClientConfig::default().with_insecure(true));
 
-    let mut config = create_service_configuration(pubsub_client_config)?;
+    let mut config = create_service_configuration(dataplane_client_config)?;
 
     let svc_id = ID::new_with_str(DEFAULT_SERVICE_ID).unwrap();
     let svc = config.services.get_mut(&svc_id).unwrap();

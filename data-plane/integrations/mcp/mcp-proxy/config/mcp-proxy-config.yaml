@@ -13,7 +13,7 @@ runtime:
 
 services:
   slim/0:
-    pubsub:
+    dataplane:
       clients:
         - endpoint: "http://localhost:46357"
           tls:

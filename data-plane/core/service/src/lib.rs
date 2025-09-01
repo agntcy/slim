@@ -23,6 +23,7 @@ mod moderator_task;
 pub use fire_and_forget::FireAndForgetConfiguration;
 pub use session::SessionMessage;
 use slim_controller::config::Config as ControllerConfig;
+use slim_controller::config::Config as DataplaneConfig;
 use slim_datapath::messages::Name;
 pub use slim_datapath::messages::utils::SlimHeaderFlags;
 pub use streaming::StreamingConfiguration;
@@ -54,21 +55,10 @@ use crate::app::App;
 pub const KIND: &str = "slim";
 
 #[derive(Debug, Clone, Deserialize, Default)]
-pub struct PubsubConfig {
-    /// Pubsub GRPC server settings
-    #[serde(default)]
-    servers: Vec<ServerConfig>,
-
-    /// Pubsub client config to connect to other services
-    #[serde(default)]
-    clients: Vec<ClientConfig>,
-}
-
-#[derive(Debug, Clone, Deserialize, Default)]
 pub struct ServiceConfiguration {
     /// Pubsub API configuration
     #[serde(default)]
-    pub pubsub: PubsubConfig,
+    pub dataplane: DataplaneConfig,
 
     /// Controller API configuration
     #[serde(default)]
@@ -81,21 +71,21 @@ impl ServiceConfiguration {
     }
 
     pub fn with_server(mut self, server: Vec<ServerConfig>) -> Self {
-        self.pubsub.servers = server;
+        self.dataplane.servers = server;
         self
     }
 
     pub fn with_client(mut self, clients: Vec<ClientConfig>) -> Self {
-        self.pubsub.clients = clients;
+        self.dataplane.clients = clients;
         self
     }
 
     pub fn servers(&self) -> &[ServerConfig] {
-        self.pubsub.servers.as_ref()
+        self.dataplane.servers.as_ref()
     }
 
     pub fn clients(&self) -> &[ClientConfig] {
-        &self.pubsub.clients
+        &self.dataplane.clients
     }
 
     pub fn build_server(&self, id: ID) -> Result<Service, ServiceError> {
@@ -107,10 +97,10 @@ impl ServiceConfiguration {
 impl Configuration for ServiceConfiguration {
     fn validate(&self) -> Result<(), ConfigurationError> {
         // Validate client and server configurations
-        for server in self.pubsub.servers.iter() {
+        for server in self.dataplane.servers.iter() {
             server.validate()?;
         }
-        for client in &self.pubsub.clients {
+        for client in &self.dataplane.clients {
             client.validate()?;
         }
 
@@ -194,20 +184,21 @@ impl Service {
     /// Run the service
     pub async fn run(&mut self) -> Result<(), ServiceError> {
         // Check that at least one client or server is configured
-        if self.config.servers().is_empty() && self.config.pubsub.clients.is_empty() {
+
+        if self.config.servers().is_empty() && self.config.clients().is_empty() {
             return Err(ServiceError::ConfigError(
-                "no pubsub server or clients configured".to_string(),
+                "no dataplane server or clients configured".to_string(),
             ));
         }
 
         // Run servers
-        for server in self.config.pubsub.servers.iter() {
+        for server in self.config.servers().iter() {
             info!("starting server {}", server.endpoint);
             self.run_server(server)?;
         }
 
         // Run clients
-        for client in self.config.pubsub.clients.iter() {
+        for client in self.config.clients().iter() {
             info!("connecting client to {}", client.endpoint);
             _ = self.connect(client).await?;
         }

@@ -13,16 +13,16 @@ use slim_datapath::message_processing::MessageProcessor;
 
 use crate::service::ControlPlane;
 
-/// Configuration for the Control Plane component
+/// Configuration for the Control-Plane / Data-Plane component
 #[derive(Debug, Clone, Deserialize, Default)]
 pub struct Config {
     /// Controller GRPC server settings
     #[serde(default)]
-    servers: Vec<ServerConfig>,
+    pub servers: Vec<ServerConfig>,
 
     /// Controller client config to connect to control plane
     #[serde(default)]
-    clients: Vec<ClientConfig>,
+    pub clients: Vec<ClientConfig>,
 }
 
 impl Config {

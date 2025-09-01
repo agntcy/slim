@@ -51,8 +51,8 @@ services:
   # Configuration for the slim service.
   # This is the main service that will handle the incoming requests.
   slim/0:
-    # pubsub API configuration
-    pubsub:
+    # dataplane API configuration
+    dataplane:
       # GRPC Server configuration
       servers:
           # The endpoint to listen on.
