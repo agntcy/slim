@@ -29,7 +29,7 @@ slim:
 
     services:
       slim/0:
-        dataplane:
+        pubsub:
           servers:
             - endpoint: "0.0.0.0:{{ .Values.slim.service.data.port }}"
               tls:
@@ -117,7 +117,7 @@ mcpProxy:
 
     services:
       slim/0:
-        dataplane:
+        pubsub:
           clients:
             - endpoint: "http://agntcy-slim:46357"
               tls:
