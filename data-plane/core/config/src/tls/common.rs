@@ -201,7 +201,7 @@ impl Default for Config {
 
 // Default system CA certs pool
 fn default_include_system_ca_certs_pool() -> bool {
-    false
+    true
 }
 
 // Default for tls version
@@ -278,28 +278,10 @@ impl Config {
 
     pub(crate) fn load_ca_cert_pool(&self) -> Result<RootCertStore, ConfigError> {
         let mut root_store = RootCertStore::empty();
-
-        let cert = match (self.has_ca_file(), self.has_ca_pem()) {
-            (true, true) => return Err(ConfigError::CannotUseBoth("ca".to_string())),
-            (true, false) => {
-                CertificateDer::from_pem_file(Path::new(self.ca_file.as_ref().unwrap()))
-                    .map_err(ConfigError::InvalidPem)?
-            }
-            (false, true) => {
-                CertificateDer::from_pem_slice(self.ca_pem.as_ref().unwrap().as_bytes())
-                    .map_err(ConfigError::InvalidPem)?
-            }
-            (false, false) => return Ok(root_store),
-        };
-
-        root_store.add(cert).map_err(ConfigError::RootStore)?;
-
-        if self.include_system_ca_certs_pool {
-            for cert in
-                rustls_native_certs::load_native_certs().expect("could not load platform certs")
-            {
-                root_store.add(cert).map_err(ConfigError::RootStore)?;
-            }
+        for cert in
+            rustls_native_certs::load_native_certs().expect("could not load platform certs")
+        {
+            root_store.add(cert).map_err(ConfigError::RootStore)?;
         }
 
         Ok(root_store)
