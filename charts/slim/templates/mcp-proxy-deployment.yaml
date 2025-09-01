@@ -1,7 +1,9 @@
-{{- if .Values.mcpProxy.enabled -}}
-# Copyright AGNTCY Contributors (https://github.com/agntcy)
-# SPDX-License-Identifier: Apache-2.0
+{{/*
+Copyright AGNTCY Contributors (https://github.com/agntcy)
+SPDX-License-Identifier: Apache-2.0
+*/}}
 
+{{- if .Values.mcpProxy.enabled -}}
 apiVersion: apps/v1
 kind: Deployment
 metadata:

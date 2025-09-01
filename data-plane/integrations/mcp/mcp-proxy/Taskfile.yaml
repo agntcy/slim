@@ -22,6 +22,11 @@ tasks:
     cmds:
       - echo "no python bindings exists for mcp-proxy"
 
+  mcp-proxy:core:test:
+    desc: "Test the core functionality"
+    cmds:
+      - echo "no core tests defined for mcp-proxy"
+
   mcp-proxy:lint:
     desc: "Run the linter"
     cmds:
