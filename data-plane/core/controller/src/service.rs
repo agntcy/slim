@@ -200,7 +200,7 @@ impl ControlPlane {
                         match next {
                             Some(res) => {
                                 match res {
-                                    Ok(msg) => {
+                                    Ok(msg) => {                        
                                         // TODO: process the packet according to the values in the metadata
                                         /*
                                         match msg.get_metadata("CHANNEL") {
@@ -223,12 +223,13 @@ impl ControlPlane {
                                         let mut sub_vec = vec![];
                                         let mut unsub_vec = vec![];
 
-                                        let (name, id) = msg.get_name();
+                                        let dst = msg.get_dst();
+                                        let components = dst.components_strings().unwrap();
                                         let cmd = v1::Subscription {
-                                                    organization: name.organization_string().unwrap(),
-                                                    namespace: name.namespace_string().unwrap(),
-                                                    agent_type: name.agent_type_string().unwrap(),
-                                                    agent_id: id,
+                                                    component_0: components[0].to_string(),
+                                                    component_1: components[1].to_string(),
+                                                    component_2: components[2].to_string(),
+                                                    id: Some(dst.id()),
                                                     connection_id: "connection".to_string(),  //TODO
                                         };
                                         match msg.get_type() {

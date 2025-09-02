@@ -615,7 +615,7 @@ where
         // subscribe for the channel
         let header = Some(SlimHeaderFlags::default().with_forward_to(self.conn.unwrap()));
         let mut sub =
-            Message::new_subscribe(&self.name, &self.channel_name, self.channel_id, header);
+            Message::new_subscribe(&self.name, &self.channel_name, header);
 
         // add in the metadata to indication that the
         // subscription is associated to a channel
@@ -656,7 +656,7 @@ where
         // unsubscribe for the channel
         let header = Some(SlimHeaderFlags::default().with_forward_to(self.conn.unwrap()));
         let mut unsub =
-            Message::new_unsubscribe(&self.name, &self.channel_name, self.channel_id, header);
+            Message::new_unsubscribe(&self.name, &self.channel_name, header);
 
         // add in the metadata to indication that the
         // subscription is associated to a channel
