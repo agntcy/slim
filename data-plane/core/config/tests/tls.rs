@@ -127,6 +127,19 @@ async fn test_load_rustls_client() {
             false,
         ),
         (
+            "test-system-ca",
+            Box::new(|| TlsClientConfig {
+                config: Config {
+                    ca_file: Some(format!("{}/{}", TEST_PATH, "ca-2.crt")),
+                    ..Default::default()
+                },
+                ..Default::default()
+            }) as Box<dyn Fn() -> TlsClientConfig>,
+            false,
+            ErrorMessage::Empty,
+            false,
+        ),
+        (
             "test-ca-file-not-found",
             Box::new(|| TlsClientConfig {
                 config: Config {

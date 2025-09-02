@@ -280,7 +280,14 @@ class Slim:
         Returns:
             None
 
-        Raises:
+        Raises:slim_bindings.PySessionConfiguration.Streaming(
+                slim_bindings.PySessionDirection.BIDIRECTIONAL,
+                topic=broadcast_topic,
+                moderator=True,
+                max_retries=5,
+                timeout=datetime.timedelta(seconds=5),
+                mls_enabled=enable_mls,
+            )
             ValueError: If the session ID is not found.
         """
 
