@@ -377,6 +377,8 @@ mod tests {
     use std::fs;
     use std::io::Write;
 
+    // spellchecker:off
+
     // Test certificates (for testing purposes only)
     const TEST_CA_CERT_PEM: &str = r#"-----BEGIN CERTIFICATE-----
 MIIDNjCCAh4CCQDkU3rM23H5hzANBgkqhkiG9w0BAQsFADBdMQswCQYDVQQGEwJB
@@ -397,7 +399,7 @@ bdlnED9Z9qMygF13btLQUHzKaOk6dndLsquoTjgjj4SNBe2Isj7z4upZOix2cgJB
 9ddZGlv8/zKSgRp9UotGOOxG7HJ1KWhYLU7E0aERqambNv8UFvhmf+biHq3nCeAF
 HBeua27MNj4kGCzqHS7sVqZKVU81aFyhV2WmfIUA0Qp+nh9QEW0yrgI+pTnOx6np
 JUHGleZ3rKHQZw==
------END CERTIFICATE-----"#;
+-----END CERTIFICATE-----"#; // spellchecker:disable-line
 
     const TEST_CLIENT_CERT_PEM: &str = r#"-----BEGIN CERTIFICATE-----
 MIIDVDCCAjygAwIBAgIJANt5fkUlfxyeMA0GCSqGSIb3DQEBCwUAMF0xCzAJBgNV
@@ -418,7 +420,7 @@ eP4OpQHkHbm3wjbWZUYLJZ6IvhPHfCNAXdqCs+mpG35HI6Bg+x1CVFrNeueInKTg
 haLsQe/SRXSTjkar+Csi4DXyi/qshlkV6FOUz9vogAR0W3l8x7dqzwBHL4gRMddM
 ZdSfhVFOMwKqUrucYebYZhdAvYqMtlTph46lk+hd5TarFDFJ2zEjbx9NU5gY1b8V
 /Kfm2ZHR0yWKGfg9I4TRGZgufm1HBEMnMq1b15DUZxNTagFtPAP18Q==
------END CERTIFICATE-----"#;
+-----END CERTIFICATE-----"#; // spellchecker:disable-line
 
     const TEST_PRIVATE_KEY_PEM: &str = r#"-----BEGIN RSA PRIVATE KEY-----
 MIIEowIBAAKCAQEAwDgNEcPTkTASpfFa0AwPlUFPWhlm2Av1mh3oNsf3kHOBXQym
@@ -447,6 +449,8 @@ LCFJNwKBgGWcVuIarQ2mCLqqZ0zxeAp3lFTNeWG2ZMQtzeuo0iGx0xTTUEaZSiNW
 MSAvYjGrRzM6XpGEYasfwy0Zoc3loi9nzP5uE4tv8vE72nyMf+OhaPG+Rn+mdBv4
 7emViVNVfzLW7L//IkxtEamV0yc6gYwcCfzUckxxXVRD4z2aM78q
 -----END RSA PRIVATE KEY-----"#;
+
+    // spellchecker:on
 
     fn create_temp_file_simple(content: &str) -> String {
         use std::env;
