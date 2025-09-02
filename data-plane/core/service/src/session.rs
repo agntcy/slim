@@ -339,6 +339,9 @@ pub(crate) trait MessageHandler {
         message: SessionMessage,
         direction: MessageDirection,
     ) -> Result<(), SessionError>;
+
+    // close session
+    async fn close(&self) -> Result<(), SessionError>;
 }
 
 /// Common session data
@@ -396,6 +399,13 @@ where
         match self {
             Session::FireAndForget(session) => session.on_message(message, direction).await,
             Session::Streaming(session) => session.on_message(message, direction).await,
+        }
+    }
+
+    async fn close(&self) -> Result<(), SessionError> {
+        match self {
+            Session::FireAndForget(session) => session.close().await,
+            Session::Streaming(_session) => todo!(),
         }
     }
 }

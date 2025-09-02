@@ -61,8 +61,10 @@ async def run_client(
                     slim_bindings.PySessionConfiguration.FireAndForget(
                         max_retries=5,
                         timeout=datetime.timedelta(seconds=5),
+                        #sticky=True,
+                        #mls_enabled=enable_mls,
                         sticky=True,
-                        mls_enabled=enable_mls,
+                        mls_enabled=False,
                     )
                 )
             else:
@@ -102,6 +104,9 @@ async def run_client(
                     print("received error: ", e)
 
                 await asyncio.sleep(1)
+
+            await local_app.delete_session(session.id)
+
         else:
             # Wait for a message and reply in a loop
             while True:

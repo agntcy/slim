@@ -178,6 +178,10 @@ where
 
     /// Get a session by its ID
     pub async fn delete_session(&self, id: Id) -> Result<(), SessionError> {
+        if !self.session_layer.close_session(id).await {
+            return Err(SessionError::SessionNotFound(id.to_string()));
+        }
+
         // remove the session from the pool
         if self.session_layer.remove_session(id).await {
             Ok(())
@@ -598,6 +602,21 @@ where
         Ok(Info::new(id))
     }
 
+    /// Close session remove all state also on the rmeote side
+    pub(crate) async fn close_session(&self, id: Id) -> bool {
+        let pool = self.pool.read().await;
+        match pool.get(&id) {
+            Some(session) => {
+                let res = session.close().await;
+                if let Err(e) = res {
+                    error!("error closing sesison: {}", e);
+                }
+                true
+            }
+            None => false,
+        }
+    }
+
     /// Remove a session from the pool
     pub(crate) async fn remove_session(&self, id: Id) -> bool {
         // get the write lock
@@ -735,8 +754,26 @@ where
         }
 
         if session_message_type == ProtoSessionMessageType::ChannelLeaveRequest {
-            // send message to the session and delete it after
-            if let Some(session) = self.pool.read().await.get(&id) {
+            // if the session is a fnf session reply and  close the session
+            // otherwise send the message to the session before close it
+            if session_type == ProtoSessionType::SessionFireForget {
+                let slim_header = Some(SlimHeader::new(
+                    &self.app_name,
+                    &message.message.get_source(),
+                    None,
+                ));
+
+                let session_header = Some(SessionHeader::new(
+                    session_type.into(),
+                    ProtoSessionMessageType::ChannelLeaveReply.into(),
+                    message.message.get_session_header().session_id,
+                    message.message.get_id(),
+                ));
+
+                let msg =
+                    Message::new_publish_with_headers(slim_header, session_header, "", vec![]);
+                self.transmitter.send_to_slim(Ok(msg)).await?;
+            } else if let Some(session) = self.pool.read().await.get(&id) {
                 session.on_message(message, direction).await?;
             } else {
                 warn!(
@@ -746,6 +783,7 @@ where
                     session_type.as_str_name().to_string(),
                 ));
             }
+
             // remove the session
             self.remove_session(id).await;
             return Ok(());

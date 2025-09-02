@@ -1072,6 +1072,11 @@ where
             .await
             .map_err(|e| SessionError::Processing(e.to_string()))
     }
+
+    async fn close(&self) -> Result<(), SessionError> {
+        // TODO
+        Ok(())
+    }
 }
 
 #[async_trait]
