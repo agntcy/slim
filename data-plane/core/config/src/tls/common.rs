@@ -819,7 +819,11 @@ MSAvYjGrRzM6XpGEYasfwy0Zoc3loi9nzP5uE4tv8vE72nyMf+OhaPG+Rn+mdBv4
         let config = Config::default().with_ca_pem(TEST_CA_CERT_PEM);
         let mut root_store = RootCertStore::empty();
         let result = config.add_custom_ca_cert(&mut root_store);
-        assert!(result.is_ok(), "Failed to add custom CA cert: {}", result.unwrap_err());
+        assert!(
+            result.is_ok(),
+            "Failed to add custom CA cert: {}",
+            result.unwrap_err()
+        );
         assert_eq!(root_store.len(), 1);
     }
 
