@@ -55,12 +55,10 @@ impl ProxyConfig {
 
         // matcher builder
         let matcher = match self.url.as_ref() {
-            Some(url) => {
-                Matcher::builder()
-                    .http(url.clone())
-                    .https(url.clone())
-                    .build()
-            }
+            Some(url) => Matcher::builder()
+                .http(url.clone())
+                .https(url.clone())
+                .build(),
             None => Matcher::from_system(),
         };
 
@@ -181,9 +179,7 @@ mod test {
         assert!(
             config_with_url
                 .should_use_proxy("http://localhost")
-                .is_some_and(|proxy| {
-                    proxy.uri().to_string() == "http://config-proxy.example.com:8080/".to_string()
-                })
+                .is_some_and(|proxy| { *proxy.uri() == "http://config-proxy.example.com:8080/" })
         );
 
         // Test 2: Config without URL
