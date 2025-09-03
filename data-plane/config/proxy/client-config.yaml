@@ -15,9 +15,9 @@ services:
   slim/0:
     dataplane:
       clients:
-        - endpoint: "http://10.60.16.63:46357"
+        - endpoint: "https://external-slim-instance-address:46357"
           tls:
-            insecure: true
+            insecure_skip_verify: true
           # You can configure the proxy settings here or by specifying the usual
           # HTTP_PROXY/HTTPS_PROXY/NO_PROXY environment variable.
           # The value specified in the configuration has precedence
