@@ -20,7 +20,7 @@ duration-str = { workspace = true }
 futures = { workspace = true }
 http = { workspace = true }
 hyper-rustls = { workspace = true }
-hyper-util = { workspace = true }
+hyper-util = { workspace = true, features = ["client-proxy-system"] }
 lazy_static = { workspace = true }
 parking_lot = { workspace = true }
 prost = { workspace = true }

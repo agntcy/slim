@@ -267,10 +267,7 @@ impl ClientConfig {
     }
 
     pub fn with_proxy(self, proxy: ProxyConfig) -> Self {
-        Self {
-            proxy: proxy,
-            ..self
-        }
+        Self { proxy, ..self }
     }
 
     pub fn with_connect_timeout(self, connect_timeout: Duration) -> Self {

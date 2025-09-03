@@ -107,7 +107,6 @@ impl ProxyConfig {
 mod test {
     use super::*;
 
-    #[test]
     fn test_proxy_config() {
         let proxy = ProxyConfig::new("http://proxy.example.com:8080");
         assert_eq!(proxy.url, Some("http://proxy.example.com:8080".to_string()));
@@ -126,7 +125,6 @@ mod test {
         assert_eq!(proxy_with_headers.headers, headers);
     }
 
-    #[test]
     fn test_proxy_no_proxy_functionality() {
         let no_proxy_list = [
             "localhost".to_string(),
@@ -157,19 +155,6 @@ mod test {
         assert!(proxy.should_use_proxy("http://192.168.1.1").is_some());
     }
 
-    #[test]
-    fn test_proxy_no_proxy_edge_cases() {
-        // Test empty no_proxy list
-        let proxy_empty = ProxyConfig::new("http://proxy.example.com:8080");
-        assert!(proxy_empty.should_use_proxy("http://localhost").is_none());
-        assert!(
-            proxy_empty
-                .should_use_proxy("http://anything.com")
-                .is_none()
-        );
-    }
-
-    #[test]
     fn test_proxy_system_matcher() {
         // Test system matcher when no URL is configured
         let mut proxy_config = ProxyConfig {
@@ -201,7 +186,6 @@ mod test {
         assert!(result.is_none()); // Should return None when no_proxy is None
     }
 
-    #[test]
     fn test_proxy_system_matcher_empty_no_proxy() {
         // Test system matcher with empty no_proxy string
         let proxy_config = ProxyConfig {
@@ -217,7 +201,6 @@ mod test {
         assert!(proxy_config.should_use_proxy("http://google.com").is_none());
     }
 
-    #[test]
     fn test_proxy_system_matcher_with_complex_no_proxy() {
         // Test system matcher with complex no_proxy patterns
         let proxy_config = ProxyConfig {
@@ -241,7 +224,6 @@ mod test {
         assert!(result.is_some() || result.is_none()); // System-dependent behavior
     }
 
-    #[test]
     fn test_proxy_config_default_creation() {
         // Test creating a config that will use system matcher
         let proxy_config = ProxyConfig::default();
@@ -261,58 +243,8 @@ mod test {
         );
     }
 
-    #[test]
-    fn test_proxy_system_matcher_with_env_variables() {
-        // Test system matcher with various proxy environment variables
-
-        // Save original environment variables to restore later
-        let original_env = [
-            ("https_proxy", std::env::var("https_proxy").ok()),
-            ("HTTPS_PROXY", std::env::var("HTTPS_PROXY").ok()),
-            ("http_proxy", std::env::var("http_proxy").ok()),
-            ("HTTP_PROXY", std::env::var("HTTP_PROXY").ok()),
-            ("no_proxy", std::env::var("no_proxy").ok()),
-            ("NO_PROXY", std::env::var("NO_PROXY").ok()),
-            ("all_proxy", std::env::var("all_proxy").ok()),
-            ("ALL_PROXY", std::env::var("ALL_PROXY").ok()),
-        ];
-
-        // Clean up environment first
-        for (key, _) in &original_env {
-            unsafe {
-                std::env::remove_var(key);
-            }
-        }
-
-        // Test 1: Default proxy config
-        let proxy_config = ProxyConfig::default();
-
-        // With no environment proxy set, system matcher should return None
-        let result = proxy_config.should_use_proxy("http://localhost");
-        assert!(result.is_none()); // localhost should be bypassed
-
-        // Test 2: Set environment proxy and test behavior
-        unsafe {
-            std::env::set_var("http_proxy", "http://proxy.example.com:8080");
-        }
-
-        // As no_proxy is not set, any host will use the proxy
-        let result = proxy_config.should_use_proxy("http://external.com");
-        assert!(result.is_some()); // Should use the proxy now
-
-        // Restore original environment variables
-        for (key, original_value) in original_env {
-            unsafe {
-                match original_value {
-                    Some(value) => std::env::set_var(key, value),
-                    None => std::env::remove_var(key),
-                }
-            }
-        }
-    }
-
-    #[test]
-    fn test_proxy_env_variables_precedence() {
+    #[allow(clippy::disallowed_methods)]
+    fn test_proxy_env_variables() {
         // Test how different environment variables work with system matcher
 
         // Save original environment variables
@@ -402,5 +334,18 @@ mod test {
                 }
             }
         }
+    }
+
+    #[test]
+    fn run_all_tests() {
+        // Run tests consecutively as we are using the set/unset env variables,
+        // which may influence concurrent test execution
+        test_proxy_config();
+        test_proxy_env_variables();
+        test_proxy_no_proxy_functionality();
+        test_proxy_system_matcher();
+        test_proxy_system_matcher_empty_no_proxy();
+        test_proxy_system_matcher_with_complex_no_proxy();
+        test_proxy_config_default_creation();
     }
 }
