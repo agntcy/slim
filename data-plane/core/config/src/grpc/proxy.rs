@@ -52,10 +52,7 @@ impl ProxyConfig {
 
     /// Sets additional headers for proxy requests
     pub fn with_headers(self, headers: HashMap<String, String>) -> Self {
-        Self {
-            headers,
-            ..self
-        }
+        Self { headers, ..self }
     }
 
     /// Sets the no_proxy list - hosts that should bypass the proxy
