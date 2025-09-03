@@ -15,8 +15,6 @@ services:
   slim/0:
     dataplane:
       clients:
-        - endpoint: "http://10.60.16.63:46357"
+        - endpoint: "http://localhost:46357"
           tls:
             insecure: true
-          proxy:
-            url: http://proxy-wsa.esl.cisco.com:80
