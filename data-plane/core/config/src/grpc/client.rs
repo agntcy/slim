@@ -456,7 +456,7 @@ impl ClientConfig {
         if let Some(intercept) = self.proxy.should_use_proxy(endpoint_host) {
             // Use proxy for this host
             let tunnel = self.create_proxy_tunnel(intercept, http_connector, &self.proxy)?;
-            self.apply_tls_to_tunnel_connector(builder, tunnel, tls_config)
+            self.create_tunneled_channel(builder, tunnel, tls_config)
         } else {
             // Skip proxy for this host, use direct connection
             self.create_direct_channel(builder, http_connector, tls_config)
@@ -536,7 +536,7 @@ impl ClientConfig {
     }
 
     /// Applies TLS configuration to a tunnel connector for proxy usage
-    fn apply_tls_to_tunnel_connector(
+    fn create_tunneled_channel(
         &self,
         builder: tonic::transport::Endpoint,
         tunnel: Tunnel<HttpConnector>,
