@@ -449,18 +449,6 @@ impl ClientConfig {
         http_connector: HttpConnector,
         tls_config: Option<rustls::ClientConfig>,
     ) -> Result<Channel, ConfigError> {
-        self.create_channel_with_proxy(uri, builder, http_connector, tls_config, &self.proxy)
-    }
-
-    /// Creates a channel with proxy configuration
-    fn create_channel_with_proxy(
-        &self,
-        uri: Uri,
-        builder: tonic::transport::Endpoint,
-        http_connector: HttpConnector,
-        tls_config: Option<rustls::ClientConfig>,
-        proxy_config: &ProxyConfig,
-    ) -> Result<Channel, ConfigError> {
         // Extract host from endpoint to check no_proxy rules
         let endpoint_host = uri.host().unwrap_or("");
 
