@@ -66,14 +66,22 @@ func NewVersionCmd(opts *options.CommonOptions) *cobra.Command {
 
 // Run executes the business logic for the version command.
 func Run(v *version, opts *options.CommonOptions, _ *cobra.Command) error {
-	opts.Logger.Info(
-		"Version",
-		zap.String("SemVersion", v.SemVersion),
-		zap.String("GitCommit", v.GitCommit),
-		zap.String("BuildData", v.BuildDate),
-		zap.String("GoVersion", v.GoVersion),
-		zap.String("Compiler", v.Compiler),
-		zap.String("Platform", v.Platform),
+	if opts != nil && opts.Logger != nil {
+		opts.Logger.Info(
+			"Version",
+			zap.String("SemVersion", v.SemVersion),
+			zap.String("GitCommit", v.GitCommit),
+			zap.String("BuildDate", v.BuildDate),
+			zap.String("GoVersion", v.GoVersion),
+			zap.String("Compiler", v.Compiler),
+			zap.String("Platform", v.Platform),
+		)
+		return nil
+	}
+
+	// Fallback to plain stdout to avoid crashing if logger isn't initialized yet.
+	fmt.Printf("Version: sem=%s git=%s build=%s go=%s compiler=%s platform=%s\n",
+		v.SemVersion, v.GitCommit, v.BuildDate, v.GoVersion, v.Compiler, v.Platform,
 	)
 
 	return nil

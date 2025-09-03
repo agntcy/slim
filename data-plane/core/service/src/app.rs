@@ -850,27 +850,19 @@ where
             | ProtoSessionMessageType::ChannelLeaveReply
             | ProtoSessionMessageType::ChannelMlsCommit
             | ProtoSessionMessageType::ChannelMlsWelcome
-            | ProtoSessionMessageType::ChannelMlsAck => {
-                warn!("received channel message with unknown session id");
-                return Err(SessionError::SessionUnknown(
-                    session_type.as_str_name().to_string(),
-                ));
-            }
-            ProtoSessionMessageType::PubSubMsg => {
-                warn!("received pub/sub message with unknown session id");
-                return Err(SessionError::SessionUnknown(
-                    session_type.as_str_name().to_string(),
-                ));
-            }
-            ProtoSessionMessageType::BeaconPubSub => {
-                warn!("received beacon pub/sub message with unknown session id");
-                return Err(SessionError::SessionUnknown(
-                    session_type.as_str_name().to_string(),
-                ));
+            | ProtoSessionMessageType::ChannelMlsAck
+            | ProtoSessionMessageType::FnfAck
+            | ProtoSessionMessageType::RtxRequest
+            | ProtoSessionMessageType::RtxReply
+            | ProtoSessionMessageType::PubSubMsg
+            | ProtoSessionMessageType::BeaconPubSub => {
+                debug!("received channel message with unknown session id");
+                // We can ignore these messages
+                return Ok(());
             }
             _ => {
                 return Err(SessionError::SessionUnknown(
-                    session_type.as_str_name().to_string(),
+                    session_message_type.as_str_name().to_string(),
                 ));
             }
         };
