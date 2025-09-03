@@ -10,6 +10,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Default, Debug, Serialize, Deserialize, JsonSchema)]
 pub struct ProxyConfig {
     /// The HTTP proxy URL (e.g., "http://proxy.example.com:8080")
+    /// If empty, the system proxy settings will be used.
     pub url: Option<String>,
 
     /// Optional username for proxy authentication
