@@ -6,3 +6,4 @@ pub mod compression;
 pub mod errors;
 pub mod headers_middleware;
 pub mod server;
+pub mod proxy;
