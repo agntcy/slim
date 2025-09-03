@@ -453,9 +453,9 @@ impl ClientConfig {
         let endpoint_host = uri.host().unwrap_or("");
 
         // Check if this host should bypass the proxy
-        if let Some(intercept) = proxy_config.should_use_proxy(endpoint_host) {
+        if let Some(intercept) = self.proxy.should_use_proxy(endpoint_host) {
             // Use proxy for this host
-            let tunnel = self.create_proxy_tunnel(intercept, http_connector, proxy_config)?;
+            let tunnel = self.create_proxy_tunnel(intercept, http_connector, &self.proxy)?;
             self.apply_tls_to_tunnel_connector(builder, tunnel, tls_config)
         } else {
             // Skip proxy for this host, use direct connection
