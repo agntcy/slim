@@ -31,6 +31,9 @@ use slim_datapath::{
 };
 use slim_mls::mls::{CommitMsg, KeyPackageMsg, Mls, MlsIdentity, ProposalMsg, WelcomeMsg};
 
+const CHANNEL_CREATION: &str = "CHANNEL_CREATION";
+const CHANNEL_SUBSCRIPTION: &str = "CHANNEL_SUBSCRIPTION";
+
 struct RequestTimerObserver<T>
 where
     T: SessionTransmitter + Send + Sync + Clone + 'static,
@@ -618,9 +621,9 @@ where
 
         // add in the metadata to indication that the
         // subscription is associated to a channel
-        sub.insert_metadata("CHANNEL".to_string(), "true".to_string());
+        sub.insert_metadata(CHANNEL_SUBSCRIPTION.to_string(), "true".to_string());
         if creation {
-            sub.insert_metadata("CHANNEL_CREATION".to_string(), "true".to_string());
+            sub.insert_metadata(CHANNEL_CREATION.to_string(), "true".to_string());
         }
 
         self.send(sub).await?;
@@ -658,7 +661,7 @@ where
 
         // add in the metadata to indication that the
         // subscription is associated to a channel
-        unsub.insert_metadata("CHANNEL".to_string(), "true".to_string());
+        unsub.insert_metadata(CHANNEL_SUBSCRIPTION.to_string(), "true".to_string());
 
         self.send(unsub).await?;
 
@@ -2028,8 +2031,11 @@ mod tests {
         cm.on_message(msg).await.unwrap();
 
         // the first message is the subscription for the channel name
+        // this is also the channel creation
         let header = Some(SlimHeaderFlags::default().with_forward_to(conn));
-        let sub = Message::new_subscribe(&moderator, &channel_name, header);
+        let mut sub = Message::new_subscribe(&moderator, &channel_name, header);
+        sub.insert_metadata(CHANNEL_SUBSCRIPTION.to_string(), "true".to_string());
+        sub.insert_metadata(CHANNEL_CREATION.to_string(), "true".to_string());
         let msg = moderator_rx.recv().await.unwrap().unwrap();
         assert_eq!(msg, sub);
 
@@ -2112,7 +2118,8 @@ mod tests {
 
         // the first message generated is a subscription for the channel name
         let header = Some(SlimHeaderFlags::default().with_forward_to(conn));
-        let sub = Message::new_subscribe(&participant, &channel_name, header);
+        let mut sub = Message::new_subscribe(&participant, &channel_name, header);
+        sub.insert_metadata(CHANNEL_SUBSCRIPTION.to_string(), "true".to_string());
         let msg = participant_rx.recv().await.unwrap().unwrap();
         assert_eq!(msg, sub);
 
