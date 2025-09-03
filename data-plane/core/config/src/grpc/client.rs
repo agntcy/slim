@@ -2,13 +2,17 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use duration_str::deserialize_duration;
+use std::collections::HashSet;
 use std::time::Duration;
 use std::{collections::HashMap, str::FromStr};
 use tower::ServiceExt;
 
+use base64::prelude::*;
 use http::header::{HeaderMap, HeaderName, HeaderValue};
 use hyper_rustls;
 use hyper_util::client::legacy::connect::HttpConnector;
+use hyper_util::client::legacy::connect::proxy::Tunnel;
+use hyper_util::client::proxy::matcher::{Intercept, Matcher};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use tonic::codegen::{Body, Bytes, StdError};
@@ -85,6 +89,108 @@ fn default_keep_alive_while_idle() -> bool {
     false
 }
 
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
+pub struct ProxyConfig {
+    /// The HTTP proxy URL (e.g., "http://proxy.example.com:8080")
+    pub url: String,
+
+    /// Optional username for proxy authentication
+    pub username: Option<String>,
+
+    /// Optional password for proxy authentication
+    pub password: Option<String>,
+
+    /// Headers to send with proxy requests
+    #[serde(default)]
+    pub headers: HashMap<String, String>,
+
+    /// List of hosts that should bypass the proxy.
+    /// Based on hyper-utils matcher: https://github.com/hyperium/hyper-util/blob/master/src/client/proxy/matcher.rs
+    #[serde(default)]
+    pub no_proxy: Option<String>,
+}
+
+impl Clone for ProxyConfig {
+    fn clone(&self) -> Self {
+        Self {
+            url: self.url.clone(),
+            username: self.username.clone(),
+            password: self.password.clone(),
+            headers: self.headers.clone(),
+            no_proxy: self.no_proxy.clone(),
+        }
+    }
+}
+
+impl PartialEq for ProxyConfig {
+    fn eq(&self, other: &Self) -> bool {
+        self.url == other.url
+            && self.username == other.username
+            && self.password == other.password
+            && self.headers == other.headers
+            && self.no_proxy == other.no_proxy
+    }
+}
+
+impl ProxyConfig {
+    /// Creates a new proxy configuration with the given URL
+    pub fn new(url: &str) -> Self {
+        Self {
+            url: url.to_string(),
+            username: None,
+            password: None,
+            headers: HashMap::new(),
+            no_proxy: None,
+        }
+    }
+
+    /// Sets the proxy authentication credentials
+    pub fn with_auth(mut self, username: &str, password: &str) -> Self {
+        self.username = Some(username.to_string());
+        self.password = Some(password.to_string());
+        self
+    }
+
+    /// Sets additional headers for proxy requests
+    pub fn with_headers(mut self, headers: HashMap<String, String>) -> Self {
+        self.headers = headers;
+        self
+    }
+
+    /// Sets the no_proxy list - hosts that should bypass the proxy
+    pub fn with_no_proxy(mut self, no_proxy: impl Into<String>) -> Self {
+        self.no_proxy = Some(no_proxy.into());
+        self
+    }
+
+    /// Checks if the given host should bypass the proxy based on no_proxy rules
+    pub fn should_use_proxy(&self, uri: &str) -> Option<Intercept> {
+        if let Some(no_proxy) = self.no_proxy.as_ref() {
+            if no_proxy.is_empty() {
+                return None;
+            }
+        } else {
+            return None;
+        }
+
+        let no_proxy = self.no_proxy.as_ref().unwrap();
+
+        // matcher builder
+        let builder = Matcher::builder()
+            .http(self.url.clone())
+            .https(self.url.clone())
+            .no(no_proxy.clone());
+
+        let matcher = builder.build();
+
+        // Convert string uri into http::Uri
+        let dst = uri.parse::<http::Uri>().unwrap();
+
+        // Check if this should bypass the proxy
+        matcher.intercept(&dst)
+    }
+}
+
 /// Enum holding one configuration for the client.
 #[derive(Debug, Serialize, Default, Deserialize, Clone, PartialEq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
@@ -102,7 +208,7 @@ pub enum AuthenticationConfig {
 
 /// Struct for the client configuration.
 /// This struct contains the endpoint, origin, compression type, rate limit,
-/// TLS settings, keepalive settings, timeout settings, buffer size settings,
+/// TLS settings, keepalive settings, proxy settings, timeout settings, buffer size settings,
 /// headers, and auth settings.
 /// The client configuration can be converted to a tonic channel.
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, JsonSchema)]
@@ -125,6 +231,9 @@ pub struct ClientConfig {
 
     /// Keepalive parameters.
     pub keepalive: Option<KeepaliveConfig>,
+
+    /// HTTP Proxy configuration.
+    pub proxy: Option<ProxyConfig>,
 
     /// Timeout for the connection.
     #[serde(
@@ -165,6 +274,7 @@ impl Default for ClientConfig {
             rate_limit: None,
             tls_setting: TLSSetting::default(),
             keepalive: None,
+            proxy: None,
             connect_timeout: default_connect_timeout(),
             request_timeout: default_request_timeout(),
             buffer_size: None,
@@ -187,13 +297,14 @@ impl std::fmt::Display for ClientConfig {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "ClientConfig {{ endpoint: {}, origin: {:?}, compression: {:?}, rate_limit: {:?}, tls_setting: {:?}, keepalive: {:?}, connect_timeout: {:?}, request_timeout: {:?}, buffer_size: {:?}, headers: {:?}, auth: {:?} }}",
+            "ClientConfig {{ endpoint: {}, origin: {:?}, compression: {:?}, rate_limit: {:?}, tls_setting: {:?}, keepalive: {:?}, proxy: {:?}, connect_timeout: {:?}, request_timeout: {:?}, buffer_size: {:?}, headers: {:?}, auth: {:?} }}",
             self.endpoint,
             self.origin,
             self.compression,
             self.rate_limit,
             self.tls_setting,
             self.keepalive,
+            self.proxy,
             self.connect_timeout,
             self.request_timeout,
             self.buffer_size,
@@ -256,6 +367,13 @@ impl ClientConfig {
         }
     }
 
+    pub fn with_proxy(self, proxy: ProxyConfig) -> Self {
+        Self {
+            proxy: Some(proxy),
+            ..self
+        }
+    }
+
     pub fn with_connect_timeout(self, connect_timeout: Duration) -> Self {
         Self {
             connect_timeout,
@@ -312,7 +430,7 @@ impl ClientConfig {
         // channel builder
         let uri =
             Uri::from_str(&self.endpoint).map_err(|e| ConfigError::UriParseError(e.to_string()))?;
-        let builder = Channel::builder(uri);
+        let builder = Channel::builder(uri.clone());
 
         // HTTP2 connector. We need this to be able to use directly a rustls config
         // cf. https://github.com/hyperium/tonic/issues/1615
@@ -392,23 +510,117 @@ impl ClientConfig {
         let tls_config = TLSSetting::load_rustls_config(&self.tls_setting)
             .map_err(|e| ConfigError::TLSSettingError(e.to_string()))?;
 
-        let channel = match tls_config {
-            Some(tls) => {
-                let connector = tower::ServiceBuilder::new()
-                    .layer_fn(move |s| {
-                        let tls = tls.clone();
+        // Create the channel with appropriate connector (proxy or direct)
+        let channel = match &self.proxy {
+            Some(proxy_config) => {
+                // Extract host from endpoint to check no_proxy rules
+                let endpoint_host = uri.host().unwrap_or("");
 
-                        hyper_rustls::HttpsConnectorBuilder::new()
-                            .with_tls_config(tls)
-                            .https_or_http()
-                            .enable_http2()
-                            .wrap_connector(s)
-                    })
-                    .service(http);
+                // Check if this host should bypass the proxy
+                if let Some(intercept) = proxy_config.should_use_proxy(endpoint_host) {
+                    // Use proxy for this host
 
-                builder.connect_with_connector_lazy(connector)
+                    // Create proxy tunnel connector
+                    let mut tunnel = Tunnel::new(intercept.uri().clone(), http);
+
+                    // Set proxy authentication if provided
+                    if let (Some(username), Some(password)) =
+                        (&proxy_config.username, &proxy_config.password)
+                    {
+                        let auth_value =
+                            BASE64_STANDARD.encode(format!("{}:{}", username, password));
+                        let auth_header = HeaderValue::from_str(&format!("Basic {}", auth_value))
+                            .map_err(|_| {
+                            ConfigError::HeaderParseError(
+                                "Invalid proxy auth credentials".to_string(),
+                            )
+                        })?;
+                        tunnel = tunnel.with_auth(auth_header);
+                    }
+
+                    // Set custom headers for proxy requests
+                    if !proxy_config.headers.is_empty() {
+                        let mut proxy_headers = HeaderMap::new();
+                        for (key, value) in &proxy_config.headers {
+                            let header_name = HeaderName::from_str(key).map_err(|_| {
+                                ConfigError::HeaderParseError(format!(
+                                    "Invalid proxy header name: {}",
+                                    key
+                                ))
+                            })?;
+                            let header_value = HeaderValue::from_str(value).map_err(|_| {
+                                ConfigError::HeaderParseError(format!(
+                                    "Invalid proxy header value: {}",
+                                    value
+                                ))
+                            })?;
+                            proxy_headers.insert(header_name, header_value);
+                        }
+                        tunnel = tunnel.with_headers(proxy_headers);
+                    }
+
+                    // Apply TLS configuration to the tunnel connector
+                    match tls_config {
+                        Some(tls) => {
+                            let connector = tower::ServiceBuilder::new()
+                                .layer_fn(move |s| {
+                                    let tls = tls.clone();
+
+                                    hyper_rustls::HttpsConnectorBuilder::new()
+                                        .with_tls_config(tls)
+                                        .https_or_http()
+                                        .enable_http2()
+                                        .wrap_connector(s)
+                                })
+                                .service(tunnel);
+
+                            builder.connect_with_connector_lazy(connector)
+                        }
+                        None => builder.connect_with_connector_lazy(tunnel),
+                    }
+                } else {
+                    // Skip proxy for this host, use direct connection
+                    match tls_config {
+                        Some(tls) => {
+                            let connector = tower::ServiceBuilder::new()
+                                .layer_fn(move |s| {
+                                    let tls = tls.clone();
+
+                                    hyper_rustls::HttpsConnectorBuilder::new()
+                                        .with_tls_config(tls)
+                                        .https_or_http()
+                                        .enable_http2()
+                                        .wrap_connector(s)
+                                })
+                                .service(http);
+
+                            builder.connect_with_connector_lazy(connector)
+                        }
+                        None => builder.connect_with_connector_lazy(http),
+                    }
+                }
             }
-            None => builder.connect_with_connector_lazy(http),
+            None => {
+                // No proxy, use direct connection
+                match tls_config {
+                    Some(tls) => {
+                        let connector = tower::ServiceBuilder::new()
+                            .layer_fn(move |s| {
+                                let tls = tls.clone();
+
+                                hyper_rustls::HttpsConnectorBuilder::new()
+                                    .with_tls_config(tls)
+                                    .https_or_http()
+                                    .enable_http2()
+                                    .wrap_connector(s)
+                            })
+                            .service(http);
+
+                        builder.connect_with_connector_lazy(connector)
+                    }
+                    None => builder.connect_with_connector_lazy(http),
+                }
+            }
         };
 
         // Auth configuration
@@ -615,5 +827,107 @@ mod test {
             .insert("X-Test".to_string(), "test".to_string());
         channel = client.to_channel();
         assert!(channel.is_ok());
+
+        // Set proxy settings
+        client.proxy = Some(ProxyConfig::new("http://proxy.example.com:8080"));
+        channel = client.to_channel();
+        assert!(channel.is_ok());
+
+        // Set proxy with authentication
+        client.proxy =
+            Some(ProxyConfig::new("http://proxy.example.com:8080").with_auth("user", "pass"));
+        channel = client.to_channel();
+        assert!(channel.is_ok());
+
+        // Set proxy with headers
+        let mut proxy_headers = HashMap::new();
+        proxy_headers.insert("X-Proxy-Header".to_string(), "value".to_string());
+        client.proxy =
+            Some(ProxyConfig::new("http://proxy.example.com:8080").with_headers(proxy_headers));
+        channel = client.to_channel();
+        assert!(channel.is_ok());
+    }
+
+    #[test]
+    fn test_proxy_config() {
+        let proxy = ProxyConfig::new("http://proxy.example.com:8080");
+        assert_eq!(proxy.url, "http://proxy.example.com:8080");
+        assert_eq!(proxy.username, None);
+        assert_eq!(proxy.password, None);
+        assert!(proxy.headers.is_empty());
+
+        let proxy_with_auth = proxy.with_auth("user", "pass");
+        assert_eq!(proxy_with_auth.username, Some("user".to_string()));
+        assert_eq!(proxy_with_auth.password, Some("pass".to_string()));
+
+        let mut headers = HashMap::new();
+        headers.insert("X-Custom".to_string(), "value".to_string());
+        let proxy_with_headers =
+            ProxyConfig::new("http://proxy.example.com:8080").with_headers(headers.clone());
+        assert_eq!(proxy_with_headers.headers, headers);
+    }
+
+    #[test]
+    fn test_proxy_no_proxy_functionality() {
+        let no_proxy_list = vec![
+            "localhost".to_string(),
+            "127.0.0.1".to_string(),
+            ".internal.com".to_string(),
+            ".example.org".to_string(),
+            "direct.access.com".to_string(),
+        ];
+
+        let proxy = ProxyConfig::new("http://proxy.example.com:8080")
+            .with_no_proxy(no_proxy_list.join(","));
+
+        assert_eq!(proxy.no_proxy, Some(no_proxy_list.join(",")));
+
+        // Test exact matches
+        assert!(proxy.should_use_proxy("http://localhost").is_none());
+        assert!(proxy.should_use_proxy("http://127.0.0.1").is_none());
+        assert!(proxy.should_use_proxy("http://direct.access.com").is_none());
+
+        // Test wildcard matching
+        assert!(proxy.should_use_proxy("https://api.internal.com").is_none());
+        assert!(proxy.should_use_proxy("http://sub.internal.com").is_none());
+        assert!(proxy.should_use_proxy("http://internal.com").is_none());
+
+        // Test non-matching hosts
+        assert!(proxy.should_use_proxy("http://google.com").is_some());
+        assert!(proxy.should_use_proxy("http://api.external.com").is_some());
+        assert!(proxy.should_use_proxy("http://192.168.1.1").is_some());
+    }
+
+    #[test]
+    fn test_proxy_no_proxy_edge_cases() {
+        // Test empty no_proxy list
+        let proxy_empty = ProxyConfig::new("http://proxy.example.com:8080");
+        assert!(proxy_empty.should_use_proxy("http://localhost").is_none());
+        assert!(proxy_empty.should_use_proxy("http://anything.com").is_none());
+    }
+
+    #[test]
+    fn test_client_config_with_proxy() {
+        let proxy = ProxyConfig::new("http://proxy.example.com:8080").with_auth("user", "pass");
+        let client = ClientConfig::with_endpoint("http://localhost:8080").with_proxy(proxy.clone());
+        assert_eq!(client.proxy, Some(proxy));
+    }
+
+    #[test]
+    fn test_client_config_with_no_proxy() {
+        let no_proxy_list = "localhost,.internal.com";
+        let proxy = ProxyConfig::new("http://proxy.example.com:8080").with_no_proxy(no_proxy_list);
+
+        let client = ClientConfig::with_endpoint("http://localhost:8080").with_proxy(proxy);
+
+        // Test that the client config includes the no_proxy configuration
+        if let Some(ref proxy_config) = client.proxy {
+            assert_eq!(proxy_config.no_proxy, Some(no_proxy_list.to_string()));
+            assert!(proxy_config.should_use_proxy("https://localhost").is_none());
+            assert!(proxy_config.should_use_proxy("http://api.internal.com").is_none());
+            assert!(proxy_config.should_use_proxy("http://external.com").is_some());
+        } else {
+            panic!("Proxy configuration should be present");
+        }
     }
 }
