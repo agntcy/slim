@@ -42,22 +42,28 @@ impl ProxyConfig {
     }
 
     /// Sets the proxy authentication credentials
-    pub fn with_auth(mut self, username: &str, password: &str) -> Self {
-        self.username = Some(username.to_string());
-        self.password = Some(password.to_string());
-        self
+    pub fn with_auth(self, username: &str, password: &str) -> Self {
+        Self {
+            username: Some(username.to_string()),
+            password: Some(password.to_string()),
+            ..self
+        }
     }
 
     /// Sets additional headers for proxy requests
-    pub fn with_headers(mut self, headers: HashMap<String, String>) -> Self {
-        self.headers = headers;
-        self
+    pub fn with_headers(self, headers: HashMap<String, String>) -> Self {
+        Self {
+            headers,
+            ..self
+        }
     }
 
     /// Sets the no_proxy list - hosts that should bypass the proxy
-    pub fn with_no_proxy(mut self, no_proxy: impl Into<String>) -> Self {
-        self.no_proxy = Some(no_proxy.into());
-        self
+    pub fn with_no_proxy(self, no_proxy: impl Into<String>) -> Self {
+        Self {
+            no_proxy: Some(no_proxy.into()),
+            ..self
+        }
     }
 
     /// Checks if the given host should bypass the proxy
