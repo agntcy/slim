@@ -113,7 +113,7 @@ impl ControlPlane {
         message_processor: Arc<MessageProcessor>,
     ) -> Self {
         let (tx, _) = mpsc::channel(128);
-        
+
         ControlPlane {
             servers,
             clients,
@@ -122,7 +122,7 @@ impl ControlPlane {
                     id,
                     message_processor,
                     connections: Arc::new(parking_lot::RwLock::new(HashMap::new())),
-                    tx_slim: parking_lot::RwLock::new(tx), // this will be correctly inside run()
+                    tx_slim: parking_lot::RwLock::new(tx), // this will be set correctly inside run()
                     tx_channels: parking_lot::RwLock::new(HashMap::new()),
                     cancellation_tokens: parking_lot::RwLock::new(HashMap::new()),
                     drain_rx,
@@ -167,7 +167,11 @@ impl ControlPlane {
         }
 
         // create local connection with the message processor
-        let (_, tx_slim, rx_slim) = self.controller.inner.message_processor.register_local_connection(true);
+        let (_, tx_slim, rx_slim) = self
+            .controller
+            .inner
+            .message_processor
+            .register_local_connection(true);
         let inner = self.controller.inner.clone();
         *inner.tx_slim.write() = tx_slim;
 
@@ -200,7 +204,7 @@ impl ControlPlane {
                         match next {
                             Some(res) => {
                                 match res {
-                                    Ok(msg) => {                        
+                                    Ok(msg) => {
                                         debug!("Send sub/unsub to control plane for message: {:?}", msg);
 
                                         let mut sub_vec = vec![];
@@ -234,7 +238,7 @@ impl ControlPlane {
                                                 v1::ConfigurationCommand {
                                                     connections_to_create: vec![],
                                                     subscriptions_to_set: sub_vec,
-                                                    subscriptions_to_delete: unsub_vec 
+                                                    subscriptions_to_delete: unsub_vec
                                                 })),
                                         };
 
@@ -243,7 +247,7 @@ impl ControlPlane {
                                                 Some(tx) => tx.clone(),
                                                 None => continue,
                                             };
-                                            if let Err(_) = tx.send(Ok(ctrl.clone())).await {
+                                            if (tx.send(Ok(ctrl.clone())).await).is_err() {
                                                 error!("error while notifiyng the control plane");
                                             };
 

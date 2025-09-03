@@ -614,8 +614,7 @@ where
 
         // subscribe for the channel
         let header = Some(SlimHeaderFlags::default().with_forward_to(self.conn.unwrap()));
-        let mut sub =
-            Message::new_subscribe(&self.name, &self.channel_name, header);
+        let mut sub = Message::new_subscribe(&self.name, &self.channel_name, header);
 
         // add in the metadata to indication that the
         // subscription is associated to a channel
@@ -655,8 +654,7 @@ where
     async fn leave(&self) -> Result<(), SessionError> {
         // unsubscribe for the channel
         let header = Some(SlimHeaderFlags::default().with_forward_to(self.conn.unwrap()));
-        let mut unsub =
-            Message::new_unsubscribe(&self.name, &self.channel_name, header);
+        let mut unsub = Message::new_unsubscribe(&self.name, &self.channel_name, header);
 
         // add in the metadata to indication that the
         // subscription is associated to a channel
