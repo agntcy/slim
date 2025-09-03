@@ -22,11 +22,6 @@ pub struct ProxyConfig {
     /// Headers to send with proxy requests
     #[serde(default)]
     pub headers: HashMap<String, String>,
-
-    /// List of hosts that should bypass the proxy.
-    /// Based on hyper-utils matcher: https://github.com/hyperium/hyper-util/blob/master/src/client/proxy/matcher.rs
-    #[serde(default)]
-    pub no_proxy: Option<String>,
 }
 
 impl ProxyConfig {
@@ -37,7 +32,6 @@ impl ProxyConfig {
             username: None,
             password: None,
             headers: HashMap::new(),
-            no_proxy: None,
         }
     }
 
@@ -55,24 +49,13 @@ impl ProxyConfig {
         Self { headers, ..self }
     }
 
-    /// Sets the no_proxy list - hosts that should bypass the proxy
-    pub fn with_no_proxy(self, no_proxy: impl Into<String>) -> Self {
-        Self {
-            no_proxy: Some(no_proxy.into()),
-            ..self
-        }
-    }
-
     /// Checks if the given host should bypass the proxy
     pub fn should_use_proxy(&self, uri: &str) -> Option<Intercept> {
-        let no_proxy = self.no_proxy.clone().unwrap_or("".into());
-
         // matcher builder
         let matcher = match self.url.as_ref() {
             Some(url) => Matcher::builder()
                 .http(url.clone())
                 .https(url.clone())
-                .no(no_proxy)
                 .build(),
             None => Matcher::from_system(),
         };
@@ -107,44 +90,13 @@ mod test {
         assert_eq!(proxy_with_headers.headers, headers);
     }
 
-    fn test_proxy_no_proxy_functionality() {
-        let no_proxy_list = [
-            "localhost".to_string(),
-            "127.0.0.1".to_string(),
-            ".internal.com".to_string(),
-            ".example.org".to_string(),
-            "direct.access.com".to_string(),
-        ];
-
-        let proxy = ProxyConfig::new("http://proxy.example.com:8080")
-            .with_no_proxy(no_proxy_list.join(","));
-
-        assert_eq!(proxy.no_proxy, Some(no_proxy_list.join(",")));
-
-        // Test exact matches
-        assert!(proxy.should_use_proxy("http://localhost").is_none());
-        assert!(proxy.should_use_proxy("http://127.0.0.1").is_none());
-        assert!(proxy.should_use_proxy("http://direct.access.com").is_none());
-
-        // Test wildcard matching
-        assert!(proxy.should_use_proxy("https://api.internal.com").is_none());
-        assert!(proxy.should_use_proxy("http://sub.internal.com").is_none());
-        assert!(proxy.should_use_proxy("http://internal.com").is_none());
-
-        // Test non-matching hosts
-        assert!(proxy.should_use_proxy("http://google.com").is_some());
-        assert!(proxy.should_use_proxy("http://api.external.com").is_some());
-        assert!(proxy.should_use_proxy("http://192.168.1.1").is_some());
-    }
-
     fn test_proxy_system_matcher() {
         // Test system matcher when no URL is configured
-        let mut proxy_config = ProxyConfig {
+        let proxy_config = ProxyConfig {
             url: None,
             username: None,
             password: None,
             headers: HashMap::new(),
-            no_proxy: Some("localhost,127.0.0.1,.internal.com".to_string()),
         };
 
         // System matcher should still respect no_proxy settings
@@ -163,7 +115,6 @@ mod test {
         assert!(result.is_some() || result.is_none()); // Either is valid
 
         // Test system matcher with no no_proxy settings
-        proxy_config.no_proxy = None;
         let result = proxy_config.should_use_proxy("http://localhost");
         assert!(result.is_none()); // Should return None when no_proxy is None
     }
@@ -175,7 +126,6 @@ mod test {
             username: None,
             password: None,
             headers: HashMap::new(),
-            no_proxy: Some("".to_string()),
         };
 
         // Empty no_proxy should return None
@@ -190,7 +140,6 @@ mod test {
             username: None,
             password: None,
             headers: HashMap::new(),
-            no_proxy: Some("*.local,10.0.0.0/8,192.168.0.0/16,.corp.internal".to_string()),
         };
 
         // Test various patterns that should bypass proxy
@@ -215,7 +164,6 @@ mod test {
         assert!(proxy_config.username.is_none());
         assert!(proxy_config.password.is_none());
         assert!(proxy_config.headers.is_empty());
-        assert!(proxy_config.no_proxy.is_none());
 
         // Any call should return None when no_proxy is None
         assert!(
@@ -254,24 +202,15 @@ mod test {
             username: None,
             password: None,
             headers: HashMap::new(),
-            no_proxy: Some("localhost,.config-domain".to_string()),
         };
 
         // Should use config's settings, not environment
         assert!(
             config_with_url
                 .should_use_proxy("http://localhost")
-                .is_none()
-        );
-        assert!(
-            config_with_url
-                .should_use_proxy("http://api.config-domain")
-                .is_none()
-        );
-        assert!(
-            config_with_url
-                .should_use_proxy("http://external.com")
-                .is_some()
+                .is_some_and(|proxy| {
+                    proxy.uri().to_string() == "http://config-proxy.example.com:8080/".to_string()
+                })
         );
 
         // Test 2: Config without URL
@@ -324,7 +263,6 @@ mod test {
         // which may influence concurrent test execution
         test_proxy_config();
         test_proxy_env_variables();
-        test_proxy_no_proxy_functionality();
         test_proxy_system_matcher();
         test_proxy_system_matcher_empty_no_proxy();
         test_proxy_system_matcher_with_complex_no_proxy();

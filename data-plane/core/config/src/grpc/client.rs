@@ -805,28 +805,4 @@ mod test {
         let client = ClientConfig::with_endpoint("http://localhost:8080").with_proxy(proxy.clone());
         assert_eq!(client.proxy, proxy);
     }
-
-    #[test]
-    fn test_client_config_with_no_proxy() {
-        let no_proxy_list = "localhost,.internal.com";
-        let proxy = ProxyConfig::new("http://proxy.example.com:8080").with_no_proxy(no_proxy_list);
-
-        let client = ClientConfig::with_endpoint("http://localhost:8080").with_proxy(proxy);
-
-        // Test that the client config includes the no_proxy configuration
-        assert_eq!(client.proxy.no_proxy, Some(no_proxy_list.to_string()));
-        assert!(client.proxy.should_use_proxy("https://localhost").is_none());
-        assert!(
-            client
-                .proxy
-                .should_use_proxy("http://api.internal.com")
-                .is_none()
-        );
-        assert!(
-            client
-                .proxy
-                .should_use_proxy("http://external.com")
-                .is_some()
-        );
-    }
 }
