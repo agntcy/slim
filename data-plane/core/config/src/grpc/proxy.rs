@@ -7,7 +7,7 @@ use hyper_util::client::proxy::matcher::{Intercept, Matcher};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-#[derive(Default, Debug, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Default, PartialEq, Debug, Serialize, Deserialize, JsonSchema)]
 pub struct ProxyConfig {
     /// The HTTP proxy URL (e.g., "http://proxy.example.com:8080")
     /// If empty, the system proxy settings will be used.
@@ -27,28 +27,6 @@ pub struct ProxyConfig {
     /// Based on hyper-utils matcher: https://github.com/hyperium/hyper-util/blob/master/src/client/proxy/matcher.rs
     #[serde(default)]
     pub no_proxy: Option<String>,
-}
-
-impl Clone for ProxyConfig {
-    fn clone(&self) -> Self {
-        Self {
-            url: self.url.clone(),
-            username: self.username.clone(),
-            password: self.password.clone(),
-            headers: self.headers.clone(),
-            no_proxy: self.no_proxy.clone(),
-        }
-    }
-}
-
-impl PartialEq for ProxyConfig {
-    fn eq(&self, other: &Self) -> bool {
-        self.url == other.url
-            && self.username == other.username
-            && self.password == other.password
-            && self.headers == other.headers
-            && self.no_proxy == other.no_proxy
-    }
 }
 
 impl ProxyConfig {
