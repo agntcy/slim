@@ -158,7 +158,6 @@ func (s *nbAPIService) CreateSubscription(
 
 	err = s.routeService.CreateSubscription(ctx, nodeEntry, createSubscriptionRequest.Subscription)
 	if err != nil {
-		fmt.Printf("router error: %v\n", err.Error())
 		return nil, fmt.Errorf("failed to create subscription: %w", err)
 	}
 
@@ -167,8 +166,6 @@ func (s *nbAPIService) CreateSubscription(
 	subscriptionID, err := s.nodeService.SaveSubscription(createSubscriptionRequest.NodeId,
 		createSubscriptionRequest.Subscription)
 	if err != nil {
-		fmt.Printf("save error: %v\n", err.Error())
-
 		return nil, fmt.Errorf("failed to save subscription: %w", err)
 	}
 	response := &controlplaneApi.CreateSubscriptionResponse{
@@ -226,8 +223,6 @@ func (s *nbAPIService) CreateChannel(
 	if err != nil {
 		return nil, fmt.Errorf("failed to get available node for channel creation: %w", err)
 	}
-	fmt.Printf("\n\n\n\n\n\n")
-	fmt.Printf("Using node %v for channel creation\n", node)
 	return s.groupService.CreateChannel(ctx, createChannelRequest, node)
 }
 
@@ -238,13 +233,10 @@ func (s *nbAPIService) DeleteChannel(
 	if err != nil {
 		return nil, fmt.Errorf("failed to get channel: %w", err)
 	}
-	fmt.Printf("storedChannel: %v\n\n\n", storedChannel)
 	node, err := s.getModeratorNode(ctx, storedChannel.Moderators)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get available node for channel deletion: %w", err)
 	}
-	fmt.Printf("\n\n\n\n\n\n")
-	fmt.Printf("Using node %v for channel deletion\n", node)
 	return s.groupService.DeleteChannel(ctx, deleteChannelRequest, node)
 }
 
@@ -291,7 +283,6 @@ func (s *nbAPIService) ListParticipants(
 func (s *nbAPIService) getModeratorNode(ctx context.Context, moderators []string) (
 	*controlplaneApi.NodeEntry, error) {
 	moderatorToFind := moderators[0]
-	fmt.Printf("Searching for moderator: %s\n", moderatorToFind)
 	organization, namespace, agentType, _, err := commonUtil.ParseRoute(moderatorToFind)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse moderator route: %w", err)
@@ -305,7 +296,6 @@ func (s *nbAPIService) getModeratorNode(ctx context.Context, moderators []string
 	}
 
 	nodes := nodeListResponse.GetEntries()
-	fmt.Printf("Found nodes: %v\n", nodes)
 
 	for _, node := range nodes {
 		subscriptionList, err := s.routeService.ListSubscriptions(ctx, node)
@@ -313,11 +303,8 @@ func (s *nbAPIService) getModeratorNode(ctx context.Context, moderators []string
 			continue
 		}
 		subscriptionEntries := subscriptionList.GetEntries()
-		fmt.Printf("Node %s has subscriptions: %v\n", node.Id, subscriptionEntries)
-
 		for _, subscriptionEntry := range subscriptionEntries {
 			if isSubscriptionSameAsModerator(subscriptionEntry, organization, namespace, agentType) {
-				fmt.Printf("Found matching moderator on node %s\n", node.Id)
 				return node, nil
 			}
 		}

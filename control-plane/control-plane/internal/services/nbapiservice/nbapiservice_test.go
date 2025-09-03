@@ -5,60 +5,80 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+	"google.golang.org/protobuf/types/known/wrapperspb"
+
 	controllerapi "github.com/agntcy/slim/control-plane/common/proto/controller/v1"
 	controlplaneApi "github.com/agntcy/slim/control-plane/common/proto/controlplane/v1"
 	"github.com/agntcy/slim/control-plane/control-plane/internal/config"
 	"github.com/agntcy/slim/control-plane/control-plane/internal/services/groupservice"
-	"github.com/stretchr/testify/assert"
-	"google.golang.org/protobuf/types/known/wrapperspb"
 )
 
 type mockNodeService struct {
-	nodes                    []*controlplaneApi.NodeEntry
-	listNodesFunc            func(ctx context.Context, req *controlplaneApi.NodeListRequest) (*controlplaneApi.NodeListResponse, error)
-	getNodeByIDFunc          func(nodeID string) (*controlplaneApi.NodeEntry, error)
-	saveConnectionFunc       func(nodeEntry *controlplaneApi.NodeEntry, connection *controllerapi.Connection) (string, error)
+	nodes         []*controlplaneApi.NodeEntry
+	listNodesFunc func(
+		ctx context.Context, req *controlplaneApi.NodeListRequest) (*controlplaneApi.NodeListResponse, error)
+	getNodeByIDFunc    func(nodeID string) (*controlplaneApi.NodeEntry, error)
+	saveConnectionFunc func(
+		nodeEntry *controlplaneApi.NodeEntry, connection *controllerapi.Connection) (string, error)
 	getConnectionDetailsFunc func(nodeID string, connectionID string) (string, error)
 	saveSubscriptionFunc     func(nodeID string, subscription *controllerapi.Subscription) (string, error)
 	getSubscriptionFunc      func(nodeID string, subscriptionID string) (*controllerapi.Subscription, error)
 }
 
-func (m *mockNodeService) ListNodes(ctx context.Context, req *controlplaneApi.NodeListRequest) (*controlplaneApi.NodeListResponse, error) {
+func (m *mockNodeService) ListNodes(
+	ctx context.Context,
+	req *controlplaneApi.NodeListRequest,
+) (*controlplaneApi.NodeListResponse, error) {
 	if m.listNodesFunc != nil {
 		return m.listNodesFunc(ctx, req)
 	}
 	return &controlplaneApi.NodeListResponse{Entries: m.nodes}, nil
 }
 
-func (m *mockNodeService) GetNodeByID(nodeID string) (*controlplaneApi.NodeEntry, error) {
+func (m *mockNodeService) GetNodeByID(
+	nodeID string,
+) (*controlplaneApi.NodeEntry, error) {
 	if m.getNodeByIDFunc != nil {
 		return m.getNodeByIDFunc(nodeID)
 	}
 	return nil, nil
 }
 
-func (m *mockNodeService) SaveConnection(nodeEntry *controlplaneApi.NodeEntry, connection *controllerapi.Connection) (string, error) {
+func (m *mockNodeService) SaveConnection(
+	nodeEntry *controlplaneApi.NodeEntry,
+	connection *controllerapi.Connection,
+) (string, error) {
 	if m.saveConnectionFunc != nil {
 		return m.saveConnectionFunc(nodeEntry, connection)
 	}
 	return "", nil
 }
 
-func (m *mockNodeService) GetConnectionDetails(nodeID string, connectionID string) (string, error) {
+func (m *mockNodeService) GetConnectionDetails(
+	nodeID string,
+	connectionID string,
+) (string, error) {
 	if m.getConnectionDetailsFunc != nil {
 		return m.getConnectionDetailsFunc(nodeID, connectionID)
 	}
 	return "", nil
 }
 
-func (m *mockNodeService) SaveSubscription(nodeID string, subscription *controllerapi.Subscription) (string, error) {
+func (m *mockNodeService) SaveSubscription(
+	nodeID string,
+	subscription *controllerapi.Subscription,
+) (string, error) {
 	if m.saveSubscriptionFunc != nil {
 		return m.saveSubscriptionFunc(nodeID, subscription)
 	}
 	return "", nil
 }
 
-func (m *mockNodeService) GetSubscription(nodeID string, subscriptionID string) (*controllerapi.Subscription, error) {
+func (m *mockNodeService) GetSubscription(
+	nodeID string,
+	subscriptionID string,
+) (*controllerapi.Subscription, error) {
 	if m.getSubscriptionFunc != nil {
 		return m.getSubscriptionFunc(nodeID, subscriptionID)
 	}
@@ -66,16 +86,24 @@ func (m *mockNodeService) GetSubscription(nodeID string, subscriptionID string) 
 }
 
 type mockRouteService struct {
-	subscriptions          map[string][]*controllerapi.SubscriptionEntry
-	connections            map[string][]*controllerapi.ConnectionEntry
-	listSubscriptionsFunc  func(ctx context.Context, node *controlplaneApi.NodeEntry) (*controllerapi.SubscriptionListResponse, error)
-	listConnectionsFunc    func(ctx context.Context, node *controlplaneApi.NodeEntry) (*controllerapi.ConnectionListResponse, error)
-	createConnectionFunc   func(ctx context.Context, node *controlplaneApi.NodeEntry, connection *controllerapi.Connection) error
-	createSubscriptionFunc func(ctx context.Context, node *controlplaneApi.NodeEntry, subscription *controllerapi.Subscription) error
-	deleteSubscriptionFunc func(ctx context.Context, node *controlplaneApi.NodeEntry, subscription *controllerapi.Subscription) error
+	subscriptions         map[string][]*controllerapi.SubscriptionEntry
+	connections           map[string][]*controllerapi.ConnectionEntry
+	listSubscriptionsFunc func(
+		ctx context.Context, node *controlplaneApi.NodeEntry) (*controllerapi.SubscriptionListResponse, error)
+	listConnectionsFunc func(
+		ctx context.Context, node *controlplaneApi.NodeEntry) (*controllerapi.ConnectionListResponse, error)
+	createConnectionFunc func(
+		ctx context.Context, node *controlplaneApi.NodeEntry, connection *controllerapi.Connection) error
+	createSubscriptionFunc func(
+		ctx context.Context, node *controlplaneApi.NodeEntry, subscription *controllerapi.Subscription) error
+	deleteSubscriptionFunc func(
+		ctx context.Context, node *controlplaneApi.NodeEntry, subscription *controllerapi.Subscription) error
 }
 
-func (m *mockRouteService) ListSubscriptions(ctx context.Context, node *controlplaneApi.NodeEntry) (*controllerapi.SubscriptionListResponse, error) {
+func (m *mockRouteService) ListSubscriptions(
+	ctx context.Context,
+	node *controlplaneApi.NodeEntry,
+) (*controllerapi.SubscriptionListResponse, error) {
 	if m.listSubscriptionsFunc != nil {
 		return m.listSubscriptionsFunc(ctx, node)
 	}
@@ -85,7 +113,10 @@ func (m *mockRouteService) ListSubscriptions(ctx context.Context, node *controlp
 	return nil, fmt.Errorf("no SubscriptionListResponse received")
 }
 
-func (m *mockRouteService) ListConnections(ctx context.Context, node *controlplaneApi.NodeEntry) (*controllerapi.ConnectionListResponse, error) {
+func (m *mockRouteService) ListConnections(
+	ctx context.Context,
+	node *controlplaneApi.NodeEntry,
+) (*controllerapi.ConnectionListResponse, error) {
 	if m.listConnectionsFunc != nil {
 		return m.listConnectionsFunc(ctx, node)
 	}
@@ -95,21 +126,33 @@ func (m *mockRouteService) ListConnections(ctx context.Context, node *controlpla
 	return nil, fmt.Errorf("no ConnectionListResponse received")
 }
 
-func (m *mockRouteService) CreateConnection(ctx context.Context, node *controlplaneApi.NodeEntry, connection *controllerapi.Connection) error {
+func (m *mockRouteService) CreateConnection(
+	ctx context.Context,
+	node *controlplaneApi.NodeEntry,
+	connection *controllerapi.Connection,
+) error {
 	if m.createConnectionFunc != nil {
 		return m.createConnectionFunc(ctx, node, connection)
 	}
 	return nil
 }
 
-func (m *mockRouteService) CreateSubscription(ctx context.Context, node *controlplaneApi.NodeEntry, subscription *controllerapi.Subscription) error {
+func (m *mockRouteService) CreateSubscription(
+	ctx context.Context,
+	node *controlplaneApi.NodeEntry,
+	subscription *controllerapi.Subscription,
+) error {
 	if m.createSubscriptionFunc != nil {
 		return m.createSubscriptionFunc(ctx, node, subscription)
 	}
 	return nil
 }
 
-func (m *mockRouteService) DeleteSubscription(ctx context.Context, node *controlplaneApi.NodeEntry, subscription *controllerapi.Subscription) error {
+func (m *mockRouteService) DeleteSubscription(
+	ctx context.Context,
+	node *controlplaneApi.NodeEntry,
+	subscription *controllerapi.Subscription,
+) error {
 	if m.deleteSubscriptionFunc != nil {
 		return m.deleteSubscriptionFunc(ctx, node, subscription)
 	}

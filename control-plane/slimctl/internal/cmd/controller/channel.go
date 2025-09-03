@@ -7,7 +7,6 @@ import (
 	"context"
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/spf13/cobra"
 
@@ -44,7 +43,7 @@ func newCreateChannelCmd(opts *options.CommonOptions) *cobra.Command {
 				return fmt.Errorf("failed to parse moderators: %w", err)
 			}
 
-			ctx, cancel := context.WithTimeout(cmd.Context(), 15*time.Second)
+			ctx, cancel := context.WithTimeout(cmd.Context(), opts.Timeout)
 			defer cancel()
 
 			cpCLient, err := cpApi.GetClient(opts)

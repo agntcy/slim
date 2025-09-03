@@ -48,8 +48,9 @@ func (s *GroupService) CreateChannel(
 	channelID := fmt.Sprintf(ChannelIDFormat, createChannelRequest.Moderators[0], randID)
 
 	// Sending control message
+	messageID := uuid.NewString()
 	msg := &controllerapi.ControlMessage{
-		MessageId: uuid.NewString(),
+		MessageId: messageID,
 		Payload: &controllerapi.ControlMessage_CreateChannelRequest{
 			CreateChannelRequest: &controllerapi.CreateChannelRequest{
 				ChannelId:  channelID,
@@ -57,13 +58,15 @@ func (s *GroupService) CreateChannel(
 			},
 		},
 	}
-
+	zlog.Debug().Msgf("Sending CreateChannelRequest for channel %s to node: %s", channelID, nodeEntry.Id)
 	if sendErr := s.cmdHandler.SendMessage(nodeEntry.Id, msg); sendErr != nil {
 		return nil, fmt.Errorf("failed to send message: %w", sendErr)
 	}
 	// wait for ACK response
 	response, err := s.cmdHandler.WaitForResponse(nodeEntry.Id,
-		reflect.TypeOf(&controllerapi.ControlMessage_Ack{}))
+		reflect.TypeOf(&controllerapi.ControlMessage_Ack{}),
+		messageID,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -106,21 +109,25 @@ func (s *GroupService) DeleteChannel(
 	}
 
 	// Sending control message
+	messageID := uuid.NewString()
 	msg := &controllerapi.ControlMessage{
-		MessageId: uuid.NewString(),
+		MessageId: messageID,
 		Payload: &controllerapi.ControlMessage_DeleteChannelRequest{
 			DeleteChannelRequest: deleteChannelRequest,
 		},
 	}
 
-	zlog.Debug().Msgf("Sending DeleteChannelRequest for channel %s", deleteChannelRequest.ChannelId)
+	zlog.Debug().Msgf("Sending DeleteChannelRequest for channel %s to node: %s",
+		deleteChannelRequest.ChannelId, nodeEntry.Id)
 	if handlerError := s.cmdHandler.SendMessage(nodeEntry.Id, msg); handlerError != nil {
 		return nil, fmt.Errorf("failed to send message: %w", handlerError)
 	}
 
 	// wait for ACK response
 	response, err := s.cmdHandler.WaitForResponse(nodeEntry.Id,
-		reflect.TypeOf(&controllerapi.ControlMessage_Ack{}))
+		reflect.TypeOf(&controllerapi.ControlMessage_Ack{}),
+		messageID,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -159,21 +166,25 @@ func (s *GroupService) AddParticipant(
 	}
 
 	// Sending control message
+	messageID := uuid.NewString()
 	msg := &controllerapi.ControlMessage{
-		MessageId: uuid.NewString(),
+		MessageId: messageID,
 		Payload: &controllerapi.ControlMessage_AddParticipantRequest{
 			AddParticipantRequest: addParticipantRequest,
 		},
 	}
 
-	zlog.Debug().Msgf("Sending AddParticipantRequest for channel %s", addParticipantRequest.ChannelId)
+	zlog.Debug().Msgf("Sending AddParticipantRequest for channel %s to node: %s",
+		addParticipantRequest.ChannelId, nodeEntry.Id)
 	if err := s.cmdHandler.SendMessage(nodeEntry.Id, msg); err != nil {
 		return nil, fmt.Errorf("failed to send message: %w", err)
 	}
 
 	// wait for ACK response
 	response, err := s.cmdHandler.WaitForResponse(nodeEntry.Id,
-		reflect.TypeOf(&controllerapi.ControlMessage_Ack{}))
+		reflect.TypeOf(&controllerapi.ControlMessage_Ack{}),
+		messageID,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -241,21 +252,25 @@ func (s *GroupService) DeleteParticipant(
 	}
 
 	// Sending control message
+	messageID := uuid.NewString()
 	msg := &controllerapi.ControlMessage{
-		MessageId: uuid.NewString(),
+		MessageId: messageID,
 		Payload: &controllerapi.ControlMessage_DeleteParticipantRequest{
 			DeleteParticipantRequest: deleteParticipantRequest,
 		},
 	}
 
-	zlog.Debug().Msgf("Sending DeleteParticipantRequest for channel %s", deleteParticipantRequest.ChannelId)
+	zlog.Debug().Msgf("Sending DeleteParticipantRequest for channel %s to node: %s",
+		deleteParticipantRequest.ChannelId, nodeEntry.Id)
 	if handlerError := s.cmdHandler.SendMessage(nodeEntry.Id, msg); handlerError != nil {
 		return nil, fmt.Errorf("failed to send message: %w", handlerError)
 	}
 
 	// wait for ACK response
 	response, err := s.cmdHandler.WaitForResponse(nodeEntry.Id,
-		reflect.TypeOf(&controllerapi.ControlMessage_Ack{}))
+		reflect.TypeOf(&controllerapi.ControlMessage_Ack{}),
+		messageID,
+	)
 	if err != nil {
 		return nil, err
 	}
