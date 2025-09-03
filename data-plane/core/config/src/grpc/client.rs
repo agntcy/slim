@@ -449,11 +449,8 @@ impl ClientConfig {
         http_connector: HttpConnector,
         tls_config: Option<rustls::ClientConfig>,
     ) -> Result<Channel, ConfigError> {
-        // Extract host from endpoint to check no_proxy rules
-        let endpoint_host = uri.host().unwrap_or("");
-
         // Check if this host should bypass the proxy
-        if let Some(intercept) = self.proxy.should_use_proxy(endpoint_host) {
+        if let Some(intercept) = self.proxy.should_use_proxy(uri.to_string()) {
             // Use proxy for this host
             let tunnel = self.create_proxy_tunnel(intercept, http_connector, &self.proxy)?;
             self.create_tunneled_channel(builder, tunnel, tls_config)
@@ -471,6 +468,8 @@ impl ClientConfig {
         proxy_config: &ProxyConfig,
     ) -> Result<Tunnel<HttpConnector>, ConfigError> {
         let mut tunnel = Tunnel::new(intercept.uri().clone(), http_connector);
+
+        tracing::info!("Creating proxy tunnel to {}", intercept.uri());
 
         // Set proxy authentication if provided
         if let (Some(username), Some(password)) = (&proxy_config.username, &proxy_config.password) {

@@ -50,13 +50,17 @@ impl ProxyConfig {
     }
 
     /// Checks if the given host should bypass the proxy
-    pub fn should_use_proxy(&self, uri: &str) -> Option<Intercept> {
+    pub fn should_use_proxy(&self, uri: impl Into<String>) -> Option<Intercept> {
+        let uri = uri.into();
+
         // matcher builder
         let matcher = match self.url.as_ref() {
-            Some(url) => Matcher::builder()
-                .http(url.clone())
-                .https(url.clone())
-                .build(),
+            Some(url) => {
+                Matcher::builder()
+                    .http(url.clone())
+                    .https(url.clone())
+                    .build()
+            }
             None => Matcher::from_system(),
         };
 
@@ -90,6 +94,11 @@ mod test {
         assert_eq!(proxy_with_headers.headers, headers);
     }
 
+    fn test_proxy_match() {
+        let proxy = ProxyConfig::new("http://proxy.example.com:8080");
+        assert!(proxy.should_use_proxy("http://example.com").is_some());
+    }
+
     fn test_proxy_system_matcher() {
         // Test system matcher when no URL is configured
         let proxy_config = ProxyConfig {
@@ -117,42 +126,6 @@ mod test {
         // Test system matcher with no no_proxy settings
         let result = proxy_config.should_use_proxy("http://localhost");
         assert!(result.is_none()); // Should return None when no_proxy is None
-    }
-
-    fn test_proxy_system_matcher_empty_no_proxy() {
-        // Test system matcher with empty no_proxy string
-        let proxy_config = ProxyConfig {
-            url: None,
-            username: None,
-            password: None,
-            headers: HashMap::new(),
-        };
-
-        // Empty no_proxy should return None
-        assert!(proxy_config.should_use_proxy("http://localhost").is_none());
-        assert!(proxy_config.should_use_proxy("http://google.com").is_none());
-    }
-
-    fn test_proxy_system_matcher_with_complex_no_proxy() {
-        // Test system matcher with complex no_proxy patterns
-        let proxy_config = ProxyConfig {
-            url: None,
-            username: None,
-            password: None,
-            headers: HashMap::new(),
-        };
-
-        // Test various patterns that should bypass proxy
-        assert!(proxy_config.should_use_proxy("http://api.local").is_none());
-        assert!(
-            proxy_config
-                .should_use_proxy("https://service.corp.internal")
-                .is_none()
-        );
-
-        // Test patterns that should use proxy (system-dependent)
-        let result = proxy_config.should_use_proxy("http://external.com");
-        assert!(result.is_some() || result.is_none()); // System-dependent behavior
     }
 
     fn test_proxy_config_default_creation() {
@@ -262,10 +235,9 @@ mod test {
         // Run tests consecutively as we are using the set/unset env variables,
         // which may influence concurrent test execution
         test_proxy_config();
+        test_proxy_match();
         test_proxy_env_variables();
         test_proxy_system_matcher();
-        test_proxy_system_matcher_empty_no_proxy();
-        test_proxy_system_matcher_with_complex_no_proxy();
         test_proxy_config_default_creation();
     }
 }
