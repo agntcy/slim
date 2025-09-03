@@ -201,24 +201,7 @@ impl ControlPlane {
                             Some(res) => {
                                 match res {
                                     Ok(msg) => {                        
-                                        // TODO: process the packet according to the values in the metadata
-                                        /*
-                                        match msg.get_metadata("CHANNEL") {
-                                            Some(_) => {
-                                                match msg.get_metadata("CHANNEL_CREATION") {
-                                                    Some(_) => {
-                                                        info!("received subscription and creation for channel {}",msg.get_name_as_agent());
-                                                    }
-                                                    None => {
-                                                        info!("received sub/unsub for channel {}",msg.get_name_as_agent());
-                                                    }
-                                                }
-                                            }
-                                            None => {
-                                                info!("received sub/unsub for new name {}",msg.get_name_as_agent());
-                                            }
-                                        }
-                                        */
+                                        debug!("Send sub/unsub to control plane for message: {:?}", msg);
 
                                         let mut sub_vec = vec![];
                                         let mut unsub_vec = vec![];
@@ -230,7 +213,7 @@ impl ControlPlane {
                                                     component_1: components[1].to_string(),
                                                     component_2: components[2].to_string(),
                                                     id: Some(dst.id()),
-                                                    connection_id: "connection".to_string(),  //TODO
+                                                    connection_id: "n/a".to_string(),
                                         };
                                         match msg.get_type() {
                                             slim_datapath::api::MessageType::Subscribe(_) => {

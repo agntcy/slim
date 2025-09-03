@@ -184,6 +184,17 @@ func (s *sbAPIService) handleNodeMessages(stream controllerapi.ControllerService
 			return err
 		}
 		switch payload := msg.Payload.(type) {
+		case *controllerapi.ControlMessage_ConfigCommand:
+			zlog.Debug().Msgf(
+				"Received ConfigCommand from node: %s", registeredNodeID)
+			// list subscriptions to add or remove in debug log
+			for _, sub := range payload.ConfigCommand.SubscriptionsToSet {
+				zlog.Debug().Msgf("Subscription to set: %v", sub)
+			}
+			for _, sub := range payload.ConfigCommand.SubscriptionsToDelete {
+				zlog.Debug().Msgf("Subscription to delete: %v", sub)
+			}
+			continue
 		case *controllerapi.ControlMessage_DeregisterNodeRequest:
 			// Handle deregistration logic
 			if payload.DeregisterNodeRequest.Node != nil {
