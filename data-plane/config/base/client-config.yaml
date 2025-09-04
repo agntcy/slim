@@ -12,7 +12,7 @@ runtime:
   drain_timeout: 10s
 
 services:
-slim/0:
+  slim/0:
     dataplane:
       clients:
         - endpoint: "http://localhost:46357"
