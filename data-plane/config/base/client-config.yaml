@@ -12,15 +12,9 @@ runtime:
   drain_timeout: 10s
 
 services:
-  slim/0:
+slim/0:
     dataplane:
       clients:
-        - endpoint: "https://10.60.16.63:46357"
+        - endpoint: "http://localhost:46357"
           tls:
-            insecure_skip_verify: true
-          proxy:
-            url: https://10.60.16.63:3130
-            username: abc
-            password: "123"
-            tls:
-              insecure_skip_verify: true
+            insecure: true
