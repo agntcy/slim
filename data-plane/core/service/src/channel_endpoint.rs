@@ -1592,7 +1592,7 @@ where
     }
 
     async fn on_leave_request(&mut self, msg: Message) -> Result<(), SessionError> {
-        // if we are point to point simply send the leave request as if MLS is off
+        // if this is a point to point simply send the leave request as if MLS is off
         if self.endpoint.session_type == ProtoSessionType::SessionFireForget {
             let msg_id = msg.get_id();
             self.forward(msg).await?;
