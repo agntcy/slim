@@ -15,12 +15,16 @@ services:
   slim/0:
     dataplane:
       clients:
-        - endpoint: "https://10.60.16.63:46357"
+        - endpoint: "https://remote-slim:46357"
           tls:
             insecure_skip_verify: true
           proxy:
-            url: https://10.60.16.63:3130
+            url: https://your-https-proxy:3130
+            # Set username
             username: abc
+            # Set password
             password: "123"
+            # We can specify all the TLS parameters in the same way we do for SLIM
+            # connections
             tls:
               insecure_skip_verify: true
