@@ -1592,6 +1592,13 @@ where
     }
 
     async fn on_leave_request(&mut self, msg: Message) -> Result<(), SessionError> {
+        // if we are point to point simply send the leave request as if MLS is off
+        if self.endpoint.session_type == ProtoSessionType::SessionFireForget {
+            let msg_id = msg.get_id();
+            self.forward(msg).await?;
+            return self.current_task.as_mut().unwrap().leave_start(msg_id)
+        }
+
         // If MLS is on, send the MLS commit and wait for all the
         // acks before send the leave request. If MLS is off forward
         // the message

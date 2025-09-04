@@ -64,7 +64,7 @@ async def run_client(
                         #sticky=True,
                         #mls_enabled=enable_mls,
                         sticky=True,
-                        mls_enabled=False,
+                        mls_enabled=True,
                     )
                 )
             else:

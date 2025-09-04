@@ -162,7 +162,13 @@ where
     timer_observer: Arc<RtxTimerObserver>,
     rx: Receiver<InternalMessage>,
     cancellation_token: CancellationToken,
+    /// used to notify the unlock the thread that is calling
+    /// the close function from the app.
     close_tx: Sender<bool>,
+
+    /// set to true with close is called by the app.
+    /// used to wait for incoming messages.
+    closing_state: bool,
 }
 
 #[async_trait]
@@ -212,6 +218,7 @@ where
             rx,
             cancellation_token,
             close_tx,
+            closing_state: false,
         }
     }
 
@@ -236,6 +243,15 @@ where
                                 if let Err(e) = result {
                                     error!("error processing message: {}", e);
                                 }
+
+                                // here we recevied a message. if the session is in closing state
+                                // all the pending messages may be handled. try to close.
+                                if self.closing_state {
+                                    let res = self.close_remote_session().await;
+                                    if let Err(e) = res {
+                                        error!("error closing remote sesison: {}", e);
+                                    }
+                                }
                             }
                             InternalMessage::SetConfig { config } => {
                                 debug!("setting fire and forget session config: {}", config);
@@ -257,6 +273,8 @@ where
                             }
                             InternalMessage::CloseMessage { } => {
                                 debug!("recevied message to close the session");
+                                // start closing procedure
+                                self.closing_state = true;
                                 let res = self.close_remote_session().await;
                                 if let Err(e) = res {
                                     error!("error closing remote sesison: {}", e);
@@ -346,12 +364,17 @@ where
     }
 
     async fn close_remote_session(&mut self) -> Result<(), SessionError> {
-        // this is needed only in case of sticky session or MLS
+        // Before close the session check if there are pending messages to be awaited
+        if !self.state.timers.is_empty() {
+            // wait all messages so return
+            debug!("cannot close yet, wait for all messages");
+            return Ok(());
+        }
+
+        // No pending messages, proceed with the closing
+        // The close message is needed only in sticky and mls mode
         if !self.state.config.sticky && !self.state.config.mls_enabled {
             debug!("anycast session close it without notifing the other end");
-            // XXX here we still need to check if we are waiting for timers. if at least one timer is set
-            // wait for it!
-
             self.close_tx
                 .send(true)
                 .await
