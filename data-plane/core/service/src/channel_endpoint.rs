@@ -621,9 +621,11 @@ where
 
         // add in the metadata to indication that the
         // subscription is associated to a channel
-        sub.insert_metadata(CHANNEL_SUBSCRIPTION.to_string(), "true".to_string());
-        if creation {
-            sub.insert_metadata(CHANNEL_CREATION.to_string(), "true".to_string());
+        if self.session_type != ProtoSessionType::SessionFireForget {
+            sub.insert_metadata(CHANNEL_SUBSCRIPTION.to_string(), "true".to_string());
+            if creation {
+                sub.insert_metadata(CHANNEL_CREATION.to_string(), "true".to_string());
+            }
         }
 
         self.send(sub).await?;

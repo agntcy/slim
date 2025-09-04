@@ -34,6 +34,10 @@ use slim_datapath::tables::SubscriptionTable;
 type TxChannel = mpsc::Sender<Result<ControlMessage, Status>>;
 type TxChannels = HashMap<String, TxChannel>;
 
+const CHANNEL_CREATION: &str = "CHANNEL_CREATION";
+const CHANNEL_SUBSCRIPTION: &str = "CHANNEL_SUBSCRIPTION";
+
+
 /// Inner structure for the controller service
 /// This structure holds the internal state of the controller service,
 /// including the ID, message processor, connections, and channels.
@@ -203,25 +207,44 @@ impl ControlPlane {
                                 match res {
                                     Ok(msg) => {
                                         debug!("Send sub/unsub to control plane for message: {:?}", msg);
+                                        println!("-- from: {}, subscribe for: {}, subscription metadata = {:?}", 
+                                            msg.get_source(), msg.get_dst(), msg.get_metadata_map());
 
                                         let mut sub_vec = vec![];
                                         let mut unsub_vec = vec![];
+                                        let mut channel_vec = vec![];
 
                                         let dst = msg.get_dst();
                                         let components = dst.components_strings().unwrap();
-                                        let cmd = v1::Subscription {
+
+                                        let mut channel_sub = false;
+                                        if msg.contains_metadata(CHANNEL_SUBSCRIPTION) {
+                                            channel_sub = true;
+                                        }
+
+                                        let sub = v1::Subscription {
                                                     component_0: components[0].to_string(),
                                                     component_1: components[1].to_string(),
                                                     component_2: components[2].to_string(),
                                                     id: Some(dst.id()),
                                                     connection_id: "n/a".to_string(),
+                                                    is_channel: channel_sub,
                                         };
+
                                         match msg.get_type() {
                                             slim_datapath::api::MessageType::Subscribe(_) => {
-                                                sub_vec.push(cmd);
+                                                if msg.contains_metadata(CHANNEL_CREATION) {
+                                                    let cmd = v1::ChannelCreation {
+                                                        channel: Some(sub),
+                                                        moderator: msg.get_source().to_string(),
+                                                    };
+                                                    channel_vec.push(cmd);
+                                                } else {
+                                                    sub_vec.push(sub);
+                                                }
                                             },
                                             slim_datapath::api::MessageType::Unsubscribe(_) => {
-                                                unsub_vec.push(cmd);
+                                                unsub_vec.push(sub);
                                             }
                                             slim_datapath::api::MessageType::Publish(_) => {
                                                 // drop publication messages
@@ -235,7 +258,8 @@ impl ControlPlane {
                                                 v1::ConfigurationCommand {
                                                     connections_to_create: vec![],
                                                     subscriptions_to_set: sub_vec,
-                                                    subscriptions_to_delete: unsub_vec
+                                                    subscriptions_to_delete: unsub_vec,
+                                                    channels_to_create: channel_vec,
                                                 })),
                                         };
 

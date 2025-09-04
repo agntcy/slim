@@ -50,12 +50,19 @@ message Subscription {
   string component_2 = 3;
   google.protobuf.UInt64Value id = 4;
   string connection_id = 5;
+  bool is_channel = 6;
+}
+
+message ChannelCreation {
+  Subscription channel = 1;
+  string moderator = 2; // do we need the 4 components here or the encoded name is enough ?
 }
 
 message ConfigurationCommand {
   repeated Connection connections_to_create = 1;
   repeated Subscription subscriptions_to_set = 2;
   repeated Subscription subscriptions_to_delete = 3;
+  repeated ChannelCreation channels_to_create = 4;
 }
 
 message Ack {

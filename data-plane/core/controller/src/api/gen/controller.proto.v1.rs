@@ -72,6 +72,16 @@ pub struct Subscription {
     pub id: ::core::option::Option<u64>,
     #[prost(string, tag = "5")]
     pub connection_id: ::prost::alloc::string::String,
+    #[prost(bool, tag = "6")]
+    pub is_channel: bool,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ChannelCreation {
+    #[prost(message, optional, tag = "1")]
+    pub channel: ::core::option::Option<Subscription>,
+    /// do we need the 4 compoents here or the econded name is enough ?
+    #[prost(string, tag = "2")]
+    pub moderator: ::prost::alloc::string::String,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ConfigurationCommand {
@@ -81,6 +91,8 @@ pub struct ConfigurationCommand {
     pub subscriptions_to_set: ::prost::alloc::vec::Vec<Subscription>,
     #[prost(message, repeated, tag = "3")]
     pub subscriptions_to_delete: ::prost::alloc::vec::Vec<Subscription>,
+    #[prost(message, repeated, tag = "4")]
+    pub channels_to_create: ::prost::alloc::vec::Vec<ChannelCreation>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct Ack {
