@@ -31,7 +31,7 @@ use slim_datapath::messages::Name;
 use slim_datapath::messages::utils::SlimHeaderFlags;
 use slim_datapath::tables::SubscriptionTable;
 
-type TxChannel = Arc<mpsc::Sender<Result<ControlMessage, Status>>>;
+type TxChannel = mpsc::Sender<Result<ControlMessage, Status>>;
 type TxChannels = HashMap<String, TxChannel>;
 
 /// Inner structure for the controller service
@@ -327,7 +327,7 @@ impl ControlPlane {
             .inner
             .tx_channels
             .write()
-            .insert(client.endpoint.clone(), Arc::new(tx));
+            .insert(client.endpoint.clone(), tx);
 
         // return the sender for control messages
         Ok(())
@@ -772,7 +772,7 @@ impl ControllerService {
                                 this.inner
                                     .tx_channels
                                     .write()
-                                    .insert(config.endpoint.clone(), Arc::new(tx));
+                                    .insert(config.endpoint.clone(), tx);
                             },
                         )
                 }
@@ -873,7 +873,7 @@ impl GrpcControllerService for ControllerService {
         self.inner
             .tx_channels
             .write()
-            .insert(remote_endpoint.clone(), Arc::new(tx));
+            .insert(remote_endpoint.clone(), tx);
 
         // store the cancellation token in the controller service
         self.inner
