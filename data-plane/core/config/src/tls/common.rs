@@ -452,10 +452,10 @@ MSAvYjGrRzM6XpGEYasfwy0Zoc3loi9nzP5uE4tv8vE72nyMf+OhaPG+Rn+mdBv4
 
     // spellchecker:on
 
-    fn create_temp_file_simple(content: &str) -> String {
+    fn create_temp_file_simple(content: &str, suffix: u32) -> String {
         use std::env;
         let temp_dir = env::temp_dir();
-        let file_path = temp_dir.join(format!("test_file_{}", std::process::id()));
+        let file_path = temp_dir.join(format!("test_file_{}", suffix));
         let mut file = fs::File::create(&file_path).expect("Failed to create temp file");
         file.write_all(content.as_bytes())
             .expect("Failed to write to temp file");
@@ -645,7 +645,7 @@ MSAvYjGrRzM6XpGEYasfwy0Zoc3loi9nzP5uE4tv8vE72nyMf+OhaPG+Rn+mdBv4
 
     #[test]
     fn test_load_ca_cert_pool_with_ca_file() {
-        let ca_file_path = create_temp_file_simple(TEST_CA_CERT_PEM);
+        let ca_file_path = create_temp_file_simple(TEST_CA_CERT_PEM, rand::random::<u32>());
         let config = Config::default()
             .with_include_system_ca_certs_pool(false)
             .with_ca_file(&ca_file_path);
@@ -661,7 +661,7 @@ MSAvYjGrRzM6XpGEYasfwy0Zoc3loi9nzP5uE4tv8vE72nyMf+OhaPG+Rn+mdBv4
 
     #[test]
     fn test_load_ca_cert_pool_both_file_and_pem_error() {
-        let ca_file_path = create_temp_file_simple(TEST_CA_CERT_PEM);
+        let ca_file_path = create_temp_file_simple(TEST_CA_CERT_PEM, rand::random::<u32>());
         let config = Config::default()
             .with_include_system_ca_certs_pool(false)
             .with_ca_file(&ca_file_path)
@@ -724,9 +724,10 @@ MSAvYjGrRzM6XpGEYasfwy0Zoc3loi9nzP5uE4tv8vE72nyMf+OhaPG+Rn+mdBv4
 
     #[test]
     fn test_load_ca_certificate_from_file() {
-        let ca_file_path = create_temp_file_simple(TEST_CA_CERT_PEM);
+        let ca_file_path = create_temp_file_simple(TEST_CA_CERT_PEM, rand::random::<u32>());
         let config = Config::default().with_ca_file(&ca_file_path);
         let result = config.load_ca_certificate();
+        println!("res = {:?}", result);
         assert!(result.is_ok());
         assert!(result.unwrap().is_some());
 
@@ -736,7 +737,7 @@ MSAvYjGrRzM6XpGEYasfwy0Zoc3loi9nzP5uE4tv8vE72nyMf+OhaPG+Rn+mdBv4
 
     #[test]
     fn test_load_ca_certificate_both_file_and_pem() {
-        let ca_file_path = create_temp_file_simple(TEST_CA_CERT_PEM);
+        let ca_file_path = create_temp_file_simple(TEST_CA_CERT_PEM, rand::random::<u32>());
         let config = Config::default()
             .with_ca_file(&ca_file_path)
             .with_ca_pem(TEST_CA_CERT_PEM);
@@ -836,8 +837,9 @@ MSAvYjGrRzM6XpGEYasfwy0Zoc3loi9nzP5uE4tv8vE72nyMf+OhaPG+Rn+mdBv4
         use rustls::crypto::aws_lc_rs;
         let provider = Arc::new(aws_lc_rs::default_provider());
 
-        let key_file_path = create_temp_file_simple(TEST_PRIVATE_KEY_PEM);
-        let cert_file_path = create_temp_file_simple(TEST_CLIENT_CERT_PEM);
+        let suffix = rand::random::<u32>();
+        let key_file_path = create_temp_file_simple(TEST_PRIVATE_KEY_PEM, suffix);
+        let cert_file_path = create_temp_file_simple(TEST_CLIENT_CERT_PEM, suffix);
 
         let result = WatcherCertResolver::new(&key_file_path, &cert_file_path, &provider);
 

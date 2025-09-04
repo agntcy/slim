@@ -248,7 +248,7 @@ impl Service {
         })?;
 
         // Channels to communicate with SLIM
-        let (conn_id, tx_slim, rx_slim) = self.message_processor.register_local_connection();
+        let (conn_id, tx_slim, rx_slim) = self.message_processor.register_local_connection(false);
 
         // Channels to communicate with the local app
         // TODO(msardara): make the buffer size configurable
