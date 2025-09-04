@@ -50,7 +50,7 @@ struct ControllerServiceInternal {
     connections: Arc<parking_lot::RwLock<HashMap<String, u64>>>,
 
     /// channel to send messages into the datapath
-    tx_slim: parking_lot::RwLock<mpsc::Sender<Result<PubsubMessage, Status>>>,
+    tx_slim: mpsc::Sender<Result<PubsubMessage, Status>>,
 
     /// channels to send control messages
     tx_channels: parking_lot::RwLock<TxChannels>,
@@ -79,6 +79,10 @@ pub struct ControlPlane {
 
     /// controller
     controller: ControllerService,
+
+    /// channel to receive message from the datapath
+    /// to be used in listen_from_data_plan
+    rx_slim_option: Option<mpsc::Receiver<Result<PubsubMessage, Status>>>,
 }
 
 /// ControllerServiceInternal implements Drop trait to cancel all running listeners and
@@ -112,7 +116,7 @@ impl ControlPlane {
         drain_rx: drain::Watch,
         message_processor: Arc<MessageProcessor>,
     ) -> Self {
-        let (tx, _) = mpsc::channel(128);
+        let (_, tx_slim, rx_slim) = message_processor.register_local_connection(true);
 
         ControlPlane {
             servers,
@@ -122,12 +126,13 @@ impl ControlPlane {
                     id,
                     message_processor,
                     connections: Arc::new(parking_lot::RwLock::new(HashMap::new())),
-                    tx_slim: parking_lot::RwLock::new(tx), // this will be set correctly inside run()
+                    tx_slim,
                     tx_channels: parking_lot::RwLock::new(HashMap::new()),
                     cancellation_tokens: parking_lot::RwLock::new(HashMap::new()),
                     drain_rx,
                 }),
             },
+            rx_slim_option: Some(rx_slim),
         }
     }
 
@@ -166,16 +171,8 @@ impl ControlPlane {
             self.run_client(client).await?;
         }
 
-        // create local connection with the message processor
-        let (_, tx_slim, rx_slim) = self
-            .controller
-            .inner
-            .message_processor
-            .register_local_connection(true);
-        let inner = self.controller.inner.clone();
-        *inner.tx_slim.write() = tx_slim;
-
-        self.listen_from_data_plane(rx_slim).await;
+        let rx = self.rx_slim_option.take();
+        self.listen_from_data_plane(rx.unwrap()).await;
 
         Ok(())
     }
@@ -672,8 +669,7 @@ impl ControllerService {
 
     /// Send a control message to SLIM.
     async fn send_control_message(&self, msg: PubsubMessage) -> Result<(), ControllerError> {
-        let guard = self.inner.tx_slim.read().clone();
-        guard.send(Ok(msg)).await.map_err(|e| {
+        self.inner.tx_slim.send(Ok(msg)).await.map_err(|e| {
             error!("error sending message into datapath: {}", e);
             ControllerError::DatapathError(e.to_string())
         })

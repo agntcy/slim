@@ -204,15 +204,11 @@ impl Service {
         }
 
         // Controller service
-        let mut controller = self
-            .config
-            .controller
-            .into_service(
-                self.id.clone(),
-                self.watch.clone(),
-                self.message_processor.clone(),
-            )
-            .await;
+        let mut controller = self.config.controller.into_service(
+            self.id.clone(),
+            self.watch.clone(),
+            self.message_processor.clone(),
+        );
 
         // run controller service
         controller.run().await.map_err(|e| {

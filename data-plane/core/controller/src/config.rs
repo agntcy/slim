@@ -51,7 +51,7 @@ impl Config {
     }
 
     /// Create a ControlPlane service instance from this configuration
-    pub async fn into_service(
+    pub fn into_service(
         &self,
         id: ID,
         rx_drain: drain::Watch,
