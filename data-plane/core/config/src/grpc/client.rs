@@ -427,20 +427,66 @@ impl ClientConfig {
 
     /// Parses headers from the configuration
     fn parse_headers(&self) -> Result<HeaderMap, ConfigError> {
-        let mut header_map = HeaderMap::new();
-        for (key, value) in &self.headers {
-            let k: HeaderName = key.parse().map_err(|_| {
-                ConfigError::HeaderParseError(format!("error parsing header key {}", key))
-            })?;
-            let v: HeaderValue = value.parse().map_err(|_| {
-                ConfigError::HeaderParseError(format!("error parsing header value {}", key))
-            })?;
+        Self::parse_header_map(&self.headers, "header")
+    }
 
-            header_map.insert(k, v);
+    /// Generic helper to parse a HashMap<String, String> into HeaderMap
+    fn parse_header_map(
+        headers: &HashMap<String, String>,
+        context: &str,
+    ) -> Result<HeaderMap, ConfigError> {
+        let mut header_map = HeaderMap::new();
+        for (key, value) in headers {
+            let header_name = HeaderName::from_str(key).map_err(|_| {
+                ConfigError::HeaderParseError(format!("Invalid {} name: {}", context, key))
+            })?;
+            let header_value = HeaderValue::from_str(value).map_err(|_| {
+                ConfigError::HeaderParseError(format!("Invalid {} value: {}", context, value))
+            })?;
+            header_map.insert(header_name, header_value);
         }
         Ok(header_map)
     }
 
+    /// Helper to create basic auth header for proxy authentication
+    fn create_proxy_auth_header(
+        username: &str,
+        password: &str,
+    ) -> Result<HeaderValue, ConfigError> {
+        let auth_value = BASE64_STANDARD.encode(format!("{}:{}", username, password));
+        HeaderValue::from_str(&format!("Basic {}", auth_value)).map_err(|_| {
+            ConfigError::HeaderParseError("Invalid proxy auth credentials".to_string())
+        })
+    }
+
+    /// Helper to apply authentication and headers to a tunnel
+    fn apply_tunnel_config<T>(
+        &self,
+        mut tunnel: Tunnel<T>,
+        proxy_config: &ProxyConfig,
+        warn_insecure: bool,
+    ) -> Result<Tunnel<T>, ConfigError> {
+        // Set proxy authentication if provided
+        if let (Some(username), Some(password)) = (&proxy_config.username, &proxy_config.password)
+        {
+            if warn_insecure {
+                self.warn_insecure_auth();
+            }
+
+            let auth_header = Self::create_proxy_auth_header(username, password)?;
+            tunnel = tunnel.with_auth(auth_header);
+        }
+
+        // Set custom headers for proxy requests
+        if !proxy_config.headers.is_empty() {
+            let proxy_headers = self.parse_proxy_headers(&proxy_config.headers)?;
+            tunnel = tunnel.with_headers(proxy_headers);
+        }
+
+        Ok(tunnel)
+    }
+
+    /// Loads TLS configuration
     /// Loads TLS configuration
     fn load_tls_config(&self) -> Result<Option<rustls::ClientConfig>, ConfigError> {
         TLSSetting::load_rustls_config(&self.tls_setting)
@@ -494,52 +540,16 @@ impl ClientConfig {
                 .enable_http2()
                 .wrap_connector(http_connector);
 
-            let mut tunnel = Tunnel::new(proxy_uri.clone(), https_connector);
+            let tunnel = Tunnel::new(proxy_uri.clone(), https_connector);
+            let configured_tunnel = self.apply_tunnel_config(tunnel, proxy_config, false)?;
 
-            // Set proxy authentication if provided
-            if let (Some(username), Some(password)) =
-                (&proxy_config.username, &proxy_config.password)
-            {
-                let auth_value = BASE64_STANDARD.encode(format!("{}:{}", username, password));
-                let auth_header =
-                    HeaderValue::from_str(&format!("Basic {}", auth_value)).map_err(|_| {
-                        ConfigError::HeaderParseError("Invalid proxy auth credentials".to_string())
-                    })?;
-                tunnel = tunnel.with_auth(auth_header);
-            }
-
-            // Set custom headers for proxy requests
-            if !proxy_config.headers.is_empty() {
-                let proxy_headers = self.parse_proxy_headers(&proxy_config.headers)?;
-                tunnel = tunnel.with_headers(proxy_headers);
-            }
-
-            ProxyTunnel::Https(tunnel)
+            ProxyTunnel::Https(configured_tunnel)
         } else {
             // Use HTTP connector for the proxy
-            let mut tunnel = Tunnel::new(proxy_uri.clone(), http_connector);
+            let tunnel = Tunnel::new(proxy_uri.clone(), http_connector);
+            let configured_tunnel = self.apply_tunnel_config(tunnel, proxy_config, true)?;
 
-            // Set proxy authentication if provided
-            if let (Some(username), Some(password)) =
-                (&proxy_config.username, &proxy_config.password)
-            {
-                self.warn_insecure_auth();
-
-                let auth_value = BASE64_STANDARD.encode(format!("{}:{}", username, password));
-                let auth_header =
-                    HeaderValue::from_str(&format!("Basic {}", auth_value)).map_err(|_| {
-                        ConfigError::HeaderParseError("Invalid proxy auth credentials".to_string())
-                    })?;
-                tunnel = tunnel.with_auth(auth_header);
-            }
-
-            // Set custom headers for proxy requests
-            if !proxy_config.headers.is_empty() {
-                let proxy_headers = self.parse_proxy_headers(&proxy_config.headers)?;
-                tunnel = tunnel.with_headers(proxy_headers);
-            }
-
-            ProxyTunnel::Http(tunnel)
+            ProxyTunnel::Http(configured_tunnel)
         };
 
         Ok(tunnel)
@@ -550,17 +560,7 @@ impl ClientConfig {
         &self,
         headers: &HashMap<String, String>,
     ) -> Result<HeaderMap, ConfigError> {
-        let mut proxy_headers = HeaderMap::new();
-        for (key, value) in headers {
-            let header_name = HeaderName::from_str(key).map_err(|_| {
-                ConfigError::HeaderParseError(format!("Invalid proxy header name: {}", key))
-            })?;
-            let header_value = HeaderValue::from_str(value).map_err(|_| {
-                ConfigError::HeaderParseError(format!("Invalid proxy header value: {}", value))
-            })?;
-            proxy_headers.insert(header_name, header_value);
-        }
-        Ok(proxy_headers)
+        Self::parse_header_map(headers, "proxy header")
     }
 
     /// Creates a direct channel without proxy
