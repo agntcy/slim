@@ -28,6 +28,8 @@ pub enum ConfigError {
     AuthConfigError(String),
     #[error("resolution error")]
     ResolutionError,
+    #[error("invalid uri")]
+    InvalidUri(String),
     #[error("unknown error")]
     Unknown,
 }
