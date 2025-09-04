@@ -869,8 +869,8 @@ mod test {
         assert_eq!(client.proxy, proxy);
     }
 
-    #[tokio::test]
-    async fn test_https_proxy_url_detection() {
+    #[test]
+    fn test_https_proxy_url_detection() {
         // Test HTTP proxy
         let http_proxy = ProxyConfig::new("http://proxy.example.com:8080");
         let mut client =
