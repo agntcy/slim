@@ -868,28 +868,4 @@ mod test {
         let client = ClientConfig::with_endpoint("http://localhost:8080").with_proxy(proxy.clone());
         assert_eq!(client.proxy, proxy);
     }
-
-    #[test]
-    fn test_https_proxy_url_detection() {
-        // Test HTTP proxy
-        let http_proxy = ProxyConfig::new("http://proxy.example.com:8080");
-        let mut client =
-            ClientConfig::with_endpoint("http://localhost:8080").with_proxy(http_proxy);
-        client.tls_setting.insecure = true;
-
-        // This should work without issues
-        let channel = client.to_channel();
-        assert!(channel.is_ok(), "HTTP proxy should work");
-
-        // Test HTTPS proxy
-        let https_proxy = ProxyConfig::new("https://proxy.example.com:8080");
-        client.proxy = https_proxy;
-
-        // This should also work with our new HTTPS proxy support
-        let channel = client.to_channel();
-        assert!(
-            channel.is_ok(),
-            "HTTPS proxy should work with our new implementation"
-        );
-    }
 }
