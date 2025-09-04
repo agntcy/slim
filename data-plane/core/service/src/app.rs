@@ -602,14 +602,14 @@ where
         Ok(Info::new(id))
     }
 
-    /// Close session remove all state also on the rmeote side
+    /// Close session remove all state also on the remote side
     pub(crate) async fn close_session(&self, id: Id) -> bool {
         let pool = self.pool.read().await;
         match pool.get(&id) {
             Some(session) => {
                 let res = session.close().await;
                 if let Err(e) = res {
-                    error!("error closing sesison: {}", e);
+                    error!("error closing session: {}", e);
                 }
                 true
             }

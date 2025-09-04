@@ -17,7 +17,8 @@ use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info, warn};
 
 use crate::channel_endpoint::{
-    ChannelEndpoint, ChannelModerator, ChannelParticipant, MlsEndpoint, MlsState,
+    CLOSE_REMOTE_SESSION, ChannelEndpoint, ChannelModerator, ChannelParticipant, MlsEndpoint,
+    MlsState,
 };
 use crate::errors::SessionError;
 use crate::session::{
@@ -151,6 +152,14 @@ struct RtxTimerObserver {
     tx: Sender<InternalMessage>,
 }
 
+#[derive(Debug, Default)]
+struct ClosingState {
+    /// closing start
+    closing: bool,
+    /// leave request sent
+    notification_sent: bool,
+}
+
 /// The internal part of the Fire and Forget session that handles message processing
 struct FireAndForgetProcessor<P, V, T>
 where
@@ -168,7 +177,7 @@ where
 
     /// set to true with close is called by the app.
     /// used to wait for incoming messages.
-    closing_state: bool,
+    closing_state: ClosingState,
 }
 
 #[async_trait]
@@ -218,7 +227,7 @@ where
             rx,
             cancellation_token,
             close_tx,
-            closing_state: false,
+            closing_state: ClosingState::default(),
         }
     }
 
@@ -244,12 +253,12 @@ where
                                     error!("error processing message: {}", e);
                                 }
 
-                                // here we recevied a message. if the session is in closing state
+                                // received a message. if the session is in closing state
                                 // all the pending messages may be handled. try to close.
-                                if self.closing_state {
+                                if self.closing_state.closing {
                                     let res = self.close_remote_session().await;
                                     if let Err(e) = res {
-                                        error!("error closing remote sesison: {}", e);
+                                        error!("error closing remote session: {}", e);
                                     }
                                 }
                             }
@@ -272,12 +281,12 @@ where
                                 self.handle_timer_failure(message_id).await;
                             }
                             InternalMessage::CloseMessage { } => {
-                                debug!("recevied message to close the session");
+                                debug!("received message to close the session");
                                 // start closing procedure
-                                self.closing_state = true;
+                                self.closing_state.closing = true;
                                 let res = self.close_remote_session().await;
                                 if let Err(e) = res {
-                                    error!("error closing remote sesison: {}", e);
+                                    error!("error closing remote session: {}", e);
                                 }
                             }
                         },
@@ -374,7 +383,7 @@ where
         // No pending messages, proceed with the closing
         // The close message is needed only in sticky and mls mode
         if !self.state.config.sticky && !self.state.config.mls_enabled {
-            debug!("anycast session close it without notifing the other end");
+            debug!("anycast session close it without notifying the other end");
             self.close_tx
                 .send(true)
                 .await
@@ -383,8 +392,12 @@ where
             return Ok(());
         }
 
-        // XXX at the moment only the channel initiator can close a session
-        // TODO also the other side should be able to drop and notify a session close
+        if self.closing_state.notification_sent {
+            // notification already sent so return
+            return Ok(());
+        }
+
+        self.closing_state.notification_sent = true;
         let name = match &self.state.sticky_name {
             Some(n) => n,
             None => {
@@ -402,6 +415,7 @@ where
         session_header.set_session_message_type(ProtoSessionMessageType::ChannelLeaveRequest);
         session_header.set_session_id(self.state.session_id);
         session_header.set_message_id(rand::random::<u32>());
+        leave_message.insert_metadata(CLOSE_REMOTE_SESSION.to_string(), "true".to_string());
 
         self.state.channel_endpoint.on_message(leave_message).await
     }
@@ -431,6 +445,7 @@ where
             .await?;
 
         // No error - this session is sticky
+        self.state.config.sticky = true;
         self.state.sticky_name = Some(source);
         self.state.sticky_connection = Some(incoming_conn);
         self.state.sticky_session_status = StickySessionStatus::Established;
@@ -719,12 +734,16 @@ where
                 self.handle_channel_join_reply(message).await
             }
             ProtoSessionMessageType::ChannelLeaveReply => {
-                // Handle sticky session discovery reply
-                //self.handle_channel_join_reply(message).await
-                self.close_tx
-                    .send(true)
-                    .await
-                    .map_err(|e| SessionError::SlimTransmission(e.to_string()))
+                if self.closing_state.closing && self.closing_state.notification_sent {
+                    // Handle sticky session leave reply
+                    self.close_tx
+                        .send(true)
+                        .await
+                        .map_err(|e| SessionError::SlimTransmission(e.to_string()))
+                } else {
+                    // this message should not be received at this moment. drop it
+                    Ok(())
+                }
             }
             ProtoSessionMessageType::ChannelLeaveRequest
             | ProtoSessionMessageType::ChannelMlsWelcome

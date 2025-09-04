@@ -31,6 +31,10 @@ use slim_datapath::{
 };
 use slim_mls::mls::{CommitMsg, KeyPackageMsg, Mls, MlsIdentity, ProposalMsg, WelcomeMsg};
 
+// this flag is added to tell that channel that the leave request is
+// coming from the local app and not from remote
+pub const CLOSE_REMOTE_SESSION: &str = "CLOSE_REMOTE_SESSION";
+
 struct RequestTimerObserver<T>
 where
     T: SessionTransmitter + Send + Sync + Clone + 'static,
@@ -863,6 +867,15 @@ where
     }
 
     async fn on_leave_request(&mut self, msg: Message) -> Result<(), SessionError> {
+        // check the origin of the message
+        // if the message comes from the app and this is a fnf session notify the other side
+        if msg.contains_metadata(CLOSE_REMOTE_SESSION)
+            && self.endpoint.session_type == ProtoSessionType::SessionFireForget
+        {
+            return self.endpoint.send(msg).await;
+        }
+
+        // in this case the leave request is coming from the remote side
         // leave the channel
         self.endpoint.leave().await?;
 
@@ -1596,7 +1609,7 @@ where
         if self.endpoint.session_type == ProtoSessionType::SessionFireForget {
             let msg_id = msg.get_id();
             self.forward(msg).await?;
-            return self.current_task.as_mut().unwrap().leave_start(msg_id)
+            return self.current_task.as_mut().unwrap().leave_start(msg_id);
         }
 
         // If MLS is on, send the MLS commit and wait for all the

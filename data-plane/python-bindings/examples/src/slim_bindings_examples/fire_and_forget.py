@@ -61,10 +61,8 @@ async def run_client(
                     slim_bindings.PySessionConfiguration.FireAndForget(
                         max_retries=5,
                         timeout=datetime.timedelta(seconds=5),
-                        #sticky=True,
-                        #mls_enabled=enable_mls,
                         sticky=True,
-                        mls_enabled=True,
+                        mls_enabled=enable_mls,
                     )
                 )
             else:
