@@ -530,7 +530,6 @@ impl ClientConfig {
     }
 
     /// Loads TLS configuration
-    /// Loads TLS configuration
     fn load_tls_config(&self) -> Result<Option<rustls::ClientConfig>, ConfigError> {
         TLSSetting::load_rustls_config(&self.tls_setting)
             .map_err(|e| ConfigError::TLSSettingError(e.to_string()))
