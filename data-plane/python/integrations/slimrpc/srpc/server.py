@@ -227,13 +227,12 @@ async def call_handler(
         async for response in handler.behaviour(request_or_iterator, context):
             yield code_pb2.OK, response
     except SRPCResponseError as e:
-        logger.error("Error while calling handler 1")
         yield (
             e.code,
             status_pb2.Status(code=e.code, message=e.message, details=e.details),
         )
-    except Exception as e:
-        logger.error(f"Error while calling handler 2 {e}")
+    except Exception:
+        logger.exception("Unexpected error while calling handler")
         yield (
             code_pb2.UNKNOWN,
             status_pb2.Status(
