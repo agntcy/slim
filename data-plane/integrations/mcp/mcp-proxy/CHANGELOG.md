@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.7](https://github.com/agntcy/slim/compare/slim-mcp-proxy-v0.1.6...slim-mcp-proxy-v0.1.7) - 2025-09-05
+
+### Added
+
+- *(grpc)* add support for HTTP proxy ([#610](https://github.com/agntcy/slim/pull/610))
+- replace pubsub with dataplane in the node-config ([#591](https://github.com/agntcy/slim/pull/591))
+
+### Fixed
+
+- fix ff session ([#538](https://github.com/agntcy/slim/pull/538))
+
+### Other
+
+- add missing task in mcp-proxy Taskfile ([#592](https://github.com/agntcy/slim/pull/592))
+
 ## [0.1.6](https://github.com/agntcy/slim/compare/slim-mcp-proxy-v0.1.5...slim-mcp-proxy-v0.1.6) - 2025-07-31
 
 ### Added
