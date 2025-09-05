@@ -11,20 +11,6 @@ shopt: [globstar]
 verbose: false
 
 tasks:
-  default:
-    cmds:
-      - task -l
-
-  python:examples:build:
-    desc: "Build the Python bindings examples"
-    deps:
-      - python-bindings:build
-    cmds:
-      - task: rust:toolchain:run-command
-        vars:
-          COMMAND: |
-            uv sync --frozen --no-dev --no-editable --package slim-bindings-examples
-
   python:example:server:
     desc: "Run the server example"
     env:

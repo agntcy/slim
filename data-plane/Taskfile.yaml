@@ -67,9 +67,9 @@ tasks:
 
   data-plane:python:packaging:
     desc: "Generate python packages"
-    dir: ./python/bindings
+    dir: ./python
     cmds:
-      - task python-bindings:packaging PROFILE={{.PROFILE}} TARGET={{.TARGET}}
+      - task python:bindings:packaging PROFILE={{.PROFILE}} TARGET={{.TARGET}}
     vars:
       PROFILE: '{{.PROFILE | default "debug"}}'
       TARGET: '{{.TARGET | default ""}}'

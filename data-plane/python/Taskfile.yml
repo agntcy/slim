@@ -40,6 +40,16 @@ tasks:
       - uv build --package srpc
       - uv build --package slima2a
 
+  python:examples:build:
+    desc: "Build the Python bindings examples"
+    deps:
+      - task: python:bindings:build
+    cmds:
+      - task: rust:toolchain:run-command
+        vars:
+          COMMAND: |
+            uv sync --frozen --no-dev --no-editable --package slim-bindings-examples
+
   python:generate-proto:
     desc: "Generate proto files for the Python bindings"
     deps:
