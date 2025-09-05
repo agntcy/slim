@@ -17,11 +17,24 @@ includes:
     taskfile: ../../tasks/tools.yaml
     internal: true
     flatten: true
+  bindings:
+    taskfile: ./bindings/Taskfile.yml
+    flatten: true
 
 tasks:
   default:
     cmds:
       - task -l
+
+  python:packaging:all:
+    desc: "Build and package the Python bindings and examples"
+    cmds:
+      - mkdir -p ./dist
+      - task: python:bindings:packaging
+      - mv ./bindings/dist/* ./dist
+      - uv build --package slim-bindings-examples
+      - uv build --package srpc
+      - uv build --package slima2a
 
   python:generate-proto:
     desc: "Generate proto files for the Python bindings"

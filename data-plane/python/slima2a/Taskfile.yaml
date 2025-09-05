@@ -2,6 +2,10 @@
 
 version: '3'
 
+includes:
+  python:
+    taskfile: ../../../tasks/python.yaml
+
 tasks:
   generate_a2a_types:
     desc: |

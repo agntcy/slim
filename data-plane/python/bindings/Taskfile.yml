@@ -14,16 +14,8 @@ includes:
   rust:
     taskfile: ../../../tasks/rust.yaml
     internal: true
-  tools:
-    taskfile: ../../../tasks/tools.yaml
-    internal: true
-    flatten: true
 
 tasks:
-  default:
-    cmds:
-      - task -l
-
   python:bindings:build:
     desc: "Build the Python bindings"
     vars:
@@ -62,8 +54,6 @@ tasks:
       - task: rust:toolchain:run-command
         vars:
           COMMAND: |
-            cd {{.TASKFILE_DIR}}/bindings
-
             rustup target add {{.TARGET}}
 
             UV_ARGS=(
