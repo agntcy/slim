@@ -11,6 +11,7 @@ import (
 	"google.golang.org/grpc/peer"
 
 	controllerapi "github.com/agntcy/slim/control-plane/common/proto/controller/v1"
+	controlplaneApi "github.com/agntcy/slim/control-plane/common/proto/controlplane/v1"
 	"github.com/agntcy/slim/control-plane/control-plane/internal/config"
 	"github.com/agntcy/slim/control-plane/control-plane/internal/db"
 	"github.com/agntcy/slim/control-plane/control-plane/internal/services/groupservice"
@@ -243,16 +244,23 @@ func (s *sbAPIService) handleNodeMessages(stream controllerapi.ControllerService
 			)
 			resp, err := s.groupservice.CreateChannel(
 				util.GetContextWithLogger(context.Background(), s.config.LogConfig),
-				payload.CreateChannelRequest,
+				&controlplaneApi.CreateChannelRequest{
+					Moderators: payload.CreateChannelRequest.Moderators,
+				},
+				&controlplaneApi.NodeEntry{},
 			)
 			if err != nil {
 				zlog.Error().Msgf("Error creating channel: %v", err)
 				return err
 			}
+
 			ackMsg := &controllerapi.ControlMessage{
 				MessageId: uuid.NewString(),
-				Payload: &controllerapi.ControlMessage_CreateChannelResponse{
-					CreateChannelResponse: resp,
+				Payload: &controllerapi.ControlMessage_Ack{
+					Ack: &controllerapi.Ack{
+						Success:           true,
+						OriginalMessageId: msg.MessageId,
+					},
 				},
 			}
 			if err := s.nodeCommandHandler.SendMessage(registeredNodeID, ackMsg); err != nil {
@@ -268,6 +276,7 @@ func (s *sbAPIService) handleNodeMessages(stream controllerapi.ControllerService
 			resp, err := s.groupservice.DeleteChannel(
 				util.GetContextWithLogger(context.Background(), s.config.LogConfig),
 				payload.DeleteChannelRequest,
+				&controlplaneApi.NodeEntry{},
 			)
 			if err != nil {
 				zlog.Error().Msgf("Error deleting channel: %v", err)
@@ -295,6 +304,7 @@ func (s *sbAPIService) handleNodeMessages(stream controllerapi.ControllerService
 			resp, err := s.groupservice.AddParticipant(
 				util.GetContextWithLogger(context.Background(), s.config.LogConfig),
 				payload.AddParticipantRequest,
+				&controlplaneApi.NodeEntry{},
 			)
 			if err != nil {
 				zlog.Error().Msgf("Error adding participant: %v", err)
@@ -323,6 +333,7 @@ func (s *sbAPIService) handleNodeMessages(stream controllerapi.ControllerService
 			resp, err := s.groupservice.DeleteParticipant(
 				util.GetContextWithLogger(context.Background(), s.config.LogConfig),
 				payload.DeleteParticipantRequest,
+				&controlplaneApi.NodeEntry{},
 			)
 			if err != nil {
 				zlog.Error().Msgf("Error deleting participant: %v", err)

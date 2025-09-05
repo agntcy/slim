@@ -3,11 +3,15 @@ package groupservice
 import (
 	"context"
 	"fmt"
+	"reflect"
 
+	"github.com/google/uuid"
 	"github.com/rs/zerolog"
 
 	controllerapi "github.com/agntcy/slim/control-plane/common/proto/controller/v1"
+	controlplaneApi "github.com/agntcy/slim/control-plane/common/proto/controlplane/v1"
 	"github.com/agntcy/slim/control-plane/control-plane/internal/db"
+	"github.com/agntcy/slim/control-plane/control-plane/internal/services/nodecontrol"
 	util "github.com/agntcy/slim/control-plane/control-plane/internal/util"
 )
 
@@ -15,19 +19,22 @@ import (
 const ChannelIDFormat = "%s-%s"
 
 type GroupService struct {
-	dbService db.DataAccess
+	dbService  db.DataAccess
+	cmdHandler nodecontrol.NodeCommandHandler
 }
 
-func NewGroupService(dbService db.DataAccess) *GroupService {
+func NewGroupService(dbService db.DataAccess, cmdHandler nodecontrol.NodeCommandHandler) *GroupService {
 	return &GroupService{
-		dbService: dbService,
+		dbService:  dbService,
+		cmdHandler: cmdHandler,
 	}
 }
 
 func (s *GroupService) CreateChannel(
 	ctx context.Context,
-	createChannelRequest *controllerapi.CreateChannelRequest,
-) (*controllerapi.CreateChannelResponse, error) {
+	createChannelRequest *controlplaneApi.CreateChannelRequest,
+	nodeEntry *controlplaneApi.NodeEntry,
+) (*controlplaneApi.CreateChannelResponse, error) {
 	zlog := zerolog.Ctx(ctx)
 
 	if len(createChannelRequest.Moderators) == 0 {
@@ -39,27 +46,101 @@ func (s *GroupService) CreateChannel(
 		return nil, fmt.Errorf("failed to generate random ID: %w", err)
 	}
 	channelID := fmt.Sprintf(ChannelIDFormat, createChannelRequest.Moderators[0], randID)
+
+	// Sending control message
+	messageID := uuid.NewString()
+	msg := &controllerapi.ControlMessage{
+		MessageId: messageID,
+		Payload: &controllerapi.ControlMessage_CreateChannelRequest{
+			CreateChannelRequest: &controllerapi.CreateChannelRequest{
+				ChannelId:  channelID,
+				Moderators: createChannelRequest.Moderators,
+			},
+		},
+	}
+	zlog.Debug().Msgf("Sending CreateChannelRequest for channel %s to node: %s", channelID, nodeEntry.Id)
+	if sendErr := s.cmdHandler.SendMessage(nodeEntry.Id, msg); sendErr != nil {
+		return nil, fmt.Errorf("failed to send message: %w", sendErr)
+	}
+	// wait for ACK response
+	response, err := s.cmdHandler.WaitForResponse(nodeEntry.Id,
+		reflect.TypeOf(&controllerapi.ControlMessage_Ack{}),
+		messageID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	// check if ack is successful
+	if ack := response.GetAck(); ack != nil {
+		if !ack.Success {
+			return nil, fmt.Errorf("failed to create channel: %s", ack.Messages)
+		}
+		logAckMessage(ctx, ack)
+		zlog.Debug().Msgf("Channel created successfully: %s", channelID)
+	}
+
+	// Saving channel to DB
 	err = s.dbService.SaveChannel(channelID, createChannelRequest.Moderators)
 	if err != nil {
 		return nil, fmt.Errorf("failed to save channel: %w", err)
 	}
-	zlog.Debug().Msg("Channel created successfully.")
+	zlog.Debug().Msg("Channel saved successfully.")
 
-	return &controllerapi.CreateChannelResponse{
+	return &controlplaneApi.CreateChannelResponse{
 		ChannelId: channelID,
 	}, nil
 }
 
 func (s *GroupService) DeleteChannel(
 	ctx context.Context,
-	deleteChannelRequest *controllerapi.DeleteChannelRequest) (*controllerapi.Ack, error) {
+	deleteChannelRequest *controllerapi.DeleteChannelRequest,
+	nodeEntry *controlplaneApi.NodeEntry,
+) (*controllerapi.Ack, error) {
 	zlog := zerolog.Ctx(ctx)
 
 	if deleteChannelRequest.ChannelId == "" {
 		return nil, fmt.Errorf("channel ID cannot be empty")
 	}
 
-	err := s.dbService.DeleteChannel(deleteChannelRequest.ChannelId)
+	// Check if channel exist
+	_, err := s.dbService.GetChannel(deleteChannelRequest.ChannelId)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get channel from DB: %w", err)
+	}
+
+	// Sending control message
+	messageID := uuid.NewString()
+	msg := &controllerapi.ControlMessage{
+		MessageId: messageID,
+		Payload: &controllerapi.ControlMessage_DeleteChannelRequest{
+			DeleteChannelRequest: deleteChannelRequest,
+		},
+	}
+
+	zlog.Debug().Msgf("Sending DeleteChannelRequest for channel %s to node: %s",
+		deleteChannelRequest.ChannelId, nodeEntry.Id)
+	if handlerError := s.cmdHandler.SendMessage(nodeEntry.Id, msg); handlerError != nil {
+		return nil, fmt.Errorf("failed to send message: %w", handlerError)
+	}
+
+	// wait for ACK response
+	response, err := s.cmdHandler.WaitForResponse(nodeEntry.Id,
+		reflect.TypeOf(&controllerapi.ControlMessage_Ack{}),
+		messageID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	// check if ack is successful
+	if ack := response.GetAck(); ack != nil {
+		if !ack.Success {
+			return nil, fmt.Errorf("failed to delete participant: %s", ack.Messages)
+		}
+		logAckMessage(ctx, ack)
+		zlog.Debug().Msg("Ack message received, channel deleted successfully.")
+	}
+
+	err = s.dbService.DeleteChannel(deleteChannelRequest.ChannelId)
 	if err != nil {
 		return nil, fmt.Errorf("failed to delete channel: %w", err)
 	}
@@ -72,7 +153,9 @@ func (s *GroupService) DeleteChannel(
 
 func (s *GroupService) AddParticipant(
 	ctx context.Context,
-	addParticipantRequest *controllerapi.AddParticipantRequest) (*controllerapi.Ack, error) {
+	addParticipantRequest *controllerapi.AddParticipantRequest,
+	nodeEntry *controlplaneApi.NodeEntry,
+) (*controllerapi.Ack, error) {
 	zlog := zerolog.Ctx(ctx)
 
 	if addParticipantRequest.ChannelId == "" {
@@ -82,9 +165,42 @@ func (s *GroupService) AddParticipant(
 		return nil, fmt.Errorf("participant ID cannot be empty")
 	}
 
+	// Sending control message
+	messageID := uuid.NewString()
+	msg := &controllerapi.ControlMessage{
+		MessageId: messageID,
+		Payload: &controllerapi.ControlMessage_AddParticipantRequest{
+			AddParticipantRequest: addParticipantRequest,
+		},
+	}
+
+	zlog.Debug().Msgf("Sending AddParticipantRequest for channel %s to node: %s",
+		addParticipantRequest.ChannelId, nodeEntry.Id)
+	if err := s.cmdHandler.SendMessage(nodeEntry.Id, msg); err != nil {
+		return nil, fmt.Errorf("failed to send message: %w", err)
+	}
+
+	// wait for ACK response
+	response, err := s.cmdHandler.WaitForResponse(nodeEntry.Id,
+		reflect.TypeOf(&controllerapi.ControlMessage_Ack{}),
+		messageID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	// check if ack is successful
+	if ack := response.GetAck(); ack != nil {
+		if !ack.Success {
+			return nil, fmt.Errorf("failed to add participant: %s", ack.Messages)
+		}
+		logAckMessage(ctx, ack)
+		zlog.Debug().Msg("Ack message received, participant added successfully.")
+	}
+
+	// Control plane side DB operations
 	channel, err := s.dbService.GetChannel(addParticipantRequest.ChannelId)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get channel: %w", err)
+		return nil, fmt.Errorf("failed to get channel from DB: %w", err)
 	}
 
 	for _, participant := range channel.Participants {
@@ -99,7 +215,7 @@ func (s *GroupService) AddParticipant(
 	if err != nil {
 		return nil, fmt.Errorf("failed to update channel: %w", err)
 	}
-	zlog.Debug().Msg("Participant added successfully.")
+	zlog.Debug().Msg("Channel updated, participant added successfully.")
 
 	return &controllerapi.Ack{
 		Success: true,
@@ -108,7 +224,9 @@ func (s *GroupService) AddParticipant(
 
 func (s *GroupService) DeleteParticipant(
 	ctx context.Context,
-	deleteParticipantRequest *controllerapi.DeleteParticipantRequest) (*controllerapi.Ack, error) {
+	deleteParticipantRequest *controllerapi.DeleteParticipantRequest,
+	nodeEntry *controlplaneApi.NodeEntry,
+) (*controllerapi.Ack, error) {
 	zlog := zerolog.Ctx(ctx)
 	if deleteParticipantRequest.ChannelId == "" {
 		return nil, fmt.Errorf("channel ID cannot be empty")
@@ -133,13 +251,46 @@ func (s *GroupService) DeleteParticipant(
 			deleteParticipantRequest.ParticipantId, deleteParticipantRequest.ChannelId)
 	}
 
+	// Sending control message
+	messageID := uuid.NewString()
+	msg := &controllerapi.ControlMessage{
+		MessageId: messageID,
+		Payload: &controllerapi.ControlMessage_DeleteParticipantRequest{
+			DeleteParticipantRequest: deleteParticipantRequest,
+		},
+	}
+
+	zlog.Debug().Msgf("Sending DeleteParticipantRequest for channel %s to node: %s",
+		deleteParticipantRequest.ChannelId, nodeEntry.Id)
+	if handlerError := s.cmdHandler.SendMessage(nodeEntry.Id, msg); handlerError != nil {
+		return nil, fmt.Errorf("failed to send message: %w", handlerError)
+	}
+
+	// wait for ACK response
+	response, err := s.cmdHandler.WaitForResponse(nodeEntry.Id,
+		reflect.TypeOf(&controllerapi.ControlMessage_Ack{}),
+		messageID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	// check if ack is successful
+	if ack := response.GetAck(); ack != nil {
+		if !ack.Success {
+			return nil, fmt.Errorf("failed to delete participant: %s", ack.Messages)
+		}
+		logAckMessage(ctx, ack)
+		zlog.Debug().Msg("Ack message received, participant deleted successfully.")
+	}
+
+	// Control plane side DB operations
 	channel.Participants = append(channel.Participants[:foundIdx], channel.Participants[foundIdx+1:]...)
 
 	err = s.dbService.UpdateChannel(channel)
 	if err != nil {
 		return nil, fmt.Errorf("failed to update channel: %w", err)
 	}
-	zlog.Debug().Msg("Participant deleted successfully.")
+	zlog.Debug().Msg("Channel updated, participant deleted successfully.")
 
 	return &controllerapi.Ack{
 		Success: true,
@@ -166,6 +317,21 @@ func (s *GroupService) ListChannels(
 	}, nil
 }
 
+func (s *GroupService) GetChannelDetails(
+	ctx context.Context,
+	channelID string) (
+	db.Channel, error) {
+	zlog := zerolog.Ctx(ctx)
+
+	storedChannel, err := s.dbService.GetChannel(channelID)
+	if err != nil {
+		return db.Channel{}, fmt.Errorf("failed to get channel: %w", err)
+	}
+	zlog.Debug().Msg("Channel details retrieved successfully.")
+
+	return storedChannel, nil
+}
+
 func (s *GroupService) ListParticipants(
 	ctx context.Context,
 	listParticipantsRequest *controllerapi.ListParticipantsRequest) (
@@ -185,4 +351,18 @@ func (s *GroupService) ListParticipants(
 	return &controllerapi.ListParticipantsResponse{
 		ParticipantId: channel.Participants,
 	}, nil
+}
+
+func logAckMessage(ctx context.Context, ack *controllerapi.Ack) {
+	zlog := zerolog.Ctx(ctx)
+	zlog.Debug().Msgf(
+		"ACK received for %s: success=%t\n",
+		ack.OriginalMessageId,
+		ack.Success,
+	)
+	if len(ack.Messages) > 0 {
+		for i, ackMsg := range ack.Messages {
+			zlog.Debug().Msgf("    [%d] %s\n", i+1, ackMsg)
+		}
+	}
 }

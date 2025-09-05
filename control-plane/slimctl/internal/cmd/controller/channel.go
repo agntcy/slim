@@ -13,6 +13,7 @@ import (
 	cpApi "github.com/agntcy/slim/control-plane/common/controlplane"
 	"github.com/agntcy/slim/control-plane/common/options"
 	grpcapi "github.com/agntcy/slim/control-plane/common/proto/controller/v1"
+	controlplaneApi "github.com/agntcy/slim/control-plane/common/proto/controlplane/v1"
 )
 
 func NewChannelCmd(opts *options.CommonOptions) *cobra.Command {
@@ -50,7 +51,7 @@ func newCreateChannelCmd(opts *options.CommonOptions) *cobra.Command {
 				return fmt.Errorf("failed to get control plane client: %w", err)
 			}
 
-			createChannelResponse, err := cpCLient.CreateChannel(ctx, &grpcapi.CreateChannelRequest{
+			createChannelResponse, err := cpCLient.CreateChannel(ctx, &controlplaneApi.CreateChannelRequest{
 				Moderators: moderators,
 			})
 			if err != nil {
