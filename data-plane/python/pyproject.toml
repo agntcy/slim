@@ -1,5 +1,20 @@
 # Copyright AGNTCY Contributors (https://github.com/agntcy)
 # SPDX-License-Identifier: Apache-2.0
 
+# Include workspace folders
 [tool.uv.workspace]
 members = ["bindings", "examples", "srpc", "slima2a"]
+
+[dependency-groups]
+building = [
+    "maturin>=1.8.2",
+    "maturin[patchelf]>=1.8.2; sys_platform == 'linux'",
+]
+
+testing = ["pytest>=8.3.4", "pytest-asyncio>=0.25.3"]
+
+linting = ["griffe>=1.5.5", "pyright>=1.1.0", "ruff>=0.9.3", "mypy>=1.14.1"]
+
+# Default groups to install when running `uv sync`
+[tool.uv]
+default-groups = ["building", "testing", "linting"]
