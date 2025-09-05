@@ -18,8 +18,12 @@ includes:
     internal: true
     flatten: true
   bindings:
-    taskfile: ./bindings/Taskfile.yml
+    taskfile: ./bindings/Taskfile.yaml
     flatten: true
+  slima2a:
+    taskfile: ./slima2a/Taskfile.yaml
+  srpc:
+    taskfile: ./srpc/Taskfile.yaml
 
 tasks:
   default:
