@@ -32,7 +32,7 @@ tasks:
   python:bindings:test:
     desc: "Test the Python bindings"
     deps:
-      - python-bindings:build
+      - python:bindings:build
     cmds:
       - uv run pytest -s {{.TESTS}}
     vars:

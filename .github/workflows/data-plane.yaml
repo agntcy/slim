@@ -37,3 +37,19 @@ jobs:
     with:
       bake-targets: slim,mcp-proxy
       image-tag: ${{ github.sha }}
+
+  build-srpc:
+    name: Build srpc
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/slim-srpc-')
+    uses: ./.github/workflows/reusable-python-build-and-test.yaml
+    with:
+      working-directory: ./data-plane/python
+      prefix: srpc:python
+
+  build-slima2a:
+    name: Build slima2a
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/slim-a2a-')
+    uses: ./.github/workflows/reusable-python-build-and-test.yaml
+    with:
+      working-directory: ./data-plane/python
+      prefix: slima2a:python

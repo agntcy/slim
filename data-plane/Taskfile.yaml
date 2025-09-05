@@ -78,7 +78,7 @@ tasks:
     desc: "Test the Python bindings"
     dir: ./python
     cmds:
-      - task python-bindings:test TESTS={{.TESTS}}
+      - task python:bindings:test TESTS={{.TESTS}}
     vars:
       TESTS: '{{.TESTS | default ""}}'
 
