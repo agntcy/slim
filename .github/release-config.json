@@ -5,7 +5,7 @@
     "include-component-in-tag": true,
     "skip-github-release": false,
     "packages": {
-        "data-plane/python-bindings": {
+        "data-plane/python/bindings": {
             "package-name": "slim-bindings",
             "release-type": "python"
         },
@@ -41,7 +41,7 @@
             "package-name": "slim-testutils",
             "release-type": "simple"
         },
-        "data-plane/python-bindings/examples": {
+        "data-plane/python/examples": {
             "package-name": "slim-bindings-examples",
             "release-type": "python"
         }

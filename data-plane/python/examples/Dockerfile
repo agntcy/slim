@@ -37,7 +37,7 @@ RUN sh -c "$(curl --location https://taskfile.dev/install.sh)" -- -d -b /usr/loc
 
 # Copy code into builder
 COPY . /src
-WORKDIR /src/data-plane/python-bindings
+WORKDIR /src/data-plane/python
 
 # Setup cross-compilation toolchain and Rust targets
 RUN <<EOF

@@ -25,19 +25,19 @@ jobs:
         with:
           command: sdist
           args: --out dist
-          working-directory: ./data-plane/python-bindings
+          working-directory: ./data-plane/python/bindings
       - name: Upload sdist
         uses: actions/upload-artifact@v4
         with:
           name: wheels-sdist
-          path: ./data-plane/python-bindings/dist
+          path: ./data-plane/python/bindings/dist
 
   python-bindings-wheels:
     runs-on: ${{ matrix.platform.runner }}
     defaults:
       run:
         shell: bash
-        working-directory: ./data-plane/python-bindings
+        working-directory: ./data-plane/python/bindings
     strategy:
       matrix:
         platform:
@@ -80,4 +80,4 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: wheels-${{ matrix.platform.os }}-${{ matrix.platform.target }}
-          path: ./data-plane/python-bindings/dist
+          path: ./data-plane/python/bindings/dist

@@ -22,7 +22,7 @@ tasks:
   data-plane:python-bindings:lint:
     desc: "Python linter"
     internal: true
-    dir: ./python-bindings
+    dir: ./python
     cmds:
       - task python-bindings:lint
 
@@ -67,7 +67,7 @@ tasks:
 
   data-plane:bindings:python:
     desc: "Generate the Python bindings"
-    dir: ./python-bindings
+    dir: ./python
     cmds:
       - task python-bindings:packaging PROFILE={{.PROFILE}} TARGET={{.TARGET}}
     vars:
@@ -76,7 +76,7 @@ tasks:
 
   data-plane:bindings:test:
     desc: "Test the Python bindings"
-    dir: ./python-bindings
+    dir: ./python
     cmds:
       - task python-bindings:test TESTS={{.TESTS}}
     vars:

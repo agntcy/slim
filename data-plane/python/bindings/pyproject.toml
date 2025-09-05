@@ -1,9 +1,6 @@
 # Copyright AGNTCY Contributors (https://github.com/agntcy)
 # SPDX-License-Identifier: Apache-2.0
 
-[tool.uv.workspace]
-members = [".", "examples", "srpc", "slima2a"]
-
 [build-system]
 requires = ["maturin>=1,<2"]
 build-backend = "maturin"
@@ -33,7 +30,7 @@ classifiers = [
 [project.urls]
 Repository = "https://github.com/agntcy/slim"
 Issues = "https://github.com/agntcy/slim/issues"
-Changelog = "https://github.com/agntcy/slim/blob/main/data-plane/python-bindings/CHANGELOG.md"
+Changelog = "https://github.com/agntcy/slim/blob/main/data-plane/python/bindings/CHANGELOG.md"
 
 [dependency-groups]
 building = [
@@ -52,9 +49,6 @@ default-groups = ["building", "testing", "linting"]
 bindings = "pyo3"
 features = ["pyo3/extension-module"]
 module-name = "slim_bindings._slim_bindings"
-
-[tool.ruff.format]
-quote-style = "double"
 
 [tool.pytest.ini_options]
 testpaths = "tests"

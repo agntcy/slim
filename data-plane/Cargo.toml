@@ -12,7 +12,7 @@ members = [
     "core/slim",
     "core/tracing",
     "examples",
-    "python-bindings",
+    "python/bindings",
     "srpc-compiler",
     "testing",
 ]

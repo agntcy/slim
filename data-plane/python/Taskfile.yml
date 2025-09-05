@@ -25,6 +25,7 @@ tasks:
       - task -l
 
   python-bindings:build:
+    dir: ./bindings
     desc: "Build the Python bindings"
     vars:
       PROFILE: '{{.PROFILE | default "debug"}}'
