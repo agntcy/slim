@@ -3,12 +3,13 @@
 
 import asyncio
 import datetime
+import pathlib
 
 import pytest
 
 import slim_bindings
 
-keys_folder = "./tests/testdata"
+keys_folder = f"{pathlib.Path(__file__).parent.resolve()}/testdata"
 
 test_audience = ["test.audience"]
 

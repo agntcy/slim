@@ -10,102 +10,8 @@ shopt: [globstar]
 
 verbose: false
 
-includes:
-  rust:
-    taskfile: ../../tasks/rust.yaml
-    internal: true
-  tools:
-    taskfile: ../../tasks/tools.yaml
-    internal: true
-    flatten: true
-
 tasks:
-  default:
-    cmds:
-      - task -l
-
-  python-bindings:build:
-    desc: "Build the Python bindings"
-    vars:
-      PROFILE: '{{.PROFILE | default "debug"}}'
-      RELEASE:
-        sh: '[[ {{.PROFILE}} == "release" ]] && echo "--release" || echo ""'
-      TARGET: '{{.TARGET | default ""}}'
-    cmds:
-      - task: rust:toolchain:run-command
-        vars:
-          COMMAND: |
-            uv run maturin develop --uv {{.RELEASE}}
-
-  python-bindings:examples:build:
-    desc: "Build the Python bindings examples"
-    deps:
-      - python-bindings:build
-    cmds:
-      - task: rust:toolchain:run-command
-        vars:
-          COMMAND: |
-            uv sync --frozen --no-dev --no-editable --package slim-bindings-examples
-
-  python-bindings:lint:
-    desc: "Lint the Python bindings"
-    cmds:
-      - uv run ruff check
-      - uv run ruff format --check
-      - uv run mypy slim_bindings
-
-  python-bindings:test:
-    desc: "Test the Python bindings"
-    deps:
-      - python-bindings:build
-    cmds:
-      - uv run pytest -s {{.TESTS}}
-    vars:
-      TARGET: '{{.TESTS | default ""}}'
-
-  python-bindings:packaging:
-    desc: "Generate the Python bindings for python versions 3.10, 3.11, 3.12 and 3.13"
-    vars:
-      PROFILE: '{{.PROFILE | default "debug"}}'
-      RELEASE:
-        sh: '[[ {{.PROFILE}} == "release" ]] && echo "--release" || echo ""'
-      TARGET: '{{.TARGET | default ""}}'
-    cmds:
-      - for:
-          matrix:
-            PYTHON: ["3.10", "3.11", "3.12", "3.13"]
-        cmd: |
-          uv python install {{.ITEM.PYTHON}}
-          uv python pin {{.ITEM.PYTHON}}
-      - task: rust:toolchain:run-command
-        vars:
-          COMMAND: |
-            rustup target add {{.TARGET}}
-
-            UV_ARGS=(
-              --no-default-groups
-              --group building
-            )
-
-            uv sync ${UV_ARGS[@]}
-
-            uv run ${UV_ARGS[@]} maturin develop --uv {{.RELEASE}}
-
-            # This file if a leftover from the previous build, delete it otherwise
-            # maturin will try to add it to the wheel, and it will fail
-            rm -f slim_bindings/*.pyd
-
-            PYTHONS=(3.10 3.11 3.12 3.13)
-            uv run                            \
-              ${UV_ARGS[@]}                   \
-              maturin build {{.RELEASE}}      \
-              --out dist                      \
-              --target {{.TARGET}}            \
-              --frozen                        \
-              -i                              \
-              ${PYTHONS[@]}
-
-  python-bindings:example:server:
+  python:example:server:
     desc: "Run the server example"
     env:
       SLIM_INSTANCE_ID: server
@@ -114,7 +20,7 @@ tasks:
     vars:
       EXTRA_ARGS: '{{.EXTRA_ARGS | default ""}}'
 
-  python-bindings:example:ff:alice:
+  python:example:ff:alice:
     desc: "Fire and forget example - Alice will listen for messages and echo them"
     cmds:
       - |
@@ -125,7 +31,7 @@ tasks:
     vars:
       EXTRA_ARGS: '{{.EXTRA_ARGS | default ""}}'
 
-  python-bindings:example:ff:bob:
+  python:example:ff:bob:
     desc: "Fire and forget example - Bob will send encrypted messages to Alice"
     env:
       SLIM_INSTANCE_ID: bob
@@ -141,7 +47,7 @@ tasks:
     vars:
       EXTRA_ARGS: '{{.EXTRA_ARGS | default ""}}'
 
-  python-bindings:example:rr:responder  :
+  python:example:rr:responder  :
     desc: "Responder example - Responds to requests from the requester"
     cmds:
       - |
@@ -153,7 +59,7 @@ tasks:
     vars:
       EXTRA_ARGS: '{{.EXTRA_ARGS | default ""}}'
 
-  python-bindings:example:rr:requester:
+  python:example:rr:requester:
     desc: "Requester example - Sends requests to the responder and waits for responses"
     cmds:
       - |
@@ -167,7 +73,7 @@ tasks:
     vars:
       EXTRA_ARGS: '{{.EXTRA_ARGS | default ""}}'
 
-  python-bindings:example:pubsub:moderator:
+  python:example:pubsub:moderator:
     desc: "PubSub moderator example - Creates a channel, invites participants, and sends messages"
     cmds:
       - |
@@ -182,7 +88,7 @@ tasks:
     vars:
       EXTRA_ARGS: '{{.EXTRA_ARGS | default ""}}'
 
-  python-bindings:example:pubsub:client-1:
+  python:example:pubsub:client-1:
     desc: "PubSub client example - Waits to be invited to a channel and receives messages"
     cmds:
       - |
@@ -193,7 +99,7 @@ tasks:
     vars:
       EXTRA_ARGS: '{{.EXTRA_ARGS | default ""}}'
 
-  python-bindings:example:pubsub:client-2:
+  python:example:pubsub:client-2:
     desc: "PubSub client example - Waits to be invited to a channel and receives messages"
     cmds:
       - |
@@ -203,27 +109,3 @@ tasks:
           --shared-secret "secret" {{.EXTRA_ARGS}}
     vars:
       EXTRA_ARGS: '{{.EXTRA_ARGS | default ""}}'
-
-  python-bindings:generate-stub:
-    desc: "Generate stub file for the Python bindings"
-    cmds:
-      - cargo run --bin stub_gen
-
-  python-bindings:generate-proto:
-    desc: "Generate proto files for the Python bindings"
-    deps:
-      - task: rust:toolchain:run-command
-        vars:
-          COMMAND: |
-            cargo build --package agntcy-protoc-srpc-plugin --bin protoc-srpc-plugin
-      - task: tools:buf
-    cmds:
-      - |
-        # Find all the buf.gen.yaml files in the current directory and its subdirectories
-        find . -name 'buf.gen.yaml' | while read -r file; do
-          # Generate the proto files using buf
-          echo "Generating proto files for $file"
-          # get folder name
-          folder=$(dirname "$file")
-          pushd > /dev/null ${folder} && {{.TOOLS_INSTALL_DIR}}/buf generate && popd > /dev/null
-        done

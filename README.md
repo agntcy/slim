@@ -85,7 +85,7 @@ docker pull ghcr.io/agntcy/slim:latest
 helm pull ghcr.io/agntcy/slim/helm/slim:latest
 ```
 
-### [Pypi packages](./data-plane/python-bindings)
+### [Pypi packages](./data-plane/python/bindings)
 
 ```bash
 pip install slim-bindings

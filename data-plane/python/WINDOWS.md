@@ -31,7 +31,7 @@ Instructions to compile `slim_bindings` wheel on Windows.
 ## 2. Run the Build Locally
 
 Clone <https://github.com/agntcy/slim> and change to folder
-`data-plane\python-bindings`
+`data-plane\python`
 
 Inside this folder (where the Taskfile is), you can run:
 
@@ -90,7 +90,7 @@ That should show a path to the installed slim_bindings in your virtual
 environment’s Lib\site-packages. Example:
 
 ```Powershell
-slim\data-plane\python-bindings\.venv\Lib\site-packages\slim_bindings\__init__.py
+slim\data-plane\python\.venv\Lib\site-packages\slim_bindings\__init__.py
 ```
 
 ## 4. Troubleshooting on Windows

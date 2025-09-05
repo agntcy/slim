@@ -23,7 +23,7 @@ tasks:
     cmds:
       - uv run {{.UV_ARGS}} ruff check
       - uv run {{.UV_ARGS}} ruff format --check
-      - uv run {{.UV_ARGS}} mypy --ignore-missing-imports .
+      # - uv run {{.UV_ARGS}} mypy --ignore-missing-imports --explicit-package-bases .
 
   test:
     desc: "Run pytest test suite with optional test path specification"

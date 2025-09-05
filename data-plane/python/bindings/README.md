@@ -38,4 +38,4 @@ slim-bindings = ">=0.1.0"
 
 ## Example programs
 
-Example apps can be found in the [repo](https://github.com/agntcy/slim/tree/main/data-plane/python-bindings/examples/src/slim_bindings_examples)
+Example apps can be found in the [repo](https://github.com/agntcy/slim/tree/main/data-plane/python/examples/src/slim_bindings_examples)
