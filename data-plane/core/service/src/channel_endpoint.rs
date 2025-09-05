@@ -605,6 +605,8 @@ where
         Message::new_publish_with_headers(slim_header, session_header, "", payload)
     }
 
+    // creation is set to true is this is the first join to the channel
+    // done by the moderator node. False in all the other cases
     async fn join(&mut self) -> Result<(), SessionError> {
         // subscribe only once to the channel
         if self.subscribed {
@@ -2104,6 +2106,7 @@ mod tests {
         cm.on_message(msg).await.unwrap();
 
         // the first message is the subscription for the channel name
+        // this is also the channel creation
         let header = Some(SlimHeaderFlags::default().with_forward_to(conn));
         let sub = Message::new_subscribe(&moderator, &channel_name, header);
         let msg = moderator_rx.recv().await.unwrap().unwrap();

@@ -6,6 +6,7 @@ use std::sync::Arc;
 
 use parking_lot::RwLock as SyncRwLock;
 use rand::Rng;
+use slim_datapath::messages::utils::SLIM_IDENTITY;
 use tokio::sync::RwLock as AsyncRwLock;
 use tokio::sync::mpsc;
 use tracing::{debug, error, warn};
@@ -225,7 +226,7 @@ where
     /// Send a message to the session layer
     async fn send_message(
         &self,
-        msg: Message,
+        mut msg: Message,
         info: Option<session::Info>,
     ) -> Result<(), ServiceError> {
         // save session id for later use
@@ -240,15 +241,27 @@ where
                         ServiceError::SessionError(e.to_string())
                     })
             }
-            None => self
-                .session_layer
-                .tx_slim()
-                .send(Ok(msg))
-                .await
-                .map_err(|e| {
-                    error!("error sending message {}", e);
-                    ServiceError::MessageSendingError(e.to_string())
-                }),
+            None => {
+                // these messages are not associated to a session yet
+                // so they will bypass the interceptors. Add the identity
+                let identity = self
+                    .session_layer
+                    .identity_provider
+                    .get_token()
+                    .map_err(|e| ServiceError::SessionError(e.to_string()))?;
+
+                // Add the identity to the message metadata
+                msg.insert_metadata(SLIM_IDENTITY.to_string(), identity);
+
+                self.session_layer
+                    .tx_slim()
+                    .send(Ok(msg))
+                    .await
+                    .map_err(|e| {
+                        error!("error sending message {}", e);
+                        ServiceError::MessageSendingError(e.to_string())
+                    })
+            }
         }
     }
 

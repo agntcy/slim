@@ -52,9 +52,6 @@ struct ControllerServiceInternal {
     /// channel to send messages into the datapath
     tx_slim: mpsc::Sender<Result<PubsubMessage, Status>>,
 
-    /// channel to receive messages from the datapath
-    _rx_slim: mpsc::Receiver<Result<PubsubMessage, Status>>,
-
     /// channels to send control messages
     tx_channels: parking_lot::RwLock<TxChannels>,
 
@@ -82,6 +79,10 @@ pub struct ControlPlane {
 
     /// controller
     controller: ControllerService,
+
+    /// channel to receive message from the datapath
+    /// to be used in listen_from_data_plan
+    rx_slim_option: Option<mpsc::Receiver<Result<PubsubMessage, Status>>>,
 }
 
 /// ControllerServiceInternal implements Drop trait to cancel all running listeners and
@@ -115,8 +116,7 @@ impl ControlPlane {
         drain_rx: drain::Watch,
         message_processor: Arc<MessageProcessor>,
     ) -> Self {
-        // create local connection with the message processor
-        let (_, tx_slim, rx_slim) = message_processor.register_local_connection();
+        let (_, tx_slim, rx_slim) = message_processor.register_local_connection(true);
 
         ControlPlane {
             servers,
@@ -127,12 +127,12 @@ impl ControlPlane {
                     message_processor,
                     connections: Arc::new(parking_lot::RwLock::new(HashMap::new())),
                     tx_slim,
-                    _rx_slim: rx_slim,
                     tx_channels: parking_lot::RwLock::new(HashMap::new()),
                     cancellation_tokens: parking_lot::RwLock::new(HashMap::new()),
                     drain_rx,
                 }),
             },
+            rx_slim_option: Some(rx_slim),
         }
     }
 
@@ -171,7 +171,108 @@ impl ControlPlane {
             self.run_client(client).await?;
         }
 
+        let rx = self.rx_slim_option.take();
+        self.listen_from_data_plane(rx.unwrap()).await;
+
         Ok(())
+    }
+
+    async fn listen_from_data_plane(
+        &mut self,
+        mut rx: mpsc::Receiver<Result<PubsubMessage, Status>>,
+    ) {
+        let cancellation_token = CancellationToken::new();
+        let cancellation_token_clone = cancellation_token.clone();
+        let drain = self.controller.inner.drain_rx.clone();
+
+        self.controller
+            .inner
+            .cancellation_tokens
+            .write()
+            .insert("DATA_PLANE".to_string(), cancellation_token_clone);
+
+        let clients = self.clients.clone();
+        let inner = self.controller.inner.clone();
+
+        tokio::spawn(async move {
+            loop {
+                tokio::select! {
+                    next = rx.recv() => {
+                        match next {
+                            Some(res) => {
+                                match res {
+                                    Ok(msg) => {
+                                        debug!("Send sub/unsub to control plane for message: {:?}", msg);
+
+                                        let mut sub_vec = vec![];
+                                        let mut unsub_vec = vec![];
+
+                                        let dst = msg.get_dst();
+                                        let components = dst.components_strings().unwrap();
+                                        let cmd = v1::Subscription {
+                                                    component_0: components[0].to_string(),
+                                                    component_1: components[1].to_string(),
+                                                    component_2: components[2].to_string(),
+                                                    id: Some(dst.id()),
+                                                    connection_id: "n/a".to_string(),
+                                        };
+                                        match msg.get_type() {
+                                            slim_datapath::api::MessageType::Subscribe(_) => {
+                                                sub_vec.push(cmd);
+                                            },
+                                            slim_datapath::api::MessageType::Unsubscribe(_) => {
+                                                unsub_vec.push(cmd);
+                                            }
+                                            slim_datapath::api::MessageType::Publish(_) => {
+                                                // drop publication messages
+                                                continue;
+                                            },
+                                        }
+
+                                        let ctrl = ControlMessage {
+                                            message_id: uuid::Uuid::new_v4().to_string(),
+                                            payload: Some(Payload::ConfigCommand(
+                                                v1::ConfigurationCommand {
+                                                    connections_to_create: vec![],
+                                                    subscriptions_to_set: sub_vec,
+                                                    subscriptions_to_delete: unsub_vec
+                                                })),
+                                        };
+
+                                        for c in &clients {
+                                            let tx = match inner.tx_channels.read().get(&c.endpoint) {
+                                                Some(tx) => tx.clone(),
+                                                None => continue,
+                                            };
+                                            if (tx.send(Ok(ctrl.clone())).await).is_err() {
+                                                error!("error while notifiyng the control plane");
+                                            };
+
+                                        }
+                                    }
+                                    Err(e) => {
+                                        error!("received error from the data plane {}", e.to_string());
+                                        continue;
+                                    }
+                                }
+                            }
+                            None => {
+                                debug!("Data plane receiver channel closed.");
+                                break;
+                            }
+                        }
+                    }
+                    _ = cancellation_token.cancelled() => {
+                        debug!("shutting down stream on cancellation token");
+                        break;
+                    }
+                    _ = drain.clone().signaled() => {
+                        debug!("shutting down stream on drain");
+                        break;
+                    }
+                }
+            }
+        });
     }
 
     /// Stop the ControlPlane service.
