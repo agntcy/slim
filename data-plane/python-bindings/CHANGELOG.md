@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.4.1](https://github.com/agntcy/slim/compare/slim-bindings-v0.4.0...slim-bindings-v0.4.1) (2025-09-05)
+
+
+### Features
+
+* Introduce SRPC + Native A2A integration  ([#550](https://github.com/agntcy/slim/issues/550)) ([2606ce9](https://github.com/agntcy/slim/commit/2606ce93914b9503b72187080f53b354b7d6819e))
+* make MLS identity provider backend agnostic ([#552](https://github.com/agntcy/slim/issues/552)) ([a8dd2ed](https://github.com/agntcy/slim/commit/a8dd2edad99d378571863eda735f5106e3078951))
+
+
+### Bug Fixes
+
+* fix ff session ([#538](https://github.com/agntcy/slim/issues/538)) ([e0d1f65](https://github.com/agntcy/slim/commit/e0d1f65b23556e1e8f045523daa9b93ff4d8635d))
+
 ## [0.4.0](https://github.com/agntcy/slim/compare/slim-bindings-v0.3.6...slim-bindings-v0.4.0) (2025-07-31)
 
 
