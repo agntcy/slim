@@ -7,11 +7,17 @@ use hyper_util::client::proxy::matcher::{Intercept, Matcher};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
+use crate::tls::client::TlsClientConfig as TLSSetting;
+
 #[derive(Clone, Default, PartialEq, Debug, Serialize, Deserialize, JsonSchema)]
 pub struct ProxyConfig {
     /// The HTTP proxy URL (e.g., "http://proxy.example.com:8080")
     /// If empty, the system proxy settings will be used.
     pub url: Option<String>,
+
+    /// TLS client configuration.
+    #[serde(default, rename = "tls")]
+    pub tls_setting: TLSSetting,
 
     /// Optional username for proxy authentication
     pub username: Option<String>,
@@ -32,6 +38,7 @@ impl ProxyConfig {
             username: None,
             password: None,
             headers: HashMap::new(),
+            tls_setting: TLSSetting::default(),
         }
     }
 
@@ -99,12 +106,7 @@ mod test {
 
     fn test_proxy_system_matcher() {
         // Test system matcher when no URL is configured
-        let proxy_config = ProxyConfig {
-            url: None,
-            username: None,
-            password: None,
-            headers: HashMap::new(),
-        };
+        let proxy_config = ProxyConfig::default();
 
         // System matcher should still respect no_proxy settings
         assert!(proxy_config.should_use_proxy("http://localhost").is_none());
@@ -170,6 +172,7 @@ mod test {
         // Test 1: Config with URL should ignore environment completely
         let config_with_url = ProxyConfig {
             url: Some("http://config-proxy.example.com:8080".to_string()),
+            tls_setting: TLSSetting::default(),
             username: None,
             password: None,
             headers: HashMap::new(),

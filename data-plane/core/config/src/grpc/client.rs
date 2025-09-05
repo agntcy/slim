@@ -18,6 +18,46 @@ use tonic::codegen::{Body, Bytes, StdError};
 use tonic::transport::{Channel, Uri};
 use tracing::warn;
 
+/// Macro to create TLS-enabled or plain connectors based on TLS configuration
+macro_rules! create_connector {
+    ($builder:expr, $base_connector:expr, $tls_config:expr) => {
+        match $tls_config {
+            Some(tls) => {
+                let connector = tower::ServiceBuilder::new()
+                    .layer_fn(move |s| {
+                        let tls = tls.clone();
+                        hyper_rustls::HttpsConnectorBuilder::new()
+                            .with_tls_config(tls)
+                            .https_or_http()
+                            .enable_http2()
+                            .wrap_connector(s)
+                    })
+                    .service($base_connector);
+
+                Ok($builder.connect_with_connector_lazy(connector))
+            }
+            None => Ok($builder.connect_with_connector_lazy($base_connector)),
+        }
+    };
+}
+
+/// Macro to create authenticated service layers for different auth types
+macro_rules! create_auth_service {
+    ($self:expr, $auth_config:expr, $header_map:expr, $channel:expr) => {{
+        let auth_layer = $auth_config
+            .get_client_layer()
+            .map_err(|e| ConfigError::AuthConfigError(e.to_string()))?;
+
+        $self.warn_insecure_auth();
+
+        Ok(tower::ServiceBuilder::new()
+            .layer(SetRequestHeaderLayer::new($header_map))
+            .layer(auth_layer)
+            .service($channel)
+            .boxed())
+    }};
+}
+
 use super::compression::CompressionType;
 use super::errors::ConfigError;
 use super::headers_middleware::SetRequestHeaderLayer;
@@ -28,6 +68,16 @@ use crate::auth::jwt::Config as JwtAuthenticationConfig;
 use crate::component::configuration::{Configuration, ConfigurationError};
 use crate::grpc::proxy::ProxyConfig;
 use crate::tls::{client::TlsClientConfig as TLSSetting, common::RustlsConfigLoader};
+
+/// Enum to handle all connection types: direct connections and proxy tunnels
+enum ConnectionType {
+    /// Direct HTTP connection without proxy
+    Direct(HttpConnector),
+    /// HTTP proxy tunnel connection
+    ProxyHttp(Tunnel<HttpConnector>),
+    /// HTTPS proxy tunnel connection
+    ProxyHttps(Tunnel<hyper_rustls::HttpsConnector<HttpConnector>>),
+}
 
 /// Keepalive configuration for the client.
 /// This struct contains the keepalive time for TCP and HTTP2,
@@ -421,18 +471,62 @@ impl ClientConfig {
 
     /// Parses headers from the configuration
     fn parse_headers(&self) -> Result<HeaderMap, ConfigError> {
-        let mut header_map = HeaderMap::new();
-        for (key, value) in &self.headers {
-            let k: HeaderName = key.parse().map_err(|_| {
-                ConfigError::HeaderParseError(format!("error parsing header key {}", key))
-            })?;
-            let v: HeaderValue = value.parse().map_err(|_| {
-                ConfigError::HeaderParseError(format!("error parsing header value {}", key))
-            })?;
+        Self::parse_header_map(&self.headers, "header")
+    }
 
-            header_map.insert(k, v);
+    /// Generic helper to parse a HashMap<String, String> into HeaderMap
+    fn parse_header_map(
+        headers: &HashMap<String, String>,
+        context: &str,
+    ) -> Result<HeaderMap, ConfigError> {
+        let mut header_map = HeaderMap::new();
+        for (key, value) in headers {
+            let header_name = HeaderName::from_str(key).map_err(|_| {
+                ConfigError::HeaderParseError(format!("Invalid {} name: {}", context, key))
+            })?;
+            let header_value = HeaderValue::from_str(value).map_err(|_| {
+                ConfigError::HeaderParseError(format!("Invalid {} value: {}", context, value))
+            })?;
+            header_map.insert(header_name, header_value);
         }
         Ok(header_map)
+    }
+
+    /// Helper to create basic auth header for proxy authentication
+    fn create_proxy_auth_header(
+        username: &str,
+        password: &str,
+    ) -> Result<HeaderValue, ConfigError> {
+        let auth_value = BASE64_STANDARD.encode(format!("{}:{}", username, password));
+        HeaderValue::from_str(&format!("Basic {}", auth_value)).map_err(|_| {
+            ConfigError::HeaderParseError("Invalid proxy auth credentials".to_string())
+        })
+    }
+
+    /// Helper to apply authentication and headers to a tunnel
+    fn apply_tunnel_config<T>(
+        &self,
+        mut tunnel: Tunnel<T>,
+        proxy_config: &ProxyConfig,
+        warn_insecure: bool,
+    ) -> Result<Tunnel<T>, ConfigError> {
+        // Set proxy authentication if provided
+        if let (Some(username), Some(password)) = (&proxy_config.username, &proxy_config.password) {
+            if warn_insecure {
+                self.warn_insecure_auth();
+            }
+
+            let auth_header = Self::create_proxy_auth_header(username, password)?;
+            tunnel = tunnel.with_auth(auth_header);
+        }
+
+        // Set custom headers for proxy requests
+        if !proxy_config.headers.is_empty() {
+            let proxy_headers = self.parse_proxy_headers(&proxy_config.headers)?;
+            tunnel = tunnel.with_headers(proxy_headers);
+        }
+
+        Ok(tunnel)
     }
 
     /// Loads TLS configuration
@@ -449,45 +543,88 @@ impl ClientConfig {
         http_connector: HttpConnector,
         tls_config: Option<rustls::ClientConfig>,
     ) -> Result<Channel, ConfigError> {
+        // Create the appropriate connection type
+        let connection = self.create_connection(uri, http_connector)?;
+
+        // Apply TLS and create the channel
+        self.create_channel_from_connection(builder, connection, tls_config)
+    }
+
+    /// Creates the appropriate connection type based on proxy configuration
+    fn create_connection(
+        &self,
+        uri: Uri,
+        http_connector: HttpConnector,
+    ) -> Result<ConnectionType, ConfigError> {
         // Check if this host should bypass the proxy
         if let Some(intercept) = self.proxy.should_use_proxy(uri.to_string()) {
             // Use proxy for this host
-            let tunnel = self.create_proxy_tunnel(intercept, http_connector, &self.proxy)?;
-            self.create_tunneled_channel(builder, tunnel, tls_config)
+            self.create_proxy_connection(intercept, http_connector)
         } else {
             // Skip proxy for this host, use direct connection
-            self.create_direct_channel(builder, http_connector, tls_config)
+            Ok(ConnectionType::Direct(http_connector))
         }
     }
 
-    /// Creates a proxy tunnel connector
-    fn create_proxy_tunnel(
+    /// Creates a proxy connection
+    fn create_proxy_connection(
         &self,
         intercept: Intercept,
         http_connector: HttpConnector,
-        proxy_config: &ProxyConfig,
-    ) -> Result<Tunnel<HttpConnector>, ConfigError> {
-        let mut tunnel = Tunnel::new(intercept.uri().clone(), http_connector);
+    ) -> Result<ConnectionType, ConfigError> {
+        let proxy_uri = intercept.uri();
 
-        tracing::info!("Creating proxy tunnel to {}", intercept.uri());
+        tracing::info!("Creating proxy tunnel to {}", proxy_uri);
 
-        // Set proxy authentication if provided
-        if let (Some(username), Some(password)) = (&proxy_config.username, &proxy_config.password) {
-            let auth_value = BASE64_STANDARD.encode(format!("{}:{}", username, password));
-            let auth_header =
-                HeaderValue::from_str(&format!("Basic {}", auth_value)).map_err(|_| {
-                    ConfigError::HeaderParseError("Invalid proxy auth credentials".to_string())
-                })?;
-            tunnel = tunnel.with_auth(auth_header);
+        // Check if the proxy URL uses HTTPS
+        if proxy_uri.scheme_str() == Some("https") {
+            let proxy_tls_config = self
+                .proxy
+                .tls_setting
+                .load_rustls_config()
+                .map_err(|e| {
+                    ConfigError::TLSSettingError(format!("Failed to load proxy TLS config: {}", e))
+                })?
+                .unwrap();
+
+            // Create HTTPS connector for the proxy itself
+            let https_connector = hyper_rustls::HttpsConnectorBuilder::new()
+                .with_tls_config(proxy_tls_config)
+                .https_or_http()
+                .enable_http2()
+                .wrap_connector(http_connector);
+
+            let tunnel = Tunnel::new(proxy_uri.clone(), https_connector);
+            let configured_tunnel = self.apply_tunnel_config(tunnel, &self.proxy, false)?;
+
+            Ok(ConnectionType::ProxyHttps(configured_tunnel))
+        } else {
+            // Use HTTP connector for the proxy
+            let tunnel = Tunnel::new(proxy_uri.clone(), http_connector);
+            let configured_tunnel = self.apply_tunnel_config(tunnel, &self.proxy, true)?;
+
+            Ok(ConnectionType::ProxyHttp(configured_tunnel))
         }
+    }
 
-        // Set custom headers for proxy requests
-        if !proxy_config.headers.is_empty() {
-            let proxy_headers = self.parse_proxy_headers(&proxy_config.headers)?;
-            tunnel = tunnel.with_headers(proxy_headers);
+    /// Creates a channel from any connection type with TLS support
+    fn create_channel_from_connection(
+        &self,
+        builder: tonic::transport::Endpoint,
+        connection: ConnectionType,
+        tls_config: Option<rustls::ClientConfig>,
+    ) -> Result<Channel, ConfigError> {
+        match connection {
+            ConnectionType::Direct(connector) => {
+                create_connector!(builder, connector, tls_config)
+            }
+            ConnectionType::ProxyHttp(tunnel) => {
+                create_connector!(builder, tunnel, tls_config)
+            }
+            ConnectionType::ProxyHttps(tunnel) => {
+                create_connector!(builder, tunnel, tls_config)
+            }
         }
-
-        Ok(tunnel)
     }
 
     /// Parses proxy headers
@@ -495,69 +632,7 @@ impl ClientConfig {
         &self,
         headers: &HashMap<String, String>,
     ) -> Result<HeaderMap, ConfigError> {
-        let mut proxy_headers = HeaderMap::new();
-        for (key, value) in headers {
-            let header_name = HeaderName::from_str(key).map_err(|_| {
-                ConfigError::HeaderParseError(format!("Invalid proxy header name: {}", key))
-            })?;
-            let header_value = HeaderValue::from_str(value).map_err(|_| {
-                ConfigError::HeaderParseError(format!("Invalid proxy header value: {}", value))
-            })?;
-            proxy_headers.insert(header_name, header_value);
-        }
-        Ok(proxy_headers)
-    }
-
-    /// Creates a direct channel without proxy
-    fn create_direct_channel(
-        &self,
-        builder: tonic::transport::Endpoint,
-        http_connector: HttpConnector,
-        tls_config: Option<rustls::ClientConfig>,
-    ) -> Result<Channel, ConfigError> {
-        match tls_config {
-            Some(tls) => {
-                let connector = tower::ServiceBuilder::new()
-                    .layer_fn(move |s| {
-                        let tls = tls.clone();
-                        hyper_rustls::HttpsConnectorBuilder::new()
-                            .with_tls_config(tls)
-                            .https_or_http()
-                            .enable_http2()
-                            .wrap_connector(s)
-                    })
-                    .service(http_connector);
-
-                Ok(builder.connect_with_connector_lazy(connector))
-            }
-            None => Ok(builder.connect_with_connector_lazy(http_connector)),
-        }
-    }
-
-    /// Applies TLS configuration to a tunnel connector for proxy usage
-    fn create_tunneled_channel(
-        &self,
-        builder: tonic::transport::Endpoint,
-        tunnel: Tunnel<HttpConnector>,
-        tls_config: Option<rustls::ClientConfig>,
-    ) -> Result<Channel, ConfigError> {
-        match tls_config {
-            Some(tls) => {
-                let connector = tower::ServiceBuilder::new()
-                    .layer_fn(move |s| {
-                        let tls = tls.clone();
-                        hyper_rustls::HttpsConnectorBuilder::new()
-                            .with_tls_config(tls)
-                            .https_or_http()
-                            .enable_http2()
-                            .wrap_connector(s)
-                    })
-                    .service(tunnel);
-
-                Ok(builder.connect_with_connector_lazy(connector))
-            }
-            None => Ok(builder.connect_with_connector_lazy(tunnel)),
-        }
+        Self::parse_header_map(headers, "proxy header")
     }
 
     /// Applies authentication and headers to the channel
@@ -579,43 +654,13 @@ impl ClientConfig {
     > {
         match &self.auth {
             AuthenticationConfig::Basic(basic) => {
-                let auth_layer = basic
-                    .get_client_layer()
-                    .map_err(|e| ConfigError::AuthConfigError(e.to_string()))?;
-
-                self.warn_insecure_auth();
-
-                Ok(tower::ServiceBuilder::new()
-                    .layer(SetRequestHeaderLayer::new(header_map))
-                    .layer(auth_layer)
-                    .service(channel)
-                    .boxed())
+                create_auth_service!(self, basic, header_map, channel)
             }
             AuthenticationConfig::Bearer(bearer) => {
-                let auth_layer = bearer
-                    .get_client_layer()
-                    .map_err(|e| ConfigError::AuthConfigError(e.to_string()))?;
-
-                self.warn_insecure_auth();
-
-                Ok(tower::ServiceBuilder::new()
-                    .layer(SetRequestHeaderLayer::new(header_map))
-                    .layer(auth_layer)
-                    .service(channel)
-                    .boxed())
+                create_auth_service!(self, bearer, header_map, channel)
             }
             AuthenticationConfig::Jwt(jwt) => {
-                let auth_layer = jwt
-                    .get_client_layer()
-                    .map_err(|e| ConfigError::AuthConfigError(e.to_string()))?;
-
-                self.warn_insecure_auth();
-
-                Ok(tower::ServiceBuilder::new()
-                    .layer(SetRequestHeaderLayer::new(header_map))
-                    .layer(auth_layer)
-                    .service(channel)
-                    .boxed())
+                create_auth_service!(self, jwt, header_map, channel)
             }
             AuthenticationConfig::None => Ok(tower::ServiceBuilder::new()
                 .layer(SetRequestHeaderLayer::new(header_map))
@@ -794,6 +839,24 @@ mod test {
         proxy_headers.insert("X-Proxy-Header".to_string(), "value".to_string());
         client.proxy =
             ProxyConfig::new("http://proxy.example.com:8080").with_headers(proxy_headers);
+        channel = client.to_channel();
+        assert!(channel.is_ok());
+
+        // Set HTTPS proxy settings
+        client.proxy = ProxyConfig::new("https://proxy.example.com:8080");
+        channel = client.to_channel();
+        assert!(channel.is_ok());
+
+        // Set HTTPS proxy with authentication
+        client.proxy = ProxyConfig::new("https://proxy.example.com:8080").with_auth("user", "pass");
+        channel = client.to_channel();
+        assert!(channel.is_ok());
+
+        // Set HTTPS proxy with headers
+        let mut https_proxy_headers = HashMap::new();
+        https_proxy_headers.insert("X-Proxy-Header".to_string(), "value".to_string());
+        client.proxy =
+            ProxyConfig::new("https://proxy.example.com:8080").with_headers(https_proxy_headers);
         channel = client.to_channel();
         assert!(channel.is_ok());
     }

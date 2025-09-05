@@ -1,0 +1,30 @@
+# Copyright AGNTCY Contributors (https://github.com/agntcy)
+# SPDX-License-Identifier: Apache-2.0
+
+tracing:
+  log_level: info
+  display_thread_names: true
+  display_thread_ids: true
+
+runtime:
+  n_cores: 0
+  thread_name: "slim-data-plane"
+  drain_timeout: 10s
+
+services:
+  slim/0:
+    dataplane:
+      clients:
+        - endpoint: "https://remote-slim:46357"
+          tls:
+            insecure_skip_verify: true
+          proxy:
+            url: https://your-https-proxy:3130
+            # Set username
+            username: abc
+            # Set password
+            password: "123"
+            # We can specify all the TLS parameters in the same way we do for SLIM
+            # connections
+            tls:
+              insecure_skip_verify: true
