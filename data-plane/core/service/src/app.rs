@@ -610,8 +610,10 @@ where
                 let res = session.close().await;
                 if let Err(e) = res {
                     error!("error closing session: {}", e);
+                    false
+                } else {
+                    true
                 }
-                true
             }
             None => false,
         }

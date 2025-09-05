@@ -5,15 +5,16 @@ use std::{collections::HashMap, sync::Arc, time::Duration};
 
 use async_trait::async_trait;
 use tokio::{
-    sync::mpsc,
+    sync::{Mutex, mpsc},
     time::{self, Instant},
 };
-use tracing::{debug, error, trace, warn};
+use tracing::{debug, error, info, trace, warn};
 
 use crate::{
     MessageDirection, SessionMessage,
     channel_endpoint::{
-        ChannelEndpoint, ChannelModerator, ChannelParticipant, MlsEndpoint, MlsState,
+        CLOSE_REMOTE_SESSION, ChannelEndpoint, ChannelModerator, ChannelParticipant, MlsEndpoint,
+        MlsState,
     },
     errors::SessionError,
     producer_buffer, receiver_buffer,
@@ -226,6 +227,7 @@ where
 {
     common: Common<P, V, T>,
     tx: mpsc::Sender<Result<(Message, MessageDirection), Status>>,
+    close_rx: Arc<Mutex<mpsc::Receiver<bool>>>,
 }
 
 impl<P, V, T> Streaming<P, V, T>
@@ -246,6 +248,7 @@ where
         storage_path: std::path::PathBuf,
     ) -> Self {
         let (tx, rx) = mpsc::channel(128);
+        let (close_tx, close_rx) = mpsc::channel(1);
 
         let common = Common::new(
             id,
@@ -259,8 +262,12 @@ where
             storage_path,
         );
 
-        let stream = Streaming { common, tx };
-        stream.process_message(rx, session_direction);
+        let stream = Streaming {
+            common,
+            tx,
+            close_rx: Arc::new(Mutex::new(close_rx)),
+        };
+        stream.process_message(rx, session_direction, close_tx);
         stream
     }
 
@@ -268,6 +275,7 @@ where
         &self,
         mut rx: mpsc::Receiver<Result<(Message, MessageDirection), Status>>,
         session_direction: SessionDirection,
+        close_tx: mpsc::Sender<bool>,
     ) {
         let session_id = self.common.id();
 
@@ -434,13 +442,48 @@ where
                                                 error!("error processing channel message: {}", e);
                                             },
                                         }
+
+                                        // check if we need to close the session
+                                        match channel_endpoint {
+                                            ChannelEndpoint::ChannelParticipant(_) => {/*nothing to do*/}
+                                            ChannelEndpoint::ChannelModerator(ref m) => {
+                                                if m.can_be_closed() {
+                                                    // close session
+                                                    let _ = close_tx.send(true).await;
+                                                    break;
+                                                }
+                                            }
+                                        }
+
+                                        continue;
+                                    }
+                                    ProtoSessionMessageType::ChannelLeaveRequest => {
+                                        // process the message
+                                        match channel_endpoint.on_message(msg).await {
+                                            Ok(_) => {},
+                                            Err(e) => {
+                                                error!("error processing channel message: {}", e);
+                                                // unlock the close function
+                                                let _ = close_tx.send(false).await;
+                                                continue;
+                                            },
+                                        }
+
+                                        match channel_endpoint {
+                                            ChannelEndpoint::ChannelParticipant(_) => {
+                                                // we need to close the participant session here
+                                                // so exit the loop
+                                                break;
+                                            }
+                                            ChannelEndpoint::ChannelModerator(_) => {/*nothing to do*/}
+                                        }
+
                                         continue;
                                     }
                                     ProtoSessionMessageType::ChannelDiscoveryRequest |
                                     ProtoSessionMessageType::ChannelDiscoveryReply |
                                     ProtoSessionMessageType::ChannelJoinRequest |
                                     ProtoSessionMessageType::ChannelJoinReply |
-                                    ProtoSessionMessageType::ChannelLeaveRequest |
                                     ProtoSessionMessageType::ChannelMlsWelcome |
                                     ProtoSessionMessageType::ChannelMlsCommit |
                                     ProtoSessionMessageType::ChannelMlsProposal |
@@ -610,7 +653,7 @@ where
                 }
             }
 
-            debug!(
+            info!(
                 "stopping message processing on streaming session {}",
                 session_id
             );
@@ -1074,8 +1117,31 @@ where
     }
 
     async fn close(&self) -> Result<(), SessionError> {
-        // TODO
-        Ok(())
+        // create the close session message
+        // the session typea and destination is not important here
+        // because the message will be dropd
+        let mut leave_message =
+            Message::new_publish(self.common.source(), self.common.source(), None, "", vec![]);
+
+        let session_header = leave_message.get_session_header_mut();
+        session_header.set_session_type(ProtoSessionType::SessionPubSub);
+        session_header.set_session_message_type(ProtoSessionMessageType::ChannelLeaveRequest);
+        session_header.set_session_id(self.id());
+        session_header.set_message_id(rand::random::<u32>());
+
+        leave_message.insert_metadata(CLOSE_REMOTE_SESSION.to_string(), "true".to_string());
+
+        self.tx
+            .send(Ok((leave_message, MessageDirection::South)))
+            .await
+            .map_err(|e| SessionError::Processing(e.to_string()))?;
+
+        let mut lock = self.close_rx.lock().await;
+        if lock.recv().await.unwrap() {
+            Ok(())
+        } else {
+            Err(SessionError::CloseRemoteSessionError)
+        }
     }
 }
 

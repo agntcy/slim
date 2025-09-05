@@ -405,7 +405,7 @@ where
     async fn close(&self) -> Result<(), SessionError> {
         match self {
             Session::FireAndForget(session) => session.close().await,
-            Session::Streaming(_session) => todo!(),
+            Session::Streaming(session) => session.close().await,
         }
     }
 }
