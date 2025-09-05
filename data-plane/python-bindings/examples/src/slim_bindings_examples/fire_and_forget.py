@@ -102,6 +102,9 @@ async def run_client(
                     print("received error: ", e)
 
                 await asyncio.sleep(1)
+
+            await local_app.delete_session(session.id)
+
         else:
             # Wait for a message and reply in a loop
             while True:

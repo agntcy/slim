@@ -10,13 +10,15 @@ use rand::Rng;
 use slim_auth::traits::{TokenProvider, Verifier};
 use slim_datapath::api::{ProtoSessionType, SessionHeader, SlimHeader};
 use slim_datapath::messages::Name;
+use tokio::sync::Mutex;
 use tokio::sync::mpsc::{self, Receiver, Sender};
 use tokio::time::{self, Instant};
 use tokio_util::sync::CancellationToken;
-use tracing::{debug, error, warn};
+use tracing::{debug, error, info, warn};
 
 use crate::channel_endpoint::{
-    ChannelEndpoint, ChannelModerator, ChannelParticipant, MlsEndpoint, MlsState,
+    CLOSE_REMOTE_SESSION, ChannelEndpoint, ChannelModerator, ChannelParticipant, MlsEndpoint,
+    MlsState,
 };
 use crate::errors::SessionError;
 use crate::session::{
@@ -125,6 +127,7 @@ enum InternalMessage {
         message_id: u32,
         timeouts: u32,
     },
+    CloseMessage {},
 }
 
 struct FireAndForgetState<P, V, T>
@@ -149,6 +152,14 @@ struct RtxTimerObserver {
     tx: Sender<InternalMessage>,
 }
 
+#[derive(Debug, Default)]
+struct ClosingState {
+    /// closing start
+    closing: bool,
+    /// leave request sent
+    notification_sent: bool,
+}
+
 /// The internal part of the Fire and Forget session that handles message processing
 struct FireAndForgetProcessor<P, V, T>
 where
@@ -160,6 +171,13 @@ where
     timer_observer: Arc<RtxTimerObserver>,
     rx: Receiver<InternalMessage>,
     cancellation_token: CancellationToken,
+    /// used to notify the unlock the thread that is calling
+    /// the close function from the app.
+    close_tx: Sender<bool>,
+
+    /// set to true with close is called by the app.
+    /// used to wait for incoming messages.
+    closing_state: ClosingState,
 }
 
 #[async_trait]
@@ -201,12 +219,15 @@ where
         tx: Sender<InternalMessage>,
         rx: Receiver<InternalMessage>,
         cancellation_token: CancellationToken,
+        close_tx: Sender<bool>,
     ) -> Self {
         FireAndForgetProcessor {
             state,
             timer_observer: Arc::new(RtxTimerObserver { tx: tx.clone() }),
             rx,
             cancellation_token,
+            close_tx,
+            closing_state: ClosingState::default(),
         }
     }
 
@@ -231,6 +252,15 @@ where
                                 if let Err(e) = result {
                                     error!("error processing message: {}", e);
                                 }
+
+                                // received a message. if the session is in closing state
+                                // all the pending messages may be handled. try to close.
+                                if self.closing_state.closing {
+                                    let res = self.close_remote_session().await;
+                                    if let Err(e) = res {
+                                        error!("error closing remote session: {}", e);
+                                    }
+                                }
                             }
                             InternalMessage::SetConfig { config } => {
                                 debug!("setting fire and forget session config: {}", config);
@@ -249,6 +279,15 @@ where
                             } => {
                                 debug!("timer failure for message id {}: {}", message_id, timeouts);
                                 self.handle_timer_failure(message_id).await;
+                            }
+                            InternalMessage::CloseMessage { } => {
+                                debug!("received message to close the session");
+                                // start closing procedure
+                                self.closing_state.closing = true;
+                                let res = self.close_remote_session().await;
+                                if let Err(e) = res {
+                                    error!("error closing remote session: {}", e);
+                                }
                             }
                         },
                         None => {
@@ -269,11 +308,13 @@ where
         }
 
         // Clean up any remaining timers
+        debug!("Clean up any remaining timers");
         for (_, (mut timer, _)) in self.state.timers.drain() {
             timer.stop();
         }
 
         debug!("FireAndForgetProcessor loop exited");
+        info!("ff session {} closed", self.state.session_id);
     }
 
     async fn handle_timer_timeout(&mut self, message_id: u32) {
@@ -328,8 +369,55 @@ where
         session_header.set_message_id(rand::rng().random_range(0..u32::MAX));
 
         self.state.sticky_session_status = StickySessionStatus::Discovering;
-
         self.state.channel_endpoint.on_message(probe_message).await
+    }
+
+    async fn close_remote_session(&mut self) -> Result<(), SessionError> {
+        // Before close the session check if there are pending messages to be awaited
+        if !self.state.timers.is_empty() {
+            // wait all messages so return
+            debug!("cannot close yet, wait for all messages");
+            return Ok(());
+        }
+
+        // No pending messages, proceed with the closing
+        // The close message is needed only in sticky and mls mode
+        if !self.state.config.sticky && !self.state.config.mls_enabled {
+            debug!("anycast session close it without notifying the other end");
+            self.close_tx
+                .send(true)
+                .await
+                .map_err(|e| SessionError::SlimTransmission(e.to_string()))?;
+
+            return Ok(());
+        }
+
+        if self.closing_state.notification_sent {
+            // notification already sent so return
+            return Ok(());
+        }
+
+        self.closing_state.notification_sent = true;
+        let name = match &self.state.sticky_name {
+            Some(n) => n,
+            None => {
+                return Err(SessionError::AppTransmission(
+                    "cannot close remote session, missing destination name".to_string(),
+                ));
+            }
+        };
+
+        // create a LeaveRequest message
+        let mut leave_message = Message::new_publish(&self.state.source, name, None, "", vec![]);
+
+        let session_header = leave_message.get_session_header_mut();
+        session_header.set_session_type(ProtoSessionType::SessionFireForget);
+        session_header.set_session_message_type(ProtoSessionMessageType::ChannelLeaveRequest);
+        session_header.set_session_id(self.state.session_id);
+        session_header.set_message_id(rand::random::<u32>());
+        leave_message.insert_metadata(CLOSE_REMOTE_SESSION.to_string(), "true".to_string());
+
+        self.state.channel_endpoint.on_message(leave_message).await
     }
 
     async fn handle_channel_discovery_reply(
@@ -357,6 +445,7 @@ where
             .await?;
 
         // No error - this session is sticky
+        self.state.config.sticky = true;
         self.state.sticky_name = Some(source);
         self.state.sticky_connection = Some(incoming_conn);
         self.state.sticky_session_status = StickySessionStatus::Established;
@@ -644,8 +733,19 @@ where
                 // Handle sticky session discovery reply
                 self.handle_channel_join_reply(message).await
             }
+            ProtoSessionMessageType::ChannelLeaveReply => {
+                if self.closing_state.closing && self.closing_state.notification_sent {
+                    // Handle sticky session leave reply
+                    self.close_tx
+                        .send(true)
+                        .await
+                        .map_err(|e| SessionError::SlimTransmission(e.to_string()))
+                } else {
+                    // this message should not be received at this moment. drop it
+                    Ok(())
+                }
+            }
             ProtoSessionMessageType::ChannelLeaveRequest
-            | ProtoSessionMessageType::ChannelLeaveReply
             | ProtoSessionMessageType::ChannelMlsWelcome
             | ProtoSessionMessageType::ChannelMlsCommit
             | ProtoSessionMessageType::ChannelMlsProposal
@@ -715,6 +815,7 @@ where
     common: Common<P, V, T>,
     tx: Sender<InternalMessage>,
     cancellation_token: CancellationToken,
+    close_rx: Arc<Mutex<Receiver<bool>>>,
 }
 impl<P, V, T> FireAndForget<P, V, T>
 where
@@ -800,9 +901,17 @@ where
         // Cancellation token
         let cancellation_token = CancellationToken::new();
 
+        // Conditional variable to correctly close the session
+        let (close_tx, close_rx) = mpsc::channel::<bool>(1);
+
         // Create the processor
-        let processor =
-            FireAndForgetProcessor::new(state, tx.clone(), rx, cancellation_token.clone());
+        let processor = FireAndForgetProcessor::new(
+            state,
+            tx.clone(),
+            rx,
+            cancellation_token.clone(),
+            close_tx,
+        );
 
         // Start the processor loop
         tokio::spawn(processor.process_loop());
@@ -811,6 +920,7 @@ where
             common,
             tx,
             cancellation_token,
+            close_rx: Arc::new(Mutex::new(close_rx)),
         }
     }
 }
@@ -908,6 +1018,18 @@ where
             .send(InternalMessage::OnMessage { message, direction })
             .await
             .map_err(|e| SessionError::SessionClosed(e.to_string()))
+    }
+
+    async fn close(&self) -> Result<(), SessionError> {
+        self.tx
+            .send(InternalMessage::CloseMessage {})
+            .await
+            .map_err(|e| SessionError::SessionClosed(e.to_string()))?;
+
+        let mut lock = self.close_rx.lock().await;
+        let _ = lock.recv().await.unwrap();
+
+        Ok(())
     }
 }
 

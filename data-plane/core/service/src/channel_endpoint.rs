@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::{
-    collections::{BTreeMap, HashMap, VecDeque, btree_map::Entry},
+    collections::{BTreeMap, HashMap, HashSet, VecDeque, btree_map::Entry},
     sync::Arc,
     time::Duration,
 };
@@ -31,8 +31,9 @@ use slim_datapath::{
 };
 use slim_mls::mls::{CommitMsg, KeyPackageMsg, Mls, MlsIdentity, ProposalMsg, WelcomeMsg};
 
-const CHANNEL_CREATION: &str = "CHANNEL_CREATION";
-const CHANNEL_SUBSCRIPTION: &str = "CHANNEL_SUBSCRIPTION";
+// this flag is added to tell that channel that the leave request is
+// coming from the local app and not from remote
+pub const CLOSE_REMOTE_SESSION: &str = "CLOSE_REMOTE_SESSION";
 
 struct RequestTimerObserver<T>
 where
@@ -370,7 +371,7 @@ where
 
     /// map of the participants with package keys
     /// used to remove participants from the channel
-    participants: HashMap<Name, MlsIdentity>,
+    mls_ids: HashMap<Name, MlsIdentity>,
 
     /// message id of the next msl message to send
     next_msg_id: u32,
@@ -384,7 +385,7 @@ where
     pub(crate) fn new(mls: MlsState<P, V>) -> Self {
         MlsModeratorState {
             common: mls,
-            participants: HashMap::new(),
+            mls_ids: HashMap::new(),
             next_msg_id: 0,
         }
     }
@@ -408,9 +409,8 @@ where
 
         match self.common.mls.lock().add_member(payload) {
             Ok(ret) => {
-                // add participant to the list
-                self.participants
-                    .insert(msg.get_source(), ret.member_identity);
+                // add mls ids to the list
+                self.mls_ids.insert(msg.get_source(), ret.member_identity);
 
                 Ok((ret.commit_message, ret.welcome_message))
             }
@@ -424,7 +424,7 @@ where
     fn remove_participant(&mut self, msg: &Message) -> Result<CommitMsg, SessionError> {
         debug!("Remove participant from the MLS group");
         let name = msg.get_dst();
-        let id = match self.participants.get(&name) {
+        let id = match self.mls_ids.get(&name) {
             Some(id) => id,
             None => {
                 error!("the name does not exists in the group");
@@ -440,8 +440,8 @@ where
             .remove_member(id)
             .map_err(|e| SessionError::RemoveParticipant(e.to_string()))?;
 
-        // remove the participant from the list
-        self.participants.remove(&name);
+        // remove the participant from the mls ids list
+        self.mls_ids.remove(&name);
 
         Ok(ret)
     }
@@ -607,7 +607,7 @@ where
 
     // creation is set to true is this is the first join to the channel
     // done by the moderator node. False in all the other cases
-    async fn join(&mut self, creation: bool) -> Result<(), SessionError> {
+    async fn join(&mut self) -> Result<(), SessionError> {
         // subscribe only once to the channel
         if self.subscribed {
             return Ok(());
@@ -617,14 +617,7 @@ where
 
         // subscribe for the channel
         let header = Some(SlimHeaderFlags::default().with_forward_to(self.conn.unwrap()));
-        let mut sub = Message::new_subscribe(&self.name, &self.channel_name, header);
-
-        // add in the metadata to indication that the
-        // subscription is associated to a channel
-        sub.insert_metadata(CHANNEL_SUBSCRIPTION.to_string(), "true".to_string());
-        if creation {
-            sub.insert_metadata(CHANNEL_CREATION.to_string(), "true".to_string());
-        }
+        let sub = Message::new_subscribe(&self.name, &self.channel_name, header);
 
         self.send(sub).await?;
 
@@ -657,11 +650,7 @@ where
     async fn leave(&self) -> Result<(), SessionError> {
         // unsubscribe for the channel
         let header = Some(SlimHeaderFlags::default().with_forward_to(self.conn.unwrap()));
-        let mut unsub = Message::new_unsubscribe(&self.name, &self.channel_name, header);
-
-        // add in the metadata to indication that the
-        // subscription is associated to a channel
-        unsub.insert_metadata(CHANNEL_SUBSCRIPTION.to_string(), "true".to_string());
+        let unsub = Message::new_unsubscribe(&self.name, &self.channel_name, header);
 
         self.send(unsub).await?;
 
@@ -807,7 +796,7 @@ where
             // without MLS we can set the state for the channel
             // otherwise the endpoint needs to receive a
             // welcome message first
-            self.endpoint.join(false).await?;
+            self.endpoint.join().await?;
             vec![]
         };
 
@@ -832,7 +821,7 @@ where
         debug!("Welcome message correctly processed, MLS state initialized");
 
         // set route for the channel name
-        self.endpoint.join(false).await?;
+        self.endpoint.join().await?;
 
         // send an ack back to the moderator
         let src = msg.get_source();
@@ -879,6 +868,18 @@ where
     }
 
     async fn on_leave_request(&mut self, msg: Message) -> Result<(), SessionError> {
+        // check the origin of the message
+        // if the message comes from the app and this is a fnf session notify the other side
+        if msg.contains_metadata(CLOSE_REMOTE_SESSION) {
+            if self.endpoint.session_type == ProtoSessionType::SessionFireForget {
+                return self.endpoint.send(msg).await;
+            } else {
+                // only the moderator can close remote sessions, so drop this message
+                return Err(SessionError::CloseRemoteSessionError);
+            }
+        }
+
+        // in this case the leave request is coming from the remote side
         // leave the channel
         self.endpoint.leave().await?;
 
@@ -1117,6 +1118,12 @@ where
 
     /// mls state
     mls_state: Option<MlsModeratorState<P, V>>,
+
+    /// list of participants names to use on session close
+    paticipants: HashSet<Name>,
+
+    /// flag to signal that the closing procedure is started
+    closing: bool,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1158,13 +1165,24 @@ where
             pending_requests: HashMap::new(),
             invite_payload,
             mls_state,
+            paticipants: HashSet::new(),
+            closing: false,
         }
+    }
+
+    pub fn can_be_closed(&self) -> bool {
+        if self.closing && self.paticipants.is_empty() {
+            // no participant is left in the channel
+            // we can close it
+            return true;
+        }
+        false
     }
 
     pub async fn join(&mut self) -> Result<(), SessionError> {
         if !self.endpoint.subscribed {
             // join the channel
-            self.endpoint.join(true).await?;
+            self.endpoint.join().await?;
 
             // create mls group if needed
             if let Some(mls) = self.mls_state.as_mut() {
@@ -1305,7 +1323,7 @@ where
                     );
 
                     // send commit message if needed
-                    let len = self.mls_state.as_ref().unwrap().participants.len();
+                    let len = self.mls_state.as_ref().unwrap().mls_ids.len();
 
                     debug!("Send MLS Commit Message to the channel (commit for proposal)");
                     self.endpoint.send(commit.clone()).await?;
@@ -1428,7 +1446,7 @@ where
                 .welcome_start(welcome_id)?;
 
             // send commit message if needed
-            let len = self.mls_state.as_ref().unwrap().participants.len();
+            let len = self.mls_state.as_ref().unwrap().mls_ids.len();
             if len > 1 {
                 debug!("Send MLS Commit Message to the channel (new group member)");
                 self.endpoint.send(commit.clone()).await?;
@@ -1450,6 +1468,10 @@ where
             // MLS is disable so the current task should be completed
             self.task_done().await?;
         }
+
+        // add the participant to the list. if MLS is enabled
+        // the state will be updated accordingly
+        self.paticipants.insert(msg.get_source());
 
         Ok(())
     }
@@ -1534,7 +1556,7 @@ where
         // locally and send a commit. otherwise the proposal must be known by all the
         // members of the group and so we have to broadcast the proposal first and send
         // the commit when all the acks are received
-        let len = self.mls_state.as_ref().unwrap().participants.len();
+        let len = self.mls_state.as_ref().unwrap().mls_ids.len();
 
         if len == 1 {
             debug!("Only one partcipant in the group. send the commit");
@@ -1607,7 +1629,47 @@ where
         Ok(())
     }
 
+    async fn close_channel(&mut self) -> Result<(), SessionError> {
+        if self.closing {
+            debug!("closing procedure already staterd, return");
+            return Ok(());
+        }
+
+        // start closing procedure
+        self.closing = true;
+
+        for p in &self.paticipants {
+            // create a leave message for the participant
+            let mut leave_message = Message::new_publish(&self.endpoint.name, p, None, "", vec![]);
+
+            let session_header = leave_message.get_session_header_mut();
+            session_header.set_session_type(ProtoSessionType::SessionPubSub);
+            session_header.set_session_message_type(ProtoSessionMessageType::ChannelLeaveRequest);
+            session_header.set_session_id(self.endpoint.session_id);
+            session_header.set_message_id(rand::random::<u32>());
+
+            // put al the tasks on the list for the moment
+            self.tasks_todo.push_back(leave_message);
+        }
+
+        if self.current_task.is_some() {
+            // postpone the close
+            debug!("the moderator is busy, postpone the close");
+            Ok(())
+        } else {
+            // try to pick the next task to proceed with the close
+            self.pick_next_task().await
+        }
+    }
+
     async fn on_leave_request(&mut self, msg: Message) -> Result<(), SessionError> {
+        // if this is a point to point simply send the leave request as if MLS is off
+        if self.endpoint.session_type == ProtoSessionType::SessionFireForget {
+            let msg_id = msg.get_id();
+            self.forward(msg).await?;
+            return self.current_task.as_mut().unwrap().leave_start(msg_id);
+        }
+
         // If MLS is on, send the MLS commit and wait for all the
         // acks before send the leave request. If MLS is off forward
         // the message
@@ -1631,7 +1693,7 @@ where
 
                 // wait for len + 1 acks because the participant list does not contains
                 // the removed participant anymore
-                let len = self.mls_state.as_ref().unwrap().participants.len() + 1;
+                let len = self.mls_state.as_ref().unwrap().mls_ids.len() + 1;
 
                 // the leave request will be forwarded after all acks are received
                 self.create_timer(commit_id, (len).try_into().unwrap(), commit, Some(msg));
@@ -1659,6 +1721,9 @@ where
             // with the leave reply reception we conclude a participant remove
             // update the task and try to pickup a new task
             self.current_task.as_mut().unwrap().leave_complete(msg_id)?;
+
+            // we need to remove the sender of the message from the participant list
+            self.paticipants.remove(&msg.get_source());
             self.task_done().await
         } else {
             debug!("Timer for leave reply {:?} was not removed", msg_id);
@@ -1676,7 +1741,10 @@ where
 
         // here the moderator is not busy anymore
         self.current_task = None;
+        self.pick_next_task().await
+    }
 
+    async fn pick_next_task(&mut self) -> Result<(), SessionError> {
         // check if there is a pending task to process
         let msg = match self.tasks_todo.pop_front() {
             Some(m) => m,
@@ -1790,7 +1858,7 @@ where
         );
 
         debug!("Send MLS Proposal Message to the channel (moderator key update)");
-        let len = self.mls_state.as_ref().unwrap().participants.len();
+        let len = self.mls_state.as_ref().unwrap().mls_ids.len();
         self.endpoint.send(proposal.clone()).await?;
         self.create_timer(
             proposal_id,
@@ -1876,6 +1944,13 @@ where
                 // leave message coming from the application
                 // this message starts a new participant removal.
                 // process the request only if not busy
+
+                // if the metadata is set create a leave request for each
+                // participant and add it to the task list
+                if msg.contains_metadata("CLOSE_REMOTE_SESSION") {
+                    return self.close_channel().await;
+                }
+
                 if self.current_task.is_some() {
                     // if busy postpone the task and add it to the todo list
                     debug!(
@@ -2033,9 +2108,7 @@ mod tests {
         // the first message is the subscription for the channel name
         // this is also the channel creation
         let header = Some(SlimHeaderFlags::default().with_forward_to(conn));
-        let mut sub = Message::new_subscribe(&moderator, &channel_name, header);
-        sub.insert_metadata(CHANNEL_SUBSCRIPTION.to_string(), "true".to_string());
-        sub.insert_metadata(CHANNEL_CREATION.to_string(), "true".to_string());
+        let sub = Message::new_subscribe(&moderator, &channel_name, header);
         let msg = moderator_rx.recv().await.unwrap().unwrap();
         assert_eq!(msg, sub);
 
@@ -2118,8 +2191,7 @@ mod tests {
 
         // the first message generated is a subscription for the channel name
         let header = Some(SlimHeaderFlags::default().with_forward_to(conn));
-        let mut sub = Message::new_subscribe(&participant, &channel_name, header);
-        sub.insert_metadata(CHANNEL_SUBSCRIPTION.to_string(), "true".to_string());
+        let sub = Message::new_subscribe(&participant, &channel_name, header);
         let msg = participant_rx.recv().await.unwrap().unwrap();
         assert_eq!(msg, sub);
 
