@@ -61,6 +61,14 @@ tasks:
               --group building
             )
 
+            uv sync ${UV_ARGS[@]}
+
+            uv run ${UV_ARGS[@]} maturin develop --uv {{.RELEASE}}
+
+            # This file if a leftover from the previous build, delete it otherwise
+            # maturin will try to add it to the wheel, and it will fail
+            rm -f slim_bindings/*.pyd
+
             PYTHONS=(3.10 3.11 3.12 3.13)
             uv run                            \
               ${UV_ARGS[@]}                   \
