@@ -74,7 +74,7 @@ spec:
             - name: SLIM_SVC_ID_SUFFIX
               valueFrom:
                 fieldRef:
-                  fieldPath: spec.podName              
+                  fieldPath: metadata.name
           ports:
             - name: data-plane
               containerPort: {{ .Values.slim.service.data.port }}
