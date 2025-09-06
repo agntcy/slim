@@ -66,6 +66,11 @@ spec:
           args:
             - "--config"
             - "/config.yaml"
+          env:
+            - name: SLIM_SVC_ID_SUFFIX
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName            
           ports:
             - name: data-plane
               containerPort: {{ .Values.slim.service.data.port }}

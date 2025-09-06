@@ -70,6 +70,11 @@ spec:
           args:
             - "--config"
             - "/config.yaml"
+          env:
+            - name: SLIM_SVC_ID_SUFFIX
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.podName              
           ports:
             - name: data-plane
               containerPort: {{ .Values.slim.service.data.port }}
