@@ -2,20 +2,28 @@
 Copyright AGNTCY Contributors (https://github.com/agntcy)
 SPDX-License-Identifier: Apache-2.0
 */}}
-
+{{- if or (not .Values.slim.daemonset) (eq .Values.slim.daemonset false) }}
 apiVersion: apps/v1
-kind: Deployment
+kind: StatefulSet
 metadata:
   name: {{ include "slim.fullname" . }}
   labels:
     {{- include "slim.labels" . | nindent 4 }}
 spec:
+  serviceName: {{ include "slim.fullname" . }}-headless
   {{- if not .Values.autoscaling.enabled }}
   replicas: {{ .Values.slim.replicaCount }}
   {{- end }}
   selector:
     matchLabels:
       {{- include "slim.selectorLabels" . | nindent 6 }}
+  podManagementPolicy: {{ .Values.slim.podManagementPolicy | default "OrderedReady" }}
+  updateStrategy:
+    type: {{ .Values.slim.updateStrategy.type | default "RollingUpdate" }}
+    {{- if eq (.Values.slim.updateStrategy.type | default "RollingUpdate") "RollingUpdate" }}
+    rollingUpdate:
+      partition: {{ .Values.slim.updateStrategy.rollingUpdate.partition | default 0 }}
+    {{- end }}
   template:
     metadata:
       {{- with .Values.podAnnotations }}
@@ -62,6 +70,11 @@ spec:
           args:
             - "--config"
             - "/config.yaml"
+          env:
+            - name: SLIM_SVC_ID_SUFFIX
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
           ports:
             - name: data-plane
               containerPort: {{ .Values.slim.service.data.port }}
@@ -110,3 +123,4 @@ spec:
       tolerations:
         {{- toYaml . | nindent 8 }}
       {{- end }}
+  {{- end }}      

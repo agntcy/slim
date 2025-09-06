@@ -698,7 +698,16 @@ impl ControllerService {
             let register_request = ControlMessage {
                 message_id: uuid::Uuid::new_v4().to_string(),
                 payload: Some(Payload::RegisterNodeRequest(v1::RegisterNodeRequest {
-                    node_id: this.inner.id.to_string(),
+                    node_id: {
+                        let mut node_id = this.inner.id.to_string();
+                        if let Ok(suffix) = std::env::var("SLIM_SVC_ID_SUFFIX") {
+                            if !suffix.is_empty() {
+                                node_id.push('-');
+                                node_id.push_str(&suffix);
+                            }
+                        }
+                        node_id
+                    },
                 })),
             };
 
