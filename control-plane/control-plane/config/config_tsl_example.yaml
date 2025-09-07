@@ -9,8 +9,8 @@ southbound:
   httpPort: 50052
   logging:
     level: DEBUG
-#  tls:
-#    useSpiffe: true
-  spire:
-    socketPath: "unix:///tmp/spire-agent/public/api.sock"
-
+  tls:
+    useSpiffe: false
+    certFile: "/certs/tls.crt"
+    keyFile: "/certs/tls.key"
+    caFile: "//certs/ca_bundle.pem"

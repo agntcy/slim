@@ -1,11 +1,13 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"log"
 	"net"
 
+	"github.com/agntcy/slim/control-plane/control-plane/internal/util"
 	"google.golang.org/grpc"
 
 	southboundApi "github.com/agntcy/slim/control-plane/common/proto/controller/v1"
@@ -23,7 +25,7 @@ func main() {
 	flag.Parse()
 	config := config.DefaultConfig().OverrideFromFile(*configFile).OverrideFromEnv().Validate()
 
-	var opts []grpc.ServerOption
+	ctx := context.Background()
 
 	dbService := db.NewInMemoryDBService()
 	cmdHandler := nodecontrol.DefaultNodeCommandHandler()
@@ -34,6 +36,7 @@ func main() {
 
 	go func() {
 		cpServer := nbapiservice.NewNorthboundAPIServer(config.Northbound, nodeService, routeService, groupService)
+		var opts []grpc.ServerOption
 		grpcServer := grpc.NewServer(opts...)
 		controlplaneApi.RegisterControlPlaneServiceServer(grpcServer, cpServer)
 
@@ -48,6 +51,17 @@ func main() {
 			log.Fatalf("failed to serve: %v", err)
 		}
 	}()
+
+	var opts []grpc.ServerOption
+	if config.Southbound.TLS != nil {
+		creds, err := util.LoadCertificates(ctx, config.Southbound)
+		if err != nil {
+			log.Fatalf("TLS setup error: %v", err)
+		}
+		if creds != nil {
+			opts = append(opts, grpc.Creds(creds))
+		}
+	}
 
 	sbGrpcServer := grpc.NewServer(opts...)
 	sbAPISvc := sbapiservice.NewSBAPIService(config.Southbound, dbService, cmdHandler,

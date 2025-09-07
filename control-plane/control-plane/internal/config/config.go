@@ -33,9 +33,42 @@ func (l LogConfig) Validate() error {
 }
 
 type APIConfig struct {
-	HTTPHost  string    `yaml:"httpHost"`
-	HTTPPort  string    `yaml:"httpPort"`
-	LogConfig LogConfig `yaml:"logging"`
+	HTTPHost  string      `yaml:"httpHost"`
+	HTTPPort  string      `yaml:"httpPort"`
+	LogConfig LogConfig   `yaml:"logging"`
+	TLS       *TLSConfig  `yaml:"tls"`
+	Spire     SpireConfig `yaml:"spire"`
+}
+
+type TLSConfig struct {
+	UseSpiffe bool   `yaml:"useSpiffe"`
+	CertFile  string `yaml:"certFile"`
+	KeyFile   string `yaml:"keyFile"`
+	CAFile    string `yaml:"caFile"`
+}
+
+func (a *TLSConfig) Validate() error {
+	if a.UseSpiffe {
+		if a.CAFile != "" || a.CertFile != "" || a.KeyFile != "" {
+			return errors.New("when useSpiffe is true, certFile, keyFile and caFile are not needed, as certificates are provided by SPIRE agent")
+		}
+		return nil
+	}
+	if a.CAFile == "" {
+		return errors.New("caFile is required when useSpiffe is false")
+	}
+	if a.CertFile == "" {
+		return errors.New("certFile is required when useSpiffe is false")
+	}
+	return nil
+}
+
+func (a *TLSConfig) ServerCertificateIsSet() bool {
+	return a.CertFile != "" && a.KeyFile != ""
+}
+
+type SpireConfig struct {
+	SocketPath string `yaml:"socketPath"`
 }
 
 // validate APIConfig
@@ -45,6 +78,14 @@ func (a APIConfig) Validate() error {
 	}
 	if a.HTTPHost == "" {
 		return errors.New("HTTPHost is required")
+	}
+	if a.TLS != nil {
+		if err := a.TLS.Validate(); err != nil {
+			return fmt.Errorf("invalid TLS configuration: %v", err)
+		}
+		if a.TLS.UseSpiffe && a.Spire.SocketPath == "" {
+			return errors.New("spire.socketPath is required when useSpiffe is true")
+		}
 	}
 	return a.LogConfig.Validate()
 }
