@@ -30,7 +30,7 @@ default-members = [
     "testing",
 ]
 
-exclude = ["integrations/mcp/mcp-proxy"]
+exclude = ["mcp-proxy"]
 
 resolver = "2"
 
