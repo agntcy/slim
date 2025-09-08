@@ -2850,6 +2850,9 @@ linting = [
     { name = "ruff" },
     { name = "types-protobuf" },
 ]
+testing = [
+    { name = "pytest" },
+]
 
 [package.metadata]
 requires-dist = [
@@ -2868,6 +2871,7 @@ linting = [
     { name = "ruff", specifier = ">=0.12" },
     { name = "types-protobuf", specifier = ">=6.30.2.20250703" },
 ]
+testing = [{ name = "pytest", specifier = ">=8.3.4" }]
 
 [[package]]
 name = "sniffio"
@@ -2953,6 +2957,9 @@ linting = [
     { name = "ruff" },
     { name = "types-protobuf" },
 ]
+testing = [
+    { name = "pytest" },
+]
 
 [package.metadata]
 requires-dist = [
@@ -2967,6 +2974,7 @@ linting = [
     { name = "ruff", specifier = ">=0.12" },
     { name = "types-protobuf", specifier = ">=6.30.2.20250703" },
 ]
+testing = [{ name = "pytest", specifier = ">=8.3.4" }]
 
 [[package]]
 name = "sse-starlette"
