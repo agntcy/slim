@@ -52,31 +52,3 @@ jobs:
     with:
       bake-targets: bindings-examples
       image-tag: ${{ github.sha }}
-
-  build-srpc:
-    name: Build srpc
-    uses: ./.github/workflows/reusable-python-build-and-test.yaml
-    with:
-      working-directory: ./data-plane/python/integrations
-      prefix: srpc:python
-
-  build-slima2a:
-    name: Build slima2a
-    uses: ./.github/workflows/reusable-python-build-and-test.yaml
-    with:
-      working-directory: ./data-plane/python/integrations
-      prefix: slima2a:python
-
-  build-mcp-wheels:
-    name: Build slim mcp
-    uses: ./.github/workflows/reusable-python-build-and-test.yaml
-    with:
-      working-directory: ./data-plane/python/integrations
-      prefix: integrations
-
-  build-srpc:
-    name: Build srpc
-    uses: ./.github/workflows/reusable-python-build-and-test.yaml
-    with:
-      working-directory: ./data-plane/python
-      prefix: srpc:python
