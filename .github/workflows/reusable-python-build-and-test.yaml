@@ -103,6 +103,9 @@ jobs:
       - name: Build package
         run: |
           task ${{ inputs.prefix }}:packaging
+      - name: Show packages
+        run: |
+          ls -la ${{ inputs.working-directory }}/dist
       - name: Upload wheels
         uses: actions/upload-artifact@v4
         with:
