@@ -61,3 +61,7 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["slim_mcp"]
+
+[project.scripts]
+mcp-server-time = "slim_mcp.examples.mcp_server_time:main"
+llamaindex-time-agent = "slim_mcp.examples.llamaindex_time_agent:main"

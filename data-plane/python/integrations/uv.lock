@@ -2857,7 +2857,7 @@ testing = [
 [package.metadata]
 requires-dist = [
     { name = "a2a-sdk", extras = ["telemetry"], specifier = ">=0.3.0" },
-    { name = "srpc", editable = "srpc" },
+    { name = "srpc" },
 ]
 
 [package.metadata.requires-dev]

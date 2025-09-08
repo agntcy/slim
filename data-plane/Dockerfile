@@ -67,11 +67,6 @@ esac
 # Build application
 task -v data-plane:build:strip TARGET=${RUSTARCH}-unknown-linux-gnu PROFILE=release
 mv target/${RUSTARCH}-unknown-linux-gnu target/${TARGETARCH}-unknown-linux-gnu
-
-pushd integrations/mcp/mcp-proxy
-task -v mcp-proxy:build:strip TARGET=${RUSTARCH}-unknown-linux-gnu PROFILE=release
-mv target/${RUSTARCH}-unknown-linux-gnu target/${TARGETARCH}-unknown-linux-gnu
-popd
 EOF
 
 # runtime images  - debug executable, debug symbols and, most importantly, a shell :)
@@ -90,19 +85,6 @@ ARG TARGETARCH
 
 # copy the artifacts from the build stage
 COPY --from=rust /app/data-plane/target/${TARGETARCH}-unknown-linux-gnu/release/slim /slim
-
-FROM ghcr.io/distroless/cc-debian12:nonroot AS mcp-proxy-debug
-ARG TARGETARCH
-
-# copy the artifacts from the build stage
-COPY --from=rust /app/data-plane/integrations/mcp/mcp-proxy/target/${TARGETARCH}-unknown-linux-gnu/release/slim-mcp-proxy /slim-mcp-proxy
-COPY --from=rust /app/data-plane/integrations/mcp/mcp-proxy/target/${TARGETARCH}-unknown-linux-gnu/release/slim-mcp-proxy.dbg /slim-mcp-proxy.dbg
-
-FROM gcr.io/distroless/cc-debian12:nonroot AS mcp-proxy-release
-ARG TARGETARCH
-
-# copy the artifacts from the build stage
-COPY --from=rust /app/data-plane/integrations/mcp/mcp-proxy/target/${TARGETARCH}-unknown-linux-gnu/release/slim-mcp-proxy /slim-mcp-proxy
 
 FROM debian:bookworm-slim AS testutils
 ARG TARGETARCH

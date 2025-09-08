@@ -75,7 +75,7 @@ target "slim-debug" {
 
 target "mcp-proxy" {
   context = "."
-  dockerfile = "./data-plane/Dockerfile"
+  dockerfile = "./data-plane/mcp-proxy/Dockerfile"
   target = "mcp-proxy-release"
   inherits = [
     "_common",
@@ -86,7 +86,7 @@ target "mcp-proxy" {
 
 target "mcp-proxy-debug" {
   context = "."
-  dockerfile = "./data-plane/Dockerfile"
+  dockerfile = "./data-plane/mcp-proxy/Dockerfile"
   target = "mcp-proxy-debug"
   inherits = [
     "_common",
@@ -96,8 +96,8 @@ target "mcp-proxy-debug" {
 }
 
 target "mcp-server-time" {
-  context = "./data-plane/integrations/mcp/slim-mcp"
-  dockerfile = "./examples/mcp-server-time/Dockerfile"
+  context = "./data-plane/python/integrations"
+  dockerfile = "./slim-mcp/Dockerfile"
   target = "mcp-server-time"
   inherits = [
     "_common",
@@ -107,8 +107,8 @@ target "mcp-server-time" {
 }
 
 target "llamaindex-time-agent" {
-  context = "./data-plane/integrations/mcp/slim-mcp"
-  dockerfile = "./examples/llamaindex-time-agent/Dockerfile"
+  context = "./data-plane/python/integrations"
+  dockerfile = "./slim-mcp/Dockerfile"
   target = "llamaindex-time-agent"
   inherits = [
     "_common",
