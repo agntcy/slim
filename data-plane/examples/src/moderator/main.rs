@@ -178,7 +178,13 @@ async fn main() {
                 }
 
                 info!("Moderator: received a message from rx.recv()");
-                let session_msg = next.unwrap().expect("error");
+                let session_msg = match next.unwrap() {
+                    Ok(msg) => msg,
+                    Err(e) => {
+                        error!("Moderator: error receiving session message: {}", e);
+                        continue;
+                    }
+                };
                 info!("MODERATOR_MSG_DEBUG: session_info={:?}", session_msg.info);
                 info!("MODERATOR_MSG_DEBUG: message={:?}", session_msg.message);
 
@@ -216,6 +222,8 @@ async fn main() {
                                             if let Some(session_info) = &channel_info.session_info {
                                                 // Invite the participant to the session
                                                 let participant_name = Name::from_strings(["org", "default", participant_id]).with_id(0);
+                                                
+                                                info!("Inviting participant {} to channel {} with session ID {}", participant_id, channel_id, session_info.id);
 
                                                 match app.invite_participant(&participant_name, session_info.clone()).await {
                                                     Ok(()) => {

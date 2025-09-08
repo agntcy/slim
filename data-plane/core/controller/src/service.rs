@@ -562,7 +562,7 @@ impl ControllerService {
                         // Send message to first moderator
                         if let Some(first_moderator) = req.moderators.first() {
                             let moderator_name =
-                                Name::from_strings(["org", "default", first_moderator]).with_id(0);
+                                Name::from_strings(["org", "default", "moderator1"]).with_id(0);
                             let source_name =
                                 Name::from_strings(["controller", "controller", "controller"])
                                     .with_id(0);

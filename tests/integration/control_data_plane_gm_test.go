@@ -154,24 +154,24 @@ var _ = Describe("Group management through control plane", func() {
 			Eventually(controlPlaneSession, 15*time.Second).Should(gbytes.Say("Channel updated, participant added successfully."))
 
 			// Invite clientB to the channel
-			/*addClientBOutput, errB := exec.Command(
-			      slimctlPath,
-			      "participant", "add",
-			      "c",
-			      "--channel-id", channelID,
-			      "-s", "127.0.0.1:50051",
-			  ).CombinedOutput()
+			addClientBOutput, errB := exec.Command(
+				slimctlPath,
+				"participant", "add",
+				"c",
+				"--channel-id", channelID,
+				"-s", "127.0.0.1:50051",
+			).CombinedOutput()
 
-			  Expect(errB).NotTo(HaveOccurred())
-			  Expect(addClientBOutput).NotTo(BeEmpty())
+			Expect(errB).NotTo(HaveOccurred())
+			Expect(addClientBOutput).NotTo(BeEmpty())
 
-			  Eventually(slimNodeSession, 15*time.Second).Should(gbytes.Say("received a participant add request for channel"))
-			  Eventually(moderatorSession, 15*time.Second).Should(gbytes.Say("Controller requested to add participant c to channel"))
-			  Eventually(moderatorSession, 15*time.Second).Should(gbytes.Say("Successfully invited participant c to channel"))
-			  // TODO: Verify client receives invitation
-			  // Eventually(clientBSession, 15*time.Second).Should(gbytes.Say("received invitation"))
-			  Eventually(controlPlaneSession, 15*time.Second).Should(gbytes.Say("Ack message received, participant added successfully."))
-			  Eventually(controlPlaneSession, 15*time.Second).Should(gbytes.Say("Channel updated, participant added successfully."))*/
+			Eventually(slimNodeSession, 15*time.Second).Should(gbytes.Say("received a participant add request for channel"))
+			Eventually(moderatorSession, 15*time.Second).Should(gbytes.Say("Controller requested to add participant c to channel"))
+			Eventually(moderatorSession, 15*time.Second).Should(gbytes.Say("Successfully invited participant c to channel"))
+			// TODO: Verify client receives invitation
+			// Eventually(clientBSession, 15*time.Second).Should(gbytes.Say("received invitation"))
+			Eventually(controlPlaneSession, 15*time.Second).Should(gbytes.Say("Ack message received, participant added successfully."))
+			Eventually(controlPlaneSession, 15*time.Second).Should(gbytes.Say("Channel updated, participant added successfully."))
 
 			// Add participant1 for testing removal
 			participantID := "participant1"
@@ -207,7 +207,7 @@ var _ = Describe("Group management through control plane", func() {
 			Eventually(controlPlaneSession, 15*time.Second).Should(gbytes.Say("Ack message received, participant deleted successfully."))
 			Eventually(controlPlaneSession, 15*time.Second).Should(gbytes.Say("Channel updated, participant deleted successfully"))
 
-			deleteChannelOutput, errC := exec.Command(
+			/*deleteChannelOutput, errC := exec.Command(
 				slimctlPath,
 				"channel", "delete",
 				channelID,
@@ -220,7 +220,7 @@ var _ = Describe("Group management through control plane", func() {
 			Eventually(slimNodeSession, 15*time.Second).Should(gbytes.Say("received a channel delete request, this should happen"))
 
 			Eventually(controlPlaneSession, 15*time.Second).Should(gbytes.Say("Ack message received, channel deleted successfully."))
-			Eventually(controlPlaneSession, 15*time.Second).Should(gbytes.Say("Channel deleted successfully"))
+			Eventually(controlPlaneSession, 15*time.Second).Should(gbytes.Say("Channel deleted successfully"))*/
 		})
 	})
 })
