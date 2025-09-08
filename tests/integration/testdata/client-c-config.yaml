@@ -8,7 +8,7 @@ tracing:
 
 runtime:
   n_cores: 0
-  thread_name: "slim-moderator"
+  thread_name: "slim-data-plane"
   drain_timeout: 10s
 
 services:

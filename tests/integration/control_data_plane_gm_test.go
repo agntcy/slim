@@ -60,7 +60,7 @@ var _ = Describe("Group management through control plane", func() {
 			exec.Command(sdkMockPath,
 				"--config", "./testdata/client-a-config.yaml",
 				"--local-name", "a",
-				"--remote-name", "b",
+				"--remote-name", "c",
 			),
 			GinkgoWriter, GinkgoWriter,
 		)
@@ -68,8 +68,8 @@ var _ = Describe("Group management through control plane", func() {
 
 		clientBSession, errClientB = gexec.Start(
 			exec.Command(sdkMockPath,
-				"--config", "./testdata/client-b-config.yaml",
-				"--local-name", "b",
+				"--config", "./testdata/client-c-config.yaml",
+				"--local-name", "c",
 				"--remote-name", "a",
 			),
 			GinkgoWriter, GinkgoWriter,
@@ -113,7 +113,7 @@ var _ = Describe("Group management through control plane", func() {
 			addChannelOutput, err := exec.Command(
 				slimctlPath,
 				"channel", "create",
-				"moderators=moderator1,moderator2",
+				"moderators=org/default/moderator1/0,org/default/moderator2/0",
 				"-s", "127.0.0.1:50051",
 			).CombinedOutput()
 			Expect(err).NotTo(HaveOccurred())
@@ -124,10 +124,10 @@ var _ = Describe("Group management through control plane", func() {
 			Eventually(controlPlaneSession, 15*time.Second).Should(gbytes.Say("Channel created successfully"))
 			Eventually(controlPlaneSession, 15*time.Second).Should(gbytes.Say("Channel saved successfully"))
 
-			// CombinedOutput is "Received response moderator1-... \n"
-			// Split channelID by spaces and get the chunk starting with moderator1
+			// CombinedOutput is "Received response org/default/moderator1/0-... \n"
+			// Split channelID by spaces and get the chunk starting with org/default/moderator1/0
 			for _, id := range strings.Fields(string(addChannelOutput)) {
-				if strings.HasPrefix(id, "moderator1-") {
+				if strings.HasPrefix(id, "org/default/moderator1/0-") {
 					channelID = id
 					break
 				}
@@ -157,7 +157,7 @@ var _ = Describe("Group management through control plane", func() {
 			/*addClientBOutput, errB := exec.Command(
 			      slimctlPath,
 			      "participant", "add",
-			      "b",
+			      "c",
 			      "--channel-id", channelID,
 			      "-s", "127.0.0.1:50051",
 			  ).CombinedOutput()
@@ -166,8 +166,8 @@ var _ = Describe("Group management through control plane", func() {
 			  Expect(addClientBOutput).NotTo(BeEmpty())
 
 			  Eventually(slimNodeSession, 15*time.Second).Should(gbytes.Say("received a participant add request for channel"))
-			  Eventually(moderatorSession, 15*time.Second).Should(gbytes.Say("Controller requested to add participant b to channel"))
-			  Eventually(moderatorSession, 15*time.Second).Should(gbytes.Say("Successfully invited participant b to channel"))
+			  Eventually(moderatorSession, 15*time.Second).Should(gbytes.Say("Controller requested to add participant c to channel"))
+			  Eventually(moderatorSession, 15*time.Second).Should(gbytes.Say("Successfully invited participant c to channel"))
 			  // TODO: Verify client receives invitation
 			  // Eventually(clientBSession, 15*time.Second).Should(gbytes.Say("received invitation"))
 			  Eventually(controlPlaneSession, 15*time.Second).Should(gbytes.Say("Ack message received, participant added successfully."))
