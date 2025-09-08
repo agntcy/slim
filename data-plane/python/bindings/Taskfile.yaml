@@ -16,6 +16,13 @@ includes:
     internal: true
 
 tasks:
+  python:bindings:lint:
+    desc: "Lint the Python bindings"
+    cmds:
+      - uv run ruff check
+      - uv run ruff format --check
+      - uv run mypy slim_bindings
+
   python:bindings:build:
     desc: "Build the Python bindings"
     vars:
