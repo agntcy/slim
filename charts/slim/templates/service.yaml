@@ -11,6 +11,7 @@ metadata:
     {{- include "slim.labels" . | nindent 4 }}
 spec:
   type: {{ .Values.slim.service.type }}
+  clusterIP: None
   ports:
     - port: {{ .Values.slim.service.data.port }}
       targetPort: data-plane

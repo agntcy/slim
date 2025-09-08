@@ -3,19 +3,23 @@ Copyright AGNTCY Contributors (https://github.com/agntcy)
 SPDX-License-Identifier: Apache-2.0
 */}}
 
+{{- if eq .Values.slim.daemonset true }}
 apiVersion: apps/v1
-kind: Deployment
+kind: DaemonSet
 metadata:
   name: {{ include "slim.fullname" . }}
   labels:
     {{- include "slim.labels" . | nindent 4 }}
 spec:
-  {{- if not .Values.autoscaling.enabled }}
-  replicas: {{ .Values.slim.replicaCount }}
-  {{- end }}
   selector:
     matchLabels:
       {{- include "slim.selectorLabels" . | nindent 6 }}
+  updateStrategy:
+    type: {{ .Values.slim.updateStrategy.type | default "RollingUpdate" }}
+    {{- if eq (.Values.slim.updateStrategy.type | default "RollingUpdate") "RollingUpdate" }}
+    rollingUpdate:
+      maxUnavailable: {{ .Values.slim.updateStrategy.rollingUpdate.maxUnavailable | default 1 }}
+    {{- end }}
   template:
     metadata:
       {{- with .Values.podAnnotations }}
@@ -62,13 +66,20 @@ spec:
           args:
             - "--config"
             - "/config.yaml"
+          env:
+            - name: SLIM_SVC_ID
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName            
           ports:
             - name: data-plane
               containerPort: {{ .Values.slim.service.data.port }}
               protocol: TCP
+              hostPort: {{ .Values.slim.service.data.port }}
             - name: controller
               containerPort: {{ .Values.slim.service.control.port }}
               protocol: TCP
+              hostPort: {{ .Values.slim.service.control.port }}
           resources:
             {{- toYaml .Values.slim.resources | nindent 12 }}
           volumeMounts:
@@ -110,3 +121,6 @@ spec:
       tolerations:
         {{- toYaml . | nindent 8 }}
       {{- end }}
+      hostNetwork: {{ .Values.slim.hostNetwork | default false }}
+      dnsPolicy: {{ .Values.slim.dnsPolicy | default "ClusterFirst" }}
+{{- end }}
