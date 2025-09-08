@@ -23,7 +23,7 @@ jobs:
     name: MCP proxy - build & test
     uses: ./.github/workflows/reusable-rust-build-and-test.yaml
     with:
-      working-directory: ./data-plane/mcp-proxy
+      working-directory: ./data-plane/integrations/mcp-proxy
       task-prefix: mcp-proxy
 
   build-srpc:

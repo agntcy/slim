@@ -25,7 +25,7 @@ RUN sh -c "$(curl --location https://taskfile.dev/install.sh)" -- -d -b /usr/loc
 
 # Copy source code
 COPY . /app
-WORKDIR /app/data-plane/mcp-proxy
+WORKDIR /app/data-plane/integrations/mcp-proxy
 
 RUN <<EOF
 case ${TARGETARCH} in

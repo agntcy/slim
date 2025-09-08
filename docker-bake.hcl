@@ -75,7 +75,7 @@ target "slim-debug" {
 
 target "mcp-proxy" {
   context = "."
-  dockerfile = "./data-plane/mcp-proxy/Dockerfile"
+  dockerfile = "./data-plane/integrations/mcp-proxy/Dockerfile"
   target = "mcp-proxy-release"
   inherits = [
     "_common",
@@ -86,7 +86,7 @@ target "mcp-proxy" {
 
 target "mcp-proxy-debug" {
   context = "."
-  dockerfile = "./data-plane/mcp-proxy/Dockerfile"
+  dockerfile = "./data-plane/integrations/mcp-proxy/Dockerfile"
   target = "mcp-proxy-debug"
   inherits = [
     "_common",
