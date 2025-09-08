@@ -30,19 +30,19 @@ jobs:
     name: Build srpc
     uses: ./.github/workflows/reusable-python-build-and-test.yaml
     with:
-      working-directory: ./data-plane/python/integrations
+      working-directory: /home/runner/work/slim/slim/data-plane/python/integrations/dist
       prefix: srpc:python
 
   build-slima2a:
     name: Build slima2a
     uses: ./.github/workflows/reusable-python-build-and-test.yaml
     with:
-      working-directory: ./data-plane/python/integrations
+      working-directory: /home/runner/work/slim/slim/data-plane/python/integrations/dist
       prefix: slima2a:python
 
   build-mcp-wheels:
     name: Build slim mcp
     uses: ./.github/workflows/reusable-python-build-and-test.yaml
     with:
-      working-directory: ./data-plane/python/integrations
+      working-directory: /home/runner/work/slim/slim/data-plane/python/integrations/dist
       prefix: slim-mcp:python
