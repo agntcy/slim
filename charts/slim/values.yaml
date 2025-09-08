@@ -45,7 +45,7 @@ slim:
               tls:
                 insecure: true
           # clients:
-          #   - endpoint: "http://slim-control:50052"              
+          #   - endpoint: "http://slim-control:50052"
           #     tls:
           #       insecure: true
 
