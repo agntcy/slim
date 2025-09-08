@@ -71,7 +71,7 @@ jobs:
     name: Build slim mcp
     uses: ./.github/workflows/reusable-python-build-and-test.yaml
     with:
-      working-directory: ./data-plane/integrations/mcp/slim-mcp
+      working-directory: ./data-plane/python/integrations
       prefix: integrations
 
   build-srpc:
