@@ -56,8 +56,9 @@ pub const KIND: &str = "slim";
 
 #[derive(Debug, Clone, Deserialize, Default)]
 pub struct ServiceConfiguration {
-
-    pub node_id: String,
+    /// Optional node ID for the service. If not set, the name of the component will be used.
+    #[serde(default)]
+    pub node_id: Option<String>,
 
     /// Pubsub API configuration
     #[serde(default)]
@@ -409,9 +410,8 @@ impl ComponentBuilder for ServiceBuilder {
         name: &str,
         config: &Self::Config,
     ) -> Result<Self::Component, ComponentError> {
-        
-        let node_name = if !config.node_id.is_empty() {
-            config.node_id.clone()
+        let node_name = if config.node_id.is_some() {
+            config.node_id.clone().unwrap()
         } else {
             name.to_string()
         };
