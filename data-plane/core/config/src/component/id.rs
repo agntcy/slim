@@ -23,7 +23,7 @@ const KIND_AND_NAME_SEPARATOR: &str = "/";
 // Regex patterns for validating kind and names
 lazy_static::lazy_static! {
     static ref KIND_REGEX: Regex = Regex::new(r"^[a-zA-Z][0-9a-zA-Z_]{0,62}$").unwrap();
-    static ref NAME_REGEX: Regex = Regex::new(r"^[^\p{Z}\p{C}\p{S}]+$").unwrap();
+    static ref NAME_REGEX: Regex = Regex::new(r"^[a-z0-9-]+$").unwrap();
 }
 
 /// Kind represents the type of a component.
