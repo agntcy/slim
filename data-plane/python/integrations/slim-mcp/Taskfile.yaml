@@ -9,7 +9,7 @@ set: [pipefail]
 shopt: [globstar]
 
 includes:
-  integrations:
+  python:
     taskfile: ../../../../tasks/python.yaml
     vars:
       UV_ARGS: '--package slim-mcp'
