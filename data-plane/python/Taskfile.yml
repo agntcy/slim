@@ -21,9 +21,11 @@ includes:
     taskfile: ./bindings/Taskfile.yaml
     flatten: true
   slima2a:
-    taskfile: ./slima2a/Taskfile.yaml
+    taskfile: ./integrations/slima2a/Taskfile.yaml
   srpc:
-    taskfile: ./srpc/Taskfile.yaml
+    taskfile: ./integrations/srpc/Taskfile.yaml
+  slim-mcp:
+    taskfile: ./integrations/slim-mcp/Taskfile.yaml
 
 tasks:
   default:

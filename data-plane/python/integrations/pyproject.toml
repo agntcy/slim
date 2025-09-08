@@ -3,4 +3,4 @@
 
 # Include workspace folders
 [tool.uv.workspace]
-members = ["bindings", "examples", "srpc", "slima2a"]
+members = ["srpc", "slima2a", "slim-mcp"]

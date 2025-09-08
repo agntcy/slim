@@ -13,6 +13,8 @@ import anyio
 import mcp.types as types
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 
+from slim_mcp.helpers import create_local_app
+
 logger = logging.getLogger(__name__)
 
 # Configuration constants
@@ -44,6 +46,8 @@ class SLIMBase(ABC):
         remote_organization: str | None = None,
         remote_namespace: str | None = None,
         remote_mcp_agent: str | None = None,
+        shared_secret: str = "secret",
+        enable_opentelemetry: bool = False,
         message_timeout: datetime.timedelta = datetime.timedelta(seconds=15),
         message_retries: int = 2,
     ):
@@ -67,13 +71,23 @@ class SLIMBase(ABC):
             )
 
         self.config = config
-        self.local_organization = local_organization
-        self.local_namespace = local_namespace
-        self.local_agent = local_agent
+        self.local = slim_bindings.PyName(
+            local_organization, local_namespace, local_agent
+        )
+        self.shared_secret = shared_secret
+        self.enable_opentelemetry = enable_opentelemetry
 
-        self.remote_organization = remote_organization
-        self.remote_namespace = remote_namespace
-        self.remote_mcp_agent = remote_mcp_agent
+        self.remote_svc_name = (
+            slim_bindings.PyName(
+                remote_organization,
+                remote_namespace,
+                remote_mcp_agent,
+            )
+            if all(
+                [remote_organization, remote_namespace, remote_mcp_agent]
+            )
+            else None
+        )
 
         self.slim: slim_bindings.Slim
 
@@ -152,45 +166,23 @@ class SLIMBase(ABC):
         """
         try:
             # Initialize the SLIM instance
-            self.slim = await slim_bindings.Slim.new(
-                self.local_organization, self.local_namespace, self.local_agent
+            self.slim = await create_local_app(
+                self.local,
+                self.config,
+                enable_opentelemetry=self.enable_opentelemetry,
+                shared_secret=self.shared_secret,
             )
-
-            # connect to SLIM server
-            logger.info(
-                f"Connecting to SLIM server: {self.config}",
-            )
-            try:
-                await self.slim.connect(self.config)
-            except Exception as e:
-                logger.error(
-                    "Failed to connect to SLIM server",
-                    extra={
-                        "error": str(e),
-                        "endpoint": self.config[CONFIG_ENDPOINT_KEY],
-                    },
-                    exc_info=True,
-                )
-                raise ConnectionError(
-                    f"Failed to connect to SLIM server: {str(e)}"
-                ) from e
 
             # Set route if remote details are provided
-            if all(
-                [self.remote_organization, self.remote_namespace, self.remote_mcp_agent]
-            ):
+            if self.remote_svc_name is not None:
                 try:
                     await self.slim.set_route(
-                        self.remote_organization,
-                        self.remote_namespace,
-                        self.remote_mcp_agent,
+                        self.remote_svc_name,
                     )
                     logger.info(
                         "Route set successfully",
                         extra={
-                            "remote_org": self.remote_organization,
-                            "remote_namespace": self.remote_namespace,
-                            "remote_agent": self.remote_mcp_agent,
+                            "remote_svc": str(self.remote_svc_name),
                         },
                     )
                 except Exception as e:

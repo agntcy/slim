@@ -91,18 +91,14 @@ class SLIMClient(SLIMBase):
             logger.debug(
                 "Sending message to remote slim instance",
                 extra={
-                    "remote_org": self.remote_organization,
-                    "remote_namespace": self.remote_namespace,
-                    "remote_agent": self.remote_mcp_agent,
+                    "remote_svc": str(self.remote_svc_name),
                 },
             )
             # Send message to SLIM instance
             await self.slim.publish(
                 session,
                 message,
-                self.remote_organization,
-                self.remote_namespace,
-                self.remote_mcp_agent,
+                self.remote_svc_name,
             )
             logger.debug("Message sent successfully")
         except Exception as e:

@@ -145,7 +145,7 @@ target "bindings-examples" {
   contexts = {
     src = "."
   }
-  dockerfile = "./data-plane/python/examples/Dockerfile"
+  dockerfile = "./data-plane/python/bindings/examples/Dockerfile"
   target     = "slim-bindings-examples"
   inherits = [
     "_common",

@@ -9,9 +9,7 @@ requires-python = ">=3.9"
 license = "Apache-2.0"
 dependencies = [
     "slim-bindings>=0.4.0",
-    "click>=8.1.8",
     "googleapis-common-protos>=1.70.0",
-    "anyio>=4.9.0",
     "grpcio>=1.74.0",
     "async-timeout>=5.0.1",
 ]
@@ -21,8 +19,8 @@ linting = [
     "types-protobuf>=6.30.2.20250703",
 ]
 
-[tool.uv.sources]
-slim-bindings = { workspace = true }
+# [tool.uv.sources]
+# slim-bindings = { path = "../../bindings" }
 
 [project.scripts]
 simple-server = "srpc.examples.simple.server:main"

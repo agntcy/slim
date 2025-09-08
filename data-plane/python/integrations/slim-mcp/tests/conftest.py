@@ -14,7 +14,16 @@ logger = logging.getLogger(__name__)
 async def server(request):
     # create new server
     global svc_server
-    svc_server = await slim_bindings.create_pyservice("cisco", "default", "server")
+
+    name = slim_bindings.PyName("agntcy", "default", "server")
+    provider = slim_bindings.PyIdentityProvider.SharedSecret(
+        identity="server", shared_secret="secret"
+    )
+    verifier = slim_bindings.PyIdentityVerifier.SharedSecret(
+        identity="server", shared_secret="secret"
+    )
+
+    svc_server = await slim_bindings.create_pyservice(name, provider, verifier)
 
     # init tracing
     slim_bindings.init_tracing(

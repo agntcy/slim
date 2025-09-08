@@ -9,6 +9,8 @@ managed:
 plugins:
   # Generate python protobuf related code
   # Generates _pb2_srpc.py files
+
+  # TODO: this should be downloaded from a released plugin version
   - local: ../../target/debug/protoc-srpc-plugin
     out: slima2a/types
     opt:
