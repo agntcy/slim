@@ -83,9 +83,7 @@ class SLIMBase(ABC):
                 remote_namespace,
                 remote_mcp_agent,
             )
-            if all(
-                [remote_organization, remote_namespace, remote_mcp_agent]
-            )
+            if all([remote_organization, remote_namespace, remote_mcp_agent])
             else None
         )
 

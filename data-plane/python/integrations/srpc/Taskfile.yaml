@@ -8,3 +8,5 @@ version: '3'
 includes:
   python:
     taskfile: ../../../../tasks/python.yaml
+    vars:
+      UV_ARGS: '--package srpc'

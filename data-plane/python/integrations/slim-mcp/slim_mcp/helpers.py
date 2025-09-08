@@ -4,11 +4,12 @@
 import base64
 import json
 import logging
-from typing import Tuple, TypeVar
+from typing import Tuple
 
 import slim_bindings
 
 logger = logging.getLogger(__name__)
+
 
 # Create a shared secret identity provider and verifier
 # This is used for shared secret authentication

@@ -10,7 +10,7 @@ requires-python = ">=3.10, <4.0"
 dependencies = ["a2a-sdk[telemetry]>=0.3.0", "srpc"]
 
 [dependency-groups]
-linting = ["types-protobuf>=6.30.2.20250703"]
+linting = ["types-protobuf>=6.30.2.20250703", "ruff>=0.12"]
 examples = [
     "langchain-core",
     "langchain-openai",
