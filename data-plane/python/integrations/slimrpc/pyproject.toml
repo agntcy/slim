@@ -16,7 +16,6 @@ dependencies = [
 
 [dependency-groups]
 linting = ["types-protobuf>=6.30.2.20250703", "ruff>=0.12"]
-
 testing = ["pytest>=8.3.4"]
 
 [tool.uv]
