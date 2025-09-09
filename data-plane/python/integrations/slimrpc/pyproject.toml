@@ -2,8 +2,8 @@
 # SPDX-License-Identifier: Apache-2.0
 
 [project]
-name = "srpc"
-version = "0.1.0"
+name = "slimrpc"
+version = "0.0.1"
 description = "RPC over Slim Library"
 requires-python = ">=3.9"
 license = "Apache-2.0"
