@@ -1,0 +1,92 @@
+# Copyright AGNTCY Contributors (https://github.com/agntcy)
+# SPDX-License-Identifier: Apache-2.0
+
+---
+version: '3'
+
+silent: true
+set: [pipefail]
+shopt: [globstar]
+
+verbose: false
+
+includes:
+  rust:
+    taskfile: ../../../tasks/rust.yaml
+    internal: true
+
+tasks:
+  python:bindings:lint:
+    desc: "Lint the Python bindings"
+    cmds:
+      - uv run ruff check
+      - uv run ruff format --check
+      - uv run mypy slim_bindings
+
+  python:bindings:build:
+    desc: "Build the Python bindings"
+    vars:
+      PROFILE: '{{.PROFILE | default "debug"}}'
+      RELEASE:
+        sh: '[[ {{.PROFILE}} == "release" ]] && echo "--release" || echo ""'
+      TARGET: '{{.TARGET | default ""}}'
+    cmds:
+      - task: rust:toolchain:run-command
+        vars:
+          COMMAND: |
+            uv run maturin develop --uv {{.RELEASE}}
+
+  python:bindings:test:
+    desc: "Test the Python bindings"
+    deps:
+      - python:bindings:build
+    cmds:
+      - uv run pytest -s {{.TESTS}}
+    vars:
+      TARGET: '{{.TESTS | default ""}}'
+
+  python:bindings:packaging:
+    desc: "Generate the Python bindings for python versions 3.9, 3.10, 3.11, 3.12 and 3.13"
+    vars:
+      PROFILE: '{{.PROFILE | default "debug"}}'
+      RELEASE:
+        sh: '[[ {{.PROFILE}} == "release" ]] && echo "--release" || echo ""'
+      TARGET: '{{.TARGET | default ""}}'
+    cmds:
+      - for:
+          matrix:
+            PYTHON: ["3.9", "3.10", "3.11", "3.12", "3.13"]
+        cmd: |
+          uv python install {{.ITEM.PYTHON}}
+      - task: rust:toolchain:run-command
+        vars:
+          COMMAND: |
+            rustup target add {{.TARGET}}
+
+            UV_ARGS=(
+              --no-default-groups
+              --group building
+            )
+
+            uv sync ${UV_ARGS[@]}
+
+            uv run ${UV_ARGS[@]} maturin develop --uv {{.RELEASE}}
+
+            # This file if a leftover from the previous build, delete it otherwise
+            # maturin will try to add it to the wheel, and it will fail
+            rm -f slim_bindings/*.pyd
+
+            PYTHONS=(3.9 3.10 3.11 3.12 3.13)
+            uv run                            \
+              ${UV_ARGS[@]}                   \
+              maturin build {{.RELEASE}}      \
+              --out dist                      \
+              --target {{.TARGET}}            \
+              --frozen                        \
+              -i                              \
+              ${PYTHONS[@]}
+
+  python:bindings:generate-stub:
+    desc: "Generate stub file for the Python bindings"
+    cmds:
+      - cargo run --bin stub_gen
