@@ -40,8 +40,8 @@ config:
 #     spire:
 #       socketPath: "unix:///run/spire/agent-sockets/api.sock"
 
-# spire:
-#   enabled: true
+spire:
+  enabled: false
 
 env:
   - name: NB_API_HTTP_HOST
