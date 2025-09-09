@@ -10,7 +10,6 @@ southbound:
   logging:
     level: DEBUG
   tls:
-    useSpiffe: false
     certFile: "/certs/tls.crt"
     keyFile: "/certs/tls.key"
     caFile: "//certs/ca_bundle.pem"

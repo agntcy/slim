@@ -9,8 +9,5 @@ southbound:
   httpPort: 50052
   logging:
     level: DEBUG
-#  tls:
-#    useSpiffe: true
-  spire:
-    socketPath: "unix:///tmp/spire-agent/public/api.sock"
+
 
