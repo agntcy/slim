@@ -160,8 +160,8 @@ mod tests {
         assert_eq!(id.kind().to_string(), "validKind");
         assert!(id.name().is_empty());
 
-        let id_with_name = ID::new_with_name(kind_val.clone(), "validName").unwrap();
-        assert_eq!(id_with_name.name(), "validName");
+        let id_with_name = ID::new_with_name(kind_val.clone(), "valid-name").unwrap();
+        assert_eq!(id_with_name.name(), "valid-name");
 
         assert!(ID::new_with_name(kind_val.clone(), "").is_ok());
         assert!(ID::new_with_name(kind_val.clone(), "Invalid Name!").is_err());
