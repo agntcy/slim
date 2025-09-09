@@ -24,7 +24,7 @@ examples = [
 default-groups = ["linting", "testing", "examples"]
 
 [tool.uv.sources]
-srpc = { workspace = true }
+slimrpc = { workspace = true }
 
 [tool.ruff.format]
 exclude = ["*_pb2.py", "*_pb2.pyi", "*_pb2_srpc.py"]
