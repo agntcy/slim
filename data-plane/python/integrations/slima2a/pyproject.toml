@@ -2,12 +2,12 @@
 # SPDX-License-Identifier: Apache-2.0
 
 [project]
-name = "slim-a2a"
-version = "0.0.1"
-description = "A2A over SRPC"
+name = "slima2a"
+version = "0.1.0"
+description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.10, <4.0"
-dependencies = ["a2a-sdk[telemetry]>=0.3.0", "slim-srpc"]
+dependencies = ["a2a-sdk[telemetry]>=0.3.0", "slimrpc"]
 
 [dependency-groups]
 linting = ["types-protobuf>=6.30.2.20250703", "ruff>=0.12"]
