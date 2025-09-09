@@ -1,0 +1,44 @@
+# Copyright AGNTCY Contributors (https://github.com/agntcy)
+# SPDX-License-Identifier: Apache-2.0
+
+---
+name: ci-test-and-build-python-integration
+
+on:
+  push:
+    paths:
+      - 'data-plane/python/integrations/**'
+    branches:
+      - main
+  pull_request:
+    paths:
+      - 'data-plane/python/integrations/**'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  build-srpc:
+    name: Build srpc
+    uses: ./.github/workflows/reusable-python-build-and-test.yaml
+    with:
+      package: slimrpc
+      working-directory: ./data-plane/python/integrations
+      prefix: srpc:python
+
+  build-slima2a:
+    name: Build slima2a
+    uses: ./.github/workflows/reusable-python-build-and-test.yaml
+    with:
+      package: slima2a
+      working-directory: ./data-plane/python/integrations
+      prefix: slima2a:python
+
+  build-mcp-wheels:
+    name: Build slim mcp
+    uses: ./.github/workflows/reusable-python-build-and-test.yaml
+    with:
+      package: slim-mcp
+      working-directory: ./data-plane/python/integrations
+      prefix: slim-mcp:python
