@@ -110,4 +110,5 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: dist
+          if-no-files-found: error
           path: ${{ inputs.working-directory }}/dist
