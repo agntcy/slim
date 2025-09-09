@@ -27,15 +27,15 @@ and explain the key differences between the standard and SLIM A2A implementation
 
 ## Travel Planner: Server
 
-The implementation of the server is available at ```slima2a/examples/travel_planner_agent/server```.
-Below, we highlight the main differences from the original implementation in the A2A repository.
+In this section we highlight the main differences between the SLIM A2A [server](./examples/travel_planner_agent/server.py) implementation 
+with respect to the original implementation in the A2A repository.
 
 1. Import the SRPC package
 ```python
 import srpc
 ```
 
-2. create the SRPCHandler. Notice that the definitions for `AgentCard` and 
+2. Create the SRPCHandler. Notice that the definitions for `AgentCard` and 
 `DefaultRequestHandler` remain unchanged from the original A2A example
 ```python
     agent_card = AgentCard(
@@ -73,7 +73,7 @@ you need to setup few parameters ther are specific to SLIM
 	•	local: Name of the local application.
 	•	slim: Dictionary specifying how to connect to the SLIM node.
 	•	shared_secret: Used to set up MLS (Message Layer Security).
-For more information about these settings, see the SRPC README ([TODO: add reference]).
+For more information about these settings, see the SLIM RCP [README](../slimrpc/README.md).
 
 4. Register the Sevice
 ```python
@@ -87,7 +87,7 @@ Your A2A server is now ready to run on SLIM.
 
 
 ## Travel Planner: Client
-The client code is available at ```slima2a/examples/travel_planner_agent/client```.
+These are the main differences between the [client](./examples/travel_planner_agent/client.py) using SLIM A2A and the standard one.
 
 1. Create a channel. This requires a configuration that is similar to the server
 ```python
@@ -106,7 +106,7 @@ The client code is available at ```slima2a/examples/travel_planner_agent/client`
         return channel
 ```
 
-2. Specify SRCP in the supported transports.
+2. Add SLIM RPC in the supported transports.
 
 ```python
     client_config = ClientConfig(
@@ -120,9 +120,6 @@ The client code is available at ```slima2a/examples/travel_planner_agent/client`
     agent_card = minimal_agent_card("agntcy/demo/travel_planner_agent", ["srpc"])
     client = client_factory.create(card=agent_card)
 ```
-
-## How to run
-TODO
 
 <!--
 ```

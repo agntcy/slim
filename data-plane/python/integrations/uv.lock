@@ -12,7 +12,7 @@ resolution-markers = [
 members = [
     "slim-mcp",
     "slima2a",
-    "srpc",
+    "slimrpc",
 ]
 
 [[package]]
@@ -2832,11 +2832,11 @@ testing = [
 
 [[package]]
 name = "slima2a"
-version = "0.1.0"
+version = "0.0.1"
 source = { editable = "slima2a" }
 dependencies = [
     { name = "a2a-sdk", extra = ["telemetry"] },
-    { name = "srpc" },
+    { name = "slimrpc" },
 ]
 
 [package.dev-dependencies]
@@ -2857,7 +2857,7 @@ testing = [
 [package.metadata]
 requires-dist = [
     { name = "a2a-sdk", extras = ["telemetry"], specifier = ">=0.3.0" },
-    { name = "srpc", editable = "srpc" },
+    { name = "slimrpc", editable = "slimrpc" },
 ]
 
 [package.metadata.requires-dev]
@@ -2867,6 +2867,41 @@ examples = [
     { name = "typing-extensions" },
     { name = "uvicorn", specifier = ">=0.34.2" },
 ]
+linting = [
+    { name = "ruff", specifier = ">=0.12" },
+    { name = "types-protobuf", specifier = ">=6.30.2.20250703" },
+]
+testing = [{ name = "pytest", specifier = ">=8.3.4" }]
+
+[[package]]
+name = "slimrpc"
+version = "0.0.1"
+source = { editable = "slimrpc" }
+dependencies = [
+    { name = "async-timeout" },
+    { name = "googleapis-common-protos" },
+    { name = "grpcio" },
+    { name = "slim-bindings" },
+]
+
+[package.dev-dependencies]
+linting = [
+    { name = "ruff" },
+    { name = "types-protobuf" },
+]
+testing = [
+    { name = "pytest" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "async-timeout", specifier = ">=5.0.1" },
+    { name = "googleapis-common-protos", specifier = ">=1.70.0" },
+    { name = "grpcio", specifier = ">=1.74.0" },
+    { name = "slim-bindings", specifier = ">=0.4.1" },
+]
+
+[package.metadata.requires-dev]
 linting = [
     { name = "ruff", specifier = ">=0.12" },
     { name = "types-protobuf", specifier = ">=6.30.2.20250703" },
@@ -2940,41 +2975,6 @@ wheels = [
 asyncio = [
     { name = "greenlet" },
 ]
-
-[[package]]
-name = "srpc"
-version = "0.1.0"
-source = { editable = "srpc" }
-dependencies = [
-    { name = "async-timeout" },
-    { name = "googleapis-common-protos" },
-    { name = "grpcio" },
-    { name = "slim-bindings" },
-]
-
-[package.dev-dependencies]
-linting = [
-    { name = "ruff" },
-    { name = "types-protobuf" },
-]
-testing = [
-    { name = "pytest" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "async-timeout", specifier = ">=5.0.1" },
-    { name = "googleapis-common-protos", specifier = ">=1.70.0" },
-    { name = "grpcio", specifier = ">=1.74.0" },
-    { name = "slim-bindings", specifier = ">=0.4.1" },
-]
-
-[package.metadata.requires-dev]
-linting = [
-    { name = "ruff", specifier = ">=0.12" },
-    { name = "types-protobuf", specifier = ">=6.30.2.20250703" },
-]
-testing = [{ name = "pytest", specifier = ">=8.3.4" }]
 
 [[package]]
 name = "sse-starlette"
