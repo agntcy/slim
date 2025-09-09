@@ -109,6 +109,7 @@ reqwest = { version = "0.12", features = [
 rustls = "0.23.19"
 rustls-native-certs = "0.8.1"
 rustls-pki-types = "1.10.0"
+spiffe = "0.6.7"
 schemars = "1.0.3"
 serde = "1.0.217"
 serde-pyobject = "0.6.1"
