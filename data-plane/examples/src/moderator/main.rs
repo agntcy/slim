@@ -7,6 +7,9 @@ use std::time::Duration;
 use tokio::time;
 use tracing::{error, info};
 
+use prost::Message;
+use slim_controller::api::proto::moderator::v1::{ModeratorMessage, moderator_message::Payload};
+
 use slim::config;
 use slim_auth::shared_secret::SharedSecret;
 use slim_datapath::messages::Name;
@@ -193,57 +196,105 @@ async fn main() {
                     slim_datapath::api::ProtoPublishType(msg) => {
                         let payload = msg.get_payload();
 
-                        match std::str::from_utf8(&payload.blob) {
-                            Ok(text) => {
-                                info!("Received request: {}", text);
+                        match payload.content_type.as_str() {
+                            "application/x-moderator-protobuf" => {
+                                match ModeratorMessage::decode(&*payload.blob) {
+                                    Ok(moderator_msg) => {
+                                        info!("Received moderator message: {}", moderator_msg.message_id);
 
-                                // Check if this is a channel creation request from controller
-                                if text.starts_with("create_channel:") {
-                                    let channel_id = text.strip_prefix("create_channel:").unwrap_or("");
-                                    info!("Controller requested channel creation for channel_id: {}", channel_id);
+                                        match moderator_msg.payload {
+                                            Some(Payload::CreateChannel(req)) => {
+                                                info!("Controller requested channel creation for channel_id: {}", req.channel_id);
 
-                                    match create_channel(&app, channel_id, moderator_name, &mut channels).await {
-                                        Ok(()) => {
-                                            info!("Successfully created channel: {}", channel_id);
-                                        }
-                                        Err(e) => {
-                                            error!("Failed to create channel {}: {}", channel_id, e);
-                                        }
-                                    }
-                                } else if text.starts_with("add_participant:") {
-                                    // Format: add_participant:channel_id:participant_id
-                                    let parts: Vec<&str> = text.strip_prefix("add_participant:").unwrap_or("").split(':').collect();
-                                    if parts.len() == 2 {
-                                        let channel_id = parts[0];
-                                        let participant_id = parts[1];
-                                        info!("Controller requested to add participant {} to channel {}", participant_id, channel_id);
-
-                                        if let Some(channel_info) = channels.get(channel_id) {
-                                            if let Some(session_info) = &channel_info.session_info {
-                                                // Invite the participant to the session
-                                                let participant_name = Name::from_strings(["org", "default", participant_id]).with_id(0);
-                                                
-                                                info!("Inviting participant {} to channel {} with session ID {}", participant_id, channel_id, session_info.id);
-
-                                                match app.invite_participant(&participant_name, session_info.clone()).await {
+                                                match create_channel(&app, &req.channel_id, moderator_name, &mut channels).await {
                                                     Ok(()) => {
-                                                        info!("Successfully invited participant {} to channel {}", participant_id, channel_id);
+                                                        info!("Successfully created channel: {}", req.channel_id);
                                                     }
                                                     Err(e) => {
-                                                        error!("Failed to invite participant {} to channel {}: {}", participant_id, channel_id, e);
+                                                        error!("Failed to create channel {}: {}", req.channel_id, e);
                                                     }
                                                 }
-                                            } else {
-                                                error!("Channel {} has no session info", channel_id);
                                             }
-                                        } else {
-                                            error!("Channel {} does not exist", channel_id);
+                                            Some(Payload::AddParticipant(req)) => {
+                                                info!("Controller requested to add participant {} to channel {}",
+                                                      req.participant_id, req.channel_id);
+
+                                                if let Some(channel_info) = channels.get(&req.channel_id) {
+                                                    if let Some(session_info) = &channel_info.session_info {
+                                                        let participant_name = Name::from_strings(["org", "default", &req.participant_id]).with_id(0);
+
+                                                        info!("Inviting participant {} to channel {} with session ID {}",
+                                                              req.participant_id, req.channel_id, session_info.id);
+
+                                                        match app.invite_participant(&participant_name, session_info.clone()).await {
+                                                            Ok(()) => {
+                                                                info!("Successfully invited participant {} to channel {}",
+                                                                      req.participant_id, req.channel_id);
+                                                            }
+                                                            Err(e) => {
+                                                                error!("Failed to invite participant {} to channel {}: {}",
+                                                                       req.participant_id, req.channel_id, e);
+                                                            }
+                                                        }
+                                                    } else {
+                                                        error!("Channel {} has no session info", req.channel_id);
+                                                    }
+                                                } else {
+                                                    error!("Channel {} does not exist", req.channel_id);
+                                                }
+                                            }
+                                            Some(Payload::RemoveParticipant(req)) => {
+                                                info!("Controller requested to remove participant {} from channel {}",
+                                                      req.participant_id, req.channel_id);
+
+                                                if let Some(channel_info) = channels.get(&req.channel_id) {
+                                                    if let Some(session_info) = &channel_info.session_info {
+                                                        let participant_name = Name::from_strings(["org", "default", &req.participant_id]).with_id(0);
+
+                                                        info!("Removing participant {} from channel {} with session ID {}",
+                                                              req.participant_id, req.channel_id, session_info.id);
+
+                                                        match app.remove_participant(&participant_name, session_info.clone()).await {
+                                                            Ok(()) => {
+                                                                info!("Successfully removed participant {} from channel {}",
+                                                                      req.participant_id, req.channel_id);
+                                                            }
+                                                            Err(e) => {
+                                                                error!("Failed to remove participant {} from channel {}: {}",
+                                                                       req.participant_id, req.channel_id, e);
+                                                            }
+                                                        }
+                                                    } else {
+                                                        error!("Channel {} has no session info", req.channel_id);
+                                                    }
+                                                } else {
+                                                    error!("Channel {} does not exist", req.channel_id);
+                                                }
+                                            }
+                                            Some(Payload::DeleteChannel(req)) => {
+                                                info!("Controller requested to delete channel {}", req.channel_id);
+
+                                                if channels.remove(&req.channel_id).is_some() {
+                                                    info!("Successfully deleted channel {}", req.channel_id);
+                                                } else {
+                                                    error!("Channel {} does not exist", req.channel_id);
+                                                }
+                                            }
+                                            None => {
+                                                error!("Received ModeratorMessage with no payload");
+                                            }
+                                            _ => {
+                                                error!("Received unknown moderator message type");
+                                            }
                                         }
+                                    }
+                                    Err(e) => {
+                                        error!("Failed to decode protobuf message: {}", e);
                                     }
                                 }
                             }
-                            Err(_) => {
-                                info!("Received unknown message type");
+                            _ => {
+                                error!("Unsupported content type: {}", payload.content_type);
                             }
                         }
                     }

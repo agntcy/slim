@@ -3779,11 +3779,13 @@ dependencies = [
  "agntcy-slim",
  "agntcy-slim-auth",
  "agntcy-slim-config",
+ "agntcy-slim-controller",
  "agntcy-slim-datapath",
  "agntcy-slim-mls",
  "agntcy-slim-service",
  "agntcy-slim-signal",
  "clap",
+ "prost 0.13.5",
  "tokio",
  "tracing",
 ]

@@ -78,8 +78,6 @@ var _ = Describe("Group management through control plane", func() {
 
 		// wait for clients to connect
 		time.Sleep(1000 * time.Millisecond)
-
-		// set up routes
 	})
 
 	AfterEach(func() {
@@ -173,24 +171,8 @@ var _ = Describe("Group management through control plane", func() {
 			Eventually(controlPlaneSession, 15*time.Second).Should(gbytes.Say("Ack message received, participant added successfully."))
 			Eventually(controlPlaneSession, 15*time.Second).Should(gbytes.Say("Channel updated, participant added successfully."))
 
-			// Add participant1 for testing removal
-			participantID := "participant1"
-			addParticipantOutput, errP := exec.Command(
-				slimctlPath,
-				"participant", "add",
-				participantID,
-				"--channel-id", channelID,
-				"-s", "127.0.0.1:50051",
-			).CombinedOutput()
-
-			Expect(errP).NotTo(HaveOccurred())
-			Expect(addParticipantOutput).NotTo(BeEmpty())
-
-			Eventually(slimNodeSession, 15*time.Second).Should(gbytes.Say("received a participant add request for channel"))
-
-			Eventually(controlPlaneSession, 15*time.Second).Should(gbytes.Say("Ack message received, participant added successfully."))
-			Eventually(controlPlaneSession, 15*time.Second).Should(gbytes.Say("Channel updated, participant added successfully."))
-
+			// Remove participant c from the channel
+			participantID := "c"
 			deleteParticipantOutput, errP := exec.Command(
 				slimctlPath,
 				"participant", "delete",
@@ -207,7 +189,7 @@ var _ = Describe("Group management through control plane", func() {
 			Eventually(controlPlaneSession, 15*time.Second).Should(gbytes.Say("Ack message received, participant deleted successfully."))
 			Eventually(controlPlaneSession, 15*time.Second).Should(gbytes.Say("Channel updated, participant deleted successfully"))
 
-			/*deleteChannelOutput, errC := exec.Command(
+			deleteChannelOutput, errC := exec.Command(
 				slimctlPath,
 				"channel", "delete",
 				channelID,
@@ -220,7 +202,7 @@ var _ = Describe("Group management through control plane", func() {
 			Eventually(slimNodeSession, 15*time.Second).Should(gbytes.Say("received a channel delete request, this should happen"))
 
 			Eventually(controlPlaneSession, 15*time.Second).Should(gbytes.Say("Ack message received, channel deleted successfully."))
-			Eventually(controlPlaneSession, 15*time.Second).Should(gbytes.Say("Channel deleted successfully"))*/
+			Eventually(controlPlaneSession, 15*time.Second).Should(gbytes.Say("Channel deleted successfully"))
 		})
 	})
 })
