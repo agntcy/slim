@@ -10,11 +10,11 @@ replicaCount: 1
 
 # This sets the container image more information can be found here: https://kubernetes.io/docs/concepts/containers/images/
 image:
-  repository: "ghcr.io/agntcy/slim/control-plane"
+  repository: "agntcy/control-plane"
   # This sets the pull policy for images.
   pullPolicy: IfNotPresent
   # Overrides the image tag whose default is the chart appVersion.
-  tag: ""
+  tag: "0.2.3"
 
 # This is for the secretes for pulling an image from a private repository more information can be found here: https://kubernetes.io/docs/tasks/configure-pod-container/pull-image-private-registry/
 imagePullSecrets: []
@@ -34,6 +34,14 @@ config:
     httpPort: "{{ .Values.service.south.port }}"
     logging:
       level: DEBUG
+# Uncomment below to enable MTLS by Spire      
+#     tls:
+#       useSpiffe: true
+#     spire:
+#       socketPath: "unix:///run/spire/agent-sockets/api.sock"      
+
+# spire:
+#   enabled: true
 
 env:
   - name: NB_API_HTTP_HOST
