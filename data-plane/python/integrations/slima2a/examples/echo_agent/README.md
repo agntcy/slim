@@ -1,18 +1,24 @@
-# Read me
+# Echo Agent
 
-## echo agent server
-
+## Run SLIM node
 ```shell
-cd ${SLIM_REPO}/data-plane/python/slima2a
+cd ${SLIM_REPO}/data-plane/testing
+```
+```shell
+task run:slim
+```
+
+## Run echo agent server
+```shell
+cd ${SLIM_REPO}/data-plane/python/integrations/slima2a
 ```
 ```shell
 uv run examples/echo_agent/server.py
 ```
 
-## echo agent client
-
+## Run echo agent client
 ```shell
-cd ${SLIM_REPO}/data-plane/python/slima2a
+cd ${SLIM_REPO}/data-plane/python/intergrations/slima2a
 ```
 ```shell
 uv run examples/echo_agent/client.py --text "hi, this is a text message" [--stream] [--log-level=INFO]

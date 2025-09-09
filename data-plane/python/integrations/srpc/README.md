@@ -89,7 +89,7 @@ The TestStub class represents the client-side interface for interacting with the
 Test service. It provides methods for each RPC defined in example.proto, allowing
 clients to initiate calls to the server.
 
-```
+```python
 class TestStub:
     """Client stub for Test."""
     def __init__(self, channel):
@@ -123,7 +123,7 @@ class TestStub:
 *Server Servicer (TestServicer)*:
 The TestServicer class defines the server-side interface. Developers implement
 this class to provide the actual business logic for each RPC method.
-```
+```python
 class TestServicer():
     """Server servicer for Test. Implement this class to provide your service logic."""
 
@@ -153,7 +153,7 @@ This utility function registers an implemented TestServicer instance with an
 SRPC server. It maps RPC method names to their corresponding handlers and
 specifies the request deserialization and response serialization routines.
 
-```
+```python
 def add_TestServicer_to_server(servicer, server: srpc.Server):
     rpc_method_handlers = {
         "ExampleUnaryUnary": srpc.unary_unary_rpc_method_handler(
@@ -195,7 +195,7 @@ defined RPC methods.
 The SLIM-specific code and configuration is handled within the amain()
 asynchronous function. This function utilizes the create_server helper to
 instantiate an SRPC server:
-```
+```python
 def create_server(
     local: str,
     slim: dict,
@@ -258,7 +258,7 @@ for proper MLS configuration.
 
 Finally, the add_TestServicer_to_server function is called to register the
 implemented TestService with the SRPC server, making its RPC methods available.
-```
+```python
     # Create RPCs
     add_TestServicer_to_server(
         TestService(),
@@ -270,7 +270,7 @@ implemented TestService with the SRPC server, making its RPC methods available.
 The client-side implementation, found in client.py, largely mirrors the
 structure of a standard gRPC client. The primary distinction and
 SLIM-specific aspect lies in the creation of the SRPC channel:
-```
+```python
     channel = srpc.Channel(
         local="agntcy/grpc/client",
         slim={
@@ -316,7 +316,7 @@ details, as these aspects are handled automatically by SRPC and SLIM.
 
 All RPC services underneath utilize a sticky point-to-point session. The SLIM
 session creation is implemented in inside SRPC in ```channel.py```:
-```
+```python
         # Create a session
         session = await self.local_app.create_session(
             slim_bindings.PySessionConfiguration.FireAndForget(
