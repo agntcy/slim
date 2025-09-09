@@ -1,5 +1,6 @@
 [package]
 name = "agntcy-protoc-srpc-plugin"
+description = "A protoc plugin for generating SRPC (Slim RPC) code"
 version = "0.1.0"
 license.workspace = true
 edition.workspace = true
