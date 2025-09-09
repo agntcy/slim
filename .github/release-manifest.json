@@ -9,7 +9,5 @@
     "data-plane/testing": "0.2.1",
     "control-plane/control-plane": "0.1.0",
     "charts/slim-control-plane": "0.1.3",
-    "data-plane/python/examples": "0.1.0",
-    "data-plane/python/integrations/srpc": "0.0.0",
-    "data-plane/python/integrations/slima2a": "0.0.0"
+    "data-plane/python/examples": "0.1.0"
 }

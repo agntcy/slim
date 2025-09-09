@@ -3,7 +3,7 @@
 
 [project]
 name = "slim-srpc"
-version = "0.1.0"
+version = "0.0.1"
 description = "RPC over Slim Library"
 requires-python = ">=3.9"
 license = "Apache-2.0"
