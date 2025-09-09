@@ -8,13 +8,13 @@ on:
   push:
     paths:
       - 'data-plane/**'
-      - '!data-plane/integrations/mcp/**'
+      - '!data-plane/integrations/mcp-proxy/**'
     branches:
       - main
   pull_request:
     paths:
       - 'data-plane/**'
-      - '!data-plane/integrations/mcp/**'
+      - '!data-plane/integrations/mcp-proxy/**'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}

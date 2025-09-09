@@ -25,7 +25,7 @@ RUN sh -c "$(curl --location https://taskfile.dev/install.sh)" -- -d -b /usr/loc
 
 # Copy source code
 COPY . /app
-WORKDIR /app/data-plane
+WORKDIR /app/data-plane/integrations/mcp-proxy
 
 RUN <<EOF
 case ${TARGETARCH} in
@@ -46,7 +46,7 @@ esac
 apt-get update && apt-get install -y ${PACKAGES}
 
 # Fetch rust packages
-task -v data-plane:fetch TARGET=${RUSTARCH}
+task -v mcp-proxy:fetch TARGET=${RUSTARCH}
 EOF
 
 # Build debug application
@@ -64,39 +64,19 @@ case ${TARGETARCH} in
         ;;
 esac
 
-# Build application
-task -v data-plane:build:strip TARGET=${RUSTARCH}-unknown-linux-gnu PROFILE=release
+task -v mcp-proxy:build:strip TARGET=${RUSTARCH}-unknown-linux-gnu PROFILE=release
 mv target/${RUSTARCH}-unknown-linux-gnu target/${TARGETARCH}-unknown-linux-gnu
 EOF
 
-# runtime images  - debug executable, debug symbols and, most importantly, a shell :)
-FROM debian:bookworm-slim AS slim-debug
-
-ARG TARGETARCH
-
-# copy the build artifacts from the build stage
-COPY --from=rust /app/data-plane/target/${TARGETARCH}-unknown-linux-gnu/release/slim /slim
-COPY --from=rust /app/data-plane/target/${TARGETARCH}-unknown-linux-gnu/release/slim.dbg /slim.dbg
-
-# runtime images  - release executable
-FROM gcr.io/distroless/cc-debian12:nonroot AS slim-release
-
+FROM ghcr.io/distroless/cc-debian12:nonroot AS mcp-proxy-debug
 ARG TARGETARCH
 
 # copy the artifacts from the build stage
-COPY --from=rust /app/data-plane/target/${TARGETARCH}-unknown-linux-gnu/release/slim /slim
+COPY --from=rust /app/data-plane/integrations/mcp-proxy/target/${TARGETARCH}-unknown-linux-gnu/release/slim-mcp-proxy /slim-mcp-proxy
+COPY --from=rust /app/data-plane/integrations/mcp-proxy/target/${TARGETARCH}-unknown-linux-gnu/release/slim-mcp-proxy.dbg /slim-mcp-proxy.dbg
 
-FROM debian:bookworm-slim AS testutils
+FROM gcr.io/distroless/cc-debian12:nonroot AS mcp-proxy-release
 ARG TARGETARCH
 
-RUN apt-get update && apt-get install -y \
-    ca-certificates \
-    && rm -rf /var/lib/apt/lists/*
-
-WORKDIR /app
-# copy artifacts from build stage
-COPY --from=rust /app/data-plane/target/${TARGETARCH}-unknown-linux-gnu/release/workload-gen /app/workload-gen
-COPY --from=rust /app/data-plane/target/${TARGETARCH}-unknown-linux-gnu/release/publisher /app/publisher
-COPY --from=rust /app/data-plane/target/${TARGETARCH}-unknown-linux-gnu/release/subscriber /app/subscriber
-
-CMD ["/app/workload-gen"]
+# copy the artifacts from the build stage
+COPY --from=rust /app/data-plane/integrations/mcp-proxy/target/${TARGETARCH}-unknown-linux-gnu/release/slim-mcp-proxy /slim-mcp-proxy

@@ -5,7 +5,7 @@
     "include-component-in-tag": true,
     "skip-github-release": false,
     "packages": {
-        "data-plane/python-bindings": {
+        "data-plane/python/bindings": {
             "package-name": "slim-bindings",
             "release-type": "python"
         },
@@ -17,7 +17,7 @@
             "package-name": "helm-slim-control-plane",
             "release-type": "helm"
         },
-        "data-plane/integrations/mcp/slim-mcp/packages/slim-mcp": {
+        "data-plane/python/integrations/slim-mcp": {
             "package-name": "slim-mcp",
             "release-type": "python"
         },
@@ -29,11 +29,11 @@
             "package-name": "control-plane",
             "release-type": "go"
         },
-        "data-plane/integrations/mcp/slim-mcp/examples/llamaindex-time-agent": {
+        "data-plane/python/integrations/slim-mcp/examples/llamaindex-time-agent": {
             "package-name": "slim-llamaindex-time-agent",
             "release-type": "simple"
         },
-        "data-plane/integrations/mcp/slim-mcp/examples/mcp-server-time": {
+        "data-plane/python/integrations/slim-mcp/examples/mcp-server-time": {
             "package-name": "slim-mcp-server-time",
             "release-type": "simple"
         },
@@ -41,7 +41,7 @@
             "package-name": "slim-testutils",
             "release-type": "simple"
         },
-        "data-plane/python-bindings/examples": {
+        "data-plane/python/examples": {
             "package-name": "slim-bindings-examples",
             "release-type": "python"
         }

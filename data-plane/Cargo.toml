@@ -12,7 +12,7 @@ members = [
     "core/slim",
     "core/tracing",
     "examples",
-    "python-bindings",
+    "python/bindings",
     "srpc-compiler",
     "testing",
 ]
@@ -30,7 +30,7 @@ default-members = [
     "testing",
 ]
 
-exclude = ["integrations/mcp/mcp-proxy"]
+exclude = ["integrations/mcp-proxy"]
 
 resolver = "2"
 
