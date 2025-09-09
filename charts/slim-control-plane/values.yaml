@@ -34,11 +34,11 @@ config:
     httpPort: "{{ .Values.service.south.port }}"
     logging:
       level: DEBUG
-# Uncomment below to enable MTLS by Spire      
+# Uncomment below to enable MTLS by Spire
 #     tls:
 #       useSpiffe: true
 #     spire:
-#       socketPath: "unix:///run/spire/agent-sockets/api.sock"      
+#       socketPath: "unix:///run/spire/agent-sockets/api.sock"
 
 # spire:
 #   enabled: true

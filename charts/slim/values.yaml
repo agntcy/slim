@@ -47,7 +47,7 @@ slim:
           # Uncomment below to connect to control plane with MTLS by Spire
           # clients:
           #   - endpoint: "https://slim-control:50052"
-          #     tls:      
+          #     tls:
           #       cert_file: "/svids/tls.crt"
           #       key_file: "/svids/tls.key"
           #       ca_file: "/svids/svid_bundle.pem"          
