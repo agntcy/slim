@@ -23,7 +23,7 @@ includes:
   slima2a:
     taskfile: ./integrations/slima2a/Taskfile.yaml
   srpc:
-    taskfile: ./integrations/srpc/Taskfile.yaml
+    taskfile: ./integrations/slimrpc/Taskfile.yaml
   slim-mcp:
     taskfile: ./integrations/slim-mcp/Taskfile.yaml
 

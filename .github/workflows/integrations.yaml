@@ -7,12 +7,14 @@ name: ci-test-and-build-integration-mcp-proxy
 on:
   push:
     paths:
-      - 'data-plane/python/**'
+      - 'data-plane/python/integrations**'
+      - 'data-plane/integrations/**'
     branches:
       - main
   pull_request:
     paths:
-      - 'data-plane/python/**'
+      - 'data-plane/python/integrations**'
+      - 'data-plane/integrations/**'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}

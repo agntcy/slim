@@ -3,11 +3,11 @@
 
 [project]
 name = "slima2a"
-version = "0.1.0"
-description = "Add your description here"
+version = "0.0.1"
+description = "A2A protocol over slimrpc"
 readme = "README.md"
 requires-python = ">=3.10, <4.0"
-dependencies = ["a2a-sdk[telemetry]>=0.3.0", "srpc"]
+dependencies = ["a2a-sdk[telemetry]>=0.3.0", "slimrpc"]
 
 [dependency-groups]
 linting = ["types-protobuf>=6.30.2.20250703", "ruff>=0.12"]
@@ -24,7 +24,7 @@ examples = [
 default-groups = ["linting", "testing", "examples"]
 
 [tool.uv.sources]
-srpc = { workspace = true }
+slimrpc = { workspace = true }
 
 [tool.ruff.format]
 exclude = ["*_pb2.py", "*_pb2.pyi", "*_pb2_srpc.py"]

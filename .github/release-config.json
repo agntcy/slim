@@ -44,6 +44,14 @@
         "data-plane/python/examples": {
             "package-name": "slim-bindings-examples",
             "release-type": "python"
+        },
+        "data-plane/python/integrations/slimrpc": {
+            "package-name": "slimrpc",
+            "release-type": "python"
+        },
+        "data-plane/python/integrations/slima2a": {
+            "package-name": "slima2a",
+            "release-type": "python"
         }
     }
 }

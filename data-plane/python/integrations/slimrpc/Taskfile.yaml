@@ -9,4 +9,4 @@ includes:
   python:
     taskfile: ../../../../tasks/python.yaml
     vars:
-      UV_ARGS: '--package srpc'
+      UV_ARGS: '--package slimrpc'
