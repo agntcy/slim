@@ -9,8 +9,8 @@ on:
     tags:
       - 'slim-bindings-v*'
       - 'slim-mcp-v*'
-      - 'slim-srpc-v*'
-      - 'slim-a2a-v*'
+      - 'slimrpc-v*'
+      - 'slima2a-v*'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
