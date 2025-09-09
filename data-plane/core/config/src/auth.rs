@@ -6,7 +6,6 @@ pub mod jwt;
 pub mod oidc;
 pub mod static_jwt;
 
-use slim_auth::errors::AuthError as SlimAuthError;
 use thiserror::Error;
 
 #[derive(Error, Debug)]
@@ -25,24 +24,6 @@ pub enum AuthError {
 
     #[error("invalid header: {0}")]
     InvalidHeader(String),
-}
-
-impl From<SlimAuthError> for AuthError {
-    fn from(err: SlimAuthError) -> Self {
-        match err {
-            SlimAuthError::ConfigError(msg) => AuthError::ConfigError(msg),
-            SlimAuthError::TokenExpired => AuthError::TokenExpired,
-            SlimAuthError::TokenInvalid(msg) => AuthError::TokenInvalid(msg),
-            SlimAuthError::SigningError(msg) => AuthError::SigningError(msg),
-            SlimAuthError::GetTokenError(msg) => {
-                AuthError::ConfigError(format!("Get token error: {}", msg))
-            }
-            SlimAuthError::VerificationError(msg) => {
-                AuthError::TokenInvalid(format!("Verification error: {}", msg))
-            }
-            SlimAuthError::InvalidHeader(msg) => AuthError::InvalidHeader(msg),
-        }
-    }
 }
 
 pub trait ClientAuthenticator {
