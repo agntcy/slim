@@ -57,7 +57,7 @@ import srpc
     servicer = SRPCHandler(agent_card, request_handler)
 ```
 3. Setup the srcp.Server. This is the only place where 
-you need to setup few parameters ther are specific to SLIM
+you need to setup few parameters that are specific to SLIM
 ```python
     server = srpc.Server(
         local="agntcy/demo/travel_planner_agent",
@@ -75,7 +75,7 @@ you need to setup few parameters ther are specific to SLIM
 	•	shared_secret: Used to set up MLS (Message Layer Security).
 For more information about these settings, see the SLIM RCP [README](../slimrpc/README.md).
 
-4. Register the Sevice
+4. Register the Service
 ```python
     add_A2AServiceServicer_to_server(
         servicer,
