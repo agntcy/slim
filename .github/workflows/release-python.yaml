@@ -32,7 +32,7 @@ jobs:
 
   build-srpc:
     name: Build slimrpc
-    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/slim-srpc-')
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/slimrpc-')
     uses: ./.github/workflows/reusable-python-build-and-test.yaml
     with:
       working-directory: ./data-plane/python
@@ -40,7 +40,7 @@ jobs:
 
   build-slima2a:
     name: Build slima2a
-    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/slim-a2a-')
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/slima2a-')
     uses: ./.github/workflows/reusable-python-build-and-test.yaml
     with:
       working-directory: ./data-plane/python
