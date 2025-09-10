@@ -50,7 +50,7 @@ slim:
           #     tls:
           #       cert_file: "/svids/tls.crt"
           #       key_file: "/svids/tls.key"
-          #       ca_file: "/svids/svid_bundle.pem"          
+          #       ca_file: "/svids/svid_bundle.pem"
 
   # StatefulSet-specific settings
   # DaemonSet-specific settings
