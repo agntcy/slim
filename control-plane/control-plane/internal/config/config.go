@@ -14,6 +14,7 @@ import (
 type ControlPlaneConfig struct {
 	Northbound APIConfig `yaml:"northbound"`
 	Southbound APIConfig `yaml:"southbound"`
+	LogConfig  LogConfig `yaml:"logging"`
 }
 
 type LogConfig struct {
@@ -33,9 +34,42 @@ func (l LogConfig) Validate() error {
 }
 
 type APIConfig struct {
-	HTTPHost  string    `yaml:"httpHost"`
-	HTTPPort  string    `yaml:"httpPort"`
-	LogConfig LogConfig `yaml:"logging"`
+	HTTPHost string      `yaml:"httpHost"`
+	HTTPPort string      `yaml:"httpPort"`
+	TLS      *TLSConfig  `yaml:"tls"`
+	Spire    SpireConfig `yaml:"spire"`
+}
+
+type TLSConfig struct {
+	UseSpiffe bool   `yaml:"useSpiffe"`
+	CertFile  string `yaml:"certFile"`
+	KeyFile   string `yaml:"keyFile"`
+	CAFile    string `yaml:"caFile"`
+}
+
+func (a *TLSConfig) Validate() error {
+	if a.UseSpiffe {
+		if a.CAFile != "" || a.CertFile != "" || a.KeyFile != "" {
+			return errors.New("when useSpiffe is true, certFile, keyFile and caFile are not needed, " +
+				"as certificates are provided by SPIRE agent")
+		}
+		return nil
+	}
+	if a.CAFile == "" {
+		return errors.New("caFile is required when useSpiffe is false")
+	}
+	if a.CertFile == "" {
+		return errors.New("certFile is required when useSpiffe is false")
+	}
+	return nil
+}
+
+func (a *TLSConfig) ServerCertificateIsSet() bool {
+	return a.CertFile != "" && a.KeyFile != ""
+}
+
+type SpireConfig struct {
+	SocketPath string `yaml:"socketPath"`
 }
 
 // validate APIConfig
@@ -46,7 +80,15 @@ func (a APIConfig) Validate() error {
 	if a.HTTPHost == "" {
 		return errors.New("HTTPHost is required")
 	}
-	return a.LogConfig.Validate()
+	if a.TLS != nil {
+		if err := a.TLS.Validate(); err != nil {
+			return fmt.Errorf("invalid TLS configuration: %w", err)
+		}
+		if a.TLS.UseSpiffe && a.Spire.SocketPath == "" {
+			return errors.New("spire.socketPath is required when useSpiffe is true")
+		}
+	}
+	return nil
 }
 
 func DefaultConfig() *ControlPlaneConfig {
@@ -54,16 +96,13 @@ func DefaultConfig() *ControlPlaneConfig {
 		APIConfig{
 			HTTPHost: "localhost",
 			HTTPPort: "50051",
-			LogConfig: LogConfig{
-				Level: "debug", // Default log level
-			},
 		},
 		APIConfig{
 			HTTPHost: "localhost",
 			HTTPPort: "50052",
-			LogConfig: LogConfig{
-				Level: "debug", // Default log level
-			},
+		},
+		LogConfig{
+			Level: "debug", // Default log level
 		},
 	}
 }
@@ -80,7 +119,6 @@ func (c ControlPlaneConfig) OverrideFromFile(file string) *ControlPlaneConfig {
 		}
 		panic(fmt.Sprintf("failed to read config: %v", err))
 	}
-	fmt.Printf("Using configuration configData: %s\n", configData)
 	err = yaml.Unmarshal(configData, &c)
 	if err != nil {
 		panic(fmt.Sprintf("failed to unmarshal config: %v", err))
@@ -92,10 +130,9 @@ func (c ControlPlaneConfig) OverrideFromFile(file string) *ControlPlaneConfig {
 func (c ControlPlaneConfig) OverrideFromEnv() *ControlPlaneConfig {
 	c.Northbound.HTTPPort = getEnvStr("NB_API_HTTP_PORT", c.Northbound.HTTPPort)
 	c.Northbound.HTTPHost = getEnvStr("NB_API_HTTP_HOST", c.Northbound.HTTPHost)
-	c.Northbound.LogConfig.Level = getEnvStr("NB_API_LOG_LEVEL", c.Northbound.LogConfig.Level)
 	c.Southbound.HTTPPort = getEnvStr("SB_API_HTTP_PORT", c.Southbound.HTTPPort)
 	c.Southbound.HTTPHost = getEnvStr("SB_API_HTTP_HOST", c.Southbound.HTTPHost)
-	c.Southbound.LogConfig.Level = getEnvStr("SB_API_LOG_LEVEL", c.Southbound.LogConfig.Level)
+	c.LogConfig.Level = getEnvStr("API_LOG_LEVEL", c.LogConfig.Level)
 	return &c
 }
 
@@ -105,6 +142,9 @@ func (c ControlPlaneConfig) Validate() *ControlPlaneConfig {
 	}
 	if err := c.Southbound.Validate(); err != nil {
 		panic(fmt.Sprintf("invalid southbound API configuration: %v", err))
+	}
+	if err := c.LogConfig.Validate(); err != nil {
+		panic(fmt.Sprintf("invalid logging configuration: %v", err))
 	}
 	return &c
 }

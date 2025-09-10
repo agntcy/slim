@@ -97,13 +97,13 @@ func (s *NodeRegistrationService) NodeRegistered(ctx context.Context, nodeID str
 		Msg("Sending configuration command to registered node")
 
 	// Send configuration command to the node
-	err = s.nodeCommandHandler.SendMessage(nodeID, msg)
+	err = s.nodeCommandHandler.SendMessage(ctx, nodeID, msg)
 	if err != nil {
 		return fmt.Errorf("failed to send configuration command to node %s: %w", nodeID, err)
 	}
 
 	// Wait for ACK response from the node
-	response, err := s.nodeCommandHandler.WaitForResponse(
+	response, err := s.nodeCommandHandler.WaitForResponse(ctx,
 		nodeID,
 		reflect.TypeOf(&controllerapi.ControlMessage_Ack{}),
 		messageID,
