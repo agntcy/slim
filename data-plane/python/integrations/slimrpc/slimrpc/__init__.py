@@ -3,9 +3,9 @@
 
 from google.rpc.code_pb2 import Code as StatusCode
 
-from srpc.channel import Channel
-from srpc.context import Context
-from srpc.rpc import (
+from slimrpc.channel import Channel
+from slimrpc.context import Context
+from slimrpc.rpc import (
     RPCHandler,
     SRPCResponseError,
     stream_stream_rpc_method_handler,
@@ -13,7 +13,7 @@ from srpc.rpc import (
     unary_stream_rpc_method_handler,
     unary_unary_rpc_method_handler,
 )
-from srpc.server import Server
+from slimrpc.server import Server
 
 __all__ = [
     "StatusCode",

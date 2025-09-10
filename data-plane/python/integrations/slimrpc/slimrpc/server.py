@@ -4,18 +4,19 @@
 import asyncio
 import logging
 import sys
+import time
 from collections.abc import AsyncGenerator, AsyncIterable, Callable
 from typing import Any, Tuple
 
 if sys.version_info >= (3, 11):
-    from asyncio import timeout_at as asyncio_timeout_at
+    from asyncio import timeout as asyncio_timeout
 else:
-    from async_timeout import timeout_at as asyncio_timeout_at
+    from async_timeout import timeout as asyncio_timeout
 
 import slim_bindings
 from google.rpc import code_pb2, status_pb2
 
-from srpc.common import (
+from slimrpc.common import (
     DEADLINE_KEY,
     MAX_TIMEOUT,
     RequestType,
@@ -23,8 +24,8 @@ from srpc.common import (
     handler_name_to_pyname,
     split_id,
 )
-from srpc.context import Context
-from srpc.rpc import RPCHandler, SRPCResponseError
+from slimrpc.context import Context
+from slimrpc.rpc import RPCHandler, SRPCResponseError
 
 logger = logging.getLogger(__name__)
 
@@ -133,9 +134,14 @@ class Server:
 
         try:
             # Get deadline from request
-            deadline = float(session_info.metadata.get(DEADLINE_KEY, str(MAX_TIMEOUT)))
+            deadline_str = session_info.metadata.get(DEADLINE_KEY, "")
+            timeout = (
+                max(float(deadline_str) - time.time(), 0)
+                if deadline_str
+                else MAX_TIMEOUT
+            )
 
-            async with asyncio_timeout_at(deadline):
+            async with asyncio_timeout(timeout):
                 if not rpc_handler.request_streaming:
                     # Read the request from slim
                     session_recv, request_bytes = await local_app.receive(
@@ -172,6 +178,7 @@ class Server:
                         metadata={"code": str(code_pb2.OK)},
                     )
         except asyncio.TimeoutError:
+            logger.warn(f"session {session_info.id} timed out after {timeout} seconds")
             pass
         finally:
             logger.info(f"deleting session {session_info.id}")
@@ -227,13 +234,12 @@ async def call_handler(
         async for response in handler.behaviour(request_or_iterator, context):
             yield code_pb2.OK, response
     except SRPCResponseError as e:
-        logger.error("Error while calling handler 1")
         yield (
             e.code,
             status_pb2.Status(code=e.code, message=e.message, details=e.details),
         )
-    except Exception as e:
-        logger.error(f"Error while calling handler 2 {e}")
+    except Exception:
+        logger.exception("Unexpected error while calling handler")
         yield (
             code_pb2.UNKNOWN,
             status_pb2.Status(

@@ -8,10 +8,10 @@ managed:
   enabled: true
 plugins:
   # Generate python protobuf related code
-  # Generates _pb2_srpc.py files
+  # Generates _pb2_slimrpc.py files
 
   # TODO: this should be downloaded from a released plugin version
-  - local: ../../target/debug/protoc-srpc-plugin
+  - local: ../../target/debug/protoc-slimrpc-plugin
     out: slima2a/types
     opt:
       - 'types_import=from a2a.grpc import a2a_pb2 as a2a__pb2'

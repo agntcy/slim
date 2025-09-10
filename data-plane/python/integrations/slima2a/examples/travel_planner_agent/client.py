@@ -8,7 +8,7 @@ logging.getLogger("asyncio").setLevel(logging.ERROR)
 
 # ruff: noqa: E402
 import httpx
-import srpc
+import slimrpc
 from a2a.client import (
     A2AClient,
     ClientFactory,
@@ -75,8 +75,8 @@ async def main() -> None:
 
     httpx_client = httpx.AsyncClient()
 
-    def channel_factory(topic: str) -> srpc.Channel:
-        channel = srpc.Channel(
+    def channel_factory(topic: str) -> slimrpc.Channel:
+        channel = slimrpc.Channel(
             local="agntcy/demo/client",
             remote=topic,
             slim={
@@ -90,14 +90,14 @@ async def main() -> None:
         return channel
 
     client_config = ClientConfig(
-        supported_transports=["JSONRPC", "srpc"],
+        supported_transports=["JSONRPC", "slimrpc"],
         streaming=True,
         httpx_client=httpx_client,
-        srpc_channel_factory=channel_factory,
+        slimrpc_channel_factory=channel_factory,
     )
     client_factory = ClientFactory(client_config)
-    client_factory.register("srpc", SRPCTransport.create)
-    agent_card = minimal_agent_card("agntcy/demo/travel_planner_agent", ["srpc"])
+    client_factory.register("slimrpc", SRPCTransport.create)
+    agent_card = minimal_agent_card("agntcy/demo/travel_planner_agent", ["slimrpc"])
     client = client_factory.create(card=agent_card)
 
     await interact_with_server(client)

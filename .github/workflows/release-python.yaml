@@ -27,23 +27,23 @@ jobs:
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/slim-mcp-')
     uses: ./.github/workflows/reusable-python-build-and-test.yaml
     with:
-      working-directory: ./data-plane/integrations/mcp/slim-mcp
-      prefix: integrations
+      working-directory: ./data-plane/python/integrations
+      prefix: slim-mcp:python
 
-  build-srpc:
+  build-slimrpc:
     name: Build slimrpc
-    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/slim-srpc-')
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/slimrpc-')
     uses: ./.github/workflows/reusable-python-build-and-test.yaml
     with:
-      working-directory: ./data-plane/python
-      prefix: srpc:python
+      working-directory: ./data-plane/python/integrations
+      prefix: slimrpc:python
 
   build-slima2a:
     name: Build slima2a
-    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/slim-a2a-')
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/slima2a-')
     uses: ./.github/workflows/reusable-python-build-and-test.yaml
     with:
-      working-directory: ./data-plane/python
+      working-directory: ./data-plane/python/integrations
       prefix: slima2a:python
 
   pypi-publish:
@@ -52,13 +52,13 @@ jobs:
     needs:
       - build-bindings-wheels
       - build-mcp-wheels
-      - build-srpc
+      - build-slimrpc
       - build-slima2a
     if: |
       always() &&
       (needs.build-bindings-wheels.result == 'skipped' || needs.build-bindings-wheels.result == 'success') &&
       (needs.build-mcp-wheels.result == 'skipped' || needs.build-mcp-wheels.result == 'success') &&
-      (needs.build-srpc.result == 'skipped' || needs.build-srpc.result == 'success') &&
+      (needs.build-slimrpc.result == 'skipped' || needs.build-slimrpc.result == 'success') &&
       (needs.build-slima2a.result == 'skipped' || needs.build-slima2a.result == 'success')
     environment: pypi
     permissions:
