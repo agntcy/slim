@@ -1,3 +1,6 @@
+# [![CI](https://github.com/agntcy/slim/actions/workflows/data-plane-coverage.yaml/badge.svg)](https://github.com/agntcy/slim/actions/workflows/data-plane-coverage.yaml)
+[![codecov](https://codecov.io/gh/agntcy/slim/branch/main/graph/badge.svg)](https://codecov.io/gh/agntcy/slim)
+
 # SLIM
 
 SLIM (Secure Low-Latency Interactive Messaging) facilitates communication between AI agents.
