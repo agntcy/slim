@@ -38,7 +38,7 @@ config:
 
   logging:
     level: DEBUG
-    
+
 spire:
   enabled: false
 
