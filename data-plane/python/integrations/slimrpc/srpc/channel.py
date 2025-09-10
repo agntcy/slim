@@ -17,7 +17,7 @@ else:
 import slim_bindings
 from google.rpc import code_pb2, status_pb2
 
-from srpc.common import (
+from slimrpc.common import (
     DEADLINE_KEY,
     MAX_TIMEOUT,
     RequestType,
@@ -26,7 +26,7 @@ from srpc.common import (
     service_and_method_to_pyname,
     split_id,
 )
-from srpc.rpc import SRPCResponseError
+from slimrpc.rpc import SRPCResponseError
 
 logger = logging.getLogger(__name__)
 

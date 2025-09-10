@@ -2,15 +2,15 @@ import asyncio
 import logging
 from collections.abc import AsyncGenerator
 
-import srpc
-from srpc.examples.simple.types.example_pb2 import ExampleRequest
-from srpc.examples.simple.types.example_pb2_srpc import TestStub
+import slimrpc
+from slimrpc.examples.simple.types.example_pb2 import ExampleRequest
+from slimrpc.examples.simple.types.example_pb2_slimrpc import TestStub
 
 logger = logging.getLogger(__name__)
 
 
 async def amain() -> None:
-    channel = srpc.Channel(
+    channel = slimrpc.Channel(
         local="agntcy/grpc/client",
         slim={
             "endpoint": "http://localhost:46357",

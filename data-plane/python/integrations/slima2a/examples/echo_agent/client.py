@@ -4,7 +4,7 @@ import logging
 from uuid import uuid4
 
 import httpx
-import srpc
+import slimrpc
 from a2a.client import (
     A2ACardResolver,
     Client,
@@ -53,8 +53,8 @@ async def main() -> None:
 
     httpx_client = httpx.AsyncClient()
 
-    def channel_factory(topic: str) -> srpc.Channel:
-        channel = srpc.Channel(
+    def channel_factory(topic: str) -> slimrpc.Channel:
+        channel = slimrpc.Channel(
             local="agntcy/demo/client",
             remote=topic,
             slim={
@@ -68,18 +68,18 @@ async def main() -> None:
         return channel
 
     client_config = ClientConfig(
-        supported_transports=["JSONRPC", "srpc"],
+        supported_transports=["JSONRPC", "slimrpc"],
         streaming=args.stream,
         httpx_client=httpx_client,
-        srpc_channel_factory=channel_factory,
+        slimrpc_channel_factory=channel_factory,
     )
     client_factory = ClientFactory(client_config)
-    client_factory.register("srpc", SRPCTransport.create)
+    client_factory.register("slimrpc", SRPCTransport.create)
 
     agent_card = None
     match args.type:
-        case "srpc":
-            agent_card = minimal_agent_card("agntcy/demo/echo_agent", ["srpc"])
+        case "slimrpc":
+            agent_card = minimal_agent_card("agntcy/demo/echo_agent", ["slimrpc"])
         case "starlette":
             agent_card = await fetch_agent_card(
                 resolver=A2ACardResolver(
@@ -120,12 +120,12 @@ def parse_arguments() -> argparse.Namespace:
         "--type",
         type=str,
         required=False,
-        default="srpc",
+        default="slimrpc",
     )
 
     args = parser.parse_args()
 
-    if args.type not in ["srpc", "starlette"]:
+    if args.type not in ["slimrpc", "starlette"]:
         raise ValueError(f"Invalid client type: {args.type}")
 
     return args
@@ -162,7 +162,7 @@ async def send_message(
 
                 if update:
                     logger.info(f"update: {update.model_dump(mode='json')}")
-    except srpc.SRPCResponseError as e:
+    except slimrpc.SRPCResponseError as e:
         logger.error(
             f"failed sending message or processing response on SRPC: {e}",
             exc_info=True,

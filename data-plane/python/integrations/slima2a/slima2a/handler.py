@@ -18,24 +18,24 @@ from a2a.utils import proto_utils
 from a2a.utils.errors import ServerError
 from a2a.utils.helpers import validate, validate_async_generator
 from google.rpc import code_pb2
-from srpc import SRPCResponseError
-from srpc import context as srpc_context
+from slimrpc import SRPCResponseError
+from slimrpc import context as slimrpc_context
 
-from slima2a.types import a2a_pb2_srpc
+from slima2a.types import a2a_pb2_slimrpc
 
 
 class CallContextBuilder(ABC):
     """A class for building ServerCallContexts using the Starlette Request."""
 
     @abstractmethod
-    def build(self, context: srpc_context.Context) -> ServerCallContext:
+    def build(self, context: slimrpc_context.Context) -> ServerCallContext:
         """Builds a ServerCallContext from a gRPC Request."""
 
 
 class DefaultCallContextBuilder(CallContextBuilder):
     """A default implementation of CallContextBuilder."""
 
-    def build(self, context: srpc_context.Context) -> ServerCallContext:
+    def build(self, context: slimrpc_context.Context) -> ServerCallContext:
         """Builds the ServerCallContext."""
         user = UnauthenticatedUser()
         state = {"slim_session_info": context}
@@ -48,13 +48,13 @@ class DefaultCallContextBuilder(CallContextBuilder):
         )
 
 
-def get_metadata_value(context: srpc_context.Context, key: str) -> str:
+def get_metadata_value(context: slimrpc_context.Context, key: str) -> str:
     if context.metadata is None:
         return ""
     return context.metadata.get(HTTP_EXTENSION_HEADER, "")
 
 
-class SRPCHandler(a2a_pb2_srpc.A2AServiceServicer):
+class SRPCHandler(a2a_pb2_slimrpc.A2AServiceServicer):
     """Maps incoming sRPC requests to the appropriate request handler method."""
 
     def __init__(
@@ -83,7 +83,7 @@ class SRPCHandler(a2a_pb2_srpc.A2AServiceServicer):
     async def SendMessage(
         self,
         request: a2a_pb2.SendMessageRequest,
-        context: srpc_context.Context,
+        context: slimrpc_context.Context,
     ) -> a2a_pb2.SendMessageResponse:
         """Handles the 'SendMessage' gRPC method.
 
@@ -118,7 +118,7 @@ class SRPCHandler(a2a_pb2_srpc.A2AServiceServicer):
     async def SendStreamingMessage(
         self,
         request: a2a_pb2.SendMessageRequest,
-        context: srpc_context.Context,
+        context: slimrpc_context.Context,
     ) -> AsyncIterable[a2a_pb2.StreamResponse]:
         """Handles the 'StreamMessage' gRPC method.
 
@@ -151,7 +151,7 @@ class SRPCHandler(a2a_pb2_srpc.A2AServiceServicer):
     async def CancelTask(
         self,
         request: a2a_pb2.CancelTaskRequest,
-        context: srpc_context.Context,
+        context: slimrpc_context.Context,
     ) -> a2a_pb2.Task:
         """Handles the 'CancelTask' gRPC method.
 
@@ -182,7 +182,7 @@ class SRPCHandler(a2a_pb2_srpc.A2AServiceServicer):
     async def TaskSubscription(
         self,
         request: a2a_pb2.TaskSubscriptionRequest,
-        context: srpc_context.Context,
+        context: slimrpc_context.Context,
     ) -> AsyncIterable[a2a_pb2.StreamResponse]:
         """Handles the 'TaskSubscription' gRPC method.
 
@@ -209,7 +209,7 @@ class SRPCHandler(a2a_pb2_srpc.A2AServiceServicer):
     async def GetTaskPushNotificationConfig(
         self,
         request: a2a_pb2.GetTaskPushNotificationConfigRequest,
-        context: srpc_context.Context,
+        context: slimrpc_context.Context,
     ) -> a2a_pb2.TaskPushNotificationConfig:
         """Handles the 'GetTaskPushNotificationConfig' gRPC method.
 
@@ -238,7 +238,7 @@ class SRPCHandler(a2a_pb2_srpc.A2AServiceServicer):
     async def CreateTaskPushNotificationConfig(
         self,
         request: a2a_pb2.CreateTaskPushNotificationConfigRequest,
-        context: srpc_context.Context,
+        context: slimrpc_context.Context,
     ) -> a2a_pb2.TaskPushNotificationConfig:
         """Handles the 'CreateTaskPushNotificationConfig' gRPC method.
 
@@ -271,7 +271,7 @@ class SRPCHandler(a2a_pb2_srpc.A2AServiceServicer):
     async def GetTask(
         self,
         request: a2a_pb2.GetTaskRequest,
-        context: srpc_context.Context,
+        context: slimrpc_context.Context,
     ) -> a2a_pb2.Task:
         """Handles the 'GetTask' gRPC method.
 
@@ -297,7 +297,7 @@ class SRPCHandler(a2a_pb2_srpc.A2AServiceServicer):
     async def GetAgentCard(
         self,
         request: a2a_pb2.GetAgentCardRequest,
-        context: srpc_context.Context,
+        context: slimrpc_context.Context,
     ) -> a2a_pb2.AgentCard:
         """Get the agent card for the agent served."""
         card_to_serve = self.agent_card
@@ -306,7 +306,7 @@ class SRPCHandler(a2a_pb2_srpc.A2AServiceServicer):
         return proto_utils.ToProto.agent_card(card_to_serve)
 
     async def raise_error_response(self, error: ServerError) -> None:
-        """Sets the srpc errors appropriately in the context."""
+        """Sets the slimrpc errors appropriately in the context."""
         match error.error:
             case types.JSONParseError():
                 raise SRPCResponseError(

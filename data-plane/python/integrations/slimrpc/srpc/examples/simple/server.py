@@ -2,13 +2,13 @@ import asyncio
 import logging
 from collections.abc import AsyncIterable
 
-from srpc.context import Context
-from srpc.examples.simple.types.example_pb2 import ExampleRequest, ExampleResponse
-from srpc.examples.simple.types.example_pb2_srpc import (
+from slimrpc.context import Context
+from slimrpc.examples.simple.types.example_pb2 import ExampleRequest, ExampleResponse
+from slimrpc.examples.simple.types.example_pb2_slimrpc import (
     TestServicer,
     add_TestServicer_to_server,
 )
-from srpc.server import Server
+from slimrpc.server import Server
 
 logger = logging.getLogger(__name__)
 
