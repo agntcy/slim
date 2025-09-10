@@ -101,7 +101,7 @@ class TestStub:
         """Constructor.
 
         Args:
-            channel: A srpc.Channel.
+            channel: A slimrpc.Channel.
         """
         self.ExampleUnaryUnary = channel.unary_unary(
             "/example_service.Test/ExampleUnaryUnary",
@@ -135,22 +135,22 @@ class TestServicer():
 
     def ExampleUnaryUnary(self, request, context):
         """Method for ExampleUnaryUnary. Implement your service logic here."""
-        raise srpc_rpc.SRPCResponseError(
+        raise slimrpc_rpc.SRPCResponseError(
             code=code__pb2.UNIMPLEMENTED, message="Method not implemented!"
         )
     def ExampleUnaryStream(self, request, context):
         """Method for ExampleUnaryStream. Implement your service logic here."""
-        raise srpc_rpc.SRPCResponseError(
+        raise slimrpc_rpc.SRPCResponseError(
             code=code__pb2.UNIMPLEMENTED, message="Method not implemented!"
         )
     def ExampleStreamUnary(self, request_iterator, context):
         """Method for ExampleStreamUnary. Implement your service logic here."""
-        raise srpc_rpc.SRPCResponseError(
+        raise slimrpc_rpc.SRPCResponseError(
             code=code__pb2.UNIMPLEMENTED, message="Method not implemented!"
         )
     def ExampleStreamStream(self, request_iterator, context):
         """Method for ExampleStreamStream. Implement your service logic here."""
-        raise srpc_rpc.SRPCResponseError(
+        raise slimrpc_rpc.SRPCResponseError(
             code=code__pb2.UNIMPLEMENTED, message="Method not implemented!"
         )
 ```
@@ -161,24 +161,24 @@ maps RPC method names to their corresponding handlers and specifies the request
 deserialization and response serialization routines.
 
 ```python
-def add_TestServicer_to_server(servicer, server: srpc.Server):
+def add_TestServicer_to_server(servicer, server: slimrpc.Server):
     rpc_method_handlers = {
-        "ExampleUnaryUnary": srpc.unary_unary_rpc_method_handler(
+        "ExampleUnaryUnary": slimrpc.unary_unary_rpc_method_handler(
             behaviour=servicer.ExampleUnaryUnary,
             request_deserializer=pb2.ExampleRequest.FromString,
             response_serializer=pb2.ExampleResponse.SerializeToString,
         ),
-        "ExampleUnaryStream": srpc.unary_stream_rpc_method_handler(
+        "ExampleUnaryStream": slimrpc.unary_stream_rpc_method_handler(
             behaviour=servicer.ExampleUnaryStream,
             request_deserializer=pb2.ExampleRequest.FromString,
             response_serializer=pb2.ExampleResponse.SerializeToString,
         ),
-        "ExampleStreamUnary": srpc.stream_unary_rpc_method_handler(
+        "ExampleStreamUnary": slimrpc.stream_unary_rpc_method_handler(
             behaviour=servicer.ExampleStreamUnary,
             request_deserializer=pb2.ExampleRequest.FromString,
             response_serializer=pb2.ExampleResponse.SerializeToString,
         ),
-        "ExampleStreamStream": srpc.stream_stream_rpc_method_handler(
+        "ExampleStreamStream": slimrpc.stream_stream_rpc_method_handler(
             behaviour=servicer.ExampleStreamStream,
             request_deserializer=pb2.ExampleRequest.FromString,
             response_serializer=pb2.ExampleResponse.SerializeToString,
@@ -286,7 +286,7 @@ a standard gRPC client. The primary distinction and SLIM-specific aspect lies in
 the creation of the SRPC channel:
 
 ```python
-    channel = srpc.Channel(
+    channel = slimrpc.Channel(
         local="agntcy/grpc/client",
         slim={
             "endpoint": "http://localhost:46357",
@@ -347,7 +347,7 @@ session creation is implemented in inside SRPC in
         )
 ```
 
-This session used by SRpC is also reliable. For each message, the sender waits
+This session used by SRPC is also reliable. For each message, the sender waits
 for an acknowledgment (ACK) packet for 1 second
 (`timeout=datetime.timedelta(seconds=1)`). If no acknowledgment is received,
 the message will be re-sent up to 10 times (`max_retries=10`) before
