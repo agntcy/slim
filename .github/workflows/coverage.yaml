@@ -1,4 +1,4 @@
-name: Publish Rust Coverage to Codecov
+name: Publish Project Coverage to Codecov
 
 on:
   push:
