@@ -1,0 +1,26 @@
+{{/*
+Copyright AGNTCY Contributors (https://github.com/agntcy)
+SPDX-License-Identifier: Apache-2.0
+*/}}
+
+{{ if eq .Values.spire.enabled true }}
+
+apiVersion: spire.spiffe.io/v1alpha1
+kind: ClusterSPIFFEID
+metadata:
+  name: {{ include "control-plane.fullname" . }}
+spec:
+  className: spire-server-spire
+  fallback: false
+  hint: default
+  podSelector:
+    matchExpressions:
+    - key: app.kubernetes.io/name
+      operator: In
+      values:
+      - {{ include "control-plane.name" . }}
+  workloadSelectorTemplates:    
+    - k8s:sa:{{ include "control-plane.serviceAccountName" . }}
+  spiffeIDTemplate: {{ "spiffe://{{ .TrustDomain }}/ns/{{ .PodMeta.Namespace }}/sa/slim-control" }}
+  autoPopulateDNSNames: true
+{{ end }}
