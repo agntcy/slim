@@ -10,15 +10,16 @@ ARG TARGETARCH
 
 RUN DEBIAN_FRONTEND=noninteractive \
     apt-get update && \
+    curl -OL https://apt.llvm.org/llvm.sh \
+    chmod +x llvm.sh \
+    sudo ./llvm.sh 19 \
     apt-get install --no-install-recommends -y \
         curl \
         file \
         make \
         unzip \
         git \
-        pkg-config \
-        clang-14 \
-        llvm-14
+        pkg-config
 
 # Install taskfile
 RUN sh -c "$(curl --location https://taskfile.dev/install.sh)" -- -d -b /usr/local/bin
