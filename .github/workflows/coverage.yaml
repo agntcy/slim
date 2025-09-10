@@ -31,7 +31,7 @@ jobs:
         run: task data-plane:test:coverage
 
       - name: Generate control-plane coverage reports
-        run: task control-plane:coverage-reports
+        run: task control-plane:coverage
         working-directory: control-plane
 
       - name: Upload combined coverage to Codecov
