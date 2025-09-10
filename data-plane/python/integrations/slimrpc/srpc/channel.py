@@ -5,6 +5,7 @@ import asyncio
 import datetime
 import logging
 import sys
+import time
 from collections.abc import AsyncGenerator, AsyncIterable, Callable
 from typing import Any
 
@@ -361,4 +362,4 @@ class Channel:
 
 
 def _compute_deadline(timeout: int) -> float:
-    return asyncio.get_running_loop().time() + float(timeout)
+    return time.time() + float(timeout)
