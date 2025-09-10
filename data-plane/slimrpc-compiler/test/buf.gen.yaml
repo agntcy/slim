@@ -1,0 +1,10 @@
+version: v2
+managed:
+  enabled: true
+inputs:
+  - proto_file: test.proto
+plugins:
+  - local: /Users/msardara/repos/slim/data-plane/target/release/protoc-slimrpc-plugin
+    out: .
+  - remote: buf.build/protocolbuffers/python
+    out: .
