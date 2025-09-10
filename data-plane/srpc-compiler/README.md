@@ -1,12 +1,16 @@
-# SRPC Compiler
+# Slim RPC Compiler
 
-The SRPC Compiler (`protoc-slimrpc-plugin`) is a protoc plugin that generates Python client stubs and server servicers for SRPC (Slim RPC) from Protocol Buffer service definitions. This plugin enables you to build high-performance RPC services using the SRPC framework.
+The Slim RPC Compiler (`protoc-slimrpc-plugin`) is a protoc plugin that
+generates Python client stubs and server servicers for SRPC (Slim RPC) from
+Protocol Buffer service definitions. This plugin enables you to build
+high-performance RPC services using the SRPC framework.
 
 ## Features
 
 - Generates Python client stubs for calling SRPC services
 - Generates Python server servicers for implementing SRPC services
-- Supports all gRPC streaming patterns: unary-unary, unary-stream, stream-unary, and stream-stream
+- Supports all gRPC streaming patterns: unary-unary, unary-stream, stream-unary,
+  and stream-stream
 - Compatible with both `protoc` and `buf` build systems
 - Automatic import resolution for Protocol Buffer dependencies
 
@@ -18,7 +22,8 @@ The SRPC Compiler (`protoc-slimrpc-plugin`) is a protoc plugin that generates Py
 cargo install agntcy-protoc-slimrpc-plugin
 ```
 
-This will install the `protoc-slimrpc-plugin` binary to your Cargo bin directory (usually `~/.cargo/bin`).
+This will install the `protoc-slimrpc-plugin` binary to your Cargo bin directory
+(usually `~/.cargo/bin`).
 
 ### Option 2: Compile from Source
 
@@ -35,7 +40,8 @@ cd slim/data-plane/slimrpc-compiler
 cargo build --release
 ```
 
-3. The compiled binary will be available at `data-plane/target/release/protoc-slimrpc-plugin`
+3. The compiled binary will be available at
+   `data-plane/target/release/protoc-slimrpc-plugin`
 
 ## Usage
 
@@ -97,8 +103,8 @@ This will generate:
 You can specify a custom import for the types module. This allows to import the
 types from an external package.
 
-For instance, if you don't want to generate the types and you want to import them
-from a2a.grpc.a2a_pb2`,, you can do:
+For instance, if you don't want to generate the types and you want to import
+them from a2a.grpc.a2a_pb2`,, you can do:
 
 ```bash
 protoc \
@@ -369,7 +375,8 @@ async def amain() -> None:
 If you get an error that the plugin is not found:
 
 - Ensure `protoc-slimrpc-plugin` is in your PATH
-- Or specify the full path: `--plugin=protoc-gen-slimrpc=/full/path/to/protoc-slimrpc-plugin`
+- Or specify the full path:
+  `--plugin=protoc-gen-slimrpc=/full/path/to/protoc-slimrpc-plugin`
 
 ### Import Errors
 
@@ -389,8 +396,10 @@ If the plugin fails to build:
 
 ## Contributing
 
-Please see the main repository's contributing guidelines at [CONTRIBUTING.md](../../CONTRIBUTING.md).
+Please see the main repository's contributing guidelines at
+[CONTRIBUTING.md](../../CONTRIBUTING.md).
 
 ## License
 
-This project is licensed under the Apache 2.0 License - see the [LICENSE.md](../../LICENSE.md) file for details.
+This project is licensed under the Apache 2.0 License - see the
+[LICENSE.md](../../LICENSE.md) file for details.
