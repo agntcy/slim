@@ -13,14 +13,14 @@ pub mod interceptor_mls;
 pub mod streaming;
 pub mod timer;
 
-mod fire_and_forget;
+mod point_to_point;
 mod testutils;
 mod transmitter;
 
 mod channel_endpoint;
 mod moderator_task;
 
-pub use fire_and_forget::FireAndForgetConfiguration;
+pub use point_to_point::PointToPointConfiguration;
 pub use session::SessionMessage;
 use slim_controller::config::Config as ControllerConfig;
 use slim_controller::config::Config as DataplaneConfig;
@@ -519,7 +519,7 @@ mod tests {
         // create a fire and forget session
         let session_info = pub_app
             .create_session(
-                SessionConfig::FireAndForget(FireAndForgetConfiguration::default()),
+                SessionConfig::PointToPoint(PointToPointConfiguration::default()),
                 None,
             )
             .await
@@ -597,7 +597,7 @@ mod tests {
             .expect("failed to create app");
 
         //////////////////////////// ff session ////////////////////////////////////////////////////////////////////////
-        let session_config = SessionConfig::FireAndForget(FireAndForgetConfiguration::default());
+        let session_config = SessionConfig::PointToPoint(PointToPointConfiguration::default());
         let session_info = app
             .create_session(session_config.clone(), None)
             .await
@@ -615,7 +615,7 @@ mod tests {
         );
 
         // set config for the session
-        let session_config = SessionConfig::FireAndForget(FireAndForgetConfiguration::default());
+        let session_config = SessionConfig::PointToPoint(PointToPointConfiguration::default());
 
         app.set_session_config(&session_config, Some(session_info.id))
             .await
@@ -632,14 +632,14 @@ mod tests {
         );
 
         // set default session config
-        let session_config = SessionConfig::FireAndForget(FireAndForgetConfiguration::default());
+        let session_config = SessionConfig::PointToPoint(PointToPointConfiguration::default());
         app.set_session_config(&session_config, None)
             .await
             .expect("failed to set default session config");
 
         // get default session config
         let session_config_ret = app
-            .get_default_session_config(session::SessionType::FireAndForget)
+            .get_default_session_config(session::SessionType::PointToPoint)
             .await
             .expect("failed to get default session config");
 

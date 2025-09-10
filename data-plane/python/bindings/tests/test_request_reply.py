@@ -41,7 +41,7 @@ async def test_request_reply(server):
 
     # create request/reply session with default config
     session_info = await slim2.create_session(
-        slim_bindings.PySessionConfiguration.FireAndForget(
+        slim_bindings.PySessionConfiguration.PointToPoint(
             timeout=datetime.timedelta(seconds=1), max_retries=3, sticky=False
         )
     )

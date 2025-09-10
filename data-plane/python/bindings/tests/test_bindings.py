@@ -40,9 +40,9 @@ async def test_end_to_end(server):
     # set routes
     await slim_bindings.set_route(svc_alice, conn_id_alice, bob_name)
 
-    # create fire and forget session
+    # create point to point session
     session_info = await slim_bindings.create_session(
-        svc_alice, slim_bindings.PySessionConfiguration.FireAndForget()
+        svc_alice, slim_bindings.PySessionConfiguration.PointToPoint()
     )
 
     # send msg from Alice to Bob
@@ -100,8 +100,8 @@ async def test_session_config(server):
     # create svc
     svc = await create_svc(alice_name, "secret")
 
-    # create fire and forget session
-    session_config = slim_bindings.PySessionConfiguration.FireAndForget()
+    # create point to point session
+    session_config = slim_bindings.PySessionConfiguration.PointToPoint()
     session_info = await slim_bindings.create_session(svc, session_config)
 
     # get session configuration
@@ -109,7 +109,7 @@ async def test_session_config(server):
 
     # check if the session config is correct
     assert isinstance(
-        session_config, slim_bindings.PySessionConfiguration.FireAndForget
+        session_config, slim_bindings.PySessionConfiguration.PointToPoint
     )
     assert session_config == session_config_ret, (
         f"session config are not equal: {session_config} vs {session_config_ret}"
@@ -128,7 +128,7 @@ async def test_session_config(server):
 
     # check if the session config is correct
     assert isinstance(
-        session_config_ret, slim_bindings.PySessionConfiguration.FireAndForget
+        session_config_ret, slim_bindings.PySessionConfiguration.PointToPoint
     )
     assert session_config == session_config_ret, (
         f"session config are not equal: {session_config} vs {session_config_ret}"
@@ -216,7 +216,7 @@ async def test_slim_wrapper(server):
 
     # create session
     session_info = await slim2.create_session(
-        slim_bindings.PySessionConfiguration.FireAndForget()
+        slim_bindings.PySessionConfiguration.PointToPoint()
     )
 
     async with slim1, slim2:
@@ -292,9 +292,9 @@ async def test_auto_reconnect_after_server_restart(server):
     # set routing from Alice to Bob
     await slim_bindings.set_route(svc_alice, conn_id_alice, bob_name)
 
-    # create fire and forget session
+    # create point to point session
     session_info = await slim_bindings.create_session(
-        svc_alice, slim_bindings.PySessionConfiguration.FireAndForget()
+        svc_alice, slim_bindings.PySessionConfiguration.PointToPoint()
     )
 
     # verify baseline message exchange before the simulated server restart
@@ -338,9 +338,9 @@ async def test_error_on_nonexistent_subscription(server):
     alice_class = slim_bindings.PyName("org", "default", "alice", id=svc_alice.id)
     await slim_bindings.subscribe(svc_alice, conn_id_alice, alice_class)
 
-    # create fire and forget session
+    # create point to point session
     session_info = await slim_bindings.create_session(
-        svc_alice, slim_bindings.PySessionConfiguration.FireAndForget()
+        svc_alice, slim_bindings.PySessionConfiguration.PointToPoint()
     )
 
     # create Bob's name, but do not instantiate or subscribe Bob

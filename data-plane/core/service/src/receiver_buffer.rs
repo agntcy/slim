@@ -277,38 +277,38 @@ mod tests {
         let slim_header = SlimHeader::new(&src, &name_type, None);
 
         let h0 = SessionHeader::new(
-            ProtoSessionType::SessionFireForget.into(),
-            ProtoSessionMessageType::FnfMsg.into(),
+            ProtoSessionType::SessionPointToPoint.into(),
+            ProtoSessionMessageType::P2pMsg.into(),
             0,
             0,
         );
         let h1 = SessionHeader::new(
-            ProtoSessionType::SessionFireForget.into(),
-            ProtoSessionMessageType::FnfMsg.into(),
+            ProtoSessionType::SessionPointToPoint.into(),
+            ProtoSessionMessageType::P2pMsg.into(),
             0,
             1,
         );
         let h2 = SessionHeader::new(
-            ProtoSessionType::SessionFireForget.into(),
-            ProtoSessionMessageType::FnfMsg.into(),
+            ProtoSessionType::SessionPointToPoint.into(),
+            ProtoSessionMessageType::P2pMsg.into(),
             0,
             2,
         );
         let h3 = SessionHeader::new(
-            ProtoSessionType::SessionFireForget.into(),
-            ProtoSessionMessageType::FnfMsg.into(),
+            ProtoSessionType::SessionPointToPoint.into(),
+            ProtoSessionMessageType::P2pMsg.into(),
             0,
             3,
         );
         let h4 = SessionHeader::new(
-            ProtoSessionType::SessionFireForget.into(),
-            ProtoSessionMessageType::FnfMsg.into(),
+            ProtoSessionType::SessionPointToPoint.into(),
+            ProtoSessionMessageType::P2pMsg.into(),
             0,
             4,
         );
         let h5 = SessionHeader::new(
-            ProtoSessionType::SessionFireForget.into(),
-            ProtoSessionMessageType::FnfMsg.into(),
+            ProtoSessionType::SessionPointToPoint.into(),
+            ProtoSessionMessageType::P2pMsg.into(),
             0,
             5,
         );

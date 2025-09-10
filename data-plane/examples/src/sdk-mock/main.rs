@@ -9,7 +9,7 @@ use slim::config;
 use slim_auth::shared_secret::SharedSecret;
 use slim_datapath::messages::Name;
 use slim_service::{
-    FireAndForgetConfiguration,
+    PointToPointConfiguration,
     session::{self, SessionConfig},
 };
 
@@ -148,7 +148,7 @@ async fn main() {
         // create a fire and forget session
         let res = app
             .create_session(
-                SessionConfig::FireAndForget(FireAndForgetConfiguration::default()),
+                SessionConfig::PointToPoint(PointToPointConfiguration::default()),
                 None,
             )
             .await;

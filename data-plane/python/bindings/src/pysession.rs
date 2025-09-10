@@ -10,7 +10,7 @@ use pyo3_stub_gen::derive::gen_stub_pymethods;
 use slim_datapath::messages::Name;
 
 use crate::utils::PyName;
-use slim_service::FireAndForgetConfiguration;
+use slim_service::PointToPointConfiguration;
 use slim_service::StreamingConfiguration;
 use slim_service::session;
 pub use slim_service::session::SESSION_UNSPECIFIED;
@@ -114,7 +114,7 @@ impl From<session::SessionDirection> for PySessionDirection {
 #[derive(PartialEq, Clone)]
 pub(crate) enum PySessionType {
     #[pyo3(name = "FIRE_AND_FORGET")]
-    FireAndForget = session::SessionType::FireAndForget as isize,
+    PointToPoint = session::SessionType::PointToPoint as isize,
     #[pyo3(name = "STREAMING")]
     Streaming = session::SessionType::Streaming as isize,
 }
@@ -122,7 +122,7 @@ pub(crate) enum PySessionType {
 impl From<PySessionType> for session::SessionType {
     fn from(value: PySessionType) -> Self {
         match value {
-            PySessionType::FireAndForget => session::SessionType::FireAndForget,
+            PySessionType::PointToPoint => session::SessionType::PointToPoint,
             PySessionType::Streaming => session::SessionType::Streaming,
         }
     }
@@ -133,7 +133,7 @@ impl From<PySessionType> for session::SessionType {
 #[pyclass(eq)]
 pub(crate) enum PySessionConfiguration {
     #[pyo3(constructor = (timeout=None, max_retries=None, sticky=false, mls_enabled=false))]
-    FireAndForget {
+    PointToPoint {
         timeout: Option<std::time::Duration>,
         max_retries: Option<u32>,
         sticky: bool,
@@ -154,8 +154,8 @@ pub(crate) enum PySessionConfiguration {
 impl From<session::SessionConfig> for PySessionConfiguration {
     fn from(session_config: session::SessionConfig) -> Self {
         match session_config {
-            session::SessionConfig::FireAndForget(config) => {
-                PySessionConfiguration::FireAndForget {
+            session::SessionConfig::PointToPoint(config) => {
+                PySessionConfiguration::PointToPoint {
                     timeout: config.timeout,
                     max_retries: config.max_retries,
                     sticky: config.sticky,
@@ -177,12 +177,12 @@ impl From<session::SessionConfig> for PySessionConfiguration {
 impl From<PySessionConfiguration> for session::SessionConfig {
     fn from(value: PySessionConfiguration) -> Self {
         match value {
-            PySessionConfiguration::FireAndForget {
+            PySessionConfiguration::PointToPoint {
                 timeout,
                 max_retries,
                 sticky,
                 mls_enabled,
-            } => session::SessionConfig::FireAndForget(FireAndForgetConfiguration::new(
+            } => session::SessionConfig::PointToPoint(PointToPointConfiguration::new(
                 timeout,
                 max_retries,
                 sticky,

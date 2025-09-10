@@ -46,16 +46,16 @@ message Name {
 
 enum SessionType {
   SESSION_UNKNOWN = 0;
-  SESSION_FIRE_FORGET = 1;
+  SESSION_POINT_TO_POINT = 1;
   SESSION_STREAMING = 2;
   SESSION_PUB_SUB = 3;
 }
 
 enum SessionMessageType {
   UNSPECIFIED = 0;
-  FNF_MSG = 1;
-  FNF_RELIABLE = 2;
-  FNF_ACK = 3;
+  P2P_MSG = 1;
+  P2P_RELIABLE = 2;
+  P2P_ACK = 3;
   STREAM_MSG = 4;
   PUB_SUB_MSG = 5;
   RTX_REQUEST = 6;
@@ -76,9 +76,9 @@ enum SessionMessageType {
 // Session.session_id is the ID of the session
 
 // Session.message_id meaning according to the SessionMessageType
-// FNF = nonce
-// FNF_RELIABLE = nonce
-// FNF_ACK = nonce of the received FNF_RELIABLE message
+// P2P = nonce
+// P2P_RELIABLE = nonce
+// P2P_ACK = nonce of the received P2P_RELIABLE message
 // REQUEST = nonce
 // REPLY = nonce of the associated REQUEST
 // STREAM = sequential incremental ID

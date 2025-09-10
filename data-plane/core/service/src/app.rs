@@ -13,7 +13,7 @@ use tracing::{debug, error, warn};
 
 use crate::channel_endpoint::handle_channel_discovery_message;
 use crate::errors::SessionError;
-use crate::fire_and_forget::FireAndForgetConfiguration;
+use crate::point_to_point::PointToPointConfiguration;
 use crate::interceptor::SessionInterceptor;
 use crate::interceptor::{IdentityInterceptor, SessionInterceptorProvider};
 use crate::session::{
@@ -23,7 +23,7 @@ use crate::session::{
 };
 use crate::streaming::{self, StreamingConfiguration};
 use crate::transmitter::Transmitter;
-use crate::{ServiceError, fire_and_forget, session};
+use crate::{ServiceError, point_to_point, session};
 use slim_auth::traits::{TokenProvider, Verifier};
 use slim_datapath::Status;
 use slim_datapath::api::ProtoMessage as Message;
@@ -64,7 +64,7 @@ where
     transmitter: T,
 
     /// Default configuration for the session
-    default_ff_conf: SyncRwLock<FireAndForgetConfiguration>,
+    default_ff_conf: SyncRwLock<PointToPointConfiguration>,
     default_stream_conf: SyncRwLock<StreamingConfiguration>,
 
     /// Storage path for app data
@@ -120,7 +120,7 @@ where
         storage_path: std::path::PathBuf,
     ) -> Self {
         // Create default configurations
-        let default_ff_conf = SyncRwLock::new(FireAndForgetConfiguration::default());
+        let default_ff_conf = SyncRwLock::new(PointToPointConfiguration::default());
         let default_stream_conf = SyncRwLock::new(StreamingConfiguration::default());
 
         // Create identity interceptor
@@ -572,8 +572,8 @@ where
 
         // create a new session
         let session = match session_config {
-            SessionConfig::FireAndForget(conf) => {
-                Session::FireAndForget(fire_and_forget::FireAndForget::new(
+            SessionConfig::PointToPoint(conf) => {
+                Session::PointToPoint(point_to_point::PointToPoint::new(
                     id,
                     conf,
                     SessionDirection::Bidirectional,
@@ -770,14 +770,14 @@ where
         }
 
         let new_session_id = match session_message_type {
-            ProtoSessionMessageType::FnfMsg | ProtoSessionMessageType::FnfReliable => {
+            ProtoSessionMessageType::P2pMsg | ProtoSessionMessageType::P2pReliable => {
                 let mut conf = self.default_ff_conf.read().clone();
 
                 // Set that the session was initiated by another app
                 conf.initiator = false;
 
                 // If other session is reliable, set the timeout
-                if session_message_type == ProtoSessionMessageType::FnfReliable {
+                if session_message_type == ProtoSessionMessageType::P2pReliable {
                     if conf.timeout.is_none() {
                         conf.timeout = Some(std::time::Duration::from_secs(5));
                     }
@@ -787,7 +787,7 @@ where
                     }
                 }
 
-                self.create_session(SessionConfig::FireAndForget(conf), Some(id))
+                self.create_session(SessionConfig::PointToPoint(conf), Some(id))
                     .await?
             }
             ProtoSessionMessageType::StreamMsg | ProtoSessionMessageType::BeaconStream => {
@@ -801,7 +801,7 @@ where
             ProtoSessionMessageType::ChannelJoinRequest => {
                 // Create a new session based on the SessionType contained in the message
                 match message.message.get_session_header().session_type() {
-                    ProtoSessionType::SessionFireForget => {
+                    ProtoSessionType::SessionPointToPoint => {
                         let mut conf = self.default_ff_conf.read().clone();
                         conf.initiator = false;
 
@@ -815,7 +815,7 @@ where
 
                         conf.mls_enabled = message.message.contains_metadata(METADATA_MLS_ENABLED);
 
-                        self.create_session(SessionConfig::FireAndForget(conf), Some(id))
+                        self.create_session(SessionConfig::PointToPoint(conf), Some(id))
                             .await?
                     }
                     ProtoSessionType::SessionPubSub => {
@@ -851,7 +851,7 @@ where
             | ProtoSessionMessageType::ChannelMlsCommit
             | ProtoSessionMessageType::ChannelMlsWelcome
             | ProtoSessionMessageType::ChannelMlsAck
-            | ProtoSessionMessageType::FnfAck
+            | ProtoSessionMessageType::P2pAck
             | ProtoSessionMessageType::RtxRequest
             | ProtoSessionMessageType::RtxReply
             | ProtoSessionMessageType::PubSubMsg
@@ -891,7 +891,7 @@ where
             None => {
                 // modify the default session
                 match &session_config {
-                    SessionConfig::FireAndForget(_) => {
+                    SessionConfig::PointToPoint(_) => {
                         return self.default_ff_conf.write().replace(session_config);
                     }
                     SessionConfig::Streaming(_) => {
@@ -935,7 +935,7 @@ where
         session_type: SessionType,
     ) -> Result<SessionConfig, SessionError> {
         match session_type {
-            SessionType::FireAndForget => Ok(SessionConfig::FireAndForget(
+            SessionType::PointToPoint => Ok(SessionConfig::PointToPoint(
                 self.default_ff_conf.read().clone(),
             )),
             SessionType::Streaming => Ok(SessionConfig::Streaming(
@@ -965,7 +965,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::fire_and_forget::FireAndForgetConfiguration;
+    use crate::point_to_point::PointToPointConfiguration;
 
     use slim_auth::shared_secret::SharedSecret;
     use slim_datapath::{
@@ -1011,10 +1011,10 @@ mod tests {
             tx_app.clone(),
             std::path::PathBuf::from("/tmp/test_storage"),
         );
-        let session_config = FireAndForgetConfiguration::default();
+        let session_config = PointToPointConfiguration::default();
 
         let ret = app
-            .create_session(SessionConfig::FireAndForget(session_config), Some(1))
+            .create_session(SessionConfig::PointToPoint(session_config), Some(1))
             .await;
 
         assert!(ret.is_ok());
@@ -1040,7 +1040,7 @@ mod tests {
 
         let res = session_layer
             .create_session(
-                SessionConfig::FireAndForget(FireAndForgetConfiguration::default()),
+                SessionConfig::PointToPoint(PointToPointConfiguration::default()),
                 None,
             )
             .await;
@@ -1065,7 +1065,7 @@ mod tests {
 
         let res = session_layer
             .create_session(
-                SessionConfig::FireAndForget(FireAndForgetConfiguration::default()),
+                SessionConfig::PointToPoint(PointToPointConfiguration::default()),
                 Some(1),
             )
             .await;
@@ -1096,11 +1096,11 @@ mod tests {
             std::path::PathBuf::from("/tmp/test_storage"),
         );
 
-        let session_config = FireAndForgetConfiguration::default();
+        let session_config = PointToPointConfiguration::default();
 
         // create a new session
         let res = app
-            .create_session(SessionConfig::FireAndForget(session_config), Some(1))
+            .create_session(SessionConfig::PointToPoint(session_config), Some(1))
             .await;
         assert!(res.is_ok());
 
@@ -1115,8 +1115,8 @@ mod tests {
         // set the session id in the message
         let header = message.get_session_header_mut();
         header.session_id = 1;
-        header.set_session_type(ProtoSessionType::SessionFireForget);
-        header.set_session_message_type(ProtoSessionMessageType::FnfMsg);
+        header.set_session_type(ProtoSessionType::SessionPointToPoint);
+        header.set_session_message_type(ProtoSessionMessageType::P2pMsg);
 
         app.session_layer
             .handle_message(
@@ -1174,11 +1174,11 @@ mod tests {
             std::path::PathBuf::from("/tmp/test_storage"),
         );
 
-        let session_config = FireAndForgetConfiguration::default();
+        let session_config = PointToPointConfiguration::default();
 
         // create a new session
         let res = app
-            .create_session(SessionConfig::FireAndForget(session_config), Some(1))
+            .create_session(SessionConfig::PointToPoint(session_config), Some(1))
             .await;
         assert!(res.is_ok());
 
@@ -1195,8 +1195,8 @@ mod tests {
         // set the session id in the message
         let header = message.get_session_header_mut();
         header.session_id = 1;
-        header.set_session_type(ProtoSessionType::SessionFireForget);
-        header.set_session_message_type(ProtoSessionMessageType::FnfMsg);
+        header.set_session_type(ProtoSessionType::SessionPointToPoint);
+        header.set_session_message_type(ProtoSessionMessageType::P2pMsg);
 
         let res = app
             .session_layer

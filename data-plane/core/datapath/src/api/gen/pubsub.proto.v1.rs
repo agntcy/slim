@@ -100,7 +100,7 @@ pub mod message {
 #[repr(i32)]
 pub enum SessionType {
     SessionUnknown = 0,
-    SessionFireForget = 1,
+    SessionPointToPoint = 1,
     SessionStreaming = 2,
     SessionPubSub = 3,
 }
@@ -112,7 +112,7 @@ impl SessionType {
     pub fn as_str_name(&self) -> &'static str {
         match self {
             Self::SessionUnknown => "SESSION_UNKNOWN",
-            Self::SessionFireForget => "SESSION_FIRE_FORGET",
+            Self::SessionPointToPoint => "SESSION_POINT_TO_POINT",
             Self::SessionStreaming => "SESSION_STREAMING",
             Self::SessionPubSub => "SESSION_PUB_SUB",
         }
@@ -121,7 +121,7 @@ impl SessionType {
     pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
         match value {
             "SESSION_UNKNOWN" => Some(Self::SessionUnknown),
-            "SESSION_FIRE_FORGET" => Some(Self::SessionFireForget),
+            "SESSION_POINT_TO_POINT" => Some(Self::SessionPointToPoint),
             "SESSION_STREAMING" => Some(Self::SessionStreaming),
             "SESSION_PUB_SUB" => Some(Self::SessionPubSub),
             _ => None,
@@ -132,9 +132,9 @@ impl SessionType {
 #[repr(i32)]
 pub enum SessionMessageType {
     Unspecified = 0,
-    FnfMsg = 1,
-    FnfReliable = 2,
-    FnfAck = 3,
+    P2pMsg = 1,
+    P2pReliable = 2,
+    P2pAck = 3,
     StreamMsg = 4,
     PubSubMsg = 5,
     RtxRequest = 6,
@@ -160,9 +160,9 @@ impl SessionMessageType {
     pub fn as_str_name(&self) -> &'static str {
         match self {
             Self::Unspecified => "UNSPECIFIED",
-            Self::FnfMsg => "FNF_MSG",
-            Self::FnfReliable => "FNF_RELIABLE",
-            Self::FnfAck => "FNF_ACK",
+            Self::P2pMsg => "P2P_MSG",
+            Self::P2pReliable => "P2P_RELIABLE",
+            Self::P2pAck => "P2P_ACK",
             Self::StreamMsg => "STREAM_MSG",
             Self::PubSubMsg => "PUB_SUB_MSG",
             Self::RtxRequest => "RTX_REQUEST",
@@ -185,9 +185,9 @@ impl SessionMessageType {
     pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
         match value {
             "UNSPECIFIED" => Some(Self::Unspecified),
-            "FNF_MSG" => Some(Self::FnfMsg),
-            "FNF_RELIABLE" => Some(Self::FnfReliable),
-            "FNF_ACK" => Some(Self::FnfAck),
+            "P2P_MSG" => Some(Self::P2pMsg),
+            "P2P_RELIABLE" => Some(Self::P2pReliable),
+            "P2P_ACK" => Some(Self::P2pAck),
             "STREAM_MSG" => Some(Self::StreamMsg),
             "PUB_SUB_MSG" => Some(Self::PubSubMsg),
             "RTX_REQUEST" => Some(Self::RtxRequest),

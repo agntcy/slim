@@ -13,7 +13,7 @@ use slim_mls::mls::Mls;
 use tonic::Status;
 
 use crate::errors::SessionError;
-use crate::fire_and_forget::{FireAndForget, FireAndForgetConfiguration};
+use crate::point_to_point::{PointToPoint, PointToPointConfiguration};
 use crate::interceptor::SessionInterceptorProvider;
 use crate::interceptor_mls::MlsInterceptor;
 use crate::streaming::{Streaming, StreamingConfiguration};
@@ -35,7 +35,7 @@ where
     T: SessionTransmitter + Send + Sync + Clone + 'static,
 {
     /// Fire and forget session
-    FireAndForget(FireAndForget<P, V, T>),
+    PointToPoint(PointToPoint<P, V, T>),
     /// Streaming session
     Streaming(Streaming<P, V, T>),
 }
@@ -246,14 +246,14 @@ pub(crate) enum MessageDirection {
 /// The session type
 #[derive(Clone, PartialEq, Debug)]
 pub enum SessionType {
-    FireAndForget,
+    PointToPoint,
     Streaming,
 }
 
 impl std::fmt::Display for SessionType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            SessionType::FireAndForget => write!(f, "FireAndForget"),
+            SessionType::PointToPoint => write!(f, "PointToPoint"),
             SessionType::Streaming => write!(f, "Streaming"),
         }
     }
@@ -261,7 +261,7 @@ impl std::fmt::Display for SessionType {
 
 #[derive(Clone, PartialEq, Debug)]
 pub enum SessionConfig {
-    FireAndForget(FireAndForgetConfiguration),
+    PointToPoint(PointToPointConfiguration),
     Streaming(StreamingConfiguration),
 }
 
@@ -272,7 +272,7 @@ pub trait SessionConfigTrait {
 impl std::fmt::Display for SessionConfig {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            SessionConfig::FireAndForget(ff) => write!(f, "{}", ff),
+            SessionConfig::PointToPoint(ff) => write!(f, "{}", ff),
             SessionConfig::Streaming(s) => write!(f, "{}", s),
         }
     }
@@ -394,7 +394,7 @@ where
         direction: MessageDirection,
     ) -> Result<(), SessionError> {
         match self {
-            Session::FireAndForget(session) => session.on_message(message, direction).await,
+            Session::PointToPoint(session) => session.on_message(message, direction).await,
             Session::Streaming(session) => session.on_message(message, direction).await,
         }
     }
@@ -409,63 +409,63 @@ where
 {
     fn id(&self) -> Id {
         match self {
-            Session::FireAndForget(session) => session.id(),
+            Session::PointToPoint(session) => session.id(),
             Session::Streaming(session) => session.id(),
         }
     }
 
     fn state(&self) -> &State {
         match self {
-            Session::FireAndForget(session) => session.state(),
+            Session::PointToPoint(session) => session.state(),
             Session::Streaming(session) => session.state(),
         }
     }
 
     fn identity_provider(&self) -> P {
         match self {
-            Session::FireAndForget(session) => session.identity_provider(),
+            Session::PointToPoint(session) => session.identity_provider(),
             Session::Streaming(session) => session.identity_provider(),
         }
     }
 
     fn identity_verifier(&self) -> V {
         match self {
-            Session::FireAndForget(session) => session.identity_verifier(),
+            Session::PointToPoint(session) => session.identity_verifier(),
             Session::Streaming(session) => session.identity_verifier(),
         }
     }
 
     fn source(&self) -> &Name {
         match self {
-            Session::FireAndForget(session) => session.source(),
+            Session::PointToPoint(session) => session.source(),
             Session::Streaming(session) => session.source(),
         }
     }
 
     fn session_config(&self) -> SessionConfig {
         match self {
-            Session::FireAndForget(session) => session.session_config(),
+            Session::PointToPoint(session) => session.session_config(),
             Session::Streaming(session) => session.session_config(),
         }
     }
 
     fn set_session_config(&self, session_config: &SessionConfig) -> Result<(), SessionError> {
         match self {
-            Session::FireAndForget(session) => session.set_session_config(session_config),
+            Session::PointToPoint(session) => session.set_session_config(session_config),
             Session::Streaming(session) => session.set_session_config(session_config),
         }
     }
 
     fn tx(&self) -> T {
         match self {
-            Session::FireAndForget(session) => session.tx(),
+            Session::PointToPoint(session) => session.tx(),
             Session::Streaming(session) => session.tx(),
         }
     }
 
     fn tx_ref(&self) -> &T {
         match self {
-            Session::FireAndForget(session) => session.tx_ref(),
+            Session::PointToPoint(session) => session.tx_ref(),
             Session::Streaming(session) => session.tx_ref(),
         }
     }
@@ -506,7 +506,7 @@ where
         let mut conf = self.session_config.write();
 
         match *conf {
-            SessionConfig::FireAndForget(ref mut config) => {
+            SessionConfig::PointToPoint(ref mut config) => {
                 config.replace(session_config)?;
             }
             SessionConfig::Streaming(ref mut config) => {

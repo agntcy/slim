@@ -366,8 +366,8 @@ async fn main() {
     // create a fire and forget session
     let res = app
         .create_session(
-            slim_service::session::SessionConfig::FireAndForget(
-                slim_service::FireAndForgetConfiguration::default(),
+            slim_service::session::SessionConfig::PointToPoint(
+                slim_service::PointToPointConfiguration::default(),
             ),
             None,
         )

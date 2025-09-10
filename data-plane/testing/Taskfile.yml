@@ -101,7 +101,7 @@ tasks:
     desc: "start test for fire and forget session"
     cmds:
       - |
-        cargo run --release --bin test-ff -- --mls-disabled
-        cargo run --release --bin test-ff -- --mls-disabled --is-sticky
-        cargo run --release --bin test-ff -- --is-sticky
+        cargo run --release --bin test-p2p -- --mls-disabled
+        cargo run --release --bin test-p2p -- --mls-disabled --is-sticky
+        cargo run --release --bin test-p2p -- --is-sticky
 

@@ -105,7 +105,7 @@ async def test_identity_verification(server, audience):
 
     # create request/reply session with default config
     session_info = await slim_sender.create_session(
-        slim_bindings.PySessionConfiguration.FireAndForget(
+        slim_bindings.PySessionConfiguration.PointToPoint(
             timeout=datetime.timedelta(seconds=1), max_retries=3, sticky=False
         )
     )
