@@ -80,7 +80,7 @@ impl PySessionInfo {
 #[pyclass(eq, eq_int)]
 #[derive(PartialEq, Clone)]
 pub(crate) enum PySessionType {
-    #[pyo3(name = "FIRE_AND_FORGET")]
+    #[pyo3(name = "POINT_TO_POINT")]
     PointToPoint = session::SessionType::PointToPoint as isize,
     #[pyo3(name = "MULTICAST")]
     Multicast = session::SessionType::Multicast as isize,

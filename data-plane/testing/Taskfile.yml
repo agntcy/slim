@@ -98,7 +98,7 @@ tasks:
         cargo run --release --bin test-group -- --mls-disabled
 
   test:point-to-point-session:
-    desc: "start test for fire and forget session"
+    desc: "start test for point to point session"
     cmds:
       - |
         cargo run --release --bin test-p2p -- --mls-disabled

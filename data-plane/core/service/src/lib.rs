@@ -516,7 +516,7 @@ mod tests {
         // are in the same service (so they share one single slim instance) and the
         // subscription is done automatically.
 
-        // create a fire and forget session
+        // create a point to point session
         let session_info = pub_app
             .create_session(
                 SessionConfig::PointToPoint(PointToPointConfiguration::default()),

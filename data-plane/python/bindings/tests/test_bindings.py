@@ -121,7 +121,7 @@ async def test_session_config(server):
 
     # get default
     session_config_ret = await slim_bindings.get_default_session_config(
-        svc, slim_bindings.PySessionType.FIRE_AND_FORGET
+        svc, slim_bindings.PySessionType.POINT_TO_POINT
     )
 
     # check if the session config is correct

@@ -145,7 +145,7 @@ async fn main() {
 
     // check what to do with the message
     if let Some(msg) = message {
-        // create a fire and forget session
+        // create a p2p session
         let res = app
             .create_session(
                 SessionConfig::PointToPoint(PointToPointConfiguration::default()),
@@ -153,7 +153,7 @@ async fn main() {
             )
             .await;
         if res.is_err() {
-            panic!("error creating fire and forget session");
+            panic!("error creating p2p session");
         }
 
         // get the session

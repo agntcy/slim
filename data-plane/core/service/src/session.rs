@@ -34,7 +34,7 @@ where
     V: Verifier + Send + Sync + Clone + 'static,
     T: SessionTransmitter + Send + Sync + Clone + 'static,
 {
-    /// Fire and forget session
+    /// Point to Point session
     PointToPoint(PointToPoint<P, V, T>),
     /// Multicast session
     Multicast(Multicast<P, V, T>),

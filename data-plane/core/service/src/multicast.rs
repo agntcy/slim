@@ -235,9 +235,9 @@ where
             storage_path,
         );
 
-        let stream = Multicast { common, tx };
-        stream.process_message(rx);
-        stream
+        let session = Multicast { common, tx };
+        session.process_message(rx);
+        session
     }
 
     fn process_message(&self, mut rx: mpsc::Receiver<Result<(Message, MessageDirection), Status>>) {
@@ -403,9 +403,9 @@ where
 
                                 match direction {
                                     MessageDirection::North => {
-                                        // in this case the message can be a stream message to send to the app, a rtx request,
+                                        // in this case the message can be message to send to the app, a rtx request,
                                         // or a channel control message to handle in the channel endpoint
-                                        trace!("received message from SLIM on multicast {}", session_id);
+                                        trace!("received message from SLIM on multicast session {}", session_id);
                                         match msg.get_session_header().session_message_type() {
                                             ProtoSessionMessageType::RtxRequest => {
                                                 // handle RTX request
@@ -988,7 +988,7 @@ mod tests {
 
     #[tokio::test]
     #[traced_test]
-    async fn test_stream_create() {
+    async fn test_multicast_create() {
         let (tx_slim, _) = tokio::sync::mpsc::channel(1);
         let (tx_app, _) = tokio::sync::mpsc::channel(1);
 
@@ -1048,7 +1048,7 @@ mod tests {
 
     #[tokio::test]
     #[traced_test]
-    async fn test_stream_sender_and_receiver() {
+    async fn test_multicast_sender_and_receiver() {
         let (tx_slim_sender, mut rx_slim_sender) = tokio::sync::mpsc::channel(1);
         let (tx_app_sender, _rx_app_sender) = tokio::sync::mpsc::channel(1);
 
@@ -1140,7 +1140,7 @@ mod tests {
 
     #[tokio::test]
     #[traced_test]
-    async fn test_stream_rtx_timeouts() {
+    async fn test_multicast_rtx_timeouts() {
         let (tx_slim, mut rx_slim) = tokio::sync::mpsc::channel(1);
         let (tx_app, mut rx_app) = tokio::sync::mpsc::channel(1);
 
@@ -1222,7 +1222,7 @@ mod tests {
 
     #[tokio::test]
     #[traced_test]
-    async fn test_stream_rtx_reception() {
+    async fn test_multicast_rtx_reception() {
         let (tx_slim, mut rx_slim) = tokio::sync::mpsc::channel(8);
         let (tx_app, _rx_app) = tokio::sync::mpsc::channel(8);
 
@@ -1320,7 +1320,7 @@ mod tests {
 
     #[tokio::test]
     #[traced_test]
-    async fn test_stream_e2e_with_losses() {
+    async fn test_multicast_e2e_with_losses() {
         let (tx_slim_sender, mut rx_slim_sender) = tokio::sync::mpsc::channel(1);
         let (tx_app_sender, _rx_app_sender) = tokio::sync::mpsc::channel(1);
 

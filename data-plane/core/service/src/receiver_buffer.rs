@@ -74,7 +74,7 @@ impl ReceiverBuffer {
             match msg {
                 Some(m) => {
                     // no loss detected, return message
-                    // if this is the first packet received (case last_sent == usize::MAX) we consider it
+                    // if this is the first packet received (case last_sent == usize::MAX) we consider it a
                     // valid one and the buffer is initialized accordingly. in this way a stream can start from
                     // a random number or it can be joined at any time
                     debug!("No loss detected, return message {}", msg_id);

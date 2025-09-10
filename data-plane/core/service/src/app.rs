@@ -65,7 +65,7 @@ where
 
     /// Default configuration for the session
     default_ff_conf: SyncRwLock<PointToPointConfiguration>,
-    default_stream_conf: SyncRwLock<MulticastConfiguration>,
+    default_multicast_conf: SyncRwLock<MulticastConfiguration>,
 
     /// Storage path for app data
     storage_path: std::path::PathBuf,
@@ -121,7 +121,7 @@ where
     ) -> Self {
         // Create default configurations
         let default_ff_conf = SyncRwLock::new(PointToPointConfiguration::default());
-        let default_stream_conf = SyncRwLock::new(MulticastConfiguration::default());
+        let default_multicast_conf = SyncRwLock::new(MulticastConfiguration::default());
 
         // Create identity interceptor
         let identity_interceptor = Arc::new(IdentityInterceptor::new(
@@ -149,7 +149,7 @@ where
             tx_app,
             transmitter,
             default_ff_conf,
-            default_stream_conf,
+            default_multicast_conf,
             storage_path,
         });
 
@@ -805,7 +805,7 @@ where
                             .await?
                     }
                     ProtoSessionType::SessionMulticast => {
-                        let mut conf = self.default_stream_conf.read().clone();
+                        let mut conf = self.default_multicast_conf.read().clone();
                         conf.mls_enabled = message.message.contains_metadata(METADATA_MLS_ENABLED);
                         self.create_session(SessionConfig::Multicast(conf), Some(id))
                             .await?
@@ -873,7 +873,7 @@ where
                         return self.default_ff_conf.write().replace(session_config);
                     }
                     SessionConfig::Multicast(_) => {
-                        return self.default_stream_conf.write().replace(session_config);
+                        return self.default_multicast_conf.write().replace(session_config);
                     }
                 }
             }
@@ -917,7 +917,7 @@ where
                 self.default_ff_conf.read().clone(),
             )),
             SessionType::Multicast => Ok(SessionConfig::Multicast(
-                self.default_stream_conf.read().clone(),
+                self.default_multicast_conf.read().clone(),
             )),
         }
     }
