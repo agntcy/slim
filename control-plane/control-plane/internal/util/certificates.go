@@ -7,17 +7,19 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/agntcy/slim/control-plane/control-plane/internal/config"
 	"github.com/spiffe/go-spiffe/v2/spiffetls/tlsconfig"
 	"github.com/spiffe/go-spiffe/v2/workloadapi"
 	"google.golang.org/grpc/credentials"
+
+	"github.com/agntcy/slim/control-plane/control-plane/internal/config"
 )
 
 func LoadCertificates(ctx context.Context, apiConfig config.APIConfig) (credentials.TransportCredentials, error) {
 
 	cfg := apiConfig.TLS
 	if cfg.UseSpiffe {
-		source, err := workloadapi.NewX509Source(ctx, workloadapi.WithClientOptions(workloadapi.WithAddr(apiConfig.Spire.SocketPath)))
+		source, err := workloadapi.NewX509Source(ctx,
+			workloadapi.WithClientOptions(workloadapi.WithAddr(apiConfig.Spire.SocketPath)))
 		if err != nil {
 			return nil, fmt.Errorf("failed to create X.509 source using SPIRE Workload API: %w", err)
 		}
@@ -47,6 +49,8 @@ func LoadCertificates(ctx context.Context, apiConfig config.APIConfig) (credenti
 		Certificates: []tls.Certificate{cert},
 		ClientCAs:    clientCAPool,
 		ClientAuth:   clientAuth,
+		MinVersion:   tls.VersionTLS12,
+		MaxVersion:   tls.VersionTLS13,
 	}
 	return credentials.NewTLS(tlsConfig), nil
 }

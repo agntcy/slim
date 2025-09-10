@@ -7,8 +7,9 @@ import (
 	"log"
 	"net"
 
-	"github.com/agntcy/slim/control-plane/control-plane/internal/util"
 	"google.golang.org/grpc"
+
+	"github.com/agntcy/slim/control-plane/control-plane/internal/util"
 
 	southboundApi "github.com/agntcy/slim/control-plane/common/proto/controller/v1"
 	controlplaneApi "github.com/agntcy/slim/control-plane/common/proto/controlplane/v1"

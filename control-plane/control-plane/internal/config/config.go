@@ -50,7 +50,8 @@ type TLSConfig struct {
 func (a *TLSConfig) Validate() error {
 	if a.UseSpiffe {
 		if a.CAFile != "" || a.CertFile != "" || a.KeyFile != "" {
-			return errors.New("when useSpiffe is true, certFile, keyFile and caFile are not needed, as certificates are provided by SPIRE agent")
+			return errors.New("when useSpiffe is true, certFile, keyFile and caFile are not needed, " +
+				"as certificates are provided by SPIRE agent")
 		}
 		return nil
 	}
@@ -81,7 +82,7 @@ func (a APIConfig) Validate() error {
 	}
 	if a.TLS != nil {
 		if err := a.TLS.Validate(); err != nil {
-			return fmt.Errorf("invalid TLS configuration: %v", err)
+			return fmt.Errorf("invalid TLS configuration: %w", err)
 		}
 		if a.TLS.UseSpiffe && a.Spire.SocketPath == "" {
 			return errors.New("spire.socketPath is required when useSpiffe is true")
