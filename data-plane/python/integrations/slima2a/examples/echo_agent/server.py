@@ -1,7 +1,7 @@
 import argparse
 import asyncio
 
-import srpc
+import slimrpc
 import uvicorn
 from a2a.server.apps import A2AStarletteApplication
 from a2a.server.request_handlers import DefaultRequestHandler
@@ -14,7 +14,7 @@ from a2a.types import (
 
 from examples.echo_agent.echo_agent_executor import EchoAgentExecutor
 from slima2a.handler import SRPCHandler
-from slima2a.types.a2a_pb2_srpc import add_A2AServiceServicer_to_server
+from slima2a.types.a2a_pb2_slimrpc import add_A2AServiceServicer_to_server
 
 
 async def main() -> None:
@@ -48,10 +48,10 @@ async def main() -> None:
 
     servicer = None
     match args.type:
-        case "srpc":
+        case "slimrpc":
             servicer = SRPCHandler(agent_card, default_request_handler)
 
-            server = srpc.Server(
+            server = slimrpc.Server(
                 local="agntcy/demo/echo_agent",
                 slim={
                     "endpoint": "http://localhost:46357",
@@ -79,11 +79,11 @@ async def main() -> None:
 def parse_arguments() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
 
-    parser.add_argument("--type", type=str, required=False, default="srpc")
+    parser.add_argument("--type", type=str, required=False, default="slimrpc")
 
     args = parser.parse_args()
 
-    if args.type not in ["srpc", "starlette"]:
+    if args.type not in ["slimrpc", "starlette"]:
         raise ValueError(f"Invalid server type: {args.type}")
 
     return args

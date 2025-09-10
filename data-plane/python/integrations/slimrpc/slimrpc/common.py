@@ -10,7 +10,7 @@ import slim_bindings
 
 logger = logging.getLogger(__name__)
 
-DEADLINE_KEY = "srpc-timeout"
+DEADLINE_KEY = "slimrpc-timeout"
 
 MAX_TIMEOUT = 36000  # 10h
 

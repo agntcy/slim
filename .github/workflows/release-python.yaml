@@ -30,13 +30,13 @@ jobs:
       working-directory: ./data-plane/python/integrations
       prefix: slim-mcp:python
 
-  build-srpc:
+  build-slimrpc:
     name: Build slimrpc
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/slimrpc-')
     uses: ./.github/workflows/reusable-python-build-and-test.yaml
     with:
       working-directory: ./data-plane/python/integrations
-      prefix: srpc:python
+      prefix: slimrpc:python
 
   build-slima2a:
     name: Build slima2a
@@ -52,13 +52,13 @@ jobs:
     needs:
       - build-bindings-wheels
       - build-mcp-wheels
-      - build-srpc
+      - build-slimrpc
       - build-slima2a
     if: |
       always() &&
       (needs.build-bindings-wheels.result == 'skipped' || needs.build-bindings-wheels.result == 'success') &&
       (needs.build-mcp-wheels.result == 'skipped' || needs.build-mcp-wheels.result == 'success') &&
-      (needs.build-srpc.result == 'skipped' || needs.build-srpc.result == 'success') &&
+      (needs.build-slimrpc.result == 'skipped' || needs.build-slimrpc.result == 'success') &&
       (needs.build-slima2a.result == 'skipped' || needs.build-slima2a.result == 'success')
     environment: pypi
     permissions:

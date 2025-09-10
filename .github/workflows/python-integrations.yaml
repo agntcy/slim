@@ -19,13 +19,13 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  build-srpc:
-    name: Build srpc
+  build-slimrpc:
+    name: Build slimrpc
     uses: ./.github/workflows/reusable-python-build-and-test.yaml
     with:
       package: slimrpc
       working-directory: ./data-plane/python/integrations
-      prefix: srpc:python
+      prefix: slimrpc:python
 
   build-slima2a:
     name: Build slima2a

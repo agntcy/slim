@@ -6,7 +6,7 @@ from collections.abc import AsyncGenerator
 from dataclasses import dataclass
 from typing import Callable
 
-import srpc
+import slimrpc
 from a2a.client.client import ClientConfig as A2AClientConfig
 from a2a.client.middleware import ClientCallContext, ClientCallInterceptor
 from a2a.client.transports.base import ClientTransport
@@ -26,14 +26,14 @@ from a2a.types import (
 from a2a.utils import proto_utils
 from a2a.utils.telemetry import SpanKind, trace_class
 
-from slima2a.types import a2a_pb2_srpc
+from slima2a.types import a2a_pb2_slimrpc
 
 logger = logging.getLogger(__name__)
 
 
 @dataclass
 class ClientConfig(A2AClientConfig):
-    srpc_channel_factory: Callable[[str], srpc.Channel] | None = None
+    slimrpc_channel_factory: Callable[[str], slimrpc.Channel] | None = None
 
 
 @trace_class(kind=SpanKind.CLIENT)
@@ -42,13 +42,13 @@ class SRPCTransport(ClientTransport):
 
     def __init__(
         self,
-        channel: srpc.Channel,
+        channel: slimrpc.Channel,
         agent_card: AgentCard | None,
     ) -> None:
         """Initializes the GrpcTransport."""
         self.agent_card = agent_card
         self.channel = channel
-        self.stub = a2a_pb2_srpc.A2AServiceStub(channel)
+        self.stub = a2a_pb2_slimrpc.A2AServiceStub(channel)
         self._needs_extended_card = (
             agent_card.supports_authenticated_extended_card if agent_card else True
         )
@@ -62,9 +62,9 @@ class SRPCTransport(ClientTransport):
         interceptors: list[ClientCallInterceptor],
     ) -> "SRPCTransport":
         """Creates a gRPC transport for the A2A client."""
-        if config.srpc_channel_factory is None:
-            raise ValueError("srpc_channel_factory is required when using sRPC")
-        channel = config.srpc_channel_factory(url)
+        if config.slimrpc_channel_factory is None:
+            raise ValueError("slimrpc_channel_factory is required when using sRPC")
+        channel = config.slimrpc_channel_factory(url)
         return cls(
             channel,
             card,

@@ -6,7 +6,7 @@ logging.getLogger("a2a.utils.telemetry").setLevel(logging.ERROR)  # type: ignore
 logging.getLogger("asyncio").setLevel(logging.ERROR)  # type: ignore
 
 # ruff: noqa: E402
-import srpc
+import slimrpc
 from a2a.server.request_handlers import DefaultRequestHandler
 from a2a.server.tasks import InMemoryTaskStore
 from a2a.types import (
@@ -17,7 +17,7 @@ from a2a.types import (
 
 from examples.travel_planner_agent.agent_executor import TravelPlannerAgentExecutor
 from slima2a.handler import SRPCHandler
-from slima2a.types.a2a_pb2_srpc import add_A2AServiceServicer_to_server
+from slima2a.types.a2a_pb2_slimrpc import add_A2AServiceServicer_to_server
 
 
 async def main() -> None:
@@ -46,7 +46,7 @@ async def main() -> None:
     )
 
     servicer = SRPCHandler(agent_card, request_handler)
-    server = srpc.Server(
+    server = slimrpc.Server(
         local="agntcy/demo/travel_planner_agent",
         slim={
             "endpoint": "http://localhost:46357",
