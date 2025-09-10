@@ -14,7 +14,7 @@ use slim::config::ConfigResult;
 use slim_auth::shared_secret::SharedSecret;
 use slim_datapath::{api::ProtoMessage as Message, messages::Name};
 use slim_service::{
-    FireAndForgetConfiguration,
+    PointToPointConfiguration,
     session::{self, SessionConfig},
     timer::{self, Timer},
 };
@@ -309,12 +309,12 @@ impl Proxy {
 
         let res = app
             .create_session(
-                SessionConfig::FireAndForget(FireAndForgetConfiguration::default()),
+                SessionConfig::PointToPoint(PointToPointConfiguration::default()),
                 None,
             )
             .await;
         if res.is_err() {
-            panic!("error creating fire and forget session");
+            panic!("error creating p2p session");
         }
 
         let (proxy_tx, mut proxy_rx) = mpsc::channel(128);

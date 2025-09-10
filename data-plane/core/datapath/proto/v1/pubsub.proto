@@ -72,21 +72,21 @@ enum SessionMessageType {
 // Session.session_id is the ID of the session
 
 // Session.message_id meaning according to the SessionMessageType
-// P2P = nonce
+// P2P_MSG = nonce
 // P2P_RELIABLE = nonce
 // P2P_ACK = nonce of the received P2P_RELIABLE message
-// REQUEST = nonce
-// REPLY = nonce of the associated REQUEST
-// STREAM = sequential incremental ID
-// PUBSUB = sequential incremental ID
-// RTX_REQUEST = ID of the lost packet
-// RTX_REPLY = ID of the retransmitted packet
-// BEACON_STREAM = ID of the last message sent by the producer
-// BEACON_PUB_SUB = ID of the last message sent by the producer
-// JOIN_REQUEST = nonce
-// JOIN_REPLY = nonce of the associated JOIN_REQUEST
-// LEAVE_REQUEST = nonce
-// LEAVE_REPLY = nonce of the associated LEAVE_REQUEST
+// MULTICAST_MSG = sequential incremental ID per producer
+// RTX_REQUEST = nonce
+// RTX_REPLY = nonce of the associated RTX_REQUEST
+// BEACON_MULTICAST = ID of the last message sent by the producer
+// CHANNEL_DISCOVERY_REQUEST = nonce
+// CHANNEL_DISCOVERY_REPLY = nonce of the associated CHANNEL_DISCOVERY_REQUEST
+// CHANNEL_JOIN_REQUEST = nonce
+// CHANNEL_JOIN_REPLY = nonce of the associated CHANNEL_JOIN_REQUEST
+// CHANNEL_LEAVE_REQUEST = nonce
+// CHANNEL_LEAVE_REPLY = nonce of the associated CHANNEL_LEAVE_REQUEST
+// CHANNEL_MLS_COMMIT CHANNEL_MLS_WELCOME CHANNEL_MLS_PROPOSAL = nonce
+// CHANNEL_MLS_ACK = nonce of the associated MLS message
 
 message SessionHeader {
   SessionType session_type = 1;

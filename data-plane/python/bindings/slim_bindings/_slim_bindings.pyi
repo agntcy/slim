@@ -91,7 +91,7 @@ class PySessionType(Enum):
     r"""
     session type
     """
-    FIRE_AND_FORGET = auto()
+    POINT_TO_POINT = auto()
     MULTICAST = auto()
 
 def connect(svc:PyService, config:dict) -> typing.Any:
