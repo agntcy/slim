@@ -65,6 +65,7 @@ slim:
   service:
     # This sets the service type more information can be found here: https://kubernetes.io/docs/concepts/services-networking/service/#publishing-services-service-types
     type: ClusterIP
+    headless: false
     data:
       port: 46357
     control:
