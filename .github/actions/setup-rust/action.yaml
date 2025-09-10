@@ -29,9 +29,10 @@ runs:
       shell: bash
       run: |
         sudo apt-get update
+        wget https://apt.llvm.org/llvm.sh
+        chmod +x llvm.sh
+        sudo ./llvm.sh 19
         sudo apt-get install -y \
-          clang-14 \
-          llvm-14 \
           pkg-config \
           make \
           gcc-aarch64-linux-gnu \
