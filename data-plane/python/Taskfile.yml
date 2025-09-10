@@ -22,7 +22,7 @@ includes:
     flatten: true
   slima2a:
     taskfile: ./integrations/slima2a/Taskfile.yaml
-  srpc:
+  slimrpc:
     taskfile: ./integrations/slimrpc/Taskfile.yaml
   slim-mcp:
     taskfile: ./integrations/slim-mcp/Taskfile.yaml
@@ -39,7 +39,7 @@ tasks:
       - task: python:bindings:packaging
       - mv ./bindings/dist/* ./dist
       - uv build --package slim-bindings-examples
-      - uv build --package srpc
+      - uv build --package slimrpc
       - uv build --package slima2a
 
   python:examples:build:
@@ -58,7 +58,7 @@ tasks:
       - task: rust:toolchain:run-command
         vars:
           COMMAND: |
-            cargo build --package agntcy-protoc-srpc-plugin --bin protoc-srpc-plugin
+            cargo build --package agntcy-protoc-slimrpc-plugin --bin protoc-slimrpc-plugin
       - task: tools:buf
     cmds:
       - |

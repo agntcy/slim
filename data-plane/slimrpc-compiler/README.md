@@ -1,12 +1,16 @@
-# SRPC Compiler
+# Slim RPC Compiler
 
-The SRPC Compiler (`protoc-srpc-plugin`) is a protoc plugin that generates Python client stubs and server servicers for SRPC (Slim RPC) from Protocol Buffer service definitions. This plugin enables you to build high-performance RPC services using the SRPC framework.
+The Slim RPC Compiler (`protoc-slimrpc-plugin`) is a protoc plugin that
+generates Python client stubs and server servicers for SRPC (Slim RPC) from
+Protocol Buffer service definitions. This plugin enables you to build
+high-performance RPC services using the SRPC framework.
 
 ## Features
 
-- Generates Python client stubs for calling SRPC services
-- Generates Python server servicers for implementing SRPC services
-- Supports all gRPC streaming patterns: unary-unary, unary-stream, stream-unary, and stream-stream
+- Generates Python client stubs for calling SlimRPC services
+- Generates Python server servicers for implementing SlimRPC services
+- Supports all gRPC streaming patterns: unary-unary, unary-stream, stream-unary,
+  and stream-stream
 - Compatible with both `protoc` and `buf` build systems
 - Automatic import resolution for Protocol Buffer dependencies
 
@@ -15,10 +19,11 @@ The SRPC Compiler (`protoc-srpc-plugin`) is a protoc plugin that generates Pytho
 ### Option 1: Install via Cargo
 
 ```bash
-cargo install agntcy-protoc-srpc-plugin
+cargo install agntcy-protoc-slimrpc-plugin
 ```
 
-This will install the `protoc-srpc-plugin` binary to your Cargo bin directory (usually `~/.cargo/bin`).
+This will install the `protoc-slimrpc-plugin` binary to your Cargo bin directory
+(usually `~/.cargo/bin`).
 
 ### Option 2: Compile from Source
 
@@ -26,7 +31,7 @@ This will install the `protoc-srpc-plugin` binary to your Cargo bin directory (u
 
 ```bash
 git clone https://github.com/agntcy/slim.git
-cd slim/data-plane/srpc-compiler
+cd slim/data-plane/slimrpc-compiler
 ```
 
 2. Build the plugin:
@@ -35,7 +40,8 @@ cd slim/data-plane/srpc-compiler
 cargo build --release
 ```
 
-3. The compiled binary will be available at `data-plane/target/release/protoc-srpc-plugin`
+3. The compiled binary will be available at
+   `data-plane/target/release/protoc-slimrpc-plugin`
 
 ## Usage
 
@@ -73,7 +79,7 @@ message ExampleResponse {
 Make sure you have:
 
 - `protoc` (Protocol Buffer compiler) installed
-- The `protoc-srpc-plugin` binary in your PATH or specify its full path
+- The `protoc-slimrpc-plugin` binary in your PATH or specify its full path
 
 #### Generate Python Files
 
@@ -82,28 +88,28 @@ Make sure you have:
 protoc \
   --python_out=. \
   --pyi_out=. \
-  --plugin=~/.cargo/bin/protoc-srpc-plugin \
-  --srpc_out=. \
+  --plugin=~/.cargo/bin/protoc-slimrpc-plugin \
+  --slimrpc_out=. \
   example.proto
 ```
 
 This will generate:
 
 - `example_pb2.py` - Standard protobuf Python bindings
-- `example_pb2_srpc.py` - SRPC client stubs and server servicers
+- `example_pb2_slimrpc.py` - SRPC client stubs and server servicers
 
 #### With Custom Types Import
 
 You can specify a custom import for the types module. This allows to import the
 types from an external package.
 
-For instance, if you don't want to generate the types and you want to import them
-from a2a.grpc.a2a_pb2`,, you can do:
+For instance, if you don't want to generate the types and you want to import
+them from a2a.grpc.a2a_pb2`,, you can do:
 
 ```bash
 protoc \
-  --plugin=~/.cargo/bin/protoc-srpc-plugin \
-  --srpc_out=types_import="from a2a.grpc import a2a_pb2 as a2a__pb2":. \
+  --plugin=~/.cargo/bin/protoc-slimrpc-plugin \
+  --slimrpc_out=types_import="from a2a.grpc import a2a_pb2 as a2a__pb2":. \
   example.proto
 ```
 
@@ -112,7 +118,7 @@ protoc \
 #### Prerequisites
 
 - `buf` CLI installed
-- `protoc-srpc-plugin` binary in your PATH
+- `protoc-slimrpc-plugin` binary in your PATH
 
 #### Create buf.gen.yaml
 
@@ -125,7 +131,7 @@ managed:
 inputs:
   - proto_file: example.proto
 plugins:
-  - local: /path/to/protoc-srpc-plugin
+  - local: /path/to/protoc-slimrpc-plugin
     out: .
   - remote: buf.build/protocolbuffers/python
     out: .
@@ -152,7 +158,7 @@ version: v2
 managed:
   enabled: true
 plugins:
-  - local: protoc-srpc-plugin
+  - local: protoc-slimrpc-plugin
     out: generated
     opt:
       - types_import=from .pb2_types import example_pb2 as pb2
@@ -164,7 +170,7 @@ plugins:
 
 ## Generated Code Structure
 
-For the example above, the generated `example_pb2_srpc.py` will contain:
+For the example above, the generated `example_pb2_slimrpc.py` will contain:
 
 ### Client Stub
 
@@ -175,7 +181,7 @@ class TestStub:
         """Constructor.
 
         Args:
-            channel: A srpc.Channel.
+            channel: A slimrpc.Channel.
         """
         self.ExampleUnaryUnary = channel.unary_unary(...)
         self.ExampleUnaryStream = channel.unary_stream(...)
@@ -190,7 +196,7 @@ class TestServicer():
 
     def ExampleUnaryUnary(self, request, context):
         """Method for ExampleUnaryUnary. Implement your service logic here."""
-        raise srpc_rpc.SRPCResponseError(
+        raise slimrpc_rpc.SRPCResponseError(
             code=code__pb2.UNIMPLEMENTED, message="Method not implemented!"
         )
     # ... other methods
@@ -199,7 +205,7 @@ class TestServicer():
 ### Registration Function
 
 ```python
-def add_TestServicer_to_server(servicer, server: srpc.Server):
+def add_TestServicer_to_server(servicer, server: slimrpc.Server):
     # Registers the servicer with the SRPC server
     pass
 ```
@@ -221,15 +227,15 @@ import asyncio
 import logging
 from collections.abc import AsyncGenerator
 
-import srpc
-from srpc.examples.simple.types.example_pb2 import ExampleRequest
-from srpc.examples.simple.types.example_pb2_srpc import TestStub
+import slimrpc
+from slimrpc.examples.simple.types.example_pb2 import ExampleRequest
+from slimrpc.examples.simple.types.example_pb2_slimrpc import TestStub
 
 logger = logging.getLogger(__name__)
 
 
 async def amain() -> None:
-    channel = srpc.Channel(
+    channel = slimrpc.Channel(
         local="agntcy/grpc/client",
         slim={
             "endpoint": "http://localhost:46357",
@@ -273,13 +279,13 @@ import asyncio
 import logging
 from collections.abc import AsyncIterable
 
-from srpc.context import Context
-from srpc.examples.simple.types.example_pb2 import ExampleRequest, ExampleResponse
-from srpc.examples.simple.types.example_pb2_srpc import (
+from slimrpc.context import Context
+from slimrpc.examples.simple.types.example_pb2 import ExampleRequest, ExampleResponse
+from slimrpc.examples.simple.types.example_pb2_slimrpc import (
     TestServicer,
     add_TestServicer_to_server,
 )
-from srpc.server import Server
+from slimrpc.server import Server
 
 logger = logging.getLogger(__name__)
 
@@ -368,8 +374,9 @@ async def amain() -> None:
 
 If you get an error that the plugin is not found:
 
-- Ensure `protoc-srpc-plugin` is in your PATH
-- Or specify the full path: `--plugin=protoc-gen-srpc=/full/path/to/protoc-srpc-plugin`
+- Ensure `protoc-slimrpc-plugin` is in your PATH
+- Or specify the full path:
+  `--plugin=protoc-gen-slimrpc=/full/path/to/protoc-slimrpc-plugin`
 
 ### Import Errors
 
@@ -389,8 +396,10 @@ If the plugin fails to build:
 
 ## Contributing
 
-Please see the main repository's contributing guidelines at [CONTRIBUTING.md](../../CONTRIBUTING.md).
+Please see the main repository's contributing guidelines at
+[CONTRIBUTING.md](../../CONTRIBUTING.md).
 
 ## License
 
-This project is licensed under the Apache 2.0 License - see the [LICENSE.md](../../LICENSE.md) file for details.
+This project is licensed under the Apache 2.0 License - see the
+[LICENSE.md](../../LICENSE.md) file for details.

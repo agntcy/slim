@@ -27,11 +27,11 @@ default-groups = ["linting", "testing", "examples"]
 slimrpc = { workspace = true }
 
 [tool.ruff.format]
-exclude = ["*_pb2.py", "*_pb2.pyi", "*_pb2_srpc.py"]
+exclude = ["*_pb2.py", "*_pb2.pyi", "*_pb2_slimrpc.py"]
 
 [tool.ruff.lint]
 extend-select = ["I", "ASYNC", "SIM", "B", "ANN"]
-exclude = ["*_pb2.py", "*_pb2.pyi", "*_pb2_srpc.py"]
+exclude = ["*_pb2.py", "*_pb2.pyi", "*_pb2_slimrpc.py"]
 
 [build-system]
 requires = ["hatchling"]
