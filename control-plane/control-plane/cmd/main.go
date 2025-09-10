@@ -46,7 +46,7 @@ func main() {
 		if err != nil {
 			zlog.Fatal().Msgf("failed to listen: %v", err)
 		}
-		zlog.Info().Msgf("Northbound API Service is listening on %s\n", lis.Addr())
+		zlog.Info().Msgf("Northbound API Service is listening on %s", lis.Addr())
 		err = grpcServer.Serve(lis)
 		if err != nil {
 			zlog.Fatal().Msgf("failed to serve: %v", err)
@@ -74,7 +74,7 @@ func main() {
 	if err != nil {
 		zlog.Fatal().Msgf("failed to listen: %v", err)
 	}
-	zlog.Info().Msgf("Southbound API Service is Listening on %s\n", lisSB.Addr())
+	zlog.Info().Msgf("Southbound API Service is Listening on %s", lisSB.Addr())
 	err = sbGrpcServer.Serve(lisSB)
 	if err != nil {
 		zlog.Fatal().Msgf("failed to serve: %v", err)
