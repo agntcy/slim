@@ -31,12 +31,17 @@ jobs:
         run: |
            task data-plane:test:coverage
 
-      - name: Upload coverage to Codecov
+      # Run Go tests and generate coverage for control-plane
+      - name: Run Go tests for control-plane coverage
+        run: go test -coverprofile=coverage.out ./...
+        working-directory: control-plane/control-plane
+      # Upload combined coverage to Codecov
+      - name: Upload combined coverage to Codecov
         uses: codecov/codecov-action@v4
         with:
-          files: data-plane/lcov.info
-          flags: rust
-          name: rust-data-plane
+          files: data-plane/lcov.info,control-plane/control-plane/coverage.out
+          flags: rust,go
+          name: combined-coverage
           fail_ci_if_error: true
         env:
           CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
