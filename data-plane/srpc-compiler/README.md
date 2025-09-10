@@ -7,8 +7,8 @@ high-performance RPC services using the SRPC framework.
 
 ## Features
 
-- Generates Python client stubs for calling SRPC services
-- Generates Python server servicers for implementing SRPC services
+- Generates Python client stubs for calling SlimRPC services
+- Generates Python server servicers for implementing SlimRPC services
 - Supports all gRPC streaming patterns: unary-unary, unary-stream, stream-unary,
   and stream-stream
 - Compatible with both `protoc` and `buf` build systems
