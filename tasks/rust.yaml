@@ -55,13 +55,6 @@ env:
   STRIP_x86_64_unknown_linux_gnu: "{{.STRIP}}"
   CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER: "x86_64-linux-gnu-gcc"
 
-  # linux/arm64 + musl
-  AR_aarch64_unknown_linux_musl: "{{.AR}}"
-  CC_aarch64_unknown_linux_musl: "{{.CLANG}}"
-  CFLAGS_aarch64_unknown_linux_musl: "-fuse-ld={{.LINKER}}"
-  STRIP_aarch64_unknown_linux_musl: "{{.STRIP}}"
-  CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER: "aarch64-linux-musl-gcc"
-
 tasks:
   print-vars:
     desc: "Print the variables"
