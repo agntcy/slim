@@ -142,6 +142,7 @@ dependencies = [
 name = "agntcy-slim-controller"
 version = "0.2.0"
 dependencies = [
+ "agntcy-slim-auth",
  "agntcy-slim-config",
  "agntcy-slim-datapath",
  "agntcy-slim-signal",
@@ -3780,11 +3781,13 @@ dependencies = [
  "agntcy-slim",
  "agntcy-slim-auth",
  "agntcy-slim-config",
+ "agntcy-slim-controller",
  "agntcy-slim-datapath",
  "agntcy-slim-mls",
  "agntcy-slim-service",
  "agntcy-slim-signal",
  "clap",
+ "prost 0.13.5",
  "tokio",
  "tracing",
 ]

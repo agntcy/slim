@@ -32,7 +32,7 @@ func initConfig(opts *options.CommonOptions, flagSet *pflag.FlagSet) error {
 	// defaults
 	defaults := map[string]interface{}{
 		"server":        "localhost:50051",
-		"timeout":       "5s",
+		"timeout":       "15s",
 		"tls.insecure":  true,
 		"tls.ca_file":   "",
 		"tls.cert_file": "",
