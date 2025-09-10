@@ -49,9 +49,6 @@ from ._slim_bindings import (
     PyKeyFormat as PyKeyFormat,
 )
 from ._slim_bindings import (
-    PySessionDirection as PySessionDirection,
-)
-from ._slim_bindings import (
     init_tracing as init_tracing,
 )
 

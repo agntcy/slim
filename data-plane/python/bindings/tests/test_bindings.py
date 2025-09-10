@@ -95,7 +95,7 @@ async def test_end_to_end(server):
 async def test_session_config(server):
     alice_name = slim_bindings.PyName("org", "default", "alice")
 
-    stream_name = slim_bindings.PyName("org", "default", "stream")
+    group_name = slim_bindings.PyName("org", "default", "group")
 
     # create svc
     svc = await create_svc(alice_name, "secret")
@@ -108,9 +108,7 @@ async def test_session_config(server):
     session_config_ret = await slim_bindings.get_session_config(svc, session_info.id)
 
     # check if the session config is correct
-    assert isinstance(
-        session_config, slim_bindings.PySessionConfiguration.PointToPoint
-    )
+    assert isinstance(session_config, slim_bindings.PySessionConfiguration.PointToPoint)
     assert session_config == session_config_ret, (
         f"session config are not equal: {session_config} vs {session_config_ret}"
     )
@@ -134,24 +132,24 @@ async def test_session_config(server):
         f"session config are not equal: {session_config} vs {session_config_ret}"
     )
 
-    # Streaming session
-    session_config = slim_bindings.PySessionConfiguration.Streaming(
-        slim_bindings.PySessionDirection.SENDER, stream_name, False, 12345
+    # Multicast session
+    session_config = slim_bindings.PySessionConfiguration.Multicast(
+        group_name, False, 12345
     )
 
     session_info = await slim_bindings.create_session(svc, session_config)
     session_config_ret = await slim_bindings.get_session_config(svc, session_info.id)
     # check if the session config is correct
     assert isinstance(
-        session_config_ret, slim_bindings.PySessionConfiguration.Streaming
+        session_config_ret, slim_bindings.PySessionConfiguration.Multicast
     )
     assert session_config == session_config_ret
 
     # check default values
 
     # This session direction
-    session_config = slim_bindings.PySessionConfiguration.Streaming(
-        slim_bindings.PySessionDirection.SENDER, stream_name, False, 12345
+    session_config = slim_bindings.PySessionConfiguration.Multicast(
+        group_name, False, 12345
     )
 
     # Try to set a sender direction as default session. We should get an error, as we are trying to
@@ -167,8 +165,8 @@ async def test_session_config(server):
         )
 
     # Use a receiver direction
-    session_config = slim_bindings.PySessionConfiguration.Streaming(
-        slim_bindings.PySessionDirection.RECEIVER, stream_name, False, 12345
+    session_config = slim_bindings.PySessionConfiguration.Multicast(
+        group_name, False, 12345
     )
     await slim_bindings.set_default_session_config(
         svc,
@@ -177,11 +175,11 @@ async def test_session_config(server):
 
     # get default
     session_config_ret = await slim_bindings.get_default_session_config(
-        svc, slim_bindings.PySessionType.STREAMING
+        svc, slim_bindings.PySessionType.MULTICAST
     )
     # check if the session config is correct
     assert isinstance(
-        session_config_ret, slim_bindings.PySessionConfiguration.Streaming
+        session_config_ret, slim_bindings.PySessionConfiguration.Multicast
     )
     assert session_config == session_config_ret
 
