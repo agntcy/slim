@@ -410,7 +410,7 @@ impl ComponentBuilder for ServiceBuilder {
         name: &str,
         config: &Self::Config,
     ) -> Result<Self::Component, ComponentError> {
-        let node_name = config.node_id.unwrap_or(name.to_string());
+        let node_name = config.node_id.clone().unwrap_or(name.to_string());
         let id = ID::new_with_name(ServiceBuilder::kind(), &node_name)
             .map_err(|e| ComponentError::ConfigError(e.to_string()))?;
 
