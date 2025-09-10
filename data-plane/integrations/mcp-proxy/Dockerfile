@@ -16,6 +16,7 @@ RUN DEBIAN_FRONTEND=noninteractive \
         make \
         unzip \
         git \
+        lsb-release \
         pkg-config && \
     curl -OL https://apt.llvm.org/llvm.sh && \
     chmod +x llvm.sh && \
