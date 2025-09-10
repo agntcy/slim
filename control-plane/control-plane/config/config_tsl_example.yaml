@@ -1,15 +1,14 @@
 northbound:
   httpHost: localhost
   httpPort: 50051
-  logging:
-    level: DEBUG
 
 southbound:
   httpHost: localhost
   httpPort: 50052
-  logging:
-    level: DEBUG
   tls:
     certFile: "/certs/tls.crt"
     keyFile: "/certs/tls.key"
     caFile: "//certs/ca_bundle.pem"
+
+logging:
+  level: DEBUG

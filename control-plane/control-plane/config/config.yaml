@@ -1,13 +1,12 @@
 northbound:
   httpHost: localhost
   httpPort: 50051
-  logging:
-    level: DEBUG
 
 southbound:
   httpHost: localhost
   httpPort: 50052
-  logging:
-    level: DEBUG
+
+logging:
+  level: DEBUG
 
 
