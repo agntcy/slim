@@ -10,7 +10,7 @@ pub mod session;
 pub mod app;
 pub mod interceptor;
 pub mod interceptor_mls;
-pub mod streaming;
+pub mod multicast;
 pub mod timer;
 
 mod point_to_point;
@@ -20,13 +20,13 @@ mod transmitter;
 mod channel_endpoint;
 mod moderator_task;
 
+pub use multicast::MulticastConfiguration;
 pub use point_to_point::PointToPointConfiguration;
 pub use session::SessionMessage;
 use slim_controller::config::Config as ControllerConfig;
 use slim_controller::config::Config as DataplaneConfig;
 use slim_datapath::messages::Name;
 pub use slim_datapath::messages::utils::SlimHeaderFlags;
-pub use streaming::StreamingConfiguration;
 
 use serde::Deserialize;
 use session::{AppChannelReceiver, MessageDirection};
@@ -596,7 +596,7 @@ mod tests {
             .await
             .expect("failed to create app");
 
-        //////////////////////////// ff session ////////////////////////////////////////////////////////////////////////
+        //////////////////////////// p2p session ////////////////////////////////////////////////////////////////////////
         let session_config = SessionConfig::PointToPoint(PointToPointConfiguration::default());
         let session_info = app
             .create_session(session_config.clone(), None)
@@ -646,12 +646,11 @@ mod tests {
         assert_eq!(session_config, session_config_ret);
         ////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-        ////////////// stream session //////////////////////////////////////////////////////////////////////////////////
+        ////////////// multicast session //////////////////////////////////////////////////////////////////////////////////
 
         let stream = Name::from_strings(["agntcy", "ns", "stream"]);
 
-        let session_config = SessionConfig::Streaming(StreamingConfiguration::new(
-            session::SessionDirection::Receiver,
+        let session_config = SessionConfig::Multicast(MulticastConfiguration::new(
             stream.clone(),
             false,
             Some(1000),
@@ -673,21 +672,7 @@ mod tests {
             "session config mismatch"
         );
 
-        let session_config = SessionConfig::Streaming(StreamingConfiguration::new(
-            session::SessionDirection::Sender,
-            stream.clone(),
-            false,
-            Some(2000),
-            Some(time::Duration::from_secs(1234)),
-            false,
-        ));
-
-        app.set_session_config(&session_config, Some(session_info.id))
-            .await
-            .expect_err("we should not be allowed to set a different direction");
-
-        let session_config = SessionConfig::Streaming(StreamingConfiguration::new(
-            session::SessionDirection::Receiver,
+        let session_config = SessionConfig::Multicast(MulticastConfiguration::new(
             stream.clone(),
             false,
             Some(2000),
@@ -710,22 +695,7 @@ mod tests {
             "session config mismatch"
         );
 
-        // set default session config
-        let session_config = SessionConfig::Streaming(StreamingConfiguration::new(
-            session::SessionDirection::Sender,
-            stream.clone(),
-            false,
-            Some(20000),
-            Some(time::Duration::from_secs(12345)),
-            false,
-        ));
-
-        app.set_session_config(&session_config, None)
-            .await
-            .expect_err("we should not be allowed to set a sender direction as default");
-
-        let session_config = SessionConfig::Streaming(StreamingConfiguration::new(
-            session::SessionDirection::Receiver,
+        let session_config = SessionConfig::Multicast(MulticastConfiguration::new(
             stream.clone(),
             false,
             Some(20000),
@@ -739,7 +709,7 @@ mod tests {
 
         // get default session config
         let session_config_ret = app
-            .get_default_session_config(session::SessionType::Streaming)
+            .get_default_session_config(session::SessionType::Multicast)
             .await
             .expect("failed to get default session config");
 

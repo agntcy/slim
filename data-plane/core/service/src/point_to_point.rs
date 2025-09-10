@@ -21,7 +21,7 @@ use crate::channel_endpoint::{
 use crate::errors::SessionError;
 use crate::session::{
     Common, CommonSession, Id, MessageDirection, MessageHandler, SessionConfig, SessionConfigTrait,
-    SessionDirection, SessionMessage, SessionTransmitter, State,
+    SessionMessage, SessionTransmitter, State,
 };
 use crate::timer;
 use slim_datapath::api::{ProtoMessage as Message, ProtoSessionMessageType};
@@ -726,7 +726,6 @@ where
     pub(crate) fn new(
         id: Id,
         session_config: PointToPointConfiguration,
-        session_direction: SessionDirection,
         name: Name,
         tx_slim_app: T,
         identity_provider: P,
@@ -738,7 +737,6 @@ where
         // Common session stuff
         let common = Common::new(
             id,
-            session_direction,
             SessionConfig::PointToPoint(session_config.clone()),
             name,
             tx_slim_app.clone(),
@@ -937,7 +935,6 @@ mod tests {
         let session = PointToPoint::new(
             0,
             PointToPointConfiguration::default(),
-            SessionDirection::Bidirectional,
             source.clone(),
             tx,
             SharedSecret::new("a", "group"),
@@ -965,7 +962,6 @@ mod tests {
         let session = PointToPoint::new(
             0,
             PointToPointConfiguration::default(),
-            SessionDirection::Bidirectional,
             source.clone(),
             tx,
             SharedSecret::new("a", "group"),
@@ -1015,7 +1011,6 @@ mod tests {
         let session = PointToPoint::new(
             0,
             PointToPointConfiguration::default(),
-            SessionDirection::Bidirectional,
             source.clone(),
             tx,
             SharedSecret::new("a", "group"),
@@ -1085,7 +1080,6 @@ mod tests {
                 mls_enabled: false,
                 initiator: true,
             },
-            SessionDirection::Bidirectional,
             source.clone(),
             tx,
             SharedSecret::new("a", "group"),
@@ -1161,7 +1155,6 @@ mod tests {
                 mls_enabled: false,
                 initiator: true,
             },
-            SessionDirection::Bidirectional,
             local.clone(),
             tx_sender,
             SharedSecret::new("a", "group"),
@@ -1173,7 +1166,6 @@ mod tests {
         let session_recv = PointToPoint::new(
             0,
             PointToPointConfiguration::default(),
-            SessionDirection::Bidirectional,
             remote.clone(),
             tx_receiver,
             SharedSecret::new("a", "group"),
@@ -1274,7 +1266,6 @@ mod tests {
             let _session = PointToPoint::new(
                 0,
                 PointToPointConfiguration::default(),
-                SessionDirection::Bidirectional,
                 source.clone(),
                 tx,
                 SharedSecret::new("a", "group"),
@@ -1323,7 +1314,6 @@ mod tests {
                 mls_enabled,
                 initiator: true,
             },
-            SessionDirection::Bidirectional,
             local.clone(),
             sender_tx,
             SharedSecret::new("a", "group"),
@@ -1340,7 +1330,6 @@ mod tests {
                 mls_enabled,
                 initiator: false,
             },
-            SessionDirection::Bidirectional,
             remote.clone(),
             receiver_tx,
             SharedSecret::new("b", "group"),
@@ -1394,7 +1383,10 @@ mod tests {
             ProtoSessionMessageType::ChannelDiscoveryRequest,
         );
 
-        assert_eq!(msg.get_session_type(), ProtoSessionType::SessionPointToPoint);
+        assert_eq!(
+            msg.get_session_type(),
+            ProtoSessionType::SessionPointToPoint
+        );
 
         // create a discovery reply message. this is normally originated by the session layer
         let mut discovery_reply = handle_channel_discovery_message(

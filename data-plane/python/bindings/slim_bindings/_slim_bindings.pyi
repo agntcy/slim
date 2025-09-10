@@ -35,6 +35,9 @@ class PyName:
     def __str__(self) -> builtins.str:
         ...
 
+    def __hash__(self) -> builtins.int:
+        ...
+
 
 class PyService:
     id: builtins.int
@@ -81,23 +84,15 @@ class PyKeyFormat(Enum):
     Jwks = auto()
 
 class PySessionConfiguration(Enum):
-    FireAndForget = auto()
-    Streaming = auto()
-
-class PySessionDirection(Enum):
-    r"""
-    session direction
-    """
-    SENDER = auto()
-    RECEIVER = auto()
-    BIDIRECTIONAL = auto()
+    PointToPoint = auto()
+    Multicast = auto()
 
 class PySessionType(Enum):
     r"""
     session type
     """
     FIRE_AND_FORGET = auto()
-    STREAMING = auto()
+    MULTICAST = auto()
 
 def connect(svc:PyService, config:dict) -> typing.Any:
     ...

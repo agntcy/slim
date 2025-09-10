@@ -19,7 +19,7 @@ use crate::{
     producer_buffer, receiver_buffer,
     session::{
         Common, CommonSession, Id, Info, MessageHandler, SessionConfig, SessionConfigTrait,
-        SessionDirection, SessionTransmitter, State,
+        SessionTransmitter, State,
     },
     timer,
 };
@@ -38,10 +38,9 @@ use slim_datapath::{
 // this must be a number > 1
 const STREAM_BROADCAST: u32 = 50;
 
-/// Configuration for the Streaming session
+/// Configuration for the Multicast session
 #[derive(Debug, Clone, PartialEq)]
-pub struct StreamingConfiguration {
-    pub direction: SessionDirection,
+pub struct MulticastConfiguration {
     pub channel_name: Name,
     pub moderator: bool,
     pub max_retries: u32,
@@ -49,33 +48,25 @@ pub struct StreamingConfiguration {
     pub mls_enabled: bool,
 }
 
-impl SessionConfigTrait for StreamingConfiguration {
+impl SessionConfigTrait for MulticastConfiguration {
     fn replace(&mut self, session_config: &SessionConfig) -> Result<(), SessionError> {
         match session_config {
-            SessionConfig::Streaming(config) => {
-                if self.direction != config.direction {
-                    return Err(SessionError::ConfigurationError(format!(
-                        "cannot change session direction from {:?} to {:?}",
-                        self.direction, config.direction
-                    )));
-                }
-
+            SessionConfig::Multicast(config) => {
                 *self = config.clone();
                 Ok(())
             }
             _ => Err(SessionError::ConfigurationError(format!(
-                "invalid session config type: expected Streaming, got {:?}",
+                "invalid session config type: expected Multicast, got {:?}",
                 session_config
             ))),
         }
     }
 }
 
-impl Default for StreamingConfiguration {
+impl Default for MulticastConfiguration {
     fn default() -> Self {
-        StreamingConfiguration {
-            direction: SessionDirection::Receiver,
-            channel_name: Name::from_strings(["agntcy", "ns", "stream"]),
+        MulticastConfiguration {
+            channel_name: Name::from_strings(["agntcy", "ns", "mulitcast"]),
             moderator: false,
             max_retries: 10,
             timeout: std::time::Duration::from_millis(1000),
@@ -84,11 +75,11 @@ impl Default for StreamingConfiguration {
     }
 }
 
-impl std::fmt::Display for StreamingConfiguration {
+impl std::fmt::Display for MulticastConfiguration {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "StreamingConfiguration: channel_name: {}, modearator: {}, max_retries: {}, timeout: {} ms",
+            "MulticastConfiguration: channel_name: {}, modearator: {}, max_retries: {}, timeout: {} ms",
             self.channel_name,
             self.moderator,
             self.max_retries,
@@ -97,17 +88,15 @@ impl std::fmt::Display for StreamingConfiguration {
     }
 }
 
-impl StreamingConfiguration {
+impl MulticastConfiguration {
     pub fn new(
-        direction: SessionDirection,
         channel_name: Name,
         moderator: bool,
         max_retries: Option<u32>,
         timeout: Option<std::time::Duration>,
         mls_enabled: bool,
     ) -> Self {
-        StreamingConfiguration {
-            direction,
+        MulticastConfiguration {
             channel_name,
             moderator,
             max_retries: max_retries.unwrap_or(0),
@@ -207,18 +196,7 @@ struct ReceiverState {
     buffers: HashMap<Name, Receiver>,
 }
 
-struct BidirectionalState {
-    receiver: ReceiverState,
-    producer: ProducerState,
-}
-
-enum Endpoint {
-    Producer(ProducerState),
-    Receiver(ReceiverState),
-    Bidirectional(BidirectionalState),
-}
-
-pub(crate) struct Streaming<P, V, T>
+pub(crate) struct Multicast<P, V, T>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
@@ -228,7 +206,7 @@ where
     tx: mpsc::Sender<Result<(Message, MessageDirection), Status>>,
 }
 
-impl<P, V, T> Streaming<P, V, T>
+impl<P, V, T> Multicast<P, V, T>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
@@ -237,8 +215,7 @@ where
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn new(
         id: Id,
-        session_config: StreamingConfiguration,
-        session_direction: SessionDirection,
+        session_config: MulticastConfiguration,
         name: Name,
         tx_slim_app: T,
         identity_provider: P,
@@ -249,8 +226,7 @@ where
 
         let common = Common::new(
             id,
-            session_direction.clone(),
-            SessionConfig::Streaming(session_config.clone()),
+            SessionConfig::Multicast(session_config.clone()),
             name.clone(),
             tx_slim_app.clone(),
             identity_provider,
@@ -259,76 +235,44 @@ where
             storage_path,
         );
 
-        let stream = Streaming { common, tx };
-        stream.process_message(rx, session_direction);
+        let stream = Multicast { common, tx };
+        stream.process_message(rx);
         stream
     }
 
-    fn process_message(
-        &self,
-        mut rx: mpsc::Receiver<Result<(Message, MessageDirection), Status>>,
-        session_direction: SessionDirection,
-    ) {
+    fn process_message(&self, mut rx: mpsc::Receiver<Result<(Message, MessageDirection), Status>>) {
         let session_id = self.common.id();
 
         let (max_retries, timeout) = match self.common.session_config() {
-            SessionConfig::Streaming(streaming_configuration) => (
-                streaming_configuration.max_retries,
-                streaming_configuration.timeout,
+            SessionConfig::Multicast(multicast_configuration) => (
+                multicast_configuration.max_retries,
+                multicast_configuration.timeout,
             ),
             _ => {
-                panic!("unable to parse streaming configuration");
+                panic!("unable to parse multicast configuration");
             }
         };
 
         let (rtx_timer_tx, mut rtx_timer_rx) = mpsc::channel(128);
         let (prod_timer_tx, mut prod_timer_rx) = mpsc::channel(128);
 
-        let mut endpoint = match session_direction {
-            SessionDirection::Sender => {
-                let prod = ProducerState {
-                    buffer: ProducerBuffer::with_capacity(500),
-                    timer_observer: Arc::new(ProducerTimerObserver {
-                        channel: prod_timer_tx,
-                    }),
-                    timer: timer::Timer::new(
-                        1,
-                        timer::TimerType::Exponential,
-                        Duration::from_millis(1000),
-                        Some(Duration::from_secs(30)),
-                        None,
-                    ),
-                    next_id: 0,
-                };
-                Endpoint::Producer(prod)
-            }
-            SessionDirection::Receiver => {
-                let recv = ReceiverState {
-                    buffers: HashMap::new(),
-                };
-                Endpoint::Receiver(recv)
-            }
-            SessionDirection::Bidirectional => {
-                let producer = ProducerState {
-                    buffer: ProducerBuffer::with_capacity(500),
-                    timer_observer: Arc::new(ProducerTimerObserver {
-                        channel: prod_timer_tx,
-                    }),
-                    timer: timer::Timer::new(
-                        1,
-                        timer::TimerType::Exponential,
-                        Duration::from_millis(500),
-                        Some(Duration::from_secs(30)),
-                        None,
-                    ),
-                    next_id: 0,
-                };
-                let receiver = ReceiverState {
-                    buffers: HashMap::new(),
-                };
-                let state = BidirectionalState { receiver, producer };
-                Endpoint::Bidirectional(state)
-            }
+        let mut producer = ProducerState {
+            buffer: ProducerBuffer::with_capacity(500),
+            timer_observer: Arc::new(ProducerTimerObserver {
+                channel: prod_timer_tx,
+            }),
+            timer: timer::Timer::new(
+                1,
+                timer::TimerType::Exponential,
+                Duration::from_millis(500),
+                Some(Duration::from_secs(30)),
+                None,
+            ),
+            next_id: 0,
+        };
+
+        let mut receiver = ReceiverState {
+            buffers: HashMap::new(),
         };
 
         let mut rtx_timer_rx_closed = false;
@@ -336,10 +280,10 @@ where
 
         // get session config
         let session_config = match self.common.session_config() {
-            SessionConfig::Streaming(config) => config,
+            SessionConfig::Multicast(config) => config,
             _ => {
                 // this shohuld never happen
-                unreachable!("invalid session config type: expected Streaming");
+                unreachable!("invalid session config type: expected Multicast");
             }
         };
 
@@ -371,7 +315,7 @@ where
                         source.clone(),
                         session_config.channel_name.clone(),
                         id,
-                        ProtoSessionType::SessionPubSub,
+                        ProtoSessionType::SessionMulticast,
                         60,
                         Duration::from_secs(1),
                         mls,
@@ -384,7 +328,7 @@ where
                         source.clone(),
                         session_config.channel_name.clone(),
                         id,
-                        ProtoSessionType::SessionPubSub,
+                        ProtoSessionType::SessionMulticast,
                         60,
                         Duration::from_secs(1),
                         mls,
@@ -417,17 +361,9 @@ where
                                         // also in the list of receiver buffers. the name to search is the
                                         // surce of the ChannelLeaveReply message
                                         let name = msg.get_source();
-                                        match &mut endpoint {
-                                            Endpoint::Producer(_) => {/* nothing to do at the producer */}
-                                            Endpoint::Receiver(receiver) => {
-                                                // try to clean up the receiver buffers
-                                                receiver.buffers.remove(&name);
-                                            }
-                                            Endpoint::Bidirectional(state) => {
-                                                // try to clean up the receiver buffers
-                                                state.receiver.buffers.remove(&name);
-                                            }
-                                        }
+                                        // try to clean up the receiver buffers
+                                        receiver.buffers.remove(&name);
+
                                         match channel_endpoint.on_message(msg).await {
                                             Ok(_) => {},
                                             Err(e) => {
@@ -456,16 +392,7 @@ where
                                         // to flush the producer buffer
                                         if !flushed && channel_endpoint.is_mls_up().unwrap_or(false) {
                                             // flush the producer buffer
-                                            match &mut endpoint {
-                                                Endpoint::Producer(producer) => {
-                                                    flush_producer_buffer(producer, session_id, &tx).await;
-                                                }
-                                                Endpoint::Receiver(_) => { /* nothing to di in this case */ }
-                                                Endpoint::Bidirectional(state) => {
-                                                    flush_producer_buffer(&mut state.producer, session_id, &tx).await;
-                                                }
-                                            }
-
+                                            flush_producer_buffer(&mut producer, session_id, &tx).await;
                                             flushed = true;
                                         }
 
@@ -474,60 +401,28 @@ where
                                     _ => {}
                                 }
 
-                                match &mut endpoint {
-                                    Endpoint::Producer(producer) => {
-                                        match direction {
-                                            MessageDirection::North => {
-                                                trace!("received message from SLIM on producer session {}", session_id);
-                                                // received a message from the SLIM
-                                                // this must be an RTX message otherwise drop it
-                                                match msg.get_session_header().session_message_type() {
-                                                    ProtoSessionMessageType::RtxRequest => {}
-                                                    _ => {
-                                                        error!("received invalid packet type on producer session {}: not RTX request", session_id);
-                                                        continue;
-                                                    }
-                                                };
-
-                                                process_incoming_rtx_request(msg, session_id, producer, &source, &tx).await;
+                                match direction {
+                                    MessageDirection::North => {
+                                        // in this case the message can be a stream message to send to the app, a rtx request,
+                                        // or a channel control message to handle in the channel endpoint
+                                        trace!("received message from SLIM on multicast {}", session_id);
+                                        match msg.get_session_header().session_message_type() {
+                                            ProtoSessionMessageType::RtxRequest => {
+                                                // handle RTX request
+                                                process_incoming_rtx_request(msg, session_id, &producer, &source, &tx).await;
                                             }
-                                            MessageDirection::South => {
-                                                // received a message from the application
-                                                // if flushed is true send the packet, otherwise keep it in the buffer
-                                                let bidirectional = false;
-                                                process_message_from_app(msg, session_id, producer, bidirectional, flushed, &tx).await;
+                                            _ => {
+                                                process_message_from_slim(msg, session_id, &mut receiver, &source, max_retries, timeout, &rtx_timer_tx, &tx).await;
                                             }
                                         }
                                     }
-                                    Endpoint::Receiver(receiver) => {
-                                        trace!("received message from SLIM on receiver session {}", session_id);
-                                        process_message_from_slim(msg, session_id, receiver, &source, max_retries, timeout, &rtx_timer_tx, &tx).await;
+                                    MessageDirection::South => {
+                                        // received a message from the APP
+                                        // if flushed is true send the packet, otherwise keep it in the buffer
+                                        process_message_from_app(msg, session_id, &mut producer, flushed, &tx).await;
                                     }
-                                    Endpoint::Bidirectional(state) => {
-                                        match direction {
-                                            MessageDirection::North => {
-                                                // in this case the message can be a stream message to send to the app, a rtx request,
-                                                // or a channel control message to handle in the channel endpoint
-                                                trace!("received message from SLIM on bidirectional session {}", session_id);
-                                                match msg.get_session_header().session_message_type() {
-                                                    ProtoSessionMessageType::RtxRequest => {
-                                                        // handle RTX request
-                                                        process_incoming_rtx_request(msg, session_id, &state.producer, &source, &tx).await;
-                                                    }
-                                                    _ => {
-                                                        process_message_from_slim(msg, session_id, &mut state.receiver, &source, max_retries, timeout, &rtx_timer_tx, &tx).await;
-                                                    }
-                                                }
-                                            }
-                                            MessageDirection::South => {
-                                                // received a message from the APP
-                                                // if flushed is true send the packet, otherwise keep it in the buffer
-                                                let bidirectional = true;
-                                                process_message_from_app(msg, session_id, &mut state.producer, bidirectional, flushed, &tx).await;
-                                            }
-                                        };
-                                    }
-                                }
+                                };
+
                             }
                         }
                     }
@@ -545,25 +440,10 @@ where
                                 }
 
                                 let (msg_id, retry, producer_name) = result.unwrap();
-                                match &mut endpoint {
-                                    Endpoint::Receiver(receiver) => {
-                                        if retry {
-                                            handle_rtx_timeout(receiver, &producer_name, msg_id, session_id, &tx).await;
-                                        } else {
-                                            handle_rtx_failure(receiver, &producer_name, msg_id, session_id, &tx).await;
-                                        }
-                                    }
-                                    Endpoint::Producer(_) => {
-                                        error!("received rtx timer on a producer buffer");
-                                        continue;
-                                    }
-                                    Endpoint::Bidirectional(state) => {
-                                        if retry {
-                                            handle_rtx_timeout(&mut state.receiver, &producer_name, msg_id, session_id, &tx).await;
-                                        } else {
-                                            handle_rtx_failure(&mut state.receiver, &producer_name, msg_id, session_id, &tx).await;
-                                        }
-                                    }
+                                if retry {
+                                    handle_rtx_timeout(&mut receiver, &producer_name, msg_id, session_id, &tx).await;
+                                } else {
+                                    handle_rtx_failure(&mut receiver, &producer_name, msg_id, session_id, &tx).await;
                                 }
                             }
                         }
@@ -577,24 +457,10 @@ where
                             },
                             Some(result) => match result {
                                 Ok(_) => {
-                                    match &mut endpoint {
-                                        Endpoint::Producer(producer) => {
-                                            let last_msg_id = producer.next_id - 1;
-                                            debug!("received producer timer, last packet = {}", last_msg_id);
+                                    let last_msg_id = producer.next_id - 1;
+                                    debug!("received producer timer, last packet = {}", last_msg_id);
 
-                                            send_beacon_msg(&source, producer.buffer.get_destination_name(), ProtoSessionMessageType::BeaconStream, last_msg_id, session_id, &tx).await;
-                                        }
-                                        Endpoint::Bidirectional(state) => {
-                                            let last_msg_id = state.producer.next_id - 1;
-                                            debug!("received producer timer, last packet = {}", last_msg_id);
-
-                                            send_beacon_msg(&source, state.producer.buffer.get_destination_name(), ProtoSessionMessageType::BeaconPubSub, last_msg_id, session_id, &tx).await;
-                                        }
-                                        _ => {
-                                            error!("received producer timer on a non producer buffer");
-                                            continue;
-                                        }
-                                    }
+                                    send_beacon_msg(&source, producer.buffer.get_destination_name(), ProtoSessionMessageType::BeaconMulticast, last_msg_id, session_id, &tx).await;
                                 }
                                 Err(_) => {
                                     error!("error receiving a producer timer, skip it");
@@ -611,7 +477,7 @@ where
             }
 
             debug!(
-                "stopping message processing on streaming session {}",
+                "stopping message processing on multicast session {}",
                 session_id
             );
         });
@@ -664,7 +530,7 @@ async fn process_incoming_rtx_request<T>(
             ));
 
             let session_header = Some(SessionHeader::new(
-                ProtoSessionType::SessionStreaming.into(),
+                ProtoSessionType::SessionMulticast.into(),
                 ProtoSessionMessageType::RtxReply.into(),
                 session_id,
                 msg_rtx_id,
@@ -691,7 +557,7 @@ async fn process_incoming_rtx_request<T>(
             let slim_header = Some(SlimHeader::new(source, &pkt_src, Some(flags)));
 
             let session_header = Some(SessionHeader::new(
-                ProtoSessionType::SessionStreaming.into(),
+                ProtoSessionType::SessionMulticast.into(),
                 ProtoSessionMessageType::RtxReply.into(),
                 session_id,
                 msg_rtx_id,
@@ -739,7 +605,6 @@ async fn process_message_from_app<T>(
     mut msg: Message,
     session_id: u32,
     producer: &mut ProducerState,
-    is_bidirectional: bool,
     send_msg: bool,
     tx: &T,
 ) where
@@ -748,13 +613,9 @@ async fn process_message_from_app<T>(
     // set the session header, add the message to the buffer and send it
     trace!("received message from the app on session {}", session_id);
 
-    if is_bidirectional {
-        msg.set_session_type(ProtoSessionType::SessionPubSub);
-        msg.set_session_message_type(ProtoSessionMessageType::PubSubMsg);
-    } else {
-        msg.set_session_type(ProtoSessionType::SessionStreaming);
-        msg.set_session_message_type(ProtoSessionMessageType::StreamMsg);
-    }
+    msg.set_session_type(ProtoSessionType::SessionMulticast);
+    msg.set_session_message_type(ProtoSessionMessageType::MulticastMsg);
+
     msg.set_message_id(producer.next_id);
     msg.set_fanout(STREAM_BROADCAST);
 
@@ -834,10 +695,7 @@ async fn process_message_from_slim<T>(
     let msg_id = msg.get_id();
 
     match header_type {
-        ProtoSessionMessageType::StreamMsg => {
-            (recv, rtx) = receiver.buffer.on_received_message(msg);
-        }
-        ProtoSessionMessageType::PubSubMsg => {
+        ProtoSessionMessageType::MulticastMsg => {
             (recv, rtx) = receiver.buffer.on_received_message(msg);
         }
         ProtoSessionMessageType::RtxReply => {
@@ -861,12 +719,8 @@ async fn process_message_from_slim<T>(
                 }
             }
         }
-        ProtoSessionMessageType::BeaconStream => {
-            debug!("received stream beacon for message {}", msg_id);
-            rtx = receiver.buffer.on_beacon_message(msg_id);
-        }
-        ProtoSessionMessageType::BeaconPubSub => {
-            debug!("received pubsub beacon for message {}", msg_id);
+        ProtoSessionMessageType::BeaconMulticast => {
+            debug!("received multicast beacon for message {}", msg_id);
             rtx = receiver.buffer.on_beacon_message(msg_id);
         }
         _ => {
@@ -898,7 +752,7 @@ async fn process_message_from_slim<T>(
         ));
 
         let session_header = Some(SessionHeader::new(
-            ProtoSessionType::SessionStreaming.into(),
+            ProtoSessionType::SessionMulticast.into(),
             ProtoSessionMessageType::RtxRequest.into(),
             session_id,
             r,
@@ -1016,7 +870,7 @@ async fn send_beacon_msg<T>(
     ));
 
     let session_header = Some(SessionHeader::new(
-        ProtoSessionType::SessionStreaming.into(),
+        ProtoSessionType::SessionMulticast.into(),
         beacon_type.into(),
         session_id,
         last_msg_id,
@@ -1056,7 +910,7 @@ where
 }
 
 #[async_trait]
-impl<P, V, T> MessageHandler for Streaming<P, V, T>
+impl<P, V, T> MessageHandler for Multicast<P, V, T>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
@@ -1075,7 +929,7 @@ where
 }
 
 #[async_trait]
-impl<P, V, T> CommonSession<P, V, T> for Streaming<P, V, T>
+impl<P, V, T> CommonSession<P, V, T> for Multicast<P, V, T>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
@@ -1146,19 +1000,12 @@ mod tests {
         let source = Name::from_strings(["agntcy", "ns", "local"]).with_id(0);
         let stream = Name::from_strings(["agntcy", "ns", "local_stream"]).with_id(0);
 
-        let session_config: StreamingConfiguration = StreamingConfiguration::new(
-            SessionDirection::Sender,
-            stream.clone(),
-            false,
-            None,
-            None,
-            false,
-        );
+        let session_config: MulticastConfiguration =
+            MulticastConfiguration::new(stream.clone(), false, None, None, false);
 
-        let session = Streaming::new(
+        let session = Multicast::new(
             0,
             session_config.clone(),
-            SessionDirection::Sender,
             source.clone(),
             tx.clone(),
             SharedSecret::new("a", "group"),
@@ -1170,11 +1017,10 @@ mod tests {
         assert_eq!(session.state(), &State::Active);
         assert_eq!(
             session.session_config(),
-            SessionConfig::Streaming(session_config.clone())
+            SessionConfig::Multicast(session_config.clone())
         );
 
-        let session_config: StreamingConfiguration = StreamingConfiguration::new(
-            SessionDirection::Receiver,
+        let session_config: MulticastConfiguration = MulticastConfiguration::new(
             stream,
             false,
             Some(10),
@@ -1182,10 +1028,9 @@ mod tests {
             false,
         );
 
-        let session = Streaming::new(
+        let session = Multicast::new(
             1,
             session_config.clone(),
-            SessionDirection::Receiver,
             source.clone(),
             tx,
             SharedSecret::new("a", "group"),
@@ -1197,7 +1042,7 @@ mod tests {
         assert_eq!(session.state(), &State::Active);
         assert_eq!(
             session.session_config(),
-            SessionConfig::Streaming(session_config)
+            SessionConfig::Multicast(session_config)
         );
     }
 
@@ -1223,16 +1068,9 @@ mod tests {
         let send = Name::from_strings(["cisco", "default", "sender"]).with_id(0);
         let recv = Name::from_strings(["cisco", "default", "receiver"]).with_id(0);
 
-        let session_config_sender: StreamingConfiguration = StreamingConfiguration::new(
-            SessionDirection::Sender,
-            send.clone(),
-            false,
-            None,
-            None,
-            false,
-        );
-        let session_config_receiver: StreamingConfiguration = StreamingConfiguration::new(
-            SessionDirection::Receiver,
+        let session_config_sender: MulticastConfiguration =
+            MulticastConfiguration::new(send.clone(), false, None, None, false);
+        let session_config_receiver: MulticastConfiguration = MulticastConfiguration::new(
             send.clone(),
             false,
             Some(5),
@@ -1240,20 +1078,18 @@ mod tests {
             false,
         );
 
-        let sender = Streaming::new(
+        let sender = Multicast::new(
             0,
             session_config_sender,
-            SessionDirection::Sender,
             send.clone(),
             tx_sender,
             SharedSecret::new("a", "group"),
             SharedSecret::new("a", "group"),
             std::path::PathBuf::from("/tmp/test_session_sender"),
         );
-        let receiver = Streaming::new(
+        let receiver = Multicast::new(
             0,
             session_config_receiver,
-            SessionDirection::Receiver,
             recv.clone(),
             tx_receiver,
             SharedSecret::new("a", "group"),
@@ -1275,8 +1111,8 @@ mod tests {
 
         // set session header type for test check
         let mut expected_msg = message.clone();
-        expected_msg.set_session_message_type(ProtoSessionMessageType::StreamMsg);
-        expected_msg.set_session_type(ProtoSessionType::SessionStreaming);
+        expected_msg.set_session_message_type(ProtoSessionMessageType::MulticastMsg);
+        expected_msg.set_session_type(ProtoSessionType::SessionMulticast);
         expected_msg.set_fanout(STREAM_BROADCAST);
 
         let session_msg = SessionMessage::new(message.clone(), Info::new(0));
@@ -1313,8 +1149,7 @@ mod tests {
         let sender = Name::from_strings(["agntcy", "ns", "sender"]).with_id(0);
         let receiver = Name::from_strings(["agntcy", "ns", "receiver"]).with_id(0);
 
-        let session_config: StreamingConfiguration = StreamingConfiguration::new(
-            SessionDirection::Receiver,
+        let session_config: MulticastConfiguration = MulticastConfiguration::new(
             sender.clone(),
             false,
             Some(5),
@@ -1322,10 +1157,9 @@ mod tests {
             false,
         );
 
-        let session = Streaming::new(
+        let session = Multicast::new(
             0,
             session_config,
-            SessionDirection::Receiver,
             sender.clone(),
             tx,
             SharedSecret::new("a", "group"),
@@ -1343,7 +1177,7 @@ mod tests {
 
         // set the session type
         let header = message.get_session_header_mut();
-        header.set_session_message_type(ProtoSessionMessageType::StreamMsg);
+        header.set_session_message_type(ProtoSessionMessageType::MulticastMsg);
 
         let session_msg: SessionMessage = SessionMessage::new(message.clone(), Info::new(0));
 
@@ -1397,8 +1231,7 @@ mod tests {
         let receiver = Name::from_strings(["agntcy", "ns", "receiver"]).with_id(0);
         let sender = Name::from_strings(["agntcy", "ns", "sender"]).with_id(0);
 
-        let session_config: StreamingConfiguration = StreamingConfiguration::new(
-            SessionDirection::Receiver,
+        let session_config: MulticastConfiguration = MulticastConfiguration::new(
             sender.clone(),
             false,
             Some(5),
@@ -1406,10 +1239,9 @@ mod tests {
             false,
         );
 
-        let session = Streaming::new(
+        let session = Multicast::new(
             120,
             session_config,
-            SessionDirection::Sender,
             receiver.clone(),
             tx,
             SharedSecret::new("a", "group"),
@@ -1442,7 +1274,7 @@ mod tests {
             assert_eq!(msg_header.message_id, i);
             assert_eq!(
                 msg_header.session_message_type(),
-                ProtoSessionMessageType::StreamMsg
+                ProtoSessionMessageType::MulticastMsg
             );
         }
 
@@ -1457,7 +1289,7 @@ mod tests {
         ));
 
         let session_header = Some(SessionHeader::new(
-            ProtoSessionType::SessionStreaming.into(),
+            ProtoSessionType::SessionMulticast.into(),
             ProtoSessionMessageType::RtxRequest.into(),
             1,
             2,
@@ -1508,16 +1340,9 @@ mod tests {
         let send = Name::from_strings(["cisco", "default", "sender"]).with_id(0);
         let recv = Name::from_strings(["cisco", "default", "receiver"]).with_id(0);
 
-        let session_config_sender: StreamingConfiguration = StreamingConfiguration::new(
-            SessionDirection::Sender,
-            recv.clone(),
-            false,
-            None,
-            None,
-            false,
-        );
-        let session_config_receiver: StreamingConfiguration = StreamingConfiguration::new(
-            SessionDirection::Receiver,
+        let session_config_sender: MulticastConfiguration =
+            MulticastConfiguration::new(recv.clone(), false, None, None, false);
+        let session_config_receiver: MulticastConfiguration = MulticastConfiguration::new(
             recv.clone(),
             false,
             Some(5),
@@ -1526,20 +1351,18 @@ mod tests {
             false,
         );
 
-        let sender = Streaming::new(
+        let sender = Multicast::new(
             0,
             session_config_sender,
-            SessionDirection::Sender,
             send.clone(),
             tx_sender,
             SharedSecret::new("a", "group"),
             SharedSecret::new("a", "group"),
             std::path::PathBuf::from("/tmp/test_session_sender"),
         );
-        let receiver = Streaming::new(
+        let receiver = Multicast::new(
             0,
             session_config_receiver,
-            SessionDirection::Receiver,
             recv.clone(),
             tx_receiver,
             SharedSecret::new("a", "group"),
@@ -1575,7 +1398,7 @@ mod tests {
             assert_eq!(msg_header.message_id, i);
             assert_eq!(
                 msg_header.session_message_type(),
-                ProtoSessionMessageType::StreamMsg
+                ProtoSessionMessageType::MulticastMsg
             );
 
             // the receiver should detect a loss for packet 1
@@ -1597,7 +1420,7 @@ mod tests {
         assert_eq!(msg_header.message_id, 0);
         assert_eq!(
             msg_header.session_message_type(),
-            ProtoSessionMessageType::StreamMsg
+            ProtoSessionMessageType::MulticastMsg
         );
         assert_eq!(
             msg.message.get_source(),
@@ -1702,7 +1525,7 @@ mod tests {
         assert_eq!(msg_header.message_id, 2);
         assert_eq!(
             msg_header.session_message_type(),
-            ProtoSessionMessageType::StreamMsg
+            ProtoSessionMessageType::MulticastMsg
         );
         assert_eq!(
             msg.message.get_source(),
@@ -1725,14 +1548,13 @@ mod tests {
         let source = Name::from_strings(["agntcy", "ns", "local"]).with_id(0);
         let stream = Name::from_strings(["agntcy", "ns", "stream"]);
 
-        let session_config: StreamingConfiguration =
-            StreamingConfiguration::new(SessionDirection::Sender, stream, false, None, None, false);
+        let session_config: MulticastConfiguration =
+            MulticastConfiguration::new(stream, false, None, None, false);
 
         {
-            let _session = Streaming::new(
+            let _session = Multicast::new(
                 0,
                 session_config.clone(),
-                SessionDirection::Sender,
                 source.clone(),
                 tx,
                 SharedSecret::new("a", "group"),
@@ -1746,7 +1568,7 @@ mod tests {
 
         // check that the session is deleted, by checking the log
         assert!(logs_contain(
-            "stopping message processing on streaming session 0"
+            "stopping message processing on multicast session 0"
         ));
     }
 }

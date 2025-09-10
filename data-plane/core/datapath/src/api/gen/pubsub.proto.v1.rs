@@ -101,8 +101,7 @@ pub mod message {
 pub enum SessionType {
     SessionUnknown = 0,
     SessionPointToPoint = 1,
-    SessionStreaming = 2,
-    SessionPubSub = 3,
+    SessionMulticast = 2,
 }
 impl SessionType {
     /// String value of the enum field names used in the ProtoBuf definition.
@@ -113,8 +112,7 @@ impl SessionType {
         match self {
             Self::SessionUnknown => "SESSION_UNKNOWN",
             Self::SessionPointToPoint => "SESSION_POINT_TO_POINT",
-            Self::SessionStreaming => "SESSION_STREAMING",
-            Self::SessionPubSub => "SESSION_PUB_SUB",
+            Self::SessionMulticast => "SESSION_MULTICAST",
         }
     }
     /// Creates an enum from field names used in the ProtoBuf definition.
@@ -122,8 +120,7 @@ impl SessionType {
         match value {
             "SESSION_UNKNOWN" => Some(Self::SessionUnknown),
             "SESSION_POINT_TO_POINT" => Some(Self::SessionPointToPoint),
-            "SESSION_STREAMING" => Some(Self::SessionStreaming),
-            "SESSION_PUB_SUB" => Some(Self::SessionPubSub),
+            "SESSION_MULTICAST" => Some(Self::SessionMulticast),
             _ => None,
         }
     }
@@ -135,22 +132,20 @@ pub enum SessionMessageType {
     P2pMsg = 1,
     P2pReliable = 2,
     P2pAck = 3,
-    StreamMsg = 4,
-    PubSubMsg = 5,
-    RtxRequest = 6,
-    RtxReply = 7,
-    BeaconStream = 8,
-    BeaconPubSub = 9,
-    ChannelDiscoveryRequest = 10,
-    ChannelDiscoveryReply = 11,
-    ChannelJoinRequest = 12,
-    ChannelJoinReply = 13,
-    ChannelLeaveRequest = 14,
-    ChannelLeaveReply = 15,
-    ChannelMlsCommit = 16,
-    ChannelMlsWelcome = 17,
-    ChannelMlsProposal = 18,
-    ChannelMlsAck = 19,
+    MulticastMsg = 4,
+    RtxRequest = 5,
+    RtxReply = 6,
+    BeaconMulticast = 7,
+    ChannelDiscoveryRequest = 8,
+    ChannelDiscoveryReply = 9,
+    ChannelJoinRequest = 10,
+    ChannelJoinReply = 11,
+    ChannelLeaveRequest = 12,
+    ChannelLeaveReply = 13,
+    ChannelMlsCommit = 14,
+    ChannelMlsWelcome = 15,
+    ChannelMlsProposal = 16,
+    ChannelMlsAck = 17,
 }
 impl SessionMessageType {
     /// String value of the enum field names used in the ProtoBuf definition.
@@ -163,12 +158,10 @@ impl SessionMessageType {
             Self::P2pMsg => "P2P_MSG",
             Self::P2pReliable => "P2P_RELIABLE",
             Self::P2pAck => "P2P_ACK",
-            Self::StreamMsg => "STREAM_MSG",
-            Self::PubSubMsg => "PUB_SUB_MSG",
+            Self::MulticastMsg => "MULTICAST_MSG",
             Self::RtxRequest => "RTX_REQUEST",
             Self::RtxReply => "RTX_REPLY",
-            Self::BeaconStream => "BEACON_STREAM",
-            Self::BeaconPubSub => "BEACON_PUB_SUB",
+            Self::BeaconMulticast => "BEACON_MULTICAST",
             Self::ChannelDiscoveryRequest => "CHANNEL_DISCOVERY_REQUEST",
             Self::ChannelDiscoveryReply => "CHANNEL_DISCOVERY_REPLY",
             Self::ChannelJoinRequest => "CHANNEL_JOIN_REQUEST",
@@ -188,12 +181,10 @@ impl SessionMessageType {
             "P2P_MSG" => Some(Self::P2pMsg),
             "P2P_RELIABLE" => Some(Self::P2pReliable),
             "P2P_ACK" => Some(Self::P2pAck),
-            "STREAM_MSG" => Some(Self::StreamMsg),
-            "PUB_SUB_MSG" => Some(Self::PubSubMsg),
+            "MULTICAST_MSG" => Some(Self::MulticastMsg),
             "RTX_REQUEST" => Some(Self::RtxRequest),
             "RTX_REPLY" => Some(Self::RtxReply),
-            "BEACON_STREAM" => Some(Self::BeaconStream),
-            "BEACON_PUB_SUB" => Some(Self::BeaconPubSub),
+            "BEACON_MULTICAST" => Some(Self::BeaconMulticast),
             "CHANNEL_DISCOVERY_REQUEST" => Some(Self::ChannelDiscoveryRequest),
             "CHANNEL_DISCOVERY_REPLY" => Some(Self::ChannelDiscoveryReply),
             "CHANNEL_JOIN_REQUEST" => Some(Self::ChannelJoinRequest),

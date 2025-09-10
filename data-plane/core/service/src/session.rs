@@ -13,10 +13,10 @@ use slim_mls::mls::Mls;
 use tonic::Status;
 
 use crate::errors::SessionError;
-use crate::point_to_point::{PointToPoint, PointToPointConfiguration};
 use crate::interceptor::SessionInterceptorProvider;
 use crate::interceptor_mls::MlsInterceptor;
-use crate::streaming::{Streaming, StreamingConfiguration};
+use crate::multicast::{Multicast, MulticastConfiguration};
+use crate::point_to_point::{PointToPoint, PointToPointConfiguration};
 use slim_datapath::api::{ProtoMessage as Message, ProtoSessionMessageType};
 use slim_datapath::messages::encoder::Name;
 
@@ -36,8 +36,8 @@ where
 {
     /// Fire and forget session
     PointToPoint(PointToPoint<P, V, T>),
-    /// Streaming session
-    Streaming(Streaming<P, V, T>),
+    /// Multicast session
+    Multicast(Multicast<P, V, T>),
 }
 
 /// Message wrapper
@@ -227,16 +227,6 @@ pub enum State {
     Inactive,
 }
 
-/// The type of a session
-#[derive(Clone, PartialEq, Debug)]
-pub enum SessionDirection {
-    #[allow(dead_code)]
-    Sender,
-    #[allow(dead_code)]
-    Receiver,
-    Bidirectional,
-}
-
 #[derive(Clone, PartialEq, Debug)]
 pub(crate) enum MessageDirection {
     North,
@@ -247,14 +237,14 @@ pub(crate) enum MessageDirection {
 #[derive(Clone, PartialEq, Debug)]
 pub enum SessionType {
     PointToPoint,
-    Streaming,
+    Multicast,
 }
 
 impl std::fmt::Display for SessionType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             SessionType::PointToPoint => write!(f, "PointToPoint"),
-            SessionType::Streaming => write!(f, "Streaming"),
+            SessionType::Multicast => write!(f, "Multicast"),
         }
     }
 }
@@ -262,7 +252,7 @@ impl std::fmt::Display for SessionType {
 #[derive(Clone, PartialEq, Debug)]
 pub enum SessionConfig {
     PointToPoint(PointToPointConfiguration),
-    Streaming(StreamingConfiguration),
+    Multicast(MulticastConfiguration),
 }
 
 pub trait SessionConfigTrait {
@@ -273,7 +263,7 @@ impl std::fmt::Display for SessionConfig {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             SessionConfig::PointToPoint(ff) => write!(f, "{}", ff),
-            SessionConfig::Streaming(s) => write!(f, "{}", s),
+            SessionConfig::Multicast(s) => write!(f, "{}", s),
         }
     }
 }
@@ -367,10 +357,6 @@ where
     /// Session type
     session_config: RwLock<SessionConfig>,
 
-    /// Session direction
-    #[allow(dead_code)]
-    session_direction: SessionDirection,
-
     /// Source name
     source: Name,
 
@@ -395,7 +381,7 @@ where
     ) -> Result<(), SessionError> {
         match self {
             Session::PointToPoint(session) => session.on_message(message, direction).await,
-            Session::Streaming(session) => session.on_message(message, direction).await,
+            Session::Multicast(session) => session.on_message(message, direction).await,
         }
     }
 }
@@ -410,63 +396,63 @@ where
     fn id(&self) -> Id {
         match self {
             Session::PointToPoint(session) => session.id(),
-            Session::Streaming(session) => session.id(),
+            Session::Multicast(session) => session.id(),
         }
     }
 
     fn state(&self) -> &State {
         match self {
             Session::PointToPoint(session) => session.state(),
-            Session::Streaming(session) => session.state(),
+            Session::Multicast(session) => session.state(),
         }
     }
 
     fn identity_provider(&self) -> P {
         match self {
             Session::PointToPoint(session) => session.identity_provider(),
-            Session::Streaming(session) => session.identity_provider(),
+            Session::Multicast(session) => session.identity_provider(),
         }
     }
 
     fn identity_verifier(&self) -> V {
         match self {
             Session::PointToPoint(session) => session.identity_verifier(),
-            Session::Streaming(session) => session.identity_verifier(),
+            Session::Multicast(session) => session.identity_verifier(),
         }
     }
 
     fn source(&self) -> &Name {
         match self {
             Session::PointToPoint(session) => session.source(),
-            Session::Streaming(session) => session.source(),
+            Session::Multicast(session) => session.source(),
         }
     }
 
     fn session_config(&self) -> SessionConfig {
         match self {
             Session::PointToPoint(session) => session.session_config(),
-            Session::Streaming(session) => session.session_config(),
+            Session::Multicast(session) => session.session_config(),
         }
     }
 
     fn set_session_config(&self, session_config: &SessionConfig) -> Result<(), SessionError> {
         match self {
             Session::PointToPoint(session) => session.set_session_config(session_config),
-            Session::Streaming(session) => session.set_session_config(session_config),
+            Session::Multicast(session) => session.set_session_config(session_config),
         }
     }
 
     fn tx(&self) -> T {
         match self {
             Session::PointToPoint(session) => session.tx(),
-            Session::Streaming(session) => session.tx(),
+            Session::Multicast(session) => session.tx(),
         }
     }
 
     fn tx_ref(&self) -> &T {
         match self {
             Session::PointToPoint(session) => session.tx_ref(),
-            Session::Streaming(session) => session.tx_ref(),
+            Session::Multicast(session) => session.tx_ref(),
         }
     }
 }
@@ -509,7 +495,7 @@ where
             SessionConfig::PointToPoint(ref mut config) => {
                 config.replace(session_config)?;
             }
-            SessionConfig::Streaming(ref mut config) => {
+            SessionConfig::Multicast(ref mut config) => {
                 config.replace(session_config)?;
             }
         }
@@ -535,7 +521,6 @@ where
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn new(
         id: Id,
-        session_direction: SessionDirection,
         session_config: SessionConfig,
         source: Name,
         tx: T,
@@ -561,7 +546,6 @@ where
             state: State::Active,
             identity_provider,
             identity_verifier: verifier,
-            session_direction,
             session_config: RwLock::new(session_config),
             source,
             mls,

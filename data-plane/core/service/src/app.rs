@@ -13,15 +13,15 @@ use tracing::{debug, error, warn};
 
 use crate::channel_endpoint::handle_channel_discovery_message;
 use crate::errors::SessionError;
-use crate::point_to_point::PointToPointConfiguration;
 use crate::interceptor::SessionInterceptor;
 use crate::interceptor::{IdentityInterceptor, SessionInterceptorProvider};
+use crate::multicast::{self, MulticastConfiguration};
+use crate::point_to_point::PointToPointConfiguration;
 use crate::session::{
     AppChannelSender, CommonSession, Id, Info, MessageDirection, MessageHandler, SESSION_RANGE,
-    Session, SessionConfig, SessionConfigTrait, SessionDirection, SessionMessage,
-    SessionTransmitter, SessionType, SlimChannelSender,
+    Session, SessionConfig, SessionConfigTrait, SessionMessage, SessionTransmitter, SessionType,
+    SlimChannelSender,
 };
-use crate::streaming::{self, StreamingConfiguration};
 use crate::transmitter::Transmitter;
 use crate::{ServiceError, point_to_point, session};
 use slim_auth::traits::{TokenProvider, Verifier};
@@ -65,7 +65,7 @@ where
 
     /// Default configuration for the session
     default_ff_conf: SyncRwLock<PointToPointConfiguration>,
-    default_stream_conf: SyncRwLock<StreamingConfiguration>,
+    default_stream_conf: SyncRwLock<MulticastConfiguration>,
 
     /// Storage path for app data
     storage_path: std::path::PathBuf,
@@ -121,7 +121,7 @@ where
     ) -> Self {
         // Create default configurations
         let default_ff_conf = SyncRwLock::new(PointToPointConfiguration::default());
-        let default_stream_conf = SyncRwLock::new(StreamingConfiguration::default());
+        let default_stream_conf = SyncRwLock::new(MulticastConfiguration::default());
 
         // Create identity interceptor
         let identity_interceptor = Arc::new(IdentityInterceptor::new(
@@ -576,7 +576,6 @@ where
                 Session::PointToPoint(point_to_point::PointToPoint::new(
                     id,
                     conf,
-                    SessionDirection::Bidirectional,
                     self.app_name().clone(),
                     tx,
                     self.identity_provider.clone(),
@@ -584,20 +583,15 @@ where
                     self.storage_path.clone(),
                 ))
             }
-            SessionConfig::Streaming(conf) => {
-                let direction = conf.direction.clone();
-
-                Session::Streaming(streaming::Streaming::new(
-                    id,
-                    conf,
-                    direction,
-                    self.app_name().clone(),
-                    tx,
-                    self.identity_provider.clone(),
-                    self.identity_verifier.clone(),
-                    self.storage_path.clone(),
-                ))
-            }
+            SessionConfig::Multicast(conf) => Session::Multicast(multicast::Multicast::new(
+                id,
+                conf,
+                self.app_name().clone(),
+                tx,
+                self.identity_provider.clone(),
+                self.identity_verifier.clone(),
+                self.storage_path.clone(),
+            )),
         };
 
         // insert the session into the pool
@@ -790,14 +784,6 @@ where
                 self.create_session(SessionConfig::PointToPoint(conf), Some(id))
                     .await?
             }
-            ProtoSessionMessageType::StreamMsg | ProtoSessionMessageType::BeaconStream => {
-                let mut conf = self.default_stream_conf.read().clone();
-
-                conf.channel_name = message.message.get_dst();
-
-                self.create_session(session::SessionConfig::Streaming(conf), Some(id))
-                    .await?
-            }
             ProtoSessionMessageType::ChannelJoinRequest => {
                 // Create a new session based on the SessionType contained in the message
                 match message.message.get_session_header().session_type() {
@@ -818,18 +804,10 @@ where
                         self.create_session(SessionConfig::PointToPoint(conf), Some(id))
                             .await?
                     }
-                    ProtoSessionType::SessionPubSub => {
+                    ProtoSessionType::SessionMulticast => {
                         let mut conf = self.default_stream_conf.read().clone();
-                        conf.direction = SessionDirection::Bidirectional;
                         conf.mls_enabled = message.message.contains_metadata(METADATA_MLS_ENABLED);
-                        self.create_session(SessionConfig::Streaming(conf), Some(id))
-                            .await?
-                    }
-                    ProtoSessionType::SessionStreaming => {
-                        let mut conf = self.default_stream_conf.read().clone();
-                        conf.direction = SessionDirection::Receiver;
-                        conf.mls_enabled = message.message.contains_metadata(METADATA_MLS_ENABLED);
-                        self.create_session(SessionConfig::Streaming(conf), Some(id))
+                        self.create_session(SessionConfig::Multicast(conf), Some(id))
                             .await?
                     }
                     _ => {
@@ -854,8 +832,8 @@ where
             | ProtoSessionMessageType::P2pAck
             | ProtoSessionMessageType::RtxRequest
             | ProtoSessionMessageType::RtxReply
-            | ProtoSessionMessageType::PubSubMsg
-            | ProtoSessionMessageType::BeaconPubSub => {
+            | ProtoSessionMessageType::MulticastMsg
+            | ProtoSessionMessageType::BeaconMulticast => {
                 debug!("received channel message with unknown session id");
                 // We can ignore these messages
                 return Ok(());
@@ -894,7 +872,7 @@ where
                     SessionConfig::PointToPoint(_) => {
                         return self.default_ff_conf.write().replace(session_config);
                     }
-                    SessionConfig::Streaming(_) => {
+                    SessionConfig::Multicast(_) => {
                         return self.default_stream_conf.write().replace(session_config);
                     }
                 }
@@ -938,7 +916,7 @@ where
             SessionType::PointToPoint => Ok(SessionConfig::PointToPoint(
                 self.default_ff_conf.read().clone(),
             )),
-            SessionType::Streaming => Ok(SessionConfig::Streaming(
+            SessionType::Multicast => Ok(SessionConfig::Multicast(
                 self.default_stream_conf.read().clone(),
             )),
         }
