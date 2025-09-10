@@ -56,6 +56,10 @@ pub const KIND: &str = "slim";
 
 #[derive(Debug, Clone, Deserialize, Default)]
 pub struct ServiceConfiguration {
+    /// Optional node ID for the service. If not set, the name of the component will be used.
+    #[serde(default)]
+    pub node_id: Option<String>,
+
     /// Pubsub API configuration
     #[serde(default)]
     pub dataplane: DataplaneConfig,
@@ -406,7 +410,8 @@ impl ComponentBuilder for ServiceBuilder {
         name: &str,
         config: &Self::Config,
     ) -> Result<Self::Component, ComponentError> {
-        let id = ID::new_with_name(ServiceBuilder::kind(), name)
+        let node_name = config.node_id.clone().unwrap_or(name.to_string());
+        let id = ID::new_with_name(ServiceBuilder::kind(), &node_name)
             .map_err(|e| ComponentError::ConfigError(e.to_string()))?;
 
         let service = config
