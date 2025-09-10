@@ -1,6 +1,6 @@
 # SLIMA2A
 
-SLIMA2A is a native integration of A2A built on top of SLIM. 
+SLIMA2A is a native integration of A2A built on top of SLIM.
 
 ## Server usage
 

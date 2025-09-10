@@ -12,13 +12,13 @@ This is the Travel Planner Example from the A2A repo, modified to use SLIM A2A
 
 2. Start SLIM
   ```bash
-  cd ../../../testing/
+  cd $(git rev-parse --show-toplevel)/data-plane/testing
   task run:slim
   ```
 
 3. Start the server
     ```bash
-    cd -
+    cd $(git rev-parse --show-toplevel)/data-plane/python/integrations/slima2a
     uv run examples/travel_planner_agent/server.py
     ```
 

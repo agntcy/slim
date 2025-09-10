@@ -1,12 +1,12 @@
 # SLIM RPC (SLIM Remote Procedure Call)
 
-SLIM RCP, or SLIM Remote Procedure Call, is a mechanism designed to enable Protocol
-Buffers (protobuf) RPC over SLIM (Secure Low-latency Inter-process Messaging). 
-This is analogous to gRPC, which leverages HTTP/2 as its underlying transport
-layer for protobuf RPC.
+SLIM RCP, or SLIM Remote Procedure Call, is a mechanism designed to enable
+Protocol Buffers (protobuf) RPC over SLIM (Secure Low-latency Inter-process
+Messaging). This is analogous to gRPC, which leverages HTTP/2 as its underlying
+transport layer for protobuf RPC.
 
-To SLIM RPC you can compile you protobuf file using the SLIM RPC compiler and use
-the generated code to create you application.
+To SLIM RPC you can compile you protobuf file using the SLIM RPC compiler and
+use the generated code to create you application.
 
 ## Protobuf example
 
