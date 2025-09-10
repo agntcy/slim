@@ -29,8 +29,8 @@ jobs:
 
       - name: Generate coverage report (lcov)
         run: |
-          ../bin/task data-plane:test:coverage
-        working-directory: ./data-plane
+          cd data-plane
+          task test:coverage
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v4
