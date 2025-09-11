@@ -115,6 +115,7 @@ dmypy.json
 
 # coverage
 *-coverage.out
+coverage.out
 
 # pyd files
 .pyd
