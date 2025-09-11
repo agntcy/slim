@@ -17,14 +17,15 @@ const (
 type NodeStatus string
 
 type NodeCommandHandler interface {
-	SendMessage(nodeID string, configurationCommand *controllerapi.ControlMessage) error
-	AddStream(nodeID string, stream controllerapi.ControllerService_OpenControlChannelServer)
-	RemoveStream(nodeID string) error
-	GetConnectionStatus(nodeID string) (NodeStatus, error)
-	UpdateConnectionStatus(nodeID string, status NodeStatus)
+	SendMessage(ctx context.Context, nodeID string, configurationCommand *controllerapi.ControlMessage) error
+	AddStream(ctx context.Context, nodeID string, stream controllerapi.ControllerService_OpenControlChannelServer)
+	RemoveStream(ctx context.Context, nodeID string) error
+	GetConnectionStatus(ctx context.Context, nodeID string) (NodeStatus, error)
+	UpdateConnectionStatus(nctx context.Context, odeID string, status NodeStatus)
 
-	WaitForResponse(nodeID string, messageType reflect.Type, messageID string) (*controllerapi.ControlMessage, error)
-	ResponseReceived(nodeID string, command *controllerapi.ControlMessage)
+	WaitForResponse(ctx context.Context, nodeID string,
+		messageType reflect.Type, messageID string) (*controllerapi.ControlMessage, error)
+	ResponseReceived(ctx context.Context, nodeID string, command *controllerapi.ControlMessage)
 }
 
 type NodeRegistrationHandler interface {

@@ -25,9 +25,13 @@ RUN DEBIAN_FRONTEND=noninteractive \
         make \
         unzip \
         git \
-        pkg-config \
-        clang-14 \
-        llvm-14
+        lsb-release \
+        software-properties-common \
+        gnupg \
+        pkg-config && \
+    curl -OL https://apt.llvm.org/llvm.sh && \
+    chmod +x llvm.sh && \
+    ./llvm.sh 19
 
 # Install rust toolchain
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y

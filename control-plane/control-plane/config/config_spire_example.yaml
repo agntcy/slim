@@ -5,8 +5,10 @@ northbound:
 southbound:
   httpHost: localhost
   httpPort: 50052
+  tls:
+    useSpiffe: true
+  spire:
+    socketPath: "unix:///tmp/spire-agent/public/api.sock"
 
 logging:
   level: DEBUG
-
-

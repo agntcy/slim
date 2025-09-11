@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/rs/zerolog"
+
 	controllerapi "github.com/agntcy/slim/control-plane/common/proto/controller/v1"
 	controlplaneApi "github.com/agntcy/slim/control-plane/common/proto/controlplane/v1"
 	"github.com/agntcy/slim/control-plane/control-plane/internal/config"
@@ -18,6 +20,7 @@ type NorthboundAPIServer interface {
 type nbAPIService struct {
 	controlplaneApi.UnimplementedControlPlaneServiceServer
 	config       config.APIConfig
+	logConfig    config.LogConfig
 	nodeService  *NodeService
 	routeService *RouteService
 	groupService *groupservice.GroupService
@@ -25,12 +28,14 @@ type nbAPIService struct {
 
 func NewNorthboundAPIServer(
 	config config.APIConfig,
+	logConfig config.LogConfig,
 	nodeService *NodeService,
 	routeService *RouteService,
 	groupService *groupservice.GroupService,
 ) NorthboundAPIServer {
 	cpServer := &nbAPIService{
 		config:       config,
+		logConfig:    logConfig,
 		nodeService:  nodeService,
 		routeService: routeService,
 		groupService: groupService,
@@ -42,7 +47,7 @@ func (s *nbAPIService) ListSubscriptions(
 	ctx context.Context,
 	node *controlplaneApi.Node,
 ) (*controllerapi.SubscriptionListResponse, error) {
-	ctx = util.GetContextWithLogger(ctx, s.config.LogConfig)
+	ctx = util.GetContextWithLogger(ctx, s.logConfig)
 	nodeEntry, err := s.nodeService.GetNodeByID(node.Id)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get node by ID: %w", err)
@@ -54,7 +59,7 @@ func (s *nbAPIService) ListConnections(
 	ctx context.Context,
 	node *controlplaneApi.Node,
 ) (*controllerapi.ConnectionListResponse, error) {
-	ctx = util.GetContextWithLogger(ctx, s.config.LogConfig)
+	ctx = util.GetContextWithLogger(ctx, s.logConfig)
 	nodeEntry, err := s.nodeService.GetNodeByID(node.Id)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get node by ID: %w", err)
@@ -66,7 +71,7 @@ func (s *nbAPIService) ListNodes(
 	ctx context.Context,
 	nodeListRequest *controlplaneApi.NodeListRequest,
 ) (*controlplaneApi.NodeListResponse, error) {
-	ctx = util.GetContextWithLogger(ctx, s.config.LogConfig)
+	ctx = util.GetContextWithLogger(ctx, s.logConfig)
 	return s.nodeService.ListNodes(ctx, nodeListRequest)
 }
 
@@ -75,7 +80,7 @@ func (s *nbAPIService) CreateConnection(
 	createConnectionRequest *controlplaneApi.CreateConnectionRequest) (
 	*controlplaneApi.CreateConnectionResponse, error,
 ) {
-	ctx = util.GetContextWithLogger(ctx, s.config.LogConfig)
+	ctx = util.GetContextWithLogger(ctx, s.logConfig)
 	nodeEntry, err := s.nodeService.GetNodeByID(createConnectionRequest.NodeId)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get node by ID: %w", err)
@@ -101,7 +106,8 @@ func (s *nbAPIService) CreateSubscription(
 	createSubscriptionRequest *controlplaneApi.CreateSubscriptionRequest) (
 	*controlplaneApi.CreateSubscriptionResponse, error,
 ) {
-	ctx = util.GetContextWithLogger(ctx, s.config.LogConfig)
+	ctx = util.GetContextWithLogger(ctx, s.logConfig)
+	zlog := zerolog.Ctx(ctx)
 	nodeEntry, err := s.nodeService.GetNodeByID(createSubscriptionRequest.NodeId)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get node by ID: %w", err)
@@ -118,7 +124,7 @@ func (s *nbAPIService) CreateSubscription(
 
 	err = s.routeService.CreateSubscription(ctx, nodeEntry, createSubscriptionRequest.Subscription)
 	if err != nil {
-		fmt.Printf("router error: %v\n", err.Error())
+		zlog.Error().Msgf("router error: %v\n", err.Error())
 		return nil, fmt.Errorf("failed to create subscription: %w", err)
 	}
 
@@ -127,8 +133,7 @@ func (s *nbAPIService) CreateSubscription(
 	subscriptionID, err := s.nodeService.SaveSubscription(createSubscriptionRequest.NodeId,
 		createSubscriptionRequest.Subscription)
 	if err != nil {
-		fmt.Printf("save error: %v\n", err.Error())
-
+		zlog.Error().Msgf("save error: %v\n", err.Error())
 		return nil, fmt.Errorf("failed to save subscription: %w", err)
 	}
 	response := &controlplaneApi.CreateSubscriptionResponse{
@@ -143,7 +148,7 @@ func (s *nbAPIService) DeleteSubscription(
 	deleteSubscriptionRequest *controlplaneApi.DeleteSubscriptionRequest) (
 	*controlplaneApi.DeleteSubscriptionResponse, error,
 ) {
-	ctx = util.GetContextWithLogger(ctx, s.config.LogConfig)
+	ctx = util.GetContextWithLogger(ctx, s.logConfig)
 	nodeEntry, err := s.nodeService.GetNodeByID(deleteSubscriptionRequest.NodeId)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get node by ID: %w", err)

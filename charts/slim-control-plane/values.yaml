@@ -26,14 +26,21 @@ config:
   northbound:
     httpHost: 0.0.0.0
     httpPort: "{{ .Values.service.north.port }}"
-    logging:
-      level: DEBUG
 
   southbound:
     httpHost: 0.0.0.0
     httpPort: "{{ .Values.service.south.port }}"
-    logging:
-      level: DEBUG
+# Uncomment below to enable MTLS by Spire
+#     tls:
+#       useSpiffe: true
+#     spire:
+#       socketPath: "unix:///run/spire/agent-sockets/api.sock"
+
+  logging:
+    level: DEBUG
+
+spire:
+  enabled: false
 
 env:
   - name: NB_API_HTTP_HOST

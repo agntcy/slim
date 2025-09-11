@@ -16,9 +16,13 @@ RUN DEBIAN_FRONTEND=noninteractive \
         make \
         unzip \
         git \
-        pkg-config \
-        clang-14 \
-        llvm-14
+        lsb-release \
+        software-properties-common \
+        gnupg \
+        pkg-config && \
+    curl -OL https://apt.llvm.org/llvm.sh && \
+    chmod +x llvm.sh && \
+    ./llvm.sh 19
 
 # Install taskfile
 RUN sh -c "$(curl --location https://taskfile.dev/install.sh)" -- -d -b /usr/local/bin

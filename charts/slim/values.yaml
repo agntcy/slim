@@ -2,6 +2,8 @@
 # SPDX-License-Identifier: Apache-2.0
 
 slim:
+  # Deploy as DaemonSet instead of StatefulSet
+  daemonset: false
   # This will set the replicaset count more information can be found here: https://kubernetes.io/docs/concepts/workloads/controllers/replicaset/
   replicaCount: 1
 
@@ -29,6 +31,7 @@ slim:
 
     services:
       slim/0:
+        nodeId: ${env:SLIM_SVC_ID}
         pubsub:
           servers:
             - endpoint: "0.0.0.0:{{ .Values.slim.service.data.port }}"
@@ -41,11 +44,31 @@ slim:
             - endpoint: "0.0.0.0:{{ .Values.slim.service.control.port }}"
               tls:
                 insecure: true
+          # Uncomment below to connect to control plane with MTLS by Spire
+          # clients:
+          #   - endpoint: "https://slim-control:50052"
+          #     tls:
+          #       cert_file: "/svids/tls.crt"
+          #       key_file: "/svids/tls.key"
+          #       ca_file: "/svids/svid_bundle.pem"
+
+  # StatefulSet-specific settings
+  # DaemonSet-specific settings
+  hostNetwork: false
+  dnsPolicy: "ClusterFirst"  # or "ClusterFirstWithHostNet" if hostNetwork: true
+
+  # Updated updateStrategy to support DaemonSet maxUnavailable
+  updateStrategy:
+    type: "RollingUpdate"  # or "OnDelete"
+    rollingUpdate:
+      partition: 0  # StatefulSet only
+      maxUnavailable: 1  # DaemonSet only
 
   # This is for setting up a service more information can be found here: https://kubernetes.io/docs/concepts/services-networking/service/
   service:
     # This sets the service type more information can be found here: https://kubernetes.io/docs/concepts/services-networking/service/#publishing-services-service-types
     type: ClusterIP
+    headless: false
     data:
       port: 46357
     control:

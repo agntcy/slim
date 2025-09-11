@@ -15,7 +15,7 @@ It should be considered a map to help you navigate the process.
 The [dev channel][dev] is available for any concerns not covered in this guide,
 please join us!
 
-[dev]: https://internetofagents.slack.com
+[dev]: https://agntcy.slack.com
 
 ## Contributing in Issues
 
@@ -48,7 +48,7 @@ having problems, you can [open a discussion] asking for help.
 In exchange for receiving help, we ask that you contribute back a documentation
 PR that helps others avoid the problems that you encountered.
 
-[open a discussion]: https://github.com/agentcy/slim/discussions/new
+[open a discussion]: https://github.com/agntcy/slim/discussions/new
 
 ### Submitting a Bug Report
 

@@ -25,7 +25,7 @@ func NewNodeService(dbService db.DataAccess, cmdHandler nodecontrol.NodeCommandH
 }
 
 func (s *NodeService) ListNodes(
-	context.Context, *controlplaneApi.NodeListRequest,
+	ctx context.Context, _ *controlplaneApi.NodeListRequest,
 ) (*controlplaneApi.NodeListResponse, error) {
 	storedNodes, err := s.dbService.ListNodes()
 	if err != nil {
@@ -38,7 +38,7 @@ func (s *NodeService) ListNodes(
 			Host: node.Host,
 			Port: node.Port,
 		}
-		nodeStatus, _ := s.cmdHandler.GetConnectionStatus(node.ID)
+		nodeStatus, _ := s.cmdHandler.GetConnectionStatus(ctx, node.ID)
 		switch nodeStatus {
 		case nodecontrol.NodeStatusConnected:
 			nodeEntry.Status = controlplaneApi.NodeStatus_CONNECTED
