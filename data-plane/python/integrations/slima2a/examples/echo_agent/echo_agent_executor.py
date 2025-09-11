@@ -17,6 +17,9 @@ class EchoAgentExecutor(AgentExecutor):
         context: RequestContext,
         event_queue: EventQueue,
     ) -> None:
+        if (not context.message) or (not context.message.task_id) or (not context.message.context_id):
+            raise Exception("no message provided")
+
         logging.debug(f"received message: {context.message}")
 
         task_updater = TaskUpdater(
@@ -25,6 +28,9 @@ class EchoAgentExecutor(AgentExecutor):
             context_id=context.message.context_id,
         )
         await task_updater.submit(message=context.message)
+
+        if type(context.message.parts[0].root) is not TextPart:
+            raise Exception("only text parts are supported")
 
         result = await self.agent.invoke(context.message.parts[0].root.text)
 

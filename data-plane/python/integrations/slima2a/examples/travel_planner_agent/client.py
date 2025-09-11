@@ -1,5 +1,7 @@
 import asyncio
 import logging
+from typing import Any
+import typing
 from uuid import uuid4
 
 # Disable a2a telemetry debugging before any a2a imports
@@ -10,9 +12,10 @@ logging.getLogger("asyncio").setLevel(logging.ERROR)
 import httpx
 import slimrpc
 from a2a.client import (
-    A2AClient,
+    Client,
     ClientFactory,
     minimal_agent_card,
+    ClientConfig as A2AClientConfig,
 )
 from a2a.types import (
     Message,
@@ -33,7 +36,7 @@ def get_user_query() -> str:
     return input("\n> ")
 
 
-async def interact_with_server(client: A2AClient) -> None:
+async def interact_with_server(client: Client) -> None:
     while True:
         user_input = get_user_query()
         if user_input.lower() == "exit":
@@ -69,7 +72,6 @@ async def interact_with_server(client: A2AClient) -> None:
         print(output, end="", flush=True)
         await asyncio.sleep(0.1)
 
-
 async def main() -> None:
     print_welcome_message()
 
@@ -96,7 +98,9 @@ async def main() -> None:
         slimrpc_channel_factory=channel_factory,
     )
     client_factory = ClientFactory(client_config)
-    client_factory.register("slimrpc", SRPCTransport.create)
+
+    # mypy: the register API expects a different callable type; safe to ignore here.
+    client_factory.register("slimrpc", SRPCTransport.create)  # type: ignore
     agent_card = minimal_agent_card("agntcy/demo/travel_planner_agent", ["slimrpc"])
     client = client_factory.create(card=agent_card)
 

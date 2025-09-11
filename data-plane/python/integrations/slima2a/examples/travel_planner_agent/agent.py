@@ -43,7 +43,7 @@ class TravelPlannerAgent:
         """Stream the response of the large model back to the client."""
         try:
             # Initialize the conversation history (system messages can be added)
-            messages = [
+            messages: list[HumanMessage | SystemMessage] = [
                 SystemMessage(
                     content="""
                 You are an expert travel assistant specializing in trip planning, destination information,

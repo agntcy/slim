@@ -37,7 +37,7 @@ async def amain() -> None:
         async for resp in responses:
             logger.info(f"Stream Response: {resp}")
 
-        async def stream_requests() -> AsyncGenerator[ExampleRequest]:
+        async def stream_requests() -> AsyncGenerator[ExampleRequest, None]:
             for i in range(10):
                 yield ExampleRequest(example_integer=i, example_string=f"Request {i}")
 

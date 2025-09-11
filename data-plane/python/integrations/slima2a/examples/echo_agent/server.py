@@ -46,7 +46,7 @@ async def main() -> None:
         task_store=task_store,
     )
 
-    servicer = None
+    servicer: SRPCHandler | A2AStarletteApplication
     match args.type:
         case "slimrpc":
             servicer = SRPCHandler(agent_card, default_request_handler)
