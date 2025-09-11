@@ -58,7 +58,7 @@ async def run_client(
             # create a session
             if sticky or enable_mls:
                 session = await local_app.create_session(
-                    slim_bindings.PySessionConfiguration.FireAndForget(
+                    slim_bindings.PySessionConfiguration.FireAndForget(  # type: ignore
                         max_retries=5,
                         timeout=datetime.timedelta(seconds=5),
                         sticky=True,
@@ -67,7 +67,7 @@ async def run_client(
                 )
             else:
                 session = await local_app.create_session(
-                    slim_bindings.PySessionConfiguration.FireAndForget()
+                    slim_bindings.PySessionConfiguration.FireAndForget()  # type: ignore
                 )
 
             for i in range(0, iterations):
@@ -87,10 +87,11 @@ async def run_client(
                     # Wait for a reply
                     session_info, msg = await local_app.receive(session=session.id)
 
-                    format_message_print(
-                        f"{instance}",
-                        f"received (from session {session_info.id}): {msg.decode()}",
-                    )
+                    if msg:
+                        format_message_print(
+                            f"{instance}",
+                            f"received (from session {session_info.id}): {msg.decode()}",
+                        )
 
                     if not session_info.destination_name.equal_without_id(local_name):
                         format_message_print(
