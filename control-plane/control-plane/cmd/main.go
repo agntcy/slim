@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"net"
+	"sync"
 
 	"github.com/rs/zerolog"
 	"google.golang.org/grpc"
@@ -34,6 +35,10 @@ func main() {
 	groupService := groupservice.NewGroupService(dbService)
 	registrationService := nbapiservice.NewNodeRegistrationService(dbService, cmdHandler)
 
+	// wait for go processes to exit
+	var wg sync.WaitGroup
+
+	wg.Add(1)
 	go func() {
 		cpServer := nbapiservice.NewNorthboundAPIServer(config.Northbound, config.LogConfig,
 			nodeService, routeService, groupService)
@@ -51,32 +56,39 @@ func main() {
 		if err != nil {
 			zlog.Fatal().Msgf("failed to serve: %v", err)
 		}
+		wg.Done()
 	}()
 
-	var opts []grpc.ServerOption
-	if config.Southbound.TLS != nil {
-		creds, err := util.LoadCertificates(ctx, config.Southbound)
+	wg.Add(1)
+	go func() {
+		var opts []grpc.ServerOption
+		if config.Southbound.TLS != nil {
+			creds, err := util.LoadCertificates(ctx, config.Southbound)
+			if err != nil {
+				zlog.Fatal().Msgf("TLS setup error: %v", err)
+			}
+			if creds != nil {
+				opts = append(opts, grpc.Creds(creds))
+			}
+		}
+
+		sbGrpcServer := grpc.NewServer(opts...)
+		sbAPISvc := sbapiservice.NewSBAPIService(config.Southbound, config.LogConfig, dbService, cmdHandler,
+			[]nodecontrol.NodeRegistrationHandler{registrationService}, groupService)
+		southboundApi.RegisterControllerServiceServer(sbGrpcServer, sbAPISvc)
+
+		sbListeningAddress := fmt.Sprintf("%s:%s", config.Southbound.HTTPHost, config.Southbound.HTTPPort)
+		lisSB, err := net.Listen("tcp", sbListeningAddress)
 		if err != nil {
-			zlog.Fatal().Msgf("TLS setup error: %v", err)
+			zlog.Fatal().Msgf("failed to listen: %v", err)
 		}
-		if creds != nil {
-			opts = append(opts, grpc.Creds(creds))
+		zlog.Info().Msgf("Southbound API Service is Listening on %s", lisSB.Addr())
+		err = sbGrpcServer.Serve(lisSB)
+		if err != nil {
+			zlog.Fatal().Msgf("failed to serve: %v", err)
 		}
-	}
+		wg.Done()
+	}()
 
-	sbGrpcServer := grpc.NewServer(opts...)
-	sbAPISvc := sbapiservice.NewSBAPIService(config.Southbound, config.LogConfig, dbService, cmdHandler,
-		[]nodecontrol.NodeRegistrationHandler{registrationService}, groupService)
-	southboundApi.RegisterControllerServiceServer(sbGrpcServer, sbAPISvc)
-
-	sbListeningAddress := fmt.Sprintf("%s:%s", config.Southbound.HTTPHost, config.Southbound.HTTPPort)
-	lisSB, err := net.Listen("tcp", sbListeningAddress)
-	if err != nil {
-		zlog.Fatal().Msgf("failed to listen: %v", err)
-	}
-	zlog.Info().Msgf("Southbound API Service is Listening on %s", lisSB.Addr())
-	err = sbGrpcServer.Serve(lisSB)
-	if err != nil {
-		zlog.Fatal().Msgf("failed to serve: %v", err)
-	}
+	wg.Wait()
 }
