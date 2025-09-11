@@ -23,7 +23,7 @@ mod _slim_bindings {
     };
 
     #[pymodule_export]
-    use pysession::{PySessionConfiguration, PySessionDirection, PySessionInfo, PySessionType};
+    use pysession::{PySessionConfiguration, PySessionInfo, PySessionType};
 
     #[pymodule_export]
     use utils::{PyName, init_tracing};

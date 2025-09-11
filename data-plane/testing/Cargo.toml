@@ -26,8 +26,8 @@ name = "test-group"
 path = "src/bin/test_group.rs"
 
 [[bin]]
-name = "test-ff"
-path = "src/bin/test_ff.rs"
+name = "test-p2p"
+path = "src/bin/test_p2p.rs"
 
 [dependencies]
 agntcy-slim = { workspace = true }

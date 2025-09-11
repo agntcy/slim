@@ -16,6 +16,6 @@ key features:
 - Connection management for reliable communication
 - Flexible subscription model for dynamic service discovery
 - Protocol buffer-based message serialization
-- Multiple session patterns (request/reply, streaming, fire-and-forget, pubsub)
+- Multiple session patterns
 - Support for message retransmission and reliability mechanisms
 - Connection pooling and resource management

@@ -9,7 +9,7 @@ use tracing::{error, info};
 
 use slim_auth::shared_secret::SharedSecret;
 use slim_datapath::messages::{Name, utils::SlimHeaderFlags};
-use slim_service::streaming::StreamingConfiguration;
+use slim_service::multicast::MulticastConfiguration;
 
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
@@ -223,8 +223,7 @@ async fn main() {
         // create session
         let info = app
             .create_session(
-                slim_service::session::SessionConfig::Streaming(StreamingConfiguration::new(
-                    slim_service::session::SessionDirection::Bidirectional,
+                slim_service::session::SessionConfig::Multicast(MulticastConfiguration::new(
                     channel_name.clone(),
                     true,
                     Some(10),
@@ -307,8 +306,7 @@ async fn main() {
             info!("Starting the attacker");
             let _ = app
                 .create_session(
-                    slim_service::session::SessionConfig::Streaming(StreamingConfiguration::new(
-                        slim_service::session::SessionDirection::Bidirectional,
+                    slim_service::session::SessionConfig::Multicast(MulticastConfiguration::new(
                         channel_name.clone(),
                         true,
                         Some(10),

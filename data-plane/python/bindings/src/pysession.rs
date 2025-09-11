@@ -10,8 +10,8 @@ use pyo3_stub_gen::derive::gen_stub_pymethods;
 use slim_datapath::messages::Name;
 
 use crate::utils::PyName;
-use slim_service::FireAndForgetConfiguration;
-use slim_service::StreamingConfiguration;
+use slim_service::MulticastConfiguration;
+use slim_service::PointToPointConfiguration;
 use slim_service::session;
 pub use slim_service::session::SESSION_UNSPECIFIED;
 
@@ -75,55 +75,22 @@ impl PySessionInfo {
     }
 }
 
-/// session direction
-#[gen_stub_pyclass_enum]
-#[pyclass(eq, eq_int)]
-#[derive(PartialEq, Clone)]
-pub(crate) enum PySessionDirection {
-    #[pyo3(name = "SENDER")]
-    Sender = session::SessionDirection::Sender as isize,
-    #[pyo3(name = "RECEIVER")]
-    Receiver = session::SessionDirection::Receiver as isize,
-    #[pyo3(name = "BIDIRECTIONAL")]
-    Bidirectional = session::SessionDirection::Bidirectional as isize,
-}
-
-impl From<PySessionDirection> for session::SessionDirection {
-    fn from(value: PySessionDirection) -> Self {
-        match value {
-            PySessionDirection::Sender => session::SessionDirection::Sender,
-            PySessionDirection::Receiver => session::SessionDirection::Receiver,
-            PySessionDirection::Bidirectional => session::SessionDirection::Bidirectional,
-        }
-    }
-}
-
-impl From<session::SessionDirection> for PySessionDirection {
-    fn from(session_direction: session::SessionDirection) -> Self {
-        match session_direction {
-            session::SessionDirection::Sender => PySessionDirection::Sender,
-            session::SessionDirection::Receiver => PySessionDirection::Receiver,
-            session::SessionDirection::Bidirectional => PySessionDirection::Bidirectional,
-        }
-    }
-}
-
 /// session type
 #[gen_stub_pyclass_enum]
 #[pyclass(eq, eq_int)]
 #[derive(PartialEq, Clone)]
 pub(crate) enum PySessionType {
-    #[pyo3(name = "FIRE_AND_FORGET")]
-    FireAndForget = session::SessionType::FireAndForget as isize,
-    #[pyo3(name = "STREAMING")]
-    Streaming = session::SessionType::Streaming as isize,
+    #[pyo3(name = "POINT_TO_POINT")]
+    PointToPoint = session::SessionType::PointToPoint as isize,
+    #[pyo3(name = "MULTICAST")]
+    Multicast = session::SessionType::Multicast as isize,
 }
 
 impl From<PySessionType> for session::SessionType {
     fn from(value: PySessionType) -> Self {
         match value {
-            PySessionType::FireAndForget => session::SessionType::FireAndForget,
-            PySessionType::Streaming => session::SessionType::Streaming,
+            PySessionType::PointToPoint => session::SessionType::PointToPoint,
+            PySessionType::Multicast => session::SessionType::Multicast,
         }
     }
 }
@@ -133,16 +100,15 @@ impl From<PySessionType> for session::SessionType {
 #[pyclass(eq)]
 pub(crate) enum PySessionConfiguration {
     #[pyo3(constructor = (timeout=None, max_retries=None, sticky=false, mls_enabled=false))]
-    FireAndForget {
+    PointToPoint {
         timeout: Option<std::time::Duration>,
         max_retries: Option<u32>,
         sticky: bool,
         mls_enabled: bool,
     },
 
-    #[pyo3(constructor = (session_direction, topic, moderator=false, max_retries=0, timeout=std::time::Duration::from_millis(1000), mls_enabled=false))]
-    Streaming {
-        session_direction: PySessionDirection,
+    #[pyo3(constructor = (topic, moderator=false, max_retries=0, timeout=std::time::Duration::from_millis(1000), mls_enabled=false))]
+    Multicast {
         topic: PyName,
         moderator: bool,
         max_retries: u32,
@@ -154,16 +120,13 @@ pub(crate) enum PySessionConfiguration {
 impl From<session::SessionConfig> for PySessionConfiguration {
     fn from(session_config: session::SessionConfig) -> Self {
         match session_config {
-            session::SessionConfig::FireAndForget(config) => {
-                PySessionConfiguration::FireAndForget {
-                    timeout: config.timeout,
-                    max_retries: config.max_retries,
-                    sticky: config.sticky,
-                    mls_enabled: config.mls_enabled,
-                }
-            }
-            session::SessionConfig::Streaming(config) => PySessionConfiguration::Streaming {
-                session_direction: config.direction.into(),
+            session::SessionConfig::PointToPoint(config) => PySessionConfiguration::PointToPoint {
+                timeout: config.timeout,
+                max_retries: config.max_retries,
+                sticky: config.sticky,
+                mls_enabled: config.mls_enabled,
+            },
+            session::SessionConfig::Multicast(config) => PySessionConfiguration::Multicast {
                 topic: config.channel_name.into(),
                 moderator: config.moderator,
                 max_retries: config.max_retries,
@@ -177,26 +140,24 @@ impl From<session::SessionConfig> for PySessionConfiguration {
 impl From<PySessionConfiguration> for session::SessionConfig {
     fn from(value: PySessionConfiguration) -> Self {
         match value {
-            PySessionConfiguration::FireAndForget {
+            PySessionConfiguration::PointToPoint {
                 timeout,
                 max_retries,
                 sticky,
                 mls_enabled,
-            } => session::SessionConfig::FireAndForget(FireAndForgetConfiguration::new(
+            } => session::SessionConfig::PointToPoint(PointToPointConfiguration::new(
                 timeout,
                 max_retries,
                 sticky,
                 mls_enabled,
             )),
-            PySessionConfiguration::Streaming {
-                session_direction,
+            PySessionConfiguration::Multicast {
                 topic,
                 moderator,
                 max_retries,
                 timeout,
                 mls_enabled,
-            } => session::SessionConfig::Streaming(StreamingConfiguration::new(
-                session_direction.into(),
+            } => session::SessionConfig::Multicast(MulticastConfiguration::new(
                 topic.into(),
                 moderator,
                 Some(max_retries),
