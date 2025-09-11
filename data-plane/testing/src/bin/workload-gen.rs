@@ -274,12 +274,7 @@ fn main() {
             // format: SUB index subscriber org ns type id
             let str = format!(
                 "SUB {} {} {} {} {} {}\n",
-                i,
-                p.subscriber,
-                components[0],
-                components[1],
-                components[2],
-                p.app_id
+                i, p.subscriber, components[0], components[1], components[2], p.app_id
             );
             let res = file.write_all(str.as_bytes());
             if res.is_err() {

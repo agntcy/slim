@@ -3,10 +3,8 @@
 
 use slim_auth::shared_secret::SharedSecret;
 use slim_datapath::messages::Name;
-use slim_service::multicast::MulticastConfiguration;
 use std::fs::File;
 use std::io::prelude::*;
-use std::time::Duration;
 use testing::parse_line;
 
 use clap::Parser;
