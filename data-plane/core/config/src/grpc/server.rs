@@ -20,6 +20,7 @@ use crate::auth::basic::Config as BasicAuthenticationConfig;
 use crate::auth::bearer::Config as BearerAuthenticationConfig;
 use crate::auth::jwt::Config as JwtAuthenticationConfig;
 use crate::component::configuration::{Configuration, ConfigurationError};
+use crate::metadata::MetadataMap;
 use crate::tls::{common::RustlsConfigLoader, server::TlsServerConfig as TLSSetting};
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
@@ -103,6 +104,9 @@ pub struct ServerConfig {
     #[serde(default)]
     #[serde(with = "serde_yaml::with::singleton_map")]
     pub auth: AuthenticationConfig,
+
+    /// Arbitrary user-provided metadata.
+    pub metadata: Option<MetadataMap>,
 }
 
 /// Default values for KeepaliveServerParameters
@@ -152,6 +156,7 @@ impl Default for ServerConfig {
             write_buffer_size: Some(1024 * 1024),
             keepalive: KeepaliveServerParameters::default(),
             auth: AuthenticationConfig::default(),
+            metadata: None,
         }
     }
 }
@@ -166,7 +171,7 @@ impl std::fmt::Display for ServerConfig {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "ServerConfig {{ endpoint: {}, tls_setting: {}, http2_only: {}, max_frame_size: {:?}, max_concurrent_streams: {:?}, max_header_list_size: {:?}, read_buffer_size: {:?}, write_buffer_size: {:?}, keepalive: {:?}, auth: {:?} }}",
+            "ServerConfig {{ endpoint: {}, tls_setting: {}, http2_only: {}, max_frame_size: {:?}, max_concurrent_streams: {:?}, max_header_list_size: {:?}, read_buffer_size: {:?}, write_buffer_size: {:?}, keepalive: {:?}, auth: {:?}, metadata: {:?} }}",
             self.endpoint,
             self.tls_setting,
             self.http2_only,
@@ -177,7 +182,33 @@ impl std::fmt::Display for ServerConfig {
             self.write_buffer_size,
             self.keepalive,
             self.auth,
+            self.metadata
         )
+    }
+}
+
+#[cfg(test)]
+mod metadata_tests {
+    use super::*;
+
+    #[test]
+    fn server_config_with_metadata_roundtrip_yaml() {
+        let mut md = MetadataMap::default();
+        md.insert("role", "ingress");
+        md.insert("replicas", 3u64);
+        let mut nested = MetadataMap::default();
+        nested.insert("inner", "v");
+        md.insert("nested", nested);
+
+        let cfg = ServerConfig {
+            endpoint: "127.0.0.1:50051".to_string(),
+            metadata: Some(md.clone()),
+            ..Default::default()
+        };
+
+        let s = serde_yaml::to_string(&cfg).expect("serialize");
+        let deser: ServerConfig = serde_yaml::from_str(&s).expect("deserialize");
+        assert_eq!(deser.metadata, Some(md));
     }
 }
 

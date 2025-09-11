@@ -67,6 +67,7 @@ use crate::auth::bearer::Config as BearerAuthenticationConfig;
 use crate::auth::jwt::Config as JwtAuthenticationConfig;
 use crate::component::configuration::{Configuration, ConfigurationError};
 use crate::grpc::proxy::ProxyConfig;
+use crate::metadata::MetadataMap;
 use crate::tls::{client::TlsClientConfig as TLSSetting, common::RustlsConfigLoader};
 
 /// Enum to handle all connection types: direct connections and proxy tunnels
@@ -199,6 +200,9 @@ pub struct ClientConfig {
     #[serde(default)]
     // #[serde(with = "serde_yaml::with::singleton_map")]
     pub auth: AuthenticationConfig,
+
+    /// Arbitrary user-provided metadata.
+    pub metadata: Option<MetadataMap>,
 }
 
 /// Defaults for ClientConfig
@@ -217,6 +221,7 @@ impl Default for ClientConfig {
             buffer_size: None,
             headers: HashMap::new(),
             auth: AuthenticationConfig::None,
+            metadata: None,
         }
     }
 }
@@ -234,7 +239,7 @@ impl std::fmt::Display for ClientConfig {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "ClientConfig {{ endpoint: {}, origin: {:?}, compression: {:?}, rate_limit: {:?}, tls_setting: {:?}, keepalive: {:?}, proxy: {:?}, connect_timeout: {:?}, request_timeout: {:?}, buffer_size: {:?}, headers: {:?}, auth: {:?} }}",
+            "ClientConfig {{ endpoint: {}, origin: {:?}, compression: {:?}, rate_limit: {:?}, tls_setting: {:?}, keepalive: {:?}, proxy: {:?}, connect_timeout: {:?}, request_timeout: {:?}, buffer_size: {:?}, headers: {:?}, auth: {:?}, metadata: {:?} }}",
             self.endpoint,
             self.origin,
             self.compression,
@@ -247,6 +252,7 @@ impl std::fmt::Display for ClientConfig {
             self.buffer_size,
             self.headers,
             self.auth,
+            self.metadata
         )
     }
 }
@@ -335,6 +341,13 @@ impl ClientConfig {
 
     pub fn with_auth(self, auth: AuthenticationConfig) -> Self {
         Self { auth, ..self }
+    }
+
+    pub fn with_metadata(self, metadata: MetadataMap) -> Self {
+        Self {
+            metadata: Some(metadata),
+            ..self
+        }
     }
 
     /// Converts the client configuration to a tonic channel.
@@ -662,6 +675,24 @@ impl ClientConfig {
         if self.tls_setting.insecure {
             warn!("Auth is enabled without TLS. This is not recommended.");
         }
+    }
+}
+
+#[cfg(test)]
+mod metadata_tests {
+    use super::*;
+
+    #[test]
+    fn client_config_with_metadata_roundtrip_json() {
+        let mut md = MetadataMap::default();
+        md.insert("feature", "alpha");
+        md.insert("level", 2u64);
+
+        let cfg = ClientConfig::with_endpoint("http://localhost:1234").with_metadata(md.clone());
+        let s = serde_json::to_string(&cfg).expect("serialize");
+        println!("{}", s);
+        let deser: ClientConfig = serde_json::from_str(&s).expect("deserialize");
+        assert_eq!(deser.metadata, Some(md));
     }
 }
 
