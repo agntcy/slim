@@ -29,9 +29,9 @@ runs:
       shell: bash
       run: |
         sudo apt-get update
-        curl -OL https://apt.llvm.org/llvm.sh
-        chmod +x llvm.sh
-        sudo ./llvm.sh 19
+        curl -L https://apt.llvm.org/llvm.sh -o /tmp/llvm.sh
+        chmod +x /tmp/llvm.sh
+        sudo /tmp/llvm.sh 19
         sudo apt-get install -y \
           pkg-config \
           make \
