@@ -1,0 +1,45 @@
+# Copyright AGNTCY Contributors (https://github.com/agntcy)
+# SPDX-License-Identifier: Apache-2.0
+
+version: "3"
+
+# Taskfile for deployment automation
+#
+# This Taskfile defines a set of tasks to support various deployment patterns.
+# It helps automate and standardize deployment workflows, making it easier to
+# manage, test, and release application updates across different environments.
+#
+
+tasks:
+
+  cluster.up:
+    desc: Start a local Kubernetes cluster using Kind
+    cmd: kind create cluster --name slim-cluster
+
+  cluster.down:
+    desc: Delete the local Kubernetes cluster
+    cmd: kind delete cluster --name slim-cluster
+
+  slim.deploy.naive:
+    desc: Deploy Slim using the naive deployment strategy
+    cmds:
+      - helm upgrade --install slim ./helm/slim \
+          --namespace slim \
+          --create-namespace \
+          --values ./deployments/naive-values.yaml
+
+  slim.deploy.statefulset:
+    desc: Deploy Slim using the StatefulSet deployment strategy
+    cmds:
+      - helm upgrade --install slim ./helm/slim \
+          --namespace slim \
+          --create-namespace \
+          --values ./deployments/statefulset-values.yaml
+
+  slim.deploy.daemonset:
+    desc: Deploy Slim using the DaemonSet deployment strategy
+    cmds:
+      - helm upgrade --install slim ./helm/slim \
+          --namespace slim \
+          --create-namespace \
+          --values ./deployments/daemonset-values.yaml
