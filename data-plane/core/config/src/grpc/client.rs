@@ -1,7 +1,7 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
-use duration_str::deserialize_duration;
+use duration_string::DurationString;
 use std::time::Duration;
 use std::{collections::HashMap, str::FromStr};
 use tower::ServiceExt;
@@ -86,25 +86,19 @@ enum ConnectionType {
 #[derive(Debug, Serialize, Deserialize, PartialEq, Clone, JsonSchema)]
 pub struct KeepaliveConfig {
     /// The duration of the keepalive time for TCP
-    #[serde(
-        default = "default_tcp_keepalive",
-        deserialize_with = "deserialize_duration"
-    )]
+    #[serde(default = "default_tcp_keepalive")]
     #[schemars(with = "String")]
-    pub tcp_keepalive: Duration,
+    pub tcp_keepalive: DurationString,
 
     /// The duration of the keepalive time for HTTP2
-    #[serde(
-        default = "default_http2_keepalive",
-        deserialize_with = "deserialize_duration"
-    )]
+    #[serde(default = "default_http2_keepalive")]
     #[schemars(with = "String")]
-    pub http2_keepalive: Duration,
+    pub http2_keepalive: DurationString,
 
     /// The timeout duration for the keepalive
-    #[serde(default = "default_timeout", deserialize_with = "deserialize_duration")]
+    #[serde(default = "default_timeout")]
     #[schemars(with = "String")]
-    pub timeout: Duration,
+    pub timeout: DurationString,
 
     /// Whether to permit keepalive without an active stream
     #[serde(default = "default_keep_alive_while_idle")]
@@ -123,16 +117,16 @@ impl Default for KeepaliveConfig {
     }
 }
 
-fn default_tcp_keepalive() -> Duration {
-    Duration::from_secs(60)
+fn default_tcp_keepalive() -> DurationString {
+    Duration::from_secs(60).into()
 }
 
-fn default_http2_keepalive() -> Duration {
-    Duration::from_secs(60)
+fn default_http2_keepalive() -> DurationString {
+    Duration::from_secs(60).into()
 }
 
-fn default_timeout() -> Duration {
-    Duration::from_secs(10)
+fn default_timeout() -> DurationString {
+    Duration::from_secs(10).into()
 }
 
 fn default_keep_alive_while_idle() -> bool {
@@ -185,20 +179,14 @@ pub struct ClientConfig {
     pub proxy: ProxyConfig,
 
     /// Timeout for the connection.
-    #[serde(
-        default = "default_connect_timeout",
-        deserialize_with = "deserialize_duration"
-    )]
+    #[serde(default = "default_connect_timeout")]
     #[schemars(with = "String")]
-    pub connect_timeout: Duration,
+    pub connect_timeout: DurationString,
 
     /// Timeout per request.
-    #[serde(
-        default = "default_request_timeout",
-        deserialize_with = "deserialize_duration"
-    )]
+    #[serde(default = "default_request_timeout")]
     #[schemars(with = "String")]
-    pub request_timeout: Duration,
+    pub request_timeout: DurationString,
 
     /// ReadBufferSize.
     pub buffer_size: Option<usize>,
@@ -233,12 +221,12 @@ impl Default for ClientConfig {
     }
 }
 
-fn default_connect_timeout() -> Duration {
-    Duration::from_secs(0)
+fn default_connect_timeout() -> DurationString {
+    Duration::from_secs(0).into()
 }
 
-fn default_request_timeout() -> Duration {
-    Duration::from_secs(0)
+fn default_request_timeout() -> DurationString {
+    Duration::from_secs(0).into()
 }
 
 // Display for ClientConfig
@@ -258,7 +246,7 @@ impl std::fmt::Display for ClientConfig {
             self.request_timeout,
             self.buffer_size,
             self.headers,
-            self.auth
+            self.auth,
         )
     }
 }
@@ -322,14 +310,14 @@ impl ClientConfig {
 
     pub fn with_connect_timeout(self, connect_timeout: Duration) -> Self {
         Self {
-            connect_timeout,
+            connect_timeout: connect_timeout.into(),
             ..self
         }
     }
 
     pub fn with_request_timeout(self, request_timeout: Duration) -> Self {
         Self {
-            request_timeout,
+            request_timeout: request_timeout.into(),
             ..self
         }
     }
@@ -418,12 +406,12 @@ impl ClientConfig {
         // set the connection timeout
         match self.connect_timeout.as_secs() {
             0 => http.set_connect_timeout(None),
-            _ => http.set_connect_timeout(Some(self.connect_timeout)),
+            _ => http.set_connect_timeout(Some(self.connect_timeout.into())),
         }
 
         // set keepalive settings
         if let Some(keepalive) = &self.keepalive {
-            http.set_keepalive(Some(keepalive.tcp_keepalive));
+            http.set_keepalive(Some(keepalive.tcp_keepalive.into()));
         }
 
         Ok(http)
@@ -441,10 +429,10 @@ impl ClientConfig {
         // set keepalive settings
         if let Some(keepalive) = &self.keepalive {
             builder = builder
-                .keep_alive_timeout(keepalive.timeout)
+                .keep_alive_timeout(keepalive.timeout.into())
                 .keep_alive_while_idle(keepalive.keep_alive_while_idle)
                 // HTTP level keepalive
-                .http2_keep_alive_interval(keepalive.http2_keepalive);
+                .http2_keep_alive_interval(keepalive.http2_keepalive.into());
         }
 
         // set origin settings
@@ -463,7 +451,7 @@ impl ClientConfig {
 
         // set the request timeout
         if self.request_timeout.as_secs() > 0 {
-            builder = builder.timeout(self.request_timeout);
+            builder = builder.timeout(self.request_timeout.into());
         }
 
         Ok(builder)
@@ -803,7 +791,7 @@ mod test {
         client.rate_limit = None;
 
         // Set timeout settings
-        client.request_timeout = Duration::from_secs(10);
+        client.request_timeout = Duration::from_secs(10).into();
         channel = client.to_channel();
         assert!(channel.is_ok());
 

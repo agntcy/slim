@@ -7,9 +7,9 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::{net::SocketAddr, str::FromStr, time::Duration};
 
-use duration_str::deserialize_duration;
+use duration_string::DurationString;
 use futures::{FutureExt, TryStreamExt};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use tokio_util::sync::CancellationToken;
 use tonic::transport::server::TcpIncoming;
 use tracing::{debug, info};
@@ -22,40 +22,31 @@ use crate::auth::jwt::Config as JwtAuthenticationConfig;
 use crate::component::configuration::{Configuration, ConfigurationError};
 use crate::tls::{common::RustlsConfigLoader, server::TlsServerConfig as TLSSetting};
 
-#[derive(Debug, Deserialize, PartialEq, Clone)]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
 pub struct KeepaliveServerParameters {
     /// max_connection_idle sets the time after which an idle connection is closed.
-    #[serde(
-        default = "default_max_connection_idle",
-        deserialize_with = "deserialize_duration"
-    )]
-    max_connection_idle: Duration,
+    #[serde(default = "default_max_connection_idle")]
+    max_connection_idle: DurationString,
 
     /// max_connection_age sets the maximum amount of time a connection may exist before it will be closed.
-    #[serde(
-        default = "default_max_connection_age",
-        deserialize_with = "deserialize_duration"
-    )]
-    max_connection_age: Duration,
+    #[serde(default = "default_max_connection_age")]
+    max_connection_age: DurationString,
 
     /// max_connection_age_grace is an additional time given after MaxConnectionAge before closing the connection.
-    #[serde(
-        default = "default_max_connection_age_grace",
-        deserialize_with = "deserialize_duration"
-    )]
-    max_connection_age_grace: Duration,
+    #[serde(default = "default_max_connection_age_grace")]
+    max_connection_age_grace: DurationString,
 
     /// Time sets the frequency of the keepalive ping.
-    #[serde(default = "default_time", deserialize_with = "deserialize_duration")]
-    time: Duration,
+    #[serde(default = "default_time")]
+    time: DurationString,
 
     /// Timeout sets the amount of time the server waits for a keepalive ping ack.
-    #[serde(default = "default_timeout", deserialize_with = "deserialize_duration")]
-    timeout: Duration,
+    #[serde(default = "default_timeout")]
+    timeout: DurationString,
 }
 
 /// Enum holding one configuration for the client.
-#[derive(Debug, Deserialize, Clone, PartialEq)]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 #[serde(rename_all = "snake_case")]
 pub enum AuthenticationConfig {
     /// Basic authentication configuration.
@@ -74,7 +65,7 @@ impl Default for AuthenticationConfig {
     }
 }
 
-#[derive(Debug, Deserialize, PartialEq, Clone)]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
 pub struct ServerConfig {
     /// Endpoint is the address to listen on.
     pub endpoint: String,
@@ -127,24 +118,24 @@ impl Default for KeepaliveServerParameters {
     }
 }
 
-fn default_max_connection_idle() -> Duration {
-    Duration::from_secs(3600)
+fn default_max_connection_idle() -> DurationString {
+    Duration::from_secs(3600).into()
 }
 
-fn default_max_connection_age() -> Duration {
-    Duration::from_secs(2 * 3600)
+fn default_max_connection_age() -> DurationString {
+    Duration::from_secs(2 * 3600).into()
 }
 
-fn default_max_connection_age_grace() -> Duration {
-    Duration::from_secs(5 * 60)
+fn default_max_connection_age_grace() -> DurationString {
+    Duration::from_secs(5 * 60).into()
 }
 
-fn default_time() -> Duration {
-    Duration::from_secs(2 * 60)
+fn default_time() -> DurationString {
+    Duration::from_secs(2 * 60).into()
 }
 
-fn default_timeout() -> Duration {
-    Duration::from_secs(20)
+fn default_timeout() -> DurationString {
+    Duration::from_secs(20).into()
 }
 
 /// Default values for ServerConfig
@@ -185,7 +176,7 @@ impl std::fmt::Display for ServerConfig {
             self.read_buffer_size,
             self.write_buffer_size,
             self.keepalive,
-            self.auth
+            self.auth,
         )
     }
 }
@@ -323,11 +314,11 @@ impl ServerConfig {
         };
 
         // Set keepalive parameters
-        let builder = builder.http2_keepalive_interval(Some(self.keepalive.time));
-        let builder = builder.http2_keepalive_timeout(Some(self.keepalive.timeout));
+        let builder = builder.http2_keepalive_interval(Some(self.keepalive.time.into()));
+        let builder = builder.http2_keepalive_timeout(Some(self.keepalive.timeout.into()));
 
         // Set max connection age
-        let mut builder = builder.max_connection_age(self.keepalive.max_connection_age);
+        let mut builder = builder.max_connection_age(self.keepalive.max_connection_age.into());
 
         // TLS configuration
         let tls_config = TLSSetting::load_rustls_config(&self.tls_setting)

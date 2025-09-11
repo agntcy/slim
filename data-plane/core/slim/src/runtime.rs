@@ -1,7 +1,7 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
-use duration_str::deserialize_duration;
+use duration_string::DurationString;
 use serde::{Deserialize, Serialize};
 use std::time;
 use tokio::runtime::{Builder, Runtime};
@@ -20,11 +20,8 @@ pub struct RuntimeConfiguration {
     thread_name: String,
 
     /// the timeout for draining the services
-    #[serde(
-        default = "default_drain_timeout",
-        deserialize_with = "deserialize_duration"
-    )]
-    drain_timeout: time::Duration,
+    #[serde(default = "default_drain_timeout")]
+    drain_timeout: DurationString,
 }
 
 impl Default for RuntimeConfiguration {
@@ -46,8 +43,8 @@ fn default_thread_name() -> String {
     "slim".to_string()
 }
 
-fn default_drain_timeout() -> time::Duration {
-    time::Duration::from_secs(10)
+fn default_drain_timeout() -> DurationString {
+    time::Duration::from_secs(10).into()
 }
 
 impl RuntimeConfiguration {
@@ -71,7 +68,7 @@ impl RuntimeConfiguration {
 
     pub fn with_drain_timeout(drain_timeout: time::Duration) -> Self {
         RuntimeConfiguration {
-            drain_timeout,
+            drain_timeout: drain_timeout.into(),
             ..RuntimeConfiguration::default()
         }
     }
@@ -85,7 +82,7 @@ impl RuntimeConfiguration {
     }
 
     pub fn drain_timeout(&self) -> time::Duration {
-        self.drain_timeout
+        self.drain_timeout.into()
     }
 }
 
@@ -159,7 +156,7 @@ mod tests {
         let config = RuntimeConfiguration {
             n_cores: 1,
             thread_name: "test".to_string(),
-            drain_timeout: time::Duration::from_secs(5),
+            drain_timeout: time::Duration::from_secs(5).into(),
         };
         assert_eq!(config.n_cores, 1);
         assert_eq!(config.thread_name, "test");
@@ -178,7 +175,7 @@ mod tests {
         let config = RuntimeConfiguration {
             n_cores: 3,
             thread_name: "test".to_string(),
-            drain_timeout: time::Duration::from_secs(10),
+            drain_timeout: time::Duration::from_secs(10).into(),
         };
         let runtime = build(&config).unwrap();
         assert_eq!(runtime.config.n_cores, 3);
@@ -190,7 +187,7 @@ mod tests {
         let config = RuntimeConfiguration {
             n_cores: 100,
             thread_name: "test".to_string(),
-            drain_timeout: time::Duration::from_secs(10),
+            drain_timeout: time::Duration::from_secs(10).into(),
         };
         let runtime = build(&config).unwrap();
         assert_eq!(runtime.config.n_cores, 100);
