@@ -200,9 +200,11 @@ mod metadata_tests {
         nested.insert("inner", "v");
         md.insert("nested", nested);
 
-        let mut cfg = ServerConfig::default();
-        cfg.endpoint = "127.0.0.1:50051".to_string();
-        cfg.metadata = Some(md.clone());
+        let cfg = ServerConfig {
+            endpoint: "127.0.0.1:50051".to_string(),
+            metadata: Some(md.clone()),
+            ..Default::default()
+        };
 
         let s = serde_yaml::to_string(&cfg).expect("serialize");
         let deser: ServerConfig = serde_yaml::from_str(&s).expect("deserialize");

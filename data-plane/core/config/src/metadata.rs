@@ -124,7 +124,7 @@ mod tests {
         m.insert("s", "hello");
         m.insert("i", 42i64);
         m.insert("u", 7u64);
-        m.insert("f", 3.14f64);
+        m.insert("f", std::f64::consts::PI);
 
         assert!(matches!(m.get("s"), Some(MetadataValue::String(v)) if v == "hello"));
         assert!(matches!(m.get("i"), Some(MetadataValue::Number(n)) if n.as_i64()==Some(42)));
