@@ -1,7 +1,7 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
-use duration_str::deserialize_duration;
+use duration_string::DurationString;
 use std::time::Duration;
 use std::{collections::HashMap, str::FromStr};
 use tower::ServiceExt;
@@ -86,25 +86,19 @@ enum ConnectionType {
 #[derive(Debug, Serialize, Deserialize, PartialEq, Clone, JsonSchema)]
 pub struct KeepaliveConfig {
     /// The duration of the keepalive time for TCP
-    #[serde(
-        default = "default_tcp_keepalive",
-        deserialize_with = "deserialize_duration"
-    )]
+    #[serde(default = "default_tcp_keepalive")]
     #[schemars(with = "String")]
-    pub tcp_keepalive: Duration,
+    pub tcp_keepalive: DurationString,
 
     /// The duration of the keepalive time for HTTP2
-    #[serde(
-        default = "default_http2_keepalive",
-        deserialize_with = "deserialize_duration"
-    )]
+    #[serde(default = "default_http2_keepalive")]
     #[schemars(with = "String")]
-    pub http2_keepalive: Duration,
+    pub http2_keepalive: DurationString,
 
     /// The timeout duration for the keepalive
-    #[serde(default = "default_timeout", deserialize_with = "deserialize_duration")]
+    #[serde(default = "default_timeout")]
     #[schemars(with = "String")]
-    pub timeout: Duration,
+    pub timeout: DurationString,
 
     /// Whether to permit keepalive without an active stream
     #[serde(default = "default_keep_alive_while_idle")]
@@ -123,16 +117,16 @@ impl Default for KeepaliveConfig {
     }
 }
 
-fn default_tcp_keepalive() -> Duration {
-    Duration::from_secs(60)
+fn default_tcp_keepalive() -> DurationString {
+    Duration::from_secs(60).into()
 }
 
-fn default_http2_keepalive() -> Duration {
-    Duration::from_secs(60)
+fn default_http2_keepalive() -> DurationString {
+    Duration::from_secs(60).into()
 }
 
-fn default_timeout() -> Duration {
-    Duration::from_secs(10)
+fn default_timeout() -> DurationString {
+    Duration::from_secs(10).into()
 }
 
 fn default_keep_alive_while_idle() -> bool {
@@ -185,20 +179,14 @@ pub struct ClientConfig {
     pub proxy: ProxyConfig,
 
     /// Timeout for the connection.
-    #[serde(
-        default = "default_connect_timeout",
-        deserialize_with = "deserialize_duration"
-    )]
+    #[serde(default = "default_connect_timeout")]
     #[schemars(with = "String")]
-    pub connect_timeout: Duration,
+    pub connect_timeout: DurationString,
 
     /// Timeout per request.
-    #[serde(
-        default = "default_request_timeout",
-        deserialize_with = "deserialize_duration"
-    )]
+    #[serde(default = "default_request_timeout")]
     #[schemars(with = "String")]
-    pub request_timeout: Duration,
+    pub request_timeout: DurationString,
 
     /// ReadBufferSize.
     pub buffer_size: Option<usize>,
@@ -233,12 +221,12 @@ impl Default for ClientConfig {
     }
 }
 
-fn default_connect_timeout() -> Duration {
-    Duration::from_secs(0)
+fn default_connect_timeout() -> DurationString {
+    Duration::from_secs(0).into()
 }
 
-fn default_request_timeout() -> Duration {
-    Duration::from_secs(0)
+fn default_request_timeout() -> DurationString {
+    Duration::from_secs(0).into()
 }
 
 // Display for ClientConfig
@@ -258,7 +246,7 @@ impl std::fmt::Display for ClientConfig {
             self.request_timeout,
             self.buffer_size,
             self.headers,
-            self.auth
+            self.auth,
         )
     }
 }
@@ -322,14 +310,14 @@ impl ClientConfig {
 
     pub fn with_connect_timeout(self, connect_timeout: Duration) -> Self {
         Self {
-            connect_timeout,
+            connect_timeout: connect_timeout.into(),
             ..self
         }
     }
 
     pub fn with_request_timeout(self, request_timeout: Duration) -> Self {
         Self {
-            request_timeout,
+            request_timeout: request_timeout.into(),
             ..self
         }
     }
@@ -418,12 +406,12 @@ impl ClientConfig {
         // set the connection timeout
         match self.connect_timeout.as_secs() {
             0 => http.set_connect_timeout(None),
-            _ => http.set_connect_timeout(Some(self.connect_timeout)),
+            _ => http.set_connect_timeout(Some(self.connect_timeout.into())),
         }
 
         // set keepalive settings
         if let Some(keepalive) = &self.keepalive {
-            http.set_keepalive(Some(keepalive.tcp_keepalive));
+            http.set_keepalive(Some(keepalive.tcp_keepalive.into()));
         }
 
         Ok(http)
@@ -441,10 +429,10 @@ impl ClientConfig {
         // set keepalive settings
         if let Some(keepalive) = &self.keepalive {
             builder = builder
-                .keep_alive_timeout(keepalive.timeout)
+                .keep_alive_timeout(keepalive.timeout.into())
                 .keep_alive_while_idle(keepalive.keep_alive_while_idle)
                 // HTTP level keepalive
-                .http2_keep_alive_interval(keepalive.http2_keepalive);
+                .http2_keep_alive_interval(keepalive.http2_keepalive.into());
         }
 
         // set origin settings
@@ -463,7 +451,7 @@ impl ClientConfig {
 
         // set the request timeout
         if self.request_timeout.as_secs() > 0 {
-            builder = builder.timeout(self.request_timeout);
+            builder = builder.timeout(self.request_timeout.into());
         }
 
         Ok(builder)
@@ -803,7 +791,7 @@ mod test {
         client.rate_limit = None;
 
         // Set timeout settings
-        client.request_timeout = Duration::from_secs(10);
+        client.request_timeout = Duration::from_secs(10).into();
         channel = client.to_channel();
         assert!(channel.is_ok());
 
@@ -866,5 +854,97 @@ mod test {
         let proxy = ProxyConfig::new("http://proxy.example.com:8080").with_auth("user", "pass");
         let client = ClientConfig::with_endpoint("http://localhost:8080").with_proxy(proxy.clone());
         assert_eq!(client.proxy, proxy);
+    }
+
+    #[test]
+    fn test_connect_and_request_timeout_valid_durations_deserialize() {
+        let json = r#"{
+            "endpoint": "http://localhost:1234",
+            "connect_timeout": "1m30s",
+            "request_timeout": "250ms"
+        }"#;
+
+        let cfg: ClientConfig = serde_json::from_str(json).expect("deserialization should succeed");
+        assert_eq!(cfg.connect_timeout, Duration::from_secs(90));
+        assert_eq!(cfg.request_timeout, Duration::from_millis(250));
+
+        // More complex duration
+        let json = r#"{
+            "endpoint": "http://localhost:1234",
+            "connect_timeout": "1h2m3s4ms",
+            "request_timeout": "1500ms"
+        }"#;
+        let cfg: ClientConfig =
+            serde_json::from_str(json).expect("complex duration should deserialize");
+        assert_eq!(
+            cfg.connect_timeout,
+            Duration::from_secs(3723) + Duration::from_millis(4)
+        );
+        assert_eq!(cfg.request_timeout, Duration::from_millis(1500));
+    }
+
+    #[test]
+    fn test_invalid_duration_strings_fail_deserialize() {
+        let invalids = [
+            r#"{ "endpoint": "http://localhost:1234", "connect_timeout": "abc" }"#,
+            r#"{ "endpoint": "http://localhost:1234", "request_timeout": "10x" }"#,
+            r#"{ "endpoint": "http://localhost:1234", "request_timeout": "--5s" }"#,
+        ];
+        for js in invalids {
+            let res: Result<ClientConfig, _> = serde_json::from_str(js);
+            assert!(res.is_err(), "expected error for json: {}", js);
+        }
+    }
+
+    #[test]
+    fn test_keepalive_config_duration_parsing() {
+        let json = r#"{
+            "endpoint": "http://localhost:1234",
+            "keepalive": {
+                "tcp_keepalive": "30s",
+                "http2_keepalive": "45s",
+                "timeout": "5s",
+                "keep_alive_while_idle": true
+            }
+        }"#;
+        let cfg: ClientConfig = serde_json::from_str(json).expect("keepalive should deserialize");
+        let ka = cfg.keepalive.expect("keepalive should be present");
+        assert_eq!(ka.tcp_keepalive, Duration::from_secs(30));
+        assert_eq!(ka.http2_keepalive, Duration::from_secs(45));
+        assert_eq!(ka.timeout, Duration::from_secs(5));
+        assert!(ka.keep_alive_while_idle);
+
+        // Invalid keepalive duration
+        let invalid_json = r#"{
+            "endpoint": "http://localhost:1234",
+            "keepalive": { "tcp_keepalive": "zz", "http2_keepalive": "10s", "timeout": "5s", "keep_alive_while_idle": false }
+        }"#;
+        let res: Result<ClientConfig, _> = serde_json::from_str(invalid_json);
+        assert!(res.is_err(), "invalid tcp_keepalive should fail");
+    }
+
+    #[test]
+    fn test_client_config_roundtrip_duration_serialization() {
+        let mut cfg = ClientConfig::with_endpoint("http://localhost:9999")
+            .with_connect_timeout(Duration::from_secs(90))
+            .with_request_timeout(Duration::from_millis(750));
+
+        cfg.keepalive = Some(KeepaliveConfig {
+            tcp_keepalive: Duration::from_secs(11).into(),
+            http2_keepalive: Duration::from_secs(22).into(),
+            timeout: Duration::from_secs(3).into(),
+            keep_alive_while_idle: true,
+        });
+
+        let serialized = serde_json::to_string(&cfg).expect("serialize");
+        let deserialized: ClientConfig = serde_json::from_str(&serialized).expect("deserialize");
+
+        assert_eq!(deserialized.connect_timeout, Duration::from_secs(90));
+        assert_eq!(deserialized.request_timeout, Duration::from_millis(750));
+        let ka = deserialized.keepalive.expect("keepalive present");
+        assert_eq!(ka.tcp_keepalive, Duration::from_secs(11));
+        assert_eq!(ka.http2_keepalive, Duration::from_secs(22));
+        assert_eq!(ka.timeout, Duration::from_secs(3));
+        assert!(ka.keep_alive_while_idle);
     }
 }

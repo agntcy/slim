@@ -22,7 +22,7 @@ agntcy-slim-service = { workspace = true }
 agntcy-slim-signal = { workspace = true }
 agntcy-slim-tracing = { workspace = true }
 clap = { workspace = true }
-duration-str = { workspace = true }
+duration-string = { workspace = true }
 lazy_static = { workspace = true }
 num_cpus = { version = "1.16.0", optional = true }
 serde = { workspace = true }
@@ -36,3 +36,4 @@ jemallocator = { workspace = true }
 
 [dev-dependencies]
 tracing-test = { workspace = true }
+serde_json = { workspace = true }

@@ -4,7 +4,7 @@
 use std::collections::HashMap;
 use std::time::Duration;
 
-use duration_str::deserialize_duration;
+use duration_string::DurationString;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use slim_auth::builder::JwtBuilder;
@@ -107,11 +107,9 @@ pub struct Config {
     claims: Claims,
 
     /// JWT Duration (will become exp: now() + duration)
-    #[serde(
-        default = "default_duration",
-        deserialize_with = "deserialize_duration"
-    )]
-    duration: Duration,
+    #[serde(default = "default_duration")]
+    #[schemars(with = "String")]
+    duration: DurationString,
 
     /// One of: `encoding`, `decoding`, or `autoresolve`
     /// Encoding key is used for signing JWTs (client-side).
@@ -122,8 +120,8 @@ pub struct Config {
     key: JwtKey,
 }
 
-fn default_duration() -> Duration {
-    Duration::from_secs(3600)
+fn default_duration() -> DurationString {
+    Duration::from_secs(3600).into()
 }
 
 impl Config {
@@ -131,7 +129,7 @@ impl Config {
     pub fn new(claims: Claims, duration: Duration, key: JwtKey) -> Self {
         Config {
             claims,
-            duration,
+            duration: duration.into(),
             key,
         }
     }
