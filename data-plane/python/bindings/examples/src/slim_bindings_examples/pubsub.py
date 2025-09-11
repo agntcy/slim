@@ -47,7 +47,7 @@ async def run_client(
         # create pubsubb session. A pubsub session is a just a bidirectional
         # streaming session, where participants are both sender and receivers
         session_info = await local_app.create_session(
-            slim_bindings.PySessionConfiguration.Streaming(
+            slim_bindings.PySessionConfiguration.Streaming(  # type: ignore
                 slim_bindings.PySessionDirection.BIDIRECTIONAL,
                 topic=broadcast_topic,
                 moderator=True,
