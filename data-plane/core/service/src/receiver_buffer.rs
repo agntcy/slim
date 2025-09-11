@@ -278,37 +278,37 @@ mod tests {
 
         let h0 = SessionHeader::new(
             ProtoSessionType::SessionPointToPoint.into(),
-            ProtoSessionMessageType::P2pMsg.into(),
+            ProtoSessionMessageType::P2PMsg.into(),
             0,
             0,
         );
         let h1 = SessionHeader::new(
             ProtoSessionType::SessionPointToPoint.into(),
-            ProtoSessionMessageType::P2pMsg.into(),
+            ProtoSessionMessageType::P2PMsg.into(),
             0,
             1,
         );
         let h2 = SessionHeader::new(
             ProtoSessionType::SessionPointToPoint.into(),
-            ProtoSessionMessageType::P2pMsg.into(),
+            ProtoSessionMessageType::P2PMsg.into(),
             0,
             2,
         );
         let h3 = SessionHeader::new(
             ProtoSessionType::SessionPointToPoint.into(),
-            ProtoSessionMessageType::P2pMsg.into(),
+            ProtoSessionMessageType::P2PMsg.into(),
             0,
             3,
         );
         let h4 = SessionHeader::new(
             ProtoSessionType::SessionPointToPoint.into(),
-            ProtoSessionMessageType::P2pMsg.into(),
+            ProtoSessionMessageType::P2PMsg.into(),
             0,
             4,
         );
         let h5 = SessionHeader::new(
             ProtoSessionType::SessionPointToPoint.into(),
-            ProtoSessionMessageType::P2pMsg.into(),
+            ProtoSessionMessageType::P2PMsg.into(),
             0,
             5,
         );

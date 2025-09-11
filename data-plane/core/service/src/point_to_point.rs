@@ -505,13 +505,13 @@ where
         });
         if self.state.config.timeout.is_some() {
             header.set_session_message_type(if info.session_message_type_unset() {
-                ProtoSessionMessageType::P2pReliable
+                ProtoSessionMessageType::P2PReliable
             } else {
                 info.get_session_message_type()
             });
         } else {
             header.set_session_message_type(if info.session_message_type_unset() {
-                ProtoSessionMessageType::P2pMsg
+                ProtoSessionMessageType::P2PMsg
             } else {
                 info.get_session_message_type()
             });
@@ -591,11 +591,11 @@ where
         }
 
         match message.message.get_session_message_type() {
-            ProtoSessionMessageType::P2pMsg => {
+            ProtoSessionMessageType::P2PMsg => {
                 // Simply send the message to the application
                 self.send_message_to_app(message).await
             }
-            ProtoSessionMessageType::P2pReliable => {
+            ProtoSessionMessageType::P2PReliable => {
                 // Send an ack back as reply and forward the incoming message to the app
                 // Create ack message
                 let src = message.message.get_source();
@@ -610,7 +610,7 @@ where
 
                 let session_header = Some(SessionHeader::new(
                     ProtoSessionType::SessionPointToPoint.into(),
-                    ProtoSessionMessageType::P2pAck.into(),
+                    ProtoSessionMessageType::P2PAck.into(),
                     message.info.id,
                     message_id,
                 ));
@@ -628,7 +628,7 @@ where
                     .await
                     .map_err(|e| SessionError::SlimTransmission(e.to_string()))
             }
-            ProtoSessionMessageType::P2pAck => {
+            ProtoSessionMessageType::P2PAck => {
                 // Remove the timer and drop the message
                 self.stop_and_remove_timer(message_id)
             }
@@ -980,7 +980,7 @@ mod tests {
         // set the session id in the message
         let header = message.get_session_header_mut();
         header.session_id = 1;
-        header.set_session_message_type(ProtoSessionMessageType::P2pMsg);
+        header.set_session_message_type(ProtoSessionMessageType::P2PMsg);
 
         let res = session
             .on_message(
@@ -1030,7 +1030,7 @@ mod tests {
         let header = message.get_session_header_mut();
         header.session_id = 0;
         header.message_id = 12345;
-        header.set_session_message_type(ProtoSessionMessageType::P2pReliable);
+        header.set_session_message_type(ProtoSessionMessageType::P2PReliable);
 
         let res = session
             .on_message(
@@ -1057,7 +1057,7 @@ mod tests {
         let header = msg.get_session_header();
         assert_eq!(
             header.session_message_type(),
-            ProtoSessionMessageType::P2pAck
+            ProtoSessionMessageType::P2PAck
         );
         assert_eq!(header.get_message_id(), 12345);
     }
@@ -1106,7 +1106,7 @@ mod tests {
         // set the session id in the message for the comparison inside the for loop
         let header = message.get_session_header_mut();
         header.session_id = 0;
-        header.set_session_message_type(ProtoSessionMessageType::P2pReliable);
+        header.set_session_message_type(ProtoSessionMessageType::P2PReliable);
         header.set_session_type(ProtoSessionType::SessionPointToPoint);
 
         for _i in 0..6 {
@@ -1185,7 +1185,7 @@ mod tests {
         let header = message.get_session_header_mut();
         header.set_session_id(0);
         header.set_session_type(ProtoSessionType::SessionPointToPoint);
-        header.set_session_message_type(ProtoSessionMessageType::P2pReliable);
+        header.set_session_message_type(ProtoSessionMessageType::P2PReliable);
 
         let res = session_sender
             .on_message(
@@ -1239,7 +1239,7 @@ mod tests {
         let header = ack.get_session_header();
         assert_eq!(
             header.session_message_type(),
-            ProtoSessionMessageType::P2pAck
+            ProtoSessionMessageType::P2PAck
         );
 
         // Check that the ack is sent back to the sender
@@ -1349,7 +1349,7 @@ mod tests {
         // set the session id in the message
         let header = message.get_session_header_mut();
         header.set_session_id(0);
-        header.set_session_message_type(ProtoSessionMessageType::P2pReliable);
+        header.set_session_message_type(ProtoSessionMessageType::P2PReliable);
 
         // set a fake incoming connection id
         let slim_header = message.get_slim_header_mut();
@@ -1534,7 +1534,7 @@ mod tests {
 
             assert_eq!(
                 header.session_message_type(),
-                ProtoSessionMessageType::P2pReliable
+                ProtoSessionMessageType::P2PReliable
             );
 
             assert_eq!(header.session_type(), ProtoSessionType::SessionPointToPoint);
@@ -1573,7 +1573,7 @@ mod tests {
             let header = msg.get_session_header();
             assert_eq!(
                 header.session_message_type(),
-                ProtoSessionMessageType::P2pReliable
+                ProtoSessionMessageType::P2PReliable
             );
 
             msg.set_incoming_conn(Some(0));

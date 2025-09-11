@@ -129,9 +129,9 @@ impl SessionType {
 #[repr(i32)]
 pub enum SessionMessageType {
     Unspecified = 0,
-    P2pMsg = 1,
-    P2pReliable = 2,
-    P2pAck = 3,
+    P2PMsg = 1,
+    P2PReliable = 2,
+    P2PAck = 3,
     MulticastMsg = 4,
     RtxRequest = 5,
     RtxReply = 6,
@@ -155,9 +155,9 @@ impl SessionMessageType {
     pub fn as_str_name(&self) -> &'static str {
         match self {
             Self::Unspecified => "UNSPECIFIED",
-            Self::P2pMsg => "P2P_MSG",
-            Self::P2pReliable => "P2P_RELIABLE",
-            Self::P2pAck => "P2P_ACK",
+            Self::P2PMsg => "P_2_P_MSG",
+            Self::P2PReliable => "P_2_P_RELIABLE",
+            Self::P2PAck => "P_2_P_ACK",
             Self::MulticastMsg => "MULTICAST_MSG",
             Self::RtxRequest => "RTX_REQUEST",
             Self::RtxReply => "RTX_REPLY",
@@ -178,9 +178,9 @@ impl SessionMessageType {
     pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
         match value {
             "UNSPECIFIED" => Some(Self::Unspecified),
-            "P2P_MSG" => Some(Self::P2pMsg),
-            "P2P_RELIABLE" => Some(Self::P2pReliable),
-            "P2P_ACK" => Some(Self::P2pAck),
+            "P_2_P_MSG" => Some(Self::P2PMsg),
+            "P_2_P_RELIABLE" => Some(Self::P2PReliable),
+            "P_2_P_ACK" => Some(Self::P2PAck),
             "MULTICAST_MSG" => Some(Self::MulticastMsg),
             "RTX_REQUEST" => Some(Self::RtxRequest),
             "RTX_REPLY" => Some(Self::RtxReply),

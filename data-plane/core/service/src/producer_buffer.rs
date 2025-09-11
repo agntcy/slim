@@ -118,31 +118,31 @@ mod tests {
 
         let h0 = SessionHeader::new(
             SessionType::SessionUnknown.into(),
-            SessionMessageType::P2pMsg.into(),
+            SessionMessageType::P2PMsg.into(),
             0,
             0,
         );
         let h1 = SessionHeader::new(
             SessionType::SessionUnknown.into(),
-            SessionMessageType::P2pMsg.into(),
+            SessionMessageType::P2PMsg.into(),
             0,
             1,
         );
         let h2 = SessionHeader::new(
             SessionType::SessionUnknown.into(),
-            SessionMessageType::P2pMsg.into(),
+            SessionMessageType::P2PMsg.into(),
             0,
             2,
         );
         let h3 = SessionHeader::new(
             SessionType::SessionUnknown.into(),
-            SessionMessageType::P2pMsg.into(),
+            SessionMessageType::P2PMsg.into(),
             0,
             3,
         );
         let h4 = SessionHeader::new(
             SessionType::SessionUnknown.into(),
-            SessionMessageType::P2pMsg.into(),
+            SessionMessageType::P2PMsg.into(),
             0,
             4,
         );
@@ -214,7 +214,7 @@ mod tests {
         let slim_header = SlimHeader::new(&src, &name_type, None);
         let h = SessionHeader::new(
             SessionType::SessionUnknown.into(),
-            SessionMessageType::P2pMsg.into(),
+            SessionMessageType::P2PMsg.into(),
             0,
             0,
         );

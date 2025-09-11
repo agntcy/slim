@@ -47,13 +47,14 @@ message Name {
 enum SessionType {
   SESSION_UNKNOWN = 0;
   SESSION_POINT_TO_POINT = 1;
-  SESSION_MULTICAST = 2;}
+  SESSION_MULTICAST = 2;
+}
 
 enum SessionMessageType {
   UNSPECIFIED = 0;
-  P2P_MSG = 1;
-  P2P_RELIABLE = 2;
-  P2P_ACK = 3;
+  P_2_P_MSG = 1;
+  P_2_P_RELIABLE = 2;
+  P_2_P_ACK = 3;
   MULTICAST_MSG = 4;
   RTX_REQUEST = 5;
   RTX_REPLY = 6;

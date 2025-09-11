@@ -764,14 +764,14 @@ where
         }
 
         let new_session_id = match session_message_type {
-            ProtoSessionMessageType::P2pMsg | ProtoSessionMessageType::P2pReliable => {
+            ProtoSessionMessageType::P2PMsg | ProtoSessionMessageType::P2PReliable => {
                 let mut conf = self.default_ff_conf.read().clone();
 
                 // Set that the session was initiated by another app
                 conf.initiator = false;
 
                 // If other session is reliable, set the timeout
-                if session_message_type == ProtoSessionMessageType::P2pReliable {
+                if session_message_type == ProtoSessionMessageType::P2PReliable {
                     if conf.timeout.is_none() {
                         conf.timeout = Some(std::time::Duration::from_secs(5));
                     }
@@ -829,7 +829,7 @@ where
             | ProtoSessionMessageType::ChannelMlsCommit
             | ProtoSessionMessageType::ChannelMlsWelcome
             | ProtoSessionMessageType::ChannelMlsAck
-            | ProtoSessionMessageType::P2pAck
+            | ProtoSessionMessageType::P2PAck
             | ProtoSessionMessageType::RtxRequest
             | ProtoSessionMessageType::RtxReply
             | ProtoSessionMessageType::MulticastMsg
@@ -1094,7 +1094,7 @@ mod tests {
         let header = message.get_session_header_mut();
         header.session_id = 1;
         header.set_session_type(ProtoSessionType::SessionPointToPoint);
-        header.set_session_message_type(ProtoSessionMessageType::P2pMsg);
+        header.set_session_message_type(ProtoSessionMessageType::P2PMsg);
 
         app.session_layer
             .handle_message(
@@ -1174,7 +1174,7 @@ mod tests {
         let header = message.get_session_header_mut();
         header.session_id = 1;
         header.set_session_type(ProtoSessionType::SessionPointToPoint);
-        header.set_session_message_type(ProtoSessionMessageType::P2pMsg);
+        header.set_session_message_type(ProtoSessionMessageType::P2PMsg);
 
         let res = app
             .session_layer
