@@ -17,7 +17,11 @@ class EchoAgentExecutor(AgentExecutor):
         context: RequestContext,
         event_queue: EventQueue,
     ) -> None:
-        if (not context.message) or (not context.message.task_id) or (not context.message.context_id):
+        if (
+            (not context.message)
+            or (not context.message.task_id)
+            or (not context.message.context_id)
+        ):
             raise Exception("no message provided")
 
         logging.debug(f"received message: {context.message}")

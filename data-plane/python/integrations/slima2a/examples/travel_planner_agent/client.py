@@ -1,7 +1,5 @@
 import asyncio
 import logging
-from typing import Any
-import typing
 from uuid import uuid4
 
 # Disable a2a telemetry debugging before any a2a imports
@@ -15,7 +13,6 @@ from a2a.client import (
     Client,
     ClientFactory,
     minimal_agent_card,
-    ClientConfig as A2AClientConfig,
 )
 from a2a.types import (
     Message,
@@ -71,6 +68,7 @@ async def interact_with_server(client: Client) -> None:
 
         print(output, end="", flush=True)
         await asyncio.sleep(0.1)
+
 
 async def main() -> None:
     print_welcome_message()
