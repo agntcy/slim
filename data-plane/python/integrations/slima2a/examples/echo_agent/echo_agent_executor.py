@@ -22,7 +22,7 @@ class EchoAgentExecutor(AgentExecutor):
             or (not context.message.task_id)
             or (not context.message.context_id)
         ):
-            raise Exception("no message provided")
+            raise Exception("invalid message")
 
         logging.debug(f"received message: {context.message}")
 
