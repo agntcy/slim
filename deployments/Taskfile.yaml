@@ -19,14 +19,24 @@ tasks:
   cluster.down:
     desc: Delete the local Kubernetes cluster
     cmd: kind delete cluster --name slim-cluster
+  
+  cluster.use-context:
+    desc: Set the current kubectl context to kind-slim-cluster
+    deps:
+      - cluster.up
+    cmd: kubectl config use-context kind-slim-cluster
 
   slim.deploy.naive:
     desc: Deploy Slim using the naive deployment strategy
+    deps: 
+      # - cluster.use-context
     cmds:
-      - helm upgrade --install slim ./helm/slim \
-          --namespace slim \
-          --create-namespace \
-          --values ./deployments/naive-values.yaml
+      - cmd: |
+          helm upgrade slim ../charts/slim \
+            --namespace slim \
+            --create-namespace \
+            --install \
+            --values naive-values.yaml
 
   slim.deploy.statefulset:
     desc: Deploy Slim using the StatefulSet deployment strategy
