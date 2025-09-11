@@ -26,7 +26,7 @@ vars:
   TOOLCHAIN: ''
   OSTYPE:
     sh: bash -c 'echo $OSTYPE'
-  LLVM_VERSION: '{{ .LLVM_VERSION | default "14" }}'
+  LLVM_VERSION: '{{ .LLVM_VERSION | default "19" }}'
   CLANG:
     sh: "[[ {{.OSTYPE}} == darwin* ]] && xcrun --sdk macosx --find clang || echo 'clang-{{.LLVM_VERSION}}'"
   STRIP:
