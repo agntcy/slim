@@ -74,6 +74,8 @@ async def main() -> None:
             )
 
             uvicorn.run(servicer.build(), host="0.0.0.0", port=9999)
+        case _:
+            raise ValueError(f"Invalid server type: {args.type}")
 
 
 def parse_arguments() -> argparse.Namespace:
