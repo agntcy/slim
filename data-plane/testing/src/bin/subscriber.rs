@@ -3,33 +3,21 @@
 
 use slim_auth::shared_secret::SharedSecret;
 use slim_datapath::messages::Name;
-use slim_service::streaming::StreamingConfiguration;
 use std::fs::File;
 use std::io::prelude::*;
-use std::time::Duration;
 use testing::parse_line;
 
 use clap::Parser;
 use indicatif::ProgressBar;
 use slim::config;
-use tracing::{debug, error, info};
+use tracing::{debug, info};
 
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
 pub struct Args {
-    /// Workload input file, required if used in workload mode. If this is set the streaming mode is set to false.
+    /// Workload input file, required if used in workload mode. If this is set the multicast mode is set to false.
     #[arg(short, long, value_name = "WORKLOAD", required = false)]
     workload: Option<String>,
-
-    /// Runs in streaming mode.
-    #[arg(
-        short,
-        long,
-        value_name = "STREAMING",
-        required = false,
-        default_value_t = false
-    )]
-    streaming: bool,
 
     /// Slim configuration file
     #[arg(short, long, value_name = "CONFIGURATION", required = true)]
@@ -49,10 +37,6 @@ impl Args {
         &self.workload
     }
 
-    pub fn streaming(&self) -> &bool {
-        &self.streaming
-    }
-
     pub fn config(&self) -> &String {
         &self.config
     }
@@ -66,21 +50,16 @@ async fn main() {
     let config_file = args.config();
     let id = *args.id();
     let id_bytes = id.to_be_bytes().to_vec();
-    let mut streaming = *args.streaming();
-    if input.is_some() {
-        streaming = false;
-    }
 
     // setup app config
     let mut config = config::load_config(config_file).expect("failed to load configuration");
     let _guard = config.tracing.setup_tracing_subscriber();
 
     info!(
-        "configuration -- workload file: {}, config {}, subscriber id: {}, streaming mode: {}",
+        "configuration -- workload file: {}, config {}, subscriber id: {}",
         input.as_ref().unwrap_or(&"None".to_string()),
         config_file,
         id,
-        streaming,
     );
 
     // start local app
@@ -93,8 +72,8 @@ async fn main() {
     let (app, mut rx) = svc
         .create_app(
             &app_name,
-            SharedSecret::new("a", "group"),
-            SharedSecret::new("a", "group"),
+            SharedSecret::new("a", "test"),
+            SharedSecret::new("a", "test"),
         )
         .await
         .expect("failed to create app");
@@ -106,41 +85,6 @@ async fn main() {
     let conn_id = svc
         .get_connection_id(&svc.config().clients()[0].endpoint)
         .unwrap();
-
-    if streaming {
-        // run subscriber in streaming mode
-        // subscribe for local name
-        match app.subscribe(&app_name, Some(conn_id)).await {
-            Ok(_) => {}
-            Err(e) => {
-                panic!("an error accoured while adding a subscription {}", e);
-            }
-        }
-
-        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
-
-        info!("waiting for incoming messages");
-        loop {
-            match rx.recv().await {
-                Some(res) => match res {
-                    Ok(recv_msg) => {
-                        info!(
-                            "received message {} from session {}",
-                            recv_msg.info.message_id.unwrap(),
-                            recv_msg.info.id
-                        );
-                    }
-                    Err(e) => {
-                        error!("received error {}", e)
-                    }
-                },
-                None => {
-                    error!("stream close");
-                    return;
-                }
-            };
-        }
-    }
 
     // run subscriber in workload mode
     let mut subscriptions_list = Vec::new();
@@ -173,23 +117,6 @@ async fn main() {
                 panic!("error while parsing the workload file {}", e);
             }
         }
-    }
-
-    let res = app
-        .create_session(
-            slim_service::session::SessionConfig::Streaming(StreamingConfiguration::new(
-                slim_service::session::SessionDirection::Receiver,
-                app_name.clone(),
-                false,
-                Some(10),
-                Some(Duration::from_millis(1000)),
-                false,
-            )),
-            None,
-        )
-        .await;
-    if res.is_err() {
-        panic!("error creating fire and forget session");
     }
 
     // wait for the connection to be established

@@ -74,7 +74,7 @@ impl ReceiverBuffer {
             match msg {
                 Some(m) => {
                     // no loss detected, return message
-                    // if this is the first packet received (case last_sent == usize::MAX) we consider it
+                    // if this is the first packet received (case last_sent == usize::MAX) we consider it a
                     // valid one and the buffer is initialized accordingly. in this way a stream can start from
                     // a random number or it can be joined at any time
                     debug!("No loss detected, return message {}", msg_id);
@@ -277,38 +277,38 @@ mod tests {
         let slim_header = SlimHeader::new(&src, &name_type, None);
 
         let h0 = SessionHeader::new(
-            ProtoSessionType::SessionFireForget.into(),
-            ProtoSessionMessageType::FnfMsg.into(),
+            ProtoSessionType::SessionPointToPoint.into(),
+            ProtoSessionMessageType::P2PMsg.into(),
             0,
             0,
         );
         let h1 = SessionHeader::new(
-            ProtoSessionType::SessionFireForget.into(),
-            ProtoSessionMessageType::FnfMsg.into(),
+            ProtoSessionType::SessionPointToPoint.into(),
+            ProtoSessionMessageType::P2PMsg.into(),
             0,
             1,
         );
         let h2 = SessionHeader::new(
-            ProtoSessionType::SessionFireForget.into(),
-            ProtoSessionMessageType::FnfMsg.into(),
+            ProtoSessionType::SessionPointToPoint.into(),
+            ProtoSessionMessageType::P2PMsg.into(),
             0,
             2,
         );
         let h3 = SessionHeader::new(
-            ProtoSessionType::SessionFireForget.into(),
-            ProtoSessionMessageType::FnfMsg.into(),
+            ProtoSessionType::SessionPointToPoint.into(),
+            ProtoSessionMessageType::P2PMsg.into(),
             0,
             3,
         );
         let h4 = SessionHeader::new(
-            ProtoSessionType::SessionFireForget.into(),
-            ProtoSessionMessageType::FnfMsg.into(),
+            ProtoSessionType::SessionPointToPoint.into(),
+            ProtoSessionMessageType::P2PMsg.into(),
             0,
             4,
         );
         let h5 = SessionHeader::new(
-            ProtoSessionType::SessionFireForget.into(),
-            ProtoSessionMessageType::FnfMsg.into(),
+            ProtoSessionType::SessionPointToPoint.into(),
+            ProtoSessionMessageType::P2PMsg.into(),
             0,
             5,
         );
