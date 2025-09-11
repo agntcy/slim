@@ -732,7 +732,7 @@ where
         identity_verifier: V,
         storage_path: std::path::PathBuf,
     ) -> Self {
-        let (tx, rx) = mpsc::channel(32);
+        let (tx, rx) = mpsc::channel(128);
 
         // Common session stuff
         let common = Common::new(

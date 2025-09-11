@@ -74,8 +74,8 @@ async fn main() {
     let (app, mut rx) = svc
         .create_app(
             &app_name,
-            SharedSecret::new("a", "group"),
-            SharedSecret::new("a", "group"),
+            SharedSecret::new("a", "test"),
+            SharedSecret::new("a", "test"),
         )
         .await
         .expect("failed to create app");
@@ -119,22 +119,6 @@ async fn main() {
                 panic!("error while parsing the workload file {}", e);
             }
         }
-    }
-
-    let res = app
-        .create_session(
-            slim_service::session::SessionConfig::Multicast(MulticastConfiguration::new(
-                app_name.clone(),
-                false,
-                Some(10),
-                Some(Duration::from_millis(1000)),
-                false,
-            )),
-            None,
-        )
-        .await;
-    if res.is_err() {
-        panic!("error creating fire and forget session");
     }
 
     // wait for the connection to be established

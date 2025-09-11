@@ -9,8 +9,8 @@ verbose: false
 env:
   CONFIG_CLIENT: ../config/base/client-config.yaml
   CONFIG_SERVER: ./config/base/server-config.yaml
-  SUB: 1000000
-  PUB: 3000000
+  SUB: 5000
+  PUB: 10000
   SUB_APPS: 10
   PUB_APPS: 1
 

@@ -120,8 +120,8 @@ async fn main() {
     let (app, mut rx) = svc
         .create_app(
             &app_name,
-            SharedSecret::new("a", "group"),
-            SharedSecret::new("a", "group"),
+            SharedSecret::new("a", "test"),
+            SharedSecret::new("a", "test"),
         )
         .await
         .expect("failed to create app");
