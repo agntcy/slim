@@ -145,6 +145,7 @@ pub fn build(config: &RuntimeConfiguration) -> Result<SlimRuntime, Configuration
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json;
 
     #[test]
     fn test_runtime_configuration() {
@@ -192,5 +193,47 @@ mod tests {
         let runtime = build(&config).unwrap();
         assert_eq!(runtime.config.n_cores, 100);
         assert_eq!(config.drain_timeout, time::Duration::from_secs(10));
+    }
+
+    #[test]
+    fn test_runtime_configuration_valid_drain_timeout_deserialize() {
+        let json = r#"{ "drain_timeout": "1m30s" }"#; // 90 seconds
+        let cfg: RuntimeConfiguration =
+            serde_json::from_str(json).expect("valid duration should deserialize");
+        assert_eq!(cfg.drain_timeout, time::Duration::from_secs(90));
+
+        let json = r#"{ "drain_timeout": "2h3m4s" }"#; // 7384 seconds
+        let cfg: RuntimeConfiguration =
+            serde_json::from_str(json).expect("complex duration should deserialize");
+        assert_eq!(
+            cfg.drain_timeout,
+            time::Duration::from_secs(2 * 3600 + 3 * 60 + 4)
+        );
+    }
+
+    #[test]
+    fn test_runtime_configuration_invalid_drain_timeout_deserialize() {
+        let invalid_cases = [
+            r#"{ "drain_timeout": "abc" }"#,
+            r#"{ "drain_timeout": "10x" }"#,
+            r#"{ "drain_timeout": "-5s" }"#,
+        ];
+        for js in invalid_cases {
+            let res: Result<RuntimeConfiguration, _> = serde_json::from_str(js);
+            assert!(res.is_err(), "expected error for json: {}", js);
+        }
+    }
+
+    #[test]
+    fn test_runtime_configuration_drain_timeout_roundtrip() {
+        let cfg = RuntimeConfiguration {
+            n_cores: 0,
+            thread_name: "roundtrip".to_string(),
+            drain_timeout: time::Duration::from_millis(1250).into(),
+        };
+        let ser = serde_json::to_string(&cfg).expect("serialize");
+        let de: RuntimeConfiguration = serde_json::from_str(&ser).expect("deserialize");
+        assert_eq!(de.drain_timeout, time::Duration::from_millis(1250));
+        assert_eq!(de.thread_name, "roundtrip");
     }
 }

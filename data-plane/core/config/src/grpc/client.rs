@@ -886,4 +886,96 @@ mod test {
         let client = ClientConfig::with_endpoint("http://localhost:8080").with_proxy(proxy.clone());
         assert_eq!(client.proxy, proxy);
     }
+
+    #[test]
+    fn test_connect_and_request_timeout_valid_durations_deserialize() {
+        let json = r#"{
+            "endpoint": "http://localhost:1234",
+            "connect_timeout": "1m30s",
+            "request_timeout": "250ms"
+        }"#;
+
+        let cfg: ClientConfig = serde_json::from_str(json).expect("deserialization should succeed");
+        assert_eq!(cfg.connect_timeout, Duration::from_secs(90));
+        assert_eq!(cfg.request_timeout, Duration::from_millis(250));
+
+        // More complex duration
+        let json = r#"{
+            "endpoint": "http://localhost:1234",
+            "connect_timeout": "1h2m3s4ms",
+            "request_timeout": "1500ms"
+        }"#;
+        let cfg: ClientConfig =
+            serde_json::from_str(json).expect("complex duration should deserialize");
+        assert_eq!(
+            cfg.connect_timeout,
+            Duration::from_secs(3723) + Duration::from_millis(4)
+        );
+        assert_eq!(cfg.request_timeout, Duration::from_millis(1500));
+    }
+
+    #[test]
+    fn test_invalid_duration_strings_fail_deserialize() {
+        let invalids = [
+            r#"{ "endpoint": "http://localhost:1234", "connect_timeout": "abc" }"#,
+            r#"{ "endpoint": "http://localhost:1234", "request_timeout": "10x" }"#,
+            r#"{ "endpoint": "http://localhost:1234", "request_timeout": "--5s" }"#,
+        ];
+        for js in invalids {
+            let res: Result<ClientConfig, _> = serde_json::from_str(js);
+            assert!(res.is_err(), "expected error for json: {}", js);
+        }
+    }
+
+    #[test]
+    fn test_keepalive_config_duration_parsing() {
+        let json = r#"{
+            "endpoint": "http://localhost:1234",
+            "keepalive": {
+                "tcp_keepalive": "30s",
+                "http2_keepalive": "45s",
+                "timeout": "5s",
+                "keep_alive_while_idle": true
+            }
+        }"#;
+        let cfg: ClientConfig = serde_json::from_str(json).expect("keepalive should deserialize");
+        let ka = cfg.keepalive.expect("keepalive should be present");
+        assert_eq!(ka.tcp_keepalive, Duration::from_secs(30));
+        assert_eq!(ka.http2_keepalive, Duration::from_secs(45));
+        assert_eq!(ka.timeout, Duration::from_secs(5));
+        assert!(ka.keep_alive_while_idle);
+
+        // Invalid keepalive duration
+        let invalid_json = r#"{
+            "endpoint": "http://localhost:1234",
+            "keepalive": { "tcp_keepalive": "zz", "http2_keepalive": "10s", "timeout": "5s", "keep_alive_while_idle": false }
+        }"#;
+        let res: Result<ClientConfig, _> = serde_json::from_str(invalid_json);
+        assert!(res.is_err(), "invalid tcp_keepalive should fail");
+    }
+
+    #[test]
+    fn test_client_config_roundtrip_duration_serialization() {
+        let mut cfg = ClientConfig::with_endpoint("http://localhost:9999")
+            .with_connect_timeout(Duration::from_secs(90))
+            .with_request_timeout(Duration::from_millis(750));
+
+        cfg.keepalive = Some(KeepaliveConfig {
+            tcp_keepalive: Duration::from_secs(11).into(),
+            http2_keepalive: Duration::from_secs(22).into(),
+            timeout: Duration::from_secs(3).into(),
+            keep_alive_while_idle: true,
+        });
+
+        let serialized = serde_json::to_string(&cfg).expect("serialize");
+        let deserialized: ClientConfig = serde_json::from_str(&serialized).expect("deserialize");
+
+        assert_eq!(deserialized.connect_timeout, Duration::from_secs(90));
+        assert_eq!(deserialized.request_timeout, Duration::from_millis(750));
+        let ka = deserialized.keepalive.expect("keepalive present");
+        assert_eq!(ka.tcp_keepalive, Duration::from_secs(11));
+        assert_eq!(ka.http2_keepalive, Duration::from_secs(22));
+        assert_eq!(ka.timeout, Duration::from_secs(3));
+        assert!(ka.keep_alive_while_idle);
+    }
 }

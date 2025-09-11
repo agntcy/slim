@@ -499,6 +499,7 @@ impl ServerConfig {
 mod tests {
     use super::*;
     use crate::testutils::{Empty, helloworld::greeter_server::GreeterServer};
+    use serde_json;
 
     static TEST_DATA_PATH: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/testdata/grpc");
 
@@ -567,5 +568,78 @@ mod tests {
         server_config.tls_setting.config.key_file = Some(format!("{}/server.key", TEST_DATA_PATH));
         let ret = server_config.to_server_future(&[GreeterServer::from_arc(empty_service.clone())]);
         assert!(ret.is_ok());
+    }
+
+    #[test]
+    fn test_keepalive_server_parameters_valid_durations_deserialize() {
+        let json = r#"{
+            "endpoint": "0.0.0.0:12345",
+            "keepalive": {
+                "max_connection_idle": "30m",
+                "max_connection_age": "1h30m",
+                "max_connection_age_grace": "15s",
+                "time": "5s",
+                "timeout": "2s"
+            }
+        }"#;
+
+        let cfg: ServerConfig = serde_json::from_str(json).expect("deserialization should succeed");
+        assert_eq!(
+            cfg.keepalive.max_connection_idle,
+            Duration::from_secs(30 * 60)
+        );
+        assert_eq!(
+            cfg.keepalive.max_connection_age,
+            Duration::from_secs(90 * 60)
+        );
+        assert_eq!(
+            cfg.keepalive.max_connection_age_grace,
+            Duration::from_secs(15)
+        );
+        assert_eq!(cfg.keepalive.time, Duration::from_secs(5));
+        assert_eq!(cfg.keepalive.timeout, Duration::from_secs(2));
+    }
+
+    #[test]
+    fn test_invalid_keepalive_duration_strings_fail_deserialize() {
+        let invalid_json_cases = [
+            r#"{ "keepalive": { "time": "zz" } }"#,
+            r#"{ "keepalive": { "timeout": "-5s" } }"#,
+            r#"{ "keepalive": { "max_connection_age": "10x" } }"#,
+        ];
+        for js in invalid_json_cases {
+            let res: Result<ServerConfig, _> = serde_json::from_str(js);
+            assert!(res.is_err(), "expected error for json: {}", js);
+        }
+    }
+
+    #[test]
+    fn test_server_config_keepalive_roundtrip_duration_serialization() {
+        let keepalive = KeepaliveServerParameters {
+            max_connection_idle: Duration::from_secs(10).into(),
+            max_connection_age: Duration::from_secs(20).into(),
+            max_connection_age_grace: Duration::from_secs(30).into(),
+            time: Duration::from_secs(3).into(),
+            timeout: Duration::from_secs(1).into(),
+        };
+
+        let cfg = ServerConfig::with_endpoint("127.0.0.1:50000").with_keepalive(keepalive.clone());
+        let serialized = serde_json::to_string(&cfg).expect("serialize");
+        let deserialized: ServerConfig = serde_json::from_str(&serialized).expect("deserialize");
+
+        assert_eq!(
+            deserialized.keepalive.max_connection_idle,
+            Duration::from_secs(10)
+        );
+        assert_eq!(
+            deserialized.keepalive.max_connection_age,
+            Duration::from_secs(20)
+        );
+        assert_eq!(
+            deserialized.keepalive.max_connection_age_grace,
+            Duration::from_secs(30)
+        );
+        assert_eq!(deserialized.keepalive.time, Duration::from_secs(3));
+        assert_eq!(deserialized.keepalive.timeout, Duration::from_secs(1));
     }
 }

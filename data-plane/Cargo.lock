@@ -41,6 +41,7 @@ dependencies = [
  "lazy_static",
  "num_cpus",
  "serde",
+ "serde_json",
  "serde_yaml",
  "thiserror 2.0.12",
  "tokio",

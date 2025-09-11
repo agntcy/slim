@@ -36,3 +36,4 @@ jemallocator = { workspace = true }
 
 [dev-dependencies]
 tracing-test = { workspace = true }
+serde_json = { workspace = true }
