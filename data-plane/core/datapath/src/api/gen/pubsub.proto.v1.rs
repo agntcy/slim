@@ -100,9 +100,8 @@ pub mod message {
 #[repr(i32)]
 pub enum SessionType {
     SessionUnknown = 0,
-    SessionFireForget = 1,
-    SessionStreaming = 2,
-    SessionPubSub = 3,
+    SessionPointToPoint = 1,
+    SessionMulticast = 2,
 }
 impl SessionType {
     /// String value of the enum field names used in the ProtoBuf definition.
@@ -112,18 +111,16 @@ impl SessionType {
     pub fn as_str_name(&self) -> &'static str {
         match self {
             Self::SessionUnknown => "SESSION_UNKNOWN",
-            Self::SessionFireForget => "SESSION_FIRE_FORGET",
-            Self::SessionStreaming => "SESSION_STREAMING",
-            Self::SessionPubSub => "SESSION_PUB_SUB",
+            Self::SessionPointToPoint => "SESSION_POINT_TO_POINT",
+            Self::SessionMulticast => "SESSION_MULTICAST",
         }
     }
     /// Creates an enum from field names used in the ProtoBuf definition.
     pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
         match value {
             "SESSION_UNKNOWN" => Some(Self::SessionUnknown),
-            "SESSION_FIRE_FORGET" => Some(Self::SessionFireForget),
-            "SESSION_STREAMING" => Some(Self::SessionStreaming),
-            "SESSION_PUB_SUB" => Some(Self::SessionPubSub),
+            "SESSION_POINT_TO_POINT" => Some(Self::SessionPointToPoint),
+            "SESSION_MULTICAST" => Some(Self::SessionMulticast),
             _ => None,
         }
     }
@@ -132,25 +129,23 @@ impl SessionType {
 #[repr(i32)]
 pub enum SessionMessageType {
     Unspecified = 0,
-    FnfMsg = 1,
-    FnfReliable = 2,
-    FnfAck = 3,
-    StreamMsg = 4,
-    PubSubMsg = 5,
-    RtxRequest = 6,
-    RtxReply = 7,
-    BeaconStream = 8,
-    BeaconPubSub = 9,
-    ChannelDiscoveryRequest = 10,
-    ChannelDiscoveryReply = 11,
-    ChannelJoinRequest = 12,
-    ChannelJoinReply = 13,
-    ChannelLeaveRequest = 14,
-    ChannelLeaveReply = 15,
-    ChannelMlsCommit = 16,
-    ChannelMlsWelcome = 17,
-    ChannelMlsProposal = 18,
-    ChannelMlsAck = 19,
+    P2PMsg = 1,
+    P2PReliable = 2,
+    P2PAck = 3,
+    MulticastMsg = 4,
+    RtxRequest = 5,
+    RtxReply = 6,
+    BeaconMulticast = 7,
+    ChannelDiscoveryRequest = 8,
+    ChannelDiscoveryReply = 9,
+    ChannelJoinRequest = 10,
+    ChannelJoinReply = 11,
+    ChannelLeaveRequest = 12,
+    ChannelLeaveReply = 13,
+    ChannelMlsCommit = 14,
+    ChannelMlsWelcome = 15,
+    ChannelMlsProposal = 16,
+    ChannelMlsAck = 17,
 }
 impl SessionMessageType {
     /// String value of the enum field names used in the ProtoBuf definition.
@@ -160,15 +155,13 @@ impl SessionMessageType {
     pub fn as_str_name(&self) -> &'static str {
         match self {
             Self::Unspecified => "UNSPECIFIED",
-            Self::FnfMsg => "FNF_MSG",
-            Self::FnfReliable => "FNF_RELIABLE",
-            Self::FnfAck => "FNF_ACK",
-            Self::StreamMsg => "STREAM_MSG",
-            Self::PubSubMsg => "PUB_SUB_MSG",
+            Self::P2PMsg => "P_2_P_MSG",
+            Self::P2PReliable => "P_2_P_RELIABLE",
+            Self::P2PAck => "P_2_P_ACK",
+            Self::MulticastMsg => "MULTICAST_MSG",
             Self::RtxRequest => "RTX_REQUEST",
             Self::RtxReply => "RTX_REPLY",
-            Self::BeaconStream => "BEACON_STREAM",
-            Self::BeaconPubSub => "BEACON_PUB_SUB",
+            Self::BeaconMulticast => "BEACON_MULTICAST",
             Self::ChannelDiscoveryRequest => "CHANNEL_DISCOVERY_REQUEST",
             Self::ChannelDiscoveryReply => "CHANNEL_DISCOVERY_REPLY",
             Self::ChannelJoinRequest => "CHANNEL_JOIN_REQUEST",
@@ -185,15 +178,13 @@ impl SessionMessageType {
     pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
         match value {
             "UNSPECIFIED" => Some(Self::Unspecified),
-            "FNF_MSG" => Some(Self::FnfMsg),
-            "FNF_RELIABLE" => Some(Self::FnfReliable),
-            "FNF_ACK" => Some(Self::FnfAck),
-            "STREAM_MSG" => Some(Self::StreamMsg),
-            "PUB_SUB_MSG" => Some(Self::PubSubMsg),
+            "P_2_P_MSG" => Some(Self::P2PMsg),
+            "P_2_P_RELIABLE" => Some(Self::P2PReliable),
+            "P_2_P_ACK" => Some(Self::P2PAck),
+            "MULTICAST_MSG" => Some(Self::MulticastMsg),
             "RTX_REQUEST" => Some(Self::RtxRequest),
             "RTX_REPLY" => Some(Self::RtxReply),
-            "BEACON_STREAM" => Some(Self::BeaconStream),
-            "BEACON_PUB_SUB" => Some(Self::BeaconPubSub),
+            "BEACON_MULTICAST" => Some(Self::BeaconMulticast),
             "CHANNEL_DISCOVERY_REQUEST" => Some(Self::ChannelDiscoveryRequest),
             "CHANNEL_DISCOVERY_REPLY" => Some(Self::ChannelDiscoveryReply),
             "CHANNEL_JOIN_REQUEST" => Some(Self::ChannelJoinRequest),

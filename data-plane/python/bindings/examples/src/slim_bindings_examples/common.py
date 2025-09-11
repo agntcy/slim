@@ -71,9 +71,9 @@ def shared_secret_identity(identity, secret):
 def jwt_identity(
     jwt_path: str,
     jwk_path: str,
-    iss: str = None,
-    sub: str = None,
-    aud: list = None,
+    iss: str | None = None,
+    sub: str | None = None,
+    aud: list[str] | None = None,
 ):
     """
     Parse the JWK and JWT from the provided strings.
@@ -92,17 +92,17 @@ def jwt_identity(
         spire_jwks = base64.b64decode(v)
         break
 
-    provider = slim_bindings.PyIdentityProvider.StaticJwt(
+    provider = slim_bindings.PyIdentityProvider.StaticJwt(  # type: ignore
         path=jwt_path,
     )
 
     pykey = slim_bindings.PyKey(
         algorithm=slim_bindings.PyAlgorithm.RS256,
         format=slim_bindings.PyKeyFormat.Jwks,
-        key=slim_bindings.PyKeyData.Content(content=spire_jwks.decode("utf-8")),
+        key=slim_bindings.PyKeyData.Content(content=spire_jwks.decode("utf-8")),  # type: ignore
     )
 
-    verifier = slim_bindings.PyIdentityVerifier.Jwt(
+    verifier = slim_bindings.PyIdentityVerifier.Jwt(  # type: ignore
         public_key=pykey,
         issuer=iss,
         audience=aud,
@@ -232,7 +232,7 @@ async def create_local_app(
             )
 
     # Derive identity provider and verifier from JWK and JWT
-    if jwt and bundle:
+    if jwt and bundle and audience:
         provider, verifier = jwt_identity(
             jwt,
             bundle,

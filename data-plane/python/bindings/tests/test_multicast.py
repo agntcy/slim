@@ -43,8 +43,7 @@ async def test_pubsub(server, mls_enabled):  # noqa: C901
             # create pubsubb session. index 0 is the moderator of the session
             # and it will invite all the other participants to the session
             session_info = await participant.create_session(
-                slim_bindings.PySessionConfiguration.Streaming(
-                    slim_bindings.PySessionDirection.BIDIRECTIONAL,
+                slim_bindings.PySessionConfiguration.Multicast(
                     topic=chat_name,
                     moderator=True,
                     max_retries=5,
