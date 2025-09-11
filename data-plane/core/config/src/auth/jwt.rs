@@ -4,7 +4,7 @@
 use std::collections::HashMap;
 use std::time::Duration;
 
-use duration_str::deserialize_duration;
+use duration_string::DurationString;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use slim_auth::builder::JwtBuilder;
@@ -107,11 +107,9 @@ pub struct Config {
     claims: Claims,
 
     /// JWT Duration (will become exp: now() + duration)
-    #[serde(
-        default = "default_duration",
-        deserialize_with = "deserialize_duration"
-    )]
-    duration: Duration,
+    #[serde(default = "default_duration")]
+    #[schemars(with = "String")]
+    duration: DurationString,
 
     /// One of: `encoding`, `decoding`, or `autoresolve`
     /// Encoding key is used for signing JWTs (client-side).
@@ -122,8 +120,8 @@ pub struct Config {
     key: JwtKey,
 }
 
-fn default_duration() -> Duration {
-    Duration::from_secs(3600)
+fn default_duration() -> DurationString {
+    Duration::from_secs(3600).into()
 }
 
 impl Config {
@@ -131,7 +129,7 @@ impl Config {
     pub fn new(claims: Claims, duration: Duration, key: JwtKey) -> Self {
         Config {
             claims,
-            duration,
+            duration: duration.into(),
             key,
         }
     }
@@ -275,6 +273,7 @@ where
 mod tests {
     use crate::testutils::tower_service::{Body, HeaderCheckService};
     use http::Response;
+    use serde_json;
     use slim_auth::jwt::Algorithm;
     use slim_auth::jwt::KeyData;
     use slim_auth::jwt::KeyFormat;
@@ -339,5 +338,48 @@ mod tests {
                     .unwrap(),
             )
             .service(HeaderCheckService);
+    }
+
+    #[test]
+    fn test_jwt_config_valid_duration_deserialize() {
+        // Use autoresolve to avoid specifying key details
+        let json = r#"{
+            "duration": "1h2m3s",
+            "key": { "autoresolve": true }
+        }"#;
+        let cfg: Config = serde_json::from_str(json).expect("valid duration should deserialize");
+        assert_eq!(cfg.duration, Duration::from_secs(3600 + 120 + 3));
+
+        let json = r#"{
+            "duration": "750ms",
+            "key": { "autoresolve": true }
+        }"#;
+        let cfg: Config = serde_json::from_str(json).expect("millis duration should deserialize");
+        assert_eq!(cfg.duration, Duration::from_millis(750));
+    }
+
+    #[test]
+    fn test_jwt_config_invalid_duration_deserialize() {
+        let cases = [
+            r#"{ "duration": "abc", "key": { "autoresolve": true } }"#,
+            r#"{ "duration": "10x", "key": { "autoresolve": true } }"#,
+            r#"{ "duration": "-5s", "key": { "autoresolve": true } }"#,
+        ];
+        for js in cases {
+            let res: Result<Config, _> = serde_json::from_str(js);
+            assert!(res.is_err(), "expected error for json: {}", js);
+        }
+    }
+
+    #[test]
+    fn test_jwt_config_duration_roundtrip() {
+        let cfg = Config::new(
+            Claims::default(),
+            Duration::from_secs(125),
+            JwtKey::Autoresolve(true),
+        );
+        let ser = serde_json::to_string(&cfg).expect("serialize");
+        let de: Config = serde_json::from_str(&ser).expect("deserialize");
+        assert_eq!(de.duration, Duration::from_secs(125));
     }
 }

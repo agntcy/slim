@@ -10,7 +10,7 @@ use rustls::{
 };
 use rustls_pki_types::CertificateDer;
 use rustls_pki_types::pem::PemObject;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 use super::common::{Config, ConfigError, RustlsConfigLoader};
 use crate::{
@@ -18,7 +18,7 @@ use crate::{
     tls::common::{StaticCertResolver, WatcherCertResolver},
 };
 
-#[derive(Debug, Deserialize, PartialEq, Clone)]
+#[derive(Debug, Deserialize, Serialize, PartialEq, Clone)]
 pub struct TlsServerConfig {
     /// The Config struct
     #[serde(flatten, default)]
