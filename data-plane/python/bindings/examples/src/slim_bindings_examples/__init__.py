@@ -3,7 +3,6 @@
 
 from .fire_and_forget import main as fire_and_forget_main
 from .pubsub import main as pubsub_main
-from .request_reply import main as request_reply_main
 from .slim import main as slim_main
 
 HELP = """
@@ -29,8 +28,6 @@ def main():
 
         if command == "ff":
             fire_and_forget_main()
-        elif command == "rr":
-            request_reply_main()
         elif command == "pubsub":
             pubsub_main()
         elif command == "slim":
