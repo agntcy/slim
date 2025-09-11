@@ -41,6 +41,7 @@ async def run_client(
     )
 
     instance = local_app.get_id()
+    local_name = split_id(local)
 
     if message:
         if not remote:
@@ -57,7 +58,7 @@ async def run_client(
             # create a session
             if sticky or enable_mls:
                 session = await local_app.create_session(
-                    slim_bindings.PySessionConfiguration.PointToPoint(
+                    slim_bindings.PySessionConfiguration.PointToPoint( # type: ignore
                         max_retries=5,
                         timeout=datetime.timedelta(seconds=5),
                         sticky=True,
@@ -66,27 +67,40 @@ async def run_client(
                 )
             else:
                 session = await local_app.create_session(
-                    slim_bindings.PySessionConfiguration.PointToPoint()
+                    slim_bindings.PySessionConfiguration.PointToPoint()  # type: ignore
                 )
 
             for i in range(0, iterations):
                 try:
-                    # Send the message and wait for a reply
-                    _, reply = await local_app.request_reply(
+                    # Send the message
+                    await local_app.publish(
                         session,
                         message.encode(),
                         remote_name,
-                        timeout=datetime.timedelta(seconds=5),
                     )
 
                     format_message_print(
                         f"{instance}",
-                        f"received (from session {session.id}): {reply.decode()}",
+                        f"Sent message {message} - {i + 1}/{iterations}:",
                     )
 
-                except TimeoutError:
-                    format_message_print(f"{instance}", "timeout waiting for reply")
-                    break
+                    # Wait for a reply
+                    session_info, msg = await local_app.receive(session=session.id)
+
+                    if msg:
+                        format_message_print(
+                            f"{instance}",
+                            f"received (from session {session_info.id}): {msg.decode()}",
+                        )
+
+                    if not session_info.destination_name.equal_without_id(local_name):
+                        format_message_print(
+                            f"received message with wrong name, exit. local {local_name}, dst {session_info.destination_name}"
+                        )
+                        exit(1)
+
+                except Exception as e:
+                    print("received error: ", e)
 
                 await asyncio.sleep(1)
         else:
@@ -111,6 +125,12 @@ async def run_client(
                             f"{instance}",
                             f"received (from session {session_id}): {msg.decode()}",
                         )
+
+                        if not session.destination_name.equal_without_id(local_name):
+                            format_message_print(
+                                f"received message with wrong name, exit. local {local_name}, dst {session.destination_name}"
+                            )
+                            exit(1)
 
                         ret = f"{msg.decode()} from {instance}"
 
