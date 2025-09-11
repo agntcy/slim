@@ -25,23 +25,24 @@ def create_slim(
     private_key = slim_bindings.PyKey(
         algorithm=private_key_algorithm,
         format=slim_bindings.PyKeyFormat.Pem,
-        key=slim_bindings.PyKeyData.File(path=private_key),
+        key=slim_bindings.PyKeyData.File(path=private_key),  # type: ignore
     )
 
     public_key = slim_bindings.PyKey(
         algorithm=public_key_algorithm,
         format=slim_bindings.PyKeyFormat.Pem,
-        key=slim_bindings.PyKeyData.File(path=public_key),
+        key=slim_bindings.PyKeyData.File(path=public_key),  # type: ignore
     )
 
-    provider = slim_bindings.PyIdentityProvider.Jwt(
+    provider = slim_bindings.PyIdentityProvider.Jwt(  # type: ignore
         private_key=private_key,
         duration=datetime.timedelta(seconds=60),
         issuer="test-issuer",
         audience=test_audience,
         subject=f"{name}",
     )
-    verifier = slim_bindings.PyIdentityVerifier.Jwt(
+
+    verifier = slim_bindings.PyIdentityVerifier.Jwt(  # type: ignore
         public_key=public_key,
         issuer="test-issuer",
         audience=wrong_audience or test_audience,
