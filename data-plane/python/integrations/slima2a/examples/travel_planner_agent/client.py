@@ -75,25 +75,22 @@ async def main() -> None:
 
     httpx_client = httpx.AsyncClient()
 
-    def channel_factory(topic: str) -> slimrpc.Channel:
-        channel = slimrpc.Channel(
-            local="agntcy/demo/client",
-            remote=topic,
-            slim={
-                "endpoint": "http://localhost:46357",
-                "tls": {
-                    "insecure": True,
-                },
+    channel_factory = slimrpc.ChannelFactory(
+        local="agntcy/demo/client",
+        slim={
+            "endpoint": "http://localhost:46357",
+            "tls": {
+                "insecure": True,
             },
-            shared_secret="secret",
-        )
-        return channel
+        },
+        shared_secret="secret",
+    )
 
     client_config = ClientConfig(
         supported_transports=["JSONRPC", "slimrpc"],
         streaming=True,
         httpx_client=httpx_client,
-        slimrpc_channel_factory=channel_factory,
+        slimrpc_channel_factory=channel_factory.new_channel,
     )
     client_factory = ClientFactory(client_config)
     client_factory.register("slimrpc", SRPCTransport.create)

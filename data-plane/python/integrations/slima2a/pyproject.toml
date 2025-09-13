@@ -10,7 +10,7 @@ requires-python = ">=3.10, <4.0"
 dependencies = ["a2a-sdk[telemetry]>=0.3.0", "slimrpc"]
 
 [dependency-groups]
-linting = ["types-protobuf>=6.30.2.20250703", "ruff>=0.12"]
+linting = ["types-protobuf>=6.30.2.20250703", "ruff>=0.12", "mypy>=1.17.0"]
 testing = ["pytest>=8.3.4"]
 examples = [
     "langchain-core",

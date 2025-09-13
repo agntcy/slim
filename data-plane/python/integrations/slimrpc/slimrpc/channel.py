@@ -1,7 +1,6 @@
 # Copyright AGNTCY Contributors (https://github.com/agntcy)
 # SPDX-License-Identifier: Apache-2.0
 
-import asyncio
 import datetime
 import logging
 import sys
@@ -31,12 +30,12 @@ from slimrpc.rpc import SRPCResponseError
 logger = logging.getLogger(__name__)
 
 
-class Channel:
+class ChannelFactory:
+
     def __init__(
         self,
         local: str,
         slim: dict,
-        remote: str,
         enable_opentelemetry: bool = False,
         shared_secret: str = "",
     ) -> None:
@@ -44,44 +43,59 @@ class Channel:
         self.slim = slim
         self.enable_opentelemetry = enable_opentelemetry
         self.shared_secret = shared_secret
-        self.remote = split_id(remote)
         self.local_app: slim_bindings.Slim | None = None
-        self._prepare_task = asyncio.get_running_loop().create_task(
-            self._prepare_channel()
-        )
 
-    async def _prepare_channel(self) -> None:
-        # Create local SLIM instance
-        self.local_app = await create_local_app(
-            self.local,
-            self.slim,
-            enable_opentelemetry=self.enable_opentelemetry,
-            shared_secret=self.shared_secret,
-        )
+    async def get_local_app(self) -> slim_bindings.Slim:
+        if self.local_app is None:
+            # Create local SLIM instance
+            self.local_app = await create_local_app(
+                self.local,
+                self.slim,
+                enable_opentelemetry=self.enable_opentelemetry,
+                shared_secret=self.shared_secret,
+            )
+            # Start receiving messages
+            await self.local_app.__aenter__()
+        return self.local_app
 
-        # Start receiving messages
-        await self.local_app.__aenter__()
+    async def close(self) -> None:
+        """
+        Close the channel factory
+        """
+        if self.local_app is not None:
+            await self.local_app.__aexit__(None, None, None)
+
+    def new_channel(self, remote: str) -> "Channel":
+        return Channel(remote=remote, channel_factory=self)
+
+
+class Channel:
+    def __init__(
+        self,
+        remote: str,
+        channel_factory: ChannelFactory,
+    ) -> None:
+        self.remote = split_id(remote)
+        self.channel_factory = channel_factory
 
     async def close(self) -> None:
         """
         Close the channel.
         """
-        await self._prepare_task
-        if self.local_app is not None:
-            await self.local_app.__aexit__(None, None, None)
+        return None
 
     async def _common_setup(
         self, method: str, metadata: dict[str, str] | None = None
     ) -> tuple[slim_bindings.PyName, slim_bindings.PySessionInfo, dict[str, str]]:
         service_name = service_and_method_to_pyname(self.remote, method)
 
-        assert self.local_app is not None
-        await self.local_app.set_route(
+        local_app = await self.channel_factory.get_local_app()
+        await local_app.set_route(
             service_name,
         )
 
         # Create a session
-        session = await self.local_app.create_session(
+        session = await local_app.create_session(
             slim_bindings.PySessionConfiguration.FireAndForget(
                 max_retries=10,
                 timeout=datetime.timedelta(seconds=1),
@@ -92,8 +106,8 @@ class Channel:
         return service_name, session, metadata or {}
 
     async def _delete_session(self, session: slim_bindings.PySessionInfo) -> None:
-        assert self.local_app is not None
-        await self.local_app.delete_session(session.id)
+        local_app = await self.channel_factory.get_local_app()
+        await local_app.delete_session(session.id)
 
     async def _send_unary(
         self,
@@ -109,8 +123,8 @@ class Channel:
 
         # Send the request
         request_bytes = request_serializer(request)
-        assert self.local_app is not None
-        await self.local_app.publish(
+        local_app = await self.channel_factory.get_local_app()
+        await local_app.publish(
             session,
             request_bytes,
             dest=service_name,
@@ -127,7 +141,7 @@ class Channel:
         deadline: float,
     ) -> None:
         # Send the request
-        assert self.local_app is not None
+        local_app = await self.channel_factory.get_local_app()
 
         # Add deadline to metadata
         metadata[DEADLINE_KEY] = str(deadline)
@@ -135,7 +149,7 @@ class Channel:
         # Send requests
         async for request in request_stream:
             request_bytes = request_serializer(request)
-            await self.local_app.publish(
+            await local_app.publish(
                 session,
                 request_bytes,
                 dest=service_name,
@@ -143,7 +157,7 @@ class Channel:
             )
 
         # Send enf of streaming message
-        await self.local_app.publish(
+        await local_app.publish(
             session,
             b"",
             dest=service_name,
@@ -157,10 +171,10 @@ class Channel:
         deadline: float,
     ) -> tuple[slim_bindings.PySessionInfo, Any]:
         # Wait for the response
-        assert self.local_app is not None
+        local_app = await self.channel_factory.get_local_app()
 
         async with asyncio_timeout_at(deadline):
-            session_recv, response_bytes = await self.local_app.receive(
+            session_recv, response_bytes = await local_app.receive(
                 session=session.id,
             )
 
@@ -182,8 +196,8 @@ class Channel:
         async def generator() -> AsyncIterable:
             try:
                 while True:
-                    assert self.local_app is not None
-                    session_recv, response_bytes = await self.local_app.receive(
+                    local_app = await self.channel_factory.get_local_app()
+                    session_recv, response_bytes = await local_app.receive(
                         session=session.id,
                     )
 
@@ -222,7 +236,6 @@ class Channel:
             metadata: dict | None = None,
         ) -> AsyncIterable:
             try:
-                await self._prepare_task
                 service_name, session, metadata = await self._common_setup(
                     method, metadata
                 )
@@ -259,7 +272,6 @@ class Channel:
             metadata: dict | None = None,
         ) -> ResponseType:
             try:
-                await self._prepare_task
                 service_name, session, metadata = await self._common_setup(
                     method, metadata
                 )
@@ -297,7 +309,6 @@ class Channel:
             metadata: dict[str, str] | None = None,
         ) -> AsyncGenerator:
             try:
-                await self._prepare_task
                 service_name, session, metadata = await self._common_setup(
                     method, metadata
                 )
@@ -334,7 +345,6 @@ class Channel:
             metadata: dict[str, str] | None = None,
         ) -> ResponseType:
             try:
-                await self._prepare_task
                 service_name, session, metadata = await self._common_setup(
                     method, metadata
                 )
