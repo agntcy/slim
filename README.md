@@ -1,4 +1,5 @@
-# [![CI](https://github.com/agntcy/slim/actions/workflows/data-plane.yaml/badge.svg)](https://github.com/agntcy/slim/actions/workflows/data-plane.yaml)
+# [![Data-plane CI](https://github.com/agntcy/slim/actions/workflows/data-plane.yaml/badge.svg)](https://github.com/agntcy/slim/actions/workflows/data-plane.yaml)
+[![Control-plane CI](https://github.com/agntcy/slim/actions/workflows/control-plane.yaml/badge.svg)](https://github.com/agntcy/slim/actions/workflows/control-plane.yaml)
 [![codecov](https://codecov.io/gh/agntcy/slim/branch/main/graph/badge.svg)](https://codecov.io/gh/agntcy/slim)
 [![Coverage](https://img.shields.io/badge/Coverage-passing-brightgreen)](https://codecov.io/gh/agntcy/slim)
 

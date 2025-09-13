@@ -1,4 +1,4 @@
-name: Publish Rust Coverage to Codecov
+name: Publish Project Coverage to Codecov
 
 on:
   push:
@@ -27,19 +27,17 @@ jobs:
       - name: Install cargo-llvm-cov
         run: cargo install cargo-llvm-cov
 
-      - name: Generate coverage report (lcov)
-        run: |
-           task data-plane:test:coverage
+      - name: Generate data plane coverage report
+        run: task data-plane:test:coverage
 
-      # Run Go tests and generate coverage for control-plane
-      - name: Run Go tests for control-plane coverage
-        run: go test -coverprofile=coverage.out ./...
-        working-directory: control-plane/control-plane
-      # Upload combined coverage to Codecov
+      - name: Generate control-plane coverage reports
+        run: task control-plane:coverage
+        working-directory: control-plane
+
       - name: Upload combined coverage to Codecov
         uses: codecov/codecov-action@v4
         with:
-          files: data-plane/lcov.info,control-plane/control-plane/coverage.out
+          files: data-plane/lcov.info,control-plane/*-coverage.out
           flags: rust,go
           name: combined-coverage
           fail_ci_if_error: true
