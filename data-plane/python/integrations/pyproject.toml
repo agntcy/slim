@@ -4,3 +4,12 @@
 # Include workspace folders
 [tool.uv.workspace]
 members = ["slimrpc", "slima2a", "slim-mcp"]
+
+# Default groups to install when running `uv sync`
+[tool.uv]
+default-groups = ["linting", "testing", "examples"]
+
+[dependency-groups]
+linting = []
+testing = []
+examples = []

@@ -10,7 +10,7 @@ logging.getLogger("asyncio").setLevel(logging.ERROR)
 import httpx
 import slimrpc
 from a2a.client import (
-    A2AClient,
+    Client,
     ClientFactory,
     minimal_agent_card,
 )
@@ -33,7 +33,7 @@ def get_user_query() -> str:
     return input("\n> ")
 
 
-async def interact_with_server(client: A2AClient) -> None:
+async def interact_with_server(client: Client) -> None:
     while True:
         user_input = get_user_query()
         if user_input.lower() == "exit":
@@ -75,28 +75,27 @@ async def main() -> None:
 
     httpx_client = httpx.AsyncClient()
 
-    def channel_factory(topic: str) -> slimrpc.Channel:
-        channel = slimrpc.Channel(
-            local="agntcy/demo/client",
-            remote=topic,
-            slim={
-                "endpoint": "http://localhost:46357",
-                "tls": {
-                    "insecure": True,
-                },
+    channel_factory = slimrpc.ChannelFactory(
+        local="agntcy/demo/client",
+        slim={
+            "endpoint": "http://localhost:46357",
+            "tls": {
+                "insecure": True,
             },
-            shared_secret="secret",
-        )
-        return channel
+        },
+        shared_secret="secret",
+    )
 
     client_config = ClientConfig(
         supported_transports=["JSONRPC", "slimrpc"],
         streaming=True,
         httpx_client=httpx_client,
-        slimrpc_channel_factory=channel_factory,
+        slimrpc_channel_factory=channel_factory.new_channel,
     )
     client_factory = ClientFactory(client_config)
-    client_factory.register("slimrpc", SRPCTransport.create)
+
+    # mypy: the register API expects a different callable type; safe to ignore here.
+    client_factory.register("slimrpc", SRPCTransport.create)  # type: ignore
     agent_card = minimal_agent_card("agntcy/demo/travel_planner_agent", ["slimrpc"])
     client = client_factory.create(card=agent_card)
 

@@ -219,7 +219,7 @@ async def call_handler(
     handler: RPCHandler,
     request_or_iterator: RequestType | AsyncIterable[RequestType],
     context: Context,
-) -> AsyncGenerator[Tuple[Any, Any]]:
+) -> AsyncGenerator[Tuple[Any, Any], None]:
     """
     Call the handler with the given arguments.
     """
