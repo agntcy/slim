@@ -2,8 +2,8 @@ package sbapiservice
 
 import (
 	"context"
+	"fmt"
 	"net"
-	"strconv"
 	"time"
 
 	"github.com/google/uuid"
@@ -105,31 +105,30 @@ func (s *sbAPIService) OpenControlChannel(stream controllerapi.ControllerService
 		registeredNodeID = regReq.RegisterNodeRequest.NodeId
 		zlog.Info().Msgf("Registering node with ID: %v", registeredNodeID)
 
-		// Extract host and port from gRPC peer info
+		// Extract host from gRPC peer info
 		var host string
-		var port uint32
+		port := 46357
 		if peerInfo, ok := peer.FromContext(stream.Context()); ok {
 			switch addr := peerInfo.Addr.(type) {
 			case *net.TCPAddr:
 				host = addr.IP.String()
-				if addr.Port >= 0 && addr.Port <= 65535 {
-					port = uint32(addr.Port)
-				}
 			default:
-				hostStr, portStr, splitErr := net.SplitHostPort(peerInfo.Addr.String())
+				hostStr, _, splitErr := net.SplitHostPort(peerInfo.Addr.String())
 				if splitErr == nil {
 					host = hostStr
-					if p, parseErr := strconv.ParseUint(portStr, 10, 16); parseErr == nil { // validated to 0-65535 by bit size 16
-						port = uint32(p)
-					}
 				}
 			}
 		}
 
 		_, err = s.dbService.SaveNode(db.Node{
-			ID:   registeredNodeID,
-			Host: host,
-			Port: port,
+			ID: registeredNodeID,
+			//TODO
+			ConnDetails: []db.ConnectionDetails{
+				{
+					Endpoint:     fmt.Sprintf("%s:%d", host, port),
+					MtlsRequired: false,
+				},
+			},
 		})
 		if err != nil {
 			zlog.Error().Msgf("Error saving node: %v", err)
@@ -194,9 +193,37 @@ func (s *sbAPIService) handleNodeMessages(ctx context.Context,
 			// list subscriptions to add or remove in debug log
 			for _, sub := range payload.ConfigCommand.SubscriptionsToSet {
 				zlog.Debug().Msgf("Subscription to set: %v", sub)
+				if sub.ConnectionId == "n/a" {
+					zlog.Debug().Msgf("Create routes on all other nodes for subscription: %v", sub)
+					err := s.dbService.AddRoute(db.Route{
+						SourceNodeID: db.AllNodesID,
+						DestNodeID:   registeredNodeID,
+						Component0:   sub.Component_0,
+						Component1:   sub.Component_1,
+						Component2:   sub.Component_2,
+						ComponentID:  sub.Id,
+					})
+					if err != nil {
+						zlog.Error().Msgf("Error adding route: %v", err)
+					}
+					// TODO trigger route reconciliation for all connected nodes involved
+				}
 			}
 			for _, sub := range payload.ConfigCommand.SubscriptionsToDelete {
 				zlog.Debug().Msgf("Subscription to delete: %v", sub)
+				zlog.Debug().Msgf("Create routes on all other nodes for subscription: %v", sub)
+				err := s.dbService.DeleteRoute(db.Route{
+					SourceNodeID: db.AllNodesID,
+					DestNodeID:   registeredNodeID,
+					Component0:   sub.Component_0,
+					Component1:   sub.Component_1,
+					Component2:   sub.Component_2,
+					ComponentID:  sub.Id,
+				})
+				if err != nil {
+					zlog.Error().Msgf("Error deleting route: %v", err)
+				}
+				// TODO trigger route reconciliation for all connected nodes involved
 			}
 			continue
 		case *controllerapi.ControlMessage_DeregisterNodeRequest:

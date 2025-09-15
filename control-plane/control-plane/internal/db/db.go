@@ -10,6 +10,10 @@ type DataAccess interface {
 	SaveNode(node Node) (string, error)
 	DeleteNode(id string) error
 
+	AddRoute(route Route) error
+	GetRoutesForNodeID(nodeID string) ([]Route, error)
+	DeleteRoute(route Route) error
+
 	ListConnectionsByNodeID(nodeID string) ([]Connection, error)
 	SaveConnection(connection Connection) (string, error)
 	GetConnection(connectionID string) (Connection, error)
@@ -28,9 +32,15 @@ type DataAccess interface {
 }
 
 type Node struct {
-	ID   string
-	Host string
-	Port uint32
+	ID          string
+	ConnDetails []ConnectionDetails
+}
+
+type ConnectionDetails struct {
+	Endpoint string
+	ExternalEndpoint string
+	GroupName    string
+	MtlsRequired bool
 }
 
 type Connection struct {
@@ -48,6 +58,15 @@ type Subscription struct {
 	Component1  string
 	Component2  string
 	ComponentID *wrapperspb.UInt64Value
+}
+
+type Route struct {
+	SourceNodeID string
+	DestNodeID   string
+	Component0   string
+	Component1   string
+	Component2   string
+	ComponentID  *wrapperspb.UInt64Value
 }
 
 type Channel struct {

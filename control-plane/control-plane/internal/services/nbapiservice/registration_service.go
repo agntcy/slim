@@ -1,7 +1,9 @@
 package nbapiservice
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"reflect"
 
@@ -74,6 +76,44 @@ func (s *NodeRegistrationService) NodeRegistered(ctx context.Context, nodeID str
 		apiSubscriptions = append(apiSubscriptions, apiSubscription)
 	}
 
+	zlog.Debug().Msgf("generating routes for node %s", nodeID)
+	routes, err := s.dbService.GetRoutesForNodeID(nodeID)
+	if err != nil {
+		return fmt.Errorf("failed to fetch routes for node %s: %w", nodeID, err)
+	}
+	for _, route := range routes {
+		destNode, err := s.dbService.GetNode(route.DestNodeID)
+		if err != nil {
+			return fmt.Errorf("failed to fetch destination node %s: %w", destNode, err)
+		}
+		//TODO handle multiple connections
+		if len(destNode.ConnDetails) == 0 {
+			zlog.Error().Msgf("no connections found for destination node %s", destNode.ID)
+			continue
+		}
+		connDetail := destNode.ConnDetails[0]
+
+		configData, err := generateConfigData(route, connDetail)
+		if err != nil {
+			return fmt.Errorf("failed to generate config data for route %v: %w", route, err)
+		}
+
+		// create connection and subscription for each route
+		apiConnection := &controllerapi.Connection{
+			ConnectionId: connDetail.Endpoint, // Use endpoint as connection ID
+			ConfigData:   configData,
+		}
+		apiConnections = append(apiConnections, apiConnection)
+		apiSubscription := &controllerapi.Subscription{
+			ConnectionId: connDetail.Endpoint, // Use endpoint as connection ID
+			Component_0:  route.Component0,
+			Component_1:  route.Component1,
+			Component_2:  route.Component2,
+			Id:           route.ComponentID,
+		}
+		apiSubscriptions = append(apiSubscriptions, apiSubscription)
+	}
+
 	// Create configuration command with all stored connections and subscriptions
 	configCommand := &controllerapi.ConfigurationCommand{
 		ConnectionsToCreate:   apiConnections,
@@ -131,4 +171,56 @@ func (s *NodeRegistrationService) NodeRegistered(ctx context.Context, nodeID str
 
 	zlog.Info().Msg("Node registration synchronization completed successfully")
 	return nil
+}
+
+func generateConfigData(route db.Route, detail db.ConnectionDetails) (string, error) {
+	truev := true
+	falsev := false
+	config := ConnectionConfig{
+		Endpoint: detail.Endpoint,
+	}
+	if detail.MtlsRequired {
+		config.TLS = &TLS{Insecure: &truev}
+	} else {
+		config.TLS = &TLS{
+			Insecure: &falsev,
+			CERTFile: stringPtr("/svids/tls.crt"),
+			KeyFile:  stringPtr("/svids/tls.key"),
+			CAFile:   stringPtr("/svids/svid_bundle.pem"),
+		}
+	}
+	var bufferSize int64 = 1024
+	config.BufferSize = &bufferSize
+	gzip := Gzip
+	config.Compression = &gzip
+	config.ConnectTimeout = stringPtr("10s")
+	config.Headers = map[string]string{
+		"x-custom-header": "value",
+	}
+
+	config.Keepalive = &KeepaliveClass{
+		Http2Keepalive:     stringPtr("2h"),
+		KeepAliveWhileIdle: &falsev,
+		TCPKeepalive:       stringPtr("20s"),
+		Timeout:            stringPtr("20s"),
+	}
+	config.Origin = stringPtr("https://client.example.com")
+	config.RateLimit = stringPtr("20/60")
+	config.RequestTimeout = stringPtr("30s")
+
+	// render struct as json
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	err := enc.Encode(config)
+	if err != nil {
+		return "", fmt.Errorf("failed to encode connection config: %w", err)
+	}
+	fmt.Println("Generated connection config:")
+	fmt.Println(buf.String())
+
+	return buf.String(), nil
+}
+
+func stringPtr(s string) *string {
+	return &s
 }

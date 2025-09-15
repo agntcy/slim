@@ -9,15 +9,19 @@ import (
 
 type dbService struct {
 	nodes         map[string]Node
+	routes        map[string]Route
 	connections   map[string]Connection
 	subscriptions map[string]Subscription
 	channels      map[string]Channel
 	mu            sync.RWMutex
 }
 
+const AllNodesID = "*"
+
 func NewInMemoryDBService() DataAccess {
 	return &dbService{
 		nodes:         make(map[string]Node),
+		routes:        make(map[string]Route, 100),
 		connections:   make(map[string]Connection),
 		subscriptions: make(map[string]Subscription),
 		channels:      make(map[string]Channel),
@@ -286,4 +290,45 @@ func (d *dbService) ListSubscriptionsByNodeID(nodeID string) ([]Subscription, er
 
 	// Return empty slice instead of error when no subscriptions found
 	return subscriptions, nil
+}
+
+func calculateRouteID(route Route) string {
+	return fmt.Sprintf("%s:%s/%s/%s/%v->%s", route.SourceNodeID,
+		route.Component0, route.Component1, route.Component2, route.ComponentID, route.DestNodeID)
+}
+
+func (d *dbService) AddRoute(route Route) error {
+	routeID := calculateRouteID(route)
+	// Add route to the map
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.routes[routeID] = route
+	return nil
+}
+
+func (d *dbService) DeleteRoute(route Route) error {
+	routeID := calculateRouteID(route)
+	// Remove route from the map
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if _, exists := d.routes[routeID]; !exists {
+		return fmt.Errorf("route %s not found", routeID)
+	}
+	delete(d.routes, routeID)
+	return nil
+}
+
+func (d *dbService) GetRoutesForNodeID(nodeID string) ([]Route, error) {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+
+	var routes []Route
+	for _, route := range d.routes {
+		if route.SourceNodeID == nodeID || (route.SourceNodeID == AllNodesID && route.DestNodeID != nodeID) {
+			routes = append(routes, route)
+		}
+	}
+
+	// Return empty slice instead of error when no routes found
+	return routes, nil
 }

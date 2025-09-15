@@ -34,10 +34,10 @@ func (s *NodeService) ListNodes(
 	nodeEntries := make([]*controlplaneApi.NodeEntry, 0, len(storedNodes))
 	for _, node := range storedNodes {
 		nodeEntry := &controlplaneApi.NodeEntry{
-			Id:   node.ID,
-			Host: node.Host,
-			Port: node.Port,
+			Id: node.ID,
 		}
+		// add connection details if available
+		nodeEntry.Connections = getNodeConnDetails(node)
 		nodeStatus, _ := s.cmdHandler.GetConnectionStatus(ctx, node.ID)
 		switch nodeStatus {
 		case nodecontrol.NodeStatusConnected:
@@ -53,16 +53,29 @@ func (s *NodeService) ListNodes(
 	return nodeListresponse, nil
 }
 
+func getNodeConnDetails(node db.Node) []*controllerapi.ConnectionDetails {
+	connDetails := make([]*controllerapi.ConnectionDetails, 0, len(node.ConnDetails))
+	for _, conn := range node.ConnDetails {
+		connDetails = append(connDetails, &controllerapi.ConnectionDetails{
+			Endpoint:         conn.Endpoint,
+			MtlsRequired:     conn.MtlsRequired,
+			ExternalEndpoint: conn.ExternalEndpoint,
+			GroupName:        conn.GroupName,
+		})
+	}
+	return connDetails
+}
+
 func (s *NodeService) GetNodeByID(nodeID string) (*controlplaneApi.NodeEntry, error) {
 	storedNode, err := s.dbService.GetNode(nodeID)
 	if err != nil {
 		return nil, err
 	}
 	nodeEntry := &controlplaneApi.NodeEntry{
-		Id:   storedNode.ID,
-		Host: storedNode.Host,
-		Port: storedNode.Port,
+		Id: storedNode.ID,
 	}
+	// add connection details if available
+	nodeEntry.Connections = getNodeConnDetails(*storedNode)
 	return nodeEntry, nil
 }
 

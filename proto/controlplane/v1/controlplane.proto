@@ -45,8 +45,7 @@ enum NodeStatus {
 
 message NodeEntry {
   string id = 1;
-  string host = 2;
-  uint32 port = 3;
+  repeated controller.proto.v1.ConnectionDetails connections = 2;
   NodeStatus status = 4;
 }
 
@@ -67,6 +66,7 @@ message CreateConnectionResponse {
 message CreateSubscriptionRequest {
   controller.proto.v1.Subscription subscription = 1;
   string nodeId = 2;
+  string destNodeId = 3; // optional
 }
 
 message CreateSubscriptionResponse {

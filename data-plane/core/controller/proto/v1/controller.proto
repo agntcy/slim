@@ -100,8 +100,16 @@ message Node {
   string id = 1;
 }
 
+message ConnectionDetails {
+  string endpoint = 1;
+  string external_endpoint = 2;
+  string group_name = 3;
+  bool mtls_required = 4;
+}
+
 message RegisterNodeRequest {
   string nodeId = 1;
+  repeated ConnectionDetails connectionDetails = 2;
 }
 
 message RegisterNodeResponse {
