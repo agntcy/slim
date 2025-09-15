@@ -1,8 +1,10 @@
 // SPDX-FileCopyrightText: Copyright (c) 2025 Cisco and/or its affiliates.
 // SPDX-License-Identifier: Apache-2.0
 
+// Standard library imports
 use std::collections::HashMap;
 
+// Third-party crates
 use slim_datapath::{api::ProtoMessage as Message, messages::Name};
 
 pub struct ProducerBuffer {

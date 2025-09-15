@@ -1,38 +1,39 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
+// Standard library imports
 use std::collections::HashMap;
 use std::sync::Arc;
 
+// Third-party crates
 use parking_lot::RwLock as SyncRwLock;
 use rand::Rng;
-use slim_datapath::messages::utils::SLIM_IDENTITY;
 use tokio::sync::RwLock as AsyncRwLock;
 use tokio::sync::mpsc;
 use tracing::{debug, error, warn};
 
-use crate::channel_endpoint::handle_channel_discovery_message;
-use crate::errors::SessionError;
-use crate::interceptor::SessionInterceptor;
-use crate::interceptor::{IdentityInterceptor, SessionInterceptorProvider};
-use crate::multicast::{self, MulticastConfiguration};
-use crate::point_to_point::PointToPointConfiguration;
-use crate::session::{
-    AppChannelSender, CommonSession, Id, Info, MessageDirection, MessageHandler, SESSION_RANGE,
-    Session, SessionConfig, SessionConfigTrait, SessionMessage, SessionTransmitter, SessionType,
-    SlimChannelSender,
-};
-use crate::transmitter::Transmitter;
-use crate::{ServiceError, point_to_point, session};
 use slim_auth::traits::{TokenProvider, Verifier};
 use slim_datapath::Status;
 use slim_datapath::api::ProtoMessage as Message;
 use slim_datapath::api::{MessageType, SessionHeader, SlimHeader};
 use slim_datapath::api::{ProtoSessionMessageType, ProtoSessionType};
 use slim_datapath::messages::Name;
-use slim_datapath::messages::utils::SlimHeaderFlags;
+use slim_datapath::messages::utils::{SLIM_IDENTITY, SlimHeaderFlags};
 
-use crate::interceptor_mls::METADATA_MLS_ENABLED;
+// Local crate
+use crate::session::interceptor::SessionInterceptor;
+use crate::session::interceptor::{IdentityInterceptor, SessionInterceptorProvider};
+use crate::session::interceptor_mls::METADATA_MLS_ENABLED;
+use crate::session::multicast::{self, MulticastConfiguration};
+use crate::session::point_to_point::PointToPointConfiguration;
+use crate::session::transmitter::Transmitter;
+use crate::session::{
+    AppChannelSender, CommonSession, Id, Info, MessageDirection, MessageHandler, SESSION_RANGE,
+    Session, SessionConfig, SessionConfigTrait, SessionMessage, SessionTransmitter, SessionType,
+    SlimChannelSender,
+};
+use crate::session::{SessionError, channel_endpoint::handle_channel_discovery_message};
+use crate::{ServiceError, session};
 
 /// SessionLayer
 struct SessionLayer<P, V, T>
@@ -573,7 +574,7 @@ where
         // create a new session
         let session = match session_config {
             SessionConfig::PointToPoint(conf) => {
-                Session::PointToPoint(point_to_point::PointToPoint::new(
+                Session::PointToPoint(session::point_to_point::PointToPoint::new(
                     id,
                     conf,
                     self.app_name().clone(),
@@ -943,7 +944,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::point_to_point::PointToPointConfiguration;
+    use crate::session::point_to_point::PointToPointConfiguration;
 
     use slim_auth::shared_secret::SharedSecret;
     use slim_datapath::{
