@@ -50,5 +50,5 @@ spec:
     name: svids-volume
   - configMap:
       defaultMode: 420
-      name: alice
+      name: helper-config
     name: config-volume
