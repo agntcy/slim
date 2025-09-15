@@ -31,7 +31,6 @@ logger = logging.getLogger(__name__)
 
 
 class ChannelFactory:
-
     def __init__(
         self,
         local: str,
