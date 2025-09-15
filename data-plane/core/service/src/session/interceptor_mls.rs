@@ -1,13 +1,19 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::{errors::SessionError, interceptor::SessionInterceptor};
+// Standard library imports
+use std::sync::Arc;
+
+// Third-party crates
 use parking_lot::Mutex;
+use tracing::{debug, error, warn};
+
 use slim_datapath::api::ProtoMessage as Message;
 use slim_datapath::api::{MessageType, ProtoSessionMessageType};
 use slim_mls::mls::Mls;
-use std::sync::Arc;
-use tracing::{debug, error, warn};
+
+// Local crate
+use crate::session::{errors::SessionError, interceptor::SessionInterceptor};
 
 // Metadata Keys
 pub const METADATA_MLS_ENABLED: &str = "MLS_ENABLED";
