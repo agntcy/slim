@@ -10,7 +10,7 @@ logger = logging.getLogger(__name__)
 
 
 async def amain() -> None:
-    channel = slimrpc.Channel(
+    channel_factory = slimrpc.ChannelFactory(
         local="agntcy/grpc/client",
         slim={
             "endpoint": "http://localhost:46357",
@@ -20,8 +20,9 @@ async def amain() -> None:
         },
         enable_opentelemetry=False,
         shared_secret="my_shared_secret",
-        remote="agntcy/grpc/server",
     )
+
+    channel = channel_factory.new_channel(remote="agntcy/grpc/server")
 
     # Stubs
     stubs = TestStub(channel)
