@@ -1,10 +1,13 @@
+// Copyright AGNTCY Contributors (https://github.com/agntcy)
+// SPDX-License-Identifier: Apache-2.0
+
+// Standard library imports
 use std::sync::Arc;
 
-use tonic::async_trait;
-
+// Third-party crates
 use tokio::time::{self, Duration};
 use tokio_util::sync::CancellationToken;
-
+use tonic::async_trait;
 use tracing::trace;
 
 #[async_trait]

@@ -1,31 +1,36 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
+// Standard library imports
 use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 use std::time::Duration;
 
+// Third-party crates
 use async_trait::async_trait;
 use rand::Rng;
-use slim_auth::traits::{TokenProvider, Verifier};
-use slim_datapath::api::{ProtoSessionType, SessionHeader, SlimHeader};
-use slim_datapath::messages::Name;
 use tokio::sync::mpsc::{self, Receiver, Sender};
 use tokio::time::{self, Instant};
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, warn};
 
-use crate::channel_endpoint::{
-    ChannelEndpoint, ChannelModerator, ChannelParticipant, MlsEndpoint, MlsState,
+use slim_auth::traits::{TokenProvider, Verifier};
+use slim_datapath::api::{
+    ProtoMessage as Message, ProtoSessionMessageType, ProtoSessionType, SessionHeader, SlimHeader,
 };
-use crate::errors::SessionError;
+use slim_datapath::messages::Name;
+use slim_datapath::messages::utils::SlimHeaderFlags;
+
+// Local crate
 use crate::session::{
     Common, CommonSession, Id, MessageDirection, MessageHandler, SessionConfig, SessionConfigTrait,
     SessionMessage, SessionTransmitter, State,
+    channel_endpoint::{
+        ChannelEndpoint, ChannelModerator, ChannelParticipant, MlsEndpoint, MlsState,
+    },
+    errors::SessionError,
+    timer,
 };
-use crate::timer;
-use slim_datapath::api::{ProtoMessage as Message, ProtoSessionMessageType};
-use slim_datapath::messages::utils::SlimHeaderFlags;
 
 /// Configuration for the Point to Point session
 #[derive(Debug, Clone, PartialEq)]
@@ -919,7 +924,7 @@ mod tests {
     use tracing_test::traced_test;
 
     use super::*;
-    use crate::{
+    use crate::session::{
         channel_endpoint::handle_channel_discovery_message, testutils::MockTransmitter,
         transmitter::Transmitter,
     };
