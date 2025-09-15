@@ -2,7 +2,6 @@ package sbapiservice
 
 import (
 	"context"
-	"fmt"
 	"net"
 	"time"
 
@@ -105,30 +104,17 @@ func (s *sbAPIService) OpenControlChannel(stream controllerapi.ControllerService
 		registeredNodeID = regReq.RegisterNodeRequest.NodeId
 		zlog.Info().Msgf("Registering node with ID: %v", registeredNodeID)
 
+		connDetails := make([]db.ConnectionDetails, 0, len(regReq.RegisterNodeRequest.ConnectionDetails))
 		// Extract host from gRPC peer info
-		var host string
-		port := 46357
-		if peerInfo, ok := peer.FromContext(stream.Context()); ok {
-			switch addr := peerInfo.Addr.(type) {
-			case *net.TCPAddr:
-				host = addr.IP.String()
-			default:
-				hostStr, _, splitErr := net.SplitHostPort(peerInfo.Addr.String())
-				if splitErr == nil {
-					host = hostStr
-				}
-			}
+		host := getPeerHost(stream)
+		for _, detail := range regReq.RegisterNodeRequest.ConnectionDetails {
+			zlog.Info().Msgf("Connection details: %v", detail)
+			connDetails = append(connDetails, getConnDetails(host, detail))
 		}
 
 		_, err = s.dbService.SaveNode(db.Node{
-			ID: registeredNodeID,
-			//TODO
-			ConnDetails: []db.ConnectionDetails{
-				{
-					Endpoint:     fmt.Sprintf("%s:%d", host, port),
-					MtlsRequired: false,
-				},
-			},
+			ID:          registeredNodeID,
+			ConnDetails: connDetails,
 		})
 		if err != nil {
 			zlog.Error().Msgf("Error saving node: %v", err)
@@ -165,6 +151,38 @@ func (s *sbAPIService) OpenControlChannel(stream controllerapi.ControllerService
 	}
 
 	return s.handleNodeMessages(ctx, stream, zlog, registeredNodeID)
+}
+
+func getConnDetails(host string, detail *controllerapi.ConnectionDetails) db.ConnectionDetails {
+	endPoint := host
+	_, port, splitErr := net.SplitHostPort(detail.Endpoint)
+	if splitErr == nil {
+		//TODO log & throw error
+		endPoint = host + ":" + port
+	}
+	connDetails := db.ConnectionDetails{
+		Endpoint:         endPoint,
+		MtlsRequired:     false,
+		GroupName:        detail.GroupName,
+		ExternalEndpoint: detail.ExternalEndpoint,
+	}
+	return connDetails
+}
+
+func getPeerHost(stream controllerapi.ControllerService_OpenControlChannelServer) string {
+	var host string
+	if peerInfo, ok := peer.FromContext(stream.Context()); ok {
+		switch addr := peerInfo.Addr.(type) {
+		case *net.TCPAddr:
+			host = addr.IP.String()
+		default:
+			hostStr, _, splitErr := net.SplitHostPort(peerInfo.Addr.String())
+			if splitErr == nil {
+				host = hostStr
+			}
+		}
+	}
+	return host
 }
 
 func (s *sbAPIService) handleNodeMessages(ctx context.Context,

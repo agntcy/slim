@@ -38,8 +38,8 @@ type Node struct {
 
 type ConnectionDetails struct {
 	Endpoint string
-	ExternalEndpoint string
-	GroupName    string
+	ExternalEndpoint *string
+	GroupName    *string
 	MtlsRequired bool
 }
 

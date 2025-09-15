@@ -56,6 +56,7 @@ impl Config {
         id: ID,
         rx_drain: drain::Watch,
         message_processor: Arc<MessageProcessor>,
+        servers: &[ServerConfig],
     ) -> ControlPlane {
         ControlPlane::new(
             id,
@@ -63,6 +64,7 @@ impl Config {
             self.clients.clone(),
             rx_drain,
             message_processor,
+            servers,
         )
     }
 }

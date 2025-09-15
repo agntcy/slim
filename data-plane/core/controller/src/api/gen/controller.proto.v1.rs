@@ -135,9 +135,22 @@ pub struct Node {
     pub id: ::prost::alloc::string::String,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ConnectionDetails {
+    #[prost(string, tag = "1")]
+    pub endpoint: ::prost::alloc::string::String,
+    #[prost(string, optional, tag = "2")]
+    pub external_endpoint: ::core::option::Option<::prost::alloc::string::String>,
+    #[prost(string, optional, tag = "3")]
+    pub group_name: ::core::option::Option<::prost::alloc::string::String>,
+    #[prost(bool, tag = "4")]
+    pub mtls_required: bool,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct RegisterNodeRequest {
     #[prost(string, tag = "1")]
     pub node_id: ::prost::alloc::string::String,
+    #[prost(message, repeated, tag = "2")]
+    pub connection_details: ::prost::alloc::vec::Vec<ConnectionDetails>,
 }
 #[derive(Clone, Copy, PartialEq, ::prost::Message)]
 pub struct RegisterNodeResponse {

@@ -212,6 +212,7 @@ impl Service {
             self.id.clone(),
             self.watch.clone(),
             self.message_processor.clone(),
+            self.config.servers(),
         );
 
         // run controller service

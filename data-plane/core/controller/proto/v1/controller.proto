@@ -102,8 +102,8 @@ message Node {
 
 message ConnectionDetails {
   string endpoint = 1;
-  string external_endpoint = 2;
-  string group_name = 3;
+  optional string external_endpoint = 2;
+  optional string group_name = 3;
   bool mtls_required = 4;
 }
 

@@ -50,15 +50,19 @@ func newListNodesCmd(opts *options.CommonOptions) *cobra.Command {
 				fmt.Printf("Node ID: %s status: %s\n", node.Id, node.Status)
 				// print connection details if available
 				if len(node.Connections) > 0 {
-					fmt.Println("		Connection details:")
+					fmt.Println("  Connection details:")
 					for _, conn := range node.Connections {
-						fmt.Println(fmt.Sprintf("	- Endpoint: %s", conn.Endpoint))
-						fmt.Println(fmt.Sprintf("	  ExternalEndpoint: %s", conn.ExternalEndpoint))
-						fmt.Println(fmt.Sprintf("	  MtlsRequired: %s", conn.MtlsRequired))
-						fmt.Println(fmt.Sprintf("	  GroupName: %s", conn.GroupName))
+						fmt.Println(fmt.Sprintf("  - Endpoint: %s", conn.Endpoint))
+						fmt.Println(fmt.Sprintf("    MtlsRequired: %v", conn.MtlsRequired))
+						if conn.ExternalEndpoint != nil {
+							fmt.Println(fmt.Sprintf("    ExternalEndpoint: %s", conn.ExternalEndpoint))
+						}
+						if conn.GroupName != nil {
+							fmt.Println(fmt.Sprintf("    GroupName: %s", conn.GroupName))
+						}
 					}
 				} else {
-					fmt.Println("  No connection details available")
+					fmt.Println("No connection details available")
 				}
 			}
 
