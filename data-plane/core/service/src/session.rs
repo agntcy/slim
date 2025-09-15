@@ -14,6 +14,7 @@ pub mod multicast;
 pub mod point_to_point;
 pub mod producer_buffer;
 pub mod receiver_buffer;
+mod session_layer;
 pub mod timer;
 mod traits;
 pub mod transmitter;
@@ -48,6 +49,8 @@ pub(crate) use common::{
     AppChannelSender, MessageDirection, SESSION_RANGE, Session, SlimChannelSender,
 };
 
+// Session layer
+pub(crate) use session_layer::SessionLayer;
 // Public exports for external crates (like Python bindings)
 pub use common::{AppChannelReceiver, SESSION_UNSPECIFIED, SessionType};
 
