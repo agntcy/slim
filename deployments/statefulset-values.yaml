@@ -5,7 +5,7 @@ slim:
   # Deploy as DaemonSet instead of StatefulSet
   daemonset: false
   # This will set the replicaset count more information can be found here: https://kubernetes.io/docs/concepts/workloads/controllers/replicaset/
-  replicaCount: 1
+  replicaCount: 3
 
   # This sets the container image more information can be found here: https://kubernetes.io/docs/concepts/containers/images/
   image:
@@ -40,17 +40,12 @@ slim:
 
           clients: []
         controller:
-          servers:
-            - endpoint: "0.0.0.0:{{ .Values.slim.service.control.port }}"
+          clients:
+            - endpoint: "https://slim-control:50052"
               tls:
-                insecure: true
-          # Uncomment below to connect to control plane with MTLS by Spire
-          # clients:
-          #   - endpoint: "https://slim-control:50052"
-          #     tls:
-          #       cert_file: "/svids/tls.crt"
-          #       key_file: "/svids/tls.key"
-          #       ca_file: "/svids/svid_bundle.pem"
+                cert_file: "/svids/tls.crt"
+                key_file: "/svids/tls.key"
+                ca_file: "/svids/svid_bundle.pem"
 
   # StatefulSet-specific settings
   # DaemonSet-specific settings
@@ -91,80 +86,8 @@ slim:
     #    hosts:
     #      - chart-example.local
 
-  resources: {}
-    # We usually recommend not to specify default resources and to leave this as a conscious
-    # choice for the user. This also increases chances charts run on environments with little
-    # resources, such as Minikube. If you do want to specify resources, uncomment the following
-    # lines, adjust them as necessary, and remove the curly braces after 'resources:'.
-    # limits:
-    #   cpu: 100m
-    #   memory: 128Mi
-    # requests:
-    #   cpu: 100m
-    #   memory: 128Mi
-
-  extraVolumes: []
-    # Example:
-    # - name: datastore
-    #   configMap:
-    #     name: my-configmap
-
-  extraVolumeMounts: []
-    # Example:
-    # - name: datastore
-    #   mountPath: /etc/datastore
-
-mcpProxy:
-  enabled: false
-  # This will set the replicaset count more information can be found here: https://kubernetes.io/docs/concepts/workloads/controllers/replicaset/
-  replicaCount: 1
-
-  # This sets the container image more information can be found here: https://kubernetes.io/docs/concepts/containers/images/
-  image:
-    repository: ghcr.io/agntcy/slim/mcp-proxy
-    # This sets the pull policy for images.
-    pullPolicy: IfNotPresent
-    # Overrides the image tag whose default is the chart appVersion.
-    tag: ""
-
-  config:
-    tracing:
-      log_level: info
-      display_thread_names: true
-      display_thread_ids: true
-
-    runtime:
-      n_cores: 0
-      thread_name: "slim-data-plane"
-      drain_timeout: 10s
-
-    services:
-      slim/0:
-        pubsub:
-          clients:
-            - endpoint: "http://agntcy-slim:46357"
-              tls:
-                insecure: true
-
-  args:
-    svcName: "slim/0"
-    name: "org/mcp/proxy"
-    mcpServer: "http://mcp-server:8000/sse"
-
-  resources: {}
-    # We usually recommend not to specify default resources and to leave this as a conscious
-    # choice for the user. This also increases chances charts run on environments with little
-    # resources, such as Minikube. If you do want to specify resources, uncomment the following
-    # lines, adjust them as necessary, and remove the curly braces after 'resources:'.
-    # limits:
-    #   cpu: 100m
-    #   memory: 128Mi
-    # requests:
-    #   cpu: 100m
-    #   memory: 128Mi
-
 spire:
-  enabled: false
+  enabled: true
   helperImage:
     repository: ghcr.io/spiffe/spiffe-helper
     # This sets the pull policy for images.
