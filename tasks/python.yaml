@@ -13,17 +13,18 @@ vars:
 
 tasks:
   fix-lint:
-    desc: "Automatically fix code style and formatting issues using ruff and mypy"
+    desc: "Lint and fix (where possible) code style and formatting issues using ruff and mypy"
     cmds:
-      - uv run {{.UV_ARGS}} ruff format
       - uv run {{.UV_ARGS}} ruff check --fix
+      - uv run {{.UV_ARGS}} mypy --explicit-package-bases .
+      - uv run {{.UV_ARGS}} ruff format
 
   lint:
     desc: "Check code style, formatting, and type hints without making changes"
     cmds:
       - uv run {{.UV_ARGS}} ruff check
+      - uv run {{.UV_ARGS}} mypy --explicit-package-bases .
       - uv run {{.UV_ARGS}} ruff format --check
-      - uv run {{.UV_ARGS}} mypy --ignore-missing-imports --explicit-package-bases .
 
   test:
     desc: "Run pytest test suite with optional test path specification"
