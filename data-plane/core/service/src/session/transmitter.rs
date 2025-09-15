@@ -1,19 +1,24 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
+// Standard library imports
 use std::sync::Arc;
 
+// Third-party crates
 use parking_lot::RwLock;
-use slim_datapath::api::ProtoMessage as Message;
 use tokio::sync::mpsc::error::SendError;
 
+use slim_datapath::Status;
+use slim_datapath::api::ProtoMessage as Message;
+
+// Local crate
 use crate::{
     SessionMessage,
-    errors::SessionError,
-    interceptor::{SessionInterceptor, SessionInterceptorProvider},
-    session::{AppChannelSender, SessionTransmitter, SlimChannelSender},
+    session::{
+        AppChannelSender, SessionError, SessionTransmitter, SlimChannelSender,
+        interceptor::{SessionInterceptor, SessionInterceptorProvider},
+    },
 };
-use slim_datapath::Status;
 
 /// Transmitter used to intercept messages sent from sessions and apply interceptors on them
 #[derive(Clone)]

@@ -1,26 +1,19 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
+// Standard library imports
 use std::{
     collections::{BTreeMap, HashMap, VecDeque, btree_map::Entry},
     sync::Arc,
     time::Duration,
 };
 
+// Third-party crates
 use async_trait::async_trait;
 use bincode::{Decode, Encode};
 use parking_lot::Mutex;
 use tracing::{debug, error, trace};
 
-use crate::{
-    errors::SessionError,
-    interceptor_mls::{METADATA_MLS_ENABLED, METADATA_MLS_INIT_COMMIT_ID},
-    moderator_task::{
-        AddParticipant, AddParticipantMls, ModeratorTask, RemoveParticipant, RemoveParticipantMls,
-        TaskUpdate, UpdateParticipantMls,
-    },
-    session::{Id, SessionTransmitter},
-};
 use slim_auth::traits::{TokenProvider, Verifier};
 use slim_datapath::{
     api::{
@@ -28,6 +21,16 @@ use slim_datapath::{
         SlimHeader,
     },
     messages::{Name, utils::SlimHeaderFlags},
+};
+
+// Local crate
+use crate::session::{
+    Id, SessionError, SessionTransmitter,
+    interceptor_mls::{METADATA_MLS_ENABLED, METADATA_MLS_INIT_COMMIT_ID},
+    moderator_task::{
+        AddParticipant, AddParticipantMls, ModeratorTask, RemoveParticipant, RemoveParticipantMls,
+        TaskUpdate, UpdateParticipantMls,
+    },
 };
 use slim_mls::mls::{CommitMsg, KeyPackageMsg, Mls, MlsIdentity, ProposalMsg, WelcomeMsg};
 
@@ -46,7 +49,7 @@ where
 }
 
 #[async_trait]
-impl<T> crate::timer::TimerObserver for RequestTimerObserver<T>
+impl<T> crate::session::timer::TimerObserver for RequestTimerObserver<T>
 where
     T: SessionTransmitter + Send + Sync + Clone + 'static,
 {
@@ -138,7 +141,7 @@ where
 }
 
 #[derive(Debug)]
-pub(crate) struct MlsState<P, V>
+pub struct MlsState<P, V>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
@@ -720,7 +723,7 @@ where
     moderator_name: Option<Name>,
 
     /// timer used for retransmission of mls proposal messages
-    timer: Option<crate::timer::Timer>,
+    timer: Option<crate::session::timer::Timer>,
 
     /// endpoint
     endpoint: Endpoint<T>,
@@ -1000,9 +1003,9 @@ where
             tx: self.endpoint.tx.clone(),
         });
 
-        let timer = crate::timer::Timer::new(
+        let timer = crate::session::timer::Timer::new(
             proposal_id,
-            crate::timer::TimerType::Constant,
+            crate::session::timer::TimerType::Constant,
             self.endpoint.retries_interval,
             None,
             Some(self.endpoint.max_retries),
@@ -1080,7 +1083,7 @@ where
 /// structure to store timers for pending requests
 struct ChannelTimer {
     /// the timer itself
-    timer: crate::timer::Timer,
+    timer: crate::session::timer::Timer,
 
     /// number of expected acks before stop the timer
     /// this is used for broadcast messages
@@ -1197,9 +1200,9 @@ where
             tx: self.endpoint.tx.clone(),
         });
 
-        let timer = crate::timer::Timer::new(
+        let timer = crate::session::timer::Timer::new(
             key,
-            crate::timer::TimerType::Constant,
+            crate::session::timer::TimerType::Constant,
             self.endpoint.retries_interval,
             None,
             Some(self.endpoint.max_retries),
@@ -1914,7 +1917,7 @@ where
 
 #[cfg(test)]
 mod tests {
-    use crate::testutils::MockTransmitter;
+    use crate::session::testutils::MockTransmitter;
 
     use super::*;
     use slim_auth::shared_secret::SharedSecret;

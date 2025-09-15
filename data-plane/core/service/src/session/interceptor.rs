@@ -1,13 +1,16 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
+// Standard library imports
 use std::sync::Arc;
 
+// Third-party crates
 use slim_auth::traits::{TokenProvider, Verifier};
 use slim_datapath::api::ProtoMessage as Message;
 use slim_datapath::messages::utils::SLIM_IDENTITY;
 
-use crate::errors::SessionError;
+// Local crate
+use crate::session::errors::SessionError;
 
 #[async_trait::async_trait]
 pub trait SessionInterceptor {

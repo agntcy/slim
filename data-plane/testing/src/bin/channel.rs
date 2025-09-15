@@ -9,7 +9,7 @@ use tracing::{error, info};
 
 use slim_auth::shared_secret::SharedSecret;
 use slim_datapath::messages::{Name, utils::SlimHeaderFlags};
-use slim_service::multicast::MulticastConfiguration;
+use slim_service::MulticastConfiguration;
 
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
