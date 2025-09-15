@@ -1,11 +1,13 @@
 # Copyright AGNTCY Contributors (https://github.com/agntcy)
 # SPDX-License-Identifier: Apache-2.0
 
+import asyncio
 import datetime
 import logging
 import sys
 import time
 from collections.abc import AsyncGenerator, AsyncIterable, Callable
+from dataclasses import dataclass
 from typing import Any
 
 if sys.version_info >= (3, 11):
@@ -30,39 +32,59 @@ from slimrpc.rpc import SRPCResponseError
 logger = logging.getLogger(__name__)
 
 
+@dataclass
+class SLIMAppConfig:
+    identity: str
+    slim_client_config: dict
+    enable_opentelemetry: bool = False
+    shared_secret: str = ""
+
+
 class ChannelFactory:
     def __init__(
         self,
-        local: str,
-        slim: dict,
-        enable_opentelemetry: bool = False,
-        shared_secret: str = "",
+        slim_app_config: SLIMAppConfig | None = None,
+        local_app: slim_bindings.Slim | None = None,
     ) -> None:
-        self.local = split_id(local)
-        self.slim = slim
-        self.enable_opentelemetry = enable_opentelemetry
-        self.shared_secret = shared_secret
-        self.local_app: slim_bindings.Slim | None = None
+        if slim_app_config is None and local_app is None:
+            raise ValueError("Either slim_app_config or local_app must be provided")
+        if slim_app_config is not None and local_app is not None:
+            raise ValueError("Only one of slim_app_config or local_app can be provided")
+        self._slim_app_config = slim_app_config
+        self._local_app_lock = asyncio.Lock()
+        self._local_app: slim_bindings.Slim | None = local_app
 
     async def get_local_app(self) -> slim_bindings.Slim:
-        if self.local_app is None:
-            # Create local SLIM instance
-            self.local_app = await create_local_app(
-                self.local,
-                self.slim,
-                enable_opentelemetry=self.enable_opentelemetry,
-                shared_secret=self.shared_secret,
-            )
-            # Start receiving messages
-            await self.local_app.__aenter__()
-        return self.local_app
+        """
+        Get or create the local SLIM instance
+        """
+        async with self._local_app_lock:
+            if self._local_app is None:
+                # Create local SLIM instance
+                assert self._slim_app_config is not None, (
+                    "slim_app_config must be provided to create a local app"
+                )
+                self._local_app = await create_local_app(
+                    split_id(self._slim_app_config.identity),
+                    self._slim_app_config.slim_client_config,
+                    enable_opentelemetry=self._slim_app_config.enable_opentelemetry,
+                    shared_secret=self._slim_app_config.shared_secret,
+                )
+                # Start receiving messages
+                await self._local_app.__aenter__()
+            return self._local_app
 
     async def close(self) -> None:
         """
         Close the channel factory
         """
-        if self.local_app is not None:
-            await self.local_app.__aexit__(None, None, None)
+        async with self._local_app_lock:
+            if self._local_app is not None:
+                if self._slim_app_config is None:
+                    logger.debug("not closing local app as it was provided externally")
+                    return
+                await self._local_app.__aexit__(None, None, None)
+            self._local_app = None
 
     def new_channel(self, remote: str) -> "Channel":
         return Channel(remote=remote, channel_factory=self)

@@ -3,7 +3,7 @@
 
 from google.rpc.code_pb2 import Code as StatusCode
 
-from slimrpc.channel import Channel, ChannelFactory
+from slimrpc.channel import Channel, ChannelFactory, SLIMAppConfig
 from slimrpc.context import Context
 from slimrpc.rpc import (
     RPCHandler,
@@ -27,4 +27,5 @@ __all__ = [
     "Server",
     "Channel",
     "ChannelFactory",
+    "SLIMAppConfig",
 ]

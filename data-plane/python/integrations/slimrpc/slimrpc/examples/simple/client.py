@@ -11,15 +11,17 @@ logger = logging.getLogger(__name__)
 
 async def amain() -> None:
     channel_factory = slimrpc.ChannelFactory(
-        local="agntcy/grpc/client",
-        slim={
-            "endpoint": "http://localhost:46357",
-            "tls": {
-                "insecure": True,
+        slim_app_config=slimrpc.SLIMAppConfig(
+            identity="agntcy/grpc/client",
+            slim_client_config={
+                "endpoint": "http://localhost:46357",
+                "tls": {
+                    "insecure": True,
+                },
             },
-        },
-        enable_opentelemetry=False,
-        shared_secret="my_shared_secret",
+            enable_opentelemetry=False,
+            shared_secret="my_shared_secret",
+        ),
     )
 
     channel = channel_factory.new_channel(remote="agntcy/grpc/server")

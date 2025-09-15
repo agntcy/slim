@@ -54,14 +54,16 @@ async def main() -> None:
     httpx_client = httpx.AsyncClient()
 
     channel_factory = slimrpc.ChannelFactory(
-        local="agntcy/demo/client",
-        slim={
-            "endpoint": "http://localhost:46357",
-            "tls": {
-                "insecure": True,
+        slimrpc.SLIMAppConfig(
+            identity="agntcy/demo/client",
+            slim_client_config={
+                "endpoint": "http://localhost:46357",
+                "tls": {
+                    "insecure": True,
+                },
             },
-        },
-        shared_secret="secret",
+            shared_secret="secret",
+        ),
     )
 
     client_config = ClientConfig(
