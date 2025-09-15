@@ -1,0 +1,60 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: alice
+  namespace: default
+spec:
+  containers:
+  - args:
+    - ff
+    - --message
+    - hello
+    - --iterations
+    - "10"
+    - --local
+    - org/ns/bob
+    - --remote
+    - org/ns/alice
+    - --shared-secret
+    - secret123
+    - --slim
+    - '{"endpoint":"http://agntcy-slim-2:46357","tls":{"insecure":true}}'
+    env:
+    - name: PYTHONUNBUFFERED
+      value: "1"
+    image: ghcr.io/agntcy/slim/bindings-examples:latest
+    imagePullPolicy: Always
+    name: alice
+    volumeMounts:
+    - mountPath: /svids
+      name: svids-volume
+  initContainers:
+  - args:
+    - -config
+    - config/helper.conf
+    image: ghcr.io/spiffe/spiffe-helper:0.10.0
+    imagePullPolicy: IfNotPresent
+    name: spiffe-helper
+    resources: {}
+    volumeMounts:
+    - mountPath: /config/helper.conf
+      name: config-volume
+      subPath: helper.conf
+    - mountPath: /run/spire/agent-sockets
+      name: spire-agent-socket
+    - mountPath: /svids
+      name: svids-volume
+  restartPolicy: OnFailure
+  serviceAccount: default
+  serviceAccountName: default
+  volumes:
+  - hostPath:
+      path: /run/spire/agent-sockets
+      type: Directory
+    name: spire-agent-socket
+  - emptyDir: {}
+    name: svids-volume
+  - configMap:
+      defaultMode: 420
+      name: helper-config
+    name: config-volume
