@@ -1,7 +1,7 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
-use duration_str::deserialize_duration;
+use duration_string::DurationString;
 use serde::{Deserialize, Serialize};
 use std::time;
 use tokio::runtime::{Builder, Runtime};
@@ -20,11 +20,8 @@ pub struct RuntimeConfiguration {
     thread_name: String,
 
     /// the timeout for draining the services
-    #[serde(
-        default = "default_drain_timeout",
-        deserialize_with = "deserialize_duration"
-    )]
-    drain_timeout: time::Duration,
+    #[serde(default = "default_drain_timeout")]
+    drain_timeout: DurationString,
 }
 
 impl Default for RuntimeConfiguration {
@@ -46,8 +43,8 @@ fn default_thread_name() -> String {
     "slim".to_string()
 }
 
-fn default_drain_timeout() -> time::Duration {
-    time::Duration::from_secs(10)
+fn default_drain_timeout() -> DurationString {
+    time::Duration::from_secs(10).into()
 }
 
 impl RuntimeConfiguration {
@@ -71,7 +68,7 @@ impl RuntimeConfiguration {
 
     pub fn with_drain_timeout(drain_timeout: time::Duration) -> Self {
         RuntimeConfiguration {
-            drain_timeout,
+            drain_timeout: drain_timeout.into(),
             ..RuntimeConfiguration::default()
         }
     }
@@ -85,7 +82,7 @@ impl RuntimeConfiguration {
     }
 
     pub fn drain_timeout(&self) -> time::Duration {
-        self.drain_timeout
+        self.drain_timeout.into()
     }
 }
 
@@ -148,6 +145,7 @@ pub fn build(config: &RuntimeConfiguration) -> Result<SlimRuntime, Configuration
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json;
 
     #[test]
     fn test_runtime_configuration() {
@@ -159,7 +157,7 @@ mod tests {
         let config = RuntimeConfiguration {
             n_cores: 1,
             thread_name: "test".to_string(),
-            drain_timeout: time::Duration::from_secs(5),
+            drain_timeout: time::Duration::from_secs(5).into(),
         };
         assert_eq!(config.n_cores, 1);
         assert_eq!(config.thread_name, "test");
@@ -178,7 +176,7 @@ mod tests {
         let config = RuntimeConfiguration {
             n_cores: 3,
             thread_name: "test".to_string(),
-            drain_timeout: time::Duration::from_secs(10),
+            drain_timeout: time::Duration::from_secs(10).into(),
         };
         let runtime = build(&config).unwrap();
         assert_eq!(runtime.config.n_cores, 3);
@@ -190,10 +188,52 @@ mod tests {
         let config = RuntimeConfiguration {
             n_cores: 100,
             thread_name: "test".to_string(),
-            drain_timeout: time::Duration::from_secs(10),
+            drain_timeout: time::Duration::from_secs(10).into(),
         };
         let runtime = build(&config).unwrap();
         assert_eq!(runtime.config.n_cores, 100);
         assert_eq!(config.drain_timeout, time::Duration::from_secs(10));
+    }
+
+    #[test]
+    fn test_runtime_configuration_valid_drain_timeout_deserialize() {
+        let json = r#"{ "drain_timeout": "1m30s" }"#; // 90 seconds
+        let cfg: RuntimeConfiguration =
+            serde_json::from_str(json).expect("valid duration should deserialize");
+        assert_eq!(cfg.drain_timeout, time::Duration::from_secs(90));
+
+        let json = r#"{ "drain_timeout": "2h3m4s" }"#; // 7384 seconds
+        let cfg: RuntimeConfiguration =
+            serde_json::from_str(json).expect("complex duration should deserialize");
+        assert_eq!(
+            cfg.drain_timeout,
+            time::Duration::from_secs(2 * 3600 + 3 * 60 + 4)
+        );
+    }
+
+    #[test]
+    fn test_runtime_configuration_invalid_drain_timeout_deserialize() {
+        let invalid_cases = [
+            r#"{ "drain_timeout": "abc" }"#,
+            r#"{ "drain_timeout": "10x" }"#,
+            r#"{ "drain_timeout": "-5s" }"#,
+        ];
+        for js in invalid_cases {
+            let res: Result<RuntimeConfiguration, _> = serde_json::from_str(js);
+            assert!(res.is_err(), "expected error for json: {}", js);
+        }
+    }
+
+    #[test]
+    fn test_runtime_configuration_drain_timeout_roundtrip() {
+        let cfg = RuntimeConfiguration {
+            n_cores: 0,
+            thread_name: "roundtrip".to_string(),
+            drain_timeout: time::Duration::from_millis(1250).into(),
+        };
+        let ser = serde_json::to_string(&cfg).expect("serialize");
+        let de: RuntimeConfiguration = serde_json::from_str(&ser).expect("deserialize");
+        assert_eq!(de.drain_timeout, time::Duration::from_millis(1250));
+        assert_eq!(de.thread_name, "roundtrip");
     }
 }
