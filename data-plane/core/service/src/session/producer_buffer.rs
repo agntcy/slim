@@ -123,30 +123,40 @@ mod tests {
             SessionMessageType::P2PMsg.into(),
             0,
             0,
+            &None,
+            &None,
         );
         let h1 = SessionHeader::new(
             SessionType::SessionUnknown.into(),
             SessionMessageType::P2PMsg.into(),
             0,
             1,
+            &None,
+            &None,
         );
         let h2 = SessionHeader::new(
             SessionType::SessionUnknown.into(),
             SessionMessageType::P2PMsg.into(),
             0,
             2,
+            &None,
+            &None,
         );
         let h3 = SessionHeader::new(
             SessionType::SessionUnknown.into(),
             SessionMessageType::P2PMsg.into(),
             0,
             3,
+            &None,
+            &None,
         );
         let h4 = SessionHeader::new(
             SessionType::SessionUnknown.into(),
             SessionMessageType::P2PMsg.into(),
             0,
             4,
+            &None,
+            &None,
         );
 
         let p0 = Message::new_publish_with_headers(Some(slim_header), Some(h0), "", vec![]);
@@ -219,6 +229,8 @@ mod tests {
             SessionMessageType::P2PMsg.into(),
             0,
             0,
+            &None,
+            &None,
         );
         let mut p = Message::new_publish_with_headers(Some(slim_header), Some(h), "", vec![]);
 

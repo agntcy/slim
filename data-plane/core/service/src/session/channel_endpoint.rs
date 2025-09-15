@@ -598,11 +598,15 @@ where
 
         let slim_header = Some(SlimHeader::new(&self.name, destination, flags));
 
+        // no need to specify the source and the destination here. these messages
+        // will never be seen by the application
         let session_header = Some(SessionHeader::new(
             self.session_type.into(),
             request_type.into(),
             self.session_id,
             message_id,
+            &None,
+            &None,
         ));
 
         Message::new_publish_with_headers(slim_header, session_header, "", payload)
@@ -700,11 +704,15 @@ pub fn handle_channel_discovery_message(
         Some(SlimHeaderFlags::default().with_forward_to(message.get_incoming_conn())),
     ));
 
+    // no need to specify the source and the destination here. these messages
+    // will never be seen by the application
     let session_header = Some(SessionHeader::new(
         session_type.into(),
         ProtoSessionMessageType::ChannelDiscoveryReply.into(),
         session_id,
         msg_id,
+        &None,
+        &None,
     ));
 
     debug!("Received discovery request, reply to the msg source");
@@ -1996,6 +2004,8 @@ mod tests {
             ProtoSessionMessageType::ChannelDiscoveryRequest.into(),
             SESSION_ID,
             rand::random::<u32>(),
+            &None,
+            &None,
         ));
         let payload: Vec<u8> =
             bincode::encode_to_vec(&moderator, bincode::config::standard()).unwrap();
@@ -2025,6 +2035,8 @@ mod tests {
             ProtoSessionMessageType::ChannelDiscoveryReply.into(),
             session_id,
             msg_id,
+            &None,
+            &None,
         ));
 
         let mut msg = Message::new_publish_with_headers(slim_header, session_header, "", vec![]);
