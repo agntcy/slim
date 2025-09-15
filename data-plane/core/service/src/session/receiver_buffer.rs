@@ -1,11 +1,13 @@
 // SPDX-FileCopyrightText: Copyright (c) 2025 Cisco and/or its affiliates.
 // SPDX-License-Identifier: Apache-2.0
 
+// Standard library imports
 use std::collections::HashSet;
 
-use slim_datapath::api::ProtoMessage as Message;
-
+// Third-party crates
 use tracing::{debug, info, trace};
+
+use slim_datapath::api::ProtoMessage as Message;
 
 pub(crate) struct ReceiverBuffer {
     // ID of the last packet sent to the application

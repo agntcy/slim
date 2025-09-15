@@ -1,8 +1,10 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
+// Standard library imports
 use std::{collections::HashMap, sync::Arc, time::Duration};
 
+// Third-party crates
 use async_trait::async_trait;
 use tokio::{
     sync::mpsc,
@@ -10,21 +12,6 @@ use tokio::{
 };
 use tracing::{debug, error, trace, warn};
 
-use crate::{
-    MessageDirection, SessionMessage,
-    channel_endpoint::{
-        ChannelEndpoint, ChannelModerator, ChannelParticipant, MlsEndpoint, MlsState,
-    },
-    errors::SessionError,
-    producer_buffer, receiver_buffer,
-    session::{
-        Common, CommonSession, Id, Info, MessageHandler, SessionConfig, SessionConfigTrait,
-        SessionTransmitter, State,
-    },
-    timer,
-};
-use producer_buffer::ProducerBuffer;
-use receiver_buffer::ReceiverBuffer;
 use slim_auth::traits::{TokenProvider, Verifier};
 use slim_datapath::{
     Status,
@@ -34,6 +21,22 @@ use slim_datapath::{
     },
     messages::{Name, utils::SlimHeaderFlags},
 };
+
+// Local crate
+use crate::{
+    SessionMessage,
+    session::{
+        Common, CommonSession, Id, Info, MessageDirection, MessageHandler, SessionConfig,
+        SessionConfigTrait, SessionTransmitter, State,
+        channel_endpoint::{
+            ChannelEndpoint, ChannelModerator, ChannelParticipant, MlsEndpoint, MlsState,
+        },
+        errors::SessionError,
+        producer_buffer, receiver_buffer, timer,
+    },
+};
+use producer_buffer::ProducerBuffer;
+use receiver_buffer::ReceiverBuffer;
 
 // this must be a number > 1
 const STREAM_BROADCAST: u32 = 50;
@@ -977,7 +980,7 @@ where
 mod tests {
     use std::time::Duration;
 
-    use crate::testutils::MockTransmitter;
+    use crate::session::testutils::MockTransmitter;
 
     use super::*;
     use slim_auth::shared_secret::SharedSecret;
