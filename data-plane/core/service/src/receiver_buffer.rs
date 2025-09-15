@@ -281,36 +281,48 @@ mod tests {
             ProtoSessionMessageType::P2PMsg.into(),
             0,
             0,
+            &None,
+            &None,
         );
         let h1 = SessionHeader::new(
             ProtoSessionType::SessionPointToPoint.into(),
             ProtoSessionMessageType::P2PMsg.into(),
             0,
             1,
+            &None,
+            &None,
         );
         let h2 = SessionHeader::new(
             ProtoSessionType::SessionPointToPoint.into(),
             ProtoSessionMessageType::P2PMsg.into(),
             0,
             2,
+            &None,
+            &None,
         );
         let h3 = SessionHeader::new(
             ProtoSessionType::SessionPointToPoint.into(),
             ProtoSessionMessageType::P2PMsg.into(),
             0,
             3,
+            &None,
+            &None,
         );
         let h4 = SessionHeader::new(
             ProtoSessionType::SessionPointToPoint.into(),
             ProtoSessionMessageType::P2PMsg.into(),
             0,
             4,
+            &None,
+            &None,
         );
         let h5 = SessionHeader::new(
             ProtoSessionType::SessionPointToPoint.into(),
             ProtoSessionMessageType::P2PMsg.into(),
             0,
             5,
+            &None,
+            &None,
         );
 
         let p0 = Message::new_publish_with_headers(Some(slim_header), Some(h0), "", vec![]);

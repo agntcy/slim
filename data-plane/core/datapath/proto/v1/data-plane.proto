@@ -20,7 +20,7 @@ message Unsubscribe { SLIMHeader header = 1; }
 message Publish {
   SLIMHeader header = 1;
   SessionHeader session = 2;
-  Content msg = 4;
+  Content msg = 3;
 }
 
 // recvFrom = connection from where the sub/unsub is supposed to be received
@@ -41,6 +41,15 @@ message Name {
   uint64 component_0 = 1;
   uint64 component_1 = 2;
   uint64 component_2 = 3;
+  uint64 component_3 = 4;
+}
+
+// Used in publication messages to carry the original string name. 
+// Used in session layer and it is optional.
+message OriginalName {
+  string component_0 = 1;
+  string component_1 = 2;
+  string component_2 = 3;
   uint64 component_3 = 4;
 }
 
@@ -94,6 +103,8 @@ message SessionHeader {
   SessionMessageType session_message_type = 2;
   uint32 session_id = 3;
   uint32 message_id = 4;
+  optional OriginalName source = 5;
+  optional OriginalName destination = 6;
 }
 
 message Content {

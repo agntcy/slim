@@ -278,6 +278,8 @@ where
             ProtoSessionMessageType::ChannelDiscoveryRequest.into(),
             session_info.id,
             rand::random::<u32>(),
+            &None,
+            &None,
         ));
 
         let msg = Message::new_publish_with_headers(slim_header, session_header, "", vec![]);
@@ -302,6 +304,8 @@ where
             ProtoSessionMessageType::ChannelLeaveRequest.into(),
             session_info.id,
             rand::random::<u32>(),
+            &None,
+            &None,
         ));
 
         let msg = Message::new_publish_with_headers(slim_header, session_header, "", vec![]);

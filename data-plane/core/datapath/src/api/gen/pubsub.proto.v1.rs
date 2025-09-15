@@ -21,7 +21,7 @@ pub struct Publish {
     pub header: ::core::option::Option<SlimHeader>,
     #[prost(message, optional, tag = "2")]
     pub session: ::core::option::Option<SessionHeader>,
-    #[prost(message, optional, tag = "4")]
+    #[prost(message, optional, tag = "3")]
     pub msg: ::core::option::Option<Content>,
 }
 /// recvFrom = connection from where the sub/unsub is supposed to be received
@@ -56,7 +56,20 @@ pub struct Name {
     #[prost(uint64, tag = "4")]
     pub component_3: u64,
 }
-#[derive(Clone, Copy, PartialEq, ::prost::Message)]
+/// Used in publication messages to carry the original string name.
+/// Used in session layer and it is optional.
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct OriginalName {
+    #[prost(string, tag = "1")]
+    pub component_0: ::prost::alloc::string::String,
+    #[prost(string, tag = "2")]
+    pub component_1: ::prost::alloc::string::String,
+    #[prost(string, tag = "3")]
+    pub component_2: ::prost::alloc::string::String,
+    #[prost(uint64, tag = "4")]
+    pub component_3: u64,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct SessionHeader {
     #[prost(enumeration = "SessionType", tag = "1")]
     pub session_type: i32,
@@ -66,6 +79,10 @@ pub struct SessionHeader {
     pub session_id: u32,
     #[prost(uint32, tag = "4")]
     pub message_id: u32,
+    #[prost(message, optional, tag = "5")]
+    pub source: ::core::option::Option<OriginalName>,
+    #[prost(message, optional, tag = "6")]
+    pub destination: ::core::option::Option<OriginalName>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct Content {

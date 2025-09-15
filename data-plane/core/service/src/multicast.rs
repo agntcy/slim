@@ -534,6 +534,8 @@ async fn process_incoming_rtx_request<T>(
                 ProtoSessionMessageType::RtxReply.into(),
                 session_id,
                 msg_rtx_id,
+                &packet.get_session_header().get_source(),
+                &packet.get_session_header().get_destination(),
             ));
 
             Message::new_publish_with_headers(
@@ -556,11 +558,14 @@ async fn process_incoming_rtx_request<T>(
 
             let slim_header = Some(SlimHeader::new(source, &pkt_src, Some(flags)));
 
+            // no need to set source and destiona here
             let session_header = Some(SessionHeader::new(
                 ProtoSessionType::SessionMulticast.into(),
                 ProtoSessionMessageType::RtxReply.into(),
                 session_id,
                 msg_rtx_id,
+                &None,
+                &None,
             ));
 
             Message::new_publish_with_headers(slim_header, session_header, "", vec![])
@@ -756,6 +761,8 @@ async fn process_message_from_slim<T>(
             ProtoSessionMessageType::RtxRequest.into(),
             session_id,
             r,
+            &None,
+            &None,
         ));
 
         let rtx = Message::new_publish_with_headers(slim_header, session_header, "", vec![]);
@@ -874,6 +881,8 @@ async fn send_beacon_msg<T>(
         beacon_type.into(),
         session_id,
         last_msg_id,
+        &None,
+        &None,
     ));
 
     let msg = Message::new_publish_with_headers(slim_header, session_header, "", vec![]);
@@ -1293,6 +1302,8 @@ mod tests {
             ProtoSessionMessageType::RtxRequest.into(),
             1,
             2,
+            &None,
+            &None,
         ));
 
         // receive an RTX for message 2
