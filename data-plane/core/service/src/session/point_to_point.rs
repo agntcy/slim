@@ -618,6 +618,8 @@ where
                     ProtoSessionMessageType::P2PAck.into(),
                     message.info.id,
                     message_id,
+                    &None,
+                    &None,
                 ));
 
                 let ack =
