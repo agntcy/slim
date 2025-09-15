@@ -22,9 +22,7 @@ async def amain() -> None:
         shared_secret="my_shared_secret",
     )
 
-    channel = channel_factory.new_channel(
-        remote="agntcy/grpc/server"
-    )
+    channel = channel_factory.new_channel(remote="agntcy/grpc/server")
 
     # Stubs
     stubs = TestStub(channel)
