@@ -10,7 +10,7 @@ logging.getLogger("asyncio").setLevel(logging.ERROR)
 import httpx
 import slimrpc
 from a2a.client import (
-    A2AClient,
+    Client,
     ClientFactory,
     minimal_agent_card,
 )
@@ -33,7 +33,7 @@ def get_user_query() -> str:
     return input("\n> ")
 
 
-async def interact_with_server(client: A2AClient) -> None:
+async def interact_with_server(client: Client) -> None:
     while True:
         user_input = get_user_query()
         if user_input.lower() == "exit":
@@ -93,7 +93,9 @@ async def main() -> None:
         slimrpc_channel_factory=channel_factory.new_channel,
     )
     client_factory = ClientFactory(client_config)
-    client_factory.register("slimrpc", SRPCTransport.create)
+
+    # mypy: the register API expects a different callable type; safe to ignore here.
+    client_factory.register("slimrpc", SRPCTransport.create)  # type: ignore
     agent_card = minimal_agent_card("agntcy/demo/travel_planner_agent", ["slimrpc"])
     client = client_factory.create(card=agent_card)
 

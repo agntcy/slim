@@ -96,7 +96,7 @@ class SRPCTransport(ClientTransport):
         *,
         context: ClientCallContext | None = None,
     ) -> AsyncGenerator[
-        Message | Task | TaskStatusUpdateEvent | TaskArtifactUpdateEvent
+        Message | Task | TaskStatusUpdateEvent | TaskArtifactUpdateEvent, None
     ]:
         """Sends a streaming message request to the agent and yields responses as they arrive."""
         stream = self.stub.SendStreamingMessage(
@@ -114,7 +114,7 @@ class SRPCTransport(ClientTransport):
     async def resubscribe(
         self, request: TaskIdParams, *, context: ClientCallContext | None = None
     ) -> AsyncGenerator[
-        Task | Message | TaskStatusUpdateEvent | TaskArtifactUpdateEvent
+        Task | Message | TaskStatusUpdateEvent | TaskArtifactUpdateEvent, None
     ]:
         """Reconnects to get task updates."""
         stream = self.stub.TaskSubscription(

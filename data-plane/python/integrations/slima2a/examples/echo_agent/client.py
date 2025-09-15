@@ -71,9 +71,11 @@ async def main() -> None:
         slimrpc_channel_factory=channel_factory.new_channel,
     )
     client_factory = ClientFactory(client_config)
-    client_factory.register("slimrpc", SRPCTransport.create)
 
-    agent_card = None
+    # mypy: the register API expects a different callable type; safe to ignore here.
+    client_factory.register("slimrpc", SRPCTransport.create)  # type: ignore
+
+    agent_card: AgentCard
     match args.type:
         case "slimrpc":
             agent_card = minimal_agent_card("agntcy/demo/echo_agent", ["slimrpc"])
@@ -84,6 +86,8 @@ async def main() -> None:
                     base_url=BASE_URL,
                 )
             )
+        case _:
+            raise ValueError(f"Invalid client type: {args.type}")
 
     client = client_factory.create(card=agent_card)
     logger.info("A2AClient initialized.")

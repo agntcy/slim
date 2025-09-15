@@ -13,11 +13,10 @@ dependencies = [
     "googleapis-common-protos>=1.70.0",
     "grpcio>=1.74.0",
     "async-timeout>=5.0.1",
-    "types-protobuf>=6.30.2.20250822",
 ]
 
 [dependency-groups]
-linting = ["ruff>=0.12", "mypy>=1.17.0"]
+linting = ["ruff>=0.12", "mypy>=1.17.0", "types-protobuf>=6.30.2.20250822"]
 testing = ["pytest>=8.3.4"]
 
 [tool.uv]
