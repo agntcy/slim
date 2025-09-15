@@ -65,3 +65,11 @@ packages = ["slim_mcp"]
 [project.scripts]
 mcp-server-time = "slim_mcp.examples.mcp_server_time:main"
 llamaindex-time-agent = "slim_mcp.examples.llamaindex_time_agent:main"
+
+[[tool.mypy.overrides]]
+module = ["slim_bindings.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["llama_index.*"]
+follow_untyped_imports = true
