@@ -19,6 +19,15 @@ tasks:
   cluster.down:
     desc: Delete the local Kubernetes cluster
     cmd: kind delete cluster --name slim-cluster
+
+  k8s:port-forward:controller:setup:
+    cmds:
+      - kubectl port-forward svc/slim-control -n {{ .HELM_NAMESPACE }} 50051:50051 &
+      - sleep 1
+
+  k8s:port-forward:controller:teardown:
+    cmds:
+      - kill -9 $(ps aux | grep port-forward | grep slim-control | awk '{print $2}') || true          
   
   cluster.use-context:
     desc: Set the current kubectl context to kind-slim-cluster
@@ -36,12 +45,70 @@ tasks:
             --namespace slim \
             --create-namespace \
             --install \
-            --values naive-values.yaml
+            --values naive/naive-values.yaml
+
+  spire:deploy:
+    desc: Deploy SPIRE server
+    cmds:
+      - |
+        helm upgrade --install  \
+        spire-crds \
+        spire-crds \
+        --repo https://spiffe.github.io/helm-charts-hardened/ \
+        --namespace {{ .SPIRE_NAMESPACE }} \
+        --create-namespace \
+        --wait \
+        --wait-for-jobs \
+        --timeout "15m"
+      - |
+        helm upgrade --install  \
+        spire \
+        spire \
+        --repo https://spiffe.github.io/helm-charts-hardened/ \
+        --namespace {{ .SPIRE_NAMESPACE }} \
+        --create-namespace \
+        --wait \
+        --wait-for-jobs \
+        --timeout "15m"
+
+  test:slimctl-download:
+    desc: Download slimctl executable for current OS and architecture
+    cmds:
+      - |
+        set -e        
+        SLIMCTL_ARCH=$(arch)
+        SLIMCTL_OS=$(echo $(uname -s) | tr '[:upper:]' '[:lower:]')        
+        # Map x86_64 to amd64 for Linux
+        if [[ "$SLIMCTL_ARCH" == "x86_64" && "$SLIMCTL_OS" == "linux" ]]; then
+          SLIMCTL_ARCH="amd64"
+        fi      
+        echo "Detected OS: $SLIMCTL_OS, Architecture: $SLIMCTL_ARCH"
+        SLIMCTL_URL="https://github.com/agntcy/slim/releases/download/slimctl-{{.SLIMCTL_VERSION}}/slimctl-$SLIMCTL_OS-$SLIMCTL_ARCH"
+        echo "Downloading slimctl from $SLIMCTL_URL"
+        TARGET_DIR=$(dirname {{ .SLIMCTL_PATH }})
+        mkdir -p $TARGET_DIR
+        curl -L -o {{ .SLIMCTL_PATH }} $SLIMCTL_URL
+        chmod +x {{ .SLIMCTL_PATH }}
+        echo "slimctl downloaded to {{ .SLIMCTL_PATH }}"        
+
+  spire:remove:
+    desc: Remove SPIRE server
+    cmds:
+      - helm delete spire -n {{ .SPIRE_NAMESPACE }}
+      - helm delete spire-crds -n {{ .SPIRE_NAMESPACE }}
+
+  slim.deploy.contoller:
+    desc: Deploy Slim Controller
+    cmds:
+      - helm upgrade --install slim-control ../charts/slim-control-plane \
+          --namespace slim \
+          --create-namespace \
+          --values ./deployments/controller-values.yaml            
 
   slim.deploy.statefulset:
     desc: Deploy Slim using the StatefulSet deployment strategy
     cmds:
-      - helm upgrade --install slim ./helm/slim \
+      - helm upgrade --install slim ../charts/slim \
           --namespace slim \
           --create-namespace \
           --values ./deployments/statefulset-values.yaml
@@ -49,7 +116,17 @@ tasks:
   slim.deploy.daemonset:
     desc: Deploy Slim using the DaemonSet deployment strategy
     cmds:
-      - helm upgrade --install slim ./helm/slim \
+      - helm upgrade --install slim ../charts/slim \
           --namespace slim \
           --create-namespace \
           --values ./deployments/daemonset-values.yaml
+
+  slim.deploy.client-apps:
+    desc: Deploy Slim using the DaemonSet deployment strategy
+    cmds:
+      - kubectl apply -f client-apps
+
+  slim.deploy.client-apps-with-spire:
+    desc: Deploy Slim using the DaemonSet deployment strategy
+    cmds:
+      - kubectl apply -f client-apps/with-spire      
