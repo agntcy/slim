@@ -5,6 +5,7 @@
 name: Build and Push
 
 on:
+  workflow_dispatch:
   workflow_call:
     inputs:
       bake-targets:
