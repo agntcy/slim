@@ -10,7 +10,7 @@ mod tests {
     use tracing_test::traced_test;
 
     use slim_config::grpc::{client::ClientConfig, server::ServerConfig};
-    use slim_datapath::api::{ProtoMessage as Message, DataPlaneServiceServer};
+    use slim_datapath::api::{DataPlaneServiceServer, ProtoMessage as Message};
     use slim_datapath::message_processing::MessageProcessor;
 
     #[tokio::test]

@@ -18,12 +18,12 @@ use tonic::{Request, Response, Status};
 use tracing::{Span, debug, error, info};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 
-use crate::api::proto::pubsub::v1::data_plane_service_server::DataPlaneService;
 use crate::api::ProtoPublishType as PublishType;
 use crate::api::ProtoSubscribeType as SubscribeType;
 use crate::api::ProtoUnsubscribeType as UnsubscribeType;
+use crate::api::proto::pubsub::v1::Message;
 use crate::api::proto::pubsub::v1::data_plane_service_client::DataPlaneServiceClient;
-use crate::api::proto::pubsub::v1::{Message, data_plane_service_server::DataPlaneServiceServer};
+use crate::api::proto::pubsub::v1::data_plane_service_server::DataPlaneService;
 use crate::connection::{Channel, Connection, Type as ConnectionType};
 use crate::errors::DataPathError;
 use crate::forwarder::Forwarder;

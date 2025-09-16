@@ -1,9 +1,9 @@
 # Copyright AGNTCY Contributors (https://github.com/agntcy)
 # SPDX-License-Identifier: Apache-2.0
 
+from .multicast import main as multicast_main
 from .point_to_point import main_anycast as anycast_main
 from .point_to_point import main_unicast as unicast_main
-from .multicast import main as multicast_main
 from .slim import main as slim_main
 
 HELP = """
@@ -11,7 +11,7 @@ This is the slim bindings examples package.
 Available commands:
     - anycast: Demonstrates point-to-point anycast messaging.
     - unicast: Demonstrates point-to-point unicast messaging.
-    - multicast: Demonstrates muticast messaging using a channels.
+    - multicast: Demonstrates multicast messaging using a channels.
     - slim: Starts a SLIM instance.
 
 Use 'slim-bindings-examples <command>' to run a specific example.

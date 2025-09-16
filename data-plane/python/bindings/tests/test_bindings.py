@@ -125,9 +125,7 @@ async def test_session_config(server):
     )
 
     # check if the session config is correct
-    assert isinstance(
-        session_config_ret, slim_bindings.PySessionConfiguration.Anycast
-    )
+    assert isinstance(session_config_ret, slim_bindings.PySessionConfiguration.Anycast)
     assert session_config == session_config_ret, (
         f"session config are not equal: {session_config} vs {session_config_ret}"
     )
