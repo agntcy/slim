@@ -190,13 +190,13 @@ def common_options(function):
         "--invites",
         type=str,
         multiple=True,
-        help="Invite other participants to the pubsub session. Can be specified multiple times.",
+        help="Invite other participants to the multicast session. Can be specified multiple times.",
     )(function)
 
     function = click.option(
         "--enable-mls",
         is_flag=True,
-        help="Enable MLS (Message Layer Security) for the pubsub session.",
+        help="Enable MLS (Message Layer Security) for the session.",
     )(function)
 
     return function

@@ -13,7 +13,7 @@ import slim_bindings
 @pytest.mark.asyncio
 @pytest.mark.parametrize("server", ["127.0.0.1:12375"], indirect=True)
 @pytest.mark.parametrize("mls_enabled", [True, False])
-async def test_pubsub(server, mls_enabled):  # noqa: C901
+async def test_multicast(server, mls_enabled):  # noqa: C901
     message = "Calling app"
 
     # participant count
@@ -39,8 +39,8 @@ async def test_pubsub(server, mls_enabled):  # noqa: C901
         )
 
         if index == 0:
-            print(f"{part_name} -> Creating new pubsub sessions...")
-            # create pubsubb session. index 0 is the moderator of the session
+            print(f"{part_name} -> Creating new multicast sessions...")
+            # create a multicast session. index 0 is the moderator of the session
             # and it will invite all the other participants to the session
             session_info = await participant.create_session(
                 slim_bindings.PySessionConfiguration.Multicast(

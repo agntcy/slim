@@ -40,7 +40,7 @@ pub struct ServiceConfiguration {
     #[serde(default)]
     pub node_id: Option<String>,
 
-    /// Pubsub API configuration
+    /// DataPlane API configuration
     #[serde(default)]
     pub dataplane: DataplaneConfig,
 
