@@ -3,6 +3,6 @@
 
 pub mod pubsub {
     pub mod v1 {
-        include!("gen/pubsub.proto.v1.rs");
+        include!("gen/dataplane.proto.v1.rs");
     }
 }

@@ -18,5 +18,5 @@ pub use proto::pubsub::v1::message::MessageType;
 pub use proto::pubsub::v1::message::MessageType::Publish as ProtoPublishType;
 pub use proto::pubsub::v1::message::MessageType::Subscribe as ProtoSubscribeType;
 pub use proto::pubsub::v1::message::MessageType::Unsubscribe as ProtoUnsubscribeType;
-pub use proto::pubsub::v1::pub_sub_service_client::PubSubServiceClient;
-pub use proto::pubsub::v1::pub_sub_service_server::PubSubServiceServer;
+pub use proto::pubsub::v1::data_plane_service_client::DataPlaneServiceClient;
+pub use proto::pubsub::v1::data_plane_service_server::DataPlaneServiceServer;

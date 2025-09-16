@@ -16,7 +16,7 @@ tasks:
     env:
       SLIM_INSTANCE_ID: server
     cmds:
-      - uv run --package slim-bindings-examples slim --slim "0.0.0.0:46357" {{.EXTRA_ARGS}}
+      - uv run --package slim-bindings-examples slim --slim "127.0.0.1:46357" {{.EXTRA_ARGS}}
     vars:
       EXTRA_ARGS: '{{.EXTRA_ARGS | default ""}}'
 
