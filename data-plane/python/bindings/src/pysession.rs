@@ -109,7 +109,7 @@ pub(crate) enum PySessionConfiguration {
         mls_enabled: bool,
     },
 
-    #[pyo3(constructor = (timeout=Some(std::time::Duration::from_millis(1000)), max_retries=Some(10), mls_enabled=false))]
+    #[pyo3(constructor = (timeout=None, max_retries=None, mls_enabled=false))]
     Unicast {
         timeout: Option<std::time::Duration>,
         max_retries: Option<u32>,

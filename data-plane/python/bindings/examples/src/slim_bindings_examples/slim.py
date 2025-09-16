@@ -16,7 +16,7 @@ async def run_server(address: str, enable_opentelemetry: bool):
     # init tracing
     await slim_bindings.init_tracing(
         {
-            "log_level": "debug",
+            "log_level": "info",
             "opentelemetry": {
                 "enabled": enable_opentelemetry,
                 "grpc": {
@@ -37,6 +37,7 @@ async def run_server(address: str, enable_opentelemetry: bool):
     )
 
     # Run as server
+    print("run server ", address)
     await slim.run_server({"endpoint": address, "tls": {"insecure": True}})
 
 
