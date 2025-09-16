@@ -16,16 +16,16 @@ use slim_datapath::messages::encoder::Name;
 use slim_mls::mls::Mls;
 
 // Local crate
-use crate::SessionMessage;
 use crate::session::CommonSession;
 use crate::session::Id;
 use crate::session::SessionConfig;
 use crate::session::SessionError;
-use crate::session::SessionTransmitter;
 use crate::session::interceptor_mls::MlsInterceptor;
 use crate::session::multicast::Multicast;
 use crate::session::point_to_point::PointToPoint;
+use crate::session::traits::Transmitter;
 use crate::session::traits::{MessageHandler, SessionConfigTrait};
+use crate::session::transmitter::SessionTransmitter;
 
 /// Reserved session id
 pub const SESSION_RANGE: std::ops::Range<u32> = 0..(u32::MAX - 1000);
@@ -34,11 +34,12 @@ pub const SESSION_RANGE: std::ops::Range<u32> = 0..(u32::MAX - 1000);
 pub const SESSION_UNSPECIFIED: u32 = u32::MAX;
 
 /// The session
-pub(crate) enum Session<P, V, T>
+#[derive(Debug)]
+pub(crate) enum Session<P, V, T = SessionTransmitter>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
-    T: SessionTransmitter + Send + Sync + Clone + 'static,
+    T: Transmitter + Send + Sync + Clone + 'static,
 {
     /// Point to Point session
     PointToPoint(PointToPoint<P, V, T>),
@@ -47,9 +48,9 @@ where
 }
 
 /// Channel used in the path service -> app
-pub(crate) type AppChannelSender = tokio::sync::mpsc::Sender<Result<SessionMessage, SessionError>>;
-/// Channel used in the path app -> service  
-pub type AppChannelReceiver = tokio::sync::mpsc::Receiver<Result<SessionMessage, SessionError>>;
+pub(crate) type AppChannelSender = tokio::sync::mpsc::Sender<Result<Message, SessionError>>;
+/// Channel used in the path app -> service
+pub type AppChannelReceiver = tokio::sync::mpsc::Receiver<Result<Message, SessionError>>;
 /// Channel used in the path service -> slim
 pub(crate) type SlimChannelSender = tokio::sync::mpsc::Sender<Result<Message, Status>>;
 
@@ -84,11 +85,12 @@ impl std::fmt::Display for SessionType {
 }
 
 /// Common session data
+#[derive(Debug)]
 pub(crate) struct Common<P, V, T>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
-    T: SessionTransmitter + Send + Sync + Clone + 'static,
+    T: Transmitter + Send + Sync + Clone + 'static,
 {
     /// Session ID - unique identifier for the session
     #[allow(dead_code)]
@@ -124,11 +126,11 @@ impl<P, V, T> MessageHandler for Session<P, V, T>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
-    T: SessionTransmitter + Send + Sync + Clone + 'static,
+    T: Transmitter + Send + Sync + Clone + 'static,
 {
     async fn on_message(
         &self,
-        message: SessionMessage,
+        message: Message,
         direction: MessageDirection,
     ) -> Result<(), SessionError> {
         match self {
@@ -143,7 +145,7 @@ impl<P, V, T> CommonSession<P, V, T> for Session<P, V, T>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
-    T: SessionTransmitter + Send + Sync + Clone + 'static,
+    T: Transmitter + Send + Sync + Clone + 'static,
 {
     fn id(&self) -> Id {
         match self {
@@ -214,7 +216,7 @@ impl<P, V, T> CommonSession<P, V, T> for Common<P, V, T>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
-    T: SessionTransmitter + Send + Sync + Clone + 'static,
+    T: Transmitter + Send + Sync + Clone + 'static,
 {
     fn id(&self) -> Id {
         self.id
@@ -268,7 +270,7 @@ impl<P, V, T> Common<P, V, T>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
-    T: SessionTransmitter + Send + Sync + Clone + 'static,
+    T: Transmitter + Send + Sync + Clone + 'static,
 {
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn new(

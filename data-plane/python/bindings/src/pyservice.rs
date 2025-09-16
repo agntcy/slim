@@ -150,7 +150,7 @@ impl PyService {
 
     async fn publish(
         &self,
-        session_info: session::Info,
+        session_info: session::SessionMessage,
         fanout: u32,
         blob: Vec<u8>,
         name: Option<PyName>,
@@ -183,14 +183,14 @@ impl PyService {
             .await
     }
 
-    async fn invite(&self, session_info: session::Info, name: PyName) -> Result<(), ServiceError> {
+    async fn invite(&self, session_info: session::SessionMessage, name: PyName) -> Result<(), ServiceError> {
         self.sdk
             .app
             .invite_participant(&name.into(), session_info)
             .await
     }
 
-    async fn remove(&self, session_info: session::Info, name: PyName) -> Result<(), ServiceError> {
+    async fn remove(&self, session_info: session::SessionMessage, name: PyName) -> Result<(), ServiceError> {
         self.sdk
             .app
             .remove_participant(&name.into(), session_info)

@@ -17,5 +17,5 @@ pub use service::{KIND, Service, ServiceBuilder, ServiceConfiguration};
 pub use session::timer::{Timer, TimerObserver, TimerType};
 pub use session::{
     AppChannelReceiver, MulticastConfiguration, PointToPointConfiguration, SESSION_UNSPECIFIED,
-    SessionConfig, SessionError, SessionMessage, SessionType,
+    SessionConfig, SessionError, SessionType,
 };

@@ -20,11 +20,12 @@ use slim_datapath::messages::utils::{SLIM_IDENTITY, SlimHeaderFlags};
 
 // Local crate
 use crate::session::interceptor::{IdentityInterceptor, SessionInterceptorProvider};
-use crate::session::transmitter::Transmitter;
+use crate::session::notification::Notification;
+use crate::session::transmitter::AppTransmitter;
 use crate::session::{
-    AppChannelSender, Id, Info, MessageDirection, SessionConfig, SessionMessage, SlimChannelSender,
+    CommonSession, Id, MessageDirection, MessageHandler, Session, SessionConfig, SlimChannelSender,
 };
-use crate::session::{SessionError, SessionLayer};
+use crate::session::{SessionError, SessionLayer, context::SessionContext};
 use crate::{ServiceError, session};
 
 pub struct App<P, V>
@@ -33,7 +34,7 @@ where
     V: Verifier + Send + Sync + Clone + 'static,
 {
     /// Session layer that manages sessions
-    session_layer: Arc<SessionLayer<P, V, Transmitter>>,
+    session_layer: Arc<SessionLayer<P, V>>,
 
     /// Cancelation token for the app receiver loop
     cancel_token: tokio_util::sync::CancellationToken,
@@ -72,7 +73,7 @@ where
         identity_verifier: V,
         conn_id: u64,
         tx_slim: SlimChannelSender,
-        tx_app: AppChannelSender,
+        tx_app: mpsc::Sender<Result<Notification<P, V>, SessionError>>,
         storage_path: std::path::PathBuf,
     ) -> Self {
         // Create identity interceptor
@@ -82,7 +83,7 @@ where
         ));
 
         // Create the transmitter
-        let transmitter = Transmitter {
+        let transmitter = AppTransmitter::<P, V> {
             slim_tx: tx_slim.clone(),
             app_tx: tx_app.clone(),
             interceptors: Arc::new(SyncRwLock::new(Vec::new())),
@@ -116,7 +117,7 @@ where
         &self,
         session_config: SessionConfig,
         id: Option<Id>,
-    ) -> Result<Info, SessionError> {
+    ) -> Result<SessionContext<P, V>, SessionError> {
         let ret = self
             .session_layer
             .create_session(session_config, id)
@@ -126,13 +127,22 @@ where
         Ok(ret)
     }
 
-    /// Get a session by its ID
-    pub async fn delete_session(&self, id: Id) -> Result<(), SessionError> {
+    /// Delete a session. Here we pass a session context by value to ensure that
+    /// the session is not used after deletion. SessionContext does not implement Clone,
+    /// so it cannot be copied.
+    pub async fn delete_session(
+        &self,
+        session_context: SessionContext<P, V>,
+    ) -> Result<(), SessionError> {
         // remove the session from the pool
-        if self.session_layer.remove_session(id).await {
+        if self
+            .session_layer
+            .remove_session(session_context.session.id())
+            .await
+        {
             Ok(())
         } else {
-            Err(SessionError::SessionNotFound(id.to_string()))
+            Err(SessionError::SessionNotFound(session_context.session.id()))
         }
     }
 
@@ -169,96 +179,101 @@ where
     }
 
     /// Send a message to the session layer
-    async fn send_message(
-        &self,
-        mut msg: Message,
-        info: Option<session::Info>,
-    ) -> Result<(), ServiceError> {
-        // save session id for later use
-        match info {
-            Some(info) => {
-                let id = info.id;
-                self.session_layer
-                    .handle_message(SessionMessage::from((msg, info)), MessageDirection::South)
-                    .await
-                    .map_err(|e| {
-                        error!("error sending the message to session {}: {}", id, e);
-                        ServiceError::SessionError(e.to_string())
-                    })
-            }
-            None => {
-                // these messages are not associated to a session yet
-                // so they will bypass the interceptors. Add the identity
-                let identity = self
-                    .session_layer
-                    .get_identity_token()
-                    .map_err(ServiceError::SessionError)?;
+    async fn send_message_without_context(&self, mut msg: Message) -> Result<(), ServiceError> {
+        // these messages are not associated to a session yet
+        // so they will bypass the interceptors. Add the identity
+        let identity = self
+            .session_layer
+            .get_identity_token()
+            .map_err(ServiceError::SessionError)?;
 
-                // Add the identity to the message metadata
-                msg.insert_metadata(SLIM_IDENTITY.to_string(), identity);
+        // Add the identity to the message metadata
+        msg.insert_metadata(SLIM_IDENTITY.to_string(), identity);
 
-                self.session_layer
-                    .tx_slim()
-                    .send(Ok(msg))
-                    .await
-                    .map_err(|e| {
-                        error!("error sending message {}", e);
-                        ServiceError::MessageSendingError(e.to_string())
-                    })
-            }
-        }
+        self.session_layer
+            .tx_slim()
+            .send(Ok(msg))
+            .await
+            .map_err(|e| {
+                error!("error sending message {}", e);
+                ServiceError::MessageSendingError(e.to_string())
+            })
     }
 
     /// Invite a new participant to a session
     pub async fn invite_participant(
         &self,
         destination: &Name,
-        session_info: session::Info,
+        session_info: &SessionContext<P, V>,
     ) -> Result<(), ServiceError> {
-        let slim_header = Some(SlimHeader::new(
-            self.session_layer.app_name(),
-            destination,
-            None,
-        ));
+        // make sure the session type is multicast
+        match session_info.session.as_ref() {
+            Session::PointToPoint(_) => Err(ServiceError::SessionMustBeMulticast(
+                "cannot invite participant to point-to-point session".to_string(),
+            )),
+            Session::Multicast(session) => {
+                let slim_header = Some(SlimHeader::new(
+                    self.session_layer.app_name(),
+                    destination,
+                    None,
+                ));
 
-        let session_header = Some(SessionHeader::new(
-            session_info.get_session_type().into(),
-            ProtoSessionMessageType::ChannelDiscoveryRequest.into(),
-            session_info.id,
-            rand::random::<u32>(),
-            &None,
-            &None,
-        ));
+                let session_header = Some(SessionHeader::new(
+                    ProtoSessionType::SessionMulticast.into(),
+                    ProtoSessionMessageType::ChannelDiscoveryRequest.into(),
+                    session.id(),
+                    rand::random::<u32>(),
+                ));
 
-        let msg = Message::new_publish_with_headers(slim_header, session_header, "", vec![]);
+                let msg =
+                    Message::new_publish_with_headers(slim_header, session_header, "", vec![]);
 
-        self.send_message(msg, Some(session_info)).await
+                self.session_layer
+                    .handle_message_from_app(msg, session_info)
+                    .await
+                    .map_err(|e| {
+                        ServiceError::SessionError(format!("error inviting participant: {}", e))
+                    })
+            }
+        }
     }
 
     /// Remove a participant from a session
     pub async fn remove_participant(
         &self,
         destination: &Name,
-        session_info: session::Info,
+        session_info: &SessionContext<P, V>,
     ) -> Result<(), ServiceError> {
-        let slim_header = Some(SlimHeader::new(
-            self.session_layer.app_name(),
-            destination,
-            None,
-        ));
+        // make sure the session type is multicast
+        match session_info.session.as_ref() {
+            Session::PointToPoint(_) => Err(ServiceError::SessionMustBeMulticast(
+                "cannot invite participant to point-to-point session".to_string(),
+            )),
+            Session::Multicast(session) => {
+                let slim_header = Some(SlimHeader::new(
+                    self.session_layer.app_name(),
+                    destination,
+                    None,
+                ));
 
-        let session_header = Some(SessionHeader::new(
-            ProtoSessionType::SessionUnknown.into(),
-            ProtoSessionMessageType::ChannelLeaveRequest.into(),
-            session_info.id,
-            rand::random::<u32>(),
-            &None,
-            &None,
-        ));
+                let session_header = Some(SessionHeader::new(
+                    ProtoSessionType::SessionUnknown.into(),
+                    ProtoSessionMessageType::ChannelLeaveRequest.into(),
+                    session.id(),
+                    rand::random::<u32>(),
+                ));
 
-        let msg = Message::new_publish_with_headers(slim_header, session_header, "", vec![]);
+                let msg =
+                    Message::new_publish_with_headers(slim_header, session_header, "", vec![]);
 
-        self.send_message(msg, Some(session_info)).await
+                self.session_layer
+                    .handle_message_from_app(msg, session_info)
+                    .await
+                    .map_err(|e| {
+                        ServiceError::SessionError(format!("error inviting participant: {}", e))
+                    })
+            }
+        }
     }
 
     /// Subscribe the app to receive messages for a name
@@ -271,7 +286,7 @@ where
             Some(SlimHeaderFlags::default())
         };
         let msg = Message::new_subscribe(self.session_layer.app_name(), name, header);
-        self.send_message(msg, None).await
+        self.send_message_without_context(msg).await
     }
 
     /// Unsubscribe the app
@@ -284,7 +299,7 @@ where
             Some(SlimHeaderFlags::default())
         };
         let msg = Message::new_subscribe(self.session_layer.app_name(), name, header);
-        self.send_message(msg, None).await
+        self.send_message_without_context(msg).await
     }
 
     /// Set a route towards another app
@@ -297,7 +312,7 @@ where
             name,
             Some(SlimHeaderFlags::default().with_recv_from(conn)),
         );
-        self.send_message(msg, None).await
+        self.send_message_without_context(msg).await
     }
 
     pub async fn remove_route(&self, name: &Name, conn: u64) -> Result<(), ServiceError> {
@@ -309,13 +324,13 @@ where
             name,
             Some(SlimHeaderFlags::default().with_recv_from(conn)),
         );
-        self.send_message(msg, None).await
+        self.send_message_without_context(msg).await
     }
 
     /// Publish a message to a specific connection
     pub async fn publish_to(
         &self,
-        session_info: session::Info,
+        session_info: &SessionContext<P, V>,
         name: &Name,
         forward_to: u64,
         blob: Vec<u8>,
@@ -336,7 +351,7 @@ where
     /// Publish a message to a specific app name
     pub async fn publish(
         &self,
-        session_info: session::Info,
+        session_info: &SessionContext<P, V>,
         name: &Name,
         blob: Vec<u8>,
         payload_type: Option<String>,
@@ -356,7 +371,7 @@ where
     /// Publish a message with specific flags
     pub async fn publish_with_flags(
         &self,
-        session_info: session::Info,
+        session_info: &SessionContext<P, V>,
         name: &Name,
         flags: SlimHeaderFlags,
         blob: Vec<u8>,
@@ -377,7 +392,14 @@ where
             msg.set_metadata_map(map);
         }
 
-        self.send_message(msg, Some(session_info)).await
+        // send the message
+        session_info
+            .session
+            .on_message(msg, MessageDirection::South)
+            .await
+            .map_err(|e| {
+                ServiceError::SessionError(format!("error sending message to session: {}", e))
+            })
     }
 
     /// SLIM receiver loop
@@ -422,7 +444,7 @@ where
 
                                         // Handle the message
                                         let res = session_layer
-                                            .handle_message(SessionMessage::from(msg), MessageDirection::North)
+                                            .handle_message_from_slim(msg, MessageDirection::North)
                                             .await;
 
                                         if let Err(e) = res {
@@ -509,7 +531,7 @@ mod tests {
 
         assert!(ret.is_ok());
 
-        app.delete_session(1).await.unwrap();
+        app.delete_session(ret.unwrap()).await.unwrap();
     }
 
     #[tokio::test]
@@ -561,11 +583,7 @@ mod tests {
             .await;
         assert!(res.is_ok());
 
-        session_layer.delete_session(1).await.unwrap();
-
-        // try to delete a non-existing session
-        let res = session_layer.delete_session(1).await;
-        assert!(res.is_err());
+        session_layer.delete_session(res.unwrap()).await.unwrap();
     }
 
     #[tokio::test]
@@ -581,18 +599,10 @@ mod tests {
             identity.clone(),
             identity.clone(),
             0,
-            tx_slim.clone(),
-            tx_app.clone(),
+            tx_slim,
+            tx_app,
             std::path::PathBuf::from("/tmp/test_storage"),
         );
-
-        let session_config = PointToPointConfiguration::default();
-
-        // create a new session
-        let res = app
-            .create_session(SessionConfig::PointToPoint(session_config), Some(1))
-            .await;
-        assert!(res.is_ok());
 
         let mut message = ProtoMessage::new_publish(
             &name,
@@ -609,41 +619,47 @@ mod tests {
         header.set_session_message_type(ProtoSessionMessageType::P2PMsg);
 
         app.session_layer
-            .handle_message(
-                SessionMessage::from(message.clone()),
-                MessageDirection::North,
-            )
+            .handle_message_from_slim(message.clone(), MessageDirection::North)
             .await
-            .unwrap();
+            .expect_err("should fail as identity is not verified");
 
         // sleep to allow the message to be processed
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
 
         // As there is no identity, we should not get any message in the app
-        rx_app
-            .try_recv()
-            .expect_err("message received when it should not have been");
+        assert!(rx_app.try_recv().is_err());
 
         // Add identity to message
         message.insert_metadata(SLIM_IDENTITY.to_string(), identity.get_token().unwrap());
 
         // Try again
         app.session_layer
-            .handle_message(
-                SessionMessage::from(message.clone()),
-                MessageDirection::North,
-            )
+            .handle_message_from_slim(message.clone(), MessageDirection::North)
             .await
             .unwrap();
 
-        // message should have been delivered to the app
-        let msg = rx_app
+        // We should get a new session notification
+        let new_session = rx_app
             .recv()
             .await
             .expect("no message received")
             .expect("error");
-        assert_eq!(msg.message, message);
-        assert_eq!(msg.info.id, 1);
+
+        let mut session_ctx = match new_session {
+            Notification::NewSession(ctx) => ctx,
+            _ => panic!("unexpected notification"),
+        };
+        assert_eq!(session_ctx.session.id(), 1);
+
+        // Receive message from the session
+        let msg = session_ctx
+            .rx
+            .recv()
+            .await
+            .expect("no message received")
+            .expect("error");
+        assert_eq!(msg, message);
+        assert_eq!(msg.get_session_header().get_session_id(), 1);
     }
 
     #[tokio::test]
@@ -659,8 +675,8 @@ mod tests {
             identity.clone(),
             identity.clone(),
             0,
-            tx_slim.clone(),
-            tx_app.clone(),
+            tx_slim,
+            tx_app,
             std::path::PathBuf::from("/tmp/test_storage"),
         );
 
@@ -669,8 +685,8 @@ mod tests {
         // create a new session
         let res = app
             .create_session(SessionConfig::PointToPoint(session_config), Some(1))
-            .await;
-        assert!(res.is_ok());
+            .await
+            .unwrap();
 
         let source = Name::from_strings(["cisco", "default", "local"]).with_id(0);
 
@@ -690,10 +706,7 @@ mod tests {
 
         let res = app
             .session_layer
-            .handle_message(
-                SessionMessage::from(message.clone()),
-                MessageDirection::South,
-            )
+            .handle_message_from_app(message.clone(), &res)
             .await;
 
         assert!(res.is_ok());
