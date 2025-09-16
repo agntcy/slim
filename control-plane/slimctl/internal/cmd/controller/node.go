@@ -55,10 +55,10 @@ func newListNodesCmd(opts *options.CommonOptions) *cobra.Command {
 						fmt.Println(fmt.Sprintf("  - Endpoint: %s", conn.Endpoint))
 						fmt.Println(fmt.Sprintf("    MtlsRequired: %v", conn.MtlsRequired))
 						if conn.ExternalEndpoint != nil {
-							fmt.Println(fmt.Sprintf("    ExternalEndpoint: %s", conn.ExternalEndpoint))
+							fmt.Println(fmt.Sprintf("    ExternalEndpoint: %s", *conn.ExternalEndpoint))
 						}
 						if conn.GroupName != nil {
-							fmt.Println(fmt.Sprintf("    GroupName: %s", conn.GroupName))
+							fmt.Println(fmt.Sprintf("    GroupName: %s", *conn.GroupName))
 						}
 					}
 				} else {

@@ -31,9 +31,8 @@ func main() {
 	dbService := db.NewInMemoryDBService()
 	cmdHandler := nodecontrol.DefaultNodeCommandHandler()
 	nodeService := nbapiservice.NewNodeService(dbService, cmdHandler)
-	routeService := nbapiservice.NewRouteService(cmdHandler)
+	routeService := nbapiservice.NewRouteService(dbService, cmdHandler, config.ReconcilerThreads)
 	groupService := groupservice.NewGroupService(dbService)
-	registrationService := nbapiservice.NewNodeRegistrationService(dbService, cmdHandler)
 
 	// wait for go processes to exit
 	var wg sync.WaitGroup
@@ -74,7 +73,7 @@ func main() {
 
 		sbGrpcServer := grpc.NewServer(opts...)
 		sbAPISvc := sbapiservice.NewSBAPIService(config.Southbound, config.LogConfig, dbService, cmdHandler,
-			[]nodecontrol.NodeRegistrationHandler{registrationService}, groupService)
+			routeService, groupService)
 		southboundApi.RegisterControllerServiceServer(sbGrpcServer, sbAPISvc)
 
 		sbListeningAddress := fmt.Sprintf("%s:%s", config.Southbound.HTTPHost, config.Southbound.HTTPPort)

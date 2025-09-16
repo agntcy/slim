@@ -27,7 +27,3 @@ type NodeCommandHandler interface {
 		messageType reflect.Type, messageID string) (*controllerapi.ControlMessage, error)
 	ResponseReceived(ctx context.Context, nodeID string, command *controllerapi.ControlMessage)
 }
-
-type NodeRegistrationHandler interface {
-	NodeRegistered(ctx context.Context, nodeID string) error
-}

@@ -12,9 +12,10 @@ import (
 
 // Application configuration
 type ControlPlaneConfig struct {
-	Northbound APIConfig `yaml:"northbound"`
-	Southbound APIConfig `yaml:"southbound"`
-	LogConfig  LogConfig `yaml:"logging"`
+	Northbound        APIConfig `yaml:"northbound"`
+	Southbound        APIConfig `yaml:"southbound"`
+	LogConfig         LogConfig `yaml:"logging"`
+	ReconcilerThreads int       `yaml:"reconcilerThreads"` // Number of threads for the route reconciler
 }
 
 type LogConfig struct {
@@ -104,6 +105,7 @@ func DefaultConfig() *ControlPlaneConfig {
 		LogConfig{
 			Level: "debug", // Default log level
 		},
+		3, // Default to 3 threads
 	}
 }
 

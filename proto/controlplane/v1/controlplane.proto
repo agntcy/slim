@@ -9,15 +9,13 @@ import "controller/v1/controller.proto";
 option go_package = "github.com/agntcy/slim/control-plane/common/proto/controlplane/v1;controlplanev1";
 
 service ControlPlaneService {
-  rpc CreateConnection(CreateConnectionRequest) returns (CreateConnectionResponse) {}
-  rpc CreateSubscription(CreateSubscriptionRequest) returns (CreateSubscriptionResponse) {}
-  rpc ListSubscriptions(Node) returns (controller.proto.v1.SubscriptionListResponse) {}
+  rpc AddRoute(AddRouteRequest) returns (AddRouteResponse) {}  
+  rpc DeleteRoute(DeleteRouteRequest) returns (DeleteRouteResponse) {}
+  rpc ListRoutes(Node) returns (controller.proto.v1.SubscriptionListResponse) {}
   rpc ListConnections(Node) returns (controller.proto.v1.ConnectionListResponse) {}
-  rpc DeleteSubscription(DeleteSubscriptionRequest) returns (DeleteSubscriptionResponse) {}
-
   rpc ListNodes(NodeListRequest) returns (NodeListResponse) {}
-  rpc DeregisterNode(Node) returns (DeregisterNodeResponse) {}
 
+  // MLS group management
   rpc CreateChannel(controller.proto.v1.CreateChannelRequest) returns (controller.proto.v1.CreateChannelResponse) {}
   rpc DeleteChannel(controller.proto.v1.DeleteChannelRequest) returns (controller.proto.v1.Ack) {}
   rpc AddParticipant(controller.proto.v1.AddParticipantRequest) returns (controller.proto.v1.Ack) {}
@@ -53,36 +51,24 @@ message NodeListResponse {
   repeated NodeEntry entries = 1;
 }
 
-message CreateConnectionRequest {
+message AddRouteRequest {
   controller.proto.v1.Connection connection = 1;
-  string nodeId = 2;
+  controller.proto.v1.Subscription subscription = 2;
+  string nodeId = 3;
+  string destNodeId = 4; // optional
 }
 
-message CreateConnectionResponse {
+message AddRouteResponse {
   bool success = 1;
-  string connectionId = 2;
+  string routeId = 2;
 }
 
-message CreateSubscriptionRequest {
+message DeleteRouteRequest {
   controller.proto.v1.Subscription subscription = 1;
   string nodeId = 2;
   string destNodeId = 3; // optional
 }
 
-message CreateSubscriptionResponse {
-  bool success = 1;
-  string subscriptionId = 2;
-}
-
-message DeleteSubscriptionRequest {
-  string subscriptionId = 1;
-  string nodeId = 2;
-}
-
-message DeleteSubscriptionResponse {
-  bool success = 1;
-}
-
-message DeregisterNodeResponse {
+message DeleteRouteResponse {
   bool success = 1;
 }

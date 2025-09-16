@@ -2,9 +2,8 @@ package nbapiservice
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
-
-	"github.com/rs/zerolog"
 
 	controllerapi "github.com/agntcy/slim/control-plane/common/proto/controller/v1"
 	controlplaneApi "github.com/agntcy/slim/control-plane/common/proto/controlplane/v1"
@@ -43,7 +42,7 @@ func NewNorthboundAPIServer(
 	return cpServer
 }
 
-func (s *nbAPIService) ListSubscriptions(
+func (s *nbAPIService) ListRoutes(
 	ctx context.Context,
 	node *controlplaneApi.Node,
 ) (*controllerapi.SubscriptionListResponse, error) {
@@ -75,112 +74,121 @@ func (s *nbAPIService) ListNodes(
 	return s.nodeService.ListNodes(ctx, nodeListRequest)
 }
 
-func (s *nbAPIService) CreateConnection(
-	ctx context.Context,
-	createConnectionRequest *controlplaneApi.CreateConnectionRequest) (
-	*controlplaneApi.CreateConnectionResponse, error,
-) {
-	ctx = util.GetContextWithLogger(ctx, s.logConfig)
-	nodeEntry, err := s.nodeService.GetNodeByID(createConnectionRequest.NodeId)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get node by ID: %w", err)
+func validateConnection(conn *controllerapi.Connection) error {
+	// Parse the JSON config data
+	var config map[string]interface{}
+	if err := json.Unmarshal([]byte(conn.ConfigData), &config); err != nil {
+		return fmt.Errorf("failed to parse config data: %w", err)
 	}
 
-	err = s.routeService.CreateConnection(ctx, nodeEntry, createConnectionRequest.Connection)
-	if err != nil {
-		return nil, fmt.Errorf("failed to send config command to node: %w", err)
+	// Extract the endpoint value
+	endpoint, exists := config["endpoint"]
+	if !exists {
+		return fmt.Errorf("endpoint not found in config data")
 	}
-
-	connID, err := s.nodeService.SaveConnection(nodeEntry, createConnectionRequest.Connection)
-	if err != nil {
-		return nil, fmt.Errorf("failed to save connection to db: %w", err)
+	endpointStr, ok := endpoint.(string)
+	if !ok {
+		return fmt.Errorf("endpoint is not a string")
 	}
-	return &controlplaneApi.CreateConnectionResponse{
-		Success:      true,
-		ConnectionId: connID,
-	}, nil
+	if endpointStr == "" {
+		return fmt.Errorf("endpoint cannot be empty")
+	}
+	if endpointStr != conn.ConnectionId {
+		return fmt.Errorf("endpoint in config data does not match connection ID")
+	}
+	return nil
 }
 
-func (s *nbAPIService) CreateSubscription(
+func (s *nbAPIService) AddRoute(
 	ctx context.Context,
-	createSubscriptionRequest *controlplaneApi.CreateSubscriptionRequest) (
-	*controlplaneApi.CreateSubscriptionResponse, error,
+	addRouteRequest *controlplaneApi.AddRouteRequest) (
+	*controlplaneApi.AddRouteResponse, error,
 ) {
 	ctx = util.GetContextWithLogger(ctx, s.logConfig)
-	zlog := zerolog.Ctx(ctx)
-	nodeEntry, err := s.nodeService.GetNodeByID(createSubscriptionRequest.NodeId)
+
+	_, err := s.nodeService.GetNodeByID(addRouteRequest.NodeId)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get node by ID: %w", err)
+		return nil, fmt.Errorf("invalid source nodeID: %w", err)
+	}
+	if addRouteRequest.DestNodeId != "" {
+		_, err = s.nodeService.GetNodeByID(addRouteRequest.DestNodeId)
+		if err != nil {
+			return nil, fmt.Errorf("invalid destination nodeID: %w", err)
+		}
+	} else {
+		// if destNodeId is empty, connectionId must be provided
+		if addRouteRequest.Connection == nil || addRouteRequest.Connection.ConnectionId == "" {
+			return nil, fmt.Errorf("either destNodeId or connectionId must be provided")
+		}
+		err = validateConnection(addRouteRequest.Connection)
+		if err != nil {
+			return nil, fmt.Errorf("invalid connection: %w", err)
+		}
 	}
 
-	connectionID := createSubscriptionRequest.Subscription.ConnectionId
-	// Instead of ID node should send endpoint as connection Id to the Node
-	endpoint, err := s.nodeService.GetConnectionDetails(createSubscriptionRequest.NodeId, connectionID)
+	route := Route{
+		SourceNodeID: addRouteRequest.NodeId,
+		DestNodeID:   addRouteRequest.DestNodeId,
+		Component0:   addRouteRequest.Subscription.Component_0,
+		Component1:   addRouteRequest.Subscription.Component_1,
+		Component2:   addRouteRequest.Subscription.Component_2,
+		ComponentID:  addRouteRequest.Subscription.Id,
+	}
+	if addRouteRequest.Subscription.ConnectionId != "" && addRouteRequest.Connection != nil {
+		route.DestEndpoint = addRouteRequest.Connection.ConnectionId
+		route.ConnConfigData = addRouteRequest.Connection.ConfigData
+	}
+	routeID, err := s.routeService.AddRoute(ctx, route)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get connection by ID: %w", err)
+		return nil, fmt.Errorf("failed to add route: %w", err)
 	}
 
-	createSubscriptionRequest.Subscription.ConnectionId = endpoint
-
-	err = s.routeService.CreateSubscription(ctx, nodeEntry, createSubscriptionRequest.Subscription)
-	if err != nil {
-		zlog.Error().Msgf("router error: %v\n", err.Error())
-		return nil, fmt.Errorf("failed to create subscription: %w", err)
-	}
-
-	// To properly save the subscription we restore the original connection ID making sure that db validation passes
-	createSubscriptionRequest.Subscription.ConnectionId = connectionID
-	subscriptionID, err := s.nodeService.SaveSubscription(createSubscriptionRequest.NodeId,
-		createSubscriptionRequest.Subscription)
-	if err != nil {
-		zlog.Error().Msgf("save error: %v\n", err.Error())
-		return nil, fmt.Errorf("failed to save subscription: %w", err)
-	}
-	response := &controlplaneApi.CreateSubscriptionResponse{
-		Success:        true,
-		SubscriptionId: subscriptionID,
+	response := &controlplaneApi.AddRouteResponse{
+		Success: true,
+		RouteId: routeID,
 	}
 	return response, nil
 }
 
-func (s *nbAPIService) DeleteSubscription(
+func (s *nbAPIService) DeleteRoute(
 	ctx context.Context,
-	deleteSubscriptionRequest *controlplaneApi.DeleteSubscriptionRequest) (
-	*controlplaneApi.DeleteSubscriptionResponse, error,
+	deleteRouteRequest *controlplaneApi.DeleteRouteRequest) (
+	*controlplaneApi.DeleteRouteResponse, error,
 ) {
 	ctx = util.GetContextWithLogger(ctx, s.logConfig)
-	nodeEntry, err := s.nodeService.GetNodeByID(deleteSubscriptionRequest.NodeId)
+
+	_, err := s.nodeService.GetNodeByID(deleteRouteRequest.NodeId)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get node by ID: %w", err)
+		return nil, fmt.Errorf("invalid source nodeID: %w", err)
 	}
 
-	subscription, err := s.nodeService.GetSubscription(deleteSubscriptionRequest.NodeId,
-		deleteSubscriptionRequest.SubscriptionId)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get subscription: %w", err)
+	if deleteRouteRequest.DestNodeId != "" {
+		_, err = s.nodeService.GetNodeByID(deleteRouteRequest.DestNodeId)
+		if err != nil {
+			return nil, fmt.Errorf("invalid destination nodeID: %w", err)
+		}
+	} else if deleteRouteRequest.Subscription.ConnectionId == "" {
+		return nil, fmt.Errorf("either destNodeId or connectionId must be provided")
 	}
-	connectionID := subscription.ConnectionId
-	endpoint, err := s.nodeService.GetConnectionDetails(deleteSubscriptionRequest.NodeId, connectionID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get connectiondetails: %w", err)
-	}
-	subscription.ConnectionId = endpoint
 
-	err = s.routeService.DeleteSubscription(ctx, nodeEntry, subscription)
-	if err != nil {
-		return nil, fmt.Errorf("failed to delete subscription: %w", err)
+	route := Route{
+		SourceNodeID: deleteRouteRequest.NodeId,
+		DestNodeID:   deleteRouteRequest.DestNodeId,
+		Component0:   deleteRouteRequest.Subscription.Component_0,
+		Component1:   deleteRouteRequest.Subscription.Component_1,
+		Component2:   deleteRouteRequest.Subscription.Component_2,
+		ComponentID:  deleteRouteRequest.Subscription.Id,
 	}
-	return &controlplaneApi.DeleteSubscriptionResponse{
+	if deleteRouteRequest.Subscription.ConnectionId != "" {
+		route.DestEndpoint = deleteRouteRequest.Subscription.ConnectionId
+	}
+
+	err = s.routeService.DeleteRoute(ctx, route)
+	if err != nil {
+		return nil, fmt.Errorf("failed to delete route: %w", err)
+	}
+	return &controlplaneApi.DeleteRouteResponse{
 		Success: true,
-	}, nil
-}
-
-func (s *nbAPIService) DeregisterNode(
-	context.Context,
-	*controlplaneApi.Node,
-) (*controlplaneApi.DeregisterNodeResponse, error) {
-	return &controlplaneApi.DeregisterNodeResponse{
-		Success: false,
 	}, nil
 }
 

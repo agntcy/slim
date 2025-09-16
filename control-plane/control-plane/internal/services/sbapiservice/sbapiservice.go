@@ -5,6 +5,7 @@ import (
 	"net"
 	"time"
 
+	"github.com/agntcy/slim/control-plane/control-plane/internal/services/nbapiservice"
 	"github.com/google/uuid"
 	"github.com/rs/zerolog"
 	"google.golang.org/grpc/peer"
@@ -25,27 +26,25 @@ type sbAPIService struct {
 	config    config.APIConfig
 	logConfig config.LogConfig
 	controllerapi.UnimplementedControllerServiceServer
-	dbService                 db.DataAccess
-	nodeCommandHandler        nodecontrol.NodeCommandHandler
-	nodeRegistrationListeners []nodecontrol.NodeRegistrationHandler
-	groupservice              *groupservice.GroupService
+	dbService          db.DataAccess
+	nodeCommandHandler nodecontrol.NodeCommandHandler
+	routeService       *nbapiservice.RouteService
+	groupservice       *groupservice.GroupService
 }
 
-func NewSBAPIService(
-	config config.APIConfig,
+func NewSBAPIService(config config.APIConfig,
 	logConfig config.LogConfig,
 	dbService db.DataAccess,
 	cmdHandler nodecontrol.NodeCommandHandler,
-	nodeRegistrationListeners []nodecontrol.NodeRegistrationHandler,
-	groupservice *groupservice.GroupService,
-) SouthboundAPIServer {
+	routeService *nbapiservice.RouteService,
+	groupservice *groupservice.GroupService) SouthboundAPIServer {
 	return &sbAPIService{
-		config:                    config,
-		logConfig:                 logConfig,
-		dbService:                 dbService,
-		nodeCommandHandler:        cmdHandler,
-		nodeRegistrationListeners: nodeRegistrationListeners,
-		groupservice:              groupservice,
+		config:             config,
+		logConfig:          logConfig,
+		dbService:          dbService,
+		nodeCommandHandler: cmdHandler,
+		routeService:       routeService,
+		groupservice:       groupservice,
 	}
 }
 
@@ -135,14 +134,7 @@ func (s *sbAPIService) OpenControlChannel(stream controllerapi.ControllerService
 		}
 		_ = stream.Send(ackMsg)
 
-		// call all registered listeners in a goroutine
-		go func() {
-			for _, listener := range s.nodeRegistrationListeners {
-				if err := listener.NodeRegistered(ctx, registeredNodeID); err != nil {
-					zlog.Error().Msgf("Error in node registration listener: %v", err)
-				}
-			}
-		}()
+		s.routeService.NodeRegistered(ctx, registeredNodeID)
 	}
 
 	if registeredNodeID == "" {
@@ -157,7 +149,7 @@ func getConnDetails(host string, detail *controllerapi.ConnectionDetails) db.Con
 	endPoint := host
 	_, port, splitErr := net.SplitHostPort(detail.Endpoint)
 	if splitErr == nil {
-		//TODO log & throw error
+		// TODO log & throw error
 		endPoint = host + ":" + port
 	}
 	connDetails := db.ConnectionDetails{
@@ -213,8 +205,8 @@ func (s *sbAPIService) handleNodeMessages(ctx context.Context,
 				zlog.Debug().Msgf("Subscription to set: %v", sub)
 				if sub.ConnectionId == "n/a" {
 					zlog.Debug().Msgf("Create routes on all other nodes for subscription: %v", sub)
-					err := s.dbService.AddRoute(db.Route{
-						SourceNodeID: db.AllNodesID,
+					_, err := s.routeService.AddRoute(ctx, nbapiservice.Route{
+						SourceNodeID: nbapiservice.AllNodesID,
 						DestNodeID:   registeredNodeID,
 						Component0:   sub.Component_0,
 						Component1:   sub.Component_1,
@@ -224,14 +216,13 @@ func (s *sbAPIService) handleNodeMessages(ctx context.Context,
 					if err != nil {
 						zlog.Error().Msgf("Error adding route: %v", err)
 					}
-					// TODO trigger route reconciliation for all connected nodes involved
 				}
 			}
 			for _, sub := range payload.ConfigCommand.SubscriptionsToDelete {
 				zlog.Debug().Msgf("Subscription to delete: %v", sub)
 				zlog.Debug().Msgf("Create routes on all other nodes for subscription: %v", sub)
-				err := s.dbService.DeleteRoute(db.Route{
-					SourceNodeID: db.AllNodesID,
+				err := s.routeService.DeleteRoute(ctx, nbapiservice.Route{
+					SourceNodeID: nbapiservice.AllNodesID,
 					DestNodeID:   registeredNodeID,
 					Component0:   sub.Component_0,
 					Component1:   sub.Component_1,
@@ -241,7 +232,6 @@ func (s *sbAPIService) handleNodeMessages(ctx context.Context,
 				if err != nil {
 					zlog.Error().Msgf("Error deleting route: %v", err)
 				}
-				// TODO trigger route reconciliation for all connected nodes involved
 			}
 			continue
 		case *controllerapi.ControlMessage_DeregisterNodeRequest:
