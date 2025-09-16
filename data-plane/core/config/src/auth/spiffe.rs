@@ -3,14 +3,12 @@
 
 //! SPIFFE authentication configuration for SLIM
 
-use duration_str::deserialize_option_duration;
+use super::{AuthError, ClientAuthenticator, ServerAuthenticator};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use slim_auth::jwt_middleware::{AddJwtLayer, ValidateJwtLayer};
 use slim_auth::spiffe::{SpiffeConfig as AuthSpiffeConfig, SpiffeJwtVerifier, SpiffeProvider};
 use std::time::Duration;
-
-use super::{AuthError, ClientAuthenticator, ServerAuthenticator};
 
 /// SPIFFE authentication configuration
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, JsonSchema)]
@@ -30,7 +28,6 @@ pub struct Config {
     /// Certificate refresh interval (optional, defaults to 1/3 of certificate lifetime)
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(default)]
-    #[serde(deserialize_with = "deserialize_option_duration")]
     #[schemars(with = "Option<String>")]
     pub refresh_interval: Option<Duration>,
 
@@ -119,7 +116,7 @@ impl Config {
     /// Create a SPIFFE provider from this configuration
     pub async fn create_provider(&self) -> Result<SpiffeProvider, AuthError> {
         let auth_config = self.to_auth_config();
-        let provider = SpiffeProvider::new(auth_config);
+        let mut provider = SpiffeProvider::new(auth_config);
         provider.initialize().await?;
         Ok(provider)
     }
