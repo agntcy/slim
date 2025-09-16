@@ -84,14 +84,16 @@ class PyKeyFormat(Enum):
     Jwks = auto()
 
 class PySessionConfiguration(Enum):
-    PointToPoint = auto()
+    Anycast = auto()
+    Unicast = auto()
     Multicast = auto()
 
 class PySessionType(Enum):
     r"""
     session type
     """
-    POINT_TO_POINT = auto()
+    ANYCAST = auto()
+    UNICAST = auto()
     MULTICAST = auto()
 
 def connect(svc:PyService, config:dict) -> typing.Any:

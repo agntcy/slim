@@ -246,8 +246,7 @@ impl PyService {
         self.sdk
             .app
             .get_session_config(session_id)
-            .await
-            .map(|val| val.into())
+            .await.map(|val| val.into())
     }
 
     async fn set_default_session_config(

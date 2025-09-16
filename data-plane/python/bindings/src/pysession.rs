@@ -80,16 +80,19 @@ impl PySessionInfo {
 #[pyclass(eq, eq_int)]
 #[derive(PartialEq, Clone)]
 pub(crate) enum PySessionType {
-    #[pyo3(name = "POINT_TO_POINT")]
-    PointToPoint = session::SessionType::PointToPoint as isize,
+    #[pyo3(name = "ANYCAST")]
+    Anycast = 0,
+    #[pyo3(name = "UNICAST")]
+    Unicast = 1,
     #[pyo3(name = "MULTICAST")]
-    Multicast = session::SessionType::Multicast as isize,
+    Multicast = 2,
 }
 
 impl From<PySessionType> for session::SessionType {
     fn from(value: PySessionType) -> Self {
         match value {
-            PySessionType::PointToPoint => session::SessionType::PointToPoint,
+            PySessionType::Anycast => session::SessionType::PointToPoint,
+            PySessionType::Unicast => session::SessionType::PointToPoint,
             PySessionType::Multicast => session::SessionType::Multicast,
         }
     }
@@ -99,11 +102,17 @@ impl From<PySessionType> for session::SessionType {
 #[derive(Clone, PartialEq)]
 #[pyclass(eq)]
 pub(crate) enum PySessionConfiguration {
-    #[pyo3(constructor = (timeout=None, max_retries=None, sticky=false, mls_enabled=false))]
-    PointToPoint {
+    #[pyo3(constructor = (timeout=None, max_retries=None, mls_enabled=false))]
+    Anycast {
         timeout: Option<std::time::Duration>,
         max_retries: Option<u32>,
-        sticky: bool,
+        mls_enabled: bool,
+    },
+
+    #[pyo3(constructor = (timeout=Some(std::time::Duration::from_millis(1000)), max_retries=Some(10), mls_enabled=false))]
+    Unicast {
+        timeout: Option<std::time::Duration>,
+        max_retries: Option<u32>,
         mls_enabled: bool,
     },
 
@@ -120,12 +129,21 @@ pub(crate) enum PySessionConfiguration {
 impl From<session::SessionConfig> for PySessionConfiguration {
     fn from(session_config: session::SessionConfig) -> Self {
         match session_config {
-            session::SessionConfig::PointToPoint(config) => PySessionConfiguration::PointToPoint {
-                timeout: config.timeout,
-                max_retries: config.max_retries,
-                sticky: config.sticky,
-                mls_enabled: config.mls_enabled,
-            },
+            session::SessionConfig::PointToPoint(config) => {
+                if config.sticky {
+                    PySessionConfiguration::Unicast {
+                        timeout: config.timeout,
+                        max_retries: config.max_retries,
+                        mls_enabled: config.mls_enabled,
+                    }
+                } else {
+                    PySessionConfiguration::Anycast {
+                        timeout: config.timeout,
+                        max_retries: config.max_retries,
+                        mls_enabled: config.mls_enabled,
+                    }
+                }
+            }
             session::SessionConfig::Multicast(config) => PySessionConfiguration::Multicast {
                 topic: config.channel_name.into(),
                 moderator: config.moderator,
@@ -140,15 +158,24 @@ impl From<session::SessionConfig> for PySessionConfiguration {
 impl From<PySessionConfiguration> for session::SessionConfig {
     fn from(value: PySessionConfiguration) -> Self {
         match value {
-            PySessionConfiguration::PointToPoint {
+            PySessionConfiguration::Anycast {
                 timeout,
                 max_retries,
-                sticky,
                 mls_enabled,
             } => session::SessionConfig::PointToPoint(PointToPointConfiguration::new(
                 timeout,
                 max_retries,
-                sticky,
+                false,
+                mls_enabled,
+            )),
+            PySessionConfiguration::Unicast {
+                timeout,
+                max_retries,
+                mls_enabled,
+            } => session::SessionConfig::PointToPoint(PointToPointConfiguration::new(
+                timeout,
+                max_retries,
+                true,
                 mls_enabled,
             )),
             PySessionConfiguration::Multicast {
