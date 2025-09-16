@@ -160,18 +160,21 @@ logger = logging.getLogger(__name__)
 
 
 async def amain() -> None:
-    channel = slimrpc.Channel(
-        local="agntcy/grpc/client",
-        slim={
-            "endpoint": "http://localhost:46357",
-            "tls": {
-                "insecure": True,
+    channel_factory = slimrpc.ChannelFactory(
+        slim_app_config=slimrpc.SLIMAppConfig(
+            identity="agntcy/grpc/client",
+            slim_client_config={
+                "endpoint": "http://localhost:46357",
+                "tls": {
+                    "insecure": True,
+                },
             },
-        },
-        enable_opentelemetry=False,
-        shared_secret="my_shared_secret",
-        remote="agntcy/grpc/server",
+            enable_opentelemetry=False,
+            shared_secret="my_shared_secret",
+        ),
     )
+
+    channel = channel_factory.new_channel(remote="agntcy/grpc/server")
 
     # Stubs
     stubs = TestStub(channel)
@@ -187,7 +190,7 @@ async def amain() -> None:
         async for resp in responses:
             logger.info(f"Stream Response: {resp}")
 
-        async def stream_requests() -> AsyncGenerator[ExampleRequest]:
+        async def stream_requests() -> AsyncGenerator[ExampleRequest, None]:
             for i in range(10):
                 yield ExampleRequest(example_integer=i, example_string=f"Request {i}")
 

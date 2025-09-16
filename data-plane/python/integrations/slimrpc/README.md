@@ -286,18 +286,24 @@ a standard gRPC client. The primary distinction and SLIM-specific aspect lies in
 the creation of the SRPC channel:
 
 ```python
-    channel = slimrpc.Channel(
-        local="agntcy/grpc/client",
-        slim={
-            "endpoint": "http://localhost:46357",
-            "tls": {
-                "insecure": True,
+    channel_factory = slimrpc.ChannelFactory(
+        slim_app_config=slimrpc.SLIMAppConfig(
+            identity="agntcy/grpc/client",
+            slim_client_config={
+                "endpoint": "http://localhost:46357",
+                "tls": {
+                    "insecure": True,
+                },
             },
-        },
-        enable_opentelemetry=False,
-        shared_secret="my_shared_secret",
-        remote="agntcy/grpc/server",
+            enable_opentelemetry=False,
+            shared_secret="my_shared_secret",
+        ),
     )
+
+    channel = channel_factory.new_channel(remote="agntcy/grpc/server")
+
+    # Stubs
+    stubs = TestStub(channel)
 ```
 
 As for the server case the `local` parameter, set to
@@ -320,10 +326,6 @@ The remote parameter, set to "agntcy/grpc/server", explicitly identifies the
 SLIM name of the target server application. This allows the SRPC channel to
 correctly route messages to the appropriate server endpoint within the SLIM
 network.
-
-### Run the example
-
-To run the example ... TODO. add Task command for this
 
 ## SRPC under the hood
 
