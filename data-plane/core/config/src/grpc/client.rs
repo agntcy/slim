@@ -1,19 +1,62 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
-use duration_str::deserialize_duration;
+use duration_string::DurationString;
 use std::time::Duration;
 use std::{collections::HashMap, str::FromStr};
 use tower::ServiceExt;
 
+use base64::prelude::*;
 use http::header::{HeaderMap, HeaderName, HeaderValue};
 use hyper_rustls;
 use hyper_util::client::legacy::connect::HttpConnector;
+use hyper_util::client::legacy::connect::proxy::Tunnel;
+use hyper_util::client::proxy::matcher::Intercept;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use tonic::codegen::{Body, Bytes, StdError};
 use tonic::transport::{Channel, Uri};
 use tracing::warn;
+
+/// Macro to create TLS-enabled or plain connectors based on TLS configuration
+macro_rules! create_connector {
+    ($builder:expr, $base_connector:expr, $tls_config:expr) => {
+        match $tls_config {
+            Some(tls) => {
+                let connector = tower::ServiceBuilder::new()
+                    .layer_fn(move |s| {
+                        let tls = tls.clone();
+                        hyper_rustls::HttpsConnectorBuilder::new()
+                            .with_tls_config(tls)
+                            .https_or_http()
+                            .enable_http2()
+                            .wrap_connector(s)
+                    })
+                    .service($base_connector);
+
+                Ok($builder.connect_with_connector_lazy(connector))
+            }
+            None => Ok($builder.connect_with_connector_lazy($base_connector)),
+        }
+    };
+}
+
+/// Macro to create authenticated service layers for different auth types
+macro_rules! create_auth_service {
+    ($self:expr, $auth_config:expr, $header_map:expr, $channel:expr) => {{
+        let auth_layer = $auth_config
+            .get_client_layer()
+            .map_err(|e| ConfigError::AuthConfigError(e.to_string()))?;
+
+        $self.warn_insecure_auth();
+
+        Ok(tower::ServiceBuilder::new()
+            .layer(SetRequestHeaderLayer::new($header_map))
+            .layer(auth_layer)
+            .service($channel)
+            .boxed())
+    }};
+}
 
 use super::compression::CompressionType;
 use super::errors::ConfigError;
@@ -23,7 +66,19 @@ use crate::auth::basic::Config as BasicAuthenticationConfig;
 use crate::auth::bearer::Config as BearerAuthenticationConfig;
 use crate::auth::jwt::Config as JwtAuthenticationConfig;
 use crate::component::configuration::{Configuration, ConfigurationError};
+use crate::grpc::proxy::ProxyConfig;
+use crate::metadata::MetadataMap;
 use crate::tls::{client::TlsClientConfig as TLSSetting, common::RustlsConfigLoader};
+
+/// Enum to handle all connection types: direct connections and proxy tunnels
+enum ConnectionType {
+    /// Direct HTTP connection without proxy
+    Direct(HttpConnector),
+    /// HTTP proxy tunnel connection
+    ProxyHttp(Tunnel<HttpConnector>),
+    /// HTTPS proxy tunnel connection
+    ProxyHttps(Tunnel<hyper_rustls::HttpsConnector<HttpConnector>>),
+}
 
 /// Keepalive configuration for the client.
 /// This struct contains the keepalive time for TCP and HTTP2,
@@ -32,25 +87,19 @@ use crate::tls::{client::TlsClientConfig as TLSSetting, common::RustlsConfigLoad
 #[derive(Debug, Serialize, Deserialize, PartialEq, Clone, JsonSchema)]
 pub struct KeepaliveConfig {
     /// The duration of the keepalive time for TCP
-    #[serde(
-        default = "default_tcp_keepalive",
-        deserialize_with = "deserialize_duration"
-    )]
+    #[serde(default = "default_tcp_keepalive")]
     #[schemars(with = "String")]
-    pub tcp_keepalive: Duration,
+    pub tcp_keepalive: DurationString,
 
     /// The duration of the keepalive time for HTTP2
-    #[serde(
-        default = "default_http2_keepalive",
-        deserialize_with = "deserialize_duration"
-    )]
+    #[serde(default = "default_http2_keepalive")]
     #[schemars(with = "String")]
-    pub http2_keepalive: Duration,
+    pub http2_keepalive: DurationString,
 
     /// The timeout duration for the keepalive
-    #[serde(default = "default_timeout", deserialize_with = "deserialize_duration")]
+    #[serde(default = "default_timeout")]
     #[schemars(with = "String")]
-    pub timeout: Duration,
+    pub timeout: DurationString,
 
     /// Whether to permit keepalive without an active stream
     #[serde(default = "default_keep_alive_while_idle")]
@@ -69,16 +118,16 @@ impl Default for KeepaliveConfig {
     }
 }
 
-fn default_tcp_keepalive() -> Duration {
-    Duration::from_secs(60)
+fn default_tcp_keepalive() -> DurationString {
+    Duration::from_secs(60).into()
 }
 
-fn default_http2_keepalive() -> Duration {
-    Duration::from_secs(60)
+fn default_http2_keepalive() -> DurationString {
+    Duration::from_secs(60).into()
 }
 
-fn default_timeout() -> Duration {
-    Duration::from_secs(10)
+fn default_timeout() -> DurationString {
+    Duration::from_secs(10).into()
 }
 
 fn default_keep_alive_while_idle() -> bool {
@@ -102,7 +151,7 @@ pub enum AuthenticationConfig {
 
 /// Struct for the client configuration.
 /// This struct contains the endpoint, origin, compression type, rate limit,
-/// TLS settings, keepalive settings, timeout settings, buffer size settings,
+/// TLS settings, keepalive settings, proxy settings, timeout settings, buffer size settings,
 /// headers, and auth settings.
 /// The client configuration can be converted to a tonic channel.
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, JsonSchema)]
@@ -126,21 +175,19 @@ pub struct ClientConfig {
     /// Keepalive parameters.
     pub keepalive: Option<KeepaliveConfig>,
 
+    /// HTTP Proxy configuration.
+    #[serde(default)]
+    pub proxy: ProxyConfig,
+
     /// Timeout for the connection.
-    #[serde(
-        default = "default_connect_timeout",
-        deserialize_with = "deserialize_duration"
-    )]
+    #[serde(default = "default_connect_timeout")]
     #[schemars(with = "String")]
-    pub connect_timeout: Duration,
+    pub connect_timeout: DurationString,
 
     /// Timeout per request.
-    #[serde(
-        default = "default_request_timeout",
-        deserialize_with = "deserialize_duration"
-    )]
+    #[serde(default = "default_request_timeout")]
     #[schemars(with = "String")]
-    pub request_timeout: Duration,
+    pub request_timeout: DurationString,
 
     /// ReadBufferSize.
     pub buffer_size: Option<usize>,
@@ -153,6 +200,9 @@ pub struct ClientConfig {
     #[serde(default)]
     // #[serde(with = "serde_yaml::with::singleton_map")]
     pub auth: AuthenticationConfig,
+
+    /// Arbitrary user-provided metadata.
+    pub metadata: Option<MetadataMap>,
 }
 
 /// Defaults for ClientConfig
@@ -165,21 +215,23 @@ impl Default for ClientConfig {
             rate_limit: None,
             tls_setting: TLSSetting::default(),
             keepalive: None,
+            proxy: ProxyConfig::default(),
             connect_timeout: default_connect_timeout(),
             request_timeout: default_request_timeout(),
             buffer_size: None,
             headers: HashMap::new(),
             auth: AuthenticationConfig::None,
+            metadata: None,
         }
     }
 }
 
-fn default_connect_timeout() -> Duration {
-    Duration::from_secs(0)
+fn default_connect_timeout() -> DurationString {
+    Duration::from_secs(0).into()
 }
 
-fn default_request_timeout() -> Duration {
-    Duration::from_secs(0)
+fn default_request_timeout() -> DurationString {
+    Duration::from_secs(0).into()
 }
 
 // Display for ClientConfig
@@ -187,18 +239,20 @@ impl std::fmt::Display for ClientConfig {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "ClientConfig {{ endpoint: {}, origin: {:?}, compression: {:?}, rate_limit: {:?}, tls_setting: {:?}, keepalive: {:?}, connect_timeout: {:?}, request_timeout: {:?}, buffer_size: {:?}, headers: {:?}, auth: {:?} }}",
+            "ClientConfig {{ endpoint: {}, origin: {:?}, compression: {:?}, rate_limit: {:?}, tls_setting: {:?}, keepalive: {:?}, proxy: {:?}, connect_timeout: {:?}, request_timeout: {:?}, buffer_size: {:?}, headers: {:?}, auth: {:?}, metadata: {:?} }}",
             self.endpoint,
             self.origin,
             self.compression,
             self.rate_limit,
             self.tls_setting,
             self.keepalive,
+            self.proxy,
             self.connect_timeout,
             self.request_timeout,
             self.buffer_size,
             self.headers,
-            self.auth
+            self.auth,
+            self.metadata
         )
     }
 }
@@ -256,16 +310,20 @@ impl ClientConfig {
         }
     }
 
+    pub fn with_proxy(self, proxy: ProxyConfig) -> Self {
+        Self { proxy, ..self }
+    }
+
     pub fn with_connect_timeout(self, connect_timeout: Duration) -> Self {
         Self {
-            connect_timeout,
+            connect_timeout: connect_timeout.into(),
             ..self
         }
     }
 
     pub fn with_request_timeout(self, request_timeout: Duration) -> Self {
         Self {
-            request_timeout,
+            request_timeout: request_timeout.into(),
             ..self
         }
     }
@@ -283,6 +341,13 @@ impl ClientConfig {
 
     pub fn with_auth(self, auth: AuthenticationConfig) -> Self {
         Self { auth, ..self }
+    }
+
+    pub fn with_metadata(self, metadata: MetadataMap) -> Self {
+        Self {
+            metadata: Some(metadata),
+            ..self
+        }
     }
 
     /// Converts the client configuration to a tonic channel.
@@ -304,18 +369,47 @@ impl ClientConfig {
         + use<>,
         ConfigError,
     > {
-        // Make sure the endpoint is set and is valid
+        // Validate endpoint
+        self.validate_endpoint()?;
+
+        // Parse endpoint URI
+        let uri = self.parse_endpoint_uri()?;
+
+        // Create and configure HTTP connector
+        let http_connector = self.create_http_connector()?;
+
+        // Create channel builder with all settings
+        let builder = self.create_channel_builder(uri.clone())?;
+
+        // Parse headers
+        let header_map = self.parse_headers()?;
+
+        // Load TLS configuration
+        let tls_config = self.load_tls_config()?;
+
+        // Create the channel with appropriate connector
+        let channel =
+            self.create_channel_with_connector(uri, builder, http_connector, tls_config)?;
+
+        // Apply authentication and headers
+        self.apply_auth_and_headers(channel, header_map)
+    }
+
+    /// Validates that the endpoint is set and not empty
+    fn validate_endpoint(&self) -> Result<(), ConfigError> {
         if self.endpoint.is_empty() {
             return Err(ConfigError::MissingEndpoint);
         }
+        Ok(())
+    }
 
-        // channel builder
-        let uri =
-            Uri::from_str(&self.endpoint).map_err(|e| ConfigError::UriParseError(e.to_string()))?;
-        let builder = Channel::builder(uri);
+    /// Parses the endpoint string into a URI
+    fn parse_endpoint_uri(&self) -> Result<Uri, ConfigError> {
+        Uri::from_str(&self.endpoint).map_err(|e| ConfigError::UriParseError(e.to_string()))
+    }
 
-        // HTTP2 connector. We need this to be able to use directly a rustls config
-        // cf. https://github.com/hyperium/tonic/issues/1615
+    /// Creates and configures the HTTP connector
+    fn create_http_connector(&self) -> Result<HttpConnector, ConfigError> {
         let mut http = HttpConnector::new();
 
         // NOTE(msardara): we might want to make these configurable as well.
@@ -325,147 +419,280 @@ impl ClientConfig {
         // set the connection timeout
         match self.connect_timeout.as_secs() {
             0 => http.set_connect_timeout(None),
-            _ => http.set_connect_timeout(Some(self.connect_timeout)),
+            _ => http.set_connect_timeout(Some(self.connect_timeout.into())),
         }
-
-        // set the buffer size
-        let builder = match self.buffer_size {
-            Some(size) => builder.buffer_size(size),
-            None => builder,
-        };
 
         // set keepalive settings
-        let builder = match &self.keepalive {
-            Some(keepalive) => {
-                // TCP level keepalive
-                http.set_keepalive(Some(keepalive.tcp_keepalive));
-
-                builder
-                    .keep_alive_timeout(keepalive.timeout)
-                    .keep_alive_while_idle(keepalive.keep_alive_while_idle)
-                    // HTTP level keepalive
-                    .http2_keep_alive_interval(keepalive.http2_keepalive)
-            }
-            None => builder,
-        };
-
-        // set origin settings
-        let builder = match &self.origin {
-            Some(origin) => {
-                let uri = Uri::from_str(origin.as_str())
-                    .map_err(|e| ConfigError::UriParseError(e.to_string()))?;
-
-                builder.origin(uri)
-            }
-            None => builder,
-        };
-
-        let builder = match &self.rate_limit {
-            Some(rate_limit) => {
-                let (limit, duration) = parse_rate_limit(rate_limit)
-                    .map_err(|e| ConfigError::RateLimitParseError(e.to_string()))?;
-                builder.rate_limit(limit, duration)
-            }
-            None => builder,
-        };
-
-        // set the request timeout
-        let builder = match self.request_timeout.as_secs() {
-            0 => builder,
-            _ => builder.timeout(self.request_timeout),
-        };
-
-        // set header to http connector
-        let mut header_map = HeaderMap::new();
-        for (key, value) in &self.headers {
-            let k: HeaderName = key.parse().map_err(|_| {
-                ConfigError::HeaderParseError(format!("error parsing header key {}", key))
-            })?;
-            let v: HeaderValue = value.parse().map_err(|_| {
-                ConfigError::HeaderParseError(format!("error parsing header value {}", key))
-            })?;
-
-            header_map.insert(k, v);
+        if let Some(keepalive) = &self.keepalive {
+            http.set_keepalive(Some(keepalive.tcp_keepalive.into()));
         }
 
-        // TLS configuration
-        let tls_config = TLSSetting::load_rustls_config(&self.tls_setting)
-            .map_err(|e| ConfigError::TLSSettingError(e.to_string()))?;
+        Ok(http)
+    }
 
-        let channel = match tls_config {
-            Some(tls) => {
-                let connector = tower::ServiceBuilder::new()
-                    .layer_fn(move |s| {
-                        let tls = tls.clone();
+    /// Creates the channel builder with all configuration settings
+    fn create_channel_builder(&self, uri: Uri) -> Result<tonic::transport::Endpoint, ConfigError> {
+        let mut builder = Channel::builder(uri);
 
-                        hyper_rustls::HttpsConnectorBuilder::new()
-                            .with_tls_config(tls)
-                            .https_or_http()
-                            .enable_http2()
-                            .wrap_connector(s)
-                    })
-                    .service(http);
+        // set the buffer size
+        if let Some(size) = self.buffer_size {
+            builder = builder.buffer_size(size);
+        }
 
-                builder.connect_with_connector_lazy(connector)
+        // set keepalive settings
+        if let Some(keepalive) = &self.keepalive {
+            builder = builder
+                .keep_alive_timeout(keepalive.timeout.into())
+                .keep_alive_while_idle(keepalive.keep_alive_while_idle)
+                // HTTP level keepalive
+                .http2_keep_alive_interval(keepalive.http2_keepalive.into());
+        }
+
+        // set origin settings
+        if let Some(origin) = &self.origin {
+            let origin_uri = Uri::from_str(origin.as_str())
+                .map_err(|e| ConfigError::UriParseError(e.to_string()))?;
+            builder = builder.origin(origin_uri);
+        }
+
+        // set rate limit settings
+        if let Some(rate_limit) = &self.rate_limit {
+            let (limit, duration) = parse_rate_limit(rate_limit)
+                .map_err(|e| ConfigError::RateLimitParseError(e.to_string()))?;
+            builder = builder.rate_limit(limit, duration);
+        }
+
+        // set the request timeout
+        if self.request_timeout.as_secs() > 0 {
+            builder = builder.timeout(self.request_timeout.into());
+        }
+
+        Ok(builder)
+    }
+
+    /// Parses headers from the configuration
+    fn parse_headers(&self) -> Result<HeaderMap, ConfigError> {
+        Self::parse_header_map(&self.headers, "header")
+    }
+
+    /// Generic helper to parse a HashMap<String, String> into HeaderMap
+    fn parse_header_map(
+        headers: &HashMap<String, String>,
+        context: &str,
+    ) -> Result<HeaderMap, ConfigError> {
+        let mut header_map = HeaderMap::new();
+        for (key, value) in headers {
+            let header_name = HeaderName::from_str(key).map_err(|_| {
+                ConfigError::HeaderParseError(format!("Invalid {} name: {}", context, key))
+            })?;
+            let header_value = HeaderValue::from_str(value).map_err(|_| {
+                ConfigError::HeaderParseError(format!("Invalid {} value: {}", context, value))
+            })?;
+            header_map.insert(header_name, header_value);
+        }
+        Ok(header_map)
+    }
+
+    /// Helper to create basic auth header for proxy authentication
+    fn create_proxy_auth_header(
+        username: &str,
+        password: &str,
+    ) -> Result<HeaderValue, ConfigError> {
+        let auth_value = BASE64_STANDARD.encode(format!("{}:{}", username, password));
+        HeaderValue::from_str(&format!("Basic {}", auth_value)).map_err(|_| {
+            ConfigError::HeaderParseError("Invalid proxy auth credentials".to_string())
+        })
+    }
+
+    /// Helper to apply authentication and headers to a tunnel
+    fn apply_tunnel_config<T>(
+        &self,
+        mut tunnel: Tunnel<T>,
+        proxy_config: &ProxyConfig,
+        warn_insecure: bool,
+    ) -> Result<Tunnel<T>, ConfigError> {
+        // Set proxy authentication if provided
+        if let (Some(username), Some(password)) = (&proxy_config.username, &proxy_config.password) {
+            if warn_insecure {
+                self.warn_insecure_auth();
             }
-            None => builder.connect_with_connector_lazy(http),
-        };
 
-        // Auth configuration
+            let auth_header = Self::create_proxy_auth_header(username, password)?;
+            tunnel = tunnel.with_auth(auth_header);
+        }
+
+        // Set custom headers for proxy requests
+        if !proxy_config.headers.is_empty() {
+            let proxy_headers = self.parse_proxy_headers(&proxy_config.headers)?;
+            tunnel = tunnel.with_headers(proxy_headers);
+        }
+
+        Ok(tunnel)
+    }
+
+    /// Loads TLS configuration
+    fn load_tls_config(&self) -> Result<Option<rustls::ClientConfig>, ConfigError> {
+        TLSSetting::load_rustls_config(&self.tls_setting)
+            .map_err(|e| ConfigError::TLSSettingError(e.to_string()))
+    }
+
+    /// Creates the channel with the appropriate connector (proxy or direct)
+    fn create_channel_with_connector(
+        &self,
+        uri: Uri,
+        builder: tonic::transport::Endpoint,
+        http_connector: HttpConnector,
+        tls_config: Option<rustls::ClientConfig>,
+    ) -> Result<Channel, ConfigError> {
+        // Create the appropriate connection type
+        let connection = self.create_connection(uri, http_connector)?;
+
+        // Apply TLS and create the channel
+        self.create_channel_from_connection(builder, connection, tls_config)
+    }
+
+    /// Creates the appropriate connection type based on proxy configuration
+    fn create_connection(
+        &self,
+        uri: Uri,
+        http_connector: HttpConnector,
+    ) -> Result<ConnectionType, ConfigError> {
+        // Check if this host should bypass the proxy
+        if let Some(intercept) = self.proxy.should_use_proxy(uri.to_string()) {
+            // Use proxy for this host
+            self.create_proxy_connection(intercept, http_connector)
+        } else {
+            // Skip proxy for this host, use direct connection
+            Ok(ConnectionType::Direct(http_connector))
+        }
+    }
+
+    /// Creates a proxy connection
+    fn create_proxy_connection(
+        &self,
+        intercept: Intercept,
+        http_connector: HttpConnector,
+    ) -> Result<ConnectionType, ConfigError> {
+        let proxy_uri = intercept.uri();
+
+        tracing::info!("Creating proxy tunnel to {}", proxy_uri);
+
+        // Check if the proxy URL uses HTTPS
+        if proxy_uri.scheme_str() == Some("https") {
+            let proxy_tls_config = self
+                .proxy
+                .tls_setting
+                .load_rustls_config()
+                .map_err(|e| {
+                    ConfigError::TLSSettingError(format!("Failed to load proxy TLS config: {}", e))
+                })?
+                .unwrap();
+
+            // Create HTTPS connector for the proxy itself
+            let https_connector = hyper_rustls::HttpsConnectorBuilder::new()
+                .with_tls_config(proxy_tls_config)
+                .https_or_http()
+                .enable_http2()
+                .wrap_connector(http_connector);
+
+            let tunnel = Tunnel::new(proxy_uri.clone(), https_connector);
+            let configured_tunnel = self.apply_tunnel_config(tunnel, &self.proxy, false)?;
+
+            Ok(ConnectionType::ProxyHttps(configured_tunnel))
+        } else {
+            // Use HTTP connector for the proxy
+            let tunnel = Tunnel::new(proxy_uri.clone(), http_connector);
+            let configured_tunnel = self.apply_tunnel_config(tunnel, &self.proxy, true)?;
+
+            Ok(ConnectionType::ProxyHttp(configured_tunnel))
+        }
+    }
+
+    /// Creates a channel from any connection type with TLS support
+    fn create_channel_from_connection(
+        &self,
+        builder: tonic::transport::Endpoint,
+        connection: ConnectionType,
+        tls_config: Option<rustls::ClientConfig>,
+    ) -> Result<Channel, ConfigError> {
+        match connection {
+            ConnectionType::Direct(connector) => {
+                create_connector!(builder, connector, tls_config)
+            }
+            ConnectionType::ProxyHttp(tunnel) => {
+                create_connector!(builder, tunnel, tls_config)
+            }
+            ConnectionType::ProxyHttps(tunnel) => {
+                create_connector!(builder, tunnel, tls_config)
+            }
+        }
+    }
+
+    /// Parses proxy headers
+    fn parse_proxy_headers(
+        &self,
+        headers: &HashMap<String, String>,
+    ) -> Result<HeaderMap, ConfigError> {
+        Self::parse_header_map(headers, "proxy header")
+    }
+
+    /// Applies authentication and headers to the channel
+    fn apply_auth_and_headers(
+        &self,
+        channel: Channel,
+        header_map: HeaderMap,
+    ) -> Result<
+        impl tonic::client::GrpcService<
+            tonic::body::Body,
+            Error: Into<StdError> + Send,
+            ResponseBody: Body<Data = Bytes, Error: Into<StdError> + std::marker::Send>
+                              + Send
+                              + 'static,
+            Future: Send,
+        > + Send
+        + use<>,
+        ConfigError,
+    > {
         match &self.auth {
             AuthenticationConfig::Basic(basic) => {
-                let auth_layer = basic
-                    .get_client_layer()
-                    .map_err(|e| ConfigError::AuthConfigError(e.to_string()))?;
-
-                // If auth is enabled without TLS, print a warning
-                if self.tls_setting.insecure {
-                    warn!("Auth is enabled without TLS. This is not recommended.");
-                }
-
-                Ok(tower::ServiceBuilder::new()
-                    .layer(SetRequestHeaderLayer::new(header_map))
-                    .layer(auth_layer)
-                    .service(channel)
-                    .boxed())
+                create_auth_service!(self, basic, header_map, channel)
             }
             AuthenticationConfig::Bearer(bearer) => {
-                let auth_layer = bearer
-                    .get_client_layer()
-                    .map_err(|e| ConfigError::AuthConfigError(e.to_string()))?;
-
-                // If auth is enabled without TLS, print a warning
-                if self.tls_setting.insecure {
-                    warn!("Auth is enabled without TLS. This is not recommended.");
-                }
-
-                Ok(tower::ServiceBuilder::new()
-                    .layer(SetRequestHeaderLayer::new(header_map))
-                    .layer(auth_layer)
-                    .service(channel)
-                    .boxed())
+                create_auth_service!(self, bearer, header_map, channel)
             }
             AuthenticationConfig::Jwt(jwt) => {
-                let auth_layer = jwt
-                    .get_client_layer()
-                    .map_err(|e| ConfigError::AuthConfigError(e.to_string()))?;
-
-                // If auth is enabled without TLS, print a warning
-                if self.tls_setting.insecure {
-                    warn!("Auth is enabled without TLS. This is not recommended.");
-                }
-
-                Ok(tower::ServiceBuilder::new()
-                    .layer(SetRequestHeaderLayer::new(header_map))
-                    .layer(auth_layer)
-                    .service(channel)
-                    .boxed())
+                create_auth_service!(self, jwt, header_map, channel)
             }
             AuthenticationConfig::None => Ok(tower::ServiceBuilder::new()
                 .layer(SetRequestHeaderLayer::new(header_map))
                 .service(channel)
                 .boxed()),
         }
+    }
+
+    /// Warns if authentication is enabled without TLS
+    fn warn_insecure_auth(&self) {
+        if self.tls_setting.insecure {
+            warn!("Auth is enabled without TLS. This is not recommended.");
+        }
+    }
+}
+
+#[cfg(test)]
+mod metadata_tests {
+    use super::*;
+
+    #[test]
+    fn client_config_with_metadata_roundtrip_json() {
+        let mut md = MetadataMap::default();
+        md.insert("feature", "alpha");
+        md.insert("level", 2u64);
+
+        let cfg = ClientConfig::with_endpoint("http://localhost:1234").with_metadata(md.clone());
+        let s = serde_json::to_string(&cfg).expect("serialize");
+        println!("{}", s);
+        let deser: ClientConfig = serde_json::from_str(&s).expect("deserialize");
+        assert_eq!(deser.metadata, Some(md));
     }
 }
 
@@ -595,7 +822,7 @@ mod test {
         client.rate_limit = None;
 
         // Set timeout settings
-        client.request_timeout = Duration::from_secs(10);
+        client.request_timeout = Duration::from_secs(10).into();
         channel = client.to_channel();
         assert!(channel.is_ok());
 
@@ -615,5 +842,140 @@ mod test {
             .insert("X-Test".to_string(), "test".to_string());
         channel = client.to_channel();
         assert!(channel.is_ok());
+
+        // Set proxy settings
+        client.proxy = ProxyConfig::new("http://proxy.example.com:8080");
+        channel = client.to_channel();
+        assert!(channel.is_ok());
+
+        // Set proxy with authentication
+        client.proxy = ProxyConfig::new("http://proxy.example.com:8080").with_auth("user", "pass");
+        channel = client.to_channel();
+        assert!(channel.is_ok());
+
+        // Set proxy with headers
+        let mut proxy_headers = HashMap::new();
+        proxy_headers.insert("X-Proxy-Header".to_string(), "value".to_string());
+        client.proxy =
+            ProxyConfig::new("http://proxy.example.com:8080").with_headers(proxy_headers);
+        channel = client.to_channel();
+        assert!(channel.is_ok());
+
+        // Set HTTPS proxy settings
+        client.proxy = ProxyConfig::new("https://proxy.example.com:8080");
+        channel = client.to_channel();
+        assert!(channel.is_ok());
+
+        // Set HTTPS proxy with authentication
+        client.proxy = ProxyConfig::new("https://proxy.example.com:8080").with_auth("user", "pass");
+        channel = client.to_channel();
+        assert!(channel.is_ok());
+
+        // Set HTTPS proxy with headers
+        let mut https_proxy_headers = HashMap::new();
+        https_proxy_headers.insert("X-Proxy-Header".to_string(), "value".to_string());
+        client.proxy =
+            ProxyConfig::new("https://proxy.example.com:8080").with_headers(https_proxy_headers);
+        channel = client.to_channel();
+        assert!(channel.is_ok());
+    }
+
+    #[test]
+    fn test_client_config_with_proxy() {
+        let proxy = ProxyConfig::new("http://proxy.example.com:8080").with_auth("user", "pass");
+        let client = ClientConfig::with_endpoint("http://localhost:8080").with_proxy(proxy.clone());
+        assert_eq!(client.proxy, proxy);
+    }
+
+    #[test]
+    fn test_connect_and_request_timeout_valid_durations_deserialize() {
+        let json = r#"{
+            "endpoint": "http://localhost:1234",
+            "connect_timeout": "1m30s",
+            "request_timeout": "250ms"
+        }"#;
+
+        let cfg: ClientConfig = serde_json::from_str(json).expect("deserialization should succeed");
+        assert_eq!(cfg.connect_timeout, Duration::from_secs(90));
+        assert_eq!(cfg.request_timeout, Duration::from_millis(250));
+
+        // More complex duration
+        let json = r#"{
+            "endpoint": "http://localhost:1234",
+            "connect_timeout": "1h2m3s4ms",
+            "request_timeout": "1500ms"
+        }"#;
+        let cfg: ClientConfig =
+            serde_json::from_str(json).expect("complex duration should deserialize");
+        assert_eq!(
+            cfg.connect_timeout,
+            Duration::from_secs(3723) + Duration::from_millis(4)
+        );
+        assert_eq!(cfg.request_timeout, Duration::from_millis(1500));
+    }
+
+    #[test]
+    fn test_invalid_duration_strings_fail_deserialize() {
+        let invalids = [
+            r#"{ "endpoint": "http://localhost:1234", "connect_timeout": "abc" }"#,
+            r#"{ "endpoint": "http://localhost:1234", "request_timeout": "10x" }"#,
+            r#"{ "endpoint": "http://localhost:1234", "request_timeout": "--5s" }"#,
+        ];
+        for js in invalids {
+            let res: Result<ClientConfig, _> = serde_json::from_str(js);
+            assert!(res.is_err(), "expected error for json: {}", js);
+        }
+    }
+
+    #[test]
+    fn test_keepalive_config_duration_parsing() {
+        let json = r#"{
+            "endpoint": "http://localhost:1234",
+            "keepalive": {
+                "tcp_keepalive": "30s",
+                "http2_keepalive": "45s",
+                "timeout": "5s",
+                "keep_alive_while_idle": true
+            }
+        }"#;
+        let cfg: ClientConfig = serde_json::from_str(json).expect("keepalive should deserialize");
+        let ka = cfg.keepalive.expect("keepalive should be present");
+        assert_eq!(ka.tcp_keepalive, Duration::from_secs(30));
+        assert_eq!(ka.http2_keepalive, Duration::from_secs(45));
+        assert_eq!(ka.timeout, Duration::from_secs(5));
+        assert!(ka.keep_alive_while_idle);
+
+        // Invalid keepalive duration
+        let invalid_json = r#"{
+            "endpoint": "http://localhost:1234",
+            "keepalive": { "tcp_keepalive": "zz", "http2_keepalive": "10s", "timeout": "5s", "keep_alive_while_idle": false }
+        }"#;
+        let res: Result<ClientConfig, _> = serde_json::from_str(invalid_json);
+        assert!(res.is_err(), "invalid tcp_keepalive should fail");
+    }
+
+    #[test]
+    fn test_client_config_roundtrip_duration_serialization() {
+        let mut cfg = ClientConfig::with_endpoint("http://localhost:9999")
+            .with_connect_timeout(Duration::from_secs(90))
+            .with_request_timeout(Duration::from_millis(750));
+
+        cfg.keepalive = Some(KeepaliveConfig {
+            tcp_keepalive: Duration::from_secs(11).into(),
+            http2_keepalive: Duration::from_secs(22).into(),
+            timeout: Duration::from_secs(3).into(),
+            keep_alive_while_idle: true,
+        });
+
+        let serialized = serde_json::to_string(&cfg).expect("serialize");
+        let deserialized: ClientConfig = serde_json::from_str(&serialized).expect("deserialize");
+
+        assert_eq!(deserialized.connect_timeout, Duration::from_secs(90));
+        assert_eq!(deserialized.request_timeout, Duration::from_millis(750));
+        let ka = deserialized.keepalive.expect("keepalive present");
+        assert_eq!(ka.tcp_keepalive, Duration::from_secs(11));
+        assert_eq!(ka.http2_keepalive, Duration::from_secs(22));
+        assert_eq!(ka.timeout, Duration::from_secs(3));
+        assert!(ka.keep_alive_while_idle);
     }
 }

@@ -26,7 +26,7 @@ vars:
   TOOLCHAIN: ''
   OSTYPE:
     sh: bash -c 'echo $OSTYPE'
-  LLVM_VERSION: '{{ .LLVM_VERSION | default "14" }}'
+  LLVM_VERSION: '{{ .LLVM_VERSION | default "19" }}'
   CLANG:
     sh: "[[ {{.OSTYPE}} == darwin* ]] && xcrun --sdk macosx --find clang || echo 'clang-{{.LLVM_VERSION}}'"
   STRIP:
@@ -374,7 +374,7 @@ tasks:
         vars:
           COMPONENTS: "cargo-llvm-cov"
     cmds:
-      - cargo llvm-cov {{.ARGS}}
+      - cargo llvm-cov --lcov --output-path lcov.info {{.ARGS}}
     vars:
       ARGS: '{{ .ARGS | default "" }}'
 

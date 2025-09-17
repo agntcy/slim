@@ -31,6 +31,9 @@ use slim_datapath::{
 };
 use slim_mls::mls::{CommitMsg, KeyPackageMsg, Mls, MlsIdentity, ProposalMsg, WelcomeMsg};
 
+const CHANNEL_CREATION: &str = "CHANNEL_CREATION";
+const CHANNEL_SUBSCRIPTION: &str = "CHANNEL_SUBSCRIPTION";
+
 struct RequestTimerObserver<T>
 where
     T: SessionTransmitter + Send + Sync + Clone + 'static,
@@ -602,7 +605,9 @@ where
         Message::new_publish_with_headers(slim_header, session_header, "", payload)
     }
 
-    async fn join(&mut self) -> Result<(), SessionError> {
+    // creation is set to true is this is the first join to the channel
+    // done by the moderator node. False in all the other cases
+    async fn join(&mut self, creation: bool) -> Result<(), SessionError> {
         // subscribe only once to the channel
         if self.subscribed {
             return Ok(());
@@ -612,7 +617,14 @@ where
 
         // subscribe for the channel
         let header = Some(SlimHeaderFlags::default().with_forward_to(self.conn.unwrap()));
-        let sub = Message::new_subscribe(&self.name, &self.channel_name, header);
+        let mut sub = Message::new_subscribe(&self.name, &self.channel_name, header);
+
+        // add in the metadata to indication that the
+        // subscription is associated to a channel
+        sub.insert_metadata(CHANNEL_SUBSCRIPTION.to_string(), "true".to_string());
+        if creation {
+            sub.insert_metadata(CHANNEL_CREATION.to_string(), "true".to_string());
+        }
 
         self.send(sub).await?;
 
@@ -645,7 +657,11 @@ where
     async fn leave(&self) -> Result<(), SessionError> {
         // unsubscribe for the channel
         let header = Some(SlimHeaderFlags::default().with_forward_to(self.conn.unwrap()));
-        let unsub = Message::new_unsubscribe(&self.name, &self.channel_name, header);
+        let mut unsub = Message::new_unsubscribe(&self.name, &self.channel_name, header);
+
+        // add in the metadata to indication that the
+        // subscription is associated to a channel
+        unsub.insert_metadata(CHANNEL_SUBSCRIPTION.to_string(), "true".to_string());
 
         self.send(unsub).await?;
 
@@ -791,7 +807,7 @@ where
             // without MLS we can set the state for the channel
             // otherwise the endpoint needs to receive a
             // welcome message first
-            self.endpoint.join().await?;
+            self.endpoint.join(false).await?;
             vec![]
         };
 
@@ -816,7 +832,7 @@ where
         debug!("Welcome message correctly processed, MLS state initialized");
 
         // set route for the channel name
-        self.endpoint.join().await?;
+        self.endpoint.join(false).await?;
 
         // send an ack back to the moderator
         let src = msg.get_source();
@@ -1148,7 +1164,7 @@ where
     pub async fn join(&mut self) -> Result<(), SessionError> {
         if !self.endpoint.subscribed {
             // join the channel
-            self.endpoint.join().await?;
+            self.endpoint.join(true).await?;
 
             // create mls group if needed
             if let Some(mls) = self.mls_state.as_mut() {
@@ -2015,8 +2031,11 @@ mod tests {
         cm.on_message(msg).await.unwrap();
 
         // the first message is the subscription for the channel name
+        // this is also the channel creation
         let header = Some(SlimHeaderFlags::default().with_forward_to(conn));
-        let sub = Message::new_subscribe(&moderator, &channel_name, header);
+        let mut sub = Message::new_subscribe(&moderator, &channel_name, header);
+        sub.insert_metadata(CHANNEL_SUBSCRIPTION.to_string(), "true".to_string());
+        sub.insert_metadata(CHANNEL_CREATION.to_string(), "true".to_string());
         let msg = moderator_rx.recv().await.unwrap().unwrap();
         assert_eq!(msg, sub);
 
@@ -2099,7 +2118,8 @@ mod tests {
 
         // the first message generated is a subscription for the channel name
         let header = Some(SlimHeaderFlags::default().with_forward_to(conn));
-        let sub = Message::new_subscribe(&participant, &channel_name, header);
+        let mut sub = Message::new_subscribe(&participant, &channel_name, header);
+        sub.insert_metadata(CHANNEL_SUBSCRIPTION.to_string(), "true".to_string());
         let msg = participant_rx.recv().await.unwrap().unwrap();
         assert_eq!(msg, sub);
 

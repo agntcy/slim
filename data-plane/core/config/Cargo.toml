@@ -14,12 +14,13 @@ path = "src/grpc/schema/generate_schema.rs"
 
 [dependencies]
 agntcy-slim-auth.workspace = true
+base64 = { workspace = true }
 drain = { workspace = true }
-duration-str = { workspace = true }
+duration-string = { workspace = true }
 futures = { workspace = true }
 http = { workspace = true }
 hyper-rustls = { workspace = true }
-hyper-util = { workspace = true }
+hyper-util = { workspace = true, features = ["client-proxy-system"] }
 lazy_static = { workspace = true }
 parking_lot = { workspace = true }
 prost = { workspace = true }
@@ -47,5 +48,6 @@ protoc-bin-vendored = { workspace = true }
 tonic-build = { workspace = true }
 
 [dev-dependencies]
+rand = { workspace = true }
 serde_json = { workspace = true }
 tracing-test = { workspace = true }

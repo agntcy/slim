@@ -7,12 +7,6 @@ on:
   workflow_call:
 
 jobs:
-  python-binding-examples-docker-build:
-    name: Build Python examples docker image
-    uses: ./.github/workflows/reusable-docker-build-push.yaml
-    with:
-      bake-targets: bindings-examples
-      image-tag: ${{ github.sha }}
   python-bindings-sdist:
     runs-on: ubuntu-latest
     steps:
@@ -25,19 +19,19 @@ jobs:
         with:
           command: sdist
           args: --out dist
-          working-directory: ./data-plane/python-bindings
+          working-directory: ./data-plane/python/bindings
       - name: Upload sdist
         uses: actions/upload-artifact@v4
         with:
           name: wheels-sdist
-          path: ./data-plane/python-bindings/dist
+          path: ./data-plane/python/bindings/dist
 
   python-bindings-wheels:
     runs-on: ${{ matrix.platform.runner }}
     defaults:
       run:
         shell: bash
-        working-directory: ./data-plane/python-bindings
+        working-directory: ./data-plane/python/bindings
     strategy:
       matrix:
         platform:
@@ -75,9 +69,9 @@ jobs:
           shared-key: ${{runner.os}}-rust-${{hashFiles('**/Cargo.lock')}}
       - name: Build wheels
         run: |
-          task python-bindings:packaging PROFILE=release
+          task python:bindings:packaging PROFILE=release
       - name: Upload wheels
         uses: actions/upload-artifact@v4
         with:
           name: wheels-${{ matrix.platform.os }}-${{ matrix.platform.target }}
-          path: ./data-plane/python-bindings/dist
+          path: ./data-plane/python/bindings/dist

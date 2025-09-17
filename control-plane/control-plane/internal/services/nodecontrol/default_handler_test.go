@@ -15,6 +15,7 @@ import (
 )
 
 func TestWaitForResponseByType_ControlMessage_Ack_Failure(t *testing.T) {
+	ctx := context.Background()
 	ms := DefaultNodeCommandHandler()
 
 	msg := &controllerapi.ControlMessage{
@@ -30,12 +31,12 @@ func TestWaitForResponseByType_ControlMessage_Ack_Failure(t *testing.T) {
 	// Start goroutines to simulate ResponseReceived calls
 	go func() {
 		time.Sleep(100 * time.Millisecond)
-		ms.ResponseReceived("node1", msg)
+		ms.ResponseReceived(ctx, "node1", msg)
 	}()
 
 	// Wait for message from node1 specifically
 	start := time.Now()
-	_, err := ms.WaitForResponse("node1", reflect.TypeOf(&controllerapi.ControlMessage_Ack{}), "notReceivedMessageID")
+	_, err := ms.WaitForResponse(ctx, "node1", reflect.TypeOf(&controllerapi.ControlMessage_Ack{}), "notReceivedMessageID")
 	duration := time.Since(start)
 
 	if err == nil {
@@ -50,6 +51,7 @@ func TestWaitForResponseByType_ControlMessage_Ack_Failure(t *testing.T) {
 }
 
 func TestWaitForResponseByType_ControlMessage_Ack_Success(t *testing.T) {
+	ctx := context.Background()
 	ms := DefaultNodeCommandHandler()
 
 	msg := &controllerapi.ControlMessage{
@@ -65,11 +67,12 @@ func TestWaitForResponseByType_ControlMessage_Ack_Success(t *testing.T) {
 	// Start goroutines to simulate ResponseReceived calls
 	go func() {
 		time.Sleep(100 * time.Millisecond)
-		ms.ResponseReceived("node1", msg)
+		ms.ResponseReceived(ctx, "node1", msg)
 	}()
 
 	// Wait for message from node1 specifically
-	foundMsg, err := ms.WaitForResponse("node1", reflect.TypeOf(&controllerapi.ControlMessage_Ack{}), "originalMessageId")
+	foundMsg, err := ms.WaitForResponse(ctx, "node1",
+		reflect.TypeOf(&controllerapi.ControlMessage_Ack{}), "originalMessageId")
 	if err != nil {
 		t.Fatalf("unexpected error waiting for node1 message: %v", err)
 	}
@@ -80,7 +83,7 @@ func TestWaitForResponseByType_ControlMessage_Ack_Success(t *testing.T) {
 
 func TestWaitForResponseByType_MultipleNodes(t *testing.T) {
 	ms := DefaultNodeCommandHandler()
-
+	ctx := context.Background()
 	// Add messages to multiple nodes
 	msg1 := &controllerapi.ControlMessage{
 		MessageId: "node1-msg",
@@ -100,16 +103,16 @@ func TestWaitForResponseByType_MultipleNodes(t *testing.T) {
 	// Start goroutines to simulate ResponseReceived calls
 	go func() {
 		time.Sleep(100 * time.Millisecond)
-		ms.ResponseReceived("node1", msg1)
+		ms.ResponseReceived(ctx, "node1", msg1)
 	}()
 
 	go func() {
 		time.Sleep(200 * time.Millisecond)
-		ms.ResponseReceived("node2", msg2)
+		ms.ResponseReceived(ctx, "node2", msg2)
 	}()
 
 	// Wait for message from node1 specifically
-	foundMsg, err := ms.WaitForResponse("node1", reflect.TypeOf(&controllerapi.ControlMessage_ConfigCommand{}), "")
+	foundMsg, err := ms.WaitForResponse(ctx, "node1", reflect.TypeOf(&controllerapi.ControlMessage_ConfigCommand{}), "")
 	if err != nil {
 		t.Fatalf("unexpected error waiting for node1 message: %v", err)
 	}
@@ -119,7 +122,7 @@ func TestWaitForResponseByType_MultipleNodes(t *testing.T) {
 	}
 
 	// Wait for message from node2 specifically
-	foundMsg, err = ms.WaitForResponse("node2", reflect.TypeOf(&controllerapi.ControlMessage_ConfigCommand{}), "")
+	foundMsg, err = ms.WaitForResponse(ctx, "node2", reflect.TypeOf(&controllerapi.ControlMessage_ConfigCommand{}), "")
 	if err != nil {
 		t.Fatalf("unexpected error waiting for node2 message: %v", err)
 	}
@@ -131,8 +134,8 @@ func TestWaitForResponseByType_MultipleNodes(t *testing.T) {
 
 func TestWaitForResponseByType_EmptyNodeID(t *testing.T) {
 	ms := DefaultNodeCommandHandler()
-
-	_, err := ms.WaitForResponse("", reflect.TypeOf(&controllerapi.ControlMessage_ConfigCommand{}), "")
+	ctx := context.Background()
+	_, err := ms.WaitForResponse(ctx, "", reflect.TypeOf(&controllerapi.ControlMessage_ConfigCommand{}), "")
 	if err == nil {
 		t.Fatal("expected error when nodeID is empty")
 	}
@@ -140,8 +143,8 @@ func TestWaitForResponseByType_EmptyNodeID(t *testing.T) {
 
 func TestWaitForResponseByType_NilMessageType(t *testing.T) {
 	ms := DefaultNodeCommandHandler()
-
-	_, err := ms.WaitForResponse("node1", nil, "")
+	ctx := context.Background()
+	_, err := ms.WaitForResponse(ctx, "node1", nil, "")
 	if err == nil {
 		t.Fatal("expected error when messageType is nil")
 	}
@@ -149,10 +152,10 @@ func TestWaitForResponseByType_NilMessageType(t *testing.T) {
 
 func TestWaitForResponseByType_Timeout(t *testing.T) {
 	ms := DefaultNodeCommandHandler()
-
+	ctx := context.Background()
 	// This should timeout since no message will be received
 	start := time.Now()
-	_, err := ms.WaitForResponse("node1", reflect.TypeOf(&controllerapi.ControlMessage_ConfigCommand{}), "")
+	_, err := ms.WaitForResponse(ctx, "node1", reflect.TypeOf(&controllerapi.ControlMessage_ConfigCommand{}), "")
 	duration := time.Since(start)
 
 	if err == nil {
@@ -167,7 +170,8 @@ func TestWaitForResponseByType_Timeout(t *testing.T) {
 
 func TestSendMessage_NodeIDEmpty(t *testing.T) {
 	ms := DefaultNodeCommandHandler()
-	err := ms.SendMessage("", &controllerapi.ControlMessage{MessageId: "msg1"})
+	ctx := context.Background()
+	err := ms.SendMessage(ctx, "", &controllerapi.ControlMessage{MessageId: "msg1"})
 	if err == nil || err.Error() != "nodeID cannot be empty" {
 		t.Fatalf("expected error for empty nodeID, got: %v", err)
 	}
@@ -207,8 +211,9 @@ func (m *mockStream) RecvMsg(interface{}) error    { return nil }
 func TestSendMessage_NodeNotConnected(t *testing.T) {
 	ms := DefaultNodeCommandHandler()
 	nodeID := "node1"
+	ctx := context.Background()
 	// No connection status set, so should error
-	err := ms.SendMessage(nodeID, &controllerapi.ControlMessage{MessageId: "msg1"})
+	err := ms.SendMessage(ctx, nodeID, &controllerapi.ControlMessage{MessageId: "msg1"})
 	if err == nil || !contains(err.Error(), "failed to get connection status") {
 		t.Fatalf("expected error for missing connection status, got: %v", err)
 	}
@@ -217,44 +222,48 @@ func TestSendMessage_NodeNotConnected(t *testing.T) {
 func TestSendMessage_NodeNotConnectedStatus(t *testing.T) {
 	ms := DefaultNodeCommandHandler()
 	nodeID := "node1"
-	ms.UpdateConnectionStatus(nodeID, NodeStatusNotConnected)
-	err := ms.SendMessage(nodeID, &controllerapi.ControlMessage{MessageId: "msg1"})
+	ctx := context.Background()
+	ms.UpdateConnectionStatus(ctx, nodeID, NodeStatusNotConnected)
+	err := ms.SendMessage(ctx, nodeID, &controllerapi.ControlMessage{MessageId: "msg1"})
 	if err == nil || !contains(err.Error(), "is not connected") {
 		t.Fatalf("expected error for not connected node, got: %v", err)
 	}
 }
 
 func TestSendMessage_NoStream(t *testing.T) {
+	ctx := context.Background()
 	ms := DefaultNodeCommandHandler()
 	nodeID := "node1"
-	ms.UpdateConnectionStatus(nodeID, NodeStatusConnected)
+	ms.UpdateConnectionStatus(ctx, nodeID, NodeStatusConnected)
 	// No stream added
-	err := ms.SendMessage(nodeID, &controllerapi.ControlMessage{MessageId: "msg1"})
+	err := ms.SendMessage(ctx, nodeID, &controllerapi.ControlMessage{MessageId: "msg1"})
 	if err == nil || !contains(err.Error(), "no stream found") {
 		t.Fatalf("expected error for missing stream, got: %v", err)
 	}
 }
 
 func TestSendMessage_SendFails(t *testing.T) {
+	ctx := context.Background()
 	ms := DefaultNodeCommandHandler()
 	nodeID := "node1"
-	ms.UpdateConnectionStatus(nodeID, NodeStatusConnected)
+	ms.UpdateConnectionStatus(ctx, nodeID, NodeStatusConnected)
 	mock := &mockStream{failSend: true}
-	ms.AddStream(nodeID, mock)
-	err := ms.SendMessage(nodeID, &controllerapi.ControlMessage{MessageId: "msg1"})
+	ms.AddStream(ctx, nodeID, mock)
+	err := ms.SendMessage(ctx, nodeID, &controllerapi.ControlMessage{MessageId: "msg1"})
 	if err == nil || !contains(err.Error(), "failed to send message") {
 		t.Fatalf("expected error for send failure, got: %v", err)
 	}
 }
 
 func TestSendMessage_Success(t *testing.T) {
+	ctx := context.Background()
 	ms := DefaultNodeCommandHandler()
 	nodeID := "node1"
-	ms.UpdateConnectionStatus(nodeID, NodeStatusConnected)
+	ms.UpdateConnectionStatus(ctx, nodeID, NodeStatusConnected)
 	mock := &mockStream{}
-	ms.AddStream(nodeID, mock)
+	ms.AddStream(ctx, nodeID, mock)
 	msg := &controllerapi.ControlMessage{MessageId: "msg1"}
-	err := ms.SendMessage(nodeID, msg)
+	err := ms.SendMessage(ctx, nodeID, msg)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -264,22 +273,23 @@ func TestSendMessage_Success(t *testing.T) {
 }
 
 func TestSendMessage_SerializesPerNodeID(t *testing.T) {
+	ctx := context.Background()
 	ms := DefaultNodeCommandHandler()
 	nodeID := "node1"
-	ms.UpdateConnectionStatus(nodeID, NodeStatusConnected)
+	ms.UpdateConnectionStatus(ctx, nodeID, NodeStatusConnected)
 	mock := &mockStream{sendDelay: 200 * time.Millisecond}
-	ms.AddStream(nodeID, mock)
+	ms.AddStream(ctx, nodeID, mock)
 
 	var wg sync.WaitGroup
 	start := time.Now()
 	wg.Add(2)
 	go func() {
 		defer wg.Done()
-		_ = ms.SendMessage(nodeID, &controllerapi.ControlMessage{MessageId: "msg1"})
+		_ = ms.SendMessage(ctx, nodeID, &controllerapi.ControlMessage{MessageId: "msg1"})
 	}()
 	go func() {
 		defer wg.Done()
-		_ = ms.SendMessage(nodeID, &controllerapi.ControlMessage{MessageId: "msg2"})
+		_ = ms.SendMessage(ctx, nodeID, &controllerapi.ControlMessage{MessageId: "msg2"})
 	}()
 	wg.Wait()
 	elapsed := time.Since(start)

@@ -1,0 +1,49 @@
+# Copyright AGNTCY Contributors (https://github.com/agntcy)
+# SPDX-License-Identifier: Apache-2.0
+
+[project]
+name = "slima2a"
+version = "0.0.1"
+description = "A2A protocol over slimrpc"
+readme = "README_pypi.md"
+requires-python = ">=3.10, <4.0"
+dependencies = ["a2a-sdk[telemetry]>=0.3.0", "slimrpc"]
+
+[dependency-groups]
+linting = ["ruff>=0.12", "mypy>=1.17.0", "types-protobuf>=6.30.2.20250822"]
+testing = ["pytest>=8.3.4"]
+examples = [
+    "langchain-core",
+    "langchain-openai",
+    "typing-extensions",
+    "uvicorn>=0.34.2",
+]
+
+# Default groups to install when running `uv sync`
+[tool.uv]
+default-groups = ["linting", "testing", "examples"]
+
+[tool.uv.sources]
+slimrpc = { workspace = true }
+
+[tool.ruff.format]
+exclude = ["*_pb2.py", "*_pb2.pyi", "*_pb2_slimrpc.py"]
+
+[tool.ruff.lint]
+extend-select = ["I", "ASYNC", "SIM", "B", "ANN"]
+exclude = ["*_pb2.py", "*_pb2.pyi", "*_pb2_slimrpc.py"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["slima2a"]
+exclude = ["examples"]
+
+[tool.hatch.build.targets.sdist]
+exclude = ["examples"]
+
+[[tool.mypy.overrides]]
+module = ["google.rpc.*"]
+follow_untyped_imports = true

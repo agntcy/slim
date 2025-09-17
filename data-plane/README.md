@@ -95,7 +95,7 @@ SLIM can be run in 3 main ways:
 
 - directly as binary (preferred way when deployed as workload in k8s)
 - via the rust APIs (check the [sdk-mock example](./examples/src/sdk-mock))
-- via the [python bindings](./python-bindings)
+- via the [python bindings](./python/bindings)
 
 SLIM can run in server mode, in client mode or both (i.e. spawning a
 server and connecting to another SLIM instance at the same time).

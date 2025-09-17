@@ -12,8 +12,8 @@ members = [
     "core/slim",
     "core/tracing",
     "examples",
-    "python-bindings",
-    "srpc-compiler",
+    "python/bindings",
+    "slimrpc-compiler",
     "testing",
 ]
 
@@ -25,12 +25,12 @@ default-members = [
     "core/service",
     "core/signal",
     "core/tracing",
-    "srpc-compiler",
+    "slimrpc-compiler",
     "examples",
     "testing",
 ]
 
-exclude = ["integrations/mcp/mcp-proxy"]
+exclude = ["integrations/mcp-proxy"]
 
 resolver = "2"
 
@@ -58,7 +58,7 @@ clap = { version = "4.5.23", features = ["derive", "env"] }
 
 criterion = { version = "0.5", features = ["html_reports"] }
 drain = { version = "0.1", features = ["retain"] }
-duration-str = "0.12.0"
+duration-string = { version = "0.5.3", features = ["serde"] }
 futures = "0.3.31"
 h2 = "0.4.7"
 headers = "0.4.1"

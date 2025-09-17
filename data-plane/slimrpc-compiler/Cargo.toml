@@ -1,0 +1,16 @@
+[package]
+name = "agntcy-protoc-slimrpc-plugin"
+description = "A protoc plugin for generating SRPC (Slim RPC) code"
+version = "0.1.0"
+license.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "protoc-slimrpc-plugin"
+path = "src/bin/main.rs"
+
+[dependencies]
+anyhow = { workspace = true }
+heck = "0.5.0"
+prost = "0.14"
+prost-types = "0.14"

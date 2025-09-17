@@ -24,19 +24,19 @@ func NewRouteService(cmdHandler nodecontrol.NodeCommandHandler) RouteManager {
 }
 
 func (s *RouteService) ListSubscriptions(
-	_ context.Context,
+	ctx context.Context,
 	nodeEntry *controlplaneApi.NodeEntry,
 ) (*controllerapi.SubscriptionListResponse, error) {
+	zlog := zerolog.Ctx(ctx)
 	messageID := uuid.NewString()
 	msg := &controllerapi.ControlMessage{
 		MessageId: messageID,
 		Payload:   &controllerapi.ControlMessage_SubscriptionListRequest{},
 	}
-
-	if err := s.cmdHandler.SendMessage(nodeEntry.Id, msg); err != nil {
+	if err := s.cmdHandler.SendMessage(ctx, nodeEntry.Id, msg); err != nil {
 		return nil, fmt.Errorf("failed to send message: %w", err)
 	}
-	resp, err := s.cmdHandler.WaitForResponse(nodeEntry.Id,
+	resp, err := s.cmdHandler.WaitForResponse(ctx, nodeEntry.Id,
 		reflect.TypeOf(&controllerapi.ControlMessage_SubscriptionListResponse{}), messageID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to receive SubscriptionListResponse: %w", err)
@@ -53,7 +53,8 @@ func (s *RouteService) ListSubscriptions(
 				remoteNames = append(remoteNames,
 					fmt.Sprintf("remote:%d:%s", rc.GetId(), rc.GetConfigData()))
 			}
-			fmt.Printf("%s/%s/%s id=%d local=%v remote=%v\n",
+
+			zlog.Debug().Msgf("%s/%s/%s id=%d local=%v remote=%v\n",
 				e.GetComponent_0(), e.GetComponent_1(), e.GetComponent_2(),
 				e.GetId().GetValue(),
 				localNames, remoteNames,
@@ -65,26 +66,27 @@ func (s *RouteService) ListSubscriptions(
 }
 
 func (s *RouteService) ListConnections(
-	_ context.Context,
+	ctx context.Context,
 	nodeEntry *controlplaneApi.NodeEntry,
 ) (*controllerapi.ConnectionListResponse, error) {
+	zlog := zerolog.Ctx(ctx)
 	messageID := uuid.NewString()
 	msg := &controllerapi.ControlMessage{
 		MessageId: messageID,
 		Payload:   &controllerapi.ControlMessage_ConnectionListRequest{},
 	}
 
-	if err := s.cmdHandler.SendMessage(nodeEntry.Id, msg); err != nil {
+	if err := s.cmdHandler.SendMessage(ctx, nodeEntry.Id, msg); err != nil {
 		return nil, fmt.Errorf("failed to send message: %w", err)
 	}
-	response, err := s.cmdHandler.WaitForResponse(nodeEntry.Id,
+	response, err := s.cmdHandler.WaitForResponse(ctx, nodeEntry.Id,
 		reflect.TypeOf(&controllerapi.ControlMessage_ConnectionListResponse{}), messageID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to receive ConnectionListResponse: %w", err)
 	}
 	if listResp := response.GetConnectionListResponse(); listResp != nil {
 		for _, e := range listResp.Entries {
-			fmt.Printf("id=%d %s\n", e.GetId(), e.GetConfigData())
+			zlog.Debug().Msgf("id=%d %s\n", e.GetId(), e.GetConfigData())
 		}
 		return listResp, nil
 	}
@@ -113,12 +115,12 @@ func (s *RouteService) CreateConnection(
 		},
 	}
 
-	err := s.cmdHandler.SendMessage(nodeEntry.Id, createCommandMessage)
+	err := s.cmdHandler.SendMessage(ctx, nodeEntry.Id, createCommandMessage)
 	if err != nil {
 		return err
 	}
 	// wait for ACK response
-	response, err := s.cmdHandler.WaitForResponse(nodeEntry.Id,
+	response, err := s.cmdHandler.WaitForResponse(ctx, nodeEntry.Id,
 		reflect.TypeOf(&controllerapi.ControlMessage_Ack{}),
 		messageID,
 	)
@@ -158,12 +160,12 @@ func (s *RouteService) CreateSubscription(
 		},
 	}
 
-	err := s.cmdHandler.SendMessage(nodeEntry.Id, msg)
+	err := s.cmdHandler.SendMessage(ctx, nodeEntry.Id, msg)
 	if err != nil {
 		return err
 	}
 	// wait for ACK response
-	response, err := s.cmdHandler.WaitForResponse(nodeEntry.Id,
+	response, err := s.cmdHandler.WaitForResponse(ctx, nodeEntry.Id,
 		reflect.TypeOf(&controllerapi.ControlMessage_Ack{}),
 		messageID,
 	)
@@ -200,12 +202,12 @@ func (s *RouteService) DeleteSubscription(
 		},
 	}
 
-	err := s.cmdHandler.SendMessage(nodeEntry.Id, msg)
+	err := s.cmdHandler.SendMessage(ctx, nodeEntry.Id, msg)
 	if err != nil {
 		return err
 	}
 	// wait for ACK response
-	response, err := s.cmdHandler.WaitForResponse(nodeEntry.Id,
+	response, err := s.cmdHandler.WaitForResponse(ctx, nodeEntry.Id,
 		reflect.TypeOf(&controllerapi.ControlMessage_Ack{}),
 		messageID,
 	)
