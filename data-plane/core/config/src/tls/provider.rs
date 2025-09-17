@@ -72,34 +72,16 @@ mod tests {
         assert!(result.is_ok());
     }
 
-    /// Test that the aws-lc crypto provider is actually being set
-    #[test]
-    fn test_crypto_provider_functionality() {
-        initialize_crypto_provider();
-
-        // Test that we can create a basic crypto operation
-        // This indirectly verifies the provider is installed and working
-        let provider = rustls::crypto::aws_lc_rs::default_provider();
-
-        // Test random number generation
-        let mut random_bytes = [0u8; 32];
-        let result = provider.secure_random.fill(&mut random_bytes);
-        assert!(result.is_ok());
-
-        // Verify that we actually got random data (extremely unlikely to be all zeros)
-        assert_ne!(random_bytes, [0u8; 32]);
-    }
-
     /// Test crypto provider with actual TLS operations
     #[test]
     fn test_crypto_provider_tls_operations() {
         initialize_crypto_provider();
 
         // Test that we can create TLS-related crypto objects
-        let provider = rustls::crypto::aws_lc_rs::default_provider();
+        let provider = rustls::crypto::CryptoProvider::get_default().unwrap();
 
         // Test that cipher suites are available
-        let cipher_suites = provider.cipher_suites;
+        let cipher_suites = &provider.cipher_suites;
         assert!(
             !cipher_suites.is_empty(),
             "Should have available cipher suites"
@@ -120,39 +102,13 @@ mod tests {
         );
     }
 
-    /// Test that Once behavior is working correctly
-    #[test]
-    fn test_once_behavior() {
-        // Create a counter to track how many times the closure would be called
-        static CALL_COUNT: AtomicBool = AtomicBool::new(false);
-        static TEST_ONCE: Once = Once::new();
-
-        // Simulate the Once behavior
-        let increment_count = || {
-            TEST_ONCE.call_once(|| {
-                CALL_COUNT.store(true, Ordering::SeqCst);
-            });
-        };
-
-        // Call multiple times
-        increment_count();
-        increment_count();
-        increment_count();
-
-        // Verify it was only called once
-        assert!(CALL_COUNT.load(Ordering::SeqCst));
-
-        // This test verifies that the Once pattern works as expected
-        // The actual initialize_crypto_provider uses the same pattern
-    }
-
     /// Test error handling scenarios (if crypto provider installation fails)
     #[test]
     fn test_crypto_provider_availability() {
         initialize_crypto_provider();
 
         // Verify that crypto provider methods don't return errors for basic operations
-        let provider = rustls::crypto::aws_lc_rs::default_provider();
+        let provider = rustls::crypto::CryptoProvider::get_default().unwrap();
 
         // Test secure random
         let mut buffer = vec![0u8; 64];
@@ -178,7 +134,7 @@ mod tests {
                 let success_count = Arc::clone(&success_count);
                 thread::spawn(move || {
                     // Test crypto operations from multiple threads
-                    let provider = rustls::crypto::aws_lc_rs::default_provider();
+                    let provider = rustls::crypto::CryptoProvider::get_default().unwrap();
                     let mut buffer = [0u8; 16];
                     let result = provider.secure_random.fill(&mut buffer);
 
@@ -211,7 +167,7 @@ mod tests {
             initialize_crypto_provider();
 
             // Each time, verify the crypto provider works
-            let provider = rustls::crypto::aws_lc_rs::default_provider();
+            let provider = rustls::crypto::CryptoProvider::get_default().unwrap();
             let mut buffer = [0u8; 8];
             let result = provider.secure_random.fill(&mut buffer);
             assert!(
