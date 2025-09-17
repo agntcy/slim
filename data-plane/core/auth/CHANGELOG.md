@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0](https://github.com/agntcy/slim/compare/slim-auth-v0.2.0...slim-auth-v0.3.0) - 2025-09-17
+
+### Added
+
+- make MLS identity provider backend agnostic ([#552](https://github.com/agntcy/slim/pull/552))
+
+### Fixed
+
+- *(python-bindings)* default crypto provider initialization for Reqwest crate ([#706](https://github.com/agntcy/slim/pull/706))
+
 ## [0.2.0](https://github.com/agntcy/slim/compare/slim-auth-v0.1.0...slim-auth-v0.2.0) - 2025-07-31
 
 ### Added
