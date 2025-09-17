@@ -110,7 +110,6 @@ mod tests {
 
     async fn setup_client_and_server(client_config: ClientConfig, server_config: ServerConfig) {
         provider::initialize_crypto_provider();
-        let provider = rustls::crypto::CryptoProvider::get_default().unwrap();
 
         // run grpc server
         let client_config_clone = client_config.clone();

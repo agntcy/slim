@@ -788,7 +788,7 @@ MSAvYjGrRzM6XpGEYasfwy0Zoc3loi9nzP5uE4tv8vE72nyMf+OhaPG+Rn+mdBv4
         provider::initialize_crypto_provider();
         let provider = rustls::crypto::CryptoProvider::get_default().unwrap();
 
-        let result = StaticCertResolver::new(TEST_PRIVATE_KEY_PEM, TEST_CLIENT_CERT_PEM, &provider);
+        let result = StaticCertResolver::new(TEST_PRIVATE_KEY_PEM, TEST_CLIENT_CERT_PEM, provider);
 
         // This test might fail due to the test certificates not being valid
         // but we're testing that the function doesn't panic during creation
@@ -843,7 +843,7 @@ MSAvYjGrRzM6XpGEYasfwy0Zoc3loi9nzP5uE4tv8vE72nyMf+OhaPG+Rn+mdBv4
         let key_file_path = create_temp_file_simple(TEST_PRIVATE_KEY_PEM, suffix);
         let cert_file_path = create_temp_file_simple(TEST_CLIENT_CERT_PEM, suffix);
 
-        let result = WatcherCertResolver::new(&key_file_path, &cert_file_path, &provider);
+        let result = WatcherCertResolver::new(&key_file_path, &cert_file_path, provider);
 
         // This test might fail due to the test certificates not being valid
         // but we're testing that the function doesn't panic during creation
