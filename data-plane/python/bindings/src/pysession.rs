@@ -88,16 +88,6 @@ pub(crate) enum PySessionType {
     Multicast = 2,
 }
 
-impl From<PySessionType> for session::SessionType {
-    fn from(value: PySessionType) -> Self {
-        match value {
-            PySessionType::Anycast => session::SessionType::PointToPoint,
-            PySessionType::Unicast => session::SessionType::PointToPoint,
-            PySessionType::Multicast => session::SessionType::Multicast,
-        }
-    }
-}
-
 #[gen_stub_pyclass_enum]
 #[derive(Clone, PartialEq)]
 #[pyclass(eq)]

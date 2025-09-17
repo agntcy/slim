@@ -113,16 +113,14 @@ async def test_session_config(server):
         f"session config are not equal: {session_config} vs {session_config_ret}"
     )
 
-    # check default values
+    # set default values
     await slim_bindings.set_default_session_config(
         svc,
         session_config,
     )
 
-    # get default
-    session_config_ret = await slim_bindings.get_default_session_config(
-        svc, slim_bindings.PySessionType.ANYCAST
-    )
+    # get values (expected default)
+    session_config_ret = await slim_bindings.get_session_config(svc, session_info.id)
 
     # check if the session config is correct
     assert isinstance(session_config_ret, slim_bindings.PySessionConfiguration.Anycast)
@@ -171,10 +169,8 @@ async def test_session_config(server):
         session_config,
     )
 
-    # get default
-    session_config_ret = await slim_bindings.get_default_session_config(
-        svc, slim_bindings.PySessionType.MULTICAST
-    )
+    # get values (expected default)
+    session_config_ret = await slim_bindings.get_session_config(svc, session_info.id)
     # check if the session config is correct
     assert isinstance(
         session_config_ret, slim_bindings.PySessionConfiguration.Multicast
