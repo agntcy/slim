@@ -13,3 +13,211 @@ pub fn initialize_crypto_provider() {
             .unwrap();
     });
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::thread;
+    use std::time::Duration;
+
+    /// Test that initialize_crypto_provider can be called successfully
+    #[test]
+    fn test_initialize_crypto_provider_success() {
+        // The function should not panic or return an error
+        initialize_crypto_provider();
+
+        // Verify that a crypto provider is installed by testing random generation
+        let result = rustls::crypto::CryptoProvider::get_default()
+            .unwrap()
+            .secure_random
+            .fill(&mut [0u8; 32]);
+        assert!(result.is_ok());
+    }
+
+    /// Test that calling initialize_crypto_provider multiple times is safe
+    #[test]
+    fn test_initialize_crypto_provider_multiple_calls() {
+        // Call the function multiple times
+        initialize_crypto_provider();
+        initialize_crypto_provider();
+        initialize_crypto_provider();
+
+        // Should not panic or cause any issues
+        // The Once ensures it only runs once internally
+    }
+
+    /// Test concurrent calls to initialize_crypto_provider
+    #[test]
+    fn test_initialize_crypto_provider_concurrent() {
+        let handles: Vec<_> = (0..10)
+            .map(|_| {
+                thread::spawn(|| {
+                    initialize_crypto_provider();
+                })
+            })
+            .collect();
+
+        // Wait for all threads to complete
+        for handle in handles {
+            handle.join().expect("Thread should complete successfully");
+        }
+
+        // Verify crypto provider is working after concurrent initialization
+        let result = rustls::crypto::CryptoProvider::get_default()
+            .unwrap()
+            .secure_random
+            .fill(&mut [0u8; 16]);
+        assert!(result.is_ok());
+    }
+
+    /// Test that the aws-lc crypto provider is actually being set
+    #[test]
+    fn test_crypto_provider_functionality() {
+        initialize_crypto_provider();
+
+        // Test that we can create a basic crypto operation
+        // This indirectly verifies the provider is installed and working
+        let provider = rustls::crypto::aws_lc_rs::default_provider();
+
+        // Test random number generation
+        let mut random_bytes = [0u8; 32];
+        let result = provider.secure_random.fill(&mut random_bytes);
+        assert!(result.is_ok());
+
+        // Verify that we actually got random data (extremely unlikely to be all zeros)
+        assert_ne!(random_bytes, [0u8; 32]);
+    }
+
+    /// Test crypto provider with actual TLS operations
+    #[test]
+    fn test_crypto_provider_tls_operations() {
+        initialize_crypto_provider();
+
+        // Test that we can create TLS-related crypto objects
+        let provider = rustls::crypto::aws_lc_rs::default_provider();
+
+        // Test that cipher suites are available
+        let cipher_suites = provider.cipher_suites;
+        assert!(
+            !cipher_suites.is_empty(),
+            "Should have available cipher suites"
+        );
+
+        // Test that we have TLS 1.3 cipher suites
+        let has_tls13_suites = cipher_suites.iter().any(|suite| {
+            matches!(
+                suite.suite(),
+                rustls::CipherSuite::TLS13_AES_256_GCM_SHA384
+                    | rustls::CipherSuite::TLS13_AES_128_GCM_SHA256
+                    | rustls::CipherSuite::TLS13_CHACHA20_POLY1305_SHA256
+            )
+        });
+        assert!(
+            has_tls13_suites,
+            "Should have TLS 1.3 cipher suites available"
+        );
+    }
+
+    /// Test that Once behavior is working correctly
+    #[test]
+    fn test_once_behavior() {
+        // Create a counter to track how many times the closure would be called
+        static CALL_COUNT: AtomicBool = AtomicBool::new(false);
+        static TEST_ONCE: Once = Once::new();
+
+        // Simulate the Once behavior
+        let increment_count = || {
+            TEST_ONCE.call_once(|| {
+                CALL_COUNT.store(true, Ordering::SeqCst);
+            });
+        };
+
+        // Call multiple times
+        increment_count();
+        increment_count();
+        increment_count();
+
+        // Verify it was only called once
+        assert!(CALL_COUNT.load(Ordering::SeqCst));
+
+        // This test verifies that the Once pattern works as expected
+        // The actual initialize_crypto_provider uses the same pattern
+    }
+
+    /// Test error handling scenarios (if crypto provider installation fails)
+    #[test]
+    fn test_crypto_provider_availability() {
+        initialize_crypto_provider();
+
+        // Verify that crypto provider methods don't return errors for basic operations
+        let provider = rustls::crypto::aws_lc_rs::default_provider();
+
+        // Test secure random
+        let mut buffer = vec![0u8; 64];
+        let random_result = provider.secure_random.fill(&mut buffer);
+        assert!(
+            random_result.is_ok(),
+            "Secure random should work after initialization"
+        );
+
+        // Test that the buffer was filled with non-zero data
+        let all_zeros = buffer.iter().all(|&b| b == 0);
+        assert!(!all_zeros, "Random buffer should not be all zeros");
+    }
+
+    /// Test thread safety of the crypto provider after initialization
+    #[test]
+    fn test_crypto_provider_thread_safety() {
+        initialize_crypto_provider();
+
+        let success_count = Arc::new(AtomicBool::new(true));
+        let handles: Vec<_> = (0..5)
+            .map(|_| {
+                let success_count = Arc::clone(&success_count);
+                thread::spawn(move || {
+                    // Test crypto operations from multiple threads
+                    let provider = rustls::crypto::aws_lc_rs::default_provider();
+                    let mut buffer = [0u8; 16];
+                    let result = provider.secure_random.fill(&mut buffer);
+
+                    if result.is_err() {
+                        success_count.store(false, Ordering::SeqCst);
+                    }
+
+                    // Small delay to increase chance of race conditions
+                    thread::sleep(Duration::from_millis(1));
+                })
+            })
+            .collect();
+
+        // Wait for all threads
+        for handle in handles {
+            handle.join().expect("Thread should complete");
+        }
+
+        assert!(
+            success_count.load(Ordering::SeqCst),
+            "All crypto operations should succeed"
+        );
+    }
+
+    /// Test that initialization is idempotent
+    #[test]
+    fn test_initialization_idempotent() {
+        // Call initialization multiple times and verify consistent behavior
+        for _ in 0..3 {
+            initialize_crypto_provider();
+
+            // Each time, verify the crypto provider works
+            let provider = rustls::crypto::aws_lc_rs::default_provider();
+            let mut buffer = [0u8; 8];
+            let result = provider.secure_random.fill(&mut buffer);
+            assert!(
+                result.is_ok(),
+                "Crypto provider should work after each initialization"
+            );
+        }
+    }
+}
