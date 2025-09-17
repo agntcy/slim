@@ -143,7 +143,7 @@ func (s *RouteReconciler) handleRequest(ctx context.Context, req RouteReconcileR
 	configCommand := &controllerapi.ConfigurationCommand{
 		ConnectionsToCreate:   apiConnections,
 		SubscriptionsToSet:    apiSubscriptions,
-		SubscriptionsToDelete: []*controllerapi.Subscription{}, // Empty for registration
+		SubscriptionsToDelete: apiSubscriptionsToDelete,
 	}
 
 	// Create control message with configuration command
@@ -215,7 +215,7 @@ func generateConfigData(detail db.ConnectionDetails) (string, error) {
 	config := ConnectionConfig{
 		Endpoint: detail.Endpoint,
 	}
-	if detail.MtlsRequired {
+	if !detail.MtlsRequired {
 		config.TLS = &TLS{Insecure: &truev}
 	} else {
 		config.TLS = &TLS{

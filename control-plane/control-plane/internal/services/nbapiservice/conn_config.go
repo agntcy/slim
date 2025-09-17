@@ -7,11 +7,11 @@ package nbapiservice
 // The client configuration can be converted to a tonic channel.
 type ConnectionConfig struct {
 	// Auth configuration for outgoing RPCs.
-	Auth *Auth `json:"auth"`
+	Auth *Auth `json:"auth,omitempty"`
 	// ReadBufferSize.
-	BufferSize *int64 `json:"buffer_size"`
+	BufferSize *int64 `json:"buffer_size,omitempty"`
 	// Compression type - TODO(msardara): not implemented yet.
-	Compression *CompressionEnum `json:"compression"`
+	Compression *CompressionEnum `json:"compression,omitempty"`
 	// Timeout for the connection.
 	ConnectTimeout *string `json:"connect_timeout,omitempty"`
 	// The target the client will connect to.
@@ -19,11 +19,11 @@ type ConnectionConfig struct {
 	// The headers associated with gRPC requests.
 	Headers map[string]string `json:"headers,omitempty"`
 	// Keepalive parameters.
-	Keepalive *KeepaliveClass `json:"keepalive"`
+	Keepalive *KeepaliveClass `json:"keepalive,omitempty"`
 	// Origin for the client.
-	Origin *string `json:"origin"`
+	Origin *string `json:"origin,omitempty"`
 	// Rate Limits
-	RateLimit *string `json:"rate_limit"`
+	RateLimit *string `json:"rate_limit,omitempty"`
 	// Timeout per request.
 	RequestTimeout *string `json:"request_timeout,omitempty"`
 	// TLS client configuration.
@@ -95,13 +95,13 @@ type TLS struct {
 	// Path to the CA cert. For a client this verifies the server certificate.
 	// For a server this verifies client certificates. If empty uses system root CA.
 	// (optional)
-	CAFile *string `json:"ca_file"`
+	CAFile *string `json:"ca_file,omitempty"`
 	// In memory PEM encoded cert. (optional)
-	CAPem *string `json:"ca_pem"`
+	CAPem *string `json:"ca_pem,omitempty"`
 	// Path to the TLS cert to use for TLS required connections. (optional)
-	CERTFile *string `json:"cert_file"`
+	CERTFile *string `json:"cert_file,omitempty"`
 	// In memory PEM encoded TLS cert to use for TLS required connections. (optional)
-	CERTPem *string `json:"cert_pem"`
+	CERTPem *string `json:"cert_pem,omitempty"`
 	// If true, load system CA certificates pool in addition to the certificates
 	// configured in this struct.
 	IncludeSystemCACertsPool *bool `json:"include_system_ca_certs_pool,omitempty"`
@@ -111,12 +111,12 @@ type TLS struct {
 	// InsecureSkipVerify will enable TLS but not verify the server certificate.
 	InsecureSkipVerify *bool `json:"insecure_skip_verify,omitempty"`
 	// Path to the TLS key to use for TLS required connections. (optional)
-	KeyFile *string `json:"key_file"`
+	KeyFile *string `json:"key_file,omitempty"`
 	// In memory PEM encoded TLS key to use for TLS required connections. (optional)
-	KeyPem *string `json:"key_pem"`
+	KeyPem *string `json:"key_pem,omitempty"`
 	// ReloadInterval specifies the duration after which the certificate will be reloaded
 	// If not set, it will never be reloaded
-	ReloadInterval *Duration `json:"reload_interval"`
+	ReloadInterval *Duration `json:"reload_interval,omitempty"`
 	// The TLS version to use. If not set, the default is "tls1.3".
 	// The value must be either "tls1.2" or "tls1.3".
 	// (optional)

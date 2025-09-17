@@ -94,6 +94,10 @@ func (s *RouteService) AddRoute(ctx context.Context, route Route) (string, error
 	if route.SourceNodeID == AllNodesID {
 		allNodes := s.dbService.ListNodes()
 		for _, n := range allNodes {
+			if n.ID == route.DestNodeID {
+				// skip inserting route for the destination node itself
+				continue
+			}
 			newRoute := db.Route{
 				SourceNodeID:   n.ID,
 				DestNodeID:     route.DestNodeID,
@@ -142,6 +146,10 @@ func (s *RouteService) DeleteRoute(ctx context.Context, route Route) error {
 	if route.SourceNodeID == AllNodesID {
 		allNodes := s.dbService.ListNodes()
 		for _, n := range allNodes {
+			if n.ID == route.DestNodeID {
+				// skip deleting route for the destination node itself
+				continue
+			}
 			newRoute := db.Route{
 				SourceNodeID:   n.ID,
 				DestNodeID:     route.DestNodeID,
@@ -184,6 +192,10 @@ func (s *RouteService) NodeRegistered(ctx context.Context, nodeID string) {
 	// create generic routes for the newly registered node
 	genericRoutes := s.dbService.GetRoutesForNodeID(AllNodesID)
 	for _, r := range genericRoutes {
+		if r.DestNodeID == nodeID {
+			// skip inserting route for the destination node itself
+			continue
+		}
 		newRoute := db.Route{
 			SourceNodeID:   nodeID,
 			DestNodeID:     r.DestNodeID,
