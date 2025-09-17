@@ -53,6 +53,7 @@ dependencies = [
 name = "agntcy-slim-auth"
 version = "0.2.0"
 dependencies = [
+ "agntcy-slim-config",
  "async-trait",
  "aws-lc-rs",
  "base64 0.22.1",
@@ -64,7 +65,6 @@ dependencies = [
  "parking_lot",
  "pin-project",
  "reqwest",
- "rustls",
  "schemars",
  "serde",
  "serde_json",

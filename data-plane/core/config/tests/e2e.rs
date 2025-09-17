@@ -74,6 +74,7 @@ mod tests {
     use slim_config::grpc::client::AuthenticationConfig as ClientAuthenticationConfig;
     use slim_config::grpc::server::AuthenticationConfig as ServerAuthenticationConfig;
     use slim_config::tls::client::TlsClientConfig;
+    use slim_config::tls::provider;
     use slim_config::tls::server::TlsServerConfig;
     use tracing::debug;
     use tracing::info;
@@ -108,7 +109,7 @@ mod tests {
     }
 
     async fn setup_client_and_server(client_config: ClientConfig, server_config: ServerConfig) {
-        let _result = rustls::crypto::aws_lc_rs::default_provider().install_default();
+        provider::initialize_crypto_provider();
 
         // run grpc server
         let client_config_clone = client_config.clone();
