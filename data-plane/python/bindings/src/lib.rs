@@ -7,10 +7,10 @@ mod pyservice;
 mod pysession;
 mod utils;
 
-use slim_config::tls::provider;
-
 use pyo3::prelude::*;
 use pyo3_stub_gen::define_stub_info_gatherer;
+
+use slim_config::tls::provider;
 
 #[pymodule]
 mod _slim_bindings {
