@@ -22,6 +22,7 @@ var (
 
 	slimPath         string
 	sdkMockPath      string
+	clientPath       string
 	moderatorPath    string
 	slimctlPath      string
 	controlPlanePath string
@@ -47,6 +48,7 @@ var _ = BeforeSuite(func() {
 	// set binary paths
 	slimPath = filepath.Join("..", "..", "data-plane", "target", target, "debug", "slim")
 	sdkMockPath = filepath.Join("..", "..", "data-plane", "target", target, "debug", "sdk-mock")
+	clientPath = filepath.Join("..", "..", "data-plane", "target", target, "debug", "client")
 	moderatorPath = filepath.Join("..", "..", "data-plane", "target", target, "debug", "moderator")
 	slimctlPath = filepath.Join("..", "..", ".dist", "bin", "slimctl")
 	controlPlanePath = filepath.Join("..", "..", ".dist", "bin", "control-plane")

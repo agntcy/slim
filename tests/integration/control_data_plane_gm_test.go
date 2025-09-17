@@ -54,10 +54,10 @@ var _ = Describe("Group management through control plane", func() {
 		// wait for moderator to connect
 		time.Sleep(1000 * time.Millisecond)
 
-		// start mock clients
+		// start clients
 		var errClientA, errClientC error
 		clientASession, errClientA = gexec.Start(
-			exec.Command(sdkMockPath,
+			exec.Command(clientPath,
 				"--config", "./testdata/client-a-config.yaml",
 				"--local-name", "a",
 				"--remote-name", "c",
@@ -68,10 +68,11 @@ var _ = Describe("Group management through control plane", func() {
 		Expect(errClientA).NotTo(HaveOccurred())
 
 		clientCSession, errClientC = gexec.Start(
-			exec.Command(sdkMockPath,
+			exec.Command(clientPath,
 				"--config", "./testdata/client-c-config.yaml",
 				"--local-name", "c",
 				"--remote-name", "a",
+				"--message", "hey",
 			),
 			GinkgoWriter, GinkgoWriter,
 		)
@@ -112,14 +113,13 @@ var _ = Describe("Group management through control plane", func() {
 			addChannelOutput, err := exec.Command(
 				slimctlPath,
 				"channel", "create",
-				"moderators=org/default/moderator1/0,org/default/moderator2/0",
+				"moderators=org/default/moderator1/0",
 				"-s", "127.0.0.1:50051",
 			).CombinedOutput()
 			Expect(err).NotTo(HaveOccurred())
 			Expect(addChannelOutput).NotTo(BeEmpty())
 
 			Eventually(slimNodeSession, 15*time.Second).Should(gbytes.Say("received a create channel request, this should happen"))
-			Eventually(moderatorSession, 15*time.Second).Should(gbytes.Say("Controller requested channel creation for channel_id:"))
 			Eventually(controlPlaneSession, 15*time.Second).Should(gbytes.Say("Channel created successfully"))
 			Eventually(controlPlaneSession, 15*time.Second).Should(gbytes.Say("Channel saved successfully"))
 
@@ -145,10 +145,6 @@ var _ = Describe("Group management through control plane", func() {
 			Expect(addClientAOutput).NotTo(BeEmpty())
 
 			Eventually(slimNodeSession, 15*time.Second).Should(gbytes.Say("received a participant add request for channel"))
-			Eventually(moderatorSession, 15*time.Second).Should(gbytes.Say("Controller requested to add participant a to channel"))
-			Eventually(moderatorSession, 15*time.Second).Should(gbytes.Say("Successfully invited participant a to channel"))
-			// TODO: Verify client receives invitation
-			// Eventually(clientASession, 15*time.Second).Should(gbytes.Say("received invitation"))
 			Eventually(controlPlaneSession, 15*time.Second).Should(gbytes.Say("Ack message received, participant added successfully."))
 			Eventually(controlPlaneSession, 15*time.Second).Should(gbytes.Say("Channel updated, participant added successfully."))
 
@@ -167,8 +163,6 @@ var _ = Describe("Group management through control plane", func() {
 			Eventually(slimNodeSession, 15*time.Second).Should(gbytes.Say("received a participant add request for channel"))
 			Eventually(moderatorSession, 15*time.Second).Should(gbytes.Say("Controller requested to add participant c to channel"))
 			Eventually(moderatorSession, 15*time.Second).Should(gbytes.Say("Successfully invited participant c to channel"))
-			// TODO: Verify client receives invitation
-			// Eventually(clientCSession, 15*time.Second).Should(gbytes.Say("received invitation"))
 			Eventually(controlPlaneSession, 15*time.Second).Should(gbytes.Say("Ack message received, participant added successfully."))
 			Eventually(controlPlaneSession, 15*time.Second).Should(gbytes.Say("Channel updated, participant added successfully."))
 

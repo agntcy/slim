@@ -21,11 +21,12 @@ use slim_service::{
 
 mod args;
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 struct ChannelInfo {
     mls_group_id: Option<Vec<u8>>,
     session_info: Option<SessionInfo>,
     participants: std::collections::HashSet<String>,
+    mls: Option<Mls<SharedSecret, SharedSecret>>,
 }
 
 impl ChannelInfo {
@@ -34,6 +35,7 @@ impl ChannelInfo {
             mls_group_id: None,
             session_info: None,
             participants: std::collections::HashSet::new(),
+            mls: None,
         }
     }
 }
@@ -71,6 +73,7 @@ async fn create_channel(
     info!("Created MLS group with ID: {:?}", group_id);
 
     channel_info.mls_group_id = Some(group_id);
+    channel_info.mls = Some(mls);
 
     let channel_name = Name::from_strings(["channel", "channel", channel_id]).with_id(0);
     let session_info = app
@@ -221,6 +224,9 @@ async fn main() {
                                                 info!("Controller requested to add participant {} to channel {}",
                                                       req.participant_id, req.channel_id);
 
+                                                info!("MODERATOR: Current channels in map: {:?}", channels.keys().collect::<Vec<_>>());
+                                                info!("MODERATOR: Looking for channel: {}", req.channel_id);
+
                                                 if let Some(channel_info) = channels.get_mut(&req.channel_id) {
                                                     if let Some(session_info) = &channel_info.session_info {
                                                         let participant_name = Name::from_strings(["org", "default", &req.participant_id]).with_id(0);
@@ -228,11 +234,37 @@ async fn main() {
                                                         info!("Inviting participant {} to channel {} with session ID {}",
                                                               req.participant_id, req.channel_id, session_info.id);
 
+                                                        // Set up route to participant before inviting
+                                                        if let Err(e) = app.set_route(&participant_name, conn_id).await {
+                                                            error!("Failed to set route to participant {}: {}", req.participant_id, e);
+                                                        }
+
+                                                        info!("MODERATOR: About to call invite_participant for {}", participant_name);
                                                         match app.invite_participant(&participant_name, session_info.clone()).await {
                                                             Ok(()) => {
                                                                 channel_info.participants.insert(req.participant_id.clone());
                                                                 info!("Successfully invited participant {} to channel {}",
                                                                       req.participant_id, req.channel_id);
+
+                                                                // Send a trigger message to start communication after both participants are added
+                                                                if channel_info.participants.len() == 2 {
+                                                                    tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
+                                                                    let trigger_msg = "start communication";
+                                                                    let channel_name = Name::from_strings(["channel", "channel", &req.channel_id]).with_id(0);
+
+                                                                    info!("MODERATOR: Sending trigger message '{}' to channel {}", trigger_msg, channel_name);
+                                                                    use slim_service::SlimHeaderFlags;
+                                                                    let flags = SlimHeaderFlags::new(10, None, None, None, None);
+
+                                                                    match app.publish_with_flags(session_info.clone(), &channel_name, flags, trigger_msg.into(), None, None).await {
+                                                                        Ok(()) => {
+                                                                            info!("MODERATOR: Successfully sent trigger message to channel");
+                                                                        }
+                                                                        Err(e) => {
+                                                                            error!("Failed to send trigger message to channel: {}", e);
+                                                                        }
+                                                                    }
+                                                                }
                                                             }
                                                             Err(e) => {
                                                                 error!("Failed to invite participant {} to channel {}: {}",
@@ -281,17 +313,17 @@ async fn main() {
                                                 if let Some(channel_info) = channels.get(&req.channel_id) {
                                                     if let Some(session_info) = &channel_info.session_info {
                                                         let participants_to_remove: Vec<String> = channel_info.participants.iter().cloned().collect();
-                                                        
+
                                                         for participant_id in participants_to_remove {
                                                             let participant_name = Name::from_strings(["org", "default", &participant_id]).with_id(0);
                                                             info!("Removing participant {} before deleting channel {}", participant_id, req.channel_id);
-                                                            
+
                                                             if let Err(e) = app.remove_participant(&participant_name, session_info.clone()).await {
                                                                 error!("Failed to remove participant {} before deleting channel {}: {}", participant_id, req.channel_id, e);
                                                             }
                                                         }
                                                     }
-                                                    
+
                                                     channels.remove(&req.channel_id);
                                                     info!("Successfully deleted channel {}", req.channel_id);
                                                 } else {

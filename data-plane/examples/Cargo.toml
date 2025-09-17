@@ -12,6 +12,10 @@ path = "src/sdk-mock/main.rs"
 name = "moderator"
 path = "src/moderator/main.rs"
 
+[[bin]]
+name = "client"
+path = "src/client/main.rs"
+
 [dependencies]
 agntcy-slim = { workspace = true }
 agntcy-slim-auth = { workspace = true }
