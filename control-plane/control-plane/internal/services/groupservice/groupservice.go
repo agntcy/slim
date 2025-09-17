@@ -59,11 +59,13 @@ func (s *GroupService) CreateChannel(
 		},
 	}
 	zlog.Debug().Msgf("Sending CreateChannelRequest for channel %s to node: %s", channelID, nodeEntry.Id)
-	if sendErr := s.cmdHandler.SendMessage(nodeEntry.Id, msg); sendErr != nil {
+	if sendErr := s.cmdHandler.SendMessage(ctx, nodeEntry.Id, msg); sendErr != nil {
 		return nil, fmt.Errorf("failed to send message: %w", sendErr)
 	}
 	// wait for ACK response
-	response, err := s.cmdHandler.WaitForResponse(nodeEntry.Id,
+	response, err := s.cmdHandler.WaitForResponse(
+		ctx,
+		nodeEntry.Id,
 		reflect.TypeOf(&controllerapi.ControlMessage_Ack{}),
 		messageID,
 	)
@@ -119,12 +121,14 @@ func (s *GroupService) DeleteChannel(
 
 	zlog.Debug().Msgf("Sending DeleteChannelRequest for channel %s to node: %s",
 		deleteChannelRequest.ChannelId, nodeEntry.Id)
-	if handlerError := s.cmdHandler.SendMessage(nodeEntry.Id, msg); handlerError != nil {
+	if handlerError := s.cmdHandler.SendMessage(ctx, nodeEntry.Id, msg); handlerError != nil {
 		return nil, fmt.Errorf("failed to send message: %w", handlerError)
 	}
 
 	// wait for ACK response
-	response, err := s.cmdHandler.WaitForResponse(nodeEntry.Id,
+	response, err := s.cmdHandler.WaitForResponse(
+		ctx,
+		nodeEntry.Id,
 		reflect.TypeOf(&controllerapi.ControlMessage_Ack{}),
 		messageID,
 	)
@@ -176,12 +180,14 @@ func (s *GroupService) AddParticipant(
 
 	zlog.Debug().Msgf("Sending AddParticipantRequest for channel %s to node: %s",
 		addParticipantRequest.ChannelId, nodeEntry.Id)
-	if err := s.cmdHandler.SendMessage(nodeEntry.Id, msg); err != nil {
+	if err := s.cmdHandler.SendMessage(ctx, nodeEntry.Id, msg); err != nil {
 		return nil, fmt.Errorf("failed to send message: %w", err)
 	}
 
 	// wait for ACK response
-	response, err := s.cmdHandler.WaitForResponse(nodeEntry.Id,
+	response, err := s.cmdHandler.WaitForResponse(
+		ctx,
+		nodeEntry.Id,
 		reflect.TypeOf(&controllerapi.ControlMessage_Ack{}),
 		messageID,
 	)
@@ -262,12 +268,14 @@ func (s *GroupService) DeleteParticipant(
 
 	zlog.Debug().Msgf("Sending DeleteParticipantRequest for channel %s to node: %s",
 		deleteParticipantRequest.ChannelId, nodeEntry.Id)
-	if handlerError := s.cmdHandler.SendMessage(nodeEntry.Id, msg); handlerError != nil {
+	if handlerError := s.cmdHandler.SendMessage(ctx, nodeEntry.Id, msg); handlerError != nil {
 		return nil, fmt.Errorf("failed to send message: %w", handlerError)
 	}
 
 	// wait for ACK response
-	response, err := s.cmdHandler.WaitForResponse(nodeEntry.Id,
+	response, err := s.cmdHandler.WaitForResponse(
+		ctx,
+		nodeEntry.Id,
 		reflect.TypeOf(&controllerapi.ControlMessage_Ack{}),
 		messageID,
 	)
