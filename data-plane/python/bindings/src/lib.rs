@@ -7,6 +7,8 @@ mod pyservice;
 mod pysession;
 mod utils;
 
+use slim_config::tls::provider;
+
 use pyo3::prelude::*;
 use pyo3_stub_gen::define_stub_info_gatherer;
 
@@ -35,6 +37,9 @@ mod _slim_bindings {
 
     #[pymodule_init]
     fn module_init(m: &Bound<'_, PyModule>) -> PyResult<()> {
+        // initialize crypto provider
+        provider::initialize_crypto_provider();
+
         m.add("__version__", build_info::BUILD_INFO.version)?;
         m.add("build_profile", build_info::BUILD_INFO.profile)?;
         m.add("build_info", build_info::BUILD_INFO.to_string())?;
