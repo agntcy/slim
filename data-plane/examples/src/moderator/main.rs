@@ -25,6 +25,7 @@ mod args;
 struct ChannelInfo {
     mls_group_id: Option<Vec<u8>>,
     session_info: Option<SessionInfo>,
+    participants: std::collections::HashSet<String>,
 }
 
 impl ChannelInfo {
@@ -32,6 +33,7 @@ impl ChannelInfo {
         Self {
             mls_group_id: None,
             session_info: None,
+            participants: std::collections::HashSet::new(),
         }
     }
 }
@@ -219,7 +221,7 @@ async fn main() {
                                                 info!("Controller requested to add participant {} to channel {}",
                                                       req.participant_id, req.channel_id);
 
-                                                if let Some(channel_info) = channels.get(&req.channel_id) {
+                                                if let Some(channel_info) = channels.get_mut(&req.channel_id) {
                                                     if let Some(session_info) = &channel_info.session_info {
                                                         let participant_name = Name::from_strings(["org", "default", &req.participant_id]).with_id(0);
 
@@ -228,6 +230,7 @@ async fn main() {
 
                                                         match app.invite_participant(&participant_name, session_info.clone()).await {
                                                             Ok(()) => {
+                                                                channel_info.participants.insert(req.participant_id.clone());
                                                                 info!("Successfully invited participant {} to channel {}",
                                                                       req.participant_id, req.channel_id);
                                                             }
@@ -247,7 +250,7 @@ async fn main() {
                                                 info!("Controller requested to remove participant {} from channel {}",
                                                       req.participant_id, req.channel_id);
 
-                                                if let Some(channel_info) = channels.get(&req.channel_id) {
+                                                if let Some(channel_info) = channels.get_mut(&req.channel_id) {
                                                     if let Some(session_info) = &channel_info.session_info {
                                                         let participant_name = Name::from_strings(["org", "default", &req.participant_id]).with_id(0);
 
@@ -256,6 +259,7 @@ async fn main() {
 
                                                         match app.remove_participant(&participant_name, session_info.clone()).await {
                                                             Ok(()) => {
+                                                                channel_info.participants.remove(&req.participant_id);
                                                                 info!("Successfully removed participant {} from channel {}",
                                                                       req.participant_id, req.channel_id);
                                                             }
@@ -274,7 +278,21 @@ async fn main() {
                                             Some(Payload::DeleteChannel(req)) => {
                                                 info!("Controller requested to delete channel {}", req.channel_id);
 
-                                                if channels.remove(&req.channel_id).is_some() {
+                                                if let Some(channel_info) = channels.get(&req.channel_id) {
+                                                    if let Some(session_info) = &channel_info.session_info {
+                                                        let participants_to_remove: Vec<String> = channel_info.participants.iter().cloned().collect();
+                                                        
+                                                        for participant_id in participants_to_remove {
+                                                            let participant_name = Name::from_strings(["org", "default", &participant_id]).with_id(0);
+                                                            info!("Removing participant {} before deleting channel {}", participant_id, req.channel_id);
+                                                            
+                                                            if let Err(e) = app.remove_participant(&participant_name, session_info.clone()).await {
+                                                                error!("Failed to remove participant {} before deleting channel {}: {}", participant_id, req.channel_id, e);
+                                                            }
+                                                        }
+                                                    }
+                                                    
+                                                    channels.remove(&req.channel_id);
                                                     info!("Successfully deleted channel {}", req.channel_id);
                                                 } else {
                                                     error!("Channel {} does not exist", req.channel_id);

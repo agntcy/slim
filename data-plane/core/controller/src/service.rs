@@ -565,10 +565,13 @@ impl ControllerService {
 
                         let channel_id = req.channel_id.clone();
 
-                        // Send message to first moderator
                         if let Some(first_moderator) = req.moderators.first() {
-                            let moderator_name =
-                                Name::from_strings(["org", "default", "moderator1"]).with_id(0);
+                            let parts: Vec<&str> = first_moderator.split('/').collect();
+                            if parts.len() != 4 {
+                                return Err(ControllerError::ConfigError(format!("Invalid moderator name format: {}", first_moderator)));
+                            }
+                            let id = parts[3].parse::<u64>().map_err(|_| ControllerError::ConfigError(format!("Invalid moderator ID: {}", parts[3])))?;
+                            let moderator_name = Name::from_strings([parts[0], parts[1], parts[2]]).with_id(id);
                             let source_name =
                                 Name::from_strings(["controller", "controller", "controller"])
                                     .with_id(0);
