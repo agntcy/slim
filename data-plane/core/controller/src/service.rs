@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 use slim_config::component::id::ID;
 use slim_config::grpc::server::ServerConfig;
-use slim_config::metadata::MetadataValue; 
+use slim_config::metadata::MetadataValue;
 use tokio::sync::mpsc;
 use tokio_stream::{Stream, StreamExt, wrappers::ReceiverStream};
 use tokio_util::sync::CancellationToken;
@@ -20,7 +20,7 @@ use crate::api::proto::api::v1::{
     self, ConnectionListResponse, ConnectionType, SubscriptionListResponse,
 };
 use crate::api::proto::api::v1::{
-    Ack, ConnectionEntry, ControlMessage, SubscriptionEntry, ConnectionDetails,
+    Ack, ConnectionDetails, ConnectionEntry, ControlMessage, SubscriptionEntry,
     controller_service_client::ControllerServiceClient,
     controller_service_server::ControllerService as GrpcControllerService,
 };
@@ -109,7 +109,6 @@ fn from_server_config(server_config: &ServerConfig) -> ConnectionDetails {
             MetadataValue::String(s) => Some(s.clone()),
             _ => None,
         });
-    
     let external_endpoint = server_config
         .metadata
         .as_ref()
@@ -118,7 +117,6 @@ fn from_server_config(server_config: &ServerConfig) -> ConnectionDetails {
             MetadataValue::String(s) => Some(s.clone()),
             _ => None,
         });
-    
     ConnectionDetails {
         endpoint: server_config.endpoint.clone(),
         mtls_required: !server_config.tls_setting.insecure,
@@ -150,10 +148,7 @@ impl ControlPlane {
     ) -> Self {
         let (_, tx_slim, rx_slim) = message_processor.register_local_connection(true);
 
-        let connection_details = pubsub_servers
-            .iter()
-            .map(|server| from_server_config(server))
-            .collect();
+        let connection_details = pubsub_servers.iter().map(from_server_config).collect();
 
         ControlPlane {
             servers,

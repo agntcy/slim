@@ -186,8 +186,8 @@ func (s *RouteService) NodeRegistered(ctx context.Context, nodeID string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	zlog := zerolog.Ctx(ctx)
-	zlog.Debug().Msgf("Create generic routes for node %s", nodeID)
+	zlog := zerolog.Ctx(ctx).With().Str("service", "RouteService").Str("node_id", nodeID).Logger()
+	zlog.Debug().Msgf("Create generic routes for node")
 
 	// create generic routes for the newly registered node
 	genericRoutes := s.dbService.GetRoutesForNodeID(AllNodesID)
@@ -207,8 +207,10 @@ func (s *RouteService) NodeRegistered(ctx context.Context, nodeID string) {
 			Deleted:        false,
 		}
 		routeID := s.dbService.AddRoute(newRoute)
-		zlog.Debug().Msgf("generic route %s created for node %s", routeID, nodeID)
+		zlog.Debug().Msgf("generic route created: %s", routeID)
 	}
+	zlog.Debug().Msgf("routes created: %v", len(genericRoutes))
+
 
 	// reconcile generic routes for the newly registered node
 	s.queue.Add(RouteReconcileRequest{NodeID: nodeID})
