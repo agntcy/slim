@@ -110,7 +110,7 @@ func (s *RouteReconciler) handleRequest(ctx context.Context, req RouteReconcileR
 
 	zlog.Info().Msgf("Sending routes to registered node %s", nodeID)
 
-	var apiConnections []*controllerapi.Connection
+	apiConnections := make(map[string]*controllerapi.Connection, 0)
 	var apiSubscriptions []*controllerapi.Subscription
 	var apiSubscriptionsToDelete []*controllerapi.Subscription
 	var deletedRoutes []string
@@ -135,13 +135,19 @@ func (s *RouteReconciler) handleRequest(ctx context.Context, req RouteReconcileR
 			deletedRoutes = append(deletedRoutes, route.GetID())
 			continue
 		}
-		apiConnections = append(apiConnections, &apiConnection)
+		apiConnections[apiConnection.ConnectionId] = &apiConnection
 		apiSubscriptions = append(apiSubscriptions, apiSubscription)
+	}
+
+	// convert map to slice
+	apiConnectionsSlice := make([]*controllerapi.Connection, 0, len(apiConnections))
+	for _, conn := range apiConnections {
+		apiConnectionsSlice = append(apiConnectionsSlice, conn)
 	}
 
 	// Create configuration command with all stored connections and subscriptions
 	configCommand := &controllerapi.ConfigurationCommand{
-		ConnectionsToCreate:   apiConnections,
+		ConnectionsToCreate:   apiConnectionsSlice,
 		SubscriptionsToSet:    apiSubscriptions,
 		SubscriptionsToDelete: apiSubscriptionsToDelete,
 	}

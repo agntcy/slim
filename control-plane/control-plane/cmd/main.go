@@ -32,6 +32,10 @@ func main() {
 	cmdHandler := nodecontrol.DefaultNodeCommandHandler()
 	nodeService := nbapiservice.NewNodeService(dbService, cmdHandler)
 	routeService := nbapiservice.NewRouteService(dbService, cmdHandler, config.ReconcilerThreads)
+	err := routeService.Start(ctx)
+	if err != nil {
+		zlog.Fatal().Msgf("failed to start route service: %v", err)
+	}
 	groupService := groupservice.NewGroupService(dbService)
 
 	// wait for go processes to exit

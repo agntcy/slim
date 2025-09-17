@@ -149,8 +149,11 @@ func getConnDetails(host string, detail *controllerapi.ConnectionDetails) db.Con
 	endPoint := host
 	_, port, splitErr := net.SplitHostPort(detail.Endpoint)
 	if splitErr == nil {
-		// TODO log & throw error
-		endPoint = host + ":" + port
+		schema := "http"
+		if detail.MtlsRequired {
+			schema = "https"
+		}
+		endPoint = schema + "//" + host + ":" + port
 	}
 	connDetails := db.ConnectionDetails{
 		Endpoint:         endPoint,

@@ -38,6 +38,8 @@ type ConnectionDetails struct {
 }
 
 type Route struct {
+	// ID of the node which the route is applied to.
+	// If SourceNodeID is AllNodesID, the route applies to all nodes
 	SourceNodeID string
 	// if DestNodeID is empty, DestEndpoint should be used to determine the destination
 	DestNodeID   string

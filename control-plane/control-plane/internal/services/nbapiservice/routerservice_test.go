@@ -57,7 +57,13 @@ func (m *CommandHandlerMock) WaitForResponse(ctx context.Context, nodeID string,
 func (m *CommandHandlerMock) ResponseReceived(ctx context.Context, nodeID string, command *controllerapi.ControlMessage) {
 }
 
-func TestRouteService_NodeRegisteredAndAddRoute(t *testing.T) {
+// Reset clears the sendCalls array.
+func (m *CommandHandlerMock) Reset() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.sendCalls = make([]sendCall, 0)
+}
+func TestRouteService_AddRoutes(t *testing.T) {
 	ctx := util.GetContextWithLogger(context.Background(), config.LogConfig{
 		Level: "debug",
 	})
@@ -65,7 +71,67 @@ func TestRouteService_NodeRegisteredAndAddRoute(t *testing.T) {
 	cmdHandler := &CommandHandlerMock{}
 
 	routeService := NewRouteService(dbService, cmdHandler, 1)
+
+	addNodes(ctx, t, dbService, routeService)
+
+	// Add two routes with source '*' and dest node1/node2
+	route1 := Route{
+		SourceNodeID: "node2",
+		DestNodeID:   "node1",
+		Component0:   "org",
+		Component1:   "ns",
+		Component2:   "client_1",
+		ComponentID:  &wrapperspb.UInt64Value{Value: 1},
+	}
+	_, err := routeService.AddRoute(ctx, route1)
+	require.NoError(t, err)
+
+	route2 := Route{
+		SourceNodeID:   "node1",
+		DestEndpoint:   "http://slim_node2_ip:5678",
+		ConnConfigData: "{\"endpoint\":\"http://slim_node2_ip:5678\"}", // using endpoint instead of nodeID
+		Component0:     "org",
+		Component1:     "ns",
+		Component2:     "client_2",
+		ComponentID:    &wrapperspb.UInt64Value{Value: 2},
+	}
+	_, err = routeService.AddRoute(ctx, route2)
+	require.NoError(t, err)
+
+	genericRoute := Route{
+		SourceNodeID: AllNodesID,
+		DestNodeID:   "node1",
+		Component0:   "org",
+		Component1:   "ns",
+		Component2:   "client_3",
+		ComponentID:  &wrapperspb.UInt64Value{Value: 2},
+	}
+	_, err = routeService.AddRoute(ctx, genericRoute)
+	require.NoError(t, err)
+
 	require.NoError(t, routeService.Start(ctx))
+	// Wait for goroutines to process the queue
+	// (in real code, use sync or channels; here, just sleep briefly)
+	time.Sleep(5 * time.Second) // Uncomment if needed
+
+	require.GreaterOrEqual(t, len(cmdHandler.sendCalls), 2, "SendMessage should be called for both nodes")
+
+	expectedConnectionEndpoints := map[string][]string{
+		"node1": {"http://slim_node2_ip:5678"}, // node1 should be connected to node2
+		"node2": {"http://slim_node1_ip:1234"}, // node2 should be connected to node1
+	}
+	expectedSubscriptions := map[string][]string{
+		"node1": {"org/ns/client_2"},                    // node1 should subscribe to route1
+		"node2": {"org/ns/client_1", "org/ns/client_3"}, // node2 should subscribe to route2
+	}
+	expectedSubscriptionsToDelete := map[string][]string{
+		"node1": {},
+		"node2": {},
+	}
+	assertConnsAndSubs(t, cmdHandler, expectedConnectionEndpoints, expectedSubscriptions, expectedSubscriptionsToDelete)
+}
+
+func addNodes(ctx context.Context, t *testing.T, dbService db.DataAccess, routeService *RouteService) {
 
 	// Add two nodes with connection details
 	node1 := db.Node{
@@ -94,71 +160,157 @@ func TestRouteService_NodeRegisteredAndAddRoute(t *testing.T) {
 	// Call NodeRegistered for each node
 	routeService.NodeRegistered(ctx, node1.ID)
 	routeService.NodeRegistered(ctx, node2.ID)
+}
+
+func TestRouteService_AddAndThenDeleteRoutes(t *testing.T) {
+	ctx := util.GetContextWithLogger(context.Background(), config.LogConfig{
+		Level: "debug",
+	})
+	dbService := db.NewInMemoryDBService()
+	cmdHandler := &CommandHandlerMock{}
+
+	routeService := NewRouteService(dbService, cmdHandler, 1)
+
+	addNodes(ctx, t, dbService, routeService)
 
 	// Add two routes with source '*' and dest node1/node2
 	route1 := Route{
-		SourceNodeID: node2.ID,
-		DestNodeID:   node1.ID,
-		Component0:   "comp0",
-		Component1:   "comp1",
-		Component2:   "comp2",
+		SourceNodeID: "node2",
+		DestNodeID:   "node1",
+		Component0:   "org",
+		Component1:   "ns",
+		Component2:   "client_1",
 		ComponentID:  &wrapperspb.UInt64Value{Value: 1},
 	}
-	route2 := Route{
-		SourceNodeID: node1.ID,
-		DestNodeID:   node2.ID,
-		Component0:   "comp0b",
-		Component1:   "comp1b",
-		Component2:   "comp2b",
-		ComponentID:  &wrapperspb.UInt64Value{Value: 2},
-	}
-	_, err = routeService.AddRoute(ctx, route1)
+	_, err := routeService.AddRoute(ctx, route1)
 	require.NoError(t, err)
+
+	route2 := Route{
+		SourceNodeID:   "node1",
+		DestEndpoint:   "http://slim_node2_ip:5678",
+		ConnConfigData: "{\"endpoint\":\"http://slim_node2_ip:5678\"}", // using endpoint instead of nodeID
+		Component0:     "org",
+		Component1:     "ns",
+		Component2:     "client_2",
+		ComponentID:    &wrapperspb.UInt64Value{Value: 2},
+	}
 	_, err = routeService.AddRoute(ctx, route2)
 	require.NoError(t, err)
 
-	require.NoError(t, routeService.Start(ctx))
-
-	// Wait for goroutines to process the queue
-	// (in real code, use sync or channels; here, just sleep briefly)
-	time.Sleep(5 * time.Second) // Uncomment if needed
-
-	// Check SendMessage was called for both nodes
-	cmdHandler.mu.Lock()
-	defer cmdHandler.mu.Unlock()
-	require.GreaterOrEqual(t, len(cmdHandler.sendCalls), 2, "SendMessage should be called for both nodes")
-
-	expectedSubscriptions := map[string][]string{
-		"node1": {"comp0b/comp1b/comp2b"}, // node1 should subscribe to route1
-		"node2": {"comp0/comp1/comp2"},    // node2 should subscribe to route2
+	genericRoute := Route{
+		SourceNodeID: AllNodesID,
+		DestNodeID:   "node1",
+		Component0:   "org",
+		Component1:   "ns",
+		Component2:   "client_3",
+		ComponentID:  &wrapperspb.UInt64Value{Value: 2},
 	}
+	_, err = routeService.AddRoute(ctx, genericRoute)
+	require.NoError(t, err)
 
-	// Collect nodeIDs for which SendMessage was called
-	nodeIDs := map[string]bool{}
+	err = routeService.DeleteRoute(ctx, route1)
+	require.NoError(t, err)
+	err = routeService.DeleteRoute(ctx, route2)
+	require.NoError(t, err)
+	err = routeService.DeleteRoute(ctx, genericRoute)
+	require.NoError(t, err)
+
+	require.NoError(t, routeService.Start(ctx))
+	// Wait for goroutines to process the queue
+	time.Sleep(3 * time.Second) // Uncomment if needed
+
+	require.GreaterOrEqual(t, len(cmdHandler.sendCalls), 2, "SendMessage should be called for both nodes after deletions")
+	expectedConnectionEndpoints := map[string][]string{
+		"node1": {}, // node1 should have no connections
+		"node2": {}, // node2 should have no connections
+	}
+	expectedSubscriptions := map[string][]string{
+		"node1": {}, // node1 should have no subscriptions
+		"node2": {}, // node2 should have no subscriptions
+	}
+	expectedSubscriptionsToDelete := map[string][]string{
+		"node1": {"org/ns/client_2"},                    // node1 should delete subscription to route1
+		"node2": {"org/ns/client_1", "org/ns/client_3"}, // node2 should delete subscription to route2
+	}
+	assertConnsAndSubs(t, cmdHandler, expectedConnectionEndpoints, expectedSubscriptions, expectedSubscriptionsToDelete)
+}
+
+func assertConnsAndSubs(t *testing.T, cmdHandler *CommandHandlerMock,
+	expectedConnectionEndpoints map[string][]string,
+	expectedSubscriptions map[string][]string,
+	expectedSubscriptionsToDelete map[string][]string) {
+
 	for _, call := range cmdHandler.sendCalls {
-		nodeIDs[call.nodeID] = true
 		// Optionally, check the message content
 		require.NotNil(t, call.msg)
 		require.NotEmpty(t, call.msg.MessageId)
 		require.NotNil(t, call.msg.GetConfigCommand())
 		// Check that the config command contains the expected endpoint
 		connections := call.msg.GetConfigCommand().ConnectionsToCreate
-		require.NotEmpty(t, connections)
+		var gotConns []string
 		for _, conn := range connections {
 			var config map[string]interface{}
 			err := json.Unmarshal([]byte(conn.ConfigData), &config)
 			require.NoError(t, err)
 			require.Contains(t, config["endpoint"], "slim_node")
+			gotConns = append(gotConns, config["endpoint"].(string))
 		}
+		require.ElementsMatch(t, expectedConnectionEndpoints[call.nodeID], gotConns, "connections for %s do not match", call.nodeID)
+
 		// Check subscriptions in config command
 		subscriptions := call.msg.GetConfigCommand().SubscriptionsToSet
-		require.NotEmpty(t, subscriptions)
 		var gotSubs []string
 		for _, sub := range subscriptions {
 			gotSubs = append(gotSubs, sub.Component_0+"/"+sub.Component_1+"/"+sub.Component_2)
 		}
 		require.ElementsMatch(t, expectedSubscriptions[call.nodeID], gotSubs, "subscriptions for %s do not match", call.nodeID)
+
+		// Check subscriptions to delete in config command
+		subsToDelete := call.msg.GetConfigCommand().SubscriptionsToDelete
+		var gotSubsToDelete []string
+		for _, sub := range subsToDelete {
+			gotSubsToDelete = append(gotSubsToDelete, sub.Component_0+"/"+sub.Component_1+"/"+sub.Component_2)
+		}
+		require.ElementsMatch(t, expectedSubscriptionsToDelete[call.nodeID], gotSubsToDelete, "subscriptions to delete for %s do not match", call.nodeID)
 	}
-	require.True(t, nodeIDs["node1"], "SendMessage should be called for node1")
-	require.True(t, nodeIDs["node2"], "SendMessage should be called for node2")
+}
+
+// Add to internal/services/nbapiservice/routerservice_test.go
+
+func TestRouteService_AddRoute_Validation(t *testing.T) {
+	ctx := context.Background()
+	dbService := db.NewInMemoryDBService()
+	cmdHandler := &CommandHandlerMock{}
+	routeService := NewRouteService(dbService, cmdHandler, 1)
+
+	route := Route{
+		SourceNodeID: "node1",
+		// Both DestNodeID and DestEndpoint are empty
+		Component0:  "org",
+		Component1:  "ns",
+		Component2:  "client",
+		ComponentID: &wrapperspb.UInt64Value{Value: 1},
+	}
+	_, err := routeService.AddRoute(ctx, route)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "either destNodeID or both destEndpoint and connConfigData must be set")
+}
+
+func TestRouteService_DeleteRoute_Validation(t *testing.T) {
+	ctx := context.Background()
+	dbService := db.NewInMemoryDBService()
+	cmdHandler := &CommandHandlerMock{}
+	routeService := NewRouteService(dbService, cmdHandler, 1)
+
+	route := Route{
+		SourceNodeID: "node1",
+		// Both DestNodeID and DestEndpoint are empty
+		Component0:  "org",
+		Component1:  "ns",
+		Component2:  "client",
+		ComponentID: &wrapperspb.UInt64Value{Value: 1},
+	}
+	err := routeService.DeleteRoute(ctx, route)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "either destNodeID or both destEndpoint must be set")
 }

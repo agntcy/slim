@@ -43,10 +43,8 @@ type Route struct {
 
 func NewRouteService(dbService db.DataAccess, cmdHandler nodecontrol.NodeCommandHandler,
 	reconcilerThreadsNum int) *RouteService {
-
-	queue := workqueue.NewTyped[RouteReconcileRequest]()
 	return &RouteService{
-		queue:                queue,
+		queue:                workqueue.NewTyped[RouteReconcileRequest](),
 		dbService:            dbService,
 		cmdHandler:           cmdHandler,
 		reconcilerThreadsNum: reconcilerThreadsNum,
@@ -68,9 +66,22 @@ func (s *RouteService) Start(ctx context.Context) error {
 	return nil
 }
 
+func (s *RouteService) Stop() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.queue.ShutDownWithDrain()
+}
+
 func (s *RouteService) AddRoute(ctx context.Context, route Route) (string, error) {
 	if route.SourceNodeID == "" {
 		return "", fmt.Errorf("source node ID cannot be empty")
+	}
+
+	// validate that either DestNodeID or DestEndpoint and ConnConfigData is set
+	if route.DestNodeID == "" {
+		if route.DestEndpoint == "" || route.ConnConfigData == "" {
+			return "", fmt.Errorf("either destNodeID or both destEndpoint and connConfigData must be set")
+		}
 	}
 
 	s.mu.Lock()
@@ -119,13 +130,22 @@ func (s *RouteService) AddRoute(ctx context.Context, route Route) (string, error
 func (s *RouteService) addSingleRoute(ctx context.Context, dbRoute db.Route) string {
 	routeID := s.dbService.AddRoute(dbRoute)
 	zerolog.Ctx(ctx).Debug().Msgf("Route added: %s", routeID)
-	s.queue.Add(RouteReconcileRequest{NodeID: dbRoute.SourceNodeID})
+	if dbRoute.SourceNodeID != AllNodesID {
+		s.queue.Add(RouteReconcileRequest{NodeID: dbRoute.SourceNodeID})
+	}
 	return routeID
 }
 
 func (s *RouteService) DeleteRoute(ctx context.Context, route Route) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
+	// validate that either DestNodeID or DestEndpoint is set
+	if route.DestNodeID == "" {
+		if route.DestEndpoint == "" {
+			return fmt.Errorf("either destNodeID or both destEndpoint must be set")
+		}
+	}
 
 	dbRoute := db.Route{
 		SourceNodeID:   route.SourceNodeID,
@@ -176,7 +196,9 @@ func (s *RouteService) deleteSingleRoute(ctx context.Context, nodeID, routeID st
 		return fmt.Errorf("failed to mark route for delete %s (%w)", routeID, err)
 	}
 	zerolog.Ctx(ctx).Debug().Msgf("Route marked for delete: %s", routeID)
-	s.queue.Add(RouteReconcileRequest{NodeID: nodeID})
+	if nodeID != AllNodesID {
+		s.queue.Add(RouteReconcileRequest{NodeID: nodeID})
+	}
 	return nil
 }
 
@@ -210,7 +232,6 @@ func (s *RouteService) NodeRegistered(ctx context.Context, nodeID string) {
 		zlog.Debug().Msgf("generic route created: %s", routeID)
 	}
 	zlog.Debug().Msgf("routes created: %v", len(genericRoutes))
-
 
 	// reconcile generic routes for the newly registered node
 	s.queue.Add(RouteReconcileRequest{NodeID: nodeID})
