@@ -3,6 +3,10 @@
 ## [0.2.0](https://github.com/agntcy/slim/compare/helm-slim-v0.1.9...helm-slim-v0.2.0) (2025-09-18)
 
 
+### ⚠ BREAKING CHANGES
+
+* feat: SLIM node ID should be unique in a deployment ([#630](https://github.com/agntcy/slim/pull/630)) ([b63ffc1](https://github.com/agntcy/slim/commit/b63ffc16b97ddb7115f6639c9d0301df8d65c1b9))
+
 ### Features
 
 * **charts/slim:** upgrade image to SLIM 0.5.0 ([#714](https://github.com/agntcy/slim/issues/714)) ([35529c4](https://github.com/agntcy/slim/commit/35529c43ec12915d9e98a0f8770d14c7d19cebd6))
