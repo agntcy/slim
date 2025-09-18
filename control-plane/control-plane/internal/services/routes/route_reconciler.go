@@ -1,4 +1,4 @@
-package nbapiservice
+package routes
 
 import (
 	"bytes"

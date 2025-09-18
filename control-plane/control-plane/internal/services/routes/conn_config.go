@@ -1,4 +1,4 @@
-package nbapiservice
+package routes
 
 // Struct for the client configuration.
 // This struct contains the endpoint, origin, compression type, rate limit,

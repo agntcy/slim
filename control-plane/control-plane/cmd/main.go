@@ -7,6 +7,7 @@ import (
 	"net"
 	"sync"
 
+	"github.com/agntcy/slim/control-plane/control-plane/internal/services/routes"
 	"github.com/rs/zerolog"
 	"google.golang.org/grpc"
 
@@ -31,7 +32,7 @@ func main() {
 	dbService := db.NewInMemoryDBService()
 	cmdHandler := nodecontrol.DefaultNodeCommandHandler()
 	nodeService := nbapiservice.NewNodeService(dbService, cmdHandler)
-	routeService := nbapiservice.NewRouteService(dbService, cmdHandler, config.ReconcilerThreads)
+	routeService := routes.NewRouteService(dbService, cmdHandler, config.ReconcilerThreads)
 	err := routeService.Start(ctx)
 	if err != nil {
 		zlog.Fatal().Msgf("failed to start route service: %v", err)

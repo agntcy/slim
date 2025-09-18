@@ -9,6 +9,7 @@ import (
 	controlplaneApi "github.com/agntcy/slim/control-plane/common/proto/controlplane/v1"
 	"github.com/agntcy/slim/control-plane/control-plane/internal/config"
 	"github.com/agntcy/slim/control-plane/control-plane/internal/services/groupservice"
+	"github.com/agntcy/slim/control-plane/control-plane/internal/services/routes"
 	"github.com/agntcy/slim/control-plane/control-plane/internal/util"
 )
 
@@ -21,7 +22,7 @@ type nbAPIService struct {
 	config       config.APIConfig
 	logConfig    config.LogConfig
 	nodeService  *NodeService
-	routeService *RouteService
+	routeService *routes.RouteService
 	groupService *groupservice.GroupService
 }
 
@@ -29,7 +30,7 @@ func NewNorthboundAPIServer(
 	config config.APIConfig,
 	logConfig config.LogConfig,
 	nodeService *NodeService,
-	routeService *RouteService,
+	routeService *routes.RouteService,
 	groupService *groupservice.GroupService,
 ) NorthboundAPIServer {
 	cpServer := &nbAPIService{
@@ -126,7 +127,7 @@ func (s *nbAPIService) AddRoute(
 		}
 	}
 
-	route := Route{
+	route := routes.Route{
 		SourceNodeID: addRouteRequest.NodeId,
 		DestNodeID:   addRouteRequest.DestNodeId,
 		Component0:   addRouteRequest.Subscription.Component_0,
@@ -171,7 +172,7 @@ func (s *nbAPIService) DeleteRoute(
 		return nil, fmt.Errorf("either destNodeId or connectionId must be provided")
 	}
 
-	route := Route{
+	route := routes.Route{
 		SourceNodeID: deleteRouteRequest.NodeId,
 		DestNodeID:   deleteRouteRequest.DestNodeId,
 		Component0:   deleteRouteRequest.Subscription.Component_0,

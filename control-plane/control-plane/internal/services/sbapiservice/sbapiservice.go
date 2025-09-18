@@ -5,11 +5,10 @@ import (
 	"net"
 	"time"
 
+	"github.com/agntcy/slim/control-plane/control-plane/internal/services/routes"
 	"github.com/google/uuid"
 	"github.com/rs/zerolog"
 	"google.golang.org/grpc/peer"
-
-	"github.com/agntcy/slim/control-plane/control-plane/internal/services/nbapiservice"
 
 	controllerapi "github.com/agntcy/slim/control-plane/common/proto/controller/v1"
 	"github.com/agntcy/slim/control-plane/control-plane/internal/config"
@@ -29,7 +28,7 @@ type sbAPIService struct {
 	controllerapi.UnimplementedControllerServiceServer
 	dbService          db.DataAccess
 	nodeCommandHandler nodecontrol.NodeCommandHandler
-	routeService       *nbapiservice.RouteService
+	routeService       *routes.RouteService
 	groupservice       *groupservice.GroupService
 }
 
@@ -37,7 +36,7 @@ func NewSBAPIService(config config.APIConfig,
 	logConfig config.LogConfig,
 	dbService db.DataAccess,
 	cmdHandler nodecontrol.NodeCommandHandler,
-	routeService *nbapiservice.RouteService,
+	routeService *routes.RouteService,
 	groupservice *groupservice.GroupService) SouthboundAPIServer {
 	return &sbAPIService{
 		config:             config,
@@ -209,8 +208,8 @@ func (s *sbAPIService) handleNodeMessages(ctx context.Context,
 				zlog.Debug().Msgf("Subscription to set: %v", sub)
 				if sub.ConnectionId == "n/a" {
 					zlog.Debug().Msgf("Create routes on all other nodes for subscription: %v", sub)
-					_, err := s.routeService.AddRoute(ctx, nbapiservice.Route{
-						SourceNodeID: nbapiservice.AllNodesID,
+					_, err := s.routeService.AddRoute(ctx, routes.Route{
+						SourceNodeID: routes.AllNodesID,
 						DestNodeID:   registeredNodeID,
 						Component0:   sub.Component_0,
 						Component1:   sub.Component_1,
@@ -225,8 +224,8 @@ func (s *sbAPIService) handleNodeMessages(ctx context.Context,
 			for _, sub := range payload.ConfigCommand.SubscriptionsToDelete {
 				zlog.Debug().Msgf("Subscription to delete: %v", sub)
 				zlog.Debug().Msgf("Delete routes on all other nodes for subscription: %v", sub)
-				err := s.routeService.DeleteRoute(ctx, nbapiservice.Route{
-					SourceNodeID: nbapiservice.AllNodesID,
+				err := s.routeService.DeleteRoute(ctx, routes.Route{
+					SourceNodeID: routes.AllNodesID,
 					DestNodeID:   registeredNodeID,
 					Component0:   sub.Component_0,
 					Component1:   sub.Component_1,
