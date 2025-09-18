@@ -221,7 +221,7 @@ func generateConfigData(detail db.ConnectionDetails) (string, error) {
 	config := ConnectionConfig{
 		Endpoint: detail.Endpoint,
 	}
-	if !detail.MtlsRequired {
+	if !detail.MTLSRequired {
 		config.TLS = &TLS{Insecure: &truev}
 	} else {
 		config.TLS = &TLS{

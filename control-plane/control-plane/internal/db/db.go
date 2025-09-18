@@ -2,6 +2,7 @@ package db
 
 import (
 	"fmt"
+	"time"
 
 	"google.golang.org/protobuf/types/known/wrapperspb"
 )
@@ -28,13 +29,14 @@ type DataAccess interface {
 type Node struct {
 	ID          string
 	ConnDetails []ConnectionDetails
+	LastUpdated time.Time
 }
 
 type ConnectionDetails struct {
 	Endpoint         string
 	ExternalEndpoint *string
 	GroupName        *string
-	MtlsRequired     bool
+	MTLSRequired     bool
 }
 
 type Route struct {
@@ -51,7 +53,8 @@ type Route struct {
 	Component2     string
 	ComponentID    *wrapperspb.UInt64Value
 
-	Deleted bool
+	Deleted     bool
+	LastUpdated time.Time
 }
 
 func (r Route) GetID() string {

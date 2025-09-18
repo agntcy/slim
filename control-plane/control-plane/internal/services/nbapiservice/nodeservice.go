@@ -52,7 +52,7 @@ func getNodeConnDetails(node db.Node) []*controllerapi.ConnectionDetails {
 	for _, conn := range node.ConnDetails {
 		connDetails = append(connDetails, &controllerapi.ConnectionDetails{
 			Endpoint:         conn.Endpoint,
-			MtlsRequired:     conn.MtlsRequired,
+			MtlsRequired:     conn.MTLSRequired,
 			ExternalEndpoint: conn.ExternalEndpoint,
 			GroupName:        conn.GroupName,
 		})

@@ -3,6 +3,7 @@ package db
 import (
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/google/uuid"
 )
@@ -118,6 +119,8 @@ func (d *dbService) SaveNode(node Node) (string, error) {
 		node.ID = uuid.New().String()
 	}
 
+	node.LastUpdated = time.Now()
+
 	d.nodes[node.ID] = node
 	return node.ID, nil
 }
@@ -141,6 +144,7 @@ func (d *dbService) AddRoute(route Route) string {
 	// Add route to the map
 	d.mu.Lock()
 	defer d.mu.Unlock()
+	route.LastUpdated = time.Now()
 	d.routes[routeID] = route
 	return routeID
 }
@@ -163,6 +167,7 @@ func (d *dbService) MarkRouteAsDeleted(routeID string) error {
 	if !exists {
 		return fmt.Errorf("route %s not found", routeID)
 	}
+	route.LastUpdated = time.Now()
 	route.Deleted = true
 	d.routes[routeID] = route
 	return nil
