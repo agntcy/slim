@@ -257,8 +257,6 @@ func generateConfigData(detail db.ConnectionDetails) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("failed to encode connection config: %w", err)
 	}
-	fmt.Println("Generated connection config:")
-	fmt.Println(buf.String())
 
 	return buf.String(), nil
 }

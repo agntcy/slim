@@ -92,7 +92,7 @@ func newListCmd(opts *options.CommonOptions) *cobra.Command {
 
 func newAddCmd(opts *options.CommonOptions) *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "add <organization/namespace/agentname/agentid> via <config_file>",
+		Use:   "add <organization/namespace/agentname/agentid> via <slim-node-id or path_to_config_file>",
 		Short: "Add a route to a SLIM instance",
 		Long:  `Add a route to a SLIM instance`,
 		Args:  cobra.ExactArgs(3),
@@ -171,7 +171,7 @@ func newAddCmd(opts *options.CommonOptions) *cobra.Command {
 
 func newDelCmd(opts *options.CommonOptions) *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "del <organization/namespace/agentname/agentid> via <http|https://host:port>",
+		Use:   "del <organization/namespace/agentname/agentid> via <slim-node-id or http|https://host:port>",
 		Short: "Delete a route from a SLIM instance",
 		Long:  `Delete a route from a SLIM instance`,
 		Args:  cobra.ExactArgs(3),
@@ -194,18 +194,28 @@ func newDelCmd(opts *options.CommonOptions) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			//TODO endpoint can be a nodeID in which case set connectionID to "" and use destNodeID
-			_, connID, err := util.ParseEndpoint(endpoint)
-			if err != nil {
-				return fmt.Errorf("invalid endpoint format '%s': %w", endpoint, err)
-			}
 
 			subscription := &grpcapi.Subscription{
-				Component_0:  organization,
-				Component_1:  namespace,
-				Component_2:  agentType,
-				Id:           wrapperspb.UInt64(agentID),
-				ConnectionId: connID,
+				Component_0: organization,
+				Component_1: namespace,
+				Component_2: agentType,
+				Id:          wrapperspb.UInt64(agentID),
+			}
+
+			deleteRouteRequest := &controlplaneApi.DeleteRouteRequest{
+				NodeId:       nodeID,
+				Subscription: subscription,
+			}
+
+			// determine if endpoint is a node ID or a connection ID
+			if util.IsEndpoint(endpoint) {
+				_, connID, err := util.ParseEndpoint(endpoint)
+				if err != nil {
+					return fmt.Errorf("invalid endpoint format '%s': %w", endpoint, err)
+				}
+				subscription.ConnectionId = connID
+			} else {
+				deleteRouteRequest.DestNodeId = endpoint
 			}
 
 			ctx, cancel := context.WithTimeout(cmd.Context(), opts.Timeout)
@@ -216,11 +226,7 @@ func newDelCmd(opts *options.CommonOptions) *cobra.Command {
 				return fmt.Errorf("failed to get control plane client: %w", err)
 			}
 
-			returnedMessage, err := cpCLient.DeleteRoute(ctx,
-				&controlplaneApi.DeleteRouteRequest{
-					NodeId:       nodeID,
-					Subscription: subscription,
-				})
+			returnedMessage, err := cpCLient.DeleteRoute(ctx, deleteRouteRequest)
 			if err != nil {
 				return fmt.Errorf("failed to delete route: %w", err)
 			}

@@ -309,6 +309,25 @@ func TestRouteService_AddRoute_Validation(t *testing.T) {
 		"either destNodeID or both destEndpoint and connConfigData must be set")
 }
 
+func TestRouteService_AddRoute_SameSourceAndDestValidation(t *testing.T) {
+	ctx := context.Background()
+	dbService := db.NewInMemoryDBService()
+	cmdHandler := &CommandHandlerMock{}
+	routeService := NewRouteService(dbService, cmdHandler, 1)
+
+	route := Route{
+		SourceNodeID: "node1",
+		DestNodeID:   "node1", // Same as source
+		Component0:   "org",
+		Component1:   "ns",
+		Component2:   "client",
+		ComponentID:  &wrapperspb.UInt64Value{Value: 1},
+	}
+	_, err := routeService.AddRoute(ctx, route)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "destination node ID cannot be the same as source node ID")
+}
+
 func TestRouteService_DeleteRoute_Validation(t *testing.T) {
 	ctx := context.Background()
 	dbService := db.NewInMemoryDBService()

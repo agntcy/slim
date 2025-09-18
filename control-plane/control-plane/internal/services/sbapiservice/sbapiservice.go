@@ -153,7 +153,7 @@ func getConnDetails(host string, detail *controllerapi.ConnectionDetails) db.Con
 		if detail.MtlsRequired {
 			schema = "https"
 		}
-		endPoint = schema + "//" + host + ":" + port
+		endPoint = schema + "://" + host + ":" + port
 	}
 	connDetails := db.ConnectionDetails{
 		Endpoint:         endPoint,

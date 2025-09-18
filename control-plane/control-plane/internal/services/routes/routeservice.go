@@ -82,6 +82,11 @@ func (s *RouteService) AddRoute(ctx context.Context, route Route) (string, error
 		if route.DestEndpoint == "" || route.ConnConfigData == "" {
 			return "", fmt.Errorf("either destNodeID or both destEndpoint and connConfigData must be set")
 		}
+	} else {
+		// source node ID and dest node ID cannot be the same
+		if route.SourceNodeID == route.DestNodeID {
+			return "", fmt.Errorf("destination node ID cannot be the same as source node ID")
+		}
 	}
 
 	s.mu.Lock()
@@ -129,7 +134,7 @@ func (s *RouteService) AddRoute(ctx context.Context, route Route) (string, error
 
 func (s *RouteService) addSingleRoute(ctx context.Context, dbRoute db.Route) string {
 	routeID := s.dbService.AddRoute(dbRoute)
-	zerolog.Ctx(ctx).Debug().Msgf("Route added: %s", routeID)
+	zerolog.Ctx(ctx).Info().Msgf("Route added: %s", routeID)
 	if dbRoute.SourceNodeID != AllNodesID {
 		s.queue.Add(RouteReconcileRequest{NodeID: dbRoute.SourceNodeID})
 	}
@@ -195,7 +200,7 @@ func (s *RouteService) deleteSingleRoute(ctx context.Context, nodeID, routeID st
 	if err != nil {
 		return fmt.Errorf("failed to mark route for delete %s (%w)", routeID, err)
 	}
-	zerolog.Ctx(ctx).Debug().Msgf("Route marked for delete: %s", routeID)
+	zerolog.Ctx(ctx).Info().Msgf("Route marked for delete: %s", routeID)
 	if nodeID != AllNodesID {
 		s.queue.Add(RouteReconcileRequest{NodeID: nodeID})
 	}
@@ -209,7 +214,7 @@ func (s *RouteService) NodeRegistered(ctx context.Context, nodeID string) {
 	defer s.mu.Unlock()
 
 	zlog := zerolog.Ctx(ctx).With().Str("service", "RouteService").Str("node_id", nodeID).Logger()
-	zlog.Debug().Msgf("Create generic routes for node")
+	zlog.Info().Msgf("Create generic routes for node")
 
 	// create generic routes for the newly registered node
 	genericRoutes := s.dbService.GetRoutesForNodeID(AllNodesID)
