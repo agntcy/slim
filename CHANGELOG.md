@@ -206,8 +206,6 @@ slimrpc](./data-plane/python/integrations/slimrpc/CHANGELOG.md),
 
 ---
 
----
-
 ## August 2025
 
 ### Key Highlights
