@@ -25,6 +25,7 @@ Versioning](https://semver.org/spec/v2.0.0.html).
 
 - Node ID uniqueness requirement (Helm & service config)
 - Multiple Rust public API changes in dataplane release (v0.5.0 bundle)
+- Service publish API parameter expansions
 
 #### 🔧 Infrastructure & Tooling
 
@@ -202,25 +203,6 @@ slimrpc](./data-plane/python/integrations/slimrpc/CHANGELOG.md),
   ([#638](https://github.com/agntcy/slim/pull/638)
   [#639](https://github.com/agntcy/slim/pull/639)
   [#637](https://github.com/agntcy/slim/pull/637))
-
-#### 🗺 Migration Pointers (0.4.0 → 0.5.0)
-
-- Set/validate `node_id` in service & Helm values; review StatefulSet vs
-  DaemonSet
-- Update Rust code for new struct fields / enum variants & removed items (see
-  crate-level CHANGELOGs)
-- Adjust service publish method call sites for new parameter lists
-- Regenerate or audit gRPC/proto dependent code for controller SB API additions
-- Review Helm values for ingress, proxy, TLS/SPIRE, metadata & node identity
-  fields
-
-#### ✅ Suggested Upgrade Order
-
-1. Upgrade Helm and apply node_id + TLS/SPIRE changes
-2. Update Rust dependencies (dataplane bundle) & fix compile errors
-3. Migrate Python imports and install new wheels (`slimrpc`, `slima2a`)
-4. Adjust publish API invocations & config initializations
-5. Re-run integration tests with coverage workflows enabled
 
 ---
 
