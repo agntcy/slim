@@ -2,12 +2,6 @@
 
 ## [0.1.7](https://github.com/agntcy/slim/compare/slim-mcp-v0.1.6...slim-mcp-v0.1.7) (2025-09-18)
 
-
-### Features
-
-* **slimrpc:** Support existing slim binding in ChannelFactory ([#690](https://github.com/agntcy/slim/issues/690)) ([d7093b7](https://github.com/agntcy/slim/commit/d7093b7b022e5fc707ecef61953e6016f05e4a73))
-
-
 ### Bug Fixes
 
 * **slima2a, slimrpc:** make mypy happy ([#671](https://github.com/agntcy/slim/issues/671)) ([5ab4628](https://github.com/agntcy/slim/commit/5ab462854c57a4788cc5eec8eecc734ab34cb2d5))
