@@ -1,7 +1,5 @@
 # Point-to-Point Example with SLIM Python Bindings
 
-TODO: check this file
-
 This example demonstrates how to use the SLIM Python bindings to create and manage point-to-point (unicast and anycast) sessions between distributed application instances. The script allows you to send and receive messages directly between two endpoints, with optional session stickiness and security.
 
 ## Features
@@ -84,7 +82,10 @@ while True:
 - `--enable-mls`: Enable Messaging Layer Security (optional)
 - `--shared-secret`, `--jwt`, `--bundle`, `--audience`: Security options (optional)
 
+
 ## Usage
+
+The recommended way to run the point-to-point example is via the Taskfile commands. If you want to see all the command flags, check the [Taskfile.yaml](../../Taskfile.yaml) file.
 
 ### 1. Start the SLIM server
 
@@ -96,21 +97,38 @@ task python:example:server
 
 This will start the SLIM server on `127.0.0.1:46357` by default.
 
-### 2. Run the point-to-point example
+### 2. Run Alice (receiver)
 
-The recommended way to run the example is via the Taskfile command. See the Taskfile for available roles (e.g., ff:alice, ff:bob, rr:responder, rr:requester) and argument details.
-
-**Manual usage:**
-
-You can also run the script directly:
+Open a terminal and run:
 
 ```bash
-python point_to_point.py --local <LOCAL_ID> --slim <SLIM_CONFIG> \
-    --remote <REMOTE_ID> --message "hello" --iterations 3 --sticky [OPTIONS]
+task python:example:p2p:alice
 ```
 
-## Notes
-- Use the `--sticky` flag to ensure the session always connects to the same remote endpoint.
-- Use the `--enable-mls` flag to enable secure messaging with MLS.
-- If no `--message` is provided, the script will act as a receiver and reply to incoming messages.
-- See the code comments for further details on each step.
+Alice will listen for messages and echo them back to the sender.
+You can run multiple instances of Alice if you want to test the differences
+between Anycast and Unicast.
+
+### 3. Run Bob (sender)
+
+In a separate terminal, you can run Bob in different modes:
+
+#### a) Anycast (no MLS)
+
+```bash
+task python:example:p2p:anycast:bob
+```
+
+#### b) Unicast (no MLS)
+
+```bash
+task python:example:p2p:unicast:no-mls:bob
+```
+
+#### c) Unicast with MLS
+
+```bash
+task python:example:p2p:unicast:mls:bob
+```
+
+Each command will send a message to Alice using the specified session type and security options.
