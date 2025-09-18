@@ -93,7 +93,7 @@ slimrpc](./data-plane/python/integrations/slimrpc/CHANGELOG.md),
 | Tool                       | Version | Works With           | Purpose           |
 | -------------------------- | ------- | -------------------- | ----------------- |
 | **slim-testutils**         | v0.2.2  | slim >= v0.4.0       | Testing utilities |
-| **slim-bindings-examples** | v0.1.1  | slim-bindings v0.5.0 | Python examples   |
+| **slim-bindings-examples** | v0.1.1  | slim >= v0.4.0       | Python examples   |
 
 #### Compatibility Notes
 
