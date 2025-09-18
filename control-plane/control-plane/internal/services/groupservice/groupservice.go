@@ -105,10 +105,12 @@ func (s *GroupService) DeleteChannel(
 	}
 
 	// Check if channel exist
-	_, err := s.dbService.GetChannel(deleteChannelRequest.ChannelId)
+	channel, err := s.dbService.GetChannel(deleteChannelRequest.ChannelId)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get channel from DB: %w", err)
 	}
+
+	deleteChannelRequest.Moderators = channel.Moderators
 
 	// Sending control message
 	messageID := uuid.NewString()
@@ -169,6 +171,14 @@ func (s *GroupService) AddParticipant(
 		return nil, fmt.Errorf("participant ID cannot be empty")
 	}
 
+	// Control plane side DB operations
+	channel, err := s.dbService.GetChannel(addParticipantRequest.ChannelId)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get channel from DB: %w", err)
+	}
+
+	addParticipantRequest.Moderators = channel.Moderators
+
 	// Sending control message
 	messageID := uuid.NewString()
 	msg := &controllerapi.ControlMessage{
@@ -201,12 +211,6 @@ func (s *GroupService) AddParticipant(
 		}
 		logAckMessage(ctx, ack)
 		zlog.Debug().Msg("Ack message received, participant added successfully.")
-	}
-
-	// Control plane side DB operations
-	channel, err := s.dbService.GetChannel(addParticipantRequest.ChannelId)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get channel from DB: %w", err)
 	}
 
 	for _, participant := range channel.Participants {
@@ -256,6 +260,8 @@ func (s *GroupService) DeleteParticipant(
 		return nil, fmt.Errorf("participant %s not found in channel %s",
 			deleteParticipantRequest.ParticipantId, deleteParticipantRequest.ChannelId)
 	}
+
+	deleteParticipantRequest.Moderators = channel.Moderators
 
 	// Sending control message
 	messageID := uuid.NewString()

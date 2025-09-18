@@ -124,6 +124,7 @@ message CreateChannelRequest {
 message DeleteChannelRequest {
   // ID of the channel
   string channel_id = 1;
+  repeated string moderators = 2;
 }
 
 message AddParticipantRequest {
@@ -132,6 +133,8 @@ message AddParticipantRequest {
 
   // ID of participant (e.g. spiffe SVID)
   string participant_id = 2;
+
+  repeated string moderators = 3;
 }
 
 message DeleteParticipantRequest {
@@ -140,6 +143,8 @@ message DeleteParticipantRequest {
 
   // ID of participant (e.g. spiffe SVID)
   string participant_id = 2;
+
+  repeated string moderators = 3;
 }
 
 message ListChannelsRequest {}
