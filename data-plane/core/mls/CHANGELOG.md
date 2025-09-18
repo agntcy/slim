@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1](https://github.com/agntcy/slim/compare/slim-mls-v0.1.0...slim-mls-v0.1.1) - 2025-09-17
+
+### Added
+
+- make MLS identity provider backend agnostic ([#552](https://github.com/agntcy/slim/pull/552))
+
+### Other
+
+- *(agntcy-slim-mls)* release v0.1.0 ([#493](https://github.com/agntcy/slim/pull/493))
+
 ## [0.1.0](https://github.com/agntcy/slim/releases/tag/slim-mls-v0.1.0) - 2025-07-31
 
 ### Added

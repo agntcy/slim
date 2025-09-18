@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.0](https://github.com/agntcy/slim/compare/slim-datapath-v0.8.0...slim-datapath-v0.9.0) - 2025-09-17
+
+### Added
+
+- notify controller with new subscriptions ([#611](https://github.com/agntcy/slim/pull/611))
+
+### Fixed
+
+- fix ff session ([#538](https://github.com/agntcy/slim/pull/538))
+
 ## [0.8.0](https://github.com/agntcy/slim/compare/slim-datapath-v0.7.0...slim-datapath-v0.8.0) - 2025-07-31
 
 ### Added
