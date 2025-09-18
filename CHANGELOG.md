@@ -167,7 +167,7 @@ slimrpc](./data-plane/python/integrations/slimrpc/CHANGELOG.md),
   ([#671](https://github.com/agntcy/slim/pull/671))
 - Slimctl version crash resolved
   ([#585](https://github.com/agntcy/slim/pull/585))
-- Deadline handling in SRPC ([#658](https://github.com/agntcy/slim/pull/658))
+- Deadline handling in SLIMRPC ([#658](https://github.com/agntcy/slim/pull/658))
 - Template comment usage to avoid Helm rendering issues
   ([#595](https://github.com/agntcy/slim/pull/595))
 
@@ -210,7 +210,6 @@ slimrpc](./data-plane/python/integrations/slimrpc/CHANGELOG.md),
 - Update Rust code for new struct fields / enum variants & removed items (see
   crate-level CHANGELOGs)
 - Adjust service publish method call sites for new parameter lists
-- Rename Python imports `srpc` → `slimrpc`; update A2A integration usage
 - Regenerate or audit gRPC/proto dependent code for controller SB API additions
 - Review Helm values for ingress, proxy, TLS/SPIRE, metadata & node identity
   fields
