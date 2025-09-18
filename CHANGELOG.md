@@ -71,20 +71,20 @@ slimrpc](./data-plane/python/integrations/slimrpc/CHANGELOG.md),
 
 ### Release Artifacts
 
-| Component | Tag | Artifacts |
-| --------- | --- | -------------- |
-| slim | `slim-v0.5.0` | https://github.com/agntcy/slim/pkgs/container/slim |
-| slim-bindings | `slim-bindings-v0.5.0` | https://pypi.org/project/slim-bindings |
-| control-plane | `control-plane-v0.1.1` | https://github.com/agntcy/slim/pkgs/container/slim%2Fcontrol-plane |
-| slimctl | `slimctl-v0.2.2` | https://github.com/agntcy/slim/releases/tag/slimctl-v0.2.2 |
-| helm-slim | `helm-slim-v0.2.0` | https://github.com/agntcy/slim/pkgs/container/slim%2Fhelm%2Fslim |
+| Component               | Tag                              | Artifacts                                                                      |
+| ----------------------- | -------------------------------- | ------------------------------------------------------------------------------ |
+| slim                    | `slim-v0.5.0`                    | https://github.com/agntcy/slim/pkgs/container/slim                             |
+| slim-bindings           | `slim-bindings-v0.5.0`           | https://pypi.org/project/slim-bindings                                         |
+| control-plane           | `control-plane-v0.1.1`           | https://github.com/agntcy/slim/pkgs/container/slim%2Fcontrol-plane             |
+| slimctl                 | `slimctl-v0.2.2`                 | https://github.com/agntcy/slim/releases/tag/slimctl-v0.2.2                     |
+| helm-slim               | `helm-slim-v0.2.0`               | https://github.com/agntcy/slim/pkgs/container/slim%2Fhelm%2Fslim               |
 | helm-slim-control-plane | `helm-slim-control-plane-v0.1.4` | https://github.com/agntcy/slim/pkgs/container/slim%2Fhelm%2Fslim-control-plane |
-| slim-bindings-examples | `slim-bindings-examples-v0.1.1` | https://github.com/agntcy/slim/pkgs/container/slim%2Fbindings-examples |
-| slim-testutils | `slim-testutils-v0.2.2` | https://github.com/agntcy/slim/pkgs/container/slim%2Ftestutils |
-| slimrpc | `slimrpc-v0.1.0` | https://pypi.org/project/slimrpc |
-| slima2a | `slima2a-v0.1.0` | https://pypi.org/project/slima2a |
-| slim-mcp | `slim-mcp-v0.1.7` | https://pypi.org/project/slim-mcp |
-| slim-mcp-proxy | `slim-mcp-proxy-v0.1.7` | https://github.com/agntcy/slim/pkgs/container/slim%2Fmcp-proxy |
+| slim-bindings-examples  | `slim-bindings-examples-v0.1.1`  | https://github.com/agntcy/slim/pkgs/container/slim%2Fbindings-examples         |
+| slim-testutils          | `slim-testutils-v0.2.2`          | https://github.com/agntcy/slim/pkgs/container/slim%2Ftestutils                 |
+| slimrpc                 | `slimrpc-v0.1.0`                 | https://pypi.org/project/slimrpc                                               |
+| slima2a                 | `slima2a-v0.1.0`                 | https://pypi.org/project/slima2a                                               |
+| slim-mcp                | `slim-mcp-v0.1.7`                | https://pypi.org/project/slim-mcp                                              |
+| slim-mcp-proxy          | `slim-mcp-proxy-v0.1.7`          | https://github.com/agntcy/slim/pkgs/container/slim%2Fmcp-proxy                 |
 
 ### Compatibility Matrix
 
