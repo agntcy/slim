@@ -1,7 +1,7 @@
 {
     "data-plane/python/bindings": "0.4.1",
     "charts/slim": "0.1.9",
-    "data-plane/python/integrations/slim-mcp": "0.1.6",
+    "data-plane/python/integrations/slim-mcp": "0.1.7",
     "control-plane/slimctl": "0.2.1",
     "control-plane/control-pane": "0.0.1",
     "data-plane/python/integrations/slim-mcp/examples/llamaindex-time-agent": "0.1.2",
