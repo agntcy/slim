@@ -2,9 +2,6 @@
 
 ## [0.2.2](https://github.com/agntcy/slim/compare/slimctl-v0.2.1...slimctl-v0.2.2) (2025-09-18)
 
-### Fixes
-
-* fixed the slimctl version crash ([#585](https://github.com/agntcy/slim/issues/585)) ([e4ba8e6](https://github.com/agntcy/slim/commit/e4ba8e6c44265bf8705d847069ed75fa87329564))
 
 ### Features
 
