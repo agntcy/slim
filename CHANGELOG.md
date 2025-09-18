@@ -121,7 +121,7 @@ slimrpc](./data-plane/python/integrations/slimrpc/CHANGELOG.md),
 - Fire-and-forget session testing utilities (#540)
 - Channel & participant CLI commands (slimctl) (#534)
 - Channel info included in subscription messages (#611)
-- SRPC + Native A2A Python packages (`slimrpc`, `slima2a`) initial release (#660 #685 #690 #613)
+- SLIMRPC + Native A2A Python packages (`slimrpc`, `slima2a`) initial release (#660 #685 #690 #613)
 - HTTP & HTTPS proxy support for gRPC client (#610 #614)
 - TLS & SPIRE config support in Controller SB API / Helm (#651)
 - Node ID based StatefulSet / DaemonSet deployment options (#630)
