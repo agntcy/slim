@@ -22,16 +22,22 @@ This document describes the different session types available to applications
 running on SLIM. Each session type is designed for specific communication patterns 
 and use cases, supporting a range of reliability and security settings.
 
+
 ## Anycast
 
-TODO: code snipet
 
-The anycast session enables point-to-point (1:1) communication where each
-message sent to a service (e.g., App-B) is delivered to only one of its
-available instances (e.g., App-B/1 or App-B/2). The SLIM Node dynamically
+The anycast session enables point-to-point (1:1) communication where each message
+sent to a service is delivered to only one of its available instances. This
+pattern provides natural load balancing and redundancy for stateless services.
+Anycast is best suited for distributing requests across multiple instances
+without maintaining session state.
+
+Let's see an example of the communication pattern in the anycast session using the 
+sequence diagram below. The anycast session sends each
+message to a service (e.g., App-B) and the message is delivered to only one of its
+available instances of that service (e.g., App-B/1 or App-B/2). The SLIM Node dynamically
 routes each message to one of the running instances, so consecutive messages
-may be delivered to different endpoints. This provides natural load balancing
-and redundancy for stateless services.
+may be delivered to different endpoints. 
 
 If reliability is enabled, the sender expects an acknowledgment (Ack) for every
 message sent. This ensures that the sender is notified of successful delivery,
@@ -61,18 +67,34 @@ sequenceDiagram
     SLIM Node->>App-A: Ack
 ```
 
-
-
 **Note:** Anycast sessions are stateless and do not allow persistent state to
 be stored on the remote endpoint. As a result, Messaging Layer Security (MLS)
 cannot be enabled for anycast sessions. If MLS is required for point-to-point
 communication, use a unicast session instead.
 
 
+### Create an Anycast Session
+
+Using the SLIM Python bindings, you can create an Anycast session as follows:
+
+```python
+import datetime
+
+# Assume local_app is an initialized application instance
+session_info = await local_app.create_session(
+    slim_bindings.PySessionConfiguration.Anycast(
+        max_retries=5,  # Number of times to retry message delivery on failure
+        timeout=datetime.timedelta(seconds=5),  # Timeout for each retry
+    )
+)
+```
+
+**Parameter explanations:**
+- `max_retries`: Number of times to retry message delivery on failure. Default is 5.
+- `timeout`: How long to wait for an acknowledgment at each retry. Default is 5 seconds.
+
+
 ## Unicast
-
-TODO: code snipet
-
 
 The unicast session enables point-to-point communication with a specific instance
 of an application. Unlike anycast, which may route each message to a different
@@ -90,10 +112,11 @@ App-B/1, establishing a secure group with just these two participants. This is
 similar to the MLS setup in multicast (see next session), but here the group contains 
 only App-A and App-B/1.
 
+
 The diagram below illustrates a unicast session from App-A to agntcy/ns/App-B.
 App-A first discovers an available instance (App-B/1), then performs the MLS
 setup, and finally sends multiple messages to that same instance, each followed
-by an Ack. If MLS is not enabled the MLS setup is skiped:
+by an Ack. If MLS is not enabled, the MLS setup is skipped:
 
 ```mermaid
 sequenceDiagram
@@ -138,6 +161,30 @@ sequenceDiagram
     SLIM Node->>App-A: Ack
 ```
 
+
+### Create a Unicast Session
+
+Using the SLIM Python bindings, you can create a Unicast session as follows:
+
+```python
+import datetime
+
+# Assume local_app is an initialized application instance
+session_info = await local_app.create_session(
+    slim_bindings.PySessionConfiguration.Unicast(
+        max_retries=5,  # Number of times to retry message delivery on failure
+        timeout=datetime.timedelta(seconds=5),  # Timeout for each retry
+        mls_enabled=True,  # Enable Messaging Layer Security (MLS) for secure comms
+    )
+)
+```
+
+**Parameter explanations:**
+- `max_retries`: Number of times to retry message delivery on failure. Default is 5.
+- `timeout`: How long to wait for an acknowledgment at each retry. Default is 5 seconds.
+- `mls_enabled`: Enables secure messaging using Messaging Layer Security (MLS). Set to 
+`True` to enable encryption and authentication for the session.
+
 ## Multicast
 
 The multicast session allows N:N communication where all applications can
@@ -159,8 +206,7 @@ from the channel.
 
 To create a multicast session, you need to configure the session with a topic name,
 set yourself as moderator if you want to manage participants, and specify other
-options such as retries, timeout, and security settings. Here you can find an
-example:
+options such as retries, timeout, and security settings. Here is an example:
 
 ```python
 import datetime
@@ -182,9 +228,9 @@ session_info = await local_app.create_session(
     (namespace, app, instance) identifying the group.
 - `moderator`: If True, this app can invite or remove participants from the
     session.
-- `max_retries`: On a packet loss detection, how many times to retry to retrieve
-    a message before notifying the application with an error. The default value is
-    ??. If set to None, every packet loss will be ignored.
+- `max_retries`: On packet loss detection, how many times to retry to retrieve
+    a message before notifying the application with an error. 
+    If set to None, every packet loss will be ignored.
 - `timeout`: How long to wait for the message to come back at every
     retransmission request.
 - `mls_enabled`: Enables secure group messaging using Messaging Layer Security
@@ -237,8 +283,7 @@ diagram below:
     an MLS Welcome message to App-C/1. App-C/1 initializes its MLS state and
     acknowledges receipt. At the end of this process, all participants
     (including the new one) share a secure group state and can exchange
-    encrypted messages on the multicast channel. If MLS is disabled, this last
-    step is skipped.
+    encrypted messages on the multicast channel. If MLS is disabled, the MLS state update and welcome step are skipped.
 
 ```mermaid
 sequenceDiagram
