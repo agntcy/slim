@@ -11,7 +11,7 @@ spec:
     - --shared-secret
     - secret123
     - --slim
-    - '{"endpoint":"http://agntcy-slim-1:46357","tls":{"insecure":true}}'
+    - '{"endpoint":"http://slim.slim.svc.cluster.local:46357","tls":{"insecure":true}}'
     env:
     - name: PYTHONUNBUFFERED
       value: "1"
