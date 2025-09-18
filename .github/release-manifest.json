@@ -10,5 +10,6 @@
     "control-plane/control-plane": "0.1.0",
     "charts/slim-control-plane": "0.1.3",
     "data-plane/python/examples": "0.1.0",
-    "data-plane/python/integrations/slimrpc": "0.0.1"
+    "data-plane/python/integrations/slimrpc": "0.0.1",
+    "data-plane/python/integrations/slima2a": "0.1.0"
 }
