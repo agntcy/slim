@@ -19,7 +19,7 @@ version = "0.1.0"
 description = "Python program using SLIM"
 requires-python = ">=3.9"
 dependencies = [
-    "slim-bindings>=0.1.0"
+    "slim-bindings>=0.5.0"
 ]
 ```
 
@@ -33,9 +33,9 @@ description = "Python program using SLIM"
 
 [tool.poetry.dependencies]
 python = ">=3.9,<3.14"
-slim-bindings = ">=0.1.0"
+slim-bindings = ">=0.5.0"
 ```
 
 ## Example programs
 
-Example apps can be found in the [repo](https://github.com/agntcy/slim/tree/main/data-plane/python/examples/src/slim_bindings_examples)
+Example apps can be found in the [repo](https://github.com/agntcy/slim/tree/slim-v0.5.0/data-plane/python/bindings/examples)

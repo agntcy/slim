@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.1.1](https://github.com/agntcy/slim/compare/control-plane-v0.1.0...control-plane-v0.1.1) (2025-09-18)
+
+
+### Features
+
+* add control-plane tests and combined coverage workflow ([#664](https://github.com/agntcy/slim/issues/664)) ([8836b30](https://github.com/agntcy/slim/commit/8836b30fc52e6050291e453df1927531a859e27f))
+* add original messageID check for Ack ([#583](https://github.com/agntcy/slim/issues/583)) ([899c116](https://github.com/agntcy/slim/commit/899c11652c82c8a9512ca5928b12f8f45d2dcac3))
+* notify controller with new subscriptions ([#611](https://github.com/agntcy/slim/issues/611)) ([6c64b28](https://github.com/agntcy/slim/commit/6c64b28ddbe6c64dbdbd202ac70a32fd9c8e9556))
+* Update SB API in control-plane to support group crud operations ([#478](https://github.com/agntcy/slim/issues/478)) ([c7b9afb](https://github.com/agntcy/slim/commit/c7b9afb139bac536f22a99f2a4e8185ad95af788))
+
+
+### Bug Fixes
+
+* add waitgroup when starting grpc servers in Controler ([#675](https://github.com/agntcy/slim/issues/675)) ([3b6f972](https://github.com/agntcy/slim/commit/3b6f97297702678805515b0ce34eecaa1ec4e2c9))
+* added host and port in the NodeEntry ([#560](https://github.com/agntcy/slim/issues/560)) ([dd53b01](https://github.com/agntcy/slim/commit/dd53b016891cb7e9d1cc066f000ef21b4ae14dfd))
+
 ## [0.1.0](https://github.com/agntcy/slim/compare/control-plane-v0.0.1...control-plane-v0.1.0) (2025-07-31)
 
 
