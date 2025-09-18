@@ -7,20 +7,19 @@ import (
 	"net"
 	"sync"
 
+	"github.com/rs/zerolog"
+	"google.golang.org/grpc"
+
 	southboundApi "github.com/agntcy/slim/control-plane/common/proto/controller/v1"
 	controlplaneApi "github.com/agntcy/slim/control-plane/common/proto/controlplane/v1"
 	"github.com/agntcy/slim/control-plane/control-plane/internal/config"
 	"github.com/agntcy/slim/control-plane/control-plane/internal/db"
 	"github.com/agntcy/slim/control-plane/control-plane/internal/services/groupservice"
 	"github.com/agntcy/slim/control-plane/control-plane/internal/services/nbapiservice"
-
 	"github.com/agntcy/slim/control-plane/control-plane/internal/services/nodecontrol"
 	"github.com/agntcy/slim/control-plane/control-plane/internal/services/routes"
 	"github.com/agntcy/slim/control-plane/control-plane/internal/services/sbapiservice"
 	"github.com/agntcy/slim/control-plane/control-plane/internal/util"
-
-	"github.com/rs/zerolog"
-	"google.golang.org/grpc"
 )
 
 func main() {

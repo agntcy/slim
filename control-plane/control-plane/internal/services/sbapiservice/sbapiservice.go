@@ -5,6 +5,10 @@ import (
 	"net"
 	"time"
 
+	"github.com/google/uuid"
+	"github.com/rs/zerolog"
+	"google.golang.org/grpc/peer"
+
 	controllerapi "github.com/agntcy/slim/control-plane/common/proto/controller/v1"
 	"github.com/agntcy/slim/control-plane/control-plane/internal/config"
 	"github.com/agntcy/slim/control-plane/control-plane/internal/db"
@@ -12,10 +16,6 @@ import (
 	"github.com/agntcy/slim/control-plane/control-plane/internal/services/nodecontrol"
 	"github.com/agntcy/slim/control-plane/control-plane/internal/services/routes"
 	"github.com/agntcy/slim/control-plane/control-plane/internal/util"
-
-	"github.com/google/uuid"
-	"github.com/rs/zerolog"
-	"google.golang.org/grpc/peer"
 )
 
 type SouthboundAPIServer interface {

@@ -6,15 +6,15 @@ import (
 	"reflect"
 	"sync"
 
-	controllerapi "github.com/agntcy/slim/control-plane/common/proto/controller/v1"
-	controlplaneApi "github.com/agntcy/slim/control-plane/common/proto/controlplane/v1"
-	"github.com/agntcy/slim/control-plane/control-plane/internal/db"
-	"github.com/agntcy/slim/control-plane/control-plane/internal/services/nodecontrol"
-
 	"github.com/google/uuid"
 	"github.com/rs/zerolog"
 	"google.golang.org/protobuf/types/known/wrapperspb"
 	"k8s.io/client-go/util/workqueue"
+
+	controllerapi "github.com/agntcy/slim/control-plane/common/proto/controller/v1"
+	controlplaneApi "github.com/agntcy/slim/control-plane/common/proto/controlplane/v1"
+	"github.com/agntcy/slim/control-plane/control-plane/internal/db"
+	"github.com/agntcy/slim/control-plane/control-plane/internal/services/nodecontrol"
 )
 
 const AllNodesID = "*"
