@@ -16,7 +16,6 @@ Versioning](https://semver.org/spec/v2.0.0.html).
 
 - SLIMRPC + Native A2A integration (Python) with new `slimrpc` and `slima2a`
   packages
-- Subscription propagation & metadata maps across data plane components
 - HTTP / HTTPS proxy support for gRPC clients
 - Node ID uniqueness & enhanced deployment options (StatefulSet / DaemonSet)
 - Control plane test coverage & Ack original message ID validation
