@@ -2,6 +2,7 @@
 Copyright AGNTCY Contributors (https://github.com/agntcy)
 SPDX-License-Identifier: Apache-2.0
 */}}
+
 {{- if or (not .Values.slim.daemonset) (eq .Values.slim.daemonset false) }}
 apiVersion: apps/v1
 kind: StatefulSet
@@ -123,4 +124,4 @@ spec:
       tolerations:
         {{- toYaml . | nindent 8 }}
       {{- end }}
-  {{- end }}      
+  {{- end }}

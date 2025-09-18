@@ -5,7 +5,7 @@
 name = "slim-mcp"
 description = "Model Context Protocol with SLIM as transport"
 readme = "README.md"
-version = "0.1.6"
+version = "0.1.7"
 requires-python = ">=3.10, <4.0"
 license = "Apache-2.0"
 classifiers = [
@@ -22,7 +22,7 @@ classifiers = [
     "Programming Language :: Python :: 3.13",
 ]
 
-dependencies = ["slim-bindings>=0.4.1", "mcp==1.6.0", "anyio>=4.5"]
+dependencies = ["slim-bindings>=0.5.0", "mcp==1.6.0", "anyio>=4.5"]
 
 # [tool.uv.sources]
 # slim-bindings = { path = "../../bindings" }
