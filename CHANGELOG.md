@@ -107,7 +107,7 @@ slimrpc](./data-plane/python/integrations/slimrpc/CHANGELOG.md),
 
 ---
 
-### September 2025 Aggregated Changes (v0.5.0 Ecosystem)
+### v0.5.0 Release Summary (September 2025)
 
 #### ⚠ Breaking Changes
 - Node ID uniqueness & service/Helm config schema updates (#630)
