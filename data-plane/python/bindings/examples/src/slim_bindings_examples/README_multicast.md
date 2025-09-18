@@ -132,15 +132,6 @@ process in [SESSION.md](../../../SESSION.md).
 TODO: the recv session and recv msg will change soon, continue this after the refactor.
 
 
-
-## Usage
-
-
-The recommended way to run the multicast example is via the Taskfile command.
-If you want to see all the command flags, check the
-[Taskfile.yaml](../../Taskfile.yaml) file.
-
-
 ## Usage
 
 
