@@ -107,8 +107,8 @@ func (s *sbAPIService) OpenControlChannel(stream controllerapi.ControllerService
 		// Extract host from gRPC peer info
 		host := getPeerHost(stream)
 		for _, detail := range regReq.RegisterNodeRequest.ConnectionDetails {
-			zlog.Info().Msgf("Connection details: %v", detail)
 			connDetails = append(connDetails, getConnDetails(host, detail))
+			zlog.Info().Msgf("Connection details: %v", connDetails)
 		}
 
 		_, err = s.dbService.SaveNode(db.Node{

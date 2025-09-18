@@ -2,6 +2,7 @@ package db
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"google.golang.org/protobuf/types/known/wrapperspb"
@@ -37,6 +38,20 @@ type ConnectionDetails struct {
 	ExternalEndpoint *string
 	GroupName        *string
 	MTLSRequired     bool
+}
+
+func (cd ConnectionDetails) String() string {
+	parts := []string{fmt.Sprintf("endpoint: " + cd.Endpoint)}
+	if cd.MTLSRequired {
+		parts = append(parts, "mtls")
+	}
+	if cd.ExternalEndpoint != nil && *cd.ExternalEndpoint != "" {
+		parts = append(parts, fmt.Sprintf("externalEndpoint: %s", *cd.ExternalEndpoint))
+	}
+	if cd.GroupName != nil && *cd.GroupName != "" {
+		parts = append(parts, fmt.Sprintf("group: %s", *cd.GroupName))
+	}
+	return strings.Join(parts, ", ")
 }
 
 type Route struct {
