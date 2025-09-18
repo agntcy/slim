@@ -52,13 +52,13 @@ func newListNodesCmd(opts *options.CommonOptions) *cobra.Command {
 				if len(node.Connections) > 0 {
 					fmt.Println("  Connection details:")
 					for _, conn := range node.Connections {
-						fmt.Println(fmt.Sprintf("  - Endpoint: %s", conn.Endpoint))
-						fmt.Println(fmt.Sprintf("    MtlsRequired: %v", conn.MtlsRequired))
+						fmt.Printf("  - Endpoint: %s\n", conn.Endpoint)
+						fmt.Printf("    MtlsRequired: %v\n", conn.MtlsRequired)
 						if conn.ExternalEndpoint != nil {
-							fmt.Println(fmt.Sprintf("    ExternalEndpoint: %s", *conn.ExternalEndpoint))
+							fmt.Printf("    ExternalEndpoint: %s\n", *conn.ExternalEndpoint)
 						}
 						if conn.GroupName != nil {
-							fmt.Println(fmt.Sprintf("    GroupName: %s", *conn.GroupName))
+							fmt.Printf("    GroupName: %s\n", *conn.GroupName)
 						}
 					}
 				} else {

@@ -119,7 +119,7 @@ func newAddCmd(opts *options.CommonOptions) *cobra.Command {
 			destNodeID := ""
 			var connection *grpcapi.Connection
 			// check if config file exists
-			if _, err := os.Stat(configFile); err != nil {
+			if _, err = os.Stat(configFile); err != nil {
 				destNodeID = configFile
 			} else {
 				connection, err = util.ParseConfigFile(configFile)
@@ -209,8 +209,8 @@ func newDelCmd(opts *options.CommonOptions) *cobra.Command {
 
 			// determine if endpoint is a node ID or a connection ID
 			if util.IsEndpoint(endpoint) {
-				_, connID, err := util.ParseEndpoint(endpoint)
-				if err != nil {
+				_, connID, err2 := util.ParseEndpoint(endpoint)
+				if err2 != nil {
 					return fmt.Errorf("invalid endpoint format '%s': %w", endpoint, err)
 				}
 				subscription.ConnectionId = connID

@@ -41,7 +41,7 @@ type ConnectionDetails struct {
 }
 
 func (cd ConnectionDetails) String() string {
-	parts := []string{fmt.Sprintf("endpoint: " + cd.Endpoint)}
+	parts := []string{fmt.Sprintf("endpoint: %s", cd.Endpoint)}
 	if cd.MTLSRequired {
 		parts = append(parts, "mtls")
 	}
