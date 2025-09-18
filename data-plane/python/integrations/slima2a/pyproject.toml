@@ -3,11 +3,29 @@
 
 [project]
 name = "slima2a"
-version = "0.0.1"
+version = "0.1.0"
 description = "A2A protocol over slimrpc"
 readme = "README_pypi.md"
 requires-python = ">=3.10, <4.0"
 dependencies = ["a2a-sdk[telemetry]>=0.3.0", "slimrpc==0.1.0"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+
+    # Indicate who your project is intended for
+    "Intended Audience :: Developers",
+    "Topic :: Software Development :: Libraries",
+
+    # Specify the Python versions you support here.
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+]
+
+[project.urls]
+Repository = "https://github.com/agntcy/slim"
+Issues = "https://github.com/agntcy/slim/issues"
+Changelog = "https://github.com/agntcy/slim/blob/main/data-plane/python/integrations/slima2a/CHANGELOG.md"
 
 [dependency-groups]
 linting = ["ruff>=0.12", "mypy>=1.17.0", "types-protobuf>=6.30.2.20250822"]
