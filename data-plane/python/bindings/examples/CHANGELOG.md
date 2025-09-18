@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.1.1](https://github.com/agntcy/slim/compare/slim-bindings-examples-v0.1.0...slim-bindings-examples-v0.1.1) (2025-09-18)
+
+
+### Features
+
+* **python/bindings/examples:** upgrade dep to slim 0.5.0 ([#717](https://github.com/agntcy/slim/issues/717)) ([1fa4ff3](https://github.com/agntcy/slim/commit/1fa4ff31571caff4ccfd7da4c6c68d4c1999da2c))
+
+
+### Bug Fixes
+
+* **python-bindings:** default crypto provider initialization for Reqwest crate ([#706](https://github.com/agntcy/slim/issues/706)) ([16a71ce](https://github.com/agntcy/slim/commit/16a71ced6164e4b6df7953f897b8f195fd56b097))
+
 ## 0.1.0 (2025-08-01)
 
 

@@ -579,8 +579,10 @@ mod tests {
     use tokio::time;
     use tracing_test::traced_test;
 
+    use slim_config::tls::provider::initialize_crypto_provider;
+
     use crate::builder::JwtBuilder;
-    use crate::testutils::{initialize_crypto_provider, setup_test_jwt_resolver};
+    use crate::testutils::setup_test_jwt_resolver;
 
     fn create_file(file_path: &str, content: &str) -> std::io::Result<()> {
         let mut file = File::create(file_path)?;

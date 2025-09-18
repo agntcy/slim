@@ -1,11 +1,11 @@
 # SLIM RPC (SLIM Remote Procedure Call)
 
-SLIM RCP, or SLIM Remote Procedure Call, is a mechanism designed to enable
+SLIMRCP, or SLIM Remote Procedure Call, is a library designed to enable
 Protocol Buffers (protobuf) RPC over SLIM (Secure Low-latency Inter-process
 Messaging). This is analogous to gRPC, which leverages HTTP/2 as its underlying
 transport layer for protobuf RPC.
 
-To use SLIM RPC you can compile you protobuf file using the SLIM RPC compiler and
+To use SLIM RPC you can compile you protobuf file using the [SLIM RPC compiler](https://github.com/agntcy/slim/tree/slim-v0.5.0/data-plane/slimrpc-compiler) and
 use the generated code to create you application.
 
 ## Protobuf example
@@ -160,18 +160,21 @@ logger = logging.getLogger(__name__)
 
 
 async def amain() -> None:
-    channel = slimrpc.Channel(
-        local="agntcy/grpc/client",
-        slim={
-            "endpoint": "http://localhost:46357",
-            "tls": {
-                "insecure": True,
+    channel_factory = slimrpc.ChannelFactory(
+        slim_app_config=slimrpc.SLIMAppConfig(
+            identity="agntcy/grpc/client",
+            slim_client_config={
+                "endpoint": "http://localhost:46357",
+                "tls": {
+                    "insecure": True,
+                },
             },
-        },
-        enable_opentelemetry=False,
-        shared_secret="my_shared_secret",
-        remote="agntcy/grpc/server",
+            enable_opentelemetry=False,
+            shared_secret="my_shared_secret",
+        ),
     )
+
+    channel = channel_factory.new_channel(remote="agntcy/grpc/server")
 
     # Stubs
     stubs = TestStub(channel)
@@ -187,7 +190,7 @@ async def amain() -> None:
         async for resp in responses:
             logger.info(f"Stream Response: {resp}")
 
-        async def stream_requests() -> AsyncGenerator[ExampleRequest]:
+        async def stream_requests() -> AsyncGenerator[ExampleRequest, None]:
             for i in range(10):
                 yield ExampleRequest(example_integer=i, example_string=f"Request {i}")
 

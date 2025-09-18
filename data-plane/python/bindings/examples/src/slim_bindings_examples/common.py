@@ -105,7 +105,7 @@ def jwt_identity(
     verifier = slim_bindings.PyIdentityVerifier.Jwt(  # type: ignore
         public_key=pykey,
         issuer=iss,
-        audience=aud,
+        audience=[aud],
         subject=sub,
     )
 

@@ -377,6 +377,8 @@ mod tests {
     use std::fs;
     use std::io::Write;
 
+    use crate::tls::provider;
+
     // spellchecker:off
 
     // Test certificates (for testing purposes only)
@@ -783,10 +785,10 @@ MSAvYjGrRzM6XpGEYasfwy0Zoc3loi9nzP5uE4tv8vE72nyMf+OhaPG+Rn+mdBv4
 
     #[test]
     fn test_static_cert_resolver_new() {
-        use rustls::crypto::aws_lc_rs;
-        let provider = Arc::new(aws_lc_rs::default_provider());
+        provider::initialize_crypto_provider();
+        let provider = rustls::crypto::CryptoProvider::get_default().unwrap();
 
-        let result = StaticCertResolver::new(TEST_PRIVATE_KEY_PEM, TEST_CLIENT_CERT_PEM, &provider);
+        let result = StaticCertResolver::new(TEST_PRIVATE_KEY_PEM, TEST_CLIENT_CERT_PEM, provider);
 
         // This test might fail due to the test certificates not being valid
         // but we're testing that the function doesn't panic during creation
@@ -834,14 +836,14 @@ MSAvYjGrRzM6XpGEYasfwy0Zoc3loi9nzP5uE4tv8vE72nyMf+OhaPG+Rn+mdBv4
 
     #[test]
     fn test_watcher_cert_resolver_new() {
-        use rustls::crypto::aws_lc_rs;
-        let provider = Arc::new(aws_lc_rs::default_provider());
+        provider::initialize_crypto_provider();
+        let provider = rustls::crypto::CryptoProvider::get_default().unwrap();
 
         let suffix = rand::random::<u32>();
         let key_file_path = create_temp_file_simple(TEST_PRIVATE_KEY_PEM, suffix);
         let cert_file_path = create_temp_file_simple(TEST_CLIENT_CERT_PEM, suffix);
 
-        let result = WatcherCertResolver::new(&key_file_path, &cert_file_path, &provider);
+        let result = WatcherCertResolver::new(&key_file_path, &cert_file_path, provider);
 
         // This test might fail due to the test certificates not being valid
         // but we're testing that the function doesn't panic during creation

@@ -29,7 +29,7 @@ dependencies = [
 
 [[package]]
 name = "agntcy-slim"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "agntcy-slim-config",
  "agntcy-slim-service",
@@ -51,8 +51,9 @@ dependencies = [
 
 [[package]]
 name = "agntcy-slim-auth"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
+ "agntcy-slim-config",
  "async-trait",
  "aws-lc-rs",
  "base64 0.22.1",
@@ -64,7 +65,6 @@ dependencies = [
  "parking_lot",
  "pin-project",
  "reqwest",
- "rustls",
  "schemars",
  "serde",
  "serde_json",
@@ -102,7 +102,7 @@ dependencies = [
 
 [[package]]
 name = "agntcy-slim-config"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "agntcy-slim-auth",
  "base64 0.22.1",
@@ -141,7 +141,7 @@ dependencies = [
 
 [[package]]
 name = "agntcy-slim-controller"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "agntcy-slim-config",
  "agntcy-slim-datapath",
@@ -167,7 +167,7 @@ dependencies = [
 
 [[package]]
 name = "agntcy-slim-datapath"
-version = "0.8.0"
+version = "0.9.0"
 dependencies = [
  "agntcy-slim-config",
  "agntcy-slim-tracing",
@@ -196,7 +196,7 @@ dependencies = [
 
 [[package]]
 name = "agntcy-slim-mls"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "agntcy-slim-auth",
  "agntcy-slim-datapath",
@@ -223,7 +223,7 @@ dependencies = [
 
 [[package]]
 name = "agntcy-slim-service"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "agntcy-slim-auth",
  "agntcy-slim-config",
@@ -255,7 +255,7 @@ dependencies = [
 
 [[package]]
 name = "agntcy-slim-tracing"
-version = "0.2.2"
+version = "0.2.3"
 dependencies = [
  "agntcy-slim-config",
  "once_cell",

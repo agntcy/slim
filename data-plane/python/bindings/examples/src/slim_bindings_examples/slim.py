@@ -9,6 +9,8 @@ import slim_bindings
 
 from .common import shared_secret_identity
 
+global slim
+
 
 async def run_server(address: str, enable_opentelemetry: bool):
     # init tracing

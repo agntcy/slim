@@ -1,1 +1,1 @@
-../../../data-plane/gateway/datapath/proto/v1/pubsub.proto
+../../../data-plane/core/datapath/proto/v1/data-plane.proto
