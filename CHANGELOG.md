@@ -26,7 +26,6 @@ Versioning](https://semver.org/spec/v2.0.0.html).
 
 - Node ID uniqueness requirement (Helm & service config) (#630)
 - Multiple Rust public API changes in dataplane release (v0.5.0 bundle) (#508)
-- Service publish API parameter expansions (#508)
 
 #### 🔧 Infrastructure & Tooling
 
@@ -112,7 +111,6 @@ slimrpc](./data-plane/python/integrations/slimrpc/CHANGELOG.md),
 - Node ID uniqueness & service/Helm config schema updates (#630)
 - Data-plane public API adjustments across auth/config/datapath/controller/service crates (bundle release) (#508)
 - Python import rename `srpc` → `slimrpc` (#660)
-- Service publish API parameter expansion (publish/publish_to/publish_with_flags) (#508)
 
 #### 🚀 Features
 - Subscription notifications propagated to controller & services (#611)
