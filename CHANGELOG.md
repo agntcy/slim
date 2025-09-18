@@ -8,7 +8,7 @@ Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-## Latest Releases (19 September 2025)
+## v0.5.0 (19 September 2025)
 
 ### Key Highlights
 
@@ -206,7 +206,7 @@ slimrpc](./data-plane/python/integrations/slimrpc/CHANGELOG.md),
 
 ---
 
-## August 2025
+## v0.4.0 (August 2025)
 
 ### Key Highlights
 
