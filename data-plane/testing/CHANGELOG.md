@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.2.2](https://github.com/agntcy/slim/compare/slim-testutils-v0.2.1...slim-testutils-v0.2.2) (2025-09-18)
+
+
+### Features
+
+* add testing for fire and forget session ([#540](https://github.com/agntcy/slim/issues/540)) ([51adc94](https://github.com/agntcy/slim/commit/51adc94b408798aa63f5d2a00621a71d56d71575))
+* replace pubsub with dataplane in the node-config ([#591](https://github.com/agntcy/slim/issues/591)) ([88be6ee](https://github.com/agntcy/slim/commit/88be6eebef9e34e26f482812ab91d76c3186ba44))
+
+
+### Bug Fixes
+
+* fix ff session ([#538](https://github.com/agntcy/slim/issues/538)) ([e0d1f65](https://github.com/agntcy/slim/commit/e0d1f65b23556e1e8f045523daa9b93ff4d8635d))
+
 ## [0.2.1](https://github.com/agntcy/slim/compare/slim-testutils-v0.2.0...slim-testutils-v0.2.1) (2025-07-31)
 
 
