@@ -56,18 +56,18 @@ slimrpc](./data-plane/python/integrations/slimrpc/CHANGELOG.md),
 
 | Component                                                           | Latest Version | Release Date |
 | ------------------------------------------------------------------- | -------------- | ------------ |
-| [slim](./data-plane/)                                               | v0.5.0         | 2025-09-17   |
-| [slim-bindings](./data-plane/python/bindings/CHANGELOG.md)          | v0.5.0         | 2025-09-18   |
-| [control-plane](./control-plane/control-plane/CHANGELOG.md)         | v0.1.1         | 2025-09-18   |
-| [slimctl](./control-plane/slimctl/CHANGELOG.md)                     | v0.2.2         | 2025-09-18   |
-| [helm-slim](./charts/slim/CHANGELOG.md)                             | v0.2.0         | 2025-09-18   |
-| [helm-slim-control-plane](./charts/slim-control-plane/CHANGELOG.md) | v0.1.4         | 2025-09-18   |
-| [slim-bindings-examples](./data-plane/python/bindings/examples/)    | v0.1.1         | 2025-09-18   |
-| [slim-testutils](./data-plane/testing/CHANGELOG.md)                 | v0.2.2         | 2025-09-18   |
-| [slimrpc](./data-plane/python/integrations/slimrpc/CHANGELOG.md)    | v0.1.0         | 2025-09-18   |
-| [slima2a](./data-plane/python/integrations/slima2a/CHANGELOG.md)    | v0.1.0         | 2025-09-18   |
-| [slim-mcp](./data-plane/python/integrations/slim-mcp/CHANGELOG.md)  | v0.1.7         | 2025-09-18   |
-| [slim-mcp-proxy](./data-plane/integrations/mcp-proxy/CHANGELOG.md)  | v0.1.7         | 2025-09-18   |
+| [slim](./data-plane/)                                               | v0.5.0         | 2025-09-19   |
+| [slim-bindings](./data-plane/python/bindings/CHANGELOG.md)          | v0.5.0         | 2025-09-19   |
+| [control-plane](./control-plane/control-plane/CHANGELOG.md)         | v0.1.1         | 2025-09-19   |
+| [slimctl](./control-plane/slimctl/CHANGELOG.md)                     | v0.2.2         | 2025-09-19   |
+| [helm-slim](./charts/slim/CHANGELOG.md)                             | v0.2.0         | 2025-09-19   |
+| [helm-slim-control-plane](./charts/slim-control-plane/CHANGELOG.md) | v0.1.4         | 2025-09-19   |
+| [slim-bindings-examples](./data-plane/python/bindings/examples/)    | v0.1.1         | 2025-09-19   |
+| [slim-testutils](./data-plane/testing/CHANGELOG.md)                 | v0.2.2         | 2025-09-19   |
+| [slimrpc](./data-plane/python/integrations/slimrpc/CHANGELOG.md)    | v0.1.0         | 2025-09-19   |
+| [slima2a](./data-plane/python/integrations/slima2a/CHANGELOG.md)    | v0.1.0         | 2025-09-19   |
+| [slim-mcp](./data-plane/python/integrations/slim-mcp/CHANGELOG.md)  | v0.1.7         | 2025-09-19   |
+| [slim-mcp-proxy](./data-plane/integrations/mcp-proxy/CHANGELOG.md)  | v0.1.7         | 2025-09-19   |
 
 ### Compatibility Matrix
 
