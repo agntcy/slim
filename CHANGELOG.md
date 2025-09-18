@@ -110,7 +110,6 @@ slimrpc](./data-plane/python/integrations/slimrpc/CHANGELOG.md),
 #### ⚠ Breaking Changes
 - Node ID uniqueness & service/Helm config schema updates (#630)
 - Data-plane public API adjustments across auth/config/datapath/controller/service crates (bundle release) (#508)
-- Python import rename `srpc` → `slimrpc` (#660)
 
 #### 🚀 Features
 - Subscription notifications propagated to controller & services (#611)
