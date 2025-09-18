@@ -124,9 +124,9 @@ tasks:
   slim.deploy.client-apps:
     desc: Deploy Slim using the DaemonSet deployment strategy
     cmds:
-      - kubectl apply -f client-apps
+      - kubectl apply -f client_apps
 
   slim.deploy.client-apps-with-spire:
     desc: Deploy Slim using the DaemonSet deployment strategy
     cmds:
-      - kubectl apply -f client-apps/with-spire      
+      - kubectl apply -f client_apps/with-spire      
