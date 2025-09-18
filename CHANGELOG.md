@@ -88,10 +88,10 @@ slimrpc](./data-plane/python/integrations/slimrpc/CHANGELOG.md),
 
 #### Development & Testing Tools
 
-| Tool                       | Version | Works With           | Purpose           |
-| -------------------------- | ------- | -------------------- | ----------------- |
-| **slim-testutils**         | v0.2.2  | slim >= v0.4.0       | Testing utilities |
-| **slim-bindings-examples** | v0.1.1  | slim >= v0.4.0       | Python examples   |
+| Tool                       | Version | Works With     | Purpose           |
+| -------------------------- | ------- | -------------- | ----------------- |
+| **slim-testutils**         | v0.2.2  | slim >= v0.4.0 | Testing utilities |
+| **slim-bindings-examples** | v0.1.1  | slim >= v0.4.0 | Python examples   |
 
 #### Compatibility Notes
 
@@ -107,62 +107,116 @@ slimrpc](./data-plane/python/integrations/slimrpc/CHANGELOG.md),
 ### v0.5.0 Release Summary (September 2025)
 
 #### ⚠ Breaking Changes
-- Node ID uniqueness & service/Helm config schema updates (#630)
-- Data-plane public API adjustments across auth/config/datapath/controller/service crates (bundle release) (#508)
+
+- Node ID uniqueness & service/Helm config schema updates
+  ([#630](https://github.com/agntcy/slim/pull/630))
+- Data-plane public API adjustments across
+  auth/config/datapath/controller/service crates (bundle release)
+  ([#508](https://github.com/agntcy/slim/pull/508))
 
 #### 🚀 Features
-- Subscription notifications propagated to controller & services (#611)
-- Metadata map for gRPC clients/servers (#684)
-- Replace pubsub with dataplane in node-config (#591)
-- Ack original messageID validation (#583)
-- Control-plane test coverage + combined coverage workflow (#664)
-- MLS identity provider backend agnostic (#552)
-- Fire-and-forget session testing utilities (#540)
-- Channel & participant CLI commands (slimctl) (#534)
-- Channel info included in subscription messages (#611)
-- SLIMRPC + Native A2A Python packages (`slimrpc`, `slima2a`) initial release (#660 #685 #690 #613)
-- HTTP & HTTPS proxy support for gRPC client (#610 #614)
-- TLS & SPIRE config support in Controller SB API / Helm (#651)
-- Node ID based StatefulSet / DaemonSet deployment options (#630)
+
+- Subscription notifications propagated to controller & services
+  ([#611](https://github.com/agntcy/slim/pull/611))
+- Metadata map for gRPC clients/servers
+  ([#684](https://github.com/agntcy/slim/pull/684))
+- Replace pubsub with dataplane in node-config
+  ([#591](https://github.com/agntcy/slim/pull/591))
+- Ack original messageID validation
+  ([#583](https://github.com/agntcy/slim/pull/583))
+- Control-plane test coverage + combined coverage workflow
+  ([#664](https://github.com/agntcy/slim/pull/664))
+- MLS identity provider backend agnostic
+  ([#552](https://github.com/agntcy/slim/pull/552))
+- Fire-and-forget session testing utilities
+  ([#540](https://github.com/agntcy/slim/pull/540))
+- Channel & participant CLI commands (slimctl)
+  ([#534](https://github.com/agntcy/slim/pull/534))
+- Channel info included in subscription messages
+  ([#611](https://github.com/agntcy/slim/pull/611))
+- SLIMRPC + Native A2A Python packages (`slimrpc`, `slima2a`) initial release
+  ([#660](https://github.com/agntcy/slim/pull/660)
+  [#685](https://github.com/agntcy/slim/pull/685)
+  [#690](https://github.com/agntcy/slim/pull/690)
+  [#613](https://github.com/agntcy/slim/pull/613))
+- HTTP & HTTPS proxy support for gRPC client
+  ([#610](https://github.com/agntcy/slim/pull/610)
+  [#614](https://github.com/agntcy/slim/pull/614))
+- TLS & SPIRE config support in Controller SB API / Helm
+  ([#651](https://github.com/agntcy/slim/pull/651))
+- Node ID based StatefulSet / DaemonSet deployment options
+  ([#630](https://github.com/agntcy/slim/pull/630))
 
 #### 🐛 Bug Fixes
-- Duration string normalization (`duration-str` → `duration-string`) (#683)
-- Fire-and-forget session reliability (#538)
-- WaitGroup for gRPC server startup ordering (#675)
-- Host & port fields in NodeEntry (#560)
-- System CA loading enabled by default in TLS config (#605)
-- Ingress port reference correction (Helm) (#597)
-- Crypto provider initialization for Reqwest (Python bindings) (#706)
-- Mypy hygiene across python packages (slima2a, slimrpc, slim-mcp) (#671)
-- Slimctl version crash resolved (#585)
-- Deadline handling in SRPC (#658)
-- Template comment usage to avoid Helm rendering issues (#595)
 
-#### � Infrastructure & Tooling
-- Move to clang-19 for data-plane C/C++ builds (#662)
-- PR title conventional commit enforcement (#686)
-- Python integrations folder restructure & Taskfile division (#628)
-- Coverage reporting (Rust + Control Plane) (#652 #664)
-- Buf CI config update (#532)
+- Duration string normalization (`duration-str` → `duration-string`)
+  ([#683](https://github.com/agntcy/slim/pull/683))
+- Fire-and-forget session reliability
+  ([#538](https://github.com/agntcy/slim/pull/538))
+- WaitGroup for gRPC server startup ordering
+  ([#675](https://github.com/agntcy/slim/pull/675))
+- Host & port fields in NodeEntry
+  ([#560](https://github.com/agntcy/slim/pull/560))
+- System CA loading enabled by default in TLS config
+  ([#605](https://github.com/agntcy/slim/pull/605))
+- Ingress port reference correction (Helm)
+  ([#597](https://github.com/agntcy/slim/pull/597))
+- Crypto provider initialization for Reqwest (Python bindings)
+  ([#706](https://github.com/agntcy/slim/pull/706))
+- Mypy hygiene across python packages (slima2a, slimrpc, slim-mcp)
+  ([#671](https://github.com/agntcy/slim/pull/671))
+- Slimctl version crash resolved
+  ([#585](https://github.com/agntcy/slim/pull/585))
+- Deadline handling in SRPC ([#658](https://github.com/agntcy/slim/pull/658))
+- Template comment usage to avoid Helm rendering issues
+  ([#595](https://github.com/agntcy/slim/pull/595))
 
-#### � Security & Hardening
-- Default system CA trust configuration (#605)
-- Dependency upgrades (tracing-subscriber 0.3.20, slab) (#608 #563)
+#### 🔧 Infrastructure & Tooling
 
-#### � Packaging & Release
+- Move to clang-19 for data-plane C/C++ builds
+  ([#662](https://github.com/agntcy/slim/pull/662))
+- PR title conventional commit enforcement
+  ([#686](https://github.com/agntcy/slim/pull/686))
+- Python integrations folder restructure & Taskfile division
+  ([#628](https://github.com/agntcy/slim/pull/628))
+- Coverage reporting (Rust + Control Plane)
+  ([#652](https://github.com/agntcy/slim/pull/652)
+  [#664](https://github.com/agntcy/slim/pull/664))
+- Buf CI config update ([#532](https://github.com/agntcy/slim/pull/532))
+
+#### 🛡 Security & Hardening
+
+- Default system CA trust configuration
+  ([#605](https://github.com/agntcy/slim/pull/605))
+- Dependency upgrades (tracing-subscriber 0.3.20, slab)
+  ([#608](https://github.com/agntcy/slim/pull/608)
+  [#563](https://github.com/agntcy/slim/pull/563))
+
+#### 📦 Packaging & Release
+
 - Coordinated multi-component release (slim 0.5.0 & dependent charts/bindings)
-- Image upgrades in Helm charts (slim 0.5.0, control-plane 0.1.1) (#714 #716)
-- Python wheels published for new packages (slimrpc, slima2a) (#638 #639 #637)
+- Image upgrades in Helm charts (slim 0.5.0, control-plane 0.1.1)
+  ([#714](https://github.com/agntcy/slim/pull/714)
+  [#716](https://github.com/agntcy/slim/pull/716))
+- Python wheels published for new packages (slimrpc, slima2a)
+  ([#638](https://github.com/agntcy/slim/pull/638)
+  [#639](https://github.com/agntcy/slim/pull/639)
+  [#637](https://github.com/agntcy/slim/pull/637))
 
-#### � Migration Pointers (0.4.0 → 0.5.0)
-- Set/validate `node_id` in service & Helm values; review StatefulSet vs DaemonSet
-- Update Rust code for new struct fields / enum variants & removed items (see crate-level CHANGELOGs)
+#### 🗺 Migration Pointers (0.4.0 → 0.5.0)
+
+- Set/validate `node_id` in service & Helm values; review StatefulSet vs
+  DaemonSet
+- Update Rust code for new struct fields / enum variants & removed items (see
+  crate-level CHANGELOGs)
 - Adjust service publish method call sites for new parameter lists
 - Rename Python imports `srpc` → `slimrpc`; update A2A integration usage
 - Regenerate or audit gRPC/proto dependent code for controller SB API additions
-- Review Helm values for ingress, proxy, TLS/SPIRE, metadata & node identity fields
+- Review Helm values for ingress, proxy, TLS/SPIRE, metadata & node identity
+  fields
 
 #### ✅ Suggested Upgrade Order
+
 1. Upgrade Helm and apply node_id + TLS/SPIRE changes
 2. Update Rust dependencies (dataplane bundle) & fix compile errors
 3. Migrate Python imports and install new wheels (`slimrpc`, `slima2a`)
@@ -173,7 +227,7 @@ slimrpc](./data-plane/python/integrations/slimrpc/CHANGELOG.md),
 
 ---
 
-## Latest Releases (August 2025)
+## August 2025
 
 ### Key Highlights
 
@@ -645,10 +699,10 @@ async def background_task(session_id):
 When upgrading from v0.3.6 to v0.4.0, ensure you:
 
 - [ ] **Update SLIM instance creation** to use `PyName` objects and
-  authentication parameters
+      authentication parameters
 - [ ] **Replace `PyAgentType`** with `PyName` throughout your codebase
 - [ ] **Configure authentication** using either shared secrets (development) or
-  JWT tokens (production)
+      JWT tokens (production)
 - [ ] **Remove manual route/subscription setup** (now handled automatically)
 - [ ] **Update session creation** - only required for moderator applications
 - [ ] **Implement channel invitation logic** for moderators
