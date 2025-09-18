@@ -98,7 +98,7 @@ slimrpc](./data-plane/python/integrations/slimrpc/CHANGELOG.md),
 | Core Component    | Version | Compatible With                                             |
 | ----------------- | ------- | ----------------------------------------------------------- |
 | **slim**          | v0.5.0  | control-plane v0.1.1                                        |
-| **slim-bindings** | v0.5.0  | slim >= v0.4.0                                              |
+| **slim-bindings** | v0.5.0  | slim v0.5.0                                                 |
 | **control-plane** | v0.1.1  | slim v0.5.0, slimctl v0.2.2, helm-slim-control-plane v0.1.4 |
 | **slimctl**       | v0.2.2  | control-plane v0.1.1, slim v0.5.0                           |
 | **slimrpc**       | v0.1.0  | slim-bindings v0.5.0                                        |
@@ -115,7 +115,7 @@ slimrpc](./data-plane/python/integrations/slimrpc/CHANGELOG.md),
 
 | Tool                       | Version | Works With     | Purpose           |
 | -------------------------- | ------- | -------------- | ----------------- |
-| **slim-testutils**         | v0.2.2  | slim >= v0.4.0 | Testing utilities |
+| **slim-testutils**         | v0.2.2  | slim >= v0.5.0 | Testing utilities |
 | **slim-bindings-examples** | v0.1.1  | slim >= v0.4.0 | Python examples   |
 
 #### Compatibility Notes
