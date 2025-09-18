@@ -70,7 +70,7 @@ spec:
             - name: SLIM_SVC_ID
               valueFrom:
                 fieldRef:
-                  fieldPath: spec.nodeName            
+                  fieldPath: spec.nodeName
           ports:
             - name: data-plane
               containerPort: {{ .Values.slim.service.data.port }}
