@@ -1,11 +1,17 @@
 # Changelog
 
+## [0.5.0](https://github.com/agntcy/slim/compare/slim-bindings-v0.4.1...slim-bindings-v0.5.0) (2025-09-18)
+
+
+### Bug Fixes
+
+* **python-bindings:** default crypto provider initialization for Reqwest crate ([#706](https://github.com/agntcy/slim/issues/706)) ([16a71ce](https://github.com/agntcy/slim/commit/16a71ced6164e4b6df7953f897b8f195fd56b097))
+
 ## [0.4.1](https://github.com/agntcy/slim/compare/slim-bindings-v0.4.0...slim-bindings-v0.4.1) (2025-09-05)
 
 
 ### Features
 
-* Introduce SRPC + Native A2A integration  ([#550](https://github.com/agntcy/slim/issues/550)) ([2606ce9](https://github.com/agntcy/slim/commit/2606ce93914b9503b72187080f53b354b7d6819e))
 * make MLS identity provider backend agnostic ([#552](https://github.com/agntcy/slim/issues/552)) ([a8dd2ed](https://github.com/agntcy/slim/commit/a8dd2edad99d378571863eda735f5106e3078951))
 
 
