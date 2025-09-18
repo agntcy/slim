@@ -23,8 +23,8 @@ Versioning](https://semver.org/spec/v2.0.0.html).
 
 #### ⚠ Breaking Changes
 
-- Node ID uniqueness requirement (Helm & service config) (#630)
-- Multiple Rust public API changes in dataplane release (v0.5.0 bundle) (#508)
+- Node ID uniqueness requirement (Helm & service config)
+- Multiple Rust public API changes in dataplane release (v0.5.0 bundle)
 
 #### 🔧 Infrastructure & Tooling
 
