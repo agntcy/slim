@@ -15,7 +15,9 @@ message Subscribe {
   string component_2 = 4;
 }
 
-message Unsubscribe { SLIMHeader header = 1; }
+message Unsubscribe {
+  SLIMHeader header = 1;
+}
 
 message Publish {
   SLIMHeader header = 1;
@@ -44,7 +46,7 @@ message Name {
   uint64 component_3 = 4;
 }
 
-// Used in publication messages to carry the original string name. 
+// Used in publication messages to carry the original string name.
 // Used in session layer and it is optional.
 message OriginalName {
   string component_0 = 1;
