@@ -16,10 +16,19 @@ Versioning](https://semver.org/spec/v2.0.0.html).
 
 - SLIMRPC + Native A2A integration (Python) with new `slimrpc` and `slima2a`
   packages
+- Automatic generation of SLIMRPC client stubs and server servicers for python
+  via the `protoc-slimrpc-plugin` protoc plugin
 - HTTP / HTTPS proxy support for gRPC clients
 - Node ID uniqueness & enhanced deployment options (StatefulSet / DaemonSet)
 - Control plane test coverage & Ack original message ID validation
 - SPIRE & TLS configuration support in Controller Southbound API & Helm charts
+
+#### 📜 Documentation
+
+- Documentation updates across components:
+  - [SLIMRPC](https://docs.agntcy.org/messaging/slim-rpc/)
+  - Updated SLIMA2A documentation
+  - Improved examples in SLIM-MCP documentation
 
 #### ⚠ Breaking Changes
 
@@ -85,6 +94,7 @@ slimrpc](./data-plane/python/integrations/slimrpc/CHANGELOG.md),
 | slima2a                 | `slima2a-v0.1.0`                 | https://pypi.org/project/slima2a                                               |
 | slim-mcp                | `slim-mcp-v0.1.7`                | https://pypi.org/project/slim-mcp                                              |
 | slim-mcp-proxy          | `slim-mcp-proxy-v0.1.7`          | https://github.com/agntcy/slim/pkgs/container/slim%2Fmcp-proxy                 |
+| protoc-slimrpc-plugin   | `protoc-slimrpc-plugin-v0.1.0`   | https://crates.io/crates/agntcy-protoc-slimrpc-plugin                          |
 
 ### Compatibility Matrix
 
@@ -115,7 +125,6 @@ slimrpc](./data-plane/python/integrations/slimrpc/CHANGELOG.md),
 
 - Node ID uniqueness introduces deployment config updates in Helm and service
   config
-- `slimrpc` import rename requires Python code migration from `srpc`
 - New proxy fields & metadata maps require regenerating client/server config
   initializations
 - Service publish API parameter changes may require adjusting function calls
@@ -164,6 +173,8 @@ slimrpc](./data-plane/python/integrations/slimrpc/CHANGELOG.md),
   ([#651](https://github.com/agntcy/slim/pull/651))
 - Node ID based StatefulSet / DaemonSet deployment options
   ([#630](https://github.com/agntcy/slim/pull/630))
+- First release of Slim RPC protoc compiler plugin (`protoc-slimrpc-plugin`)
+  enabling Slim RPC code generation (tag `protoc-slimrpc-plugin-v0.1.0`)
 
 #### 🐛 Bug Fixes
 
