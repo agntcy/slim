@@ -27,8 +27,9 @@ Versioning](https://semver.org/spec/v2.0.0.html).
 
 - Documentation updates across components:
   - [SLIMRPC](https://docs.agntcy.org/messaging/slim-rpc/)
-  - Updated SLIMA2A documentation
-  - Improved examples in SLIM-MCP documentation
+  - [SLIMA2A](https://docs.agntcy.org/messaging/slim-a2a/)
+  - [PROTOC-SLIMRPC-PLUGIN](https://docs.agntcy.org/messaging/slim-slimrpc-compiler/)
+  - [Configuration Reference](https://docs.agntcy.org/messaging/slim-data-plane-config/)
 
 #### ⚠ Breaking Changes
 
