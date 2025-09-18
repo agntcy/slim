@@ -16,8 +16,8 @@ use slim_auth::traits::Verifier;
 use slim_datapath::messages::encoder::Name;
 use slim_datapath::messages::utils::SlimHeaderFlags;
 use slim_service::app::App;
-use slim_service::errors::SessionError;
 use slim_service::session;
+use slim_service::session::SessionError;
 use slim_service::{Service, ServiceError};
 use tokio::sync::RwLock;
 

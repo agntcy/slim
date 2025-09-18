@@ -14,9 +14,8 @@ use slim::config::ConfigResult;
 use slim_auth::shared_secret::SharedSecret;
 use slim_datapath::{api::ProtoMessage as Message, messages::Name};
 use slim_service::{
-    FireAndForgetConfiguration,
+    PointToPointConfiguration, Timer, TimerObserver, TimerType,
     session::{self, SessionConfig},
-    timer::{self, Timer},
 };
 
 use futures_util::{StreamExt, sink::SinkExt};
@@ -39,7 +38,7 @@ struct PingTimerObserver {
 }
 
 #[async_trait]
-impl timer::TimerObserver for PingTimerObserver {
+impl TimerObserver for PingTimerObserver {
     async fn on_timeout(&self, timer_id: u32, timeouts: u32) {
         trace!("timeout number {} for rtx {}, retry", timeouts, timer_id);
         let _ = self.tx_proxy_session.send(timer_id).await;
@@ -101,7 +100,7 @@ impl ProxySession {
             });
             let mut ping_timer = Timer::new(
                 1,
-                timer::TimerType::Constant,
+                TimerType::Constant,
                 Duration::from_secs(PING_INTERVAL),
                 None,
                 None,
@@ -309,12 +308,12 @@ impl Proxy {
 
         let res = app
             .create_session(
-                SessionConfig::FireAndForget(FireAndForgetConfiguration::default()),
+                SessionConfig::PointToPoint(PointToPointConfiguration::default()),
                 None,
             )
             .await;
         if res.is_err() {
-            panic!("error creating fire and forget session");
+            panic!("error creating p2p session");
         }
 
         let (proxy_tx, mut proxy_rx) = mpsc::channel(128);

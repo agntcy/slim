@@ -1,11 +1,13 @@
 // SPDX-FileCopyrightText: Copyright (c) 2025 Cisco and/or its affiliates.
 // SPDX-License-Identifier: Apache-2.0
 
+// Standard library imports
 use std::collections::HashSet;
 
-use slim_datapath::api::ProtoMessage as Message;
-
+// Third-party crates
 use tracing::{debug, info, trace};
+
+use slim_datapath::api::ProtoMessage as Message;
 
 pub(crate) struct ReceiverBuffer {
     // ID of the last packet sent to the application
@@ -74,7 +76,7 @@ impl ReceiverBuffer {
             match msg {
                 Some(m) => {
                     // no loss detected, return message
-                    // if this is the first packet received (case last_sent == usize::MAX) we consider it
+                    // if this is the first packet received (case last_sent == usize::MAX) we consider it a
                     // valid one and the buffer is initialized accordingly. in this way a stream can start from
                     // a random number or it can be joined at any time
                     debug!("No loss detected, return message {}", msg_id);
@@ -277,40 +279,52 @@ mod tests {
         let slim_header = SlimHeader::new(&src, &name_type, None);
 
         let h0 = SessionHeader::new(
-            ProtoSessionType::SessionFireForget.into(),
-            ProtoSessionMessageType::FnfMsg.into(),
+            ProtoSessionType::SessionPointToPoint.into(),
+            ProtoSessionMessageType::P2PMsg.into(),
             0,
             0,
+            &None,
+            &None,
         );
         let h1 = SessionHeader::new(
-            ProtoSessionType::SessionFireForget.into(),
-            ProtoSessionMessageType::FnfMsg.into(),
+            ProtoSessionType::SessionPointToPoint.into(),
+            ProtoSessionMessageType::P2PMsg.into(),
             0,
             1,
+            &None,
+            &None,
         );
         let h2 = SessionHeader::new(
-            ProtoSessionType::SessionFireForget.into(),
-            ProtoSessionMessageType::FnfMsg.into(),
+            ProtoSessionType::SessionPointToPoint.into(),
+            ProtoSessionMessageType::P2PMsg.into(),
             0,
             2,
+            &None,
+            &None,
         );
         let h3 = SessionHeader::new(
-            ProtoSessionType::SessionFireForget.into(),
-            ProtoSessionMessageType::FnfMsg.into(),
+            ProtoSessionType::SessionPointToPoint.into(),
+            ProtoSessionMessageType::P2PMsg.into(),
             0,
             3,
+            &None,
+            &None,
         );
         let h4 = SessionHeader::new(
-            ProtoSessionType::SessionFireForget.into(),
-            ProtoSessionMessageType::FnfMsg.into(),
+            ProtoSessionType::SessionPointToPoint.into(),
+            ProtoSessionMessageType::P2PMsg.into(),
             0,
             4,
+            &None,
+            &None,
         );
         let h5 = SessionHeader::new(
-            ProtoSessionType::SessionFireForget.into(),
-            ProtoSessionMessageType::FnfMsg.into(),
+            ProtoSessionType::SessionPointToPoint.into(),
+            ProtoSessionMessageType::P2PMsg.into(),
             0,
             5,
+            &None,
+            &None,
         );
 
         let p0 = Message::new_publish_with_headers(Some(slim_header), Some(h0), "", vec![]);

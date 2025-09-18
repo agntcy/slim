@@ -1,35 +1,40 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
+// Standard library imports
 use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 use std::time::Duration;
 
+// Third-party crates
 use async_trait::async_trait;
 use rand::Rng;
-use slim_auth::traits::{TokenProvider, Verifier};
-use slim_datapath::api::{ProtoSessionType, SessionHeader, SlimHeader};
-use slim_datapath::messages::Name;
 use tokio::sync::mpsc::{self, Receiver, Sender};
 use tokio::time::{self, Instant};
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, warn};
 
-use crate::channel_endpoint::{
-    ChannelEndpoint, ChannelModerator, ChannelParticipant, MlsEndpoint, MlsState,
+use slim_auth::traits::{TokenProvider, Verifier};
+use slim_datapath::api::{
+    ProtoMessage as Message, ProtoSessionMessageType, ProtoSessionType, SessionHeader, SlimHeader,
 };
-use crate::errors::SessionError;
-use crate::session::{
-    Common, CommonSession, Id, MessageDirection, MessageHandler, SessionConfig, SessionConfigTrait,
-    SessionDirection, SessionMessage, SessionTransmitter, State,
-};
-use crate::timer;
-use slim_datapath::api::{ProtoMessage as Message, ProtoSessionMessageType};
+use slim_datapath::messages::Name;
 use slim_datapath::messages::utils::SlimHeaderFlags;
 
-/// Configuration for the Fire and Forget session
+// Local crate
+use crate::session::{
+    Common, CommonSession, Id, MessageDirection, MessageHandler, SessionConfig, SessionConfigTrait,
+    SessionMessage, SessionTransmitter, State,
+    channel_endpoint::{
+        ChannelEndpoint, ChannelModerator, ChannelParticipant, MlsEndpoint, MlsState,
+    },
+    errors::SessionError,
+    timer,
+};
+
+/// Configuration for the Point to Point session
 #[derive(Debug, Clone, PartialEq)]
-pub struct FireAndForgetConfiguration {
+pub struct PointToPointConfiguration {
     pub timeout: Option<std::time::Duration>,
     pub max_retries: Option<u32>,
     pub sticky: bool,
@@ -37,9 +42,9 @@ pub struct FireAndForgetConfiguration {
     pub(crate) initiator: bool,
 }
 
-impl Default for FireAndForgetConfiguration {
+impl Default for PointToPointConfiguration {
     fn default() -> Self {
-        FireAndForgetConfiguration {
+        PointToPointConfiguration {
             timeout: None,
             max_retries: Some(5),
             sticky: false,
@@ -49,7 +54,7 @@ impl Default for FireAndForgetConfiguration {
     }
 }
 
-impl FireAndForgetConfiguration {
+impl PointToPointConfiguration {
     pub fn new(
         timeout: Option<Duration>,
         max_retries: Option<u32>,
@@ -63,7 +68,7 @@ impl FireAndForgetConfiguration {
             sticky = true;
         }
 
-        FireAndForgetConfiguration {
+        PointToPointConfiguration {
             timeout,
             max_retries,
             sticky,
@@ -73,26 +78,26 @@ impl FireAndForgetConfiguration {
     }
 }
 
-impl SessionConfigTrait for FireAndForgetConfiguration {
+impl SessionConfigTrait for PointToPointConfiguration {
     fn replace(&mut self, session_config: &SessionConfig) -> Result<(), SessionError> {
         match session_config {
-            SessionConfig::FireAndForget(config) => {
+            SessionConfig::PointToPoint(config) => {
                 *self = config.clone();
                 Ok(())
             }
             _ => Err(SessionError::ConfigurationError(format!(
-                "invalid session config type: expected FireAndForget, got {:?}",
+                "invalid session config type: expected PointToPoint, got {:?}",
                 session_config
             ))),
         }
     }
 }
 
-impl std::fmt::Display for FireAndForgetConfiguration {
+impl std::fmt::Display for PointToPointConfiguration {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "FireAndForgetConfiguration: timeout: {} ms, max retries: {}",
+            "PointToPointConfiguration: timeout: {} ms, max retries: {}",
             self.timeout.unwrap_or_default().as_millis(),
             self.max_retries.unwrap_or_default(),
         )
@@ -107,7 +112,7 @@ enum StickySessionStatus {
     Established,
 }
 
-/// Message types for internal FireAndForget communication
+/// Message types for internal PointToPoint communication
 #[allow(clippy::large_enum_variant)]
 enum InternalMessage {
     OnMessage {
@@ -115,7 +120,7 @@ enum InternalMessage {
         direction: MessageDirection,
     },
     SetConfig {
-        config: FireAndForgetConfiguration,
+        config: PointToPointConfiguration,
     },
     TimerTimeout {
         message_id: u32,
@@ -127,7 +132,7 @@ enum InternalMessage {
     },
 }
 
-struct FireAndForgetState<P, V, T>
+struct PointToPointState<P, V, T>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
@@ -136,7 +141,7 @@ where
     session_id: u32,
     source: Name,
     tx: T,
-    config: FireAndForgetConfiguration,
+    config: PointToPointConfiguration,
     timers: HashMap<u32, (timer::Timer, Message)>,
     sticky_name: Option<Name>,
     sticky_connection: Option<u64>,
@@ -149,14 +154,14 @@ struct RtxTimerObserver {
     tx: Sender<InternalMessage>,
 }
 
-/// The internal part of the Fire and Forget session that handles message processing
-struct FireAndForgetProcessor<P, V, T>
+/// The internal part of the Point to Point session that handles message processing
+struct PointToPointProcessor<P, V, T>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
     T: SessionTransmitter + Send + Sync + Clone + 'static,
 {
-    state: FireAndForgetState<P, V, T>,
+    state: PointToPointState<P, V, T>,
     timer_observer: Arc<RtxTimerObserver>,
     rx: Receiver<InternalMessage>,
     cancellation_token: CancellationToken,
@@ -190,19 +195,19 @@ impl timer::TimerObserver for RtxTimerObserver {
     }
 }
 
-impl<P, V, T> FireAndForgetProcessor<P, V, T>
+impl<P, V, T> PointToPointProcessor<P, V, T>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
     T: SessionTransmitter + Send + Sync + Clone + 'static,
 {
     fn new(
-        state: FireAndForgetState<P, V, T>,
+        state: PointToPointState<P, V, T>,
         tx: Sender<InternalMessage>,
         rx: Receiver<InternalMessage>,
         cancellation_token: CancellationToken,
     ) -> Self {
-        FireAndForgetProcessor {
+        PointToPointProcessor {
             state,
             timer_observer: Arc::new(RtxTimerObserver { tx: tx.clone() }),
             rx,
@@ -211,7 +216,7 @@ where
     }
 
     async fn process_loop(mut self) {
-        debug!("Starting FireAndForgetProcessor loop");
+        debug!("Starting PointToPointProcessor loop");
 
         // set timer for mls key rotation if it is enabled
         let sleep = time::sleep(Duration::from_secs(3600));
@@ -233,7 +238,7 @@ where
                                 }
                             }
                             InternalMessage::SetConfig { config } => {
-                                debug!("setting fire and forget session config: {}", config);
+                                debug!("setting point and point session config: {}", config);
                                 self.state.config = config;
                             }
                             InternalMessage::TimerTimeout {
@@ -273,7 +278,7 @@ where
             timer.stop();
         }
 
-        debug!("FireAndForgetProcessor loop exited");
+        debug!("PointToPointProcessor loop exited");
     }
 
     async fn handle_timer_timeout(&mut self, message_id: u32) {
@@ -322,7 +327,7 @@ where
         );
 
         let session_header = probe_message.get_session_header_mut();
-        session_header.set_session_type(ProtoSessionType::SessionFireForget);
+        session_header.set_session_type(ProtoSessionType::SessionPointToPoint);
         session_header.set_session_message_type(ProtoSessionMessageType::ChannelDiscoveryRequest);
         session_header.set_session_id(self.state.session_id);
         session_header.set_message_id(rand::rng().random_range(0..u32::MAX));
@@ -499,19 +504,19 @@ where
         // Set the session type
         let header = message.message.get_session_header_mut();
         header.set_session_type(if info.session_type_unset() {
-            ProtoSessionType::SessionFireForget
+            ProtoSessionType::SessionPointToPoint
         } else {
             info.get_session_type()
         });
         if self.state.config.timeout.is_some() {
             header.set_session_message_type(if info.session_message_type_unset() {
-                ProtoSessionMessageType::FnfReliable
+                ProtoSessionMessageType::P2PReliable
             } else {
                 info.get_session_message_type()
             });
         } else {
             header.set_session_message_type(if info.session_message_type_unset() {
-                ProtoSessionMessageType::FnfMsg
+                ProtoSessionMessageType::P2PMsg
             } else {
                 info.get_session_message_type()
             });
@@ -591,11 +596,11 @@ where
         }
 
         match message.message.get_session_message_type() {
-            ProtoSessionMessageType::FnfMsg => {
+            ProtoSessionMessageType::P2PMsg => {
                 // Simply send the message to the application
                 self.send_message_to_app(message).await
             }
-            ProtoSessionMessageType::FnfReliable => {
+            ProtoSessionMessageType::P2PReliable => {
                 // Send an ack back as reply and forward the incoming message to the app
                 // Create ack message
                 let src = message.message.get_source();
@@ -609,10 +614,12 @@ where
                 ));
 
                 let session_header = Some(SessionHeader::new(
-                    ProtoSessionType::SessionFireForget.into(),
-                    ProtoSessionMessageType::FnfAck.into(),
+                    ProtoSessionType::SessionPointToPoint.into(),
+                    ProtoSessionMessageType::P2PAck.into(),
                     message.info.id,
                     message_id,
+                    &None,
+                    &None,
                 ));
 
                 let ack =
@@ -628,7 +635,7 @@ where
                     .await
                     .map_err(|e| SessionError::SlimTransmission(e.to_string()))
             }
-            ProtoSessionMessageType::FnfAck => {
+            ProtoSessionMessageType::P2PAck => {
                 // Remove the timer and drop the message
                 self.stop_and_remove_timer(message_id)
             }
@@ -679,7 +686,7 @@ where
     }
 
     /// Helper function to send a message to the application.
-    /// This is used by both the Fnf and FnfReliable message handlers.
+    /// This is used by both the P2p and F2pReliable message handlers.
     async fn send_message_to_app(&mut self, message: SessionMessage) -> Result<(), SessionError> {
         self.state
             .tx
@@ -705,8 +712,8 @@ where
     }
 }
 
-/// The interface for the Fire and Forget session
-pub(crate) struct FireAndForget<P, V, T>
+/// The interface for the point to point session
+pub(crate) struct PointToPoint<P, V, T>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
@@ -716,7 +723,7 @@ where
     tx: Sender<InternalMessage>,
     cancellation_token: CancellationToken,
 }
-impl<P, V, T> FireAndForget<P, V, T>
+impl<P, V, T> PointToPoint<P, V, T>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
@@ -725,21 +732,19 @@ where
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn new(
         id: Id,
-        session_config: FireAndForgetConfiguration,
-        session_direction: SessionDirection,
+        session_config: PointToPointConfiguration,
         name: Name,
         tx_slim_app: T,
         identity_provider: P,
         identity_verifier: V,
         storage_path: std::path::PathBuf,
     ) -> Self {
-        let (tx, rx) = mpsc::channel(32);
+        let (tx, rx) = mpsc::channel(128);
 
         // Common session stuff
         let common = Common::new(
             id,
-            session_direction,
-            SessionConfig::FireAndForget(session_config.clone()),
+            SessionConfig::PointToPoint(session_config.clone()),
             name,
             tx_slim_app.clone(),
             identity_provider,
@@ -760,7 +765,7 @@ where
                     common.source().clone(),
                     common.source().clone(),
                     id,
-                    ProtoSessionType::SessionFireForget,
+                    ProtoSessionType::SessionPointToPoint,
                     60,
                     Duration::from_secs(1),
                     mls,
@@ -773,7 +778,7 @@ where
                     common.source().clone(),
                     common.source().clone(),
                     id,
-                    ProtoSessionType::SessionFireForget,
+                    ProtoSessionType::SessionPointToPoint,
                     60,
                     Duration::from_secs(1),
                     mls,
@@ -783,8 +788,8 @@ where
             }
         };
 
-        // FireAndForget internal state
-        let state = FireAndForgetState {
+        // PointToPoint internal state
+        let state = PointToPointState {
             session_id: id,
             source: common.source().clone(),
             tx: tx_slim_app.clone(),
@@ -802,12 +807,12 @@ where
 
         // Create the processor
         let processor =
-            FireAndForgetProcessor::new(state, tx.clone(), rx, cancellation_token.clone());
+            PointToPointProcessor::new(state, tx.clone(), rx, cancellation_token.clone());
 
         // Start the processor loop
         tokio::spawn(processor.process_loop());
 
-        FireAndForget {
+        PointToPoint {
             common,
             tx,
             cancellation_token,
@@ -816,7 +821,7 @@ where
 }
 
 #[async_trait]
-impl<P, V, T> CommonSession<P, V, T> for FireAndForget<P, V, T>
+impl<P, V, T> CommonSession<P, V, T> for PointToPoint<P, V, T>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
@@ -841,7 +846,7 @@ where
         // Also set the config in the processor
         let tx = self.tx.clone();
         let config = match session_config {
-            SessionConfig::FireAndForget(config) => config.clone(),
+            SessionConfig::PointToPoint(config) => config.clone(),
             _ => {
                 return Err(SessionError::ConfigurationError(
                     "invalid session config type".to_string(),
@@ -880,7 +885,7 @@ where
     }
 }
 
-impl<P, V, T> Drop for FireAndForget<P, V, T>
+impl<P, V, T> Drop for PointToPoint<P, V, T>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
@@ -893,7 +898,7 @@ where
 }
 
 #[async_trait]
-impl<P, V, T> MessageHandler for FireAndForget<P, V, T>
+impl<P, V, T> MessageHandler for PointToPoint<P, V, T>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
@@ -919,14 +924,14 @@ mod tests {
     use tracing_test::traced_test;
 
     use super::*;
-    use crate::{
+    use crate::session::{
         channel_endpoint::handle_channel_discovery_message, testutils::MockTransmitter,
         transmitter::Transmitter,
     };
     use slim_datapath::{api::ProtoMessage, messages::Name};
 
     #[tokio::test]
-    async fn test_fire_and_forget_create() {
+    async fn test_point_to_point_create() {
         let (tx_slim, _) = tokio::sync::mpsc::channel(1);
         let (tx_app, _) = tokio::sync::mpsc::channel(1);
 
@@ -934,10 +939,9 @@ mod tests {
 
         let source = Name::from_strings(["cisco", "default", "local"]).with_id(0);
 
-        let session = FireAndForget::new(
+        let session = PointToPoint::new(
             0,
-            FireAndForgetConfiguration::default(),
-            SessionDirection::Bidirectional,
+            PointToPointConfiguration::default(),
             source.clone(),
             tx,
             SharedSecret::new("a", "group"),
@@ -949,12 +953,12 @@ mod tests {
         assert_eq!(session.state(), &State::Active);
         assert_eq!(
             session.session_config(),
-            SessionConfig::FireAndForget(FireAndForgetConfiguration::default())
+            SessionConfig::PointToPoint(PointToPointConfiguration::default())
         );
     }
 
     #[tokio::test]
-    async fn test_fire_and_forget_on_message() {
+    async fn test_point_to_point_on_message() {
         let (tx_slim, _rx_slim) = tokio::sync::mpsc::channel(1);
         let (tx_app, mut rx_app) = tokio::sync::mpsc::channel(1);
 
@@ -962,10 +966,9 @@ mod tests {
 
         let source = Name::from_strings(["cisco", "default", "local"]).with_id(0);
 
-        let session = FireAndForget::new(
+        let session = PointToPoint::new(
             0,
-            FireAndForgetConfiguration::default(),
-            SessionDirection::Bidirectional,
+            PointToPointConfiguration::default(),
             source.clone(),
             tx,
             SharedSecret::new("a", "group"),
@@ -984,7 +987,7 @@ mod tests {
         // set the session id in the message
         let header = message.get_session_header_mut();
         header.session_id = 1;
-        header.set_session_message_type(ProtoSessionMessageType::FnfMsg);
+        header.set_session_message_type(ProtoSessionMessageType::P2PMsg);
 
         let res = session
             .on_message(
@@ -1004,7 +1007,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_fire_and_forget_on_message_with_ack() {
+    async fn test_point_to_point_on_message_with_ack() {
         let (tx_slim, mut rx_slim) = tokio::sync::mpsc::channel(1);
         let (tx_app, mut rx_app) = tokio::sync::mpsc::channel(1);
 
@@ -1012,10 +1015,9 @@ mod tests {
 
         let source = Name::from_strings(["cisco", "default", "local"]).with_id(0);
 
-        let session = FireAndForget::new(
+        let session = PointToPoint::new(
             0,
-            FireAndForgetConfiguration::default(),
-            SessionDirection::Bidirectional,
+            PointToPointConfiguration::default(),
             source.clone(),
             tx,
             SharedSecret::new("a", "group"),
@@ -1035,7 +1037,7 @@ mod tests {
         let header = message.get_session_header_mut();
         header.session_id = 0;
         header.message_id = 12345;
-        header.set_session_message_type(ProtoSessionMessageType::FnfReliable);
+        header.set_session_message_type(ProtoSessionMessageType::P2PReliable);
 
         let res = session
             .on_message(
@@ -1062,13 +1064,13 @@ mod tests {
         let header = msg.get_session_header();
         assert_eq!(
             header.session_message_type(),
-            ProtoSessionMessageType::FnfAck
+            ProtoSessionMessageType::P2PAck
         );
         assert_eq!(header.get_message_id(), 12345);
     }
 
     #[tokio::test]
-    async fn test_fire_and_forget_timers_until_error() {
+    async fn test_point_to_point_timers_until_error() {
         let (tx_slim, mut rx_slim) = tokio::sync::mpsc::channel(1);
         let (tx_app, mut rx_app) = tokio::sync::mpsc::channel(1);
 
@@ -1076,16 +1078,15 @@ mod tests {
 
         let source = Name::from_strings(["cisco", "default", "local"]).with_id(0);
 
-        let session = FireAndForget::new(
+        let session = PointToPoint::new(
             0,
-            FireAndForgetConfiguration {
+            PointToPointConfiguration {
                 timeout: Some(Duration::from_millis(500)),
                 max_retries: Some(5),
                 sticky: false,
                 mls_enabled: false,
                 initiator: true,
             },
-            SessionDirection::Bidirectional,
             source.clone(),
             tx,
             SharedSecret::new("a", "group"),
@@ -1112,8 +1113,8 @@ mod tests {
         // set the session id in the message for the comparison inside the for loop
         let header = message.get_session_header_mut();
         header.session_id = 0;
-        header.set_session_message_type(ProtoSessionMessageType::FnfReliable);
-        header.set_session_type(ProtoSessionType::SessionFireForget);
+        header.set_session_message_type(ProtoSessionMessageType::P2PReliable);
+        header.set_session_type(ProtoSessionType::SessionPointToPoint);
 
         for _i in 0..6 {
             let mut msg = rx_slim
@@ -1132,7 +1133,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_fire_and_forget_timers_and_ack() {
+    async fn test_point_to_point_timers_and_ack() {
         let (tx_slim_sender, mut rx_slim_sender) = tokio::sync::mpsc::channel(1);
         let (tx_app_sender, _rx_app_sender) = tokio::sync::mpsc::channel(1);
 
@@ -1152,16 +1153,15 @@ mod tests {
         let local = Name::from_strings(["cisco", "default", "local"]).with_id(0);
         let remote = Name::from_strings(["cisco", "default", "remote"]).with_id(0);
 
-        let session_sender = FireAndForget::new(
+        let session_sender = PointToPoint::new(
             0,
-            FireAndForgetConfiguration {
+            PointToPointConfiguration {
                 timeout: Some(Duration::from_millis(500)),
                 max_retries: Some(5),
                 sticky: false,
                 mls_enabled: false,
                 initiator: true,
             },
-            SessionDirection::Bidirectional,
             local.clone(),
             tx_sender,
             SharedSecret::new("a", "group"),
@@ -1169,11 +1169,10 @@ mod tests {
             std::path::PathBuf::from("/tmp/test_session"),
         );
 
-        // this can be a standard fnf session
-        let session_recv = FireAndForget::new(
+        // this can be a standard p2p session
+        let session_recv = PointToPoint::new(
             0,
-            FireAndForgetConfiguration::default(),
-            SessionDirection::Bidirectional,
+            PointToPointConfiguration::default(),
             remote.clone(),
             tx_receiver,
             SharedSecret::new("a", "group"),
@@ -1192,8 +1191,8 @@ mod tests {
         // set the session id in the message
         let header = message.get_session_header_mut();
         header.set_session_id(0);
-        header.set_session_type(ProtoSessionType::SessionFireForget);
-        header.set_session_message_type(ProtoSessionMessageType::FnfReliable);
+        header.set_session_type(ProtoSessionType::SessionPointToPoint);
+        header.set_session_message_type(ProtoSessionMessageType::P2PReliable);
 
         let res = session_sender
             .on_message(
@@ -1247,7 +1246,7 @@ mod tests {
         let header = ack.get_session_header();
         assert_eq!(
             header.session_message_type(),
-            ProtoSessionMessageType::FnfAck
+            ProtoSessionMessageType::P2PAck
         );
 
         // Check that the ack is sent back to the sender
@@ -1271,10 +1270,9 @@ mod tests {
         let source = Name::from_strings(["cisco", "default", "local"]).with_id(0);
 
         {
-            let _session = FireAndForget::new(
+            let _session = PointToPoint::new(
                 0,
-                FireAndForgetConfiguration::default(),
-                SessionDirection::Bidirectional,
+                PointToPointConfiguration::default(),
                 source.clone(),
                 tx,
                 SharedSecret::new("a", "group"),
@@ -1288,11 +1286,11 @@ mod tests {
 
         // // check that the session is closed
         // assert!(logs_contain(
-        //     "fire and forget channel closed, exiting processor loop"
+        //     "point to point channel closed, exiting processor loop"
         // ));
     }
 
-    async fn template_test_fire_and_forget_sticky_session(mls_enabled: bool) {
+    async fn template_test_point_to_point_sticky_session(mls_enabled: bool) {
         let (sender_tx_slim, mut sender_rx_slim) = tokio::sync::mpsc::channel(1);
         let (sender_tx_app, _sender_rx_app) = tokio::sync::mpsc::channel(1);
 
@@ -1314,16 +1312,15 @@ mod tests {
         let local = Name::from_strings(["cisco", "default", "local"]).with_id(0);
         let remote = Name::from_strings(["cisco", "default", "remote"]).with_id(0);
 
-        let sender_session = FireAndForget::new(
+        let sender_session = PointToPoint::new(
             0,
-            FireAndForgetConfiguration {
+            PointToPointConfiguration {
                 timeout: Some(Duration::from_millis(500)),
                 max_retries: Some(5),
                 sticky: true,
                 mls_enabled,
                 initiator: true,
             },
-            SessionDirection::Bidirectional,
             local.clone(),
             sender_tx,
             SharedSecret::new("a", "group"),
@@ -1331,16 +1328,15 @@ mod tests {
             std::path::PathBuf::from("/tmp/test_sender"),
         );
 
-        let receiver_session = FireAndForget::new(
+        let receiver_session = PointToPoint::new(
             0,
-            FireAndForgetConfiguration {
+            PointToPointConfiguration {
                 timeout: Some(Duration::from_millis(500)),
                 max_retries: Some(5),
                 sticky: false,
                 mls_enabled,
                 initiator: false,
             },
-            SessionDirection::Bidirectional,
             remote.clone(),
             receiver_tx,
             SharedSecret::new("b", "group"),
@@ -1360,7 +1356,7 @@ mod tests {
         // set the session id in the message
         let header = message.get_session_header_mut();
         header.set_session_id(0);
-        header.set_session_message_type(ProtoSessionMessageType::FnfReliable);
+        header.set_session_message_type(ProtoSessionMessageType::P2PReliable);
 
         // set a fake incoming connection id
         let slim_header = message.get_slim_header_mut();
@@ -1394,14 +1390,17 @@ mod tests {
             ProtoSessionMessageType::ChannelDiscoveryRequest,
         );
 
-        assert_eq!(msg.get_session_type(), ProtoSessionType::SessionFireForget);
+        assert_eq!(
+            msg.get_session_type(),
+            ProtoSessionType::SessionPointToPoint
+        );
 
         // create a discovery reply message. this is normally originated by the session layer
         let mut discovery_reply = handle_channel_discovery_message(
             &msg,
             &remote,
             receiver_session.id(),
-            ProtoSessionType::SessionFireForget,
+            ProtoSessionType::SessionPointToPoint,
         );
         discovery_reply.set_incoming_conn(Some(0));
 
@@ -1441,7 +1440,7 @@ mod tests {
             ProtoSessionMessageType::ChannelJoinRequest
         );
 
-        assert_eq!(header.session_type(), ProtoSessionType::SessionFireForget);
+        assert_eq!(header.session_type(), ProtoSessionType::SessionPointToPoint);
 
         // Set a fake incoming connection id
         msg.set_incoming_conn(Some(0));
@@ -1473,7 +1472,7 @@ mod tests {
             ProtoSessionMessageType::ChannelJoinReply
         );
 
-        assert_eq!(header.session_type(), ProtoSessionType::SessionFireForget);
+        assert_eq!(header.session_type(), ProtoSessionType::SessionPointToPoint);
 
         // Pass the channel join reply message to the sender session
         msg.set_incoming_conn(Some(0));
@@ -1498,7 +1497,7 @@ mod tests {
                 ProtoSessionMessageType::ChannelMlsWelcome
             );
 
-            assert_eq!(header.session_type(), ProtoSessionType::SessionFireForget);
+            assert_eq!(header.session_type(), ProtoSessionType::SessionPointToPoint);
 
             // Set a fake incoming connection id
             msg.set_incoming_conn(Some(0));
@@ -1522,7 +1521,7 @@ mod tests {
                 ProtoSessionMessageType::ChannelMlsAck
             );
 
-            assert_eq!(header.session_type(), ProtoSessionType::SessionFireForget);
+            assert_eq!(header.session_type(), ProtoSessionType::SessionPointToPoint);
 
             // Send the ack to the sender session
             msg.set_incoming_conn(Some(0));
@@ -1542,10 +1541,10 @@ mod tests {
 
             assert_eq!(
                 header.session_message_type(),
-                ProtoSessionMessageType::FnfReliable
+                ProtoSessionMessageType::P2PReliable
             );
 
-            assert_eq!(header.session_type(), ProtoSessionType::SessionFireForget);
+            assert_eq!(header.session_type(), ProtoSessionType::SessionPointToPoint);
 
             // As MLS is enabled, the payload should be encrypted
             tracing::info!(
@@ -1581,7 +1580,7 @@ mod tests {
             let header = msg.get_session_header();
             assert_eq!(
                 header.session_message_type(),
-                ProtoSessionMessageType::FnfReliable
+                ProtoSessionMessageType::P2PReliable
             );
 
             msg.set_incoming_conn(Some(0));
@@ -1592,13 +1591,13 @@ mod tests {
 
     #[tokio::test]
     #[traced_test]
-    async fn test_fire_and_forget_sticky_session_no_mls() {
-        template_test_fire_and_forget_sticky_session(false).await;
+    async fn test_point_to_point_sticky_session_no_mls() {
+        template_test_point_to_point_sticky_session(false).await;
     }
 
     #[tokio::test]
     #[traced_test]
-    async fn test_fire_and_forget_sticky_session_mls() {
-        template_test_fire_and_forget_sticky_session(true).await;
+    async fn test_point_to_point_sticky_session_mls() {
+        template_test_point_to_point_sticky_session(true).await;
     }
 }

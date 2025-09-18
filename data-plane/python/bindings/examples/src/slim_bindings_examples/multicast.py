@@ -43,12 +43,10 @@ async def run_client(
     tasks = []
 
     if remote and invites:
-        format_message_print(local, "Creating new pubsub sessions...")
-        # create pubsubb session. A pubsub session is a just a bidirectional
-        # streaming session, where participants are both sender and receivers
+        format_message_print(local, "Creating new multicast sessions...")
+        # create a multicast session
         session_info = await local_app.create_session(
-            slim_bindings.PySessionConfiguration.Streaming(
-                slim_bindings.PySessionDirection.BIDIRECTIONAL,
+            slim_bindings.PySessionConfiguration.Multicast(  # type: ignore
                 topic=broadcast_topic,
                 moderator=True,
                 max_retries=5,

@@ -1,8 +1,10 @@
 // SPDX-FileCopyrightText: Copyright (c) 2025 Cisco and/or its affiliates.
 // SPDX-License-Identifier: Apache-2.0
 
+// Standard library imports
 use std::collections::HashMap;
 
+// Third-party crates
 use slim_datapath::{api::ProtoMessage as Message, messages::Name};
 
 pub struct ProducerBuffer {
@@ -118,33 +120,43 @@ mod tests {
 
         let h0 = SessionHeader::new(
             SessionType::SessionUnknown.into(),
-            SessionMessageType::FnfMsg.into(),
+            SessionMessageType::P2PMsg.into(),
             0,
             0,
+            &None,
+            &None,
         );
         let h1 = SessionHeader::new(
             SessionType::SessionUnknown.into(),
-            SessionMessageType::FnfMsg.into(),
+            SessionMessageType::P2PMsg.into(),
             0,
             1,
+            &None,
+            &None,
         );
         let h2 = SessionHeader::new(
             SessionType::SessionUnknown.into(),
-            SessionMessageType::FnfMsg.into(),
+            SessionMessageType::P2PMsg.into(),
             0,
             2,
+            &None,
+            &None,
         );
         let h3 = SessionHeader::new(
             SessionType::SessionUnknown.into(),
-            SessionMessageType::FnfMsg.into(),
+            SessionMessageType::P2PMsg.into(),
             0,
             3,
+            &None,
+            &None,
         );
         let h4 = SessionHeader::new(
             SessionType::SessionUnknown.into(),
-            SessionMessageType::FnfMsg.into(),
+            SessionMessageType::P2PMsg.into(),
             0,
             4,
+            &None,
+            &None,
         );
 
         let p0 = Message::new_publish_with_headers(Some(slim_header), Some(h0), "", vec![]);
@@ -214,9 +226,11 @@ mod tests {
         let slim_header = SlimHeader::new(&src, &name_type, None);
         let h = SessionHeader::new(
             SessionType::SessionUnknown.into(),
-            SessionMessageType::FnfMsg.into(),
+            SessionMessageType::P2PMsg.into(),
             0,
             0,
+            &None,
+            &None,
         );
         let mut p = Message::new_publish_with_headers(Some(slim_header), Some(h), "", vec![]);
 

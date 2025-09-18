@@ -1,17 +1,21 @@
 #![cfg(test)]
 
+// Standard library imports
 use std::sync::Arc;
 
+// Third-party crates
 use tokio::sync::mpsc::error::SendError;
 
-use crate::{
-    SessionMessage,
-    errors::SessionError,
-    interceptor::{SessionInterceptor, SessionInterceptorProvider},
-    session::{AppChannelSender, SessionTransmitter, SlimChannelSender},
-};
 use slim_datapath::Status;
 use slim_datapath::api::ProtoMessage as Message;
+
+// Local crate
+use crate::session::{
+    SessionMessage, SessionTransmitter,
+    common::{AppChannelSender, SlimChannelSender},
+    errors::SessionError,
+    interceptor::{SessionInterceptor, SessionInterceptorProvider},
+};
 
 #[derive(Clone)]
 pub(crate) struct MockTransmitter {
