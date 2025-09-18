@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.1](https://github.com/agntcy/slim/compare/slim-bindings-v0.5.0...slim-bindings-v0.5.1) (2025-09-18)
+
+
+### Features
+
+* **python/bindings/examples:** upgrade dep to slim 0.5.0 ([#717](https://github.com/agntcy/slim/issues/717)) ([1fa4ff3](https://github.com/agntcy/slim/commit/1fa4ff31571caff4ccfd7da4c6c68d4c1999da2c))
+
 ## [0.5.0](https://github.com/agntcy/slim/compare/slim-bindings-v0.4.1...slim-bindings-v0.5.0) (2025-09-18)
 
 
