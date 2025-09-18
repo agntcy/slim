@@ -217,7 +217,7 @@ impl SessionMessageType {
     }
 }
 /// Generated client implementations.
-pub mod pub_sub_service_client {
+pub mod data_plane_service_client {
     #![allow(
         unused_variables,
         dead_code,
@@ -228,10 +228,10 @@ pub mod pub_sub_service_client {
     use tonic::codegen::*;
     use tonic::codegen::http::Uri;
     #[derive(Debug, Clone)]
-    pub struct PubSubServiceClient<T> {
+    pub struct DataPlaneServiceClient<T> {
         inner: tonic::client::Grpc<T>,
     }
-    impl PubSubServiceClient<tonic::transport::Channel> {
+    impl DataPlaneServiceClient<tonic::transport::Channel> {
         /// Attempt to create a new client by connecting to a given endpoint.
         pub async fn connect<D>(dst: D) -> Result<Self, tonic::transport::Error>
         where
@@ -242,7 +242,7 @@ pub mod pub_sub_service_client {
             Ok(Self::new(conn))
         }
     }
-    impl<T> PubSubServiceClient<T>
+    impl<T> DataPlaneServiceClient<T>
     where
         T: tonic::client::GrpcService<tonic::body::Body>,
         T::Error: Into<StdError>,
@@ -260,7 +260,7 @@ pub mod pub_sub_service_client {
         pub fn with_interceptor<F>(
             inner: T,
             interceptor: F,
-        ) -> PubSubServiceClient<InterceptedService<T, F>>
+        ) -> DataPlaneServiceClient<InterceptedService<T, F>>
         where
             F: tonic::service::Interceptor,
             T::ResponseBody: Default,
@@ -274,7 +274,7 @@ pub mod pub_sub_service_client {
                 http::Request<tonic::body::Body>,
             >>::Error: Into<StdError> + std::marker::Send + std::marker::Sync,
         {
-            PubSubServiceClient::new(InterceptedService::new(inner, interceptor))
+            DataPlaneServiceClient::new(InterceptedService::new(inner, interceptor))
         }
         /// Compress requests with the given encoding.
         ///
@@ -324,17 +324,19 @@ pub mod pub_sub_service_client {
                 })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static(
-                "/pubsub.proto.v1.PubSubService/OpenChannel",
+                "/dataplane.proto.v1.DataPlaneService/OpenChannel",
             );
             let mut req = request.into_streaming_request();
             req.extensions_mut()
-                .insert(GrpcMethod::new("pubsub.proto.v1.PubSubService", "OpenChannel"));
+                .insert(
+                    GrpcMethod::new("dataplane.proto.v1.DataPlaneService", "OpenChannel"),
+                );
             self.inner.streaming(req, path, codec).await
         }
     }
 }
 /// Generated server implementations.
-pub mod pub_sub_service_server {
+pub mod data_plane_service_server {
     #![allow(
         unused_variables,
         dead_code,
@@ -343,9 +345,9 @@ pub mod pub_sub_service_server {
         clippy::let_unit_value,
     )]
     use tonic::codegen::*;
-    /// Generated trait containing gRPC methods that should be implemented for use with PubSubServiceServer.
+    /// Generated trait containing gRPC methods that should be implemented for use with DataPlaneServiceServer.
     #[async_trait]
-    pub trait PubSubService: std::marker::Send + std::marker::Sync + 'static {
+    pub trait DataPlaneService: std::marker::Send + std::marker::Sync + 'static {
         /// Server streaming response type for the OpenChannel method.
         type OpenChannelStream: tonic::codegen::tokio_stream::Stream<
                 Item = std::result::Result<super::Message, tonic::Status>,
@@ -361,14 +363,14 @@ pub mod pub_sub_service_server {
         >;
     }
     #[derive(Debug)]
-    pub struct PubSubServiceServer<T> {
+    pub struct DataPlaneServiceServer<T> {
         inner: Arc<T>,
         accept_compression_encodings: EnabledCompressionEncodings,
         send_compression_encodings: EnabledCompressionEncodings,
         max_decoding_message_size: Option<usize>,
         max_encoding_message_size: Option<usize>,
     }
-    impl<T> PubSubServiceServer<T> {
+    impl<T> DataPlaneServiceServer<T> {
         pub fn new(inner: T) -> Self {
             Self::from_arc(Arc::new(inner))
         }
@@ -419,9 +421,9 @@ pub mod pub_sub_service_server {
             self
         }
     }
-    impl<T, B> tonic::codegen::Service<http::Request<B>> for PubSubServiceServer<T>
+    impl<T, B> tonic::codegen::Service<http::Request<B>> for DataPlaneServiceServer<T>
     where
-        T: PubSubService,
+        T: DataPlaneService,
         B: Body + std::marker::Send + 'static,
         B::Error: Into<StdError> + std::marker::Send + 'static,
     {
@@ -436,11 +438,11 @@ pub mod pub_sub_service_server {
         }
         fn call(&mut self, req: http::Request<B>) -> Self::Future {
             match req.uri().path() {
-                "/pubsub.proto.v1.PubSubService/OpenChannel" => {
+                "/dataplane.proto.v1.DataPlaneService/OpenChannel" => {
                     #[allow(non_camel_case_types)]
-                    struct OpenChannelSvc<T: PubSubService>(pub Arc<T>);
+                    struct OpenChannelSvc<T: DataPlaneService>(pub Arc<T>);
                     impl<
-                        T: PubSubService,
+                        T: DataPlaneService,
                     > tonic::server::StreamingService<super::Message>
                     for OpenChannelSvc<T> {
                         type Response = super::Message;
@@ -455,7 +457,7 @@ pub mod pub_sub_service_server {
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
                             let fut = async move {
-                                <T as PubSubService>::open_channel(&inner, request).await
+                                <T as DataPlaneService>::open_channel(&inner, request).await
                             };
                             Box::pin(fut)
                         }
@@ -504,7 +506,7 @@ pub mod pub_sub_service_server {
             }
         }
     }
-    impl<T> Clone for PubSubServiceServer<T> {
+    impl<T> Clone for DataPlaneServiceServer<T> {
         fn clone(&self) -> Self {
             let inner = self.inner.clone();
             Self {
@@ -517,8 +519,8 @@ pub mod pub_sub_service_server {
         }
     }
     /// Generated gRPC service name
-    pub const SERVICE_NAME: &str = "pubsub.proto.v1.PubSubService";
-    impl<T> tonic::server::NamedService for PubSubServiceServer<T> {
+    pub const SERVICE_NAME: &str = "dataplane.proto.v1.DataPlaneService";
+    impl<T> tonic::server::NamedService for DataPlaneServiceServer<T> {
         const NAME: &'static str = SERVICE_NAME;
     }
 }

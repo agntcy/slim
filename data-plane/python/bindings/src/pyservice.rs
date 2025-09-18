@@ -25,7 +25,6 @@ use crate::pyidentity::IdentityProvider;
 use crate::pyidentity::IdentityVerifier;
 use crate::pyidentity::PyIdentityProvider;
 use crate::pyidentity::PyIdentityVerifier;
-use crate::pysession::PySessionType;
 use crate::pysession::{PySessionConfiguration, PySessionInfo};
 use crate::utils::PyName;
 use slim_config::grpc::client::ClientConfig as PyGrpcClientConfig;
@@ -256,17 +255,6 @@ impl PyService {
     ) -> Result<(), SessionError> {
         self.sdk.app.set_session_config(&config, None).await
     }
-
-    async fn get_default_session_config(
-        &self,
-        session_type: session::SessionType,
-    ) -> Result<PySessionConfiguration, SessionError> {
-        self.sdk
-            .app
-            .get_default_session_config(session_type)
-            .await
-            .map(|val| val.into())
-    }
 }
 
 #[gen_stub_pyfunction]
@@ -332,21 +320,6 @@ pub fn set_default_session_config(
 ) -> PyResult<Bound<PyAny>> {
     pyo3_async_runtimes::tokio::future_into_py(py, async move {
         svc.set_default_session_config(config.into())
-            .await
-            .map_err(|e| PyErr::new::<PyException, _>(e.to_string()))
-    })
-}
-
-#[gen_stub_pyfunction]
-#[pyfunction]
-#[pyo3(signature = (svc, session_type))]
-pub fn get_default_session_config(
-    py: Python,
-    svc: PyService,
-    session_type: PySessionType,
-) -> PyResult<Bound<PyAny>> {
-    pyo3_async_runtimes::tokio::future_into_py(py, async move {
-        svc.get_default_session_config(session_type.into())
             .await
             .map_err(|e| PyErr::new::<PyException, _>(e.to_string()))
     })

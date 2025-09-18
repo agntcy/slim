@@ -21,8 +21,9 @@ use tracing_opentelemetry::OpenTelemetrySpanExt;
 use crate::api::ProtoPublishType as PublishType;
 use crate::api::ProtoSubscribeType as SubscribeType;
 use crate::api::ProtoUnsubscribeType as UnsubscribeType;
-use crate::api::proto::pubsub::v1::pub_sub_service_client::PubSubServiceClient;
-use crate::api::proto::pubsub::v1::{Message, pub_sub_service_server::PubSubService};
+use crate::api::proto::dataplane::v1::Message;
+use crate::api::proto::dataplane::v1::data_plane_service_client::DataPlaneServiceClient;
+use crate::api::proto::dataplane::v1::data_plane_service_server::DataPlaneService;
 use crate::connection::{Channel, Connection, Type as ConnectionType};
 use crate::errors::DataPathError;
 use crate::forwarder::Forwarder;
@@ -177,7 +178,7 @@ impl MessageProcessor {
         C::ResponseBody: Body<Data = bytes::Bytes> + std::marker::Send + 'static,
         <C::ResponseBody as Body>::Error: Into<StdError> + std::marker::Send,
     {
-        let mut client: PubSubServiceClient<C> = PubSubServiceClient::new(channel);
+        let mut client: DataPlaneServiceClient<C> = DataPlaneServiceClient::new(channel);
         let mut i = 0;
         while i < max_retry {
             let (tx, rx) = mpsc::channel(128);
@@ -831,7 +832,7 @@ impl MessageProcessor {
 }
 
 #[tonic::async_trait]
-impl PubSubService for MessageProcessor {
+impl DataPlaneService for MessageProcessor {
     type OpenChannelStream = Pin<Box<dyn Stream<Item = Result<Message, Status>> + Send + 'static>>;
 
     async fn open_channel(

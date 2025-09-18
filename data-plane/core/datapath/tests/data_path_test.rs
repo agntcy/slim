@@ -10,7 +10,7 @@ mod tests {
     use tracing_test::traced_test;
 
     use slim_config::grpc::{client::ClientConfig, server::ServerConfig};
-    use slim_datapath::api::{ProtoMessage as Message, PubSubServiceServer};
+    use slim_datapath::api::{DataPlaneServiceServer, ProtoMessage as Message};
     use slim_datapath::message_processing::MessageProcessor;
 
     #[tokio::test]
@@ -24,7 +24,7 @@ mod tests {
         let svc = Arc::new(processor);
         let msg_processor = svc.clone();
         let ep_server = server_conf
-            .to_server_future(&[PubSubServiceServer::from_arc(svc)])
+            .to_server_future(&[DataPlaneServiceServer::from_arc(svc)])
             .unwrap();
 
         // start server

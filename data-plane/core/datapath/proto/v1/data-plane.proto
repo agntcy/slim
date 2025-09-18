@@ -2,9 +2,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 syntax = "proto3";
-package pubsub.proto.v1;
+package dataplane.proto.v1;
 
-service PubSubService {
+service DataPlaneService {
   rpc OpenChannel(stream Message) returns (stream Message) {}
 }
 

@@ -12,13 +12,11 @@ from slim_bindings._slim_bindings import (  # type: ignore[attr-defined]
     PyService,
     PySessionConfiguration,
     PySessionInfo,
-    PySessionType,
     connect,
     create_pyservice,
     create_session,
     delete_session,
     disconnect,
-    get_default_session_config,
     get_session_config,
     invite,
     publish,
@@ -260,22 +258,6 @@ class Slim:
         """
 
         await set_default_session_config(self.svc, session_config)
-
-    async def get_default_session_config(
-        self,
-        session_type: PySessionType,
-    ) -> PySessionConfiguration:
-        """
-        Get the default session configuration.
-
-        Args:
-            session_id (int): The ID of the session.
-
-        Returns:
-            PySessionConfiguration: The default configuration of the session.
-        """
-
-        return await get_default_session_config(self.svc, session_type)
 
     async def run_server(self, config: dict):
         """

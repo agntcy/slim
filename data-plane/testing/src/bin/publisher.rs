@@ -197,8 +197,7 @@ async fn main() {
     // wait for the connection to be established
     tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
 
-    // create fire and forget session
-    // create a fire and forget session
+    // create a point to point session
     let res = app
         .create_session(
             slim_service::session::SessionConfig::PointToPoint(
@@ -208,7 +207,7 @@ async fn main() {
         )
         .await;
     if res.is_err() {
-        panic!("error creating fire and forget session");
+        panic!("error creating point to point session");
     }
 
     // get the session

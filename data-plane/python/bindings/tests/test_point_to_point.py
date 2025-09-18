@@ -67,10 +67,9 @@ async def test_sticky_session(server, mls_enabled):
 
     # create a new session
     session_info = await sender.create_session(
-        slim_bindings.PySessionConfiguration.PointToPoint(
+        slim_bindings.PySessionConfiguration.Unicast(
             max_retries=5,
             timeout=datetime.timedelta(seconds=5),
-            sticky=True,
             mls_enabled=mls_enabled,
         )
     )

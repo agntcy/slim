@@ -15,10 +15,9 @@ slim-bindings = { workspace = true }
 [project.scripts]
 examples = "slim_bindings_examples:main"
 slim = "slim_bindings_examples:slim_main"
-ff = "slim_bindings_examples:fire_and_forget_main"
-rr = "slim_bindings_examples:request_reply_main"
-streaming = "slim_bindings_examples:streaming_main"
-pubsub = "slim_bindings_examples:pubsub_main"
+anycast = "slim_bindings_examples:anycast_main"
+unicast = "slim_bindings_examples:unicast_main"
+multicast = "slim_bindings_examples:multicast_main"
 
 [build-system]
 requires = ["hatchling"]
