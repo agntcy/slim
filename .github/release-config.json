@@ -4,6 +4,7 @@
     "sequential-calls": true,
     "include-component-in-tag": true,
     "skip-github-release": false,
+    "signoff": true,
     "packages": {
         "data-plane/python/bindings": {
             "package-name": "slim-bindings",
