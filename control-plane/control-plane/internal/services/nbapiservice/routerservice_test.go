@@ -21,7 +21,6 @@ import (
 type CommandHandlerMock struct {
 	mu        sync.Mutex
 	sendCalls []sendCall
-	waitResp  *controllerapi.ControlMessage
 }
 
 type sendCall struct {
@@ -29,21 +28,26 @@ type sendCall struct {
 	msg    *controllerapi.ControlMessage
 }
 
-func (m *CommandHandlerMock) SendMessage(ctx context.Context, nodeID string, msg *controllerapi.ControlMessage) error {
+func (m *CommandHandlerMock) SendMessage(_ context.Context, nodeID string, msg *controllerapi.ControlMessage) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.sendCalls = append(m.sendCalls, sendCall{nodeID: nodeID, msg: msg})
 	return nil
 }
-func (m *CommandHandlerMock) AddStream(ctx context.Context, nodeID string, stream controllerapi.ControllerService_OpenControlChannelServer) {
+func (m *CommandHandlerMock) AddStream(
+	_ context.Context, _ string,
+	_ controllerapi.ControllerService_OpenControlChannelServer) {
 }
-func (m *CommandHandlerMock) RemoveStream(ctx context.Context, nodeID string) error { return nil }
-func (m *CommandHandlerMock) GetConnectionStatus(ctx context.Context, nodeID string) (nodecontrol.NodeStatus, error) {
+func (m *CommandHandlerMock) RemoveStream(_ context.Context, _ string) error { return nil }
+func (m *CommandHandlerMock) GetConnectionStatus(
+	_ context.Context, _ string) (nodecontrol.NodeStatus, error) {
 	return nodecontrol.NodeStatusConnected, nil
 }
-func (m *CommandHandlerMock) UpdateConnectionStatus(ctx context.Context, nodeID string, status nodecontrol.NodeStatus) {
+func (m *CommandHandlerMock) UpdateConnectionStatus(_ context.Context,
+	_ string, _ nodecontrol.NodeStatus) {
 }
-func (m *CommandHandlerMock) WaitForResponse(ctx context.Context, nodeID string, messageType reflect.Type, messageID string) (*controllerapi.ControlMessage, error) {
+func (m *CommandHandlerMock) WaitForResponse(_ context.Context,
+	_ string, _ reflect.Type, messageID string) (*controllerapi.ControlMessage, error) {
 	// Always return a successful ACK
 	return &controllerapi.ControlMessage{
 		Payload: &controllerapi.ControlMessage_Ack{
@@ -54,7 +58,8 @@ func (m *CommandHandlerMock) WaitForResponse(ctx context.Context, nodeID string,
 		},
 	}, nil
 }
-func (m *CommandHandlerMock) ResponseReceived(ctx context.Context, nodeID string, command *controllerapi.ControlMessage) {
+func (m *CommandHandlerMock) ResponseReceived(
+	_ context.Context, _ string, _ *controllerapi.ControlMessage) {
 }
 
 // Reset clears the sendCalls array.
@@ -114,7 +119,8 @@ func TestRouteService_AddRoutes(t *testing.T) {
 	// (in real code, use sync or channels; here, just sleep briefly)
 	time.Sleep(5 * time.Second) // Uncomment if needed
 
-	require.GreaterOrEqual(t, len(cmdHandler.sendCalls), 2, "SendMessage should be called for both nodes")
+	require.GreaterOrEqual(t, len(cmdHandler.sendCalls),
+		2, "SendMessage should be called for both nodes")
 
 	expectedConnectionEndpoints := map[string][]string{
 		"node1": {"http://slim_node2_ip:5678"}, // node1 should be connected to node2
@@ -128,7 +134,8 @@ func TestRouteService_AddRoutes(t *testing.T) {
 		"node1": {},
 		"node2": {},
 	}
-	assertConnsAndSubs(t, cmdHandler, expectedConnectionEndpoints, expectedSubscriptions, expectedSubscriptionsToDelete)
+	assertConnsAndSubs(t, cmdHandler,
+		expectedConnectionEndpoints, expectedSubscriptions, expectedSubscriptionsToDelete)
 }
 
 func addNodes(ctx context.Context, t *testing.T, dbService db.DataAccess, routeService *RouteService) {
@@ -219,7 +226,8 @@ func TestRouteService_AddAndThenDeleteRoutes(t *testing.T) {
 	// Wait for goroutines to process the queue
 	time.Sleep(3 * time.Second) // Uncomment if needed
 
-	require.GreaterOrEqual(t, len(cmdHandler.sendCalls), 2, "SendMessage should be called for both nodes after deletions")
+	require.GreaterOrEqual(t, len(cmdHandler.sendCalls),
+		2, "SendMessage should be called for both nodes after deletions")
 	expectedConnectionEndpoints := map[string][]string{
 		"node1": {}, // node1 should have no connections
 		"node2": {}, // node2 should have no connections
@@ -232,7 +240,8 @@ func TestRouteService_AddAndThenDeleteRoutes(t *testing.T) {
 		"node1": {"org/ns/client_2"},                    // node1 should delete subscription to route1
 		"node2": {"org/ns/client_1", "org/ns/client_3"}, // node2 should delete subscription to route2
 	}
-	assertConnsAndSubs(t, cmdHandler, expectedConnectionEndpoints, expectedSubscriptions, expectedSubscriptionsToDelete)
+	assertConnsAndSubs(t, cmdHandler,
+		expectedConnectionEndpoints, expectedSubscriptions, expectedSubscriptionsToDelete)
 }
 
 func assertConnsAndSubs(t *testing.T, cmdHandler *CommandHandlerMock,
@@ -255,7 +264,8 @@ func assertConnsAndSubs(t *testing.T, cmdHandler *CommandHandlerMock,
 			require.Contains(t, config["endpoint"], "slim_node")
 			gotConns = append(gotConns, config["endpoint"].(string))
 		}
-		require.ElementsMatch(t, expectedConnectionEndpoints[call.nodeID], gotConns, "connections for %s do not match", call.nodeID)
+		require.ElementsMatch(t, expectedConnectionEndpoints[call.nodeID],
+			gotConns, "connections for %s do not match", call.nodeID)
 
 		// Check subscriptions in config command
 		subscriptions := call.msg.GetConfigCommand().SubscriptionsToSet
@@ -263,7 +273,8 @@ func assertConnsAndSubs(t *testing.T, cmdHandler *CommandHandlerMock,
 		for _, sub := range subscriptions {
 			gotSubs = append(gotSubs, sub.Component_0+"/"+sub.Component_1+"/"+sub.Component_2)
 		}
-		require.ElementsMatch(t, expectedSubscriptions[call.nodeID], gotSubs, "subscriptions for %s do not match", call.nodeID)
+		require.ElementsMatch(t, expectedSubscriptions[call.nodeID],
+			gotSubs, "subscriptions for %s do not match", call.nodeID)
 
 		// Check subscriptions to delete in config command
 		subsToDelete := call.msg.GetConfigCommand().SubscriptionsToDelete
@@ -271,7 +282,8 @@ func assertConnsAndSubs(t *testing.T, cmdHandler *CommandHandlerMock,
 		for _, sub := range subsToDelete {
 			gotSubsToDelete = append(gotSubsToDelete, sub.Component_0+"/"+sub.Component_1+"/"+sub.Component_2)
 		}
-		require.ElementsMatch(t, expectedSubscriptionsToDelete[call.nodeID], gotSubsToDelete, "subscriptions to delete for %s do not match", call.nodeID)
+		require.ElementsMatch(t, expectedSubscriptionsToDelete[call.nodeID],
+			gotSubsToDelete, "subscriptions to delete for %s do not match", call.nodeID)
 	}
 }
 
@@ -293,7 +305,8 @@ func TestRouteService_AddRoute_Validation(t *testing.T) {
 	}
 	_, err := routeService.AddRoute(ctx, route)
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "either destNodeID or both destEndpoint and connConfigData must be set")
+	require.Contains(t, err.Error(),
+		"either destNodeID or both destEndpoint and connConfigData must be set")
 }
 
 func TestRouteService_DeleteRoute_Validation(t *testing.T) {

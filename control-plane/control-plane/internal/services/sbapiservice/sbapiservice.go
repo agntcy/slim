@@ -5,10 +5,11 @@ import (
 	"net"
 	"time"
 
-	"github.com/agntcy/slim/control-plane/control-plane/internal/services/nbapiservice"
 	"github.com/google/uuid"
 	"github.com/rs/zerolog"
 	"google.golang.org/grpc/peer"
+
+	"github.com/agntcy/slim/control-plane/control-plane/internal/services/nbapiservice"
 
 	controllerapi "github.com/agntcy/slim/control-plane/common/proto/controller/v1"
 	"github.com/agntcy/slim/control-plane/control-plane/internal/config"
@@ -297,7 +298,7 @@ func (s *sbAPIService) handleNodeMessages(ctx context.Context,
 				zlog.Error().Msgf("Error sending CreateChannelResponse: %v", err)
 				return err
 			}
-			zlog.Info().Msgf("Channel created successfull: %s", resp.ChannelId)
+			zlog.Info().Msgf("Channel created successfully: %s", resp.ChannelId)
 
 		case *controllerapi.ControlMessage_DeleteChannelRequest:
 			zlog.Debug().Msgf(
