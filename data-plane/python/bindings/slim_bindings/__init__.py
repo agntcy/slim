@@ -18,7 +18,6 @@ from slim_bindings._slim_bindings import (
     create_session,
     delete_session,
     disconnect,
-    get_default_session_config,
     get_session_config,
     init_tracing,
     invite,

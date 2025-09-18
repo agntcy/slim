@@ -28,7 +28,7 @@ async def run_client(
     audience: list[str] | None = None,
     message: str | None = None,
     iterations: int = 1,
-    sticky: bool = False,
+    unicast: bool = False,
 ):
     local_app: slim_bindings.Slim = await create_local_app(
         local,
@@ -56,18 +56,18 @@ async def run_client(
             await local_app.set_route(remote_name)
 
             # create a session
-            if sticky or enable_mls:
+            if unicast or enable_mls:
+                print("create unincast session {}", enable_mls)
                 session = await local_app.create_session(
-                    slim_bindings.PySessionConfiguration.PointToPoint(  # type: ignore
+                    slim_bindings.PySessionConfiguration.Unicast(  # type: ignore
                         max_retries=5,
                         timeout=datetime.timedelta(seconds=5),
-                        sticky=True,
                         mls_enabled=enable_mls,
                     )
                 )
             else:
                 session = await local_app.create_session(
-                    slim_bindings.PySessionConfiguration.PointToPoint()  # type: ignore
+                    slim_bindings.PySessionConfiguration.Anycast()  # type: ignore
                 )
 
             for i in range(0, iterations):
@@ -140,7 +140,7 @@ async def run_client(
                 asyncio.create_task(background_task(session_info.id))
 
 
-def ff_options(function):
+def p2p_options(function):
     function = click.option(
         "--message",
         type=str,
@@ -151,22 +151,15 @@ def ff_options(function):
         "--iterations",
         type=int,
         help="Number of messages to send, one per second.",
-        default=2,
-    )(function)
-
-    function = click.option(
-        "--sticky",
-        is_flag=True,
-        help="Enable FF sessions to connect always to the same endpoint.",
-        default=False,
+        default=10,
     )(function)
 
     return function
 
 
 @common_options
-@ff_options
-def main(
+@p2p_options
+def main_anycast(
     local: str,
     slim: dict,
     remote: str | None = None,
@@ -179,7 +172,43 @@ def main(
     invites: list[str] | None = None,
     message: str | None = None,
     iterations: int = 1,
-    sticky: bool = False,
+):
+    try:
+        asyncio.run(
+            run_client(
+                local=local,
+                slim=slim,
+                remote=remote,
+                enable_opentelemetry=enable_opentelemetry,
+                enable_mls=False,
+                shared_secret=shared_secret,
+                jwt=jwt,
+                bundle=bundle,
+                audience=audience,
+                message=message,
+                iterations=iterations,
+                unicast=False,
+            )
+        )
+    except KeyboardInterrupt:
+        print("Client interrupted by user.")
+
+
+@common_options
+@p2p_options
+def main_unicast(
+    local: str,
+    slim: dict,
+    remote: str | None = None,
+    enable_opentelemetry: bool = False,
+    enable_mls: bool = False,
+    shared_secret: str | None = None,
+    jwt: str | None = None,
+    bundle: str | None = None,
+    audience: list[str] | None = None,
+    invites: list[str] | None = None,
+    message: str | None = None,
+    iterations: int = 1,
 ):
     try:
         asyncio.run(
@@ -195,7 +224,7 @@ def main(
                 audience=audience,
                 message=message,
                 iterations=iterations,
-                sticky=sticky,
+                unicast=True,
             )
         )
     except KeyboardInterrupt:

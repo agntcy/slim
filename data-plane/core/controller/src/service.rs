@@ -25,7 +25,7 @@ use crate::api::proto::api::v1::{
 };
 use crate::errors::ControllerError;
 use slim_config::grpc::client::ClientConfig;
-use slim_datapath::api::ProtoMessage as PubsubMessage;
+use slim_datapath::api::ProtoMessage as DataPlaneMessage;
 use slim_datapath::message_processing::MessageProcessor;
 use slim_datapath::messages::Name;
 use slim_datapath::messages::utils::SlimHeaderFlags;
@@ -50,7 +50,7 @@ struct ControllerServiceInternal {
     connections: Arc<parking_lot::RwLock<HashMap<String, u64>>>,
 
     /// channel to send messages into the datapath
-    tx_slim: mpsc::Sender<Result<PubsubMessage, Status>>,
+    tx_slim: mpsc::Sender<Result<DataPlaneMessage, Status>>,
 
     /// channels to send control messages
     tx_channels: parking_lot::RwLock<TxChannels>,
@@ -82,7 +82,7 @@ pub struct ControlPlane {
 
     /// channel to receive message from the datapath
     /// to be used in listen_from_data_plan
-    rx_slim_option: Option<mpsc::Receiver<Result<PubsubMessage, Status>>>,
+    rx_slim_option: Option<mpsc::Receiver<Result<DataPlaneMessage, Status>>>,
 }
 
 /// ControllerServiceInternal implements Drop trait to cancel all running listeners and
@@ -179,7 +179,7 @@ impl ControlPlane {
 
     async fn listen_from_data_plane(
         &mut self,
-        mut rx: mpsc::Receiver<Result<PubsubMessage, Status>>,
+        mut rx: mpsc::Receiver<Result<DataPlaneMessage, Status>>,
     ) {
         let cancellation_token = CancellationToken::new();
         let cancellation_token_clone = cancellation_token.clone();
@@ -465,7 +465,7 @@ impl ControllerService {
                             ])
                             .with_id(subscription.id.unwrap_or(Name::NULL_COMPONENT));
 
-                            let msg = PubsubMessage::new_subscribe(
+                            let msg = DataPlaneMessage::new_subscribe(
                                 &source,
                                 &name,
                                 Some(SlimHeaderFlags::default().with_recv_from(conn)),
@@ -507,7 +507,7 @@ impl ControllerService {
                             ])
                             .with_id(subscription.id.unwrap_or(Name::NULL_COMPONENT));
 
-                            let msg = PubsubMessage::new_unsubscribe(
+                            let msg = DataPlaneMessage::new_unsubscribe(
                                 &source,
                                 &name,
                                 Some(SlimHeaderFlags::default().with_recv_from(conn)),
@@ -668,7 +668,7 @@ impl ControllerService {
     }
 
     /// Send a control message to SLIM.
-    async fn send_control_message(&self, msg: PubsubMessage) -> Result<(), ControllerError> {
+    async fn send_control_message(&self, msg: DataPlaneMessage) -> Result<(), ControllerError> {
         self.inner.tx_slim.send(Ok(msg)).await.map_err(|e| {
             error!("error sending message into datapath: {}", e);
             ControllerError::DatapathError(e.to_string())
