@@ -274,8 +274,8 @@ impl JwtSource {
         });
 
         Ok(Arc::new(Self {
-            _audiences: _audiences,
-            _target_spiffe_id: _target_spiffe_id,
+            _audiences,
+            _target_spiffe_id,
             current,
             _task_handle: task_handle,
         }))
@@ -530,6 +530,7 @@ impl Verifier for SpiffeJwtVerifier {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::time::Duration as StdDuration;
 
     #[tokio::test]
     async fn test_spiffe_config_default() {
@@ -544,5 +545,88 @@ mod tests {
     async fn test_spiffe_jwt_verifier_creation() {
         let verifier = SpiffeJwtVerifier::new(vec!["test-audience".to_string()]);
         assert_eq!(verifier.audiences, vec!["test-audience"]);
+    }
+
+    // This test depends on a running SPIFFE Workload API (agent). Ignored by default.
+    #[tokio::test]
+    #[ignore]
+    async fn test_spiffe_jwt_verifier_initialization_live() {
+        let verifier = SpiffeJwtVerifier::new(vec!["test-audience".to_string()]);
+        let result = verifier.initialize().await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_spiffe_provider_creation() {
+        let config = SpiffeConfig::default();
+        let provider = SpiffeProvider::new(config);
+        assert!(provider.x509_source.is_none());
+        assert!(provider.jwt_source.is_none());
+    }
+
+    // Depends on live SPIFFE agent; ignored by default.
+    #[tokio::test]
+    #[ignore]
+    async fn test_spiffe_provider_initialization_live() {
+        let config = SpiffeConfig::default();
+        let mut provider = SpiffeProvider::new(config);
+        let result = provider.initialize().await;
+        assert!(result.is_ok());
+        assert!(provider.x509_source.is_some());
+        assert!(provider.jwt_source.is_some());
+    }
+
+    #[test]
+    fn test_spiffe_provider_get_x509_svid_not_initialized() {
+        let provider = SpiffeProvider::new(SpiffeConfig::default());
+        let res = provider.get_x509_svid();
+        assert!(res.is_err());
+        let err = format!("{}", res.unwrap_err());
+        assert!(err.contains("X509Source not initialized"));
+    }
+
+    #[test]
+    fn test_spiffe_provider_get_jwt_svid_not_initialized() {
+        let provider = SpiffeProvider::new(SpiffeConfig::default());
+        let res = provider.get_jwt_svid();
+        assert!(res.is_err());
+        let err = format!("{}", res.unwrap_err());
+        assert!(err.contains("JwtSource not initialized"));
+    }
+
+    #[tokio::test]
+    async fn test_jwt_source_creation_with_invalid_path_fails() {
+        // Use a bogus socket path; current implementation surfaces the error immediately
+        let bogus_path = Some("/tmp/non-existent-spiffe-socket".to_string());
+        let src = JwtSource::new(
+            vec!["aud".into()],
+            None,
+            bogus_path,
+            Some(StdDuration::from_secs(1)),
+        )
+        .await;
+        assert!(
+            src.is_err(),
+            "Expected JwtSource::new to fail with invalid socket path"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_spiffe_jwt_verifier_try_verify_without_bundles() {
+        let verifier = SpiffeJwtVerifier::new(vec!["aud".into()]);
+        let res = verifier.try_verify("token".to_string());
+        assert!(res.is_err());
+        let err = format!("{}", res.unwrap_err());
+        assert!(err.contains("No JWT bundles cached"));
+    }
+
+    #[tokio::test]
+    async fn test_spiffe_jwt_verifier_try_get_claims_without_bundles() {
+        let verifier = SpiffeJwtVerifier::new(vec!["aud".into()]);
+        let claims_result: Result<serde_json::Value, AuthError> =
+            verifier.try_get_claims("token".to_string());
+        assert!(claims_result.is_err());
+        let err = format!("{}", claims_result.unwrap_err());
+        assert!(err.contains("SPIFFE JWT claims retrieval requires async context"));
     }
 }

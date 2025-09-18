@@ -26,6 +26,7 @@ schemars = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 serde_yaml = { workspace = true }
+spiffe = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
 tokio-util = { workspace = true }
@@ -35,7 +36,6 @@ tower-service = { workspace = true }
 tracing = { workspace = true }
 url = { workspace = true }
 wiremock = { workspace = true }
-spiffe = { workspace = true }
 
 [dev-dependencies]
 agntcy-slim-config = { path = "../config" }
