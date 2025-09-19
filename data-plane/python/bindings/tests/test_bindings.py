@@ -42,7 +42,7 @@ async def test_end_to_end(server):
 
     # create point to point session
     session_info = await slim_bindings.create_session(
-        svc_alice, slim_bindings.PySessionConfiguration.PointToPoint()
+        svc_alice, slim_bindings.PySessionConfiguration.Anycast()
     )
 
     # send msg from Alice to Bob
@@ -100,34 +100,30 @@ async def test_session_config(server):
     # create svc
     svc = await create_svc(alice_name, "secret")
 
-    # create point to point session
-    session_config = slim_bindings.PySessionConfiguration.PointToPoint()
+    # create an anycast session
+    session_config = slim_bindings.PySessionConfiguration.Anycast()
     session_info = await slim_bindings.create_session(svc, session_config)
 
     # get session configuration
     session_config_ret = await slim_bindings.get_session_config(svc, session_info.id)
 
     # check if the session config is correct
-    assert isinstance(session_config, slim_bindings.PySessionConfiguration.PointToPoint)
+    assert isinstance(session_config, slim_bindings.PySessionConfiguration.Anycast)
     assert session_config == session_config_ret, (
         f"session config are not equal: {session_config} vs {session_config_ret}"
     )
 
-    # check default values
+    # set default values
     await slim_bindings.set_default_session_config(
         svc,
         session_config,
     )
 
-    # get default
-    session_config_ret = await slim_bindings.get_default_session_config(
-        svc, slim_bindings.PySessionType.POINT_TO_POINT
-    )
+    # get values (expected default)
+    session_config_ret = await slim_bindings.get_session_config(svc, session_info.id)
 
     # check if the session config is correct
-    assert isinstance(
-        session_config_ret, slim_bindings.PySessionConfiguration.PointToPoint
-    )
+    assert isinstance(session_config_ret, slim_bindings.PySessionConfiguration.Anycast)
     assert session_config == session_config_ret, (
         f"session config are not equal: {session_config} vs {session_config_ret}"
     )
@@ -173,10 +169,8 @@ async def test_session_config(server):
         session_config,
     )
 
-    # get default
-    session_config_ret = await slim_bindings.get_default_session_config(
-        svc, slim_bindings.PySessionType.MULTICAST
-    )
+    # get values (expected default)
+    session_config_ret = await slim_bindings.get_session_config(svc, session_info.id)
     # check if the session config is correct
     assert isinstance(
         session_config_ret, slim_bindings.PySessionConfiguration.Multicast
@@ -214,7 +208,7 @@ async def test_slim_wrapper(server):
 
     # create session
     session_info = await slim2.create_session(
-        slim_bindings.PySessionConfiguration.PointToPoint()
+        slim_bindings.PySessionConfiguration.Anycast()
     )
 
     async with slim1, slim2:
@@ -292,7 +286,7 @@ async def test_auto_reconnect_after_server_restart(server):
 
     # create point to point session
     session_info = await slim_bindings.create_session(
-        svc_alice, slim_bindings.PySessionConfiguration.PointToPoint()
+        svc_alice, slim_bindings.PySessionConfiguration.Anycast()
     )
 
     # verify baseline message exchange before the simulated server restart
@@ -338,7 +332,7 @@ async def test_error_on_nonexistent_subscription(server):
 
     # create point to point session
     session_info = await slim_bindings.create_session(
-        svc_alice, slim_bindings.PySessionConfiguration.PointToPoint()
+        svc_alice, slim_bindings.PySessionConfiguration.Anycast()
     )
 
     # create Bob's name, but do not instantiate or subscribe Bob

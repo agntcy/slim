@@ -64,7 +64,7 @@ jobs:
         working-directory: ./data-plane/testing
         run: task test:group-session
 
-      - name: Run fire and forget integration test
+      - name: Run point to point integration test
         working-directory: ./data-plane/testing
         run: task test:point-to-point-session
 

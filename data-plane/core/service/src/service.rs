@@ -22,7 +22,7 @@ use slim_config::grpc::server::ServerConfig;
 use slim_controller::config::Config as ControllerConfig;
 use slim_controller::config::Config as DataplaneConfig;
 use slim_controller::service::ControlPlane;
-use slim_datapath::api::PubSubServiceServer;
+use slim_datapath::api::DataPlaneServiceServer;
 use slim_datapath::message_processing::MessageProcessor;
 use slim_datapath::messages::Name;
 
@@ -44,7 +44,7 @@ pub struct ServiceConfiguration {
     #[serde(default)]
     pub group_name: Option<String>,
 
-    /// Pubsub API configuration
+    /// DataPlane API configuration
     #[serde(default)]
     pub dataplane: DataplaneConfig,
 
@@ -267,7 +267,7 @@ impl Service {
 
         let cancellation_token = config
             .run_server(
-                &[PubSubServiceServer::from_arc(
+                &[DataPlaneServiceServer::from_arc(
                     self.message_processor.clone(),
                 )],
                 self.watch.clone(),

@@ -31,13 +31,14 @@ async def run_server(address: str, enable_opentelemetry: bool):
         identity="slim",
         secret="secret",
     )
-    # create new slim object
+    # create new slim object (local variable)
     slim = await slim_bindings.Slim.new(
         slim_bindings.PyName("cisco", "default", "slim"), provider, verifier
     )
 
     # Run as server
     await slim.run_server({"endpoint": address, "tls": {"insecure": True}})
+    return slim
 
 
 async def amain():
@@ -55,28 +56,27 @@ async def amain():
 
     args = parser.parse_args()
 
-    # Create an asyncio event to keep the loop running until interrupted
     stop_event = asyncio.Event()
+    slim_ref = None  # Keep reference to slim server
 
-    # Define a shutdown handler to set the event when interrupted
     def shutdown():
         print("\nShutting down...")
         stop_event.set()
 
-    # Register the shutdown handler for SIGINT
     loop = asyncio.get_running_loop()
     loop.add_signal_handler(SIGINT, shutdown)
 
-    # Run the client task
-    client_task = asyncio.create_task(run_server(args.slim, args.enable_opentelemetry))
+    async def server_task():
+        nonlocal slim_ref
+        slim_ref = await run_server(args.slim, args.enable_opentelemetry)
 
-    # Wait until the stop event is set
+    task = asyncio.create_task(server_task())
+
     await stop_event.wait()
 
-    # Cancel the client task
-    client_task.cancel()
+    task.cancel()
     try:
-        await client_task
+        await task
     except asyncio.CancelledError:
         pass
 

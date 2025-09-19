@@ -11,7 +11,7 @@ use crate::api::{
     Content, MessageType, ProtoMessage, ProtoName, ProtoPublish, ProtoPublishType,
     ProtoSessionType, ProtoSubscribe, ProtoSubscribeType, ProtoUnsubscribe, ProtoUnsubscribeType,
     SessionHeader, SlimHeader,
-    proto::pubsub::v1::{OriginalName, SessionMessageType},
+    proto::dataplane::v1::{OriginalName, SessionMessageType},
 };
 
 use thiserror::Error;
@@ -853,7 +853,7 @@ impl AsRef<ProtoPublish> for ProtoMessage {
 
 #[cfg(test)]
 mod tests {
-    use crate::{api::proto::pubsub::v1::SessionMessageType, messages::encoder::Name};
+    use crate::{api::proto::dataplane::v1::SessionMessageType, messages::encoder::Name};
 
     use super::*;
 
