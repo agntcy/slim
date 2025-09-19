@@ -128,13 +128,13 @@ impl TokenCache {
             .as_secs();
 
         let token = token.into();
-        if let Some(entry) = self.entries.read().get(&token) {
-            if entry.expiry > now {
-                // Decode the claims part of the token
-                let parts: Vec<&str> = token.split('.').collect();
-                if parts.len() == 3 {
-                    return Some(parts[1].to_string());
-                }
+        if let Some(entry) = self.entries.read().get(&token)
+            && entry.expiry > now
+        {
+            // Decode the claims part of the token
+            let parts: Vec<&str> = token.split('.').collect();
+            if parts.len() == 3 {
+                return Some(parts[1].to_string());
             }
         }
 
@@ -174,8 +174,14 @@ impl<T> Jwt<T> {
     /// Internal constructor used by the builder.
     ///
     /// This should not be called directly. Use the builder pattern instead:
-    /// ```
-    /// let jwt = Jwt::builder()
+    /// ```ignore
+    /// use slim_auth::builder::JwtBuilder; // hidden import for doctest
+    /// let jwt = JwtBuilder::default()
+    ///     .issuer("my-issuer")
+    ///     .audience(["my-audience"])
+    ///     .subject("user-123")
+    ///     .private_key_from_str("secret-key", slim_auth::jwt::Algorithm::HS256)
+    ///     .build_signer().unwrap();
     ///     .issuer("my-issuer")
     ///     .audience("my-audience")
     ///     .subject("user-123")

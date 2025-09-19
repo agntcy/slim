@@ -238,7 +238,9 @@ async fn main() {
         // invite all participants
         for p in participants {
             info!("Invite participant {}", p);
-            app.invite_participant(&p, info.clone())
+            info.session_arc()
+                .unwrap()
+                .invite_participant(&p)
                 .await
                 .expect("error sending invite message");
         }
@@ -247,24 +249,24 @@ async fn main() {
 
         // listen for messages
         tokio::spawn(async move {
+            use slim_service::session::Notification;
             loop {
                 match rx.recv().await {
                     None => {
                         info!(%conn_id, "end of stream");
                         break;
                     }
-                    Some(msg_info) => match msg_info {
-                        Ok(msg) => {
-                            let payload = match msg.message.get_payload() {
-                                Some(c) => {
-                                    let p = &c.blob;
-                                    String::from_utf8(p.to_vec())
-                                        .expect("error while parsing received message")
+                    Some(notif) => match notif {
+                        Ok(Notification::NewSession(_)) => {}
+                        Ok(Notification::NewMessage(msg)) => {
+                            if let Some(slim_datapath::api::ProtoPublishType(publish)) =
+                                msg.message_type.as_ref()
+                            {
+                                let p = &publish.get_payload().blob;
+                                if let Ok(payload) = String::from_utf8(p.to_vec()) {
+                                    info!("received message: {}", payload);
                                 }
-                                None => "".to_string(),
-                            };
-
-                            info!("received message: {}", payload);
+                            }
                         }
                         Err(e) => {
                             error!("received an error message {:?}", e);
@@ -284,8 +286,10 @@ async fn main() {
             // set fanout > 1 to send the message in broadcast
             let flags = SlimHeaderFlags::new(10, None, None, None, None);
 
-            if app
-                .publish_with_flags(info.clone(), &channel_name, flags, p, None, None)
+            if info
+                .session_arc()
+                .unwrap()
+                .publish_with_flags(&channel_name, flags, p, None, None)
                 .await
                 .is_err()
             {
@@ -325,49 +329,52 @@ async fn main() {
         }
 
         // listen for messages
+        let mut maybe_session_ctx: Option<
+            slim_service::session::context::SessionContext<SharedSecret, SharedSecret>,
+        > = None;
         loop {
             match rx.recv().await {
                 None => {
                     info!(%conn_id, "end of stream");
                     break;
                 }
-                Some(msg_info) => match msg_info {
-                    Ok(msg) => {
-                        let publisher = msg.message.get_slim_header().get_source();
-                        let msg_id = msg.message.get_id();
-                        let payload = match msg.message.get_payload() {
-                            Some(c) => {
-                                let blob = &c.blob;
-                                match String::from_utf8(blob.to_vec()) {
-                                    Ok(p) => p,
-                                    Err(e) => {
-                                        error!("error while parsing the message {}", e.to_string());
-                                        continue;
-                                    }
+                Some(notif) => match notif {
+                    Ok(slim_service::session::Notification::NewSession(ctx)) => {
+                        maybe_session_ctx = Some(ctx);
+                    }
+                    Ok(slim_service::session::Notification::NewMessage(msg)) => {
+                        let publisher = msg.get_slim_header().get_source();
+                        let msg_id = msg.get_id();
+                        let payload = if let Some(slim_datapath::api::ProtoPublishType(publish)) =
+                            msg.message_type.as_ref()
+                        {
+                            let blob = &publish.get_payload().blob;
+                            match String::from_utf8(blob.to_vec()) {
+                                Ok(p) => p,
+                                Err(e) => {
+                                    error!("error while parsing the message {}", e.to_string());
+                                    String::new()
                                 }
                             }
-                            None => "".to_string(),
+                        } else {
+                            String::new()
                         };
-
-                        let info = msg.info;
-                        info!("received message: {}", payload,);
-
+                        info!("received message: {}", payload);
                         if publisher == moderator && !is_attacker {
-                            // for each message coming from the moderator reply with another message
                             info!("reply to moderator with message {}", msg_id);
-
-                            // create payload
                             let mut pstr = msg_payload_str.clone();
                             pstr.push_str(&msg_id.to_string());
                             let p = pstr.as_bytes().to_vec();
-
                             let flags = SlimHeaderFlags::new(10, None, None, None, None);
-                            if app
-                                .publish_with_flags(info, &channel_name, flags, p, None, None)
-                                .await
-                                .is_err()
+                            if let Some(ctx) = maybe_session_ctx.as_ref()
+                                && ctx
+                                    .session_arc()
+                                    .unwrap()
+                                    .publish_with_flags(&channel_name, flags, p, None, None)
+                                    .await
+                                    .is_err()
                             {
-                                panic!("an error occurred sending publication from moderator",);
+                                panic!("an error occurred sending publication from moderator");
                             }
                         }
                     }

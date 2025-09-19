@@ -22,5 +22,5 @@ where
     /// New session notification
     NewSession(SessionContext<P, V, T>),
     /// Normal message notification
-    NewMessage(Message),
+    NewMessage(Box<Message>),
 }

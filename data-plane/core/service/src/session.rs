@@ -6,6 +6,7 @@ mod common;
 mod config;
 pub mod context;
 mod errors;
+mod handle;
 pub mod interceptor;
 pub mod interceptor_mls;
 mod message;
@@ -40,13 +41,15 @@ pub use interceptor::SessionInterceptorProvider;
 pub use config::SessionConfig;
 
 // Common Session Types - internal use
-pub(crate) use common::{MessageDirection, SESSION_RANGE, Session, SlimChannelSender};
+pub(crate) use common::{MessageDirection, SESSION_RANGE, SlimChannelSender};
 
 // Session layer
 pub(crate) use session_layer::SessionLayer;
 // Public exports for external crates (like Python bindings)
-pub use common::{SESSION_UNSPECIFIED, SessionType, AppChannelReceiver};
+pub use common::{AppChannelReceiver, SESSION_UNSPECIFIED, SessionType};
+pub use handle::Session;
 
 // Re-export specific items that need to be publicly accessible
 pub use multicast::MulticastConfiguration;
+pub use notification::Notification;
 pub use point_to_point::PointToPointConfiguration;

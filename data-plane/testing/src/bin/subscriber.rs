@@ -138,49 +138,50 @@ async fn main() {
 
     info!("waiting for incoming messages");
     // wait for messages
+    // Track session context for publish_to
+    use slim_service::session::Notification;
+    let mut session_ctx_opt: Option<
+        slim_service::session::context::SessionContext<SharedSecret, SharedSecret>,
+    > = None;
     loop {
-        let recv_msg = rx.recv().await.unwrap().expect("error");
-        let pub_id;
-        let msg_len;
-        let source;
-        match &recv_msg.message.message_type {
-            None => {
-                panic!("message type is missing");
+        let notif = match rx.recv().await {
+            Some(n) => n.expect("error"),
+            None => break,
+        };
+        match notif {
+            Notification::NewSession(ctx) => {
+                session_ctx_opt = Some(ctx);
             }
-            Some(msg_type) => match msg_type {
-                slim_datapath::api::ProtoPublishType(msg) => {
-                    let payload = &msg.get_payload().blob;
-                    // the payload needs to start with the publication id, so it has to contain
-                    // at least 8 bytes
-                    msg_len = payload.len();
+            Notification::NewMessage(msg) => {
+                if let Some(slim_datapath::api::ProtoPublishType(publish)) =
+                    msg.message_type.as_ref()
+                {
+                    let payload = &publish.get_payload().blob;
+                    let msg_len = payload.len();
                     if msg_len < 8 {
                         panic!("error parsing message, unexpected payload format");
                     }
-                    pub_id = u64::from_be_bytes(payload[0..8].try_into().unwrap());
-                    source = recv_msg.message.get_source();
+                    let pub_id = u64::from_be_bytes(payload[0..8].try_into().unwrap());
+                    let source = msg.get_source();
+                    debug!("received pub {}, size {}", pub_id, msg_len);
+                    let mut out_vec = pub_id.to_be_bytes().to_vec();
+                    out_vec.push(0);
+                    for b in id_bytes.iter() {
+                        out_vec.push(*b);
+                    }
+                    out_vec.push(0);
+                    while out_vec.len() < msg_len {
+                        out_vec.push(120);
+                    }
+                    if let Some(ctx) = session_ctx_opt.as_ref() {
+                        ctx.session_arc()
+                            .unwrap()
+                            .publish_to(&source, conn_id, out_vec, None, None)
+                            .await
+                            .unwrap();
+                    }
                 }
-                t => {
-                    panic!("received unexpected message: {:?}", t);
-                }
-            },
+            }
         }
-
-        // create a new message with the same len with the format
-        // pub_id 0x00 id 0x00 payload(size = msg_len - 9)
-        debug!("received pub {}, size {}", pub_id, msg_len);
-        let mut out_vec = pub_id.to_be_bytes().to_vec();
-        out_vec.push(0);
-        for b in id_bytes.iter() {
-            out_vec.push(*b);
-        }
-        out_vec.push(0);
-        while out_vec.len() < msg_len {
-            out_vec.push(120); //ASCII for 'x'
-        }
-
-        // send message
-        app.publish_to(recv_msg.info, &source, conn_id, out_vec, None, None)
-            .await
-            .unwrap();
     }
 }

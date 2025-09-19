@@ -549,15 +549,15 @@ where
         );
 
         // If session is sticky, check if the source matches the sticky name
-        if self.state.config.sticky {
-            if let Some(name) = &self.state.sticky_name {
-                let source = message.get_source();
-                if *name != source {
-                    return Err(SessionError::AppTransmission(format!(
-                        "message source {} does not match sticky name {}",
-                        source, name
-                    )));
-                }
+        if self.state.config.sticky
+            && let Some(name) = &self.state.sticky_name
+        {
+            let source = message.get_source();
+            if *name != source {
+                return Err(SessionError::AppTransmission(format!(
+                    "message source {} does not match sticky name {}",
+                    source, name
+                )));
             }
         }
 
@@ -922,7 +922,8 @@ mod tests {
         let (tx_slim, _rx_slim) = tokio::sync::mpsc::channel(1);
         let (tx_app, mut rx_app) = tokio::sync::mpsc::channel(1);
 
-        let tx = SessionTransmitter::new(tx_app, tx_slim);
+        // SessionTransmitter::new expects (slim_tx, app_tx)
+        let tx = SessionTransmitter::new(tx_slim, tx_app);
 
         let source = Name::from_strings(["cisco", "default", "local"]).with_id(0);
 
@@ -944,13 +945,13 @@ mod tests {
             vec![0x1, 0x2, 0x3, 0x4],
         );
 
-        // set the session id in the message
+        // set the session id in the message (session created with id 0)
         let header = message.get_session_header_mut();
-        header.session_id = 1;
+        header.session_id = 0;
         header.set_session_message_type(ProtoSessionMessageType::P2PMsg);
 
         let res = session
-            .on_message(Message::from(message.clone()), MessageDirection::North)
+            .on_message(message.clone(), MessageDirection::North)
             .await;
         assert!(res.is_ok());
 
@@ -960,7 +961,7 @@ mod tests {
             .expect("no message received")
             .expect("error");
         assert_eq!(msg, message);
-        assert_eq!(msg.get_session_header().get_message_id(), 1);
+        assert_eq!(msg.get_session_header().get_message_id(), 0);
     }
 
     #[tokio::test]
@@ -1029,7 +1030,8 @@ mod tests {
         let (tx_slim, mut rx_slim) = tokio::sync::mpsc::channel(1);
         let (tx_app, mut rx_app) = tokio::sync::mpsc::channel(1);
 
-        let tx = SessionTransmitter::new(tx_app, tx_slim);
+        // SessionTransmitter::new expects (slim_tx, app_tx)
+        let tx = SessionTransmitter::new(tx_slim, tx_app);
 
         let source = Name::from_strings(["cisco", "default", "local"]).with_id(0);
 

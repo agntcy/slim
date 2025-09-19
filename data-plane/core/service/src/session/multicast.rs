@@ -344,11 +344,9 @@ where
                     next = rx.recv() => {
                         match next {
                             None => {
-                                debug!("no more messages to process on session {}", session_id);
                                 break;
                             }
                             Some(result) => {
-                                debug!("got a message in process message");
                                 if result.is_err() {
                                     error!(%session_id, "error receiving a message on session, drop it");
                                     continue;

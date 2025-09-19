@@ -3,6 +3,7 @@
 
 mod build_info;
 mod pyidentity;
+mod pymessage;
 mod pyservice;
 mod pysession;
 mod utils;
@@ -19,13 +20,15 @@ mod _slim_bindings {
     #[pymodule_export]
     use pyservice::{
         PyService, connect, create_pyservice, create_session, delete_session, disconnect,
-        get_session_config, invite, publish, receive, remove, remove_route, run_server,
-        set_default_session_config, set_route, set_session_config, stop_server, subscribe,
-        unsubscribe,
+        get_message, invite, listen_for_session, publish, remove, remove_route, run_server,
+        set_default_session_config, set_route, stop_server, subscribe, unsubscribe,
     };
 
     #[pymodule_export]
-    use pysession::{PySessionConfiguration, PySessionInfo, PySessionType};
+    use pysession::{PySessionConfiguration, PySessionContext, PySessionType};
+
+    #[pymodule_export]
+    use pymessage::PyMessageContext;
 
     #[pymodule_export]
     use utils::{PyName, init_tracing};

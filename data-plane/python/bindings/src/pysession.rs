@@ -1,77 +1,96 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
+use pyo3::exceptions::PyException;
 use std::collections::HashMap;
+use std::sync::{Arc, Weak};
+use tokio::sync::RwLock;
 
 use pyo3::prelude::*;
 use pyo3_stub_gen::derive::gen_stub_pyclass;
 use pyo3_stub_gen::derive::gen_stub_pyclass_enum;
 use pyo3_stub_gen::derive::gen_stub_pymethods;
-use slim_datapath::messages::Name;
+use slim_service::{AppChannelReceiver, SessionError};
+// (Python-only session wrapper will provide higher-level methods; keep Rust minimal)
 
+use crate::pyidentity::{IdentityProvider, IdentityVerifier};
 use crate::utils::PyName;
 use slim_service::MulticastConfiguration;
 use slim_service::PointToPointConfiguration;
 use slim_service::session;
 pub use slim_service::session::SESSION_UNSPECIFIED;
+use slim_service::session::Session;
+use slim_service::session::context::SessionContext;
+
+pub(crate) struct PySessionCtxInternal {
+    pub(crate) session: Weak<Session<IdentityProvider, IdentityVerifier>>,
+    pub(crate) rx: RwLock<AppChannelReceiver>,
+    pub(crate) metadata: HashMap<String, String>,
+}
 
 #[gen_stub_pyclass]
 #[pyclass]
 #[derive(Clone)]
-pub(crate) struct PySessionInfo {
-    pub(crate) session_info: session::SessionMessage,
+pub(crate) struct PySessionContext {
+    pub(crate) internal: Arc<PySessionCtxInternal>,
 }
 
-impl From<session::SessionMessage> for PySessionInfo {
-    fn from(session_info: session::SessionMessage) -> Self {
-        PySessionInfo { session_info }
+impl From<SessionContext<IdentityProvider, IdentityVerifier>> for PySessionContext {
+    fn from(ctx: SessionContext<IdentityProvider, IdentityVerifier>) -> Self {
+        // split context into parts
+        let (session, rx, metadata) = ctx.into_parts();
+        let rx = RwLock::new(rx);
+
+        PySessionContext {
+            internal: Arc::new(PySessionCtxInternal {
+                session,
+                rx,
+                metadata: metadata.unwrap_or(HashMap::new()),
+            }),
+        }
     }
 }
 
 #[gen_stub_pymethods]
 #[pymethods]
-impl PySessionInfo {
-    #[new]
-    fn new(session_id: u32) -> Self {
-        PySessionInfo {
-            session_info: session::SessionMessage::new(session_id),
-        }
+impl PySessionContext {
+    #[getter]
+    pub fn id(&self) -> PyResult<u32> {
+        let id = self
+            .internal
+            .session
+            .upgrade()
+            .ok_or_else(|| SessionError::SessionClosed("session already closed".to_string()))
+            .map_err(|e| PyErr::new::<PyException, _>(e.to_string()))?
+            .id();
+
+        Ok(id)
     }
 
     #[getter]
-    fn id(&self) -> u32 {
-        self.session_info.id
+    pub fn metadata(&self) -> &HashMap<String, String> {
+        &self.internal.metadata
     }
 
-    #[getter]
-    fn source_name(&self) -> PyName {
-        let name = match &self.session_info.message_source {
-            Some(n) => n.clone(),
-            None => Name::from_strings(["", "", ""]),
-        };
-        PyName::from(name)
+    pub fn set_session_config(&self, config: PySessionConfiguration) -> PyResult<()> {
+        let session = self.internal.session.upgrade().ok_or_else(|| {
+            PyErr::new::<PyException, _>(
+                SessionError::SessionClosed("session already closed".to_string()).to_string(),
+            )
+        })?;
+        session
+            .set_session_config(&config.into())
+            .map_err(|e| PyErr::new::<PyException, _>(e.to_string()))?;
+        Ok(())
     }
 
-    #[getter]
-    pub fn destination_name(&self) -> PyName {
-        let name = match &self.session_info.message_destination {
-            Some(n) => n.clone(),
-            None => Name::from_strings(["", "", ""]),
-        };
-        PyName::from(name)
-    }
-
-    #[getter]
-    pub fn payload_type(&self) -> String {
-        match &self.session_info.payload_type {
-            Some(t) => t.clone(),
-            None => "".to_string(),
-        }
-    }
-
-    #[getter]
-    pub fn metadata(&self) -> HashMap<String, String> {
-        self.session_info.metadata.clone()
+    pub fn get_session_config(&self) -> PyResult<PySessionConfiguration> {
+        let session = self.internal.session.upgrade().ok_or_else(|| {
+            PyErr::new::<PyException, _>(
+                SessionError::SessionClosed("session already closed".to_string()).to_string(),
+            )
+        })?;
+        Ok(session.session_config().into())
     }
 }
 
@@ -79,7 +98,7 @@ impl PySessionInfo {
 #[gen_stub_pyclass_enum]
 #[pyclass(eq, eq_int)]
 #[derive(PartialEq, Clone)]
-pub(crate) enum PySessionType {
+pub enum PySessionType {
     #[pyo3(name = "ANYCAST")]
     Anycast = 0,
     #[pyo3(name = "UNICAST")]

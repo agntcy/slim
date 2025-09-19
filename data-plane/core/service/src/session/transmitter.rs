@@ -157,7 +157,7 @@ where
                 }
             }
 
-            tx.send(message.map(|msg| Notification::NewMessage(msg)))
+            tx.send(message.map(|msg| Notification::NewMessage(Box::new(msg))))
                 .await
                 .map_err(|e| SessionError::AppTransmission(e.to_string()))
         }

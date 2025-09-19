@@ -55,21 +55,18 @@ impl TimerObserver for PingTimerObserver {
 }
 
 struct ProxySession {
-    // name of the app connected to this session
-    slim_session: session::Info,
-    // send messages to proxy
-    tx_proxy: mpsc::Sender<Result<(session::Info, Vec<u8>), session::Info>>,
+    // identifier of the SLIM session (source name + session id)
+    slim_session: SessionId,
+    // send messages to proxy (Ok => forward to SLIM, Err => session ended)
+    tx_proxy: mpsc::Sender<Result<(SessionId, Vec<u8>), SessionId>>,
 }
 
 impl ProxySession {
     fn new(
-        slim_session: session::Info,
-        tx_proxy: mpsc::Sender<Result<(session::Info, Vec<u8>), session::Info>>,
+        slim_session: SessionId,
+        tx_proxy: mpsc::Sender<Result<(SessionId, Vec<u8>), SessionId>>,
     ) -> Self {
-        ProxySession {
-            slim_session,
-            tx_proxy,
-        }
+        ProxySession { slim_session, tx_proxy }
     }
 
     async fn run_session(&self, mcp_server: String) -> mpsc::Sender<Message> {
@@ -259,6 +256,11 @@ pub struct Proxy {
     svc_id: slim_config::component::id::ID,
     mcp_server: String,
     connections: HashMap<SessionId, mpsc::Sender<Message>>,
+    // single session handle used for publishing back to SLIM (currently one P2P session)
+    // store after creation
+    session_handle: Option<Arc<slim_service::session::Session<SharedSecret, SharedSecret>>>,
+    // connection id used for forwarding replies
+    forward_conn_id: Option<u64>,
 }
 
 impl Proxy {
@@ -268,13 +270,7 @@ impl Proxy {
         svc_id: slim_config::component::id::ID,
         mcp_server: String,
     ) -> Self {
-        Self {
-            name,
-            config,
-            svc_id,
-            mcp_server,
-            connections: HashMap::new(),
-        }
+        Self { name, config, svc_id, mcp_server, connections: HashMap::new(), session_handle: None, forward_conn_id: None }
     }
 
     pub async fn start(&mut self) {
@@ -298,6 +294,9 @@ impl Proxy {
             .get_connection_id(&svc.config().clients()[0].endpoint)
             .unwrap();
 
+        // save forward connection id
+        self.forward_conn_id = Some(conn_id);
+
         // subscribe for local name
         match app.subscribe(&self.name, Some(conn_id)).await {
             Ok(_) => {}
@@ -315,6 +314,8 @@ impl Proxy {
         if res.is_err() {
             panic!("error creating p2p session");
         }
+        let session_ctx = res.unwrap();
+        self.session_handle = Some(session_ctx.session_arc().clone());
 
         let (proxy_tx, mut proxy_rx) = mpsc::channel(128);
 
@@ -328,55 +329,45 @@ impl Proxy {
                             break;
                         }
                         Some(result) => match result {
-                            Ok(msg) => {
-                                if !msg.message.is_publish() {
-                                    error!("received unexpected message type");
-                                    continue;
+                            Ok(notification) => match notification {
+                                slim_service::session::Notification::NewSession(_) => {
+                                    // ignore session creation events here
                                 }
-
-                                let session_id = SessionId {
-                                    source: msg.message.get_source(),
-                                    id: msg.info.id,
-                                };
-                                match self.connections.get(&session_id) {
-                                    None => {
-                                        debug!("the session {:?} does not exists, create a new connection", session_id);
-
-                                        // this must be an InitializeRequest
-                                        let payload = msg.message.get_payload().unwrap().blob.to_vec();
-
-                                        let request: JsonRpcRequest = match serde_json::from_slice(&payload) {
-                                            Ok(request) => request,
-                                            Err(e) => {
-                                                error!("error while parsing incoming packet: {}", e.to_string());
+                                slim_service::session::Notification::NewMessage(msg_box) => {
+                                    let msg = *msg_box;
+                                    if !msg.is_publish() {
+                                        error!("received unexpected message type");
+                                        continue;
+                                    }
+                                    let session_id_val = msg.get_session_header().get_session_id();
+                                    let session_id = SessionId { source: msg.get_source(), id: session_id_val };
+                                    match self.connections.get(&session_id) {
+                                        None => {
+                                            debug!("the session {:?} does not exists, create a new connection", session_id);
+                                            // must be initialize request
+                                            let payload = msg.get_payload().unwrap().blob.to_vec();
+                                            let request: JsonRpcRequest = match serde_json::from_slice(&payload) {
+                                                Ok(request) => request,
+                                                Err(e) => { error!("error while parsing incoming packet: {}", e.to_string()); continue; }
+                                            };
+                                            if request.request.method != "initialize" {
+                                                error!("received unexpected initialization method {}", request.request.method);
                                                 continue;
                                             }
-                                        };
-
-                                        if request.request.method != "initialize" { // InitializeResultMethod
-                                            error!("received unexpected initialization method {}", request.request.method);
-                                            continue;
+                                            info!("start new session {:?}", session_id);
+                                            let session = ProxySession::new(session_id.clone(), proxy_tx.clone());
+                                            let session_tx = session.run_session(self.mcp_server.clone()).await;
+                                            let _ = session_tx.send(msg).await;
+                                            self.connections.insert(session_id, session_tx);
                                         }
-
-                                        info!("start new session {:?}", session_id);
-                                        let session = ProxySession::new(msg.info.clone(), proxy_tx.clone());
-                                        let session_tx = session.run_session(self.mcp_server.clone()).await;
-
-                                        // send the message to the new created session
-                                        let _ = session_tx.send(msg.message).await;
-
-                                        // store the new sessiopm
-                                        self.connections.insert(session_id, session_tx);
-                                    }
-                                    Some(session_tx) => {
-                                        debug!("connection exists for session {:?}, forward MCP message", session_id);
-                                        let _ = session_tx.send(msg.message).await;
+                                        Some(session_tx) => {
+                                            debug!("connection exists for session {:?}, forward MCP message", session_id);
+                                            let _ = session_tx.send(msg).await;
+                                        }
                                     }
                                 }
-                            }
-                            Err(e) => {
-                                error!("an error occurred while receiving a message {:?}", e);
-                            }
+                            },
+                            Err(e) => { error!("an error occurred while receiving a notification {:?}", e); }
                         }
                     }
                 }
@@ -386,51 +377,19 @@ impl Proxy {
                             debug!("some proxy session unexpectedly stopped. ignore it");
                         }
                         Some(result) => match result {
-                            Ok((info, msg)) => {
-                                let src = match info.message_source {
-                                    Some(ref s) => s.clone(),
-                                    None => {
-                                        error!("cannot send reply message, unknown destination");
-                                        continue;
+                            Ok((session_id, msg)) => {
+                                let src = session_id.source.clone();
+                                let conn_id = match self.forward_conn_id { Some(c) => c, None => { error!("no forward connection id available"); continue; } };
+                                if let Some(handle) = &self.session_handle {
+                                    match handle.publish_to(&src, conn_id, msg, None, None).await {
+                                        Ok(()) => { debug!("sent message to destination {:?}", src); }
+                                        Err(e) => { error!("error while sending message to app {:?}: {}", src, e.to_string()); }
                                     }
-                                };
-                                let conn_id = match info.input_connection {
-                                    Some(c) => c,
-                                    None => {
-                                        error!("cannot send reply message, unknown incoming connection");
-                                        continue;
-                                    }
-                                };
-                                match app.publish_to(
-                                    info,
-                                    &src,
-                                    conn_id,
-                                    msg,
-                                    None,
-                                    None
-                                ).await {
-                                    Ok(()) => {
-                                        debug!("sent message to destination {:?}", src);
-                                    }
-                                    Err(e) => {
-                                        error!("error while sending message to app {:?}: {}", src, e.to_string());
-                                    }
+                                } else {
+                                    error!("session handle not initialized; cannot publish");
                                 }
                             }
-                            Err(info) => {
-                                let src = match info.message_source {
-                                    Some(ref s) => s.clone(),
-                                    None => {
-                                        error!("cannot stop proxy session, unknown destination");
-                                        continue;
-                                    }
-                                };
-
-                                let session_id = SessionId {
-                                    source: src,
-                                    id: info.id,
-                                };
-
+                            Err(session_id) => {
                                 // remove the proxy session if it exists
                                 self.connections.remove(&session_id);
                                 info!("stop session {:?}", session_id);

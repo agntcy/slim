@@ -10,10 +10,10 @@ use slim_datapath::api::ProtoMessage as Message;
 use slim_datapath::messages::Name;
 
 // Local crate
-use crate::session::{Id, MessageDirection, common::State};
 use super::SessionConfig;
 use super::SessionError;
 use super::SessionInterceptorProvider;
+use crate::session::{Id, MessageDirection, common::State};
 
 pub trait SessionConfigTrait {
     fn replace(&mut self, session_config: &SessionConfig) -> Result<(), SessionError>;

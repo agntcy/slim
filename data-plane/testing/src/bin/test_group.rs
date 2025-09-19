@@ -147,51 +147,36 @@ async fn run_participant_task(name: Name) -> Result<(), String> {
     let moderator = Name::from_strings(["org", "ns", "moderator"]).with_id(1);
     let channel_name = Name::from_strings(["channel", "channel", "channel"]);
 
+    use slim_service::session::Notification;
+    let mut session_ctx_opt: Option<
+        slim_service::session::context::SessionContext<SharedSecret, SharedSecret>,
+    > = None;
     loop {
         tokio::select! {
             msg_result = rx.recv() => {
                 match msg_result {
-                    None => {
-                        println!("Participant {}: end of stream", name);
-                        break;
+                    None => { println!("Participant {}: end of stream", name); break; }
+                    Some(res) => match res {
+                        Ok(Notification::NewSession(ctx)) => { session_ctx_opt = Some(ctx); }
+                        Ok(Notification::NewMessage(msg)) => {
+                            if let Some(slim_datapath::api::ProtoPublishType(publish)) = msg.message_type.as_ref() {
+                                let publisher = msg.get_slim_header().get_source();
+                                let msg_id = msg.get_id();
+                                let blob = &publish.get_payload().blob;
+                                if let Ok(val) = String::from_utf8(blob.to_vec()) {
+                                    if publisher == moderator {
+                                        if val != *"hello there" { continue; }
+                                        let payload = msg_id.to_ne_bytes().to_vec();
+                                        let flags = SlimHeaderFlags::new(10, None, None, None, None);
+                                        if let Some(ctx) = session_ctx_opt.as_ref() && ctx.session_arc().unwrap().publish_with_flags(&channel_name, flags, payload, None, None).await.is_err() {
+                                            panic!("an error occurred sending publication from moderator");
+                                        }
+                                    }
+                                } else { println!("Participant {}: error parsing message", name); }
+                            }
+                        }
+                        Err(e) => { println!("Participant {} received error message: {:?}", name, e); }
                     }
-                    Some(msg_info) => match msg_info {
-                        Ok(msg) => {
-                            let publisher = msg.message.get_slim_header().get_source();
-                            let msg_id = msg.message.get_id();
-                             if let Some(c) = msg.message.get_payload() {
-                                 let blob = &c.blob;
-                                 match String::from_utf8(blob.to_vec()) {
-                                     Ok(val) => {
-                                         if publisher == moderator {
-                                             if val != *"hello there" {
-                                                 // received corrupted message from the moderator
-                                                 continue;
-                                             }
-
-                                             // put the received msg id in the payload
-                                             let payload = msg_id.to_ne_bytes().to_vec();
-                                             let flags = SlimHeaderFlags::new(10, None, None, None, None);
-                                             if app
-                                                 .publish_with_flags(msg.info, &channel_name, flags, payload, None, None)
-                                                 .await
-                                                 .is_err()
-                                             {
-                                                 panic!("an error occurred sending publication from moderator");
-                                             }
-                                         }
-                                     },
-                                     Err(e) => {
-                                         println!("Participant {}: error parsing message: {}", name, e);
-                                         continue;
-                                     }
-                                 }
-                             }
-                        }
-                        Err(e) => {
-                            println!("Participant {} received error message: {:?}", name, e);
-                        }
-                    },
                 }
             }
         }
@@ -292,7 +277,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // invite N-1 participants
     for c in participants.iter().take(tot_participants - 1) {
         println!("Invite participant {}", c);
-        app.invite_participant(c, info.clone())
+        info.session_arc()
+            .unwrap()
+            .invite_participant(c)
             .await
             .expect("error sending invite message");
     }
@@ -309,23 +296,25 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 None => {
                     break;
                 }
-                Some(msg_info) => match msg_info {
-                    Ok(msg) => {
-                        if let Some(c) = msg.message.get_payload() {
-                            let p = &c.blob;
-                            // check that we can read the message
+                Some(notif) => match notif {
+                    Ok(slim_service::session::Notification::NewSession(_)) => {}
+                    Ok(slim_service::session::Notification::NewMessage(msg)) => {
+                        if let Some(slim_datapath::api::ProtoPublishType(publish)) =
+                            msg.message_type.as_ref()
+                        {
+                            let p = &publish.get_payload().blob;
                             let _ = String::from_utf8(p.to_vec())
                                 .expect("error while parsing received message");
-
-                            let bytes_array: [u8; 4] =
-                                <Vec<u8> as Clone>::clone(&c.blob).try_into().unwrap();
-                            let id = u32::from_ne_bytes(bytes_array) as usize;
-                            {
-                                println!("recv msg {} from {}", id, msg.message.get_source());
+                            if p.len() >= 4 {
+                                let bytes_array: [u8; 4] = p[0..4].try_into().unwrap();
+                                let id = u32::from_ne_bytes(bytes_array) as usize;
+                                println!("recv msg {} from {}", id, msg.get_source());
                                 let mut lock = recv_msgs_clone.write();
-                                lock[id] += 1;
+                                if id < lock.len() {
+                                    lock[id] += 1;
+                                }
                             }
-                        };
+                        }
                     }
                     Err(e) => {
                         println!("received an error message {:?}", e);
@@ -345,8 +334,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         // set fanout > 1 to send the message in broadcast
         let flags = SlimHeaderFlags::new(10, None, None, None, None);
 
-        if app
-            .publish_with_flags(info.clone(), &channel_name, flags, p.clone(), None, None)
+        if info
+            .session_arc()
+            .unwrap()
+            .publish_with_flags(&channel_name, flags, p.clone(), None, None)
             .await
             .is_err()
         {
@@ -361,11 +352,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 &participants[to_remove], &participants[to_add]
             );
 
-            let _ = app
-                .remove_participant(&participants[to_remove], info.clone())
+            let _ = info
+                .session_arc()
+                .unwrap()
+                .remove_participant(&participants[to_remove])
                 .await;
-            let _ = app
-                .invite_participant(&participants[to_add], info.clone())
+            let _ = info
+                .session_arc()
+                .unwrap()
+                .invite_participant(&participants[to_add])
                 .await;
             to_remove = (to_remove + 1) % tot_participants;
             to_add = (to_add + 1) % tot_participants;

@@ -15,41 +15,6 @@ use slim_service::{
 
 mod args;
 
-async fn handle_session(mut session: slim_service::session::context::SessionContext<slim_auth::shared_secret::SharedSecret, slim_auth::shared_secret::SharedSecret>, local_name: String) {
-    info!("Session handler task started");
-    
-    while let Some(msg_result) = session.rx.recv().await {
-        match msg_result {
-            Ok(message) => {
-                match &message.message_type {
-                    Some(slim_datapath::api::MessageType::Publish(msg)) => {
-                        let payload = msg.get_payload();
-                        match std::str::from_utf8(&payload.blob) {
-                            Ok(text) => {
-                                info!("received message: {}", text);
-                            }
-                            Err(_) => {
-                                info!("received encrypted message: {} bytes", payload.blob.len());
-                            }
-                        }
-                        
-                        info!("Received message from session, responding with: hello from {}", local_name);
-                    }
-                    _ => {
-                        info!("received non-publish message");
-                    }
-                }
-            }
-            Err(e) => {
-                info!("received message error: {:?}", e);
-                break;
-            }
-        }
-    }
-    
-    info!("Session handler task ended");
-}
-
 #[tokio::main]
 async fn main() {
     // parse command line arguments
@@ -181,18 +146,15 @@ async fn main() {
     // check what to do with the message
     if let Some(msg) = message {
         // create a p2p session
-        let res = app
+        let session_ctx = app
             .create_session(
                 SessionConfig::PointToPoint(PointToPointConfiguration::default()),
                 None,
             )
-            .await;
-        if res.is_err() {
-            panic!("error creating p2p session");
-        }
+            .await
+            .expect("error creating p2p session");
 
-        // get the session
-        let session = res.unwrap();
+        // We will publish first, then spawn receiver background task.
 
         // Client MLS setup, only if mls_group_id is provided
         if let Some(group_identifier) = mls_group_id {
@@ -235,8 +197,11 @@ async fn main() {
             info!("Client successfully joined group");
         }
 
-        // publish message
-        app.publish(&session, &route, msg.into(), None, None)
+        // publish message using session context
+        session_ctx
+            .session_arc()
+            .unwrap()
+            .publish(&route, msg.into(), None, None)
             .await
             .unwrap();
     }
@@ -257,11 +222,50 @@ async fn main() {
                 match notification {
                     session::notification::Notification::NewSession(session) => {
                         info!("New session created");
-                        
-                        // Spawn a separate task to handle this session's messages
+
+                        // Use the new public spawn_receiver API to process messages
                         let local_name_clone = local_name.to_string();
-                        
-                        tokio::spawn(handle_session(session, local_name_clone));
+                        let _app_clone = app.clone();
+                        let route_clone = route.clone();
+                        let _session_handle = session.spawn_receiver(|mut rx, weak, _meta| async move {
+                            info!("Session handler task started");
+                            while let Some(msg_result) = rx.recv().await {
+                                match msg_result {
+                                    Ok(message) => match &message.message_type {
+                                        Some(slim_datapath::api::MessageType::Publish(msg)) => {
+                                            let payload = msg.get_payload();
+                                            match std::str::from_utf8(&payload.blob) {
+                                                Ok(text) => {
+                                                    info!("received message: {}", text);
+                                                }
+                                                Err(_) => {
+                                                    info!("received encrypted message: {} bytes", payload.blob.len());
+                                                }
+                                            }
+                                            let reply = format!("hello from the {}", local_name_clone);
+                                            info!("Received message from session, responding with: {}", reply);
+
+                                            // Attempt automatic reply using new Session::publish API
+                                            if let Some(session_arc) = weak.upgrade() {
+                                                let reply = reply.into_bytes(); // original payload bytes
+                                                if let Err(e) = session_arc.publish(&route_clone, reply, None, None).await {
+                                                    info!("error sending reply: {}", e);
+                                                }
+                                            } else { info!("session already dropped; cannot send reply"); }
+
+                                        }
+                                        _ => {
+                                            info!("received non-publish message");
+                                        }
+                                    },
+                                    Err(e) => {
+                                        info!("received message error: {:?}", e);
+                                        break;
+                                    }
+                                }
+                            }
+                            info!("Session handler task ended");
+                        });
                     }
                     _ => {
                         info!("Unexpected notification type");

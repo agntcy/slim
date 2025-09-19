@@ -211,8 +211,8 @@ async fn main() {
     }
 
     // get the session
-    let session_info = res.unwrap();
-    let session_id = session_info.id;
+    let session_ctx = res.unwrap();
+    let session_id = session_ctx.session.upgrade().unwrap().id();
 
     // start receiving loop
     let results_list = Arc::new(RwLock::new(HashMap::new()));
@@ -229,39 +229,27 @@ async fn main() {
                             info!(%conn_id, "end of stream");
                             break;
                         }
-                        Some(msg_info) => {
-                            if msg_info.is_err() {
+                        Some(notif) => {
+                            if notif.is_err() {
                                 error!("error receiving message");
                                 continue;
                             }
-
-                            let msg_info = msg_info.unwrap();
-                            let msg = msg_info.message;
-
-                            // make sure the session matches
-                            if session_info.id != session_id {
-                                panic!("wrong session id {}", session_info.id);
-                            }
-
-                            match &msg.message_type.unwrap() {
-                                slim_datapath::api::ProtoPublishType(msg) => {
-                                    // parse payload and add info to the result list
-                                    let payload = &msg.get_payload().blob;
-                                    // the payload needs to start with the publication id and the received id
-                                    // so it must contain at least 18 bytes
-                                    if payload.len() < 18 {
-                                        panic!("error parsing message");
-                                    }
-
-                                    let pub_id = u64::from_be_bytes(payload[0..8].try_into().unwrap());
-                                    let recv_id = u64::from_be_bytes(payload[9..17].try_into().unwrap());
-                                    debug!("recv msg {} from {} on puslihser {}", pub_id, recv_id, id);
-                                    let mut lock = clone_results_list.write();
-                                    //write[pub_id as usize] = recv_id;
-                                    lock.insert(pub_id, recv_id);
+                            match notif.unwrap() {
+                                slim_service::session::Notification::NewSession(ctx) => {
+                                    // ignore additional new session notifications unless matching our id
+                                    if ctx.session.upgrade().unwrap().id() != session_id { continue; }
                                 }
-                                t => {
-                                    panic!("received unexpected message: {:?}", t);
+                                slim_service::session::Notification::NewMessage(msg) => {
+                                    if msg.get_session_header().get_session_id() != session_id { continue; }
+                                    if let Some(slim_datapath::api::ProtoPublishType(publish)) = msg.message_type.as_ref() {
+                                        let payload = &publish.get_payload().blob;
+                                        if payload.len() < 18 { panic!("error parsing message"); }
+                                        let pub_id = u64::from_be_bytes(payload[0..8].try_into().unwrap());
+                                        let recv_id = u64::from_be_bytes(payload[9..17].try_into().unwrap());
+                                        debug!("recv msg {} from {} on publisher {}", pub_id, recv_id, id);
+                                        let mut lock = clone_results_list.write();
+                                        lock.insert(pub_id, recv_id);
+                                    }
                                 }
                             }
                         }
@@ -297,8 +285,10 @@ async fn main() {
 
         // for the moment we send the message in anycast
         // we need to test also the match_all function
-        if app
-            .publish(session_info.clone(), p.1, payload, None, None)
+        if session_ctx
+            .session_arc()
+            .unwrap()
+            .publish(p.1, payload, None, None)
             .await
             .is_err()
         {

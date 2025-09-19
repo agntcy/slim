@@ -91,11 +91,11 @@ where
             }
         };
 
-        if let Some(MessageType::Publish(publish)) = &mut msg.message_type {
-            if let Some(content) = &mut publish.msg {
-                content.blob = encrypted_payload.to_vec();
-                msg.insert_metadata(METADATA_MLS_ENCRYPTED.to_owned(), "true".to_owned());
-            }
+        if let Some(MessageType::Publish(publish)) = &mut msg.message_type
+            && let Some(content) = &mut publish.msg
+        {
+            content.blob = encrypted_payload.to_vec();
+            msg.insert_metadata(METADATA_MLS_ENCRYPTED.to_owned(), "true".to_owned());
         }
         Ok(())
     }
@@ -153,11 +153,11 @@ where
             }
         };
 
-        if let Some(MessageType::Publish(publish)) = &mut msg.message_type {
-            if let Some(content) = &mut publish.msg {
-                content.blob = decrypted_payload;
-                msg.remove_metadata(METADATA_MLS_ENCRYPTED);
-            }
+        if let Some(MessageType::Publish(publish)) = &mut msg.message_type
+            && let Some(content) = &mut publish.msg
+        {
+            content.blob = decrypted_payload;
+            msg.remove_metadata(METADATA_MLS_ENCRYPTED);
         }
         Ok(())
     }

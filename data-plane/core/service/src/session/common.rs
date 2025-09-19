@@ -21,31 +21,14 @@ use crate::session::Id;
 use crate::session::SessionConfig;
 use crate::session::SessionError;
 use crate::session::interceptor_mls::MlsInterceptor;
-use crate::session::multicast::Multicast;
-use crate::session::point_to_point::PointToPoint;
+use crate::session::traits::SessionConfigTrait;
 use crate::session::traits::Transmitter;
-use crate::session::traits::{MessageHandler, SessionConfigTrait};
-use crate::session::transmitter::SessionTransmitter;
 
 /// Reserved session id
 pub const SESSION_RANGE: std::ops::Range<u32> = 0..(u32::MAX - 1000);
 
 /// Unspecified session ID constant
 pub const SESSION_UNSPECIFIED: u32 = u32::MAX;
-
-/// The session
-#[derive(Debug)]
-pub(crate) enum Session<P, V, T = SessionTransmitter>
-where
-    P: TokenProvider + Send + Sync + Clone + 'static,
-    V: Verifier + Send + Sync + Clone + 'static,
-    T: Transmitter + Send + Sync + Clone + 'static,
-{
-    /// Point to Point session
-    PointToPoint(PointToPoint<P, V, T>),
-    /// Multicast session
-    Multicast(Multicast<P, V, T>),
-}
 
 /// Channel used in the path service -> app
 pub(crate) type AppChannelSender = tokio::sync::mpsc::Sender<Result<Message, SessionError>>;
@@ -121,95 +104,7 @@ where
     tx: T,
 }
 
-#[async_trait]
-impl<P, V, T> MessageHandler for Session<P, V, T>
-where
-    P: TokenProvider + Send + Sync + Clone + 'static,
-    V: Verifier + Send + Sync + Clone + 'static,
-    T: Transmitter + Send + Sync + Clone + 'static,
-{
-    async fn on_message(
-        &self,
-        message: Message,
-        direction: MessageDirection,
-    ) -> Result<(), SessionError> {
-        match self {
-            Session::PointToPoint(session) => session.on_message(message, direction).await,
-            Session::Multicast(session) => session.on_message(message, direction).await,
-        }
-    }
-}
-
-#[async_trait]
-impl<P, V, T> CommonSession<P, V, T> for Session<P, V, T>
-where
-    P: TokenProvider + Send + Sync + Clone + 'static,
-    V: Verifier + Send + Sync + Clone + 'static,
-    T: Transmitter + Send + Sync + Clone + 'static,
-{
-    fn id(&self) -> Id {
-        match self {
-            Session::PointToPoint(session) => session.id(),
-            Session::Multicast(session) => session.id(),
-        }
-    }
-
-    fn state(&self) -> &State {
-        match self {
-            Session::PointToPoint(session) => session.state(),
-            Session::Multicast(session) => session.state(),
-        }
-    }
-
-    fn identity_provider(&self) -> P {
-        match self {
-            Session::PointToPoint(session) => session.identity_provider(),
-            Session::Multicast(session) => session.identity_provider(),
-        }
-    }
-
-    fn identity_verifier(&self) -> V {
-        match self {
-            Session::PointToPoint(session) => session.identity_verifier(),
-            Session::Multicast(session) => session.identity_verifier(),
-        }
-    }
-
-    fn source(&self) -> &Name {
-        match self {
-            Session::PointToPoint(session) => session.source(),
-            Session::Multicast(session) => session.source(),
-        }
-    }
-
-    fn session_config(&self) -> SessionConfig {
-        match self {
-            Session::PointToPoint(session) => session.session_config(),
-            Session::Multicast(session) => session.session_config(),
-        }
-    }
-
-    fn set_session_config(&self, session_config: &SessionConfig) -> Result<(), SessionError> {
-        match self {
-            Session::PointToPoint(session) => session.set_session_config(session_config),
-            Session::Multicast(session) => session.set_session_config(session_config),
-        }
-    }
-
-    fn tx(&self) -> T {
-        match self {
-            Session::PointToPoint(session) => session.tx(),
-            Session::Multicast(session) => session.tx(),
-        }
-    }
-
-    fn tx_ref(&self) -> &T {
-        match self {
-            Session::PointToPoint(session) => session.tx_ref(),
-            Session::Multicast(session) => session.tx_ref(),
-        }
-    }
-}
+// Session implementation moved to handle.rs
 
 #[async_trait]
 impl<P, V, T> CommonSession<P, V, T> for Common<P, V, T>

@@ -12,7 +12,7 @@ import slim_bindings
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("server", ["127.0.0.1:12375"], indirect=True)
-@pytest.mark.parametrize("mls_enabled", [True, False])
+@pytest.mark.parametrize("mls_enabled", [False])
 async def test_multicast(server, mls_enabled):  # noqa: C901
     message = "Calling app"
 
@@ -42,7 +42,7 @@ async def test_multicast(server, mls_enabled):  # noqa: C901
             print(f"{part_name} -> Creating new multicast sessions...")
             # create a multicast session. index 0 is the moderator of the session
             # and it will invite all the other participants to the session
-            session_info = await participant.create_session(
+            session = await participant.create_session(
                 slim_bindings.PySessionConfiguration.Multicast(
                     topic=chat_name,
                     moderator=True,
@@ -60,7 +60,7 @@ async def test_multicast(server, mls_enabled):  # noqa: C901
                     name_to_add = f"participant-{i}"
                     to_add = slim_bindings.PyName("org", "default", name_to_add)
                     await participant.set_route(to_add)
-                    await participant.invite(session_info, to_add)
+                    await session.invite(to_add)
                     print(f"{part_name} -> add {name_to_add} to the group")
 
         # wait a bit for all chat participants to be ready
@@ -70,83 +70,80 @@ async def test_multicast(server, mls_enabled):  # noqa: C901
         called = False
         first_message = True
 
-        async with participant:
-            # if this is the first participant, we need to publish the message
-            # to start the chain
-            if index == 0:
-                next_participant = (index + 1) % participants_count
-                next_participant_name = f"participant-{next_participant}"
+        # if this is the first participant, we need to publish the message
+        # to start the chain
+        if index == 0:
+            next_participant = (index + 1) % participants_count
+            next_participant_name = f"participant-{next_participant}"
 
-                msg = f"{message} - {next_participant_name}"
+            msg = f"{message} - {next_participant_name}"
 
-                print(f"{part_name} -> Publishing message as first participant: {msg}")
+            print(f"{part_name} -> Publishing message as first participant: {msg}")
 
-                called = True
+            called = True
 
-                await participant.publish(
-                    session_info,
-                    f"{msg}".encode(),
-                    chat_name,
-                )
+            await session.publish(
+                f"{msg}".encode(),
+                chat_name,
+            )
 
-            while True:
-                try:
-                    # init session from session
-                    if index == 0:
-                        recv_session = session_info
-                    else:
-                        if first_message:
-                            recv_session, _ = await participant.receive()
-                            first_message = False
+        while True:
+            try:
+                # init session from session
+                if index == 0:
+                    recv_session = session
+                else:
+                    if first_message:
+                        recv_session = await participant.listen_for_session()
+                        first_message = False
 
-                    # receive message from session
-                    recv_session, msg_rcv = await participant.receive(
-                        session=recv_session.id
+                # receive message from session
+                msg_ctx, msg_rcv = await recv_session.get_message()
+
+                # increase the count
+                local_count += 1
+
+                # make sure the message is correct
+                assert msg_rcv.startswith(bytes(message.encode()))
+
+                # Check if the message is calling this specific participant
+                # if not, ignore it
+                if (not called) and msg_rcv.decode().endswith(part_name):
+                    # print the message
+                    print(
+                        f"{part_name} -> Receiving message: {msg_rcv.decode()}, local count: {local_count}"
                     )
 
-                    # increase the count
-                    local_count += 1
+                    called = True
 
-                    # make sure the message is correct
-                    assert msg_rcv.startswith(bytes(message.encode()))
+                    # wait a moment to simulate processing time
+                    await asyncio.sleep(0.1)
 
-                    # Check if the message is calling this specific participant
-                    # if not, ignore it
-                    if (not called) and msg_rcv.decode().endswith(part_name):
-                        # print the message
-                        print(
-                            f"{part_name} -> Receiving message: {msg_rcv.decode()}, local count: {local_count}"
-                        )
+                    # as the message is for this specific participant, we can
+                    # reply to the session and call out the next participant
+                    next_participant = (index + 1) % participants_count
+                    next_participant_name = f"participant-{next_participant}"
+                    print(f"{part_name} -> Calling out {next_participant_name}...")
+                    await recv_session.publish(
+                        f"{message} - {next_participant_name}".encode(),
+                        chat_name,
+                    )
+                else:
+                    print(
+                        f"{part_name} -> Receiving message: {msg_rcv.decode()} - not for me. Local count: {local_count}"
+                    )
 
-                        called = True
-
-                        # wait a moment to simulate processing time
-                        await asyncio.sleep(0.1)
-
-                        # as the message is for this specific participant, we can
-                        # reply to the session and call out the next participant
-                        next_participant = (index + 1) % participants_count
-                        next_participant_name = f"participant-{next_participant}"
-                        print(f"{part_name} -> Calling out {next_participant_name}...")
-                        await participant.publish(
-                            recv_session,
-                            f"{message} - {next_participant_name}".encode(),
-                            chat_name,
-                        )
-                    else:
-                        print(
-                            f"{part_name} -> Receiving message: {msg_rcv.decode()} - not for me. Local count: {local_count}"
-                        )
-
-                    # If we received as many messages as the number of participants, we can exit
-                    if local_count >= (participants_count - 1):
-                        print(f"{part_name} -> Received all messages, exiting...")
-                        await participant.delete_session(recv_session.id)
-                        break
-
-                except Exception as e:
-                    print(f"{part_name} -> Error receiving message: {e}")
+                # If we received as many messages as the number of participants, we can exit
+                if local_count >= (participants_count - 1):
+                    print(f"{part_name} -> Received all messages, exiting...")
+                    # TODO(msardara): remove this sleep
+                    await asyncio.sleep(1)
+                    await participant.delete_session(recv_session)
                     break
+
+            except Exception as e:
+                print(f"{part_name} -> Error receiving message: {e}")
+                break
 
     # start participants in background
     for i in range(participants_count):

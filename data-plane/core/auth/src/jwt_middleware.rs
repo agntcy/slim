@@ -72,13 +72,13 @@ impl<S, T: TokenProvider + Clone> AddJwtToken<S, T> {
             .map_err(|e| AuthError::ConfigError(format!("Failed to get current time: {}", e)))?
             .as_secs();
 
-        if let Some(cached_token) = &self.cached_token {
-            if let Some(valid_until) = self.valid_until {
-                // We sign a new token if the cached token is about to expire in less than 2/3 of its lifetime
-                let remaining = valid_until - now;
-                if remaining > self.duration * 2 / 3 {
-                    return Ok(cached_token.clone());
-                }
+        if let Some(cached_token) = &self.cached_token
+            && let Some(valid_until) = self.valid_until
+        {
+            // We sign a new token if the cached token is about to expire in less than 2/3 of its lifetime
+            let remaining = valid_until - now;
+            if remaining > self.duration * 2 / 3 {
+                return Ok(cached_token.clone());
             }
         }
 

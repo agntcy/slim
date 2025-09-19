@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import asyncio
+import contextlib
 import datetime
 import pathlib
 
@@ -116,23 +117,18 @@ async def test_identity_verification(server, audience):
     res_msg = str.encode("thisistheresponse")
 
     # Test with reply
-    async with slim_sender, slim_receiver:
+    try:
         # create background task for slim_receiver
         async def background_task():
             try:
-                # wait for message from any new session
-                recv_session, _ = await slim_receiver.receive()
-
-                # receive message from session
-                recv_session, msg_rcv = await slim_receiver.receive(
-                    session=recv_session.id
-                )
+                recv_session = await slim_receiver.listen_for_session()
+                _ctx, msg_rcv = await recv_session.get_message()
 
                 # make sure the message is correct
                 assert msg_rcv == bytes(pub_msg)
 
                 # reply to the session
-                await slim_receiver.publish_to(recv_session, res_msg)
+                await recv_session.publish_to(_ctx, res_msg)
             except Exception as e:
                 print("Error receiving message on slim1:", e)
 
@@ -141,9 +137,8 @@ async def test_identity_verification(server, audience):
         # send a request and expect a response in slim2
         if audience == test_audience:
             # As audience matches, we expect a successful request/reply
-            await slim_sender.publish(session_info, pub_msg, receiver_name)
-
-            session_info, message = await slim_sender.receive(session=session_info.id)
+            await session_info.publish(pub_msg, receiver_name)
+            _ctx2, message = await session_info.get_message()
 
             # check if the message is correct
             assert message == bytes(res_msg)
@@ -154,18 +149,12 @@ async def test_identity_verification(server, audience):
             # expect an exception due to audience mismatch
             with pytest.raises(asyncio.TimeoutError):
                 # As audience matches, we expect a successful request/reply
-                await slim_sender.publish(session_info, pub_msg, receiver_name)
-
-                # Wait max 3 seconds for a reply
-                await asyncio.wait_for(
-                    slim_sender.receive(session=session_info.id), timeout=3.0
-                )
+                await session_info.publish(pub_msg, receiver_name)
+                await asyncio.wait_for(session_info.get_message(), timeout=3.0)
 
             # cancel the background task
             t.cancel()
-
-            # wait for task to finish
-            try:
+            with contextlib.suppress(asyncio.CancelledError):
                 await t
-            except asyncio.CancelledError:
-                print("Background task cancelled as expected.")
+    finally:
+        pass

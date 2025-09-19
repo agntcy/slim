@@ -42,9 +42,9 @@ async def run_client(
 
     tasks = []
 
+    session_info = None
     if remote and invites:
         format_message_print(local, "Creating new multicast sessions...")
-        # create a multicast session
         session_info = await local_app.create_session(
             slim_bindings.PySessionConfiguration.Multicast(  # type: ignore
                 topic=broadcast_topic,
@@ -54,44 +54,31 @@ async def run_client(
                 mls_enabled=enable_mls,
             )
         )
-
-        # invite all participants
         for p in invites:
             to_add = split_id(p)
             await local_app.set_route(to_add)
-            await local_app.invite(session_info, to_add)
+            await session_info.invite(to_add)
             print(f"{local} -> add {to_add} to the group")
 
     # define the background task
     async def background_task():
-        async with local_app:
-            # init session from session
-            if invites:
-                recv_session = session_info
-            else:
-                format_message_print(local, "-> Waiting for session...")
-                recv_session, _ = await local_app.receive()
-
-            while True:
-                try:
-                    # receive message from session
-                    recv_session, msg_rcv = await local_app.receive(
-                        session=recv_session.id
-                    )
-
-                    # print received message
-                    format_message_print(
-                        local,
-                        f"-> Received message from {recv_session.id}: {msg_rcv.decode()}",
-                    )
-
-                    # Here we could send a message back to the channel, e.g.:
-                    # await participant.publish(session_info, f"Echo: {msg_rcv.decode()}".encode())
-                except asyncio.CancelledError:
-                    break
-                except Exception as e:
-                    format_message_print(local, f"-> Error receiving message: {e}")
-                    break
+        if session_info is None:
+            format_message_print(local, "-> Waiting for session...")
+            recv_session = await local_app.listen_for_session()
+        else:
+            recv_session = session_info
+        while True:
+            try:
+                _ctx, msg_rcv = await recv_session.get_message()
+                format_message_print(
+                    local,
+                    f"-> Received message from {recv_session.id}: {msg_rcv.decode()}",
+                )
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                format_message_print(local, f"-> Error receiving message: {e}")
+                break
 
     tasks.append(asyncio.create_task(background_task()))
 
@@ -104,11 +91,7 @@ async def run_client(
                     break
 
                 # Send the message to the all participants
-                await local_app.publish(
-                    session_info,
-                    f"{user_input}".encode(),
-                    broadcast_topic,
-                )
+                await session_info.publish(f"{user_input}".encode(), broadcast_topic)
 
         tasks.append(asyncio.create_task(background_task_keyboard()))
 

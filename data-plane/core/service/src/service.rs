@@ -414,9 +414,7 @@ impl ComponentBuilder for ServiceBuilder {
 // tests
 #[cfg(test)]
 mod tests {
-    use crate::session::{
-        CommonSession, MulticastConfiguration, PointToPointConfiguration, SessionConfig,
-    };
+    use crate::session::{MulticastConfiguration, PointToPointConfiguration, SessionConfig};
 
     use super::*;
     use slim_auth::shared_secret::SharedSecret;
@@ -523,14 +521,10 @@ mod tests {
 
         // publish a message
         let message_blob = "very complicated message".as_bytes().to_vec();
-        pub_app
-            .publish(
-                &send_session,
-                &subscriber_name,
-                message_blob.clone(),
-                None,
-                None,
-            )
+        send_session
+            .session_arc()
+            .unwrap()
+            .publish(&subscriber_name, message_blob.clone(), None, None)
             .await
             .unwrap();
 
@@ -560,7 +554,7 @@ mod tests {
 
         // make sure the session ids correspond
         assert_eq!(
-            send_session.session.id(),
+            send_session.session_arc().unwrap().id(),
             msg.get_session_header().get_session_id()
         );
 
@@ -573,8 +567,14 @@ mod tests {
         assert_eq!(publ.get_payload().blob, message_blob);
 
         // Now remove the session from the 2 apps
-        pub_app.delete_session(send_session).await.unwrap();
-        sub_app.delete_session(recv_session).await.unwrap();
+        pub_app
+            .delete_session(&send_session.session_arc().unwrap())
+            .await
+            .unwrap();
+        sub_app
+            .delete_session(&recv_session.session_arc().unwrap())
+            .await
+            .unwrap();
 
         // And drop the 2 apps
         drop(pub_app);
@@ -618,7 +618,7 @@ mod tests {
             .expect("failed to create session");
 
         // check the configuration we get is the one we used to create the session
-        let session_config_ret = session_info.session.session_config();
+        let session_config_ret = session_info.session_arc().unwrap().session_config();
 
         assert_eq!(
             session_config, session_config_ret,
@@ -629,12 +629,13 @@ mod tests {
         let session_config = SessionConfig::PointToPoint(PointToPointConfiguration::default());
 
         session_info
-            .session
+            .session_arc()
+            .unwrap()
             .set_session_config(&session_config)
             .unwrap();
 
         // get session config
-        let session_config_ret = session_info.session.session_config();
+        let session_config_ret = session_info.session_arc().unwrap().session_config();
         assert_eq!(
             session_config, session_config_ret,
             "session config mismatch"
@@ -642,14 +643,12 @@ mod tests {
 
         // set default session config
         let session_config = SessionConfig::PointToPoint(PointToPointConfiguration::default());
-        app.set_session_config(&session_config, None)
-            .await
+        app.set_default_session_config(&session_config)
             .expect("failed to set default session config");
 
         // get default session config
         let session_config_ret = app
             .get_default_session_config(crate::session::SessionType::PointToPoint)
-            .await
             .expect("failed to get default session config");
 
         assert_eq!(session_config, session_config_ret);
@@ -671,7 +670,7 @@ mod tests {
             .await
             .expect("failed to create session");
         // get session config
-        let session_config_ret = session_info.session.session_config();
+        let session_config_ret = session_info.session_arc().unwrap().session_config();
 
         assert_eq!(
             session_config, session_config_ret,
@@ -687,12 +686,13 @@ mod tests {
         ));
 
         session_info
-            .session
+            .session_arc()
+            .unwrap()
             .set_session_config(&session_config)
             .unwrap();
 
         // get session config
-        let session_config_ret = session_info.session.session_config();
+        let session_config_ret = session_info.session_arc().unwrap().session_config();
 
         assert_eq!(
             session_config, session_config_ret,
@@ -707,14 +707,12 @@ mod tests {
             false,
         ));
 
-        app.set_session_config(&session_config, None)
-            .await
+        app.set_default_session_config(&session_config)
             .expect("failed to set default session config");
 
         // get default session config
         let session_config_ret = app
             .get_default_session_config(crate::session::SessionType::Multicast)
-            .await
             .expect("failed to get default session config");
 
         assert_eq!(session_config, session_config_ret);

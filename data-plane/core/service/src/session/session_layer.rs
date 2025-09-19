@@ -16,7 +16,6 @@ use slim_auth::traits::{TokenProvider, Verifier};
 use slim_datapath::api::{ProtoMessage as Message, ProtoSessionMessageType, ProtoSessionType};
 use slim_datapath::messages::Name;
 
-use crate::session::SessionInterceptorProvider;
 use crate::session::notification::Notification;
 use crate::session::transmitter::{AppTransmitter, SessionTransmitter};
 
@@ -27,10 +26,11 @@ use super::interceptor_mls::METADATA_MLS_ENABLED;
 use super::multicast::{self, MulticastConfiguration};
 use super::point_to_point::PointToPointConfiguration;
 use super::{
-    CommonSession, Id, MessageDirection, MessageHandler, SESSION_RANGE, Session, SessionConfig,
-    SessionConfigTrait, Transmitter, SessionType, SlimChannelSender,
+    Id, MessageDirection, SESSION_RANGE, Session, SessionConfig, SessionConfigTrait, SessionType,
+    SlimChannelSender, Transmitter,
 };
 use super::{SessionError, channel_endpoint::handle_channel_discovery_message};
+use crate::session::interceptor::SessionInterceptorProvider; // needed for add_interceptor
 
 /// SessionLayer manages sessions and their lifecycle
 pub(crate) struct SessionLayer<P, V, T = AppTransmitter<P, V>>
@@ -169,10 +169,7 @@ where
 
         // Create a new transmitter with identity interceptors
         let (app_tx, app_rx) = tokio::sync::mpsc::channel(128);
-        let tx = SessionTransmitter::new(
-            self.tx_slim.clone(),
-            app_tx,
-        );
+        let tx = SessionTransmitter::new(self.tx_slim.clone(), app_tx);
 
         let identity_interceptor = Arc::new(IdentityInterceptor::new(
             self.identity_provider.clone(),
@@ -183,7 +180,7 @@ where
 
         // create a new session
         let session = match session_config {
-            SessionConfig::PointToPoint(conf) => Arc::new(Session::PointToPoint(
+            SessionConfig::PointToPoint(conf) => Arc::new(Session::from_point_to_point(
                 super::point_to_point::PointToPoint::new(
                     id,
                     conf,
@@ -195,7 +192,7 @@ where
                 ),
             )),
             SessionConfig::Multicast(conf) => {
-                Arc::new(Session::Multicast(multicast::Multicast::new(
+                Arc::new(Session::from_multicast(multicast::Multicast::new(
                     id,
                     conf,
                     self.app_name().clone(),
@@ -225,14 +222,17 @@ where
         pool.remove(&id).is_some()
     }
 
+    #[cfg(test)]
     pub(crate) async fn handle_message_from_app(
         &self,
         message: Message,
         context: &SessionContext<P, V>,
     ) -> Result<(), SessionError> {
         context
-            .session
-            .on_message(message, MessageDirection::South)
+            .session()
+            .upgrade()
+            .ok_or(SessionError::SessionNotFound(0))?
+            .publish_message(message, true)
             .await
     }
 
@@ -326,7 +326,9 @@ where
         if session_message_type == ProtoSessionMessageType::ChannelLeaveRequest {
             // send message to the session and delete it after
             if let Some(session) = self.pool.read().await.get(&id) {
-                session.on_message(message, direction).await?;
+                session
+                    .publish_message(message, matches!(direction, MessageDirection::South))
+                    .await?;
             } else {
                 warn!(
                     "received Channel Leave Request message with unknown session id, drop the message"
@@ -342,7 +344,9 @@ where
 
         if let Some(session) = self.pool.read().await.get(&id) {
             // pass the message to the session
-            return session.on_message(message, direction).await;
+            return session
+                .publish_message(message, matches!(direction, MessageDirection::South))
+                .await;
         }
 
         let new_session = match session_message_type {
@@ -427,13 +431,20 @@ where
             }
         };
 
-        debug_assert!(new_session.session.id() == id);
+        debug_assert!(new_session.session().upgrade().unwrap().id() == id);
 
         // update session context with metadata from the message
         let new_session = new_session.with_metadata(message.metadata.clone());
 
         // process the message
-        new_session.session.on_message(message, direction).await?;
+        new_session
+            .session()
+            .upgrade()
+            .ok_or(SessionError::SessionClosed(
+                "newly created session already closed: this should not happen".to_string(),
+            ))?
+            .publish_message(message, matches!(direction, MessageDirection::South))
+            .await?;
 
         // send new session to the app
         self.tx_app
@@ -443,57 +454,21 @@ where
     }
 
     /// Set the configuration of a session
-    pub(crate) async fn set_session_config(
+    pub(crate) fn set_default_session_config(
         &self,
         session_config: &SessionConfig,
-        session_id: Option<Id>,
     ) -> Result<(), SessionError> {
         // If no session ID is provided, modify the default session
-        let session_id = match session_id {
-            Some(id) => id,
-            None => {
-                // modify the default session
-                match &session_config {
-                    SessionConfig::PointToPoint(_) => {
-                        return self.default_ff_conf.write().replace(session_config);
-                    }
-                    SessionConfig::Multicast(_) => {
-                        return self.default_multicast_conf.write().replace(session_config);
-                    }
-                }
+        match session_config {
+            SessionConfig::PointToPoint(_) => self.default_ff_conf.write().replace(session_config),
+            SessionConfig::Multicast(_) => {
+                self.default_multicast_conf.write().replace(session_config)
             }
-        };
-
-        // get the write lock
-        let mut pool = self.pool.write().await;
-
-        // check if the session exists
-        if let Some(session) = pool.get_mut(&session_id) {
-            // set the session config
-            return session.set_session_config(session_config);
         }
-
-        Err(SessionError::SessionNotFound(session_id))
     }
 
     /// Get the session configuration
-    pub(crate) async fn get_session_config(
-        &self,
-        session_id: Id,
-    ) -> Result<SessionConfig, SessionError> {
-        // get the read lock
-        let pool = self.pool.read().await;
-
-        // check if the session exists
-        if let Some(session) = pool.get(&session_id) {
-            return Ok(session.session_config());
-        }
-
-        Err(SessionError::SessionNotFound(session_id))
-    }
-
-    /// Get the session configuration
-    pub(crate) async fn get_default_session_config(
+    pub(crate) fn get_default_session_config(
         &self,
         session_type: SessionType,
     ) -> Result<SessionConfig, SessionError> {
