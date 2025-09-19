@@ -13,6 +13,7 @@ import (
 
 	controllerapi "github.com/agntcy/slim/control-plane/common/proto/controller/v1"
 	controlplaneApi "github.com/agntcy/slim/control-plane/common/proto/controlplane/v1"
+	"github.com/agntcy/slim/control-plane/control-plane/internal/config"
 	"github.com/agntcy/slim/control-plane/control-plane/internal/db"
 	"github.com/agntcy/slim/control-plane/control-plane/internal/services/nodecontrol"
 )
@@ -20,12 +21,12 @@ import (
 const AllNodesID = "*"
 
 type RouteService struct {
-	mu                   sync.RWMutex
-	queue                *workqueue.Typed[RouteReconcileRequest]
-	dbService            db.DataAccess
-	cmdHandler           nodecontrol.NodeCommandHandler
-	reconcilerThreadsNum int
-	reconcilerThreads    []*RouteReconciler
+	mu                sync.RWMutex
+	queue             *workqueue.Typed[RouteReconcileRequest]
+	dbService         db.DataAccess
+	cmdHandler        nodecontrol.NodeCommandHandler
+	reconcilerConfig  config.ReconcilerConfig
+	reconcilerThreads []*RouteReconciler
 }
 
 type Route struct {
@@ -42,12 +43,12 @@ type Route struct {
 }
 
 func NewRouteService(dbService db.DataAccess, cmdHandler nodecontrol.NodeCommandHandler,
-	reconcilerThreadsNum int) *RouteService {
+	reconcilerConfig config.ReconcilerConfig) *RouteService {
 	return &RouteService{
-		queue:                workqueue.NewTyped[RouteReconcileRequest](),
-		dbService:            dbService,
-		cmdHandler:           cmdHandler,
-		reconcilerThreadsNum: reconcilerThreadsNum,
+		queue:            workqueue.NewTyped[RouteReconcileRequest](),
+		dbService:        dbService,
+		cmdHandler:       cmdHandler,
+		reconcilerConfig: reconcilerConfig,
 	}
 }
 
@@ -55,8 +56,8 @@ func (s *RouteService) Start(ctx context.Context) error {
 	// start route reconcilers
 	zlog := zerolog.Ctx(ctx)
 	zlog.Info().Msg("Starting route reconcilers")
-	s.reconcilerThreads = make([]*RouteReconciler, s.reconcilerThreadsNum)
-	for i := 0; i < s.reconcilerThreadsNum; i++ {
+	s.reconcilerThreads = make([]*RouteReconciler, s.reconcilerConfig.Threads)
+	for i := 0; i < s.reconcilerConfig.Threads; i++ {
 		reconciler := NewRouteReconciler(fmt.Sprintf("reconciler-%v", i), s.queue, s.dbService, s.cmdHandler)
 		s.reconcilerThreads[i] = reconciler
 		go func(r *RouteReconciler) {

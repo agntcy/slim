@@ -10,7 +10,8 @@ southbound:
     keyFile: "/certs/tls.key"
     caFile: "//certs/ca_bundle.pem"
 
-reconcilerThreads: 3
+reconciler:
+  threads: 3
 
 logging:
   level: DEBUG

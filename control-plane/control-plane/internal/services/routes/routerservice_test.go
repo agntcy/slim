@@ -70,13 +70,17 @@ func (m *CommandHandlerMock) Reset() {
 	m.sendCalls = make([]sendCall, 0)
 }
 func TestRouteService_AddRoutes(t *testing.T) {
+	rConfig := config.ReconcilerConfig{
+		Threads: 1,
+	}
+
 	ctx := util.GetContextWithLogger(context.Background(), config.LogConfig{
 		Level: "debug",
 	})
 	dbService := db.NewInMemoryDBService()
 	cmdHandler := &CommandHandlerMock{}
 
-	routeService := NewRouteService(dbService, cmdHandler, 1)
+	routeService := NewRouteService(dbService, cmdHandler, rConfig)
 
 	addNodes(ctx, t, dbService, routeService)
 
@@ -174,10 +178,13 @@ func TestRouteService_AddAndThenDeleteRoutes(t *testing.T) {
 	ctx := util.GetContextWithLogger(context.Background(), config.LogConfig{
 		Level: "debug",
 	})
+	rConfig := config.ReconcilerConfig{
+		Threads: 1,
+	}
 	dbService := db.NewInMemoryDBService()
 	cmdHandler := &CommandHandlerMock{}
 
-	routeService := NewRouteService(dbService, cmdHandler, 1)
+	routeService := NewRouteService(dbService, cmdHandler, rConfig)
 
 	addNodes(ctx, t, dbService, routeService)
 
@@ -294,7 +301,10 @@ func TestRouteService_AddRoute_Validation(t *testing.T) {
 	ctx := context.Background()
 	dbService := db.NewInMemoryDBService()
 	cmdHandler := &CommandHandlerMock{}
-	routeService := NewRouteService(dbService, cmdHandler, 1)
+	rConfig := config.ReconcilerConfig{
+		Threads: 1,
+	}
+	routeService := NewRouteService(dbService, cmdHandler, rConfig)
 
 	route := Route{
 		SourceNodeID: "node1",
@@ -314,7 +324,10 @@ func TestRouteService_AddRoute_SameSourceAndDestValidation(t *testing.T) {
 	ctx := context.Background()
 	dbService := db.NewInMemoryDBService()
 	cmdHandler := &CommandHandlerMock{}
-	routeService := NewRouteService(dbService, cmdHandler, 1)
+	rConfig := config.ReconcilerConfig{
+		Threads: 1,
+	}
+	routeService := NewRouteService(dbService, cmdHandler, rConfig)
 
 	route := Route{
 		SourceNodeID: "node1",
@@ -333,7 +346,10 @@ func TestRouteService_DeleteRoute_Validation(t *testing.T) {
 	ctx := context.Background()
 	dbService := db.NewInMemoryDBService()
 	cmdHandler := &CommandHandlerMock{}
-	routeService := NewRouteService(dbService, cmdHandler, 1)
+	rConfig := config.ReconcilerConfig{
+		Threads: 1,
+	}
+	routeService := NewRouteService(dbService, cmdHandler, rConfig)
 
 	route := Route{
 		SourceNodeID: "node1",

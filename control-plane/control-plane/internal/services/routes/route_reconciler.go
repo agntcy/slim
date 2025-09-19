@@ -76,21 +76,70 @@ func (s *RouteReconciler) getConnectionDetails(route db.Route) (controllerapi.Co
 	if err != nil {
 		return controllerapi.Connection{}, fmt.Errorf("failed to fetch destination node %s: %w", route.DestNodeID, err)
 	}
-	// TODO handle multiple connections, external and internal etc.
 	if len(destNode.ConnDetails) == 0 {
 		return controllerapi.Connection{}, fmt.Errorf("no connections found for destination node %s", destNode.ID)
 	}
-	connDetail := destNode.ConnDetails[0]
+	srcNode, err2 := s.dbService.GetNode(route.DestNodeID)
+	if err2 != nil {
+		return controllerapi.Connection{}, fmt.Errorf("failed to fetch destination node %s: %w", route.DestNodeID, err2)
+	}
+	connDetails, localConnection := selectConnection(destNode.ConnDetails, srcNode.ConnDetails)
 
-	configData, err := generateConfigData(connDetail)
+	configData, err := generateConfigData(connDetails, localConnection)
 	if err != nil {
 		return controllerapi.Connection{}, fmt.Errorf("failed to generate config data for route %v: %w", route, err)
 	}
 
 	return controllerapi.Connection{
-		ConnectionId: connDetail.Endpoint, // Use endpoint as connection ID
+		ConnectionId: connDetails.Endpoint, // Use endpoint as connection ID
 		ConfigData:   configData,
 	}, nil
+}
+
+// selectConnection selects the most appropriate connection details from the destination node's connections.
+// Returns connection details from source to destination node and true if nodes are in the same network group,
+// otherwise false, meaning that externalEndpoint should be used to set up connection from src node.
+// Nodes are in the same network group if they share at least one group name.
+// In case there are no group names defined in dstConnections we assume that nodes are in the same network group.
+func selectConnection(
+	dstConnections []db.ConnectionDetails,
+	srcConnections []db.ConnectionDetails) (db.ConnectionDetails, bool) {
+
+	// first identify if dst and src nodes are in the same network group
+	// if dst has no group name defined, it means that it is in the same network group as all other nodes
+	// if dst and src have at least one matching group name, they are in the same network group
+	sameGroup := isSameGroup(dstConnections, srcConnections)
+
+	// In case they are in the same network group, return the first matching connection from dstConnections and true
+	if sameGroup {
+		return dstConnections[0], true
+	}
+	// Otherwise return the first connection from dstConnections which has externalEndpoint set and false
+	for _, dstConnection := range dstConnections {
+		if dstConnection.ExternalEndpoint != nil && *dstConnection.ExternalEndpoint != "" {
+			return dstConnection, false
+		}
+	}
+	// If no connection has externalEndpoint set, return the first connection from dstConnections and false
+	return dstConnections[0], false
+}
+
+func isSameGroup(dstConnections []db.ConnectionDetails, srcConnections []db.ConnectionDetails) bool {
+	sameGroup := false
+	for _, dstConn := range dstConnections {
+		if dstConn.GroupName == nil || *dstConn.GroupName == "" {
+			return true
+		}
+		for _, srcConn := range srcConnections {
+			if srcConn.GroupName == nil || *srcConn.GroupName == "" {
+				continue
+			}
+			if dstConn.GroupName != nil && srcConn.GroupName != nil && *dstConn.GroupName == *srcConn.GroupName {
+				return true
+			}
+		}
+	}
+	return sameGroup
 }
 
 // handleRequest processes a node registration request
@@ -215,11 +264,17 @@ func (s *RouteReconciler) handleRequest(ctx context.Context, req RouteReconcileR
 	return nil
 }
 
-func generateConfigData(detail db.ConnectionDetails) (string, error) {
+func generateConfigData(detail db.ConnectionDetails, localConnection bool) (string, error) {
 	truev := true
 	falsev := false
 	config := ConnectionConfig{
 		Endpoint: detail.Endpoint,
+	}
+	if !localConnection {
+		if detail.ExternalEndpoint == nil || *detail.ExternalEndpoint == "" {
+			return "", fmt.Errorf("no external endpoint defined for connection %v", detail)
+		}
+		config.Endpoint = *detail.ExternalEndpoint
 	}
 	if !detail.MTLSRequired {
 		config.TLS = &TLS{Insecure: &truev}

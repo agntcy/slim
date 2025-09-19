@@ -38,6 +38,8 @@ config:
 
   logging:
     level: DEBUG
+  reconciler:
+    threads: 3
 
 spire:
   enabled: false

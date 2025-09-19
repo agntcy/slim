@@ -10,7 +10,8 @@ southbound:
   spire:
     socketPath: "unix:///tmp/spire-agent/public/api.sock"
 
-reconcilerThreads: 3
+reconciler:
+  threads: 3
 
 logging:
   level: DEBUG

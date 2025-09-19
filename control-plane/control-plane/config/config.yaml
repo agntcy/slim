@@ -6,7 +6,8 @@ southbound:
   httpHost: localhost
   httpPort: 50052
 
-reconcilerThreads: 3
+reconciler:
+  threads: 3
 
 logging:
   level: DEBUG

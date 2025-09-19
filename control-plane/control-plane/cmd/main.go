@@ -32,7 +32,7 @@ func main() {
 	dbService := db.NewInMemoryDBService()
 	cmdHandler := nodecontrol.DefaultNodeCommandHandler()
 	nodeService := nbapiservice.NewNodeService(dbService, cmdHandler)
-	routeService := routes.NewRouteService(dbService, cmdHandler, config.ReconcilerThreads)
+	routeService := routes.NewRouteService(dbService, cmdHandler, config.Reconciler)
 	err := routeService.Start(ctx)
 	if err != nil {
 		zlog.Fatal().Msgf("failed to start route service: %v", err)
