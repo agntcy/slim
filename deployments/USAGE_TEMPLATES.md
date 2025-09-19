@@ -1,8 +1,26 @@
-## SLIM deployment strategies
+## SLIM deployment templates / strategies
 
-Usage templates describe various SLIM deployment patterns to help operations in supporting the most frequent scenarios.
+Deployment templates (or deployment strategies) describe various SLIM deployment patterns to to support the most frequent usage scenarios.
 
-We're using the existing Helm chart
+These strategies primarily describe the deployment of SLIM from the operations point of view, that is, they focus on the SLIM infrastructure and topology.  
+
+For each identified deployment strategy we provide the followings
+- the description of the strategy / recommended use cases
+- a set of values files for the different components
+- a set of tasks to execute the deployment
+- example client resources to demonstrate / test the startegy
+
+## Considerations / prerequisites
+
+To mimic the real life deployments of SLIM, deployment strategies are executed in Kubernetes clusters using the publicly available SLIM Helm charts. 
+
+In order for the strategy examples to be executed locally through the provided taskfile, the following prerequisites are needed:
+
+- [task](https://taskfile.dev/) available
+- docker engine available locally (Docker Desktop or Rancher Desktop)
+- kind available on the local environment
+- access to public image repositories
+
 The templats resume to the values files corresopnding to the scenarios
 
 Node(s) are reached through a k8s service
@@ -13,16 +31,11 @@ We need an example client configuration that connects to nodes
 ## Table of Contents
 
 - [SLIM deployment strategies](#slim-deployment-strategies)
-  - [Naive deployment strategy](#naive-deployment-strategy)
+  - [Naive deployment strategy](naive/naive_strategy.md)
   - [Statefulset deployment strategy](#statefulset-deployment-strategy)
   - [Daemonset deployment strategy](#daemonset-deployment-strategy)
 
-<!-- ...existing content... -->
-Sections in each of the templates
-- describe the use case, target audience (devs, experimenting)
-- example values file
-- describe what happens in the cluster, how cvan be teh node reached
-- succession of commands (task file?)
+
 
 ### Naive deployment strategy
 ### Statefulset deployment strategy
