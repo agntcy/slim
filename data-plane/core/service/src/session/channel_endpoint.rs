@@ -1248,16 +1248,10 @@ where
 
         debug!("Got all the acks, remove timer");
 
-        if to_process.is_some() {
-            match to_process
-                .as_ref()
-                .unwrap()
-                .get_session_header()
-                .session_message_type()
-            {
+        if let Some(msg) = to_process {
+            match msg.get_session_header().session_message_type() {
                 ProtoSessionMessageType::ChannelLeaveRequest => {
                     debug!("Forward channel leave request after timer cancellation");
-                    let msg = to_process.unwrap();
                     let msg_id = msg.get_id();
                     self.forward(msg).await?;
 
@@ -1267,9 +1261,7 @@ where
                 ProtoSessionMessageType::ChannelMlsProposal => {
                     debug!("Create commit message for mls proposal after timer cancellation");
                     // check the payload of the proposal message
-                    let content = &to_process
-                        .as_ref()
-                        .unwrap()
+                    let content = &msg
                         .get_payload()
                         .map_or_else(
                             || {

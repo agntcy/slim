@@ -126,11 +126,10 @@ impl Connections {
         let mut i = index;
         while !stop {
             let opt = self.pool.get(i);
-            if opt.is_some() {
-                let out = opt.unwrap().conn_id;
-                if out != except_conn {
-                    return Some(out);
-                }
+            if let Some(opt) = opt
+                && opt.conn_id != except_conn
+            {
+                return Some(opt.conn_id);
             }
             i = (i + 1) % (self.pool.max_set() + 1);
             if i == index {

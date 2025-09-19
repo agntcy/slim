@@ -6,9 +6,6 @@ use crate::{
     traits::{TokenProvider, Verifier},
 };
 
-#[derive(serde::Deserialize)]
-struct EmptyClaims;
-
 #[derive(Debug, Clone)]
 pub struct SharedSecret {
     /// Unique identifier for the entity

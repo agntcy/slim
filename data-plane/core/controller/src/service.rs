@@ -703,11 +703,11 @@ impl ControllerService {
             };
 
             // send register request if client
-            if config.is_some() {
-                if let Err(e) = tx.send(Ok(register_request)).await {
-                    error!("failed to send register request: {}", e);
-                    return;
-                }
+            if config.is_some()
+                && let Err(e) = tx.send(Ok(register_request)).await
+            {
+                error!("failed to send register request: {}", e);
+                return;
             }
 
             // TODO; here we should wait for an ack
@@ -753,25 +753,23 @@ impl ControllerService {
 
             info!(%endpoint, "control plane stream closed");
 
-            if retry_connect {
-                if let Some(config) = config {
-                    info!(%config.endpoint, "retrying connection to control plane");
-                    this.connect(config.clone(), cancellation_token)
-                        .await
-                        .map_or_else(
-                            |e| {
-                                error!("failed to reconnect to control plane: {}", e);
-                            },
-                            |tx| {
-                                info!(%config.endpoint, "reconnected to control plane");
+            if retry_connect && let Some(config) = config {
+                info!(%config.endpoint, "retrying connection to control plane");
+                this.connect(config.clone(), cancellation_token)
+                    .await
+                    .map_or_else(
+                        |e| {
+                            error!("failed to reconnect to control plane: {}", e);
+                        },
+                        |tx| {
+                            info!(%config.endpoint, "reconnected to control plane");
 
-                                this.inner
-                                    .tx_channels
-                                    .write()
-                                    .insert(config.endpoint.clone(), tx);
-                            },
-                        )
-                }
+                            this.inner
+                                .tx_channels
+                                .write()
+                                .insert(config.endpoint.clone(), tx);
+                        },
+                    )
             }
         })
     }
@@ -832,10 +830,10 @@ impl ControllerService {
 
             // h2::Error do not expose std::io::Error with `source()`
             // https://github.com/hyperium/h2/pull/462
-            if let Some(h2_err) = err.downcast_ref::<h2::Error>() {
-                if let Some(io_err) = h2_err.get_io() {
-                    return Some(io_err);
-                }
+            if let Some(h2_err) = err.downcast_ref::<h2::Error>()
+                && let Some(io_err) = h2_err.get_io()
+            {
+                return Some(io_err);
             }
 
             err = err.source()?;
