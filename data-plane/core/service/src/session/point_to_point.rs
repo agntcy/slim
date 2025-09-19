@@ -583,15 +583,15 @@ where
         );
 
         // If session is sticky, check if the source matches the sticky name
-        if self.state.config.sticky {
-            if let Some(name) = &self.state.sticky_name {
-                let source = message.message.get_source();
-                if *name != source {
-                    return Err(SessionError::AppTransmission(format!(
-                        "message source {} does not match sticky name {}",
-                        source, name
-                    )));
-                }
+        if self.state.config.sticky
+            && let Some(name) = &self.state.sticky_name
+        {
+            let source = message.message.get_source();
+            if *name != source {
+                return Err(SessionError::AppTransmission(format!(
+                    "message source {} does not match sticky name {}",
+                    source, name
+                )));
             }
         }
 
