@@ -25,25 +25,25 @@ tasks:
     desc: "Run the mock app server"
     dir: src/sdk-mock
     cmds:
-      - cargo run -- --config ../../../config/base/client-config.yaml --local-app server --remote-app client
+      - cargo run -- --config ../../../config/base/client-config.yaml --local-name server --remote-name client
 
   run:mock-app:server-mls:
     desc: "Run the mock app server"
     dir: src/sdk-mock
     cmds:
-      - cargo run -- --config ../../../config/base/client-config.yaml --local-app server --remote-app client --mls-group-id mls-group
+      - cargo run -- --config ../../../config/base/client-config.yaml --local-name server --remote-name client --mls-group-id mls-group
 
   run:mock-app:client:
     desc: "Run the mock app client"
     dir: src/sdk-mock
     cmds:
-      - cargo run -- --config ../../../config/base/client-config.yaml --local-app client --remote-app server --message "hey there!"
+      - cargo run -- --config ../../../config/base/client-config.yaml --local-name client --remote-name server --message "hey there!"
 
   run:mock-app:client-mls:
     desc: "Run the mock app client"
     dir: src/sdk-mock
     cmds:
-      - cargo run -- --config ../../../config/base/client-config.yaml --local-app client --remote-app server --mls-group-id mls-group --message "hey there!"
+      - cargo run -- --config ../../../config/base/client-config.yaml --local-name client --remote-name server --mls-group-id mls-group --message "hey there!"
 
   docker:build-all:
     desc: "Build all Docker images"

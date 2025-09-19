@@ -19,11 +19,11 @@ pub use slim_service::session::SESSION_UNSPECIFIED;
 #[pyclass]
 #[derive(Clone)]
 pub(crate) struct PySessionInfo {
-    pub(crate) session_info: session::Info,
+    pub(crate) session_info: session::SessionMessage,
 }
 
-impl From<session::Info> for PySessionInfo {
-    fn from(session_info: session::Info) -> Self {
+impl From<session::SessionMessage> for PySessionInfo {
+    fn from(session_info: session::SessionMessage) -> Self {
         PySessionInfo { session_info }
     }
 }
@@ -34,7 +34,7 @@ impl PySessionInfo {
     #[new]
     fn new(session_id: u32) -> Self {
         PySessionInfo {
-            session_info: session::Info::new(session_id),
+            session_info: session::SessionMessage::new(session_id),
         }
     }
 

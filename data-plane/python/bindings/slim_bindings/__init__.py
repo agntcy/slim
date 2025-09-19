@@ -11,6 +11,7 @@ from slim_bindings._slim_bindings import (
     PyName,
     PyService,
     PySessionConfiguration,
+    PySessionDirection,
     PySessionInfo,
     PySessionType,
     connect,

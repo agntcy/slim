@@ -9,33 +9,38 @@ use std::sync::Arc;
 use parking_lot::RwLock as SyncRwLock;
 use rand::Rng;
 use tokio::sync::RwLock as AsyncRwLock;
+use tokio::sync::mpsc::Sender;
 use tracing::{debug, warn};
 
 use slim_auth::traits::{TokenProvider, Verifier};
-use slim_datapath::api::{ProtoSessionMessageType, ProtoSessionType};
+use slim_datapath::api::{ProtoMessage as Message, ProtoSessionMessageType, ProtoSessionType};
 use slim_datapath::messages::Name;
 
+use crate::session::SessionInterceptorProvider;
+use crate::session::notification::Notification;
+use crate::session::transmitter::{AppTransmitter, SessionTransmitter};
+
 // Local crate
+use super::context::SessionContext;
 use super::interceptor::{IdentityInterceptor, SessionInterceptor};
 use super::interceptor_mls::METADATA_MLS_ENABLED;
 use super::multicast::{self, MulticastConfiguration};
 use super::point_to_point::PointToPointConfiguration;
 use super::{
-    AppChannelSender, CommonSession, Id, Info, MessageDirection, MessageHandler, SESSION_RANGE,
-    Session, SessionConfig, SessionConfigTrait, SessionMessage, SessionTransmitter, SessionType,
-    SlimChannelSender,
+    CommonSession, Id, MessageDirection, MessageHandler, SESSION_RANGE, Session, SessionConfig,
+    SessionConfigTrait, Transmitter, SessionType, SlimChannelSender,
 };
 use super::{SessionError, channel_endpoint::handle_channel_discovery_message};
 
 /// SessionLayer manages sessions and their lifecycle
-pub(crate) struct SessionLayer<P, V, T>
+pub(crate) struct SessionLayer<P, V, T = AppTransmitter<P, V>>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
-    T: SessionTransmitter + Send + Sync + Clone + 'static,
+    T: Transmitter + Send + Sync + Clone + 'static,
 {
     /// Session pool
-    pool: AsyncRwLock<HashMap<Id, Session<P, V, T>>>,
+    pool: AsyncRwLock<HashMap<Id, Arc<Session<P, V>>>>,
 
     /// Name of the local app
     app_name: Name,
@@ -51,9 +56,9 @@ where
 
     /// Tx channels
     tx_slim: SlimChannelSender,
-    tx_app: AppChannelSender,
+    tx_app: Sender<Result<Notification<P, V>, SessionError>>,
 
-    /// Transmitter for sessions
+    // Transmitter to bypass sessions
     transmitter: T,
 
     /// Default configuration for the session
@@ -68,7 +73,7 @@ impl<P, V, T> SessionLayer<P, V, T>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
-    T: SessionTransmitter + Send + Sync + Clone + 'static,
+    T: Transmitter + Send + Sync + Clone + 'static,
 {
     /// Create a new SessionLayer
     #[allow(clippy::too_many_arguments)]
@@ -78,7 +83,7 @@ where
         identity_verifier: V,
         conn_id: u64,
         tx_slim: SlimChannelSender,
-        tx_app: AppChannelSender,
+        tx_app: Sender<Result<Notification<P, V>, SessionError>>,
         transmitter: T,
         storage_path: std::path::PathBuf,
     ) -> Self {
@@ -105,7 +110,7 @@ where
         self.tx_slim.clone()
     }
 
-    pub(crate) fn tx_app(&self) -> AppChannelSender {
+    pub(crate) fn tx_app(&self) -> Sender<Result<Notification<P, V>, SessionError>> {
         self.tx_app.clone()
     }
 
@@ -129,7 +134,7 @@ where
         &self,
         session_config: SessionConfig,
         id: Option<Id>,
-    ) -> Result<Info, SessionError> {
+    ) -> Result<SessionContext<P, V>, SessionError> {
         // TODO(msardara): the session identifier should be a combination of the
         // session ID and the app ID, to prevent collisions.
 
@@ -163,7 +168,11 @@ where
         };
 
         // Create a new transmitter with identity interceptors
-        let tx = self.transmitter.derive_new();
+        let (app_tx, app_rx) = tokio::sync::mpsc::channel(128);
+        let tx = SessionTransmitter::new(
+            self.tx_slim.clone(),
+            app_tx,
+        );
 
         let identity_interceptor = Arc::new(IdentityInterceptor::new(
             self.identity_provider.clone(),
@@ -174,8 +183,8 @@ where
 
         // create a new session
         let session = match session_config {
-            SessionConfig::PointToPoint(conf) => {
-                Session::PointToPoint(super::point_to_point::PointToPoint::new(
+            SessionConfig::PointToPoint(conf) => Arc::new(Session::PointToPoint(
+                super::point_to_point::PointToPoint::new(
                     id,
                     conf,
                     self.app_name().clone(),
@@ -183,28 +192,30 @@ where
                     self.identity_provider.clone(),
                     self.identity_verifier.clone(),
                     self.storage_path.clone(),
-                ))
-            }
-            SessionConfig::Multicast(conf) => Session::Multicast(multicast::Multicast::new(
-                id,
-                conf,
-                self.app_name().clone(),
-                tx,
-                self.identity_provider.clone(),
-                self.identity_verifier.clone(),
-                self.storage_path.clone(),
+                ),
             )),
+            SessionConfig::Multicast(conf) => {
+                Arc::new(Session::Multicast(multicast::Multicast::new(
+                    id,
+                    conf,
+                    self.app_name().clone(),
+                    tx,
+                    self.identity_provider.clone(),
+                    self.identity_verifier.clone(),
+                    self.storage_path.clone(),
+                )))
+            }
         };
 
         // insert the session into the pool
-        let ret = pool.insert(id, session);
+        let ret = pool.insert(id, session.clone());
 
         // This should never happen, but just in case
         if ret.is_some() {
             panic!("session already exists: {}", ret.is_some());
         }
 
-        Ok(Info::new(id))
+        Ok(SessionContext::new(session, app_rx))
     }
 
     /// Remove a session from the pool
@@ -214,57 +225,21 @@ where
         pool.remove(&id).is_some()
     }
 
-    /// Handle a message and pass it to the corresponding session
-    pub(crate) async fn handle_message(
+    pub(crate) async fn handle_message_from_app(
         &self,
-        message: SessionMessage,
-        direction: MessageDirection,
+        message: Message,
+        context: &SessionContext<P, V>,
     ) -> Result<(), SessionError> {
-        // Validate the message as first operation to prevent possible panic in case
-        // necessary fields are missing
-        if let Err(e) = message.message.validate() {
-            return Err(SessionError::ValidationError(e.to_string()));
-        }
-
-        // Make sure the message is a publication
-        if !message.message.is_publish() {
-            return Err(SessionError::ValidationError(
-                "message is not a publish".to_string(),
-            ));
-        }
-
-        // good to go
-        match direction {
-            MessageDirection::North => self.handle_message_from_slim(message, direction).await,
-            MessageDirection::South => self.handle_message_from_app(message, direction).await,
-        }
-    }
-
-    /// Handle a message from the message processor, and pass it to the
-    /// corresponding session
-    async fn handle_message_from_app(
-        &self,
-        mut message: SessionMessage,
-        direction: MessageDirection,
-    ) -> Result<(), SessionError> {
-        // check if pool contains the session
-        if let Some(session) = self.pool.read().await.get(&message.info.id) {
-            // Set session id and session type to message
-            let header = message.message.get_session_header_mut();
-            header.session_id = message.info.id;
-
-            // pass the message to the session
-            return session.on_message(message, direction).await;
-        }
-
-        // if the session is not found, return an error
-        Err(SessionError::SessionNotFound(message.info.id.to_string()))
+        context
+            .session
+            .on_message(message, MessageDirection::South)
+            .await
     }
 
     /// Handle session from slim without creating a session
     /// return true is the message processing is done and no
     /// other action is needed, false otherwise
-    async fn handle_message_from_slim_without_session(
+    pub(crate) async fn handle_message_from_slim_without_session(
         &self,
         message: &slim_datapath::api::ProtoMessage,
         session_type: ProtoSessionType,
@@ -298,14 +273,19 @@ where
 
     /// Handle a message from the message processor, and pass it to the
     /// corresponding session
-    async fn handle_message_from_slim(
+    pub(crate) async fn handle_message_from_slim(
         &self,
-        message: SessionMessage,
+        mut message: Message,
         direction: MessageDirection,
     ) -> Result<(), SessionError> {
+        // Pass message to interceptors in the transmitter
+        self.transmitter
+            .on_msg_from_slim_interceptors(&mut message)
+            .await?;
+
         let (id, session_type, session_message_type) = {
             // get the session type and the session id from the message
-            let header = message.message.get_session_header();
+            let header = message.get_session_header();
 
             // get the session type from the header
             let session_type = header.session_type();
@@ -321,7 +301,7 @@ where
 
         match self
             .handle_message_from_slim_without_session(
-                &message.message,
+                &message,
                 session_type,
                 session_message_type,
                 id,
@@ -365,7 +345,7 @@ where
             return session.on_message(message, direction).await;
         }
 
-        let new_session_id = match session_message_type {
+        let new_session = match session_message_type {
             ProtoSessionMessageType::P2PMsg | ProtoSessionMessageType::P2PReliable => {
                 let mut conf = self.default_ff_conf.read().clone();
 
@@ -388,7 +368,7 @@ where
             }
             ProtoSessionMessageType::ChannelJoinRequest => {
                 // Create a new session based on the SessionType contained in the message
-                match message.message.get_session_header().session_type() {
+                match message.get_session_header().session_type() {
                     ProtoSessionType::SessionPointToPoint => {
                         let mut conf = self.default_ff_conf.read().clone();
                         conf.initiator = false;
@@ -401,14 +381,14 @@ where
                             conf.max_retries = Some(5);
                         }
 
-                        conf.mls_enabled = message.message.contains_metadata(METADATA_MLS_ENABLED);
+                        conf.mls_enabled = message.contains_metadata(METADATA_MLS_ENABLED);
 
                         self.create_session(SessionConfig::PointToPoint(conf), Some(id))
                             .await?
                     }
                     ProtoSessionType::SessionMulticast => {
                         let mut conf = self.default_multicast_conf.read().clone();
-                        conf.mls_enabled = message.message.contains_metadata(METADATA_MLS_ENABLED);
+                        conf.mls_enabled = message.contains_metadata(METADATA_MLS_ENABLED);
                         self.create_session(SessionConfig::Multicast(conf), Some(id))
                             .await?
                     }
@@ -447,16 +427,19 @@ where
             }
         };
 
-        debug_assert!(new_session_id.id == id);
+        debug_assert!(new_session.session.id() == id);
 
-        // retry the match
-        if let Some(session) = self.pool.read().await.get(&new_session_id.id) {
-            // pass the message
-            return session.on_message(message, direction).await;
-        }
+        // update session context with metadata from the message
+        let new_session = new_session.with_metadata(message.metadata.clone());
 
-        // this should never happen
-        panic!("session not found: {}", "test");
+        // process the message
+        new_session.session.on_message(message, direction).await?;
+
+        // send new session to the app
+        self.tx_app
+            .send(Ok(Notification::NewSession(new_session)))
+            .await
+            .map_err(|e| SessionError::AppTransmission(format!("error sending new session: {}", e)))
     }
 
     /// Set the configuration of a session
@@ -490,7 +473,7 @@ where
             return session.set_session_config(session_config);
         }
 
-        Err(SessionError::SessionNotFound(session_id.to_string()))
+        Err(SessionError::SessionNotFound(session_id))
     }
 
     /// Get the session configuration
@@ -506,7 +489,7 @@ where
             return Ok(session.session_config());
         }
 
-        Err(SessionError::SessionNotFound(session_id.to_string()))
+        Err(SessionError::SessionNotFound(session_id))
     }
 
     /// Get the session configuration
@@ -537,7 +520,7 @@ where
             session.tx_ref().add_interceptor(interceptor);
             Ok(())
         } else {
-            Err(SessionError::SessionNotFound(session_id.to_string()))
+            Err(SessionError::SessionNotFound(session_id))
         }
     }
 

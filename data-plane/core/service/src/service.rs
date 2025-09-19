@@ -27,9 +27,10 @@ use slim_datapath::message_processing::MessageProcessor;
 use slim_datapath::messages::Name;
 
 // Local crate
+use crate::SessionError;
 use crate::app::App;
 use crate::errors::ServiceError;
-use crate::session::AppChannelReceiver;
+use crate::session::notification::Notification;
 
 // Define the kind of the component as static string
 pub const KIND: &str = "slim";
@@ -211,7 +212,13 @@ impl Service {
         app_name: &Name,
         identity_provider: P,
         identity_verifier: V,
-    ) -> Result<(App<P, V>, AppChannelReceiver), ServiceError>
+    ) -> Result<
+        (
+            App<P, V>,
+            mpsc::Receiver<Result<Notification<P, V>, SessionError>>,
+        ),
+        ServiceError,
+    >
     where
         P: TokenProvider + Send + Sync + Clone + 'static,
         V: Verifier + Send + Sync + Clone + 'static,
@@ -234,7 +241,9 @@ impl Service {
         // Channels to communicate with SLIM
         let (conn_id, tx_slim, rx_slim) = self.message_processor.register_local_connection(false);
 
-        // Channels to communicate with the local app
+        // Channels to communicate with the local app. This will be mainly used to receive notifications about new
+        // sessions opened
+
         // TODO(msardara): make the buffer size configurable
         let (tx_app, rx_app) = mpsc::channel(128);
 
@@ -405,7 +414,9 @@ impl ComponentBuilder for ServiceBuilder {
 // tests
 #[cfg(test)]
 mod tests {
-    use crate::session::{MulticastConfiguration, PointToPointConfiguration, SessionConfig};
+    use crate::session::{
+        CommonSession, MulticastConfiguration, PointToPointConfiguration, SessionConfig,
+    };
 
     use super::*;
     use slim_auth::shared_secret::SharedSecret;
@@ -502,7 +513,7 @@ mod tests {
         // subscription is done automatically.
 
         // create a point to point session
-        let session_info = pub_app
+        let send_session = pub_app
             .create_session(
                 SessionConfig::PointToPoint(PointToPointConfiguration::default()),
                 None,
@@ -514,7 +525,7 @@ mod tests {
         let message_blob = "very complicated message".as_bytes().to_vec();
         pub_app
             .publish(
-                session_info.clone(),
+                &send_session,
                 &subscriber_name,
                 message_blob.clone(),
                 None,
@@ -523,16 +534,37 @@ mod tests {
             .await
             .unwrap();
 
-        // wait for the message to arrive
-        let msg = sub_rx
+        // wait for the new session to arrive in the subscriber app
+        // and check the message is correct
+        let session = sub_rx
+            .recv()
+            .await
+            .expect("no message received")
+            .expect("error");
+
+        let mut recv_session = match session {
+            Notification::NewSession(s) => s,
+            _ => panic!("expected a point to point session"),
+        };
+
+        // Let's receive now the message from the session
+        let msg = recv_session
+            .rx
             .recv()
             .await
             .expect("no message received")
             .expect("error");
 
         // make sure message is a publication
-        assert!(msg.message.message_type.is_some());
-        let publ = match msg.message.message_type.unwrap() {
+        assert!(msg.message_type.is_some());
+
+        // make sure the session ids correspond
+        assert_eq!(
+            send_session.session.id(),
+            msg.get_session_header().get_session_id()
+        );
+
+        let publ = match msg.message_type.unwrap() {
             MessageType::Publish(p) => p,
             _ => panic!("expected a publication"),
         };
@@ -540,12 +572,9 @@ mod tests {
         // make sure message is correct
         assert_eq!(publ.get_payload().blob, message_blob);
 
-        // make also sure the session ids correspond
-        assert_eq!(session_info.id, msg.info.id);
-
         // Now remove the session from the 2 apps
-        pub_app.delete_session(session_info.id).await.unwrap();
-        sub_app.delete_session(session_info.id).await.unwrap();
+        pub_app.delete_session(send_session).await.unwrap();
+        sub_app.delete_session(recv_session).await.unwrap();
 
         // And drop the 2 apps
         drop(pub_app);
@@ -589,10 +618,7 @@ mod tests {
             .expect("failed to create session");
 
         // check the configuration we get is the one we used to create the session
-        let session_config_ret = app
-            .get_session_config(session_info.id)
-            .await
-            .expect("failed to get session config");
+        let session_config_ret = session_info.session.session_config();
 
         assert_eq!(
             session_config, session_config_ret,
@@ -602,15 +628,13 @@ mod tests {
         // set config for the session
         let session_config = SessionConfig::PointToPoint(PointToPointConfiguration::default());
 
-        app.set_session_config(&session_config, Some(session_info.id))
-            .await
-            .expect("failed to set session config");
+        session_info
+            .session
+            .set_session_config(&session_config)
+            .unwrap();
 
         // get session config
-        let session_config_ret = app
-            .get_session_config(session_info.id)
-            .await
-            .expect("failed to get session config");
+        let session_config_ret = session_info.session.session_config();
         assert_eq!(
             session_config, session_config_ret,
             "session config mismatch"
@@ -647,10 +671,7 @@ mod tests {
             .await
             .expect("failed to create session");
         // get session config
-        let session_config_ret = app
-            .get_session_config(session_info.id)
-            .await
-            .expect("failed to get session config");
+        let session_config_ret = session_info.session.session_config();
 
         assert_eq!(
             session_config, session_config_ret,
@@ -665,15 +686,13 @@ mod tests {
             false,
         ));
 
-        app.set_session_config(&session_config, Some(session_info.id))
-            .await
-            .expect("failed to set session config");
+        session_info
+            .session
+            .set_session_config(&session_config)
+            .unwrap();
 
         // get session config
-        let session_config_ret = app
-            .get_session_config(session_info.id)
-            .await
-            .expect("failed to get session config");
+        let session_config_ret = session_info.session.session_config();
 
         assert_eq!(
             session_config, session_config_ret,

@@ -23,17 +23,14 @@ use slim_datapath::{
 };
 
 // Local crate
-use crate::{
-    SessionMessage,
-    session::{
-        Common, CommonSession, Id, Info, MessageDirection, MessageHandler, SessionConfig,
-        SessionConfigTrait, SessionTransmitter, State,
-        channel_endpoint::{
-            ChannelEndpoint, ChannelModerator, ChannelParticipant, MlsEndpoint, MlsState,
-        },
-        errors::SessionError,
-        producer_buffer, receiver_buffer, timer,
+use crate::session::{
+    Common, CommonSession, Id, MessageDirection, MessageHandler, SessionConfig, SessionConfigTrait,
+    State, Transmitter,
+    channel_endpoint::{
+        ChannelEndpoint, ChannelModerator, ChannelParticipant, MlsEndpoint, MlsState,
     },
+    errors::SessionError,
+    producer_buffer, receiver_buffer, timer,
 };
 use producer_buffer::ProducerBuffer;
 use receiver_buffer::ReceiverBuffer;
@@ -199,11 +196,12 @@ struct ReceiverState {
     buffers: HashMap<Name, Receiver>,
 }
 
+#[derive(Debug)]
 pub(crate) struct Multicast<P, V, T>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
-    T: SessionTransmitter + Send + Sync + Clone + 'static,
+    T: Transmitter + Send + Sync + Clone + 'static,
 {
     common: Common<P, V, T>,
     tx: mpsc::Sender<Result<(Message, MessageDirection), Status>>,
@@ -213,7 +211,7 @@ impl<P, V, T> Multicast<P, V, T>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
-    T: SessionTransmitter + Send + Sync + Clone + 'static,
+    T: Transmitter + Send + Sync + Clone + 'static,
 {
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn new(
@@ -494,7 +492,7 @@ async fn process_incoming_rtx_request<T>(
     source: &Name,
     tx: &T,
 ) where
-    T: SessionTransmitter + Send + Sync + Clone + 'static,
+    T: Transmitter + Send + Sync + Clone + 'static,
 {
     let msg_rtx_id = msg.get_id();
 
@@ -583,7 +581,7 @@ async fn process_incoming_rtx_request<T>(
 
 async fn flush_producer_buffer<T>(producer: &mut ProducerState, session_id: u32, tx: &T)
 where
-    T: SessionTransmitter + Send + Sync + Clone + 'static,
+    T: Transmitter + Send + Sync + Clone + 'static,
 {
     debug!("flush producer buffer");
     // flush the prod buffer and check if at least one message was sent
@@ -616,7 +614,7 @@ async fn process_message_from_app<T>(
     send_msg: bool,
     tx: &T,
 ) where
-    T: SessionTransmitter + Send + Sync + Clone + 'static,
+    T: Transmitter + Send + Sync + Clone + 'static,
 {
     // set the session header, add the message to the buffer and send it
     trace!("received message from the app on session {}", session_id);
@@ -670,7 +668,7 @@ async fn process_message_from_slim<T>(
     rtx_timer_tx: &mpsc::Sender<Result<(u32, bool, Name), Status>>,
     tx: &T,
 ) where
-    T: SessionTransmitter + Send + Sync + Clone + 'static,
+    T: Transmitter + Send + Sync + Clone + 'static,
 {
     let producer_name = msg.get_source();
     let producer_conn = msg.get_incoming_conn();
@@ -796,7 +794,7 @@ async fn handle_rtx_timeout<T>(
     session_id: u32,
     tx: &T,
 ) where
-    T: SessionTransmitter + Send + Sync + Clone + 'static,
+    T: Transmitter + Send + Sync + Clone + 'static,
 {
     trace!(
         "try to send rtx for packet {} on receiver session {}",
@@ -845,7 +843,7 @@ async fn handle_rtx_failure<T>(
     session_id: u32,
     tx: &T,
 ) where
-    T: SessionTransmitter + Send + Sync + Clone + 'static,
+    T: Transmitter + Send + Sync + Clone + 'static,
 {
     trace!("packet {} lost, not retries left", msg_id);
 
@@ -871,7 +869,7 @@ async fn send_beacon_msg<T>(
     session_id: u32,
     tx: &T,
 ) where
-    T: SessionTransmitter + Send + Sync + Clone + 'static,
+    T: Transmitter + Send + Sync + Clone + 'static,
 {
     let slim_header = Some(SlimHeader::new(
         source,
@@ -899,15 +897,13 @@ async fn send_beacon_msg<T>(
 
 async fn send_message_to_app<T>(messages: Vec<Option<Message>>, session_id: u32, tx: &T)
 where
-    T: SessionTransmitter + Send + Sync + Clone + 'static,
+    T: Transmitter + Send + Sync + Clone + 'static,
 {
     for opt in messages {
         match opt {
             Some(m) => {
-                let info = Info::from(&m);
-                let session_msg = SessionMessage::new(m, info);
                 // send message to the app
-                if tx.send_to_app(Ok(session_msg)).await.is_err() {
+                if tx.send_to_app(Ok(m)).await.is_err() {
                     error!("error sending packet to app on session {}", session_id);
                 }
             }
@@ -926,15 +922,15 @@ impl<P, V, T> MessageHandler for Multicast<P, V, T>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
-    T: SessionTransmitter + Send + Sync + Clone + 'static,
+    T: Transmitter + Send + Sync + Clone + 'static,
 {
     async fn on_message(
         &self,
-        message: SessionMessage,
+        message: Message,
         direction: MessageDirection,
     ) -> Result<(), SessionError> {
         self.tx
-            .send(Ok((message.message, direction)))
+            .send(Ok((message, direction)))
             .await
             .map_err(|e| SessionError::Processing(e.to_string()))
     }
@@ -945,7 +941,7 @@ impl<P, V, T> CommonSession<P, V, T> for Multicast<P, V, T>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
-    T: SessionTransmitter + Send + Sync + Clone + 'static,
+    T: Transmitter + Send + Sync + Clone + 'static,
 {
     fn id(&self) -> Id {
         // concat the token stream
@@ -989,7 +985,7 @@ where
 mod tests {
     use std::time::Duration;
 
-    use crate::session::testutils::MockTransmitter;
+    use crate::session::transmitter::SessionTransmitter;
 
     use super::*;
     use slim_auth::shared_secret::SharedSecret;
@@ -1004,9 +1000,10 @@ mod tests {
         let (tx_slim, _) = tokio::sync::mpsc::channel(1);
         let (tx_app, _) = tokio::sync::mpsc::channel(1);
 
-        let tx = MockTransmitter {
-            tx_slim: tx_slim.clone(),
-            tx_app: tx_app.clone(),
+        let tx = SessionTransmitter {
+            slim_tx: tx_slim.clone(),
+            app_tx: tx_app.clone(),
+            interceptors: Arc::new(parking_lot::RwLock::new(vec![])),
         };
 
         let source = Name::from_strings(["agntcy", "ns", "local"]).with_id(0);
@@ -1064,17 +1061,19 @@ mod tests {
         let (tx_slim_sender, mut rx_slim_sender) = tokio::sync::mpsc::channel(1);
         let (tx_app_sender, _rx_app_sender) = tokio::sync::mpsc::channel(1);
 
-        let tx_sender = MockTransmitter {
-            tx_slim: tx_slim_sender,
-            tx_app: tx_app_sender,
+        let tx_sender = SessionTransmitter {
+            slim_tx: tx_slim_sender,
+            app_tx: tx_app_sender,
+            interceptors: Arc::new(parking_lot::RwLock::new(vec![])),
         };
 
         let (tx_slim_receiver, _rx_slim_receiver) = tokio::sync::mpsc::channel(1);
         let (tx_app_receiver, mut rx_app_receiver) = tokio::sync::mpsc::channel(1);
 
-        let tx_receiver = MockTransmitter {
-            tx_slim: tx_slim_receiver,
-            tx_app: tx_app_receiver,
+        let tx_receiver = SessionTransmitter {
+            slim_tx: tx_slim_receiver,
+            app_tx: tx_app_receiver,
+            interceptors: Arc::new(parking_lot::RwLock::new(vec![])),
         };
 
         let send = Name::from_strings(["cisco", "default", "sender"]).with_id(0);
@@ -1127,27 +1126,24 @@ mod tests {
         expected_msg.set_session_type(ProtoSessionType::SessionMulticast);
         expected_msg.set_fanout(STREAM_BROADCAST);
 
-        let session_msg = SessionMessage::new(message.clone(), Info::new(0));
-
         // send a message from the sender app to the slim
         let res = sender
-            .on_message(session_msg.clone(), MessageDirection::South)
+            .on_message(message.clone(), MessageDirection::South)
             .await;
         assert!(res.is_ok());
 
         let msg = rx_slim_sender.recv().await.unwrap().unwrap();
         assert_eq!(msg, expected_msg);
 
-        let session_msg = SessionMessage::new(msg, Info::new(0));
         // send the same message to the receiver
         let res = receiver
-            .on_message(session_msg.clone(), MessageDirection::North)
+            .on_message(msg.clone(), MessageDirection::North)
             .await;
         assert!(res.is_ok());
 
         let msg = rx_app_receiver.recv().await.unwrap().unwrap();
-        assert_eq!(msg.message, expected_msg);
-        assert_eq!(msg.info.id, 0);
+        assert_eq!(msg, expected_msg);
+        assert_eq!(msg.get_session_header().get_session_id(), 0);
     }
 
     #[tokio::test]
@@ -1156,7 +1152,11 @@ mod tests {
         let (tx_slim, mut rx_slim) = tokio::sync::mpsc::channel(1);
         let (tx_app, mut rx_app) = tokio::sync::mpsc::channel(1);
 
-        let tx: MockTransmitter = MockTransmitter { tx_slim, tx_app };
+        let tx = SessionTransmitter {
+            slim_tx: tx_slim,
+            app_tx: tx_app,
+            interceptors: Arc::new(parking_lot::RwLock::new(vec![])),
+        };
 
         let sender = Name::from_strings(["agntcy", "ns", "sender"]).with_id(0);
         let receiver = Name::from_strings(["agntcy", "ns", "receiver"]).with_id(0);
@@ -1190,25 +1190,23 @@ mod tests {
         // set the session type
         let header = message.get_session_header_mut();
         header.set_session_message_type(ProtoSessionMessageType::MulticastMsg);
-
-        let session_msg: SessionMessage = SessionMessage::new(message.clone(), Info::new(0));
+        header.set_session_id(0);
 
         let res = session
-            .on_message(session_msg.clone(), MessageDirection::North)
+            .on_message(message.clone(), MessageDirection::North)
             .await;
         assert!(res.is_ok());
 
         let msg = rx_app.recv().await.unwrap().unwrap();
-        assert_eq!(msg.message, session_msg.message);
-        assert_eq!(msg.info.id, 0);
+        assert_eq!(msg, message);
+        assert_eq!(msg.get_session_header().get_session_id(), 0);
 
         // set msg id = 2 this will trigger a loss detection
         let header = message.get_session_header_mut();
         header.message_id = 2;
 
-        let session_msg = SessionMessage::new(message.clone(), Info::new(0));
         let res = session
-            .on_message(session_msg.clone(), MessageDirection::North)
+            .on_message(message.clone(), MessageDirection::North)
             .await;
         assert!(res.is_ok());
 
@@ -1238,7 +1236,11 @@ mod tests {
         let (tx_slim, mut rx_slim) = tokio::sync::mpsc::channel(8);
         let (tx_app, _rx_app) = tokio::sync::mpsc::channel(8);
 
-        let tx = MockTransmitter { tx_slim, tx_app };
+        let tx = SessionTransmitter {
+            slim_tx: tx_slim,
+            app_tx: tx_app,
+            interceptors: Arc::new(parking_lot::RwLock::new(vec![])),
+        };
 
         let receiver = Name::from_strings(["agntcy", "ns", "receiver"]).with_id(0);
         let sender = Name::from_strings(["agntcy", "ns", "sender"]).with_id(0);
@@ -1268,12 +1270,10 @@ mod tests {
         let header = message.get_session_header_mut();
         header.session_id = 120;
 
-        let session_msg: SessionMessage = SessionMessage::new(message.clone(), Info::new(120));
-
         // send 3 messages
         for _ in 0..3 {
             let res = session
-                .on_message(session_msg.clone(), MessageDirection::South)
+                .on_message(message.clone(), MessageDirection::South)
                 .await;
             assert!(res.is_ok());
         }
@@ -1312,11 +1312,9 @@ mod tests {
         // receive an RTX for message 2
         let rtx = Message::new_publish_with_headers(slim_header, session_header, "", vec![]);
 
-        let session_msg: SessionMessage = SessionMessage::new(rtx.clone(), Info::new(120));
-
         // send the RTX from the slim
         let res = session
-            .on_message(session_msg.clone(), MessageDirection::North)
+            .on_message(rtx.clone(), MessageDirection::North)
             .await;
         assert!(res.is_ok());
 
@@ -1338,17 +1336,19 @@ mod tests {
         let (tx_slim_sender, mut rx_slim_sender) = tokio::sync::mpsc::channel(1);
         let (tx_app_sender, _rx_app_sender) = tokio::sync::mpsc::channel(1);
 
-        let tx_sender = MockTransmitter {
-            tx_slim: tx_slim_sender,
-            tx_app: tx_app_sender,
+        let tx_sender = SessionTransmitter {
+            slim_tx: tx_slim_sender,
+            app_tx: tx_app_sender,
+            interceptors: Arc::new(parking_lot::RwLock::new(vec![])),
         };
 
         let (tx_slim_receiver, mut rx_slim_receiver) = tokio::sync::mpsc::channel(1);
         let (tx_app_receiver, mut rx_app_receiver) = tokio::sync::mpsc::channel(1);
 
-        let tx_receiver = MockTransmitter {
-            tx_slim: tx_slim_receiver,
-            tx_app: tx_app_receiver,
+        let tx_receiver = SessionTransmitter {
+            slim_tx: tx_slim_receiver,
+            app_tx: tx_app_receiver,
+            interceptors: Arc::new(parking_lot::RwLock::new(vec![])),
         };
 
         let send = Name::from_strings(["cisco", "default", "sender"]).with_id(0);
@@ -1392,13 +1392,13 @@ mod tests {
             vec![0x1, 0x2, 0x3, 0x4],
         );
         message.set_incoming_conn(Some(0));
+        message.get_session_header_mut().set_session_id(0);
 
-        let session_msg: SessionMessage = SessionMessage::new(message.clone(), Info::new(0));
         // send 3 messages from the producer app
         // send 3 messages
         for _ in 0..3 {
             let res = sender
-                .on_message(session_msg.clone(), MessageDirection::South)
+                .on_message(message.clone(), MessageDirection::South)
                 .await;
             assert!(res.is_ok());
         }
@@ -1419,9 +1419,9 @@ mod tests {
             if i != 1 {
                 // make sure to set the incoming connection to avoid paninc
                 msg.set_incoming_conn(Some(0));
-                let session_msg: SessionMessage = SessionMessage::new(msg.clone(), Info::new(0));
+                msg.get_session_header_mut().set_session_id(0);
                 let res = receiver
-                    .on_message(session_msg.clone(), MessageDirection::North)
+                    .on_message(msg.clone(), MessageDirection::North)
                     .await;
                 assert!(res.is_ok());
             }
@@ -1429,7 +1429,7 @@ mod tests {
 
         // the receiver app should get the packet 0
         let msg = rx_app_receiver.recv().await.unwrap().unwrap();
-        let msg_header = msg.message.get_session_header();
+        let msg_header = msg.get_session_header();
         assert_eq!(msg_header.session_id, 0);
         assert_eq!(msg_header.message_id, 0);
         assert_eq!(
@@ -1437,11 +1437,11 @@ mod tests {
             ProtoSessionMessageType::MulticastMsg
         );
         assert_eq!(
-            msg.message.get_source(),
+            msg.get_source(),
             Name::from_strings(["cisco", "default", "sender"]).with_id(0)
         );
         assert_eq!(
-            msg.message.get_dst(),
+            msg.get_dst(),
             Name::from_strings(["cisco", "default", "receiver"]).with_id(0)
         );
 
@@ -1463,7 +1463,7 @@ mod tests {
             Name::from_strings(["cisco", "default", "sender"]).with_id(0)
         );
 
-        let msg = rx_slim_receiver.recv().await.unwrap().unwrap();
+        let mut msg = rx_slim_receiver.recv().await.unwrap().unwrap();
         let msg_header = msg.get_session_header();
         assert_eq!(msg_header.session_id, 0);
         assert_eq!(msg_header.message_id, 1);
@@ -1481,16 +1481,16 @@ mod tests {
         );
 
         // send the second reply to the producer
-        let mut session_msg: SessionMessage = SessionMessage::new(msg.clone(), Info::new(0));
         // make sure to set the incoming connection to avoid paninc
-        session_msg.message.set_incoming_conn(Some(0));
+        msg.set_incoming_conn(Some(0));
+        msg.get_session_header_mut().set_session_id(0);
         let res = sender
-            .on_message(session_msg.clone(), MessageDirection::North)
+            .on_message(msg.clone(), MessageDirection::North)
             .await;
         assert!(res.is_ok());
 
         // this should generate an RTX reply
-        let msg = rx_slim_sender.recv().await.unwrap().unwrap();
+        let mut msg = rx_slim_sender.recv().await.unwrap().unwrap();
         let msg_header = msg.get_session_header();
         assert_eq!(msg_header.session_id, 0);
         assert_eq!(msg_header.message_id, 1);
@@ -1507,17 +1507,16 @@ mod tests {
             Name::from_strings(["cisco", "default", "receiver"]).with_id(0)
         );
 
-        let mut session_msg: SessionMessage = SessionMessage::new(msg.clone(), Info::new(0));
         // make sure to set the incoming connection to avoid paninc
-        session_msg.message.set_incoming_conn(Some(0));
+        msg.set_incoming_conn(Some(0));
         let res = receiver
-            .on_message(session_msg.clone(), MessageDirection::North)
+            .on_message(msg.clone(), MessageDirection::North)
             .await;
         assert!(res.is_ok());
 
         // the receiver app should get the packet 1 and 2, packet 1 is an RTX
         let msg = rx_app_receiver.recv().await.unwrap().unwrap();
-        let msg_header = msg.message.get_session_header();
+        let msg_header = msg.get_session_header();
         assert_eq!(msg_header.session_id, 0);
         assert_eq!(msg_header.message_id, 1);
         assert_eq!(
@@ -1525,16 +1524,16 @@ mod tests {
             ProtoSessionMessageType::RtxReply,
         );
         assert_eq!(
-            msg.message.get_source(),
+            msg.get_source(),
             Name::from_strings(["cisco", "default", "sender"]).with_id(0)
         );
         assert_eq!(
-            msg.message.get_dst(),
+            msg.get_dst(),
             Name::from_strings(["cisco", "default", "receiver"]).with_id(0)
         );
 
         let msg = rx_app_receiver.recv().await.unwrap().unwrap();
-        let msg_header = msg.message.get_session_header();
+        let msg_header = msg.get_session_header();
         assert_eq!(msg_header.session_id, 0);
         assert_eq!(msg_header.message_id, 2);
         assert_eq!(
@@ -1542,11 +1541,11 @@ mod tests {
             ProtoSessionMessageType::MulticastMsg
         );
         assert_eq!(
-            msg.message.get_source(),
+            msg.get_source(),
             Name::from_strings(["cisco", "default", "sender"]).with_id(0)
         );
         assert_eq!(
-            msg.message.get_dst(),
+            msg.get_dst(),
             Name::from_strings(["cisco", "default", "receiver"]).with_id(0)
         );
     }
@@ -1557,7 +1556,11 @@ mod tests {
         let (tx_slim, _) = tokio::sync::mpsc::channel(1);
         let (tx_app, _) = tokio::sync::mpsc::channel(1);
 
-        let tx: MockTransmitter = MockTransmitter { tx_slim, tx_app };
+        let tx = SessionTransmitter {
+            slim_tx: tx_slim,
+            app_tx: tx_app,
+            interceptors: Arc::new(parking_lot::RwLock::new(vec![])),
+        };
 
         let source = Name::from_strings(["agntcy", "ns", "local"]).with_id(0);
         let stream = Name::from_strings(["agntcy", "ns", "stream"]);

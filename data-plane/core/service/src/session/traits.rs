@@ -11,18 +11,16 @@ use slim_datapath::messages::Name;
 
 // Local crate
 use crate::session::{Id, MessageDirection, common::State};
-
 use super::SessionConfig;
 use super::SessionError;
 use super::SessionInterceptorProvider;
-use super::SessionMessage;
 
 pub trait SessionConfigTrait {
     fn replace(&mut self, session_config: &SessionConfig) -> Result<(), SessionError>;
 }
 
 /// Session transmitter trait
-pub trait SessionTransmitter: SessionInterceptorProvider {
+pub trait Transmitter: SessionInterceptorProvider {
     fn send_to_slim(
         &self,
         message: Result<Message, Status>,
@@ -30,7 +28,7 @@ pub trait SessionTransmitter: SessionInterceptorProvider {
 
     fn send_to_app(
         &self,
-        message: Result<SessionMessage, SessionError>,
+        message: Result<Message, SessionError>,
     ) -> impl Future<Output = Result<(), SessionError>> + Send + 'static;
 }
 
@@ -39,7 +37,7 @@ pub(crate) trait CommonSession<P, V, T>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
-    T: SessionTransmitter + Send + Sync + Clone + 'static,
+    T: Transmitter + Send + Sync + Clone + 'static,
 {
     /// Session ID
     #[allow(dead_code)]
@@ -80,7 +78,7 @@ pub(crate) trait MessageHandler {
     // publish a message as part of the session
     async fn on_message(
         &self,
-        message: SessionMessage,
+        message: Message,
         direction: MessageDirection,
     ) -> Result<(), SessionError>;
 }

@@ -15,6 +15,41 @@ use slim_service::{
 
 mod args;
 
+async fn handle_session(mut session: slim_service::session::context::SessionContext<slim_auth::shared_secret::SharedSecret, slim_auth::shared_secret::SharedSecret>, local_name: String) {
+    info!("Session handler task started");
+    
+    while let Some(msg_result) = session.rx.recv().await {
+        match msg_result {
+            Ok(message) => {
+                match &message.message_type {
+                    Some(slim_datapath::api::MessageType::Publish(msg)) => {
+                        let payload = msg.get_payload();
+                        match std::str::from_utf8(&payload.blob) {
+                            Ok(text) => {
+                                info!("received message: {}", text);
+                            }
+                            Err(_) => {
+                                info!("received encrypted message: {} bytes", payload.blob.len());
+                            }
+                        }
+                        
+                        info!("Received message from session, responding with: hello from {}", local_name);
+                    }
+                    _ => {
+                        info!("received non-publish message");
+                    }
+                }
+            }
+            Err(e) => {
+                info!("received message error: {:?}", e);
+                break;
+            }
+        }
+    }
+    
+    info!("Session handler task ended");
+}
+
 #[tokio::main]
 async fn main() {
     // parse command line arguments
@@ -201,55 +236,37 @@ async fn main() {
         }
 
         // publish message
-        app.publish(session, &route, msg.into(), None, None)
+        app.publish(&session, &route, msg.into(), None, None)
             .await
             .unwrap();
     }
 
-    // wait for messages
-    let mut messages = std::collections::VecDeque::<(String, session::Info)>::new();
+    // wait for messages and handle sessions
     loop {
         tokio::select! {
             _ = slim_signal::shutdown() => {
                 info!("Received shutdown signal");
                 break;
             }
-            _ = tokio::time::sleep(tokio::time::Duration::from_secs(1)) => {
-                // send a message back
-                let msg = messages.pop_front();
-                if let Some(msg) = msg {
-                    app.publish(msg.1, &route, msg.0.into(), None, None)
-                        .await
-                        .unwrap();
-                }
-           }
             next = rx.recv() => {
                 if next.is_none() {
                     break;
                 }
 
-                let session_msg = next.unwrap().expect("error");
-
-                match &session_msg.message.message_type.unwrap() {
-                    slim_datapath::api::ProtoPublishType(msg) => {
-                        let payload = msg.get_payload();
-                        match std::str::from_utf8(&payload.blob) {
-                            Ok(text) => {
-                                info!("received message: {}", text);
-                            }
-                            Err(_) => {
-                                info!("received encrypted message: {} bytes", payload.blob.len());
-                            }
-                        }
+                let notification = next.unwrap().unwrap();
+                match notification {
+                    session::notification::Notification::NewSession(session) => {
+                        info!("New session created");
+                        
+                        // Spawn a separate task to handle this session's messages
+                        let local_name_clone = local_name.to_string();
+                        
+                        tokio::spawn(handle_session(session, local_name_clone));
                     }
-                    t => {
-                        info!("received wrong message: {:?}", t);
-                        break;
+                    _ => {
+                        info!("Unexpected notification type");
                     }
                 }
-
-                let msg = format!("hello from the {}", local_name);
-                messages.push_back((msg, session_msg.info));
             }
         }
     }
