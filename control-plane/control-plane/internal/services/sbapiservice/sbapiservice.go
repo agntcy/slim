@@ -113,6 +113,7 @@ func (s *sbAPIService) OpenControlChannel(stream controllerapi.ControllerService
 
 		_, err = s.dbService.SaveNode(db.Node{
 			ID:          registeredNodeID,
+			GroupName:   regReq.RegisterNodeRequest.GroupName,
 			ConnDetails: connDetails,
 		})
 		if err != nil {
@@ -146,14 +147,15 @@ func (s *sbAPIService) OpenControlChannel(stream controllerapi.ControllerService
 }
 
 func getConnDetails(host string, detail *controllerapi.ConnectionDetails) db.ConnectionDetails {
+	// use local endpoint if provided, otherwise use peer host with port from endpoint
 	endPoint := host
-	_, port, splitErr := net.SplitHostPort(detail.Endpoint)
-	if splitErr == nil {
-		schema := "http"
-		if detail.MtlsRequired {
-			schema = "https"
+	if detail.LocalEndpoint != nil {
+		endPoint = *detail.LocalEndpoint
+	} else {
+		_, port, splitErr := net.SplitHostPort(detail.Endpoint)
+		if splitErr == nil {
+			endPoint = host + ":" + port
 		}
-		endPoint = schema + "://" + host + ":" + port
 	}
 	connDetails := db.ConnectionDetails{
 		Endpoint:         endPoint,

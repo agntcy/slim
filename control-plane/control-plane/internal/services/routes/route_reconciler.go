@@ -83,63 +83,37 @@ func (s *RouteReconciler) getConnectionDetails(route db.Route) (controllerapi.Co
 	if err2 != nil {
 		return controllerapi.Connection{}, fmt.Errorf("failed to fetch destination node %s: %w", route.DestNodeID, err2)
 	}
-	connDetails, localConnection := selectConnection(destNode.ConnDetails, srcNode.ConnDetails)
 
-	configData, err := generateConfigData(connDetails, localConnection)
+	connDetails, localConnection := selectConnection(destNode, srcNode)
+	connID, configData, err := generateConfigData(connDetails, localConnection)
 	if err != nil {
 		return controllerapi.Connection{}, fmt.Errorf("failed to generate config data for route %v: %w", route, err)
 	}
 
 	return controllerapi.Connection{
-		ConnectionId: connDetails.Endpoint, // Use endpoint as connection ID
+		ConnectionId: connID, // Use endpoint with schema as connection ID
 		ConfigData:   configData,
 	}, nil
 }
 
 // selectConnection selects the most appropriate connection details from the destination node's connections.
-// Returns connection details from source to destination node and true if nodes are in the same network group,
-// otherwise false, meaning that externalEndpoint should be used to set up connection from src node.
-// Nodes are in the same network group if they share at least one group name.
-// In case there are no group names defined in dstConnections we assume that nodes are in the same network group.
-func selectConnection(
-	dstConnections []db.ConnectionDetails,
-	srcConnections []db.ConnectionDetails) (db.ConnectionDetails, bool) {
-
-	// first identify if dst and src nodes are in the same network group
-	// if dst has no group name defined, it means that it is in the same network group as all other nodes
-	// if dst and src have at least one matching group name, they are in the same network group
-	sameGroup := isSameGroup(dstConnections, srcConnections)
-
-	// In case they are in the same network group, return the first matching connection from dstConnections and true
-	if sameGroup {
-		return dstConnections[0], true
+// Returns first connection from source to destination node and true if nodes have the same group name,
+// or the first connection with external endpoint specified and false otherwise,
+// meaning that externalEndpoint should be used to set up connection from src node.
+func selectConnection(dstNode *db.Node, srcNode *db.Node) (db.ConnectionDetails, bool) {
+	if dstNode.GroupName == nil && srcNode.GroupName == nil ||
+		(dstNode.GroupName != nil && srcNode.GroupName != nil && *dstNode.GroupName == *srcNode.GroupName) {
+		// same group, return first connection
+		return dstNode.ConnDetails[0], true
 	}
-	// Otherwise return the first connection from dstConnections which has externalEndpoint set and false
-	for _, dstConnection := range dstConnections {
-		if dstConnection.ExternalEndpoint != nil && *dstConnection.ExternalEndpoint != "" {
-			return dstConnection, false
+	// different groups, return first connection with external endpoint defined
+	for _, conn := range dstNode.ConnDetails {
+		if conn.ExternalEndpoint != nil && *conn.ExternalEndpoint != "" {
+			return conn, false
 		}
 	}
-	// If no connection has externalEndpoint set, return the first connection from dstConnections and false
-	return dstConnections[0], false
-}
-
-func isSameGroup(dstConnections []db.ConnectionDetails, srcConnections []db.ConnectionDetails) bool {
-	sameGroup := false
-	for _, dstConn := range dstConnections {
-		if dstConn.GroupName == nil || *dstConn.GroupName == "" {
-			return true
-		}
-		for _, srcConn := range srcConnections {
-			if srcConn.GroupName == nil || *srcConn.GroupName == "" {
-				continue
-			}
-			if dstConn.GroupName != nil && srcConn.GroupName != nil && *dstConn.GroupName == *srcConn.GroupName {
-				return true
-			}
-		}
-	}
-	return sameGroup
+	// no external endpoint defined, return first connection
+	return dstNode.ConnDetails[0], false
 }
 
 // handleRequest processes a node registration request
@@ -264,7 +238,7 @@ func (s *RouteReconciler) handleRequest(ctx context.Context, req RouteReconcileR
 	return nil
 }
 
-func generateConfigData(detail db.ConnectionDetails, localConnection bool) (string, error) {
+func generateConfigData(detail db.ConnectionDetails, localConnection bool) (string, string, error) {
 	truev := true
 	falsev := false
 	config := ConnectionConfig{
@@ -272,13 +246,15 @@ func generateConfigData(detail db.ConnectionDetails, localConnection bool) (stri
 	}
 	if !localConnection {
 		if detail.ExternalEndpoint == nil || *detail.ExternalEndpoint == "" {
-			return "", fmt.Errorf("no external endpoint defined for connection %v", detail)
+			return "", "", fmt.Errorf("no external endpoint defined for connection %v", detail)
 		}
 		config.Endpoint = *detail.ExternalEndpoint
 	}
 	if !detail.MTLSRequired {
+		config.Endpoint = "http://" + config.Endpoint
 		config.TLS = &TLS{Insecure: &truev}
 	} else {
+		config.Endpoint = "https://" + config.Endpoint
 		config.TLS = &TLS{
 			Insecure: &falsev,
 			CERTFile: stringPtr("/svids/tls.crt"),
@@ -310,10 +286,10 @@ func generateConfigData(detail db.ConnectionDetails, localConnection bool) (stri
 	enc := json.NewEncoder(&buf)
 	err := enc.Encode(config)
 	if err != nil {
-		return "", fmt.Errorf("failed to encode connection config: %w", err)
+		return "", "", fmt.Errorf("failed to encode connection config: %w", err)
 	}
 
-	return buf.String(), nil
+	return config.Endpoint, buf.String(), nil
 }
 
 func stringPtr(s string) *string {

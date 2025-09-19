@@ -150,7 +150,7 @@ func addNodes(ctx context.Context, t *testing.T, dbService db.DataAccess, routeS
 		ID: "node1",
 		ConnDetails: []db.ConnectionDetails{
 			{
-				Endpoint:     "http://slim_node1_ip:1234",
+				Endpoint:     "slim_node1_ip:1234",
 				MTLSRequired: false,
 			},
 		},
@@ -159,7 +159,7 @@ func addNodes(ctx context.Context, t *testing.T, dbService db.DataAccess, routeS
 		ID: "node2",
 		ConnDetails: []db.ConnectionDetails{
 			{
-				Endpoint:     "http://slim_node2_ip:5678",
+				Endpoint:     "slim_node2_ip:5678",
 				MTLSRequired: false,
 			},
 		},

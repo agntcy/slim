@@ -44,6 +44,9 @@ struct ControllerServiceInternal {
     /// ID of this SLIM instance
     id: ID,
 
+    /// optional group name
+    group_name: Option<String>,
+
     /// underlying message processor
     message_processor: Arc<MessageProcessor>,
 
@@ -104,7 +107,15 @@ fn from_server_config(server_config: &ServerConfig) -> ConnectionDetails {
     let group_name = server_config
         .metadata
         .as_ref()
-        .and_then(|m| m.get("groupName"))
+        .and_then(|m| m.get("group_name"))
+        .and_then(|v| match v {
+            MetadataValue::String(s) => Some(s.clone()),
+            _ => None,
+        });
+    let local_endpoint = server_config
+        .metadata
+        .as_ref()
+        .and_then(|m| m.get("local_endpoint"))
         .and_then(|v| match v {
             MetadataValue::String(s) => Some(s.clone()),
             _ => None,
@@ -112,7 +123,7 @@ fn from_server_config(server_config: &ServerConfig) -> ConnectionDetails {
     let external_endpoint = server_config
         .metadata
         .as_ref()
-        .and_then(|m| m.get("externalEndpoint"))
+        .and_then(|m| m.get("external_endpoint"))
         .and_then(|v| match v {
             MetadataValue::String(s) => Some(s.clone()),
             _ => None,
@@ -121,6 +132,7 @@ fn from_server_config(server_config: &ServerConfig) -> ConnectionDetails {
         endpoint: server_config.endpoint.clone(),
         mtls_required: !server_config.tls_setting.insecure,
         group_name,
+        local_endpoint,
         external_endpoint,
     }
 }
@@ -140,6 +152,7 @@ impl ControlPlane {
     /// A new instance of ControlPlane.
     pub fn new(
         id: ID,
+        group_name: Option<String>,
         servers: Vec<ServerConfig>,
         clients: Vec<ClientConfig>,
         drain_rx: drain::Watch,
@@ -156,6 +169,7 @@ impl ControlPlane {
             controller: ControllerService {
                 inner: Arc::new(ControllerServiceInternal {
                     id,
+                    group_name,
                     message_processor,
                     connections: Arc::new(parking_lot::RwLock::new(HashMap::new())),
                     tx_slim,
@@ -732,6 +746,7 @@ impl ControllerService {
                 message_id: uuid::Uuid::new_v4().to_string(),
                 payload: Some(Payload::RegisterNodeRequest(v1::RegisterNodeRequest {
                     node_id: this.inner.id.to_string(),
+                    group_name: this.inner.group_name.clone(),
                     connection_details: this.inner.connection_details.clone(),
                 })),
             };
@@ -953,6 +968,7 @@ mod tests {
         let pubsub_servers = [server_config.clone()];
         let mut control_plane_server = ControlPlane::new(
             id_server,
+            None,
             vec![server_config],
             vec![],
             watch_server,
@@ -962,6 +978,7 @@ mod tests {
 
         let mut control_plane_client = ControlPlane::new(
             id_client,
+            None,
             vec![],
             vec![client_config],
             watch_client,

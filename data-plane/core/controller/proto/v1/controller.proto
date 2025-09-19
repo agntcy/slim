@@ -102,14 +102,16 @@ message Node {
 
 message ConnectionDetails {
   string endpoint = 1;
-  optional string external_endpoint = 2;
-  optional string group_name = 3;
-  bool mtls_required = 4;
+  bool mtls_required = 2;
+  optional string local_endpoint = 3;
+  optional string external_endpoint = 4;
+  optional string group_name = 5;
 }
 
 message RegisterNodeRequest {
-  string nodeId = 1;
-  repeated ConnectionDetails connectionDetails = 2;
+  string node_id = 1;
+  repeated ConnectionDetails connection_details = 2;
+  optional string group_name = 3;
 }
 
 message RegisterNodeResponse {

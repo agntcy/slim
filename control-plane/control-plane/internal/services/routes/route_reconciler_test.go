@@ -10,149 +10,158 @@ import (
 
 func TestSelectConnection(t *testing.T) {
 	tests := []struct {
-		name           string
-		dstConnections []db.ConnectionDetails
-		srcConnections []db.ConnectionDetails
-		expectedConn   db.ConnectionDetails
-		expectedLocal  bool
-		description    string
+		name          string
+		dstNode       *db.Node
+		srcNode       *db.Node
+		expectedConn  db.ConnectionDetails
+		expectedLocal bool
+		description   string
 	}{
 		{
-			name: "dst_no_group_name_nil",
-			dstConnections: []db.ConnectionDetails{
-				{Endpoint: "dst1", GroupName: nil},
+			name: "same_group_names_both_non_nil",
+			dstNode: &db.Node{
+				GroupName: stringPtr("group1"),
+				ConnDetails: []db.ConnectionDetails{
+					{Endpoint: "dst1"},
+					{Endpoint: "dst2"},
+				},
 			},
-			srcConnections: []db.ConnectionDetails{
-				{Endpoint: "src1", GroupName: nil},
+			srcNode: &db.Node{
+				GroupName: stringPtr("group1"),
 			},
-			expectedConn:  db.ConnectionDetails{Endpoint: "dst1", GroupName: nil},
+			expectedConn:  db.ConnectionDetails{Endpoint: "dst1"},
 			expectedLocal: true,
-			description:   "dst connection with nil group name should be considered local",
+			description:   "same group names should return first connection as local",
 		},
 		{
-			name: "dst_no_group_name_empty",
-			dstConnections: []db.ConnectionDetails{
-				{Endpoint: "dst1", GroupName: stringPtr("")},
-				{Endpoint: "dst2", GroupName: stringPtr("group1")},
+			name: "different_group_names_with_external_endpoint",
+			dstNode: &db.Node{
+				GroupName: stringPtr("group1"),
+				ConnDetails: []db.ConnectionDetails{
+					{Endpoint: "dst1", ExternalEndpoint: nil},
+					{Endpoint: "dst2", ExternalEndpoint: stringPtr("external2")},
+				},
 			},
-			srcConnections: []db.ConnectionDetails{
-				{Endpoint: "src1", GroupName: stringPtr("group2")},
+			srcNode: &db.Node{
+				GroupName: stringPtr("group2"),
 			},
-			expectedConn:  db.ConnectionDetails{Endpoint: "dst1", GroupName: stringPtr("")},
-			expectedLocal: true,
-			description:   "dst connection with empty group name should be considered local",
-		},
-		{
-			name: "matching_group_names",
-			dstConnections: []db.ConnectionDetails{
-				{Endpoint: "dst1", GroupName: stringPtr("group1")},
-				{Endpoint: "dst2", GroupName: stringPtr("group2")},
-			},
-			srcConnections: []db.ConnectionDetails{
-				{Endpoint: "src1", GroupName: stringPtr("group1")},
-				{Endpoint: "src2", GroupName: stringPtr("group2")},
-			},
-			expectedConn:  db.ConnectionDetails{Endpoint: "dst1", GroupName: stringPtr("group1")},
-			expectedLocal: true,
-			description:   "connections with matching group names should be considered local",
-		},
-		{
-			name: "no_matching_groups_with_external_endpoint",
-			dstConnections: []db.ConnectionDetails{
-				{Endpoint: "dst1", GroupName: stringPtr("group1"), ExternalEndpoint: nil},
-				{Endpoint: "dst2", GroupName: stringPtr("group1"), ExternalEndpoint: stringPtr("external1")},
-			},
-			srcConnections: []db.ConnectionDetails{
-				{Endpoint: "src1", GroupName: stringPtr("group2")},
-				{Endpoint: "src2", GroupName: stringPtr("group2")},
-			},
-			expectedConn: db.ConnectionDetails{Endpoint: "dst2", GroupName: stringPtr("group1"),
-				ExternalEndpoint: stringPtr("external1")},
+			expectedConn:  db.ConnectionDetails{Endpoint: "dst2", ExternalEndpoint: stringPtr("external2")},
 			expectedLocal: false,
-			description:   "no matching groups should return first dst connection with external endpoint",
+			description:   "different groups should return first connection with external endpoint",
 		},
 		{
-			name: "no_matching_groups_no_external_endpoint",
-			dstConnections: []db.ConnectionDetails{
-				{Endpoint: "dst1", GroupName: stringPtr("group1")},
-				{Endpoint: "dst2", GroupName: stringPtr("group2")},
+			name: "different_group_names_no_external_endpoint",
+			dstNode: &db.Node{
+				GroupName: stringPtr("group1"),
+				ConnDetails: []db.ConnectionDetails{
+					{Endpoint: "dst1"},
+					{Endpoint: "dst2"},
+				},
 			},
-			srcConnections: []db.ConnectionDetails{
-				{Endpoint: "src1", GroupName: stringPtr("group3")},
-				{Endpoint: "src2", GroupName: stringPtr("group4")},
+			srcNode: &db.Node{
+				GroupName: stringPtr("group2"),
 			},
-			expectedConn:  db.ConnectionDetails{Endpoint: "dst1", GroupName: stringPtr("group1")},
+			expectedConn:  db.ConnectionDetails{Endpoint: "dst1"},
 			expectedLocal: false,
-			description:   "no matching groups and no external endpoint should return first dst connection",
+			description:   "different groups with no external endpoint should return first connection",
 		},
 		{
-			name: "src_nil_group_names",
-			dstConnections: []db.ConnectionDetails{
-				{Endpoint: "dst1", GroupName: stringPtr("group1")},
+			name: "dst_group_nil_src_group_non_nil",
+			dstNode: &db.Node{
+				GroupName: nil,
+				ConnDetails: []db.ConnectionDetails{
+					{Endpoint: "dst1"},
+				},
 			},
-			srcConnections: []db.ConnectionDetails{
-				{Endpoint: "src1", GroupName: nil},
-				{Endpoint: "src2", GroupName: stringPtr("")},
+			srcNode: &db.Node{
+				GroupName: stringPtr("group1"),
 			},
-			expectedConn:  db.ConnectionDetails{Endpoint: "dst1", GroupName: stringPtr("group1")},
+			expectedConn:  db.ConnectionDetails{Endpoint: "dst1"},
 			expectedLocal: false,
-			description:   "src connections with nil/empty group names don't match dst with group",
+			description:   "dst nil group with src non-nil group should be external",
 		},
 		{
-			name: "empty_src_connections",
-			dstConnections: []db.ConnectionDetails{
-				{Endpoint: "dst1", GroupName: stringPtr("group1")},
+			name: "dst_group_non_nil_src_group_nil",
+			dstNode: &db.Node{
+				GroupName: stringPtr("group1"),
+				ConnDetails: []db.ConnectionDetails{
+					{Endpoint: "dst1"},
+				},
 			},
-			srcConnections: []db.ConnectionDetails{},
-			expectedConn:   db.ConnectionDetails{Endpoint: "dst1", GroupName: stringPtr("group1")},
-			expectedLocal:  false,
-			description:    "empty src connections should return first dst as external",
+			srcNode: &db.Node{
+				GroupName: nil,
+			},
+			expectedConn:  db.ConnectionDetails{Endpoint: "dst1"},
+			expectedLocal: false,
+			description:   "dst non-nil group with src nil group should be external",
 		},
 		{
-			name: "mixed_nil_empty_groups",
-			dstConnections: []db.ConnectionDetails{
-				{Endpoint: "dst1", GroupName: stringPtr("group1")},
-				{Endpoint: "dst2", GroupName: nil},
+			name: "both_groups_nil",
+			dstNode: &db.Node{
+				GroupName: nil,
+				ConnDetails: []db.ConnectionDetails{
+					{Endpoint: "dst1"},
+				},
 			},
-			srcConnections: []db.ConnectionDetails{
-				{Endpoint: "src1", GroupName: stringPtr("group2")},
+			srcNode: &db.Node{
+				GroupName: nil,
 			},
-			expectedConn:  db.ConnectionDetails{Endpoint: "dst1", GroupName: stringPtr("group1")},
+			expectedConn:  db.ConnectionDetails{Endpoint: "dst1"},
 			expectedLocal: true,
-			description:   "dst with nil group should make connection local",
+			description:   "both nil groups should be local",
 		},
 		{
-			name: "external_endpoint_empty_string",
-			dstConnections: []db.ConnectionDetails{
-				{Endpoint: "dst1", GroupName: stringPtr("group1"), ExternalEndpoint: stringPtr("")},
-				{Endpoint: "dst2", GroupName: stringPtr("group2"), ExternalEndpoint: stringPtr("external2")},
+			name: "external_endpoint_empty_string_skip_to_next",
+			dstNode: &db.Node{
+				GroupName: stringPtr("group1"),
+				ConnDetails: []db.ConnectionDetails{
+					{Endpoint: "dst1", ExternalEndpoint: stringPtr("")},
+					{Endpoint: "dst2", ExternalEndpoint: stringPtr("external2")},
+				},
 			},
-			srcConnections: []db.ConnectionDetails{
-				{Endpoint: "src1", GroupName: stringPtr("group3")},
+			srcNode: &db.Node{
+				GroupName: stringPtr("group2"),
 			},
-			expectedConn: db.ConnectionDetails{Endpoint: "dst2", GroupName: stringPtr("group2"),
-				ExternalEndpoint: stringPtr("external2")},
+			expectedConn:  db.ConnectionDetails{Endpoint: "dst2", ExternalEndpoint: stringPtr("external2")},
 			expectedLocal: false,
-			description:   "empty external endpoint should be skipped, use next with valid external endpoint",
+			description:   "empty external endpoint should be skipped for next valid one",
 		},
 		{
-			name: "all_dst_with_nil_group",
-			dstConnections: []db.ConnectionDetails{
-				{Endpoint: "dst1", GroupName: nil},
-				{Endpoint: "dst2", GroupName: nil},
+			name: "all_external_endpoints_empty_fallback_to_first",
+			dstNode: &db.Node{
+				GroupName: stringPtr("group1"),
+				ConnDetails: []db.ConnectionDetails{
+					{Endpoint: "dst1", ExternalEndpoint: stringPtr("")},
+					{Endpoint: "dst2", ExternalEndpoint: nil},
+				},
 			},
-			srcConnections: []db.ConnectionDetails{
-				{Endpoint: "src1", GroupName: stringPtr("group1")},
+			srcNode: &db.Node{
+				GroupName: stringPtr("group2"),
 			},
-			expectedConn:  db.ConnectionDetails{Endpoint: "dst1", GroupName: nil},
+			expectedConn:  db.ConnectionDetails{Endpoint: "dst1", ExternalEndpoint: stringPtr("")},
+			expectedLocal: false,
+			description:   "all empty/nil external endpoints should fallback to first connection",
+		},
+		{
+			name: "same_group_names_with_external_endpoints_ignored",
+			dstNode: &db.Node{
+				GroupName: stringPtr("group1"),
+				ConnDetails: []db.ConnectionDetails{
+					{Endpoint: "dst1", ExternalEndpoint: stringPtr("external1")},
+				},
+			},
+			srcNode: &db.Node{
+				GroupName: stringPtr("group1"),
+			},
+			expectedConn:  db.ConnectionDetails{Endpoint: "dst1", ExternalEndpoint: stringPtr("external1")},
 			expectedLocal: true,
-			description:   "all dst with nil group should be considered local",
+			description:   "same groups should ignore external endpoints and return first connection",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			gotConn, gotLocal := selectConnection(tt.dstConnections, tt.srcConnections)
+			gotConn, gotLocal := selectConnection(tt.dstNode, tt.srcNode)
 			require.Equal(t, tt.expectedConn, gotConn, tt.description)
 			require.Equal(t, tt.expectedLocal, gotLocal, tt.description)
 		})

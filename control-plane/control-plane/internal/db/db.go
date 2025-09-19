@@ -29,6 +29,7 @@ type DataAccess interface {
 
 type Node struct {
 	ID          string
+	GroupName   *string
 	ConnDetails []ConnectionDetails
 	LastUpdated time.Time
 }
