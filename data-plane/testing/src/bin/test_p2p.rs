@@ -23,7 +23,7 @@ const DEFAULT_SERVICE_ID: &str = "slim/0";
 
 #[derive(Parser, Debug)]
 pub struct Args {
-    /// Runs the endpoint with MLS disabled.
+    /// Runs the session with MLS disabled.
     #[arg(
         short,
         long,
@@ -33,7 +33,7 @@ pub struct Args {
     )]
     mls_disabled: bool,
 
-    /// Runs a sticky ff session.
+    /// Runs a sticky p2p session.
     #[arg(
         short,
         long,
@@ -42,6 +42,16 @@ pub struct Args {
         default_value_t = false
     )]
     is_sticky: bool,
+
+    /// Runs a reliable p2p session.
+    #[arg(
+        short,
+        long,
+        value_name = "IS_RELIABLE",
+        required = false,
+        default_value_t = false
+    )]
+    is_reliable: bool,
 }
 
 impl Args {
@@ -52,10 +62,15 @@ impl Args {
     pub fn is_sticky(&self) -> &bool {
         &self.is_sticky
     }
+
+    pub fn is_reliable(&self) -> &bool {
+        &self.is_reliable
+    }
 }
 
 async fn run_slim_node() -> Result<(), String> {
-    println!("Server task starting...");
+    Ok(())
+    /*println!("Server task starting...");
 
     let dataplane_server_config =
         GrpcServerConfig::with_endpoint(&format!("0.0.0.0:{}", DEFAULT_DATAPLANE_PORT))
@@ -97,7 +112,7 @@ async fn run_slim_node() -> Result<(), String> {
         }
     }
 
-    Ok(())
+    Ok(())*/
 }
 
 fn create_service_configuration(
@@ -159,8 +174,6 @@ async fn run_client_task(name: Name) -> Result<(), String> {
         .await
         .map_err(|_| format!("Failed to subscribe for participant {}", name))?;
 
-    /* up to here */
-
     loop {
         tokio::select! {
             msg_result = rx.recv() => {
@@ -182,6 +195,7 @@ async fn run_client_task(name: Name) -> Result<(), String> {
                                             continue;
                                         }
 
+                                        println!("recevied message {}", msg.message.get_session_header().get_message_id());
                                         // reply with the same payload to be sure that is was
                                         // decoded correctly in case of MLS
                                         let payload = val.into_bytes().to_vec();
@@ -217,10 +231,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = Args::parse();
     let msl_enabled = !*args.mls_disabled();
     let is_sticky = *args.is_sticky();
+    let is_reliable = *args.is_reliable();
 
     println!(
-        "run test with MLS {} and sticky session {}",
-        msl_enabled, is_sticky
+        "run test with MLS = {}, sticky session = {} and reliable session = {}",
+        msl_enabled, is_sticky, is_reliable,
     );
 
     // start slim node
@@ -229,7 +244,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     });
 
     // start clients
-    let tot_clients = 3;
+    //let tot_clients = 3;
+    let tot_clients = 1;
     let mut clients = vec![];
 
     for i in 0..tot_clients {
@@ -241,7 +257,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     // wait for all the processes to start
-    tokio::time::sleep(tokio::time::Duration::from_millis(10000)).await;
+    tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
 
     // start moderator
     let name = Name::from_strings(["org", "ns", "main"]).with_id(1);
@@ -279,11 +295,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .await
         .map_err(|_| format!("Failed to subscribe for participant {}", name))?;
 
+    let (timeout, max_retries) = if is_reliable {
+        (Some(Duration::from_secs(1)), Some(10))
+    } else {
+        (None, None)
+    };
+
     let info = app
         .create_session(
             slim_service::session::SessionConfig::PointToPoint(PointToPointConfiguration::new(
-                Some(Duration::from_secs(1)),
-                Some(10),
+                timeout,
+                max_retries,
                 is_sticky,
                 msl_enabled,
             )),
@@ -362,7 +384,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             panic!("an error occurred sending publication from moderator",);
         }
 
-        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+        tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
     }
 
     // the total number of packets received must be max_packets
