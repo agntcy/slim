@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.2](https://github.com/agntcy/slim/compare/slim-bindings-examples-v0.1.1...slim-bindings-examples-v0.1.2) (2025-09-20)
+
+
+### Features
+
+* **python/bindings:** remove request-reply API ([#677](https://github.com/agntcy/slim/issues/677)) ([65cec9d](https://github.com/agntcy/slim/commit/65cec9d9fc4439a696aadae2edad940792a52fa1))
+
 ## [0.1.1](https://github.com/agntcy/slim/compare/slim-bindings-examples-v0.1.0...slim-bindings-examples-v0.1.1) (2025-09-18)
 
 
