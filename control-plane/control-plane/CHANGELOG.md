@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.2](https://github.com/agntcy/slim/compare/control-plane-v0.1.1...control-plane-v0.1.2) (2025-09-20)
+
+
+### Features
+
+* handle updates from SLIM nodes ([#708](https://github.com/agntcy/slim/issues/708)) ([ccc5183](https://github.com/agntcy/slim/commit/ccc518386d0ece16237647511118e7d032e033c6))
+
 ## [0.1.1](https://github.com/agntcy/slim/compare/control-plane-v0.1.0...control-plane-v0.1.1) (2025-09-18)
 
 
