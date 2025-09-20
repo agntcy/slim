@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.0](https://github.com/agntcy/slim/compare/slim-service-v0.6.0...slim-service-v0.7.0) - 2025-09-20
+
+### Added
+
+- handle updates from SLIM nodes ([#708](https://github.com/agntcy/slim/pull/708))
+- add string name on pub messages ([#693](https://github.com/agntcy/slim/pull/693))
+
+### Other
+
+- upgrade to rust toolchain 1.90.0 ([#730](https://github.com/agntcy/slim/pull/730))
+- rename sessions in python bindings ([#698](https://github.com/agntcy/slim/pull/698))
+- *(service)* session files in separate module ([#695](https://github.com/agntcy/slim/pull/695))
+- rename session types in rust code ([#679](https://github.com/agntcy/slim/pull/679))
+
 ## [0.6.0](https://github.com/agntcy/slim/compare/slim-service-v0.5.0...slim-service-v0.6.0) - 2025-09-17
 
 ### Added

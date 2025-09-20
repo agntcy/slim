@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.0](https://github.com/agntcy/slim/compare/slim-datapath-v0.9.0...slim-datapath-v0.10.0) - 2025-09-20
+
+### Added
+
+- add string name on pub messages ([#693](https://github.com/agntcy/slim/pull/693))
+
+### Other
+
+- upgrade to rust toolchain 1.90.0 ([#730](https://github.com/agntcy/slim/pull/730))
+- rename sessions in python bindings ([#698](https://github.com/agntcy/slim/pull/698))
+- rename session types in rust code ([#679](https://github.com/agntcy/slim/pull/679))
+
 ## [0.9.0](https://github.com/agntcy/slim/compare/slim-datapath-v0.8.0...slim-datapath-v0.9.0) - 2025-09-17
 
 ### Added
