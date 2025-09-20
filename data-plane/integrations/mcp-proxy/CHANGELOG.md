@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.8](https://github.com/agntcy/slim/compare/slim-mcp-proxy-v0.1.7...slim-mcp-proxy-v0.1.8) - 2025-09-20
+
+### Other
+
+- *(service)* session files in separate module ([#695](https://github.com/agntcy/slim/pull/695))
+- rename session types in rust code ([#679](https://github.com/agntcy/slim/pull/679))
+
 ## [0.1.7](https://github.com/agntcy/slim/compare/slim-mcp-proxy-v0.1.6...slim-mcp-proxy-v0.1.7) - 2025-09-18
 
 ### Fixed
