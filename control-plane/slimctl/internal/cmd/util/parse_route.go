@@ -50,6 +50,12 @@ func ParseRoute(route string) (
 	return
 }
 
+func IsEndpoint(endpoint string) bool {
+	return strings.ContainsAny(endpoint, ":") ||
+		strings.HasPrefix(endpoint, "http://") ||
+		strings.HasPrefix(endpoint, "https://")
+}
+
 func ParseEndpoint(endpoint string) (*grpcapi.Connection, string, error) {
 	u, err := url.Parse(endpoint)
 	if err != nil {

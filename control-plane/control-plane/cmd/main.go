@@ -17,6 +17,7 @@ import (
 	"github.com/agntcy/slim/control-plane/control-plane/internal/services/groupservice"
 	"github.com/agntcy/slim/control-plane/control-plane/internal/services/nbapiservice"
 	"github.com/agntcy/slim/control-plane/control-plane/internal/services/nodecontrol"
+	"github.com/agntcy/slim/control-plane/control-plane/internal/services/routes"
 	"github.com/agntcy/slim/control-plane/control-plane/internal/services/sbapiservice"
 	"github.com/agntcy/slim/control-plane/control-plane/internal/util"
 )
@@ -31,9 +32,12 @@ func main() {
 	dbService := db.NewInMemoryDBService()
 	cmdHandler := nodecontrol.DefaultNodeCommandHandler()
 	nodeService := nbapiservice.NewNodeService(dbService, cmdHandler)
-	routeService := nbapiservice.NewRouteService(cmdHandler)
+	routeService := routes.NewRouteService(dbService, cmdHandler, config.Reconciler)
+	err := routeService.Start(ctx)
+	if err != nil {
+		zlog.Fatal().Msgf("failed to start route service: %v", err)
+	}
 	groupService := groupservice.NewGroupService(dbService)
-	registrationService := nbapiservice.NewNodeRegistrationService(dbService, cmdHandler)
 
 	// wait for go processes to exit
 	var wg sync.WaitGroup
@@ -74,7 +78,7 @@ func main() {
 
 		sbGrpcServer := grpc.NewServer(opts...)
 		sbAPISvc := sbapiservice.NewSBAPIService(config.Southbound, config.LogConfig, dbService, cmdHandler,
-			[]nodecontrol.NodeRegistrationHandler{registrationService}, groupService)
+			routeService, groupService)
 		southboundApi.RegisterControllerServiceServer(sbGrpcServer, sbAPISvc)
 
 		sbListeningAddress := fmt.Sprintf("%s:%s", config.Southbound.HTTPHost, config.Southbound.HTTPPort)

@@ -7,6 +7,7 @@ use std::sync::Arc;
 
 use slim_config::component::id::ID;
 use slim_config::grpc::server::ServerConfig;
+use slim_config::metadata::MetadataValue;
 use tokio::sync::mpsc;
 use tokio_stream::{Stream, StreamExt, wrappers::ReceiverStream};
 use tokio_util::sync::CancellationToken;
@@ -19,7 +20,7 @@ use crate::api::proto::api::v1::{
     self, ConnectionListResponse, ConnectionType, SubscriptionListResponse,
 };
 use crate::api::proto::api::v1::{
-    Ack, ConnectionEntry, ControlMessage, SubscriptionEntry,
+    Ack, ConnectionDetails, ConnectionEntry, ControlMessage, SubscriptionEntry,
     controller_service_client::ControllerServiceClient,
     controller_service_server::ControllerService as GrpcControllerService,
 };
@@ -43,6 +44,9 @@ struct ControllerServiceInternal {
     /// ID of this SLIM instance
     id: ID,
 
+    /// optional group name
+    group_name: Option<String>,
+
     /// underlying message processor
     message_processor: Arc<MessageProcessor>,
 
@@ -60,6 +64,9 @@ struct ControllerServiceInternal {
 
     /// drain watch channel
     drain_rx: drain::Watch,
+
+    /// array of connection details
+    connection_details: Vec<ConnectionDetails>,
 }
 
 #[derive(Debug, Clone)]
@@ -96,6 +103,40 @@ impl Drop for ControlPlane {
     }
 }
 
+fn from_server_config(server_config: &ServerConfig) -> ConnectionDetails {
+    let group_name = server_config
+        .metadata
+        .as_ref()
+        .and_then(|m| m.get("group_name"))
+        .and_then(|v| match v {
+            MetadataValue::String(s) => Some(s.clone()),
+            _ => None,
+        });
+    let local_endpoint = server_config
+        .metadata
+        .as_ref()
+        .and_then(|m| m.get("local_endpoint"))
+        .and_then(|v| match v {
+            MetadataValue::String(s) => Some(s.clone()),
+            _ => None,
+        });
+    let external_endpoint = server_config
+        .metadata
+        .as_ref()
+        .and_then(|m| m.get("external_endpoint"))
+        .and_then(|v| match v {
+            MetadataValue::String(s) => Some(s.clone()),
+            _ => None,
+        });
+    ConnectionDetails {
+        endpoint: server_config.endpoint.clone(),
+        mtls_required: !server_config.tls_setting.insecure,
+        group_name,
+        local_endpoint,
+        external_endpoint,
+    }
+}
+
 /// ControlPlane implements the service trait for the controller service.
 impl ControlPlane {
     /// Create a new ControlPlane service instance
@@ -111,12 +152,16 @@ impl ControlPlane {
     /// A new instance of ControlPlane.
     pub fn new(
         id: ID,
+        group_name: Option<String>,
         servers: Vec<ServerConfig>,
         clients: Vec<ClientConfig>,
         drain_rx: drain::Watch,
         message_processor: Arc<MessageProcessor>,
+        pubsub_servers: &[ServerConfig],
     ) -> Self {
         let (_, tx_slim, rx_slim) = message_processor.register_local_connection(true);
+
+        let connection_details = pubsub_servers.iter().map(from_server_config).collect();
 
         ControlPlane {
             servers,
@@ -124,12 +169,14 @@ impl ControlPlane {
             controller: ControllerService {
                 inner: Arc::new(ControllerServiceInternal {
                     id,
+                    group_name,
                     message_processor,
                     connections: Arc::new(parking_lot::RwLock::new(HashMap::new())),
                     tx_slim,
                     tx_channels: parking_lot::RwLock::new(HashMap::new()),
                     cancellation_tokens: parking_lot::RwLock::new(HashMap::new()),
                     drain_rx,
+                    connection_details,
                 }),
             },
             rx_slim_option: Some(rx_slim),
@@ -699,6 +746,8 @@ impl ControllerService {
                 message_id: uuid::Uuid::new_v4().to_string(),
                 payload: Some(Payload::RegisterNodeRequest(v1::RegisterNodeRequest {
                     node_id: this.inner.id.to_string(),
+                    group_name: this.inner.group_name.clone(),
+                    connection_details: this.inner.connection_details.clone(),
                 })),
             };
 
@@ -914,20 +963,25 @@ mod tests {
         let message_processor_server = MessageProcessor::with_drain_channel(watch_server.clone());
 
         // Create a control plane instance for server
+        let pubsub_servers = [server_config.clone()];
         let mut control_plane_server = ControlPlane::new(
             id_server,
+            None,
             vec![server_config],
             vec![],
             watch_server,
             Arc::new(message_processor_server),
+            &pubsub_servers,
         );
 
         let mut control_plane_client = ControlPlane::new(
             id_client,
+            None,
             vec![],
             vec![client_config],
             watch_client,
             Arc::new(message_processor_client),
+            &pubsub_servers,
         );
 
         // Start the server

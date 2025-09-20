@@ -12,9 +12,10 @@ import (
 
 // Application configuration
 type ControlPlaneConfig struct {
-	Northbound APIConfig `yaml:"northbound"`
-	Southbound APIConfig `yaml:"southbound"`
-	LogConfig  LogConfig `yaml:"logging"`
+	Northbound APIConfig        `yaml:"northbound"`
+	Southbound APIConfig        `yaml:"southbound"`
+	LogConfig  LogConfig        `yaml:"logging"`
+	Reconciler ReconcilerConfig `yaml:"reconciler"`
 }
 
 type LogConfig struct {
@@ -31,6 +32,10 @@ func (l LogConfig) Validate() error {
 		return fmt.Errorf("invalid logging.level: %s", l.Level)
 	}
 	return nil
+}
+
+type ReconcilerConfig struct {
+	Threads int `yaml:"threads"` // Number of concurrent threads for reconciliation
 }
 
 type APIConfig struct {
@@ -104,6 +109,9 @@ func DefaultConfig() *ControlPlaneConfig {
 		LogConfig{
 			Level: "debug", // Default log level
 		},
+		ReconcilerConfig{
+			Threads: 3,
+		}, // Default to 3 threads
 	}
 }
 
