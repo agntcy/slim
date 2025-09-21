@@ -3,24 +3,23 @@ package db
 import (
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/google/uuid"
 )
 
 type dbService struct {
-	nodes         map[string]Node
-	connections   map[string]Connection
-	subscriptions map[string]Subscription
-	channels      map[string]Channel
-	mu            sync.RWMutex
+	nodes    map[string]Node
+	routes   map[string]Route
+	channels map[string]Channel
+	mu       sync.RWMutex
 }
 
 func NewInMemoryDBService() DataAccess {
 	return &dbService{
-		nodes:         make(map[string]Node),
-		connections:   make(map[string]Connection),
-		subscriptions: make(map[string]Subscription),
-		channels:      make(map[string]Channel),
+		nodes:    make(map[string]Node),
+		routes:   make(map[string]Route, 100),
+		channels: make(map[string]Channel),
 	}
 }
 
@@ -87,7 +86,7 @@ func (d *dbService) ListChannels() ([]Channel, error) {
 	return channels, nil
 }
 
-func (d *dbService) ListNodes() ([]Node, error) {
+func (d *dbService) ListNodes() []Node {
 	d.mu.RLock()
 	defer d.mu.RUnlock()
 
@@ -96,7 +95,7 @@ func (d *dbService) ListNodes() ([]Node, error) {
 		nodes = append(nodes, node)
 	}
 
-	return nodes, nil
+	return nodes
 }
 
 func (d *dbService) GetNode(id string) (*Node, error) {
@@ -111,36 +110,6 @@ func (d *dbService) GetNode(id string) (*Node, error) {
 	return &node, nil
 }
 
-// GetConnectionDetails implements DataAccess.
-func (d *dbService) GetConnection(connectionID string) (Connection, error) {
-	d.mu.RLock()
-	defer d.mu.RUnlock()
-
-	connection, exists := d.connections[connectionID]
-	if !exists {
-		return Connection{}, fmt.Errorf("connection with ID %s not found", connectionID)
-	}
-	_, exists = d.nodes[connection.NodeID]
-	if !exists {
-		return Connection{}, fmt.Errorf("node with ID %s not found for connection %s", connection.NodeID, connectionID)
-	}
-
-	return connection, nil
-}
-
-// GetSubscriptionDetails implements DataAccess.
-func (d *dbService) GetSubscription(subscriptionID string) (Subscription, error) {
-	d.mu.RLock()
-	defer d.mu.RUnlock()
-
-	subscription, exists := d.subscriptions[subscriptionID]
-	if !exists {
-		return Subscription{}, fmt.Errorf("subscription with ID %s not found", subscriptionID)
-	}
-
-	return subscription, nil
-}
-
 // SaveNode implements DataAccess.
 func (d *dbService) SaveNode(node Node) (string, error) {
 	d.mu.Lock()
@@ -150,75 +119,10 @@ func (d *dbService) SaveNode(node Node) (string, error) {
 		node.ID = uuid.New().String()
 	}
 
+	node.LastUpdated = time.Now()
+
 	d.nodes[node.ID] = node
 	return node.ID, nil
-}
-
-// SaveConnection implements DataAccess.
-func (d *dbService) SaveConnection(connection Connection) (string, error) {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-
-	// Verify that the node exists
-	if _, exists := d.nodes[connection.NodeID]; !exists {
-		return "", fmt.Errorf("node with ID %s not found", connection.NodeID)
-	}
-
-	if connection.ID == "" {
-		connection.ID = uuid.New().String()
-	}
-
-	d.connections[connection.ID] = connection
-	return connection.ID, nil
-}
-
-// SaveSubscription implements DataAccess.
-func (d *dbService) SaveSubscription(subscription Subscription) (string, error) {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-
-	// Verify that the node exists
-	if _, exists := d.nodes[subscription.NodeID]; !exists {
-		return "", fmt.Errorf("node with ID %s not found", subscription.NodeID)
-	}
-
-	// Verify that the connection exists
-	if _, exists := d.connections[subscription.ConnectionID]; !exists {
-		return "", fmt.Errorf("connection with ID %s not found", subscription.ConnectionID)
-	}
-
-	if subscription.ID == "" {
-		subscription.ID = uuid.New().String()
-	}
-
-	d.subscriptions[subscription.ID] = subscription
-	return subscription.ID, nil
-}
-
-// DeleteConnection implements DataAccess.
-func (d *dbService) DeleteConnection(connectionID string) error {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-
-	if _, exists := d.connections[connectionID]; !exists {
-		return fmt.Errorf("connection with ID %s not found", connectionID)
-	}
-
-	delete(d.connections, connectionID)
-	return nil
-}
-
-// DeleteSubscription implements DataAccess.
-func (d *dbService) DeleteSubscription(subscriptionID string) error {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-
-	if _, exists := d.subscriptions[subscriptionID]; !exists {
-		return fmt.Errorf("subscription with ID %s not found", subscriptionID)
-	}
-
-	delete(d.subscriptions, subscriptionID)
-	return nil
 }
 
 // DeleteNode implements DataAccess.
@@ -232,58 +136,61 @@ func (d *dbService) DeleteNode(id string) error {
 
 	delete(d.nodes, id)
 
-	// Remove all connections and subscriptions associated with this node
-	for connectionID, connection := range d.connections {
-		if connection.NodeID == id {
-			delete(d.connections, connectionID)
-		}
-	}
-
-	for subscriptionID, subscription := range d.subscriptions {
-		if subscription.NodeID == id {
-			delete(d.subscriptions, subscriptionID)
-		}
-	}
-
 	return nil
 }
 
-// ListConnectionsByNodeID implements DataAccess.
-func (d *dbService) ListConnectionsByNodeID(nodeID string) ([]Connection, error) {
-	d.mu.RLock()
-	defer d.mu.RUnlock()
-
-	if _, exists := d.nodes[nodeID]; !exists {
-		return nil, fmt.Errorf("node with ID %s not found", nodeID)
-	}
-
-	var connections []Connection
-	for _, connection := range d.connections {
-		if connection.NodeID == nodeID {
-			connections = append(connections, connection)
-		}
-	}
-
-	// Return empty slice instead of error when no connections found
-	return connections, nil
+func (d *dbService) AddRoute(route Route) string {
+	routeID := route.GetID()
+	// Add route to the map
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	route.LastUpdated = time.Now()
+	d.routes[routeID] = route
+	return routeID
 }
 
-// ListSubscriptionsByNodeID implements DataAccess.
-func (d *dbService) ListSubscriptionsByNodeID(nodeID string) ([]Subscription, error) {
+func (d *dbService) DeleteRoute(routeID string) error {
+	// Remove route from the map
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if _, exists := d.routes[routeID]; !exists {
+		return fmt.Errorf("route %s not found", routeID)
+	}
+	delete(d.routes, routeID)
+	return nil
+}
+
+func (d *dbService) MarkRouteAsDeleted(routeID string) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	route, exists := d.routes[routeID]
+	if !exists {
+		return fmt.Errorf("route %s not found", routeID)
+	}
+	route.LastUpdated = time.Now()
+	route.Deleted = true
+	d.routes[routeID] = route
+	return nil
+}
+
+func (d *dbService) GetRouteByID(routeID string) *Route {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	route := d.routes[routeID]
+	return &route
+}
+
+func (d *dbService) GetRoutesForNodeID(nodeID string) []Route {
 	d.mu.RLock()
 	defer d.mu.RUnlock()
 
-	if _, exists := d.nodes[nodeID]; !exists {
-		return nil, fmt.Errorf("node with ID %s not found", nodeID)
-	}
-
-	var subscriptions []Subscription
-	for _, subscription := range d.subscriptions {
-		if subscription.NodeID == nodeID {
-			subscriptions = append(subscriptions, subscription)
+	var routes []Route
+	for _, route := range d.routes {
+		if route.SourceNodeID == nodeID {
+			routes = append(routes, route)
 		}
 	}
 
-	// Return empty slice instead of error when no subscriptions found
-	return subscriptions, nil
+	// Return empty slice instead of error when no routes found
+	return routes
 }

@@ -41,6 +41,10 @@ pub struct ServiceConfiguration {
     #[serde(default)]
     pub node_id: Option<String>,
 
+    /// Optional name of the group for the service.
+    #[serde(default)]
+    pub group_name: Option<String>,
+
     /// DataPlane API configuration
     #[serde(default)]
     pub dataplane: DataplaneConfig,
@@ -191,8 +195,10 @@ impl Service {
         // Controller service
         let mut controller = self.config.controller.into_service(
             self.id.clone(),
+            self.config.group_name.clone(),
             self.watch.clone(),
             self.message_processor.clone(),
+            self.config.servers(),
         );
 
         // run controller service

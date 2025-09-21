@@ -54,15 +54,19 @@ impl Config {
     pub fn into_service(
         &self,
         id: ID,
+        group_name: Option<String>,
         rx_drain: drain::Watch,
         message_processor: Arc<MessageProcessor>,
+        servers: &[ServerConfig],
     ) -> ControlPlane {
         ControlPlane::new(
             id,
+            group_name,
             self.servers.clone(),
             self.clients.clone(),
             rx_drain,
             message_processor,
+            servers,
         )
     }
 }
