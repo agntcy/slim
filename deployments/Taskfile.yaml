@@ -10,6 +10,11 @@ version: "3"
 # manage, test, and release application updates across different environments.
 #
 
+vars:
+  # Simple values
+  SLIM_IMAGE_TAG: '{{ .SLIM_IMAGE_TAG | default "0.3.15" }}'
+  SLIM_CONTROLLER_IMAGE_TAG: "latest"
+
 tasks:
 
   cluster:up:

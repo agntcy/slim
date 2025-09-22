@@ -12,8 +12,17 @@ includes:
 tasks:
   slim:deploy:
     desc: Deploy Slim using the StatefulSet deployment strategy
+
+    requires:
+      vars: [SLIM_IMAGE_TAG]
+
+    deps: 
+      - templates:cluster:use-context
+
     cmds:
-      - helm upgrade --install slim ../../charts/slim \
+      - | 
+        helm upgrade --install slim ../../charts/slim \
           --namespace slim \
           --create-namespace \
+          --set slim.image.tag="{{ .SLIM_IMAGE_TAG }}" 
           --values ./deployments/statefulset-values.yaml
