@@ -174,14 +174,8 @@ impl<T> Jwt<T> {
     /// Internal constructor used by the builder.
     ///
     /// This should not be called directly. Use the builder pattern instead:
-    /// ```ignore
-    /// use slim_auth::builder::JwtBuilder; // hidden import for doctest
-    /// let jwt = JwtBuilder::default()
-    ///     .issuer("my-issuer")
-    ///     .audience(["my-audience"])
-    ///     .subject("user-123")
-    ///     .private_key_from_str("secret-key", slim_auth::jwt::Algorithm::HS256)
-    ///     .build_signer().unwrap();
+    /// ```
+    /// let jwt = Jwt::builder()
     ///     .issuer("my-issuer")
     ///     .audience("my-audience")
     ///     .subject("user-123")
