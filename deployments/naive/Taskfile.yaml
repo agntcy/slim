@@ -1,0 +1,28 @@
+
+# Copyright AGNTCY Contributors (https://github.com/agntcy)
+# SPDX-License-Identifier: Apache-2.0
+
+version: "3"
+
+# This Taskfile includes specific tasks for the naive deployment strategy.
+
+includes:
+  templates: ../Taskfile.yaml
+
+tasks:
+  slim.deploy.naive:
+    desc: Deploy Slim using the naive deployment strategy
+    deps: 
+      - templates:cluster.use-context
+    cmds:
+      - cmd: |
+          helm upgrade slim ../../charts/slim \
+            --namespace slim \
+            --create-namespace \
+            --install \
+            --values naive-values.yaml
+  
+  slim.show-logs:
+    desc: Show logs for Slim components in the naive deployment
+    cmds:
+      - kubectl logs -l app.kubernetes.io/name=slim -n slim --tail=100 -f
