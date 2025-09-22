@@ -26,7 +26,8 @@ pub use traits::Transmitter;
 pub(crate) use traits::{CommonSession, MessageHandler, SessionConfigTrait};
 
 // Common types that session modules need
-pub(crate) use common::{Common, State};
+pub(crate) use handle::Common;
+pub(crate) use common::State;
 
 // Session Info
 pub use message::Id;
