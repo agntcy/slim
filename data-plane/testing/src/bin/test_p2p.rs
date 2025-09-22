@@ -161,36 +161,75 @@ async fn run_client_task(name: Name) -> Result<(), String> {
         .await
         .map_err(|_| format!("Failed to subscribe for participant {}", name))?;
 
-    /* up to here */
-
-    let mut session_ctx_opt: Option<
-        slim_service::session::context::SessionContext<SharedSecret, SharedSecret>,
-    > = None;
+    let name_clone = name.clone();
     loop {
         tokio::select! {
             msg_result = rx.recv() => {
                 match msg_result {
-                    None => { println!("Participant {}: end of stream", name); break; }
+                    None => { println!("Participant {}: end of stream", name_clone); break; }
                     Some(res) => match res {
-                        Ok(Notification::NewSession(ctx)) => { session_ctx_opt = Some(ctx); }
-                        Ok(Notification::NewMessage(msg)) => {
-                            if let Some(slim_datapath::api::ProtoPublishType(publish)) = msg.message_type.as_ref() {
-                                let publisher = msg.get_slim_header().get_source();
-                                let conn = msg.get_slim_header().recv_from.unwrap_or(conn_id);
-                                let blob = &publish.get_payload().blob;
-                                match String::from_utf8(blob.to_vec()) {
-                                    Ok(val) => {
-                                        if val != *"hello there" { continue; }
-                                        if let Some(ctx) = session_ctx_opt.as_ref() {
-                                            let payload = val.into_bytes();
-                                            if ctx.session_arc().unwrap().publish_to(&publisher, conn, payload, None, None).await.is_err() {
-                                                panic!("an error occurred sending publication from moderator");
+                        Ok(notification) => match notification {
+                            Notification::NewSession(session_ctx) => {
+                                println!("create new session on client {}", name_clone);
+                                let name_clone_session = name_clone.clone();
+                                session_ctx.spawn_receiver(move |mut rx, weak, _meta| async move {
+                                    loop{
+                                        match rx.recv().await {
+                                            None => {
+                                                println!("Session receiver: end of stream");
+                                                break;
+                                            }
+                                            Some(Ok(msg)) => {
+                                                if let Some(slim_datapath::api::ProtoPublishType(publish)) = msg.message_type.as_ref() {
+                                                    let publisher = msg.get_slim_header().get_source();
+                                                    let conn = msg.get_slim_header().recv_from.unwrap_or(conn_id);
+                                                    let blob = &publish.get_payload().blob;
+                                                    match String::from_utf8(blob.to_vec()) {
+                                                        Ok(val) => {
+                                                            if val != *"hello there" { continue; }
+                                                            if let Some(session_arc) = weak.upgrade() {
+                                                                let payload = val.into_bytes();
+                                                                if session_arc.publish_to(&publisher, conn, payload, None, None).await.is_err() {
+                                                                    panic!("an error occurred sending publication from moderator");
+                                                                }
+                                                            }
+                                                        }
+                                                        Err(e) => { println!("Participant {}: error parsing message: {}", name_clone_session, e); continue; }
+                                                    }
+                                                }
+                                            }
+                                            Some(Err(e)) => {
+                                                println!("Session receiver: error {:?}", e);
+                                                break;
                                             }
                                         }
                                     }
-                                    Err(e) => { println!("Participant {}: error parsing message: {}", name, e); continue; }
-                                }
+                                });
+                                //session_ctx_opt = Some(ctx);
                             }
+                            _ => {
+                                println!("Unexpected notification type");
+                                continue;
+                            }
+                            /*Ok(Notification::NewMessage(msg)) => {
+                                if let Some(slim_datapath::api::ProtoPublishType(publish)) = msg.message_type.as_ref() {
+                                    let publisher = msg.get_slim_header().get_source();
+                                    let conn = msg.get_slim_header().recv_from.unwrap_or(conn_id);
+                                    let blob = &publish.get_payload().blob;
+                                    match String::from_utf8(blob.to_vec()) {
+                                        Ok(val) => {
+                                            if val != *"hello there" { continue; }
+                                            if let Some(ctx) = session_ctx_opt.as_ref() {
+                                                let payload = val.into_bytes();
+                                                if ctx.session_arc().unwrap().publish_to(&publisher, conn, payload, None, None).await.is_err() {
+                                                    panic!("an error occurred sending publication from moderator");
+                                                }
+                                            }
+                                        }
+                                        Err(e) => { println!("Participant {}: error parsing message: {}", name, e); continue; }
+                                    }
+                                }
+                            }*/
                         }
                         Err(e) => { println!("Participant {} received error message: {:?}", name, e); }
                     }
@@ -246,7 +285,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let svc_id = ID::new_with_str(DEFAULT_SERVICE_ID).unwrap();
     let svc = config.services.get_mut(&svc_id).unwrap();
 
-    let (app, mut rx) = svc
+    let (app, _rx) = svc
         .create_app(
             &name,
             SharedSecret::new(&name.to_string(), "group"),
@@ -270,7 +309,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .await
         .map_err(|_| format!("Failed to subscribe for participant {}", name))?;
 
-    let info = app
+    let session_ctx = app
         .create_session(
             slim_service::session::SessionConfig::PointToPoint(PointToPointConfiguration::new(
                 Some(Duration::from_secs(1)),
@@ -296,39 +335,44 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let max_packets = 50;
     let recv_msgs = Arc::new(RwLock::new(HashMap::new()));
     let recv_msgs_clone = recv_msgs.clone();
-    tokio::spawn(async move {
-        use slim_service::session::Notification;
+
+    // Clone the Arc to session for later use
+    let session_arc = session_ctx.session_arc().unwrap();
+
+    session_ctx.spawn_receiver(move |mut rx, _weak, _meta| async move {
         loop {
-            let notif_opt = rx.recv().await;
-            if notif_opt.is_none() {
-                break;
-            }
-            match notif_opt.unwrap() {
-                Ok(Notification::NewSession(_)) => { /* ignore */ }
-                Ok(Notification::NewMessage(msg)) => {
-                    if let Some(slim_datapath::api::ProtoPublishType(publish)) =
-                        msg.message_type.as_ref()
-                    {
-                        let sender = msg.get_source();
-                        let p = &publish.get_payload().blob;
-                        let val = String::from_utf8(p.to_vec())
-                            .expect("error while parsing received message");
-                        if val != *"hello there" {
-                            println!("received a corrupted reply");
-                            continue;
-                        }
-                        let mut lock = recv_msgs_clone.write();
-                        match lock.get_mut(&sender) {
-                            Some(x) => *x += 1,
-                            None => {
-                                lock.insert(sender, 1);
+            match rx.recv().await {
+                None => {
+                    println!("end of stream");
+                    break;
+                }
+                Some(message) => match message {
+                    Ok(msg) => {
+                        if let Some(slim_datapath::api::ProtoPublishType(publish)) =
+                            msg.message_type.as_ref()
+                        {
+                            let sender = msg.get_source();
+                            let p = &publish.get_payload().blob;
+                            let val = String::from_utf8(p.to_vec())
+                                .expect("error while parsing received message");
+                            if val != *"hello there" {
+                                println!("received a corrupted reply");
+                                continue;
+                            }
+                            let mut lock = recv_msgs_clone.write();
+                            match lock.get_mut(&sender) {
+                                Some(x) => *x += 1,
+                                None => {
+                                    lock.insert(sender, 1);
+                                }
                             }
                         }
                     }
-                }
-                Err(e) => {
-                    println!("received an error message {:?}", e);
-                }
+                    Err(e) => {
+                        println!("error receiving message {}", e);
+                        continue;
+                    }
+                },
             }
         }
     });
@@ -338,9 +382,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     for i in 0..max_packets {
         println!("main: send message {}", i);
 
-        if info
-            .session_arc()
-            .unwrap()
+        if session_arc
             .publish(
                 &Name::from_strings(["org", "ns", "client"]),
                 p.clone(),

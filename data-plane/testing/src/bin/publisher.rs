@@ -233,7 +233,7 @@ async fn main() {
                         }
                         Some(message) => {
                             if message.is_err() {
-                                error!("error receiving notification");
+                                error!("error receiving message");
                                 continue;
                             }
                             let msg = message.unwrap();
