@@ -10,3 +10,10 @@ includes:
   templates: ../Taskfile.yaml
 
 tasks:
+  slim:deploy:
+    desc: Deploy Slim using the StatefulSet deployment strategy
+    cmds:
+      - helm upgrade --install slim ../../charts/slim \
+          --namespace slim \
+          --create-namespace \
+          --values ./deployments/statefulset-values.yaml

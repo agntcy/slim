@@ -10,3 +10,11 @@ includes:
   templates: ../Taskfile.yaml
 
 tasks:
+
+  slim:deploy:
+    desc: Deploy Slim using the DaemonSet deployment strategy
+    cmds:
+      - helm upgrade --install slim ../../charts/slim \
+          --namespace slim \
+          --create-namespace \
+          --values ./deployments/daemonset-values.yaml

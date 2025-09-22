@@ -10,16 +10,12 @@ A single plain SLIM node is started that exposes its (northbound and southbound)
 
 ## Example
 
-The example deployment of the strategy can be acheved by executing the following tasks in a terminal (with the cursor at the folder where the Taskfile.yaml resides):
+The example deployment of the strategy can be achieved by executing the following tasks in a terminal:
 
-``` bash
-# brings up the kind cluster
-task cluster.up
-```
 
 ``` bash
 # deploys SLIM
-task slim.deploy.naive
+task slim:deploy:naive
 ```
 
 At this point, if the commands execute successfully there is a SLIM pod deployed to the cluster in the slim namespace.

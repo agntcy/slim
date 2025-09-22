@@ -12,40 +12,30 @@ version: "3"
 
 tasks:
 
-  cluster.up:
+  cluster:up:
     desc: Start a local Kubernetes cluster using Kind
     cmd: kind create cluster --name slim-cluster
 
-  cluster.down:
+  cluster:down:
     desc: Delete the local Kubernetes cluster
     cmd: kind delete cluster --name slim-cluster
+  
+  cluster:use-context:
+    desc: Set the current kubectl context to kind-slim-cluster
+    deps:
+      - cluster:up
+    cmd: kubectl config use-context kind-slim-cluster
 
-  k8s:port-forward:controller:setup:
+  cluster:port-forward:controller:setup:
+    desc: Set up port forwarding to the Slim Controller service
     cmds:
       - kubectl port-forward svc/slim-control -n {{ .HELM_NAMESPACE }} 50051:50051 &
       - sleep 1
 
-  k8s:port-forward:controller:teardown:
+  cluster:port-forward:controller:teardown:
+    desc: Tear down port forwarding to the Slim Controller service
     cmds:
       - kill -9 $(ps aux | grep port-forward | grep slim-control | awk '{print $2}') || true          
-  
-  cluster.use-context:
-    desc: Set the current kubectl context to kind-slim-cluster
-    deps:
-      - cluster.up
-    cmd: kubectl config use-context kind-slim-cluster
-
-  slim.deploy.naive:
-    desc: Deploy Slim using the naive deployment strategy
-    deps: 
-      # - cluster.use-context
-    cmds:
-      - cmd: |
-          helm upgrade slim ../charts/slim \
-            --namespace slim \
-            --create-namespace \
-            --install \
-            --values naive/naive-values.yaml
 
   spire:deploy:
     desc: Deploy SPIRE server
@@ -71,7 +61,7 @@ tasks:
         --wait-for-jobs \
         --timeout "15m"
 
-  test:slimctl-download:
+  slimctl:download:
     desc: Download slimctl executable for current OS and architecture
     cmds:
       - |
@@ -91,13 +81,13 @@ tasks:
         chmod +x {{ .SLIMCTL_PATH }}
         echo "slimctl downloaded to {{ .SLIMCTL_PATH }}"        
 
-  spire:remove:
+  spire:delete:
     desc: Remove SPIRE server
     cmds:
       - helm delete spire -n {{ .SPIRE_NAMESPACE }}
       - helm delete spire-crds -n {{ .SPIRE_NAMESPACE }}
 
-  slim.deploy.contoller:
+  slim:contoller:deploy:
     desc: Deploy Slim Controller
     cmds:
       - helm upgrade --install slim-control ../charts/slim-control-plane \
@@ -105,28 +95,13 @@ tasks:
           --create-namespace \
           --values ./deployments/controller-values.yaml            
 
-  slim.deploy.statefulset:
-    desc: Deploy Slim using the StatefulSet deployment strategy
-    cmds:
-      - helm upgrade --install slim ../charts/slim \
-          --namespace slim \
-          --create-namespace \
-          --values ./deployments/statefulset-values.yaml
 
-  slim.deploy.daemonset:
-    desc: Deploy Slim using the DaemonSet deployment strategy
-    cmds:
-      - helm upgrade --install slim ../charts/slim \
-          --namespace slim \
-          --create-namespace \
-          --values ./deployments/daemonset-values.yaml
-
-  slim.deploy.client-apps:
-    desc: Deploy Slim using the DaemonSet deployment strategy
+  slim:deploy:client-apps:
+    desc: Deploy sample client applications
     cmds:
       - kubectl apply -f client_apps
 
-  slim.deploy.client-apps-with-spire:
-    desc: Deploy Slim using the DaemonSet deployment strategy
+  slim:deploy:client-apps-with-spire:
+    desc: Deploy sample client applications with SPIRE integration
     cmds:
       - kubectl apply -f client_apps/with-spire      
