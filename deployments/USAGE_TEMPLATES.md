@@ -30,13 +30,8 @@ We need an example client configuration that connects to nodes
 
 ## Table of Contents
 
-- [SLIM deployment strategies](#slim-deployment-strategies)
+- SLIM deployment strategies
   - [Naive deployment strategy](naive/naive_strategy.md)
-  - [Statefulset deployment strategy](#statefulset-deployment-strategy)
-  - [Daemonset deployment strategy](#daemonset-deployment-strategy)
+  - [Statefulset deployment strategy](statefulset/statefulset_strategy.md)
+  - [Daemonset deployment strategy](daemonset/daemonset_strategy.md)
 
-
-
-### Naive deployment strategy
-### Statefulset deployment strategy
-### Daemonset deployment strategy
