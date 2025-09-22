@@ -35,21 +35,3 @@ pub(crate) enum MessageDirection {
     North,
     South,
 }
-
-/// The session type
-#[derive(Clone, PartialEq, Debug)]
-pub enum SessionType {
-    PointToPoint,
-    Multicast,
-}
-
-impl std::fmt::Display for SessionType {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            SessionType::PointToPoint => write!(f, "PointToPoint"),
-            SessionType::Multicast => write!(f, "Multicast"),
-        }
-    }
-}
-
-// Session implementation moved to handle.rs

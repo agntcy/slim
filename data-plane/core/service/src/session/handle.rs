@@ -22,7 +22,23 @@ use crate::session::transmitter::SessionTransmitter;
 use crate::session::interceptor_mls::MlsInterceptor;
 use crate::session::traits::SessionConfigTrait;
 
-use super::{CommonSession, Id, MessageDirection, SessionConfig, SessionError, SessionType, State};
+use super::{CommonSession, Id, MessageDirection, SessionConfig, SessionError, State};
+
+/// The session type
+#[derive(Clone, PartialEq, Debug)]
+pub enum SessionType {
+    PointToPoint,
+    Multicast,
+}
+
+impl std::fmt::Display for SessionType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            SessionType::PointToPoint => write!(f, "PointToPoint"),
+            SessionType::Multicast => write!(f, "Multicast"),
+        }
+    }
+}
 
 /// Common session data
 #[derive(Debug)]

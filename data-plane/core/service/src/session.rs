@@ -47,8 +47,8 @@ pub(crate) use common::{MessageDirection, SESSION_RANGE, SlimChannelSender};
 // Session layer
 pub(crate) use session_layer::SessionLayer;
 // Public exports for external crates (like Python bindings)
-pub use common::{AppChannelReceiver, SESSION_UNSPECIFIED, SessionType};
-pub use handle::Session;
+pub use common::{AppChannelReceiver, SESSION_UNSPECIFIED};
+pub use handle::{Session, SessionType};
 
 // Re-export specific items that need to be publicly accessible
 pub use multicast::MulticastConfiguration;
