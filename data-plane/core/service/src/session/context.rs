@@ -24,7 +24,7 @@ where
     V: Verifier + Send + Sync + Clone + 'static,
     T: Transmitter + Send + Sync + Clone + 'static,
 {
-    /// Strong reference to session (lifecycle managed externally)
+    /// Weak reference to session (lifecycle managed externally)
     pub session: Weak<Session<P, V, T>>,
 
     /// Receive queue for the session
