@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Standard library imports
+use parking_lot::RwLock;
 use std::{collections::HashMap, sync::Arc, time::Duration};
 
 // Third-party crates
@@ -235,6 +236,8 @@ where
             session_config.mls_enabled,
             storage_path,
         );
+
+        common.set_dst(session_config.channel_name);
 
         let session = Multicast { common, tx };
         session.process_message(rx);
@@ -480,6 +483,10 @@ where
                 session_id
             );
         });
+    }
+
+    pub fn with_dst<R>(&self, f: impl FnOnce(Option<&Name>) -> R) -> R {
+        self.common.with_dst(f)
     }
 }
 
@@ -962,6 +969,15 @@ where
         self.common.source()
     }
 
+    fn dst(&self) -> Option<Name> {
+        // multicast sessions do not use dst
+        self.common.dst()
+    }
+
+    fn dst_arc(&self) -> Arc<RwLock<Option<Name>>> {
+        self.common.dst_arc()
+    }
+
     fn identity_provider(&self) -> P {
         self.common.identity_provider().clone()
     }
@@ -976,6 +992,11 @@ where
 
     fn tx_ref(&self) -> &T {
         self.common.tx_ref()
+    }
+
+    fn set_dst(&self, dst: Name) {
+        // allow setting on the common even if unused
+        self.common.set_dst(dst)
     }
 }
 

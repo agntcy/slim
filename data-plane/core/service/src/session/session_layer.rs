@@ -383,6 +383,8 @@ where
 
                         conf.mls_enabled = message.contains_metadata(METADATA_MLS_ENABLED);
 
+                        let conf = conf.with_remote(message.get_source());
+
                         self.create_session(SessionConfig::PointToPoint(conf), Some(id))
                             .await?
                     }

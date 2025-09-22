@@ -4,10 +4,12 @@
 // Third-party crates
 use async_trait::async_trait;
 
+use parking_lot::RwLock;
 use slim_auth::traits::{TokenProvider, Verifier};
 use slim_datapath::Status;
 use slim_datapath::api::ProtoMessage as Message;
 use slim_datapath::messages::Name;
+use std::sync::Arc;
 
 // Local crate
 use super::SessionConfig;
@@ -58,11 +60,20 @@ where
     /// Get the source name
     fn source(&self) -> &Name;
 
+    /// Get the destination name (point-to-point sessions only, None otherwise)
+    fn dst(&self) -> Option<Name>;
+
+    /// Get a clone of the Arc<RwLock<Option<Name>>> holding the destination
+    fn dst_arc(&self) -> Arc<RwLock<Option<Name>>>;
+
     // get the session config
     fn session_config(&self) -> SessionConfig;
 
     // set the session config
     fn set_session_config(&self, session_config: &SessionConfig) -> Result<(), SessionError>;
+
+    /// Set the destination name (point-to-point sessions). No-op for multicast.
+    fn set_dst(&self, dst: Name);
 
     /// get the transmitter
     #[allow(dead_code)]

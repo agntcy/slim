@@ -69,6 +69,9 @@ where
     /// Source name
     source: Name,
 
+    /// Optional dst name for point-to-point sessions (interior mutable)
+    dst: Arc<RwLock<Option<Name>>>,
+
     /// MLS state
     mls: Option<Arc<Mutex<Mls<P, V>>>>,
 
@@ -134,6 +137,12 @@ where
             SessionInner::Multicast(s) => s.source(),
         }
     }
+    pub fn dst(&self) -> Option<Name> {
+        match &self.inner {
+            SessionInner::PointToPoint(s) => s.dst(),
+            SessionInner::Multicast(s) => s.dst(),
+        }
+    }
     pub fn session_config(&self) -> SessionConfig {
         match &self.inner {
             SessionInner::PointToPoint(s) => s.session_config(),
@@ -146,6 +155,9 @@ where
             SessionInner::Multicast(s) => s.set_session_config(cfg),
         }
     }
+
+    pub fn incoming_connection() {}
+
     pub(crate) fn tx_ref(&self) -> &T {
         match &self.inner {
             SessionInner::PointToPoint(s) => s.tx_ref(),
@@ -261,6 +273,15 @@ where
             }
         }
     }
+
+    /// Execute a closure with a borrowed reference to the destination name (if set).
+    /// This avoids cloning while preserving lock safety.
+    pub fn with_dst<R>(&self, f: impl FnOnce(Option<&Name>) -> R) -> R {
+        match &self.inner {
+            SessionInner::PointToPoint(s) => s.with_dst(f),
+            SessionInner::Multicast(s) => s.with_dst(f),
+        }
+    }
 }
 
 #[async_trait]
@@ -318,12 +339,33 @@ where
         self.source()
     }
 
+    fn dst(&self) -> Option<Name> {
+        match self.inner_ref() {
+            SessionInner::PointToPoint(session) => session.dst(),
+            SessionInner::Multicast(session) => session.dst(),
+        }
+    }
+
+    fn dst_arc(&self) -> Arc<RwLock<Option<Name>>> {
+        match self.inner_ref() {
+            SessionInner::PointToPoint(session) => session.dst_arc(),
+            SessionInner::Multicast(session) => session.dst_arc(),
+        }
+    }
+
     fn session_config(&self) -> SessionConfig {
         self.session_config()
     }
 
     fn set_session_config(&self, session_config: &SessionConfig) -> Result<(), SessionError> {
         self.set_session_config(session_config)
+    }
+
+    fn set_dst(&self, dst: Name) {
+        match &self.inner {
+            SessionInner::PointToPoint(session) => session.set_dst(dst),
+            SessionInner::Multicast(session) => session.set_dst(dst),
+        }
     }
 
     fn tx(&self) -> T {
@@ -355,6 +397,18 @@ where
 
     fn source(&self) -> &Name {
         &self.source
+    }
+
+    fn dst(&self) -> Option<Name> {
+        self.dst.read().clone()
+    }
+
+    fn dst_arc(&self) -> Arc<RwLock<Option<Name>>> {
+        self.dst.clone()
+    }
+
+    fn set_dst(&self, dst: Name) {
+        *self.dst.write() = Some(dst);
     }
 
     fn session_config(&self) -> SessionConfig {
@@ -428,6 +482,7 @@ where
             _identity_verifier: verifier,
             session_config: RwLock::new(session_config),
             source,
+            dst: Arc::new(RwLock::new(None)),
             mls,
             tx,
         };
@@ -450,5 +505,11 @@ where
 
     pub(crate) fn mls(&self) -> Option<Arc<Mutex<Mls<P, V>>>> {
         self.mls.as_ref().map(|mls| mls.clone())
+    }
+
+    /// Internal helper to pass an immutable reference to dst without cloning.
+    pub fn with_dst<R>(&self, f: impl FnOnce(Option<&Name>) -> R) -> R {
+        let guard = self.dst.read();
+        f(guard.as_ref())
     }
 }

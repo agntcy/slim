@@ -8,6 +8,7 @@ use std::time::Duration;
 
 // Third-party crates
 use async_trait::async_trait;
+use parking_lot::RwLock;
 use rand::Rng;
 use tokio::sync::mpsc::{self, Receiver, Sender};
 use tokio::time::{self, Instant};
@@ -39,6 +40,7 @@ pub struct PointToPointConfiguration {
     pub max_retries: Option<u32>,
     pub sticky: bool,
     pub mls_enabled: bool,
+    pub remote: Option<Name>,
     pub(crate) initiator: bool,
 }
 
@@ -49,6 +51,7 @@ impl Default for PointToPointConfiguration {
             max_retries: Some(5),
             sticky: false,
             mls_enabled: false,
+            remote: None,
             initiator: true,
         }
     }
@@ -73,8 +76,14 @@ impl PointToPointConfiguration {
             max_retries,
             sticky,
             mls_enabled,
+            remote: None,
             initiator: true,
         }
+    }
+
+    pub fn with_remote(mut self, remote: Name) -> Self {
+        self.remote = Some(remote);
+        self
     }
 }
 
@@ -97,9 +106,13 @@ impl std::fmt::Display for PointToPointConfiguration {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "PointToPointConfiguration: timeout: {} ms, max retries: {}",
+            "PointToPointConfiguration: timeout: {} ms, max retries: {}, remote: {}",
             self.timeout.unwrap_or_default().as_millis(),
             self.max_retries.unwrap_or_default(),
+            self.remote
+                .as_ref()
+                .map(|n| n.to_string())
+                .unwrap_or_else(|| "<unset>".to_string()),
         )
     }
 }
@@ -143,6 +156,7 @@ where
     tx: T,
     config: PointToPointConfiguration,
     timers: HashMap<u32, (timer::Timer, Message)>,
+    dst: Arc<RwLock<Option<Name>>>,
     sticky_name: Option<Name>,
     sticky_connection: Option<u64>,
     sticky_session_status: StickySessionStatus,
@@ -353,6 +367,7 @@ where
         self.state.channel_endpoint.on_message(message).await?;
 
         // No error - this session is sticky
+        *self.state.dst.write() = Some(source.clone());
         self.state.sticky_name = Some(source);
         self.state.sticky_connection = Some(incoming_conn);
         self.state.sticky_session_status = StickySessionStatus::Established;
@@ -380,6 +395,7 @@ where
                 debug!("sticky session discovery established with {}", source);
 
                 // If we are still discovering, set the sticky name
+                *self.state.dst.write() = Some(source.clone());
                 self.state.sticky_name = Some(source);
                 self.state.sticky_connection = Some(incoming_conn);
                 self.state.sticky_session_status = StickySessionStatus::Established;
@@ -709,6 +725,10 @@ where
             storage_path,
         );
 
+        if let Some(remote) = session_config.remote.clone() {
+            common.set_dst(remote);
+        }
+
         // Create mls state if needed
         let mls = common
             .mls()
@@ -751,6 +771,7 @@ where
             tx: tx_slim_app.clone(),
             config: session_config,
             timers: HashMap::new(),
+            dst: common.dst_arc(),
             sticky_name: None,
             sticky_connection: None,
             sticky_session_status: StickySessionStatus::Uninitialized,
@@ -773,6 +794,10 @@ where
             tx,
             cancellation_token,
         }
+    }
+
+    pub fn with_dst<R>(&self, f: impl FnOnce(Option<&Name>) -> R) -> R {
+        self.common.with_dst(f)
     }
 }
 
@@ -824,6 +849,14 @@ where
         self.common.source()
     }
 
+    fn dst(&self) -> Option<Name> {
+        self.common.dst()
+    }
+
+    fn dst_arc(&self) -> Arc<RwLock<Option<Name>>> {
+        self.common.dst_arc()
+    }
+
     fn identity_provider(&self) -> P {
         self.common.identity_provider().clone()
     }
@@ -838,6 +871,10 @@ where
 
     fn tx_ref(&self) -> &T {
         self.common.tx_ref()
+    }
+
+    fn set_dst(&self, dst: Name) {
+        self.common.set_dst(dst)
     }
 }
 
@@ -910,6 +947,31 @@ mod tests {
             session.session_config(),
             SessionConfig::PointToPoint(PointToPointConfiguration::default())
         );
+    }
+
+    #[tokio::test]
+    async fn test_point_to_point_create_with_remote_dst() {
+        let (tx_slim, _) = tokio::sync::mpsc::channel(1);
+        let (tx_app, _) = tokio::sync::mpsc::channel(1);
+
+        let tx = SessionTransmitter::new(tx_app, tx_slim);
+
+        let source = Name::from_strings(["cisco", "default", "local"]).with_id(0);
+        let remote = Name::from_strings(["cisco", "default", "remote"]).with_id(999);
+
+        let config = PointToPointConfiguration::default().with_remote(remote.clone());
+
+        let session = PointToPoint::new(
+            0,
+            config,
+            source.clone(),
+            tx,
+            SharedSecret::new("a", "group"),
+            SharedSecret::new("a", "group"),
+            std::path::PathBuf::from("/tmp/test_session"),
+        );
+
+        assert_eq!(session.dst(), Some(remote));
     }
 
     #[tokio::test]
@@ -1037,6 +1099,7 @@ mod tests {
                 max_retries: Some(5),
                 sticky: false,
                 mls_enabled: false,
+                remote: None,
                 initiator: true,
             },
             source.clone(),
@@ -1104,6 +1167,7 @@ mod tests {
                 max_retries: Some(5),
                 sticky: false,
                 mls_enabled: false,
+                remote: None,
                 initiator: true,
             },
             local.clone(),
@@ -1184,6 +1248,7 @@ mod tests {
             .await
             .expect("no message received")
             .expect("error");
+
         let header = ack.get_session_header();
         assert_eq!(
             header.session_message_type(),
@@ -1260,6 +1325,7 @@ mod tests {
                 max_retries: Some(5),
                 sticky: true,
                 mls_enabled,
+                remote: None,
                 initiator: true,
             },
             local.clone(),
@@ -1276,6 +1342,7 @@ mod tests {
                 max_retries: Some(5),
                 sticky: false,
                 mls_enabled,
+                remote: None,
                 initiator: false,
             },
             remote.clone(),
@@ -1415,6 +1482,13 @@ mod tests {
             .on_message(msg, MessageDirection::North)
             .await
             .expect("failed to handle channel join reply");
+
+        // wait one moment
+        tokio::time::sleep(Duration::from_millis(100)).await;
+
+        // After channel join reply only the sender (initiator, sticky) should have dst set
+        assert_eq!(sender_session.dst(), Some(remote.clone()));
+        assert_eq!(receiver_session.dst(), Some(local.clone()));
 
         // Check the payload
         if mls_enabled {
