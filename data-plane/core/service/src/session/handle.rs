@@ -24,6 +24,9 @@ use crate::session::traits::SessionConfigTrait;
 
 use super::{CommonSession, Id, MessageDirection, SessionConfig, SessionError, State};
 
+/// Session ID type
+pub type Id = u32;
+
 /// The session type
 #[derive(Clone, PartialEq, Debug)]
 pub enum SessionType {
@@ -293,7 +296,7 @@ where
         self.id()
     }
 
-    fn state(&self) -> &super::State {
+    fn state(&self) -> &State {
         match self.inner_ref() {
             SessionInner::PointToPoint(session) => session.state(),
             SessionInner::Multicast(session) => session.state(),
