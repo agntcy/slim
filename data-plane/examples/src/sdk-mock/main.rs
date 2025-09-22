@@ -15,6 +15,89 @@ use slim_service::{
 
 mod args;
 
+// Function to handle session messages using spawn_receiver
+fn spawn_session_receiver(
+    session_ctx: slim_service::session::context::SessionContext<SharedSecret, SharedSecret>,
+    local_name: String,
+    route: Name,
+) -> std::sync::Arc<slim_service::session::Session<SharedSecret, SharedSecret>> {
+    session_ctx
+        .spawn_receiver(|mut rx, weak, _meta| async move {
+            info!("Session handler task started");
+
+            // Local deque for queuing reply messages
+            let mut reply_queue = std::collections::VecDeque::<String>::new();
+
+            // Timer for periodic message sending (every second)
+            let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(1));
+
+            loop {
+                tokio::select! {
+                    // Handle incoming messages
+                    msg_result = rx.recv() => {
+                        match msg_result {
+                            Some(Ok(message)) => match &message.message_type {
+                                Some(slim_datapath::api::MessageType::Publish(msg)) => {
+                                    let payload = msg.get_payload();
+                                    match std::str::from_utf8(&payload.blob) {
+                                        Ok(text) => {
+                                            info!("received message: {}", text);
+                                        }
+                                        Err(_) => {
+                                            info!(
+                                                "received encrypted message: {} bytes",
+                                                payload.blob.len()
+                                            );
+                                        }
+                                    }
+
+                                    // Queue reply message instead of sending immediately
+                                    let reply = format!("hello from the {}", local_name);
+                                    info!("Queueing reply message: {}", reply);
+                                    reply_queue.push_back(reply);
+                                }
+                                _ => {
+                                    info!("received non-publish message");
+                                }
+                            },
+                            Some(Err(e)) => {
+                                info!("received message error: {:?}", e);
+                                break;
+                            }
+                            None => {
+                                info!("Message channel closed");
+                                break;
+                            }
+                        }
+                    }
+
+                    // Periodic timer - send queued messages
+                    _ = interval.tick() => {
+                        if let Some(reply) = reply_queue.pop_front() {
+                            info!("Sending periodic reply: {}", reply);
+
+                            if let Some(session_arc) = weak.upgrade() {
+                                let reply_bytes = reply.into_bytes();
+                                if let Err(e) = session_arc
+                                    .publish(&route, reply_bytes, None, None)
+                                    .await
+                                {
+                                    info!("error sending periodic reply: {}", e);
+                                }
+                            } else {
+                                info!("session already dropped; cannot send reply");
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+            info!("Session handler task ended");
+        })
+        .upgrade()
+        .unwrap()
+}
+
 #[tokio::main]
 async fn main() {
     // parse command line arguments
@@ -143,6 +226,9 @@ async fn main() {
         None
     };
 
+    // Local array of created sessions
+    let mut sessions = vec![];
+
     // check what to do with the message
     if let Some(msg) = message {
         // create a p2p session
@@ -153,8 +239,6 @@ async fn main() {
             )
             .await
             .expect("error creating p2p session");
-
-        // We will publish first, then spawn receiver background task.
 
         // Client MLS setup, only if mls_group_id is provided
         if let Some(group_identifier) = mls_group_id {
@@ -197,13 +281,19 @@ async fn main() {
             info!("Client successfully joined group");
         }
 
+        // Get the session and spawn receiver for handling responses
+        let session = spawn_session_receiver(session_ctx, local_name.to_string(), route.clone());
+        // let session = session_ctx.session_arc().unwrap();
+
+        info!("Sending message to {}", route);
+
         // publish message using session context
-        session_ctx
-            .session_arc()
-            .unwrap()
+        session
             .publish(&route, msg.into(), None, None)
             .await
             .unwrap();
+
+        sessions.push(session);
     }
 
     // wait for messages and handle sessions
@@ -223,49 +313,15 @@ async fn main() {
                     session::notification::Notification::NewSession(session) => {
                         info!("New session created");
 
-                        // Use the new public spawn_receiver API to process messages
-                        let local_name_clone = local_name.to_string();
-                        let _app_clone = app.clone();
-                        let route_clone = route.clone();
-                        let _session_handle = session.spawn_receiver(|mut rx, weak, _meta| async move {
-                            info!("Session handler task started");
-                            while let Some(msg_result) = rx.recv().await {
-                                match msg_result {
-                                    Ok(message) => match &message.message_type {
-                                        Some(slim_datapath::api::MessageType::Publish(msg)) => {
-                                            let payload = msg.get_payload();
-                                            match std::str::from_utf8(&payload.blob) {
-                                                Ok(text) => {
-                                                    info!("received message: {}", text);
-                                                }
-                                                Err(_) => {
-                                                    info!("received encrypted message: {} bytes", payload.blob.len());
-                                                }
-                                            }
-                                            let reply = format!("hello from the {}", local_name_clone);
-                                            info!("Received message from session, responding with: {}", reply);
+                        // Use the extracted spawn_session_receiver function
+                        let session = spawn_session_receiver(
+                            session,
+                            local_name.to_string(),
+                            route.clone(),
+                        );
 
-                                            // Attempt automatic reply using new Session::publish API
-                                            if let Some(session_arc) = weak.upgrade() {
-                                                let reply = reply.into_bytes(); // original payload bytes
-                                                if let Err(e) = session_arc.publish(&route_clone, reply, None, None).await {
-                                                    info!("error sending reply: {}", e);
-                                                }
-                                            } else { info!("session already dropped; cannot send reply"); }
-
-                                        }
-                                        _ => {
-                                            info!("received non-publish message");
-                                        }
-                                    },
-                                    Err(e) => {
-                                        info!("received message error: {:?}", e);
-                                        break;
-                                    }
-                                }
-                            }
-                            info!("Session handler task ended");
-                        });
+                        // Save the session
+                        sessions.push(session);
                     }
                     _ => {
                         info!("Unexpected notification type");
@@ -276,6 +332,11 @@ async fn main() {
     }
 
     info!("sdk-mock shutting down");
+
+    // Delete all the sessions
+    for session in sessions {
+        app.delete_session(&session).await.unwrap();
+    }
 
     // consume the service and get the drain signal
     let signal = svc.signal();

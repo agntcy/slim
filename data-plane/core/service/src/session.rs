@@ -9,7 +9,6 @@ mod errors;
 mod handle;
 pub mod interceptor;
 pub mod interceptor_mls;
-mod message;
 mod moderator_task;
 pub mod multicast;
 pub mod notification;
@@ -26,11 +25,11 @@ pub use traits::Transmitter;
 pub(crate) use traits::{CommonSession, MessageHandler, SessionConfigTrait};
 
 // Common types that session modules need
-pub(crate) use handle::Common;
 pub(crate) use common::State;
+pub(crate) use handle::Common;
 
-// Session Info
-pub use message::Id;
+// Session Id
+pub use handle::Id;
 
 // Session Errors
 pub use errors::SessionError;

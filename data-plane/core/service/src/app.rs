@@ -21,7 +21,7 @@ use crate::session::Session;
 use crate::session::interceptor::{IdentityInterceptor, SessionInterceptorProvider};
 use crate::session::notification::Notification;
 use crate::session::transmitter::AppTransmitter;
-use crate::session::{Id, MessageDirection, SessionConfig, SlimChannelSender};
+use crate::session::{Id, SessionConfig, SlimChannelSender};
 use crate::session::{SessionError, SessionLayer, context::SessionContext};
 use crate::{ServiceError, session};
 
@@ -269,7 +269,7 @@ where
 
                                         // Handle the message
                                         let res = session_layer
-                                            .handle_message_from_slim(msg, MessageDirection::North)
+                                            .handle_message_from_slim(msg)
                                             .await;
 
                                         if let Err(e) = res {
@@ -493,7 +493,7 @@ mod tests {
         header.set_session_message_type(ProtoSessionMessageType::P2PMsg);
 
         app.session_layer
-            .handle_message_from_slim(message.clone(), MessageDirection::North)
+            .handle_message_from_slim(message.clone())
             .await
             .expect_err("should fail as identity is not verified");
 
@@ -508,7 +508,7 @@ mod tests {
 
         // Try again
         app.session_layer
-            .handle_message_from_slim(message.clone(), MessageDirection::North)
+            .handle_message_from_slim(message.clone())
             .await
             .unwrap();
 

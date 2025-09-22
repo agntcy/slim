@@ -1415,7 +1415,7 @@ mod tests {
 
             // the receiver should detect a loss for packet 1
             if i != 1 {
-                // make sure to set the incoming connection to avoid paninc
+                // make sure to set the incoming connection to avoid panic
                 msg.set_incoming_conn(Some(0));
                 msg.get_session_header_mut().set_session_id(0);
                 let res = receiver

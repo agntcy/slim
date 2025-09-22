@@ -326,7 +326,7 @@ where
         if session_message_type == ProtoSessionMessageType::ChannelLeaveRequest {
             // send message to the session and delete it after
             if let Some(session) = self.pool.read().await.get(&id) {
-                session.publish_message(message).await?;
+                session.on_message(message, MessageDirection::North).await?;
             } else {
                 warn!(
                     "received Channel Leave Request message with unknown session id, drop the message"
@@ -342,7 +342,7 @@ where
 
         if let Some(session) = self.pool.read().await.get(&id) {
             // pass the message to the session
-            return session.publish_message(message).await;
+            return session.on_message(message, MessageDirection::North).await;
         }
 
         let new_session = match session_message_type {

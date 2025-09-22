@@ -14,15 +14,15 @@ use slim_datapath::messages::encoder::Name;
 use slim_datapath::messages::utils::SlimHeaderFlags;
 use slim_mls::mls::Mls;
 
+use crate::session::interceptor_mls::MlsInterceptor;
 use crate::session::multicast::Multicast;
 use crate::session::point_to_point::PointToPoint;
 use crate::session::traits::MessageHandler;
+use crate::session::traits::SessionConfigTrait;
 use crate::session::traits::Transmitter;
 use crate::session::transmitter::SessionTransmitter;
-use crate::session::interceptor_mls::MlsInterceptor;
-use crate::session::traits::SessionConfigTrait;
 
-use super::{CommonSession, Id, MessageDirection, SessionConfig, SessionError, State};
+use super::{CommonSession, MessageDirection, SessionConfig, SessionError, State};
 
 /// Session ID type
 pub type Id = u32;
@@ -55,13 +55,13 @@ where
     id: Id,
 
     /// Session state
-    state: State,
+    _state: State,
 
     /// Token provider for authentication
-    identity_provider: P,
+    _identity_provider: P,
 
     /// Verifier for authentication
-    identity_verifier: V,
+    _identity_verifier: V,
 
     /// Session type
     session_config: RwLock<SessionConfig>,
@@ -156,10 +156,7 @@ where
         &self.inner
     }
 
-    pub async fn publish_message(
-        &self,
-        message: Message,
-    ) -> Result<(), SessionError> {
+    pub async fn publish_message(&self, message: Message) -> Result<(), SessionError> {
         self.on_message(message, MessageDirection::South).await
     }
 
@@ -353,7 +350,7 @@ where
     }
 
     fn state(&self) -> &State {
-        &self.state
+        &self._state
     }
 
     fn source(&self) -> &Name {
@@ -365,11 +362,11 @@ where
     }
 
     fn identity_provider(&self) -> P {
-        self.identity_provider.clone()
+        self._identity_provider.clone()
     }
 
     fn identity_verifier(&self) -> V {
-        self.identity_verifier.clone()
+        self._identity_verifier.clone()
     }
 
     fn set_session_config(&self, session_config: &SessionConfig) -> Result<(), SessionError> {
@@ -426,9 +423,9 @@ where
 
         let session = Self {
             id,
-            state: State::Active,
-            identity_provider,
-            identity_verifier: verifier,
+            _state: State::Active,
+            _identity_provider: identity_provider,
+            _identity_verifier: verifier,
             session_config: RwLock::new(session_config),
             source,
             mls,

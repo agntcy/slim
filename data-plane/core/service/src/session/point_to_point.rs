@@ -466,11 +466,6 @@ where
                 .insert(message_id, (timer, message.clone()));
         }
 
-        debug!(
-            "sending sticky session discovery reply to {}",
-            message.get_source()
-        );
-
         // Send message
         self.state
             .tx
