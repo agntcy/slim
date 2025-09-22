@@ -3,7 +3,6 @@
 
 // Standard library imports
 use std::collections::{HashMap, VecDeque};
-use std::hash::Hash;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -13,7 +12,7 @@ use rand::Rng;
 use tokio::sync::mpsc::{self, Receiver, Sender};
 use tokio::time::{self, Instant};
 use tokio_util::sync::CancellationToken;
-use tracing::{debug, error, info, trace, warn};
+use tracing::{debug, error, warn};
 
 use slim_auth::traits::{TokenProvider, Verifier};
 use slim_datapath::api::{
@@ -129,15 +128,17 @@ enum InternalMessage {
     TimerTimeout {
         message_id: u32,
         timeouts: u32,
+        ack: bool, // true: ack timer, false: rtx timer
     },
     TimerFailure {
         message_id: u32,
         timeouts: u32,
+        ack: bool, // true: ack timer, false: rtx timer
     },
 }
 
 struct SenderState {
-    buffer: ProducerBuffer, // buffer with the packets coming from the application
+    buffer: ProducerBuffer, // buffer with packets coming from the application
     next_id: u32,           // next packet id
     pending_acks: HashMap<u32, (timer::Timer, Message)>, // list of pending ack with timers an messages to resend
 }
@@ -157,17 +158,21 @@ where
     source: Name,
     tx: T,
     config: PointToPointConfiguration,
-    //timers: HashMap<u32, (timer::Timer, Message)>,
     sticky_name: Option<Name>,
     sticky_connection: Option<u64>,
     sticky_session_status: StickySessionStatus,
-    sticky_buffer: VecDeque<Message>, // still needed because the messages ids are set later
-    sender_state: SenderState,
+    sticky_buffer: VecDeque<Message>,
+    sender_state: SenderState,     // send packets with sequencial ids
     receiver_state: ReceiverState, // to be used only in case of unicast session
     channel_endpoint: ChannelEndpoint<P, V, T>,
 }
 
+// need to observers in order to distinguish RTX from ACK timers
 struct RtxTimerObserver {
+    tx: Sender<InternalMessage>,
+}
+
+struct AckTimerObserver {
     tx: Sender<InternalMessage>,
 }
 
@@ -179,18 +184,20 @@ where
     T: SessionTransmitter + Send + Sync + Clone + 'static,
 {
     state: PointToPointState<P, V, T>,
-    timer_observer: Arc<RtxTimerObserver>,
+    ack_timer_observer: Arc<AckTimerObserver>,
+    rtx_timer_observer: Arc<RtxTimerObserver>,
     rx: Receiver<InternalMessage>,
     cancellation_token: CancellationToken,
 }
 
 #[async_trait]
-impl timer::TimerObserver for RtxTimerObserver {
+impl timer::TimerObserver for AckTimerObserver {
     async fn on_timeout(&self, message_id: u32, timeouts: u32) {
         self.tx
             .send(InternalMessage::TimerTimeout {
                 message_id,
                 timeouts,
+                ack: true,
             })
             .await
             .expect("failed to send timer timeout");
@@ -202,6 +209,37 @@ impl timer::TimerObserver for RtxTimerObserver {
             .send(InternalMessage::TimerFailure {
                 message_id,
                 timeouts,
+                ack: true,
+            })
+            .await
+            .expect("failed to send timer failure");
+    }
+
+    async fn on_stop(&self, message_id: u32) {
+        debug!("timer stopped: {}", message_id);
+    }
+}
+
+#[async_trait]
+impl timer::TimerObserver for RtxTimerObserver {
+    async fn on_timeout(&self, message_id: u32, timeouts: u32) {
+        self.tx
+            .send(InternalMessage::TimerTimeout {
+                message_id,
+                timeouts,
+                ack: false,
+            })
+            .await
+            .expect("failed to send timer timeout");
+    }
+
+    async fn on_failure(&self, message_id: u32, timeouts: u32) {
+        // remove the state for the lost message
+        self.tx
+            .send(InternalMessage::TimerFailure {
+                message_id,
+                timeouts,
+                ack: false,
             })
             .await
             .expect("failed to send timer failure");
@@ -226,7 +264,8 @@ where
     ) -> Self {
         PointToPointProcessor {
             state,
-            timer_observer: Arc::new(RtxTimerObserver { tx: tx.clone() }),
+            ack_timer_observer: Arc::new(AckTimerObserver { tx: tx.clone() }),
+            rtx_timer_observer: Arc::new(RtxTimerObserver { tx: tx.clone() }),
             rx,
             cancellation_token,
         }
@@ -261,16 +300,18 @@ where
                             InternalMessage::TimerTimeout {
                                 message_id,
                                 timeouts,
+                                ack,
                             } => {
                                 println!("timer timeout for message id {}: {}", message_id, timeouts);
-                                self.handle_timer_timeout(message_id).await;
+                                self.handle_timer_timeout(message_id, ack).await;
                             }
                             InternalMessage::TimerFailure {
                                 message_id,
                                 timeouts,
+                                ack,
                             } => {
                                 debug!("timer failure for message id {}: {}", message_id, timeouts);
-                                self.handle_timer_failure(message_id).await;
+                                self.handle_timer_failure(message_id, ack).await;
                             }
                         },
                         None => {
@@ -291,42 +332,58 @@ where
         }
 
         // Clean up any remaining timers
-        // TODO: replicate for RTXs
         for (_, (mut timer, _)) in self.state.sender_state.pending_acks.drain() {
+            timer.stop();
+        }
+        for (_, (mut timer, _)) in self.state.receiver_state.pending_rtxs.drain() {
             timer.stop();
         }
 
         debug!("PointToPointProcessor loop exited");
     }
 
-    async fn handle_timer_timeout(&mut self, message_id: u32) {
-        // TODO: check if it is pending ack or rtx
-
-        // Check if the timeout was triggered as a sender or receiver
-        let message = match self.state.sender_state.pending_acks.get(&message_id) {
-            Some((_t, msg)) => {
-                println!(
-                    "------missing Ack for message {}, send it again",
-                    message_id
-                );
-                msg.clone()
-            }
-            None => match self.state.receiver_state.pending_rtxs.get(&message_id) {
+    async fn handle_timer_timeout(&mut self, message_id: u32, ack: bool) {
+        let message = if ack {
+            match self.state.sender_state.pending_acks.get(&message_id) {
                 Some((_t, msg)) => {
-                    println!("-----send RTX message for message id {}", message_id);
-                    // TODO before send the RTX check if the packet was received!
+                    println!(
+                        "------missing Ack for message {}, send it again",
+                        message_id
+                    );
                     msg.clone()
                 }
                 None => {
-                    println!(
-                        "-----the timer does not exists, ignore timeout {}",
-                        message_id
-                    );
                     warn!("the timer does not exists, ignore timeout");
                     return;
                 }
-            },
+            }
+        } else {
+            match self.state.receiver_state.pending_rtxs.get(&message_id) {
+                Some((_t, msg)) => {
+                    println!("-----send RTX message for message id {}", message_id);
+                    msg.clone()
+                }
+                None => {
+                    warn!("the timer does not exists, ignore timeout");
+                    return;
+                }
+            }
         };
+
+        // if RTX check if we need to send it or just remove the timer
+        if !ack
+            && self
+                .state
+                .receiver_state
+                .buffer
+                .message_already_received(message_id as usize)
+        {
+            // the message was already received, no need to send RTX
+            if let Some((mut t, _m)) = self.state.receiver_state.pending_rtxs.remove(&message_id) {
+                t.stop();
+                return;
+            }
+        }
 
         let _ = self
             .state
@@ -336,22 +393,42 @@ where
             .map_err(|e| SessionError::AppTransmission(e.to_string()));
     }
 
-    async fn handle_timer_failure(&mut self, message_id: u32) {
-        // TODO: check if it is pending ack or rtx
-
+    async fn handle_timer_failure(&mut self, message_id: u32, ack: bool) {
         // Remove the state for the lost message
-        if let Some((_timer, message)) = self.state.sender_state.pending_acks.get(&message_id) {
-            let _ = self
-                .state
-                .tx
-                .send_to_app(Err(SessionError::Timeout {
-                    session_id: self.state.session_id,
-                    message_id,
-                    message: Box::new(SessionMessage::from(message.clone())),
-                }))
-                .await
-                .map_err(|e| SessionError::AppTransmission(e.to_string()));
-        }
+        let message = if ack {
+            match self.state.sender_state.pending_acks.remove(&message_id) {
+                Some((_timer, message)) => message,
+                None => {
+                    warn!(
+                        "No pending ack found for message_id {} in timer failure",
+                        message_id
+                    );
+                    return;
+                }
+            }
+        } else {
+            match self.state.receiver_state.pending_rtxs.remove(&message_id) {
+                Some((_timer, message)) => message,
+                None => {
+                    warn!(
+                        "No pending rtx found for message_id {} in timer failure",
+                        message_id
+                    );
+                    return;
+                }
+            }
+        };
+
+        let _ = self
+            .state
+            .tx
+            .send_to_app(Err(SessionError::Timeout {
+                session_id: self.state.session_id,
+                message_id,
+                message: Box::new(SessionMessage::from(message.clone())),
+            }))
+            .await
+            .map_err(|e| SessionError::AppTransmission(e.to_string()));
     }
 
     async fn start_sticky_session_discovery(&mut self, name: &Name) -> Result<(), SessionError> {
@@ -483,9 +560,14 @@ where
         message_id: Option<u32>,
     ) -> Result<(), SessionError> {
         // Set the message id
-        let message_id = message_id.unwrap_or_else(|| self.state.sender_state.next_id);
-        self.state.sender_state.next_id += 1;
-
+        let message_id = match message_id {
+            Some(id) => id,
+            None => {
+                let next = self.state.sender_state.next_id;
+                self.state.sender_state.next_id += 1;
+                next
+            }
+        };
         // Get a mutable reference to the message header
         let header = message.get_session_header_mut();
 
@@ -509,7 +591,7 @@ where
         self.state.sender_state.buffer.push(message.clone());
 
         if let Some(timeout_duration) = self.state.config.timeout {
-            // Create timer. resend the message on timeout
+            // Create timer
             let message_id = message.get_id();
             let timer = timer::Timer::new(
                 message_id,
@@ -520,7 +602,7 @@ where
             );
 
             // start timer
-            timer.start(self.timer_observer.clone());
+            timer.start(self.ack_timer_observer.clone());
 
             // Store timer and message
             self.state
@@ -625,11 +707,11 @@ where
             %source, %message_id, "received message from slim",
         );
 
-        if self.state.config.initiator {
-            if message.message.get_session_message_type() == ProtoSessionMessageType::RtxRequest {
-                println!("recv mesg {:?}", message.message);
-            }
-        }
+        //if self.state.config.initiator
+        //    && message.message.get_session_message_type() == ProtoSessionMessageType::RtxRequest
+        //{
+        //    println!("recv mesg {:?}", message.message);
+        //}
 
         // If session is sticky, check if the source matches the sticky name
         if self.state.config.sticky
@@ -652,27 +734,7 @@ where
             ProtoSessionMessageType::P2PReliable => {
                 // Send an ack back as reply and forward the incoming message to the app
                 // Create ack message
-                let src = message.message.get_source();
-                let slim_header = Some(SlimHeader::new(
-                    &self.state.source,
-                    &src,
-                    Some(
-                        SlimHeaderFlags::default()
-                            .with_forward_to(message.message.get_incoming_conn()),
-                    ),
-                ));
-
-                let session_header = Some(SessionHeader::new(
-                    ProtoSessionType::SessionPointToPoint.into(),
-                    ProtoSessionMessageType::P2PAck.into(),
-                    message.info.id,
-                    message_id,
-                    &None,
-                    &None,
-                ));
-
-                let ack =
-                    Message::new_publish_with_headers(slim_header, session_header, "", vec![]);
+                let ack = self.create_ack(&message);
 
                 // Forward the message to the app
                 self.send_message_to_app(message).await?;
@@ -742,7 +804,10 @@ where
         }
     }
 
-    async fn process_incoming_rtx_request(&mut self, message: SessionMessage) -> Result<(), SessionError> {
+    async fn process_incoming_rtx_request(
+        &mut self,
+        message: SessionMessage,
+    ) -> Result<(), SessionError> {
         let msg_rtx_id = message.message.get_id();
         let pkt_src = message.message.get_source();
         let pkt_dst = message.message.get_dst();
@@ -751,7 +816,7 @@ where
 
         let rtx_pub = match self.state.sender_state.buffer.get(msg_rtx_id as usize) {
             Some(packet) => {
-                trace!(
+                debug!(
                     "packet {} exists in the producer buffer, create rtx reply",
                     msg_rtx_id
                 );
@@ -760,28 +825,24 @@ where
                 let payload = match packet.get_payload() {
                     Some(p) => p,
                     None => {
-                        error!("unable to get the payload from the packet");
-                        return Err(SessionError::MlsNoPayload); // TODO put a better error
+                        error!("unable to get the payload from the packet, do not send packet");
+                        return Err(SessionError::MessageLost(msg_rtx_id.to_string()));
                     }
                 };
 
-                let slim_header = Some(SlimHeader::new(
-                    &pkt_dst,
-                    &pkt_src,
-                    Some(
-                        SlimHeaderFlags::default()
-                            .with_forward_to(incoming_conn)
-                            .with_fanout(1),
-                    ),
-                ));
+                let flags = SlimHeaderFlags::default()
+                    .with_forward_to(incoming_conn)
+                    .with_fanout(1);
+
+                let slim_header = Some(SlimHeader::new(&pkt_dst, &pkt_src, Some(flags)));
 
                 let session_header = Some(SessionHeader::new(
                     ProtoSessionType::SessionPointToPoint.into(),
                     ProtoSessionMessageType::RtxReply.into(),
                     session_id,
                     msg_rtx_id,
-                    &Some(pkt_dst),
-                    &Some(pkt_src),
+                    &Some(self.state.source.clone()),
+                    &Some(self.state.sticky_name.as_ref().unwrap_or(&pkt_dst).clone()),
                 ));
 
                 Message::new_publish_with_headers(
@@ -821,13 +882,46 @@ where
         self.state.tx.send_to_slim(Ok(rtx_pub)).await
     }
 
-    async fn process_incoming_rtx_reply(&mut self, message: SessionMessage) -> Result<(), SessionError> {
+    async fn process_incoming_rtx_reply(
+        &mut self,
+        message: SessionMessage,
+    ) -> Result<(), SessionError> {
+        // Remove RTX timer
         let msg_id = message.message.get_session_header().get_message_id();
         self.stop_and_remove_timer(msg_id)?;
 
-        // the timer was removed so send the message to the app
-        // ??? do we need to send an ack back ???
-        self.send_message_to_app(message).await
+        let ack = self.create_ack(&message);
+
+        // Forward the message to the app
+        self.send_message_to_app(message).await?;
+
+        // Send the ack
+        self.state
+            .tx
+            .send_to_slim(Ok(ack))
+            .await
+            .map_err(|e| SessionError::SlimTransmission(e.to_string()))
+    }
+
+    fn create_ack(&self, message: &SessionMessage) -> Message {
+        let src = message.message.get_source();
+        let message_id = message.message.get_session_header().message_id;
+        let slim_header = Some(SlimHeader::new(
+            &self.state.source,
+            &src,
+            Some(SlimHeaderFlags::default().with_forward_to(message.message.get_incoming_conn())),
+        ));
+
+        let session_header = Some(SessionHeader::new(
+            ProtoSessionType::SessionPointToPoint.into(),
+            ProtoSessionMessageType::P2PAck.into(),
+            message.info.id,
+            message_id,
+            &None,
+            &None,
+        ));
+
+        Message::new_publish_with_headers(slim_header, session_header, "", vec![])
     }
 
     /// Helper function to send a message to the application.
@@ -836,12 +930,11 @@ where
         // if the session is not reliable or is not unicast we can accept holes in the
         // sequence of the received messages and so we send this packets to the application
         // immediatly without reordering. notice that an anycast reliable session is possible
-        // and the packet are direclty send by the sender if acks are not received
+        // and the packet are re-send by the sender if acks are not received
         if message.message.get_session_message_type() == ProtoSessionMessageType::P2PMsg
             || (!self.state.config.mls_enabled && !self.state.config.sticky)
         {
             // this is an anycast session so simply send the message to the app
-            println!("go free style");
             return self
                 .state
                 .tx
@@ -853,17 +946,26 @@ where
         // here we need to reorder the messages if needed
         let session_id = message.info.id;
 
-        let mut recv = Vec::new();
+        let recv;
         let mut rtx = Vec::new();
-        if message.message.get_session_message_type() == ProtoSessionMessageType::RtxReply &&
-        message.message.get_error().is_some() && message.message.get_error().unwrap() {
-            recv = self.state.receiver_state.buffer.on_lost_message(message.message.get_session_header().get_message_id());
+        if message.message.get_session_message_type() == ProtoSessionMessageType::RtxReply
+            && message.message.get_error().is_some()
+            && message.message.get_error().unwrap()
+        {
+            // this is a packet that cannot be recovered anymore
+            recv = self
+                .state
+                .receiver_state
+                .buffer
+                .on_lost_message(message.message.get_session_header().get_message_id());
         } else {
-        (recv, rtx) = self
-            .state
-            .receiver_state
-            .buffer
-            .on_received_message(message.message);
+            let (r, rtx_vec) = self
+                .state
+                .receiver_state
+                .buffer
+                .on_received_message(message.message);
+            recv = r;
+            rtx = rtx_vec;
         }
 
         for opt in recv {
@@ -893,15 +995,15 @@ where
 
         // if rtx is not empty we detected at least one missing packet.
         // the packet may be in flight (the sender keeps sending packet if no ack is received,
-        // however the max retransmission number can be hit). So avoid to get stuck and do not
+        // however the max retransmission number can be hit). So avoid, to get stuck and do not
         // send any packet to the application the receiver can also ask for retransmissions.
-        // doing so if a packet is available in the sender buffer it be receoverd.
+        // doing so if a packet is available in the sender buffer it will be receoverd.
 
         let destination = match &self.state.sticky_name {
             Some(d) => d,
             None => {
                 warn!("cannot send rtx messages, destination name is missing");
-                return Err(SessionError::MessageLost(session_id.to_string())); // TODO find a better error
+                return Err(SessionError::MessageLost(session_id.to_string()));
             }
         };
 
@@ -909,15 +1011,15 @@ where
             Some(c) => c,
             None => {
                 warn!("cannot send rtx messages, incoming connection is missing");
-                return Err(SessionError::MessageLost(session_id.to_string())); // TODO find a better error
+                return Err(SessionError::MessageLost(session_id.to_string()));
             }
         };
 
-        if rtx.len() != 0 {
+        if !rtx.is_empty() {
             println!("---------");
             for msg_id in rtx {
                 println!("create rtx message for index {}", msg_id);
-                //let timer_duration = self.state.config.timeout.unwrap_or(Duration::from_secs(1));
+                //let timer_duration = self.state.config.timeout.unwrap_or(Duration::from_secs(1)); //TODO how do we set this timer?
                 let timer_duration = Duration::from_secs(1);
                 let timer = timer::Timer::new(
                     msg_id,
@@ -930,7 +1032,7 @@ where
                 // create RTX packet
                 let slim_header = Some(SlimHeader::new(
                     &self.state.source,
-                    &destination,
+                    destination,
                     Some(SlimHeaderFlags::default().with_forward_to(connection)),
                 ));
 
@@ -947,7 +1049,7 @@ where
                     Message::new_publish_with_headers(slim_header, session_header, "", vec![]);
 
                 // start timer
-                timer.start(self.timer_observer.clone());
+                timer.start(self.rtx_timer_observer.clone());
 
                 // Store timer and message
                 self.state
@@ -976,13 +1078,11 @@ where
                     timer.stop();
                     Ok(())
                 }
-                None => {    
-                    Err(SessionError::AppTransmission(format!(
-                        "timer not found for message id {}",
-                        message_id
-                    )))    
-                }               
-            }
+                None => Err(SessionError::AppTransmission(format!(
+                    "timer not found for message id {}",
+                    message_id
+                ))),
+            },
         }
     }
 }

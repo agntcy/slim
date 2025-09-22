@@ -63,6 +63,32 @@ impl ReceiverBuffer {
         rtx
     }
 
+    pub fn message_already_received(&self, msg_id: usize) -> bool {
+        if self.last_sent == usize::MAX {
+            // no message received yet
+            return false;
+        }
+
+        if msg_id <= self.last_sent {
+            // this message was already delivered to the app
+            // or it is impossible to recover it, no need
+            // for RTX messages
+            return true;
+        }
+
+        if self.buffer.is_empty()
+            || msg_id > (self.last_sent + (self.buffer.len() - self.first_entry))
+        {
+            // in this case the buffer is empty or the message id > the buffer range
+            // this packet is still missing
+            return false;
+        }
+
+        // the message is in the buffer range, check if it was received or not
+        let pos = msg_id - (self.last_sent + 1) + self.first_entry;
+        self.buffer[pos].is_some()
+    }
+
     fn internal_on_received_message(
         &mut self,
         msg_id: usize,
