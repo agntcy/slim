@@ -66,7 +66,7 @@ where
     /// Source name
     source: Name,
 
-    /// MLS state (used only in pub/sub section for the moment)
+    /// MLS state
     mls: Option<Arc<Mutex<Mls<P, V>>>>,
 
     /// Transmitter for sending messages to slim and app
