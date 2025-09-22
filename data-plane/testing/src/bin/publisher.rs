@@ -117,7 +117,7 @@ async fn main() {
     // create local app
     let app_name = Name::from_strings(["agntcy", "default", "publisher"]).with_id(id);
 
-    let (app, mut rx) = svc
+    let (app, _rx) = svc
         .create_app(
             &app_name,
             SharedSecret::new("a", "test"),
@@ -146,7 +146,6 @@ async fn main() {
     // wait for the connection to be established
     tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
 
-    // WORKLOAD MODE
     // setup app config
     let mut publication_list = HashMap::new();
     let mut oracle = HashMap::new();
@@ -220,7 +219,10 @@ async fn main() {
     let token = CancellationToken::new();
     let token_clone = token.clone();
 
-    tokio::spawn(async move {
+    // Clone the Arc to session for later use
+    let session_arc = session_ctx.session_arc().unwrap();
+
+    session_ctx.spawn_receiver(move |mut rx, _weak, _meta| async move {
         loop {
             tokio::select! {
                 res = rx.recv() => {
@@ -229,17 +231,12 @@ async fn main() {
                             info!(%conn_id, "end of stream");
                             break;
                         }
-                        Some(notif) => {
-                            if notif.is_err() {
-                                error!("error receiving message");
+                        Some(message) => {
+                            if message.is_err() {
+                                error!("error receiving notification");
                                 continue;
                             }
-                            match notif.unwrap() {
-                                slim_service::session::Notification::NewSession(ctx) => {
-                                    // ignore additional new session notifications unless matching our id
-                                    if ctx.session.upgrade().unwrap().id() != session_id { continue; }
-                                }
-                                slim_service::session::Notification::NewMessage(msg) => {
+                            let msg = message.unwrap();
                                     if msg.get_session_header().get_session_id() != session_id { continue; }
                                     if let Some(slim_datapath::api::ProtoPublishType(publish)) = msg.message_type.as_ref() {
                                         let payload = &publish.get_payload().blob;
@@ -250,11 +247,10 @@ async fn main() {
                                         let mut lock = clone_results_list.write();
                                         lock.insert(pub_id, recv_id);
                                     }
-                                }
                             }
                         }
                     }
-                }
+
                 _ = token_clone.cancelled() => {
                     info!("shutting down receiving thread");
                     break;
@@ -285,13 +281,7 @@ async fn main() {
 
         // for the moment we send the message in anycast
         // we need to test also the match_all function
-        if session_ctx
-            .session_arc()
-            .unwrap()
-            .publish(p.1, payload, None, None)
-            .await
-            .is_err()
-        {
+        if session_arc.publish(p.1, payload, None, None).await.is_err() {
             error!(
                 "an error occurred sending publication {}, the test will fail",
                 p.0

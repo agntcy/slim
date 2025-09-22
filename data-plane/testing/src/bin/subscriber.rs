@@ -3,6 +3,7 @@
 
 use slim_auth::shared_secret::SharedSecret;
 use slim_datapath::messages::Name;
+use slim_service::session::Notification;
 use std::fs::File;
 use std::io::prelude::*;
 use testing::parse_line;
@@ -10,7 +11,7 @@ use testing::parse_line;
 use clap::Parser;
 use indicatif::ProgressBar;
 use slim::config;
-use tracing::{debug, info};
+use tracing::{debug, error, info};
 
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
@@ -136,52 +137,82 @@ async fn main() {
     }
     bar.finish();
 
-    info!("waiting for incoming messages");
-    // wait for messages
-    // Track session context for publish_to
-    use slim_service::session::Notification;
-    let mut session_ctx_opt: Option<
-        slim_service::session::context::SessionContext<SharedSecret, SharedSecret>,
-    > = None;
+    info!("waiting for new session");
     loop {
-        let notif = match rx.recv().await {
-            Some(n) => n.expect("error"),
-            None => break,
-        };
-        match notif {
-            Notification::NewSession(ctx) => {
-                session_ctx_opt = Some(ctx);
-            }
-            Notification::NewMessage(msg) => {
-                if let Some(slim_datapath::api::ProtoPublishType(publish)) =
-                    msg.message_type.as_ref()
-                {
-                    let payload = &publish.get_payload().blob;
-                    let msg_len = payload.len();
-                    if msg_len < 8 {
-                        panic!("error parsing message, unexpected payload format");
+        match rx.recv().await {
+            Some(n) => match n {
+                Ok(notification) => match notification {
+                    Notification::NewSession(session_context) => {
+                        let _ = spawn_session_receiver(session_context, conn_id, id_bytes.clone());
                     }
-                    let pub_id = u64::from_be_bytes(payload[0..8].try_into().unwrap());
-                    let source = msg.get_source();
-                    debug!("received pub {}, size {}", pub_id, msg_len);
-                    let mut out_vec = pub_id.to_be_bytes().to_vec();
-                    out_vec.push(0);
-                    for b in id_bytes.iter() {
-                        out_vec.push(*b);
+                    _ => {
+                        error!("Unexpected notification type");
+                        continue;
                     }
-                    out_vec.push(0);
-                    while out_vec.len() < msg_len {
-                        out_vec.push(120);
-                    }
-                    if let Some(ctx) = session_ctx_opt.as_ref() {
-                        ctx.session_arc()
-                            .unwrap()
-                            .publish_to(&source, conn_id, out_vec, None, None)
-                            .await
-                            .unwrap();
-                    }
+                },
+                Err(_) => {
+                    panic!("error receiving a new session");
                 }
+            },
+            None => {
+                error!("error while waiting for a new session, quit application");
+                break;
             }
         }
     }
+}
+
+fn spawn_session_receiver(
+    session_ctx: slim_service::session::context::SessionContext<SharedSecret, SharedSecret>,
+    conn_id: u64,
+    id_bytes: Vec<u8>,
+) -> std::sync::Arc<slim_service::session::Session<SharedSecret, SharedSecret>> {
+    session_ctx
+        .spawn_receiver(move |mut rx, weak, _meta| async move {
+            info!("session handler started");
+            loop {
+                match rx.recv().await {
+                    Some(Ok(msg)) => {
+                        debug!("received message in session handler");
+                        if let Some(slim_datapath::api::ProtoPublishType(publish)) =
+                            msg.message_type.as_ref()
+                        {
+                            let payload = &publish.get_payload().blob;
+                            let msg_len = payload.len();
+                            if msg_len < 8 {
+                                panic!("error parsing message, unexpected payload format");
+                            }
+                            let pub_id = u64::from_be_bytes(payload[0..8].try_into().unwrap());
+                            let source = msg.get_source();
+                            debug!("received pub {}, size {}", pub_id, msg_len);
+                            let mut out_vec = pub_id.to_be_bytes().to_vec();
+                            out_vec.push(0);
+                            for b in id_bytes.iter() {
+                                out_vec.push(*b);
+                            }
+                            out_vec.push(0);
+                            while out_vec.len() < msg_len {
+                                out_vec.push(120);
+                            }
+                            if let Some(session_arc) = weak.upgrade() {
+                                session_arc
+                                    .publish_to(&source, conn_id, out_vec, None, None)
+                                    .await
+                                    .unwrap();
+                            }
+                        }
+                    }
+                    Some(Err(e)) => {
+                        error!("error receiving message in session handler: {:?}", e);
+                        continue;
+                    }
+                    None => {
+                        error!("session handler channel closed");
+                        break;
+                    }
+                }
+            }
+        })
+        .upgrade()
+        .unwrap()
 }
