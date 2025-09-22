@@ -138,14 +138,19 @@ enum InternalMessage {
 }
 
 struct SenderState {
-    buffer: ProducerBuffer, // buffer with packets coming from the application
-    next_id: u32,           // next packet id
-    pending_acks: HashMap<u32, (timer::Timer, Message)>, // list of pending ack with timers an messages to resend
+    // buffer with packets coming from the application
+    buffer: ProducerBuffer,
+    // next packet id
+    next_id: u32,
+    // list of pending acks with timers and messages to resend
+    pending_acks: HashMap<u32, (timer::Timer, Message)>,
 }
 
 struct ReceiverState {
-    buffer: ReceiverBuffer, // buffer with received packets
-    pending_rtxs: HashMap<u32, (timer::Timer, Message)>, // list of pending RTX requests
+    // buffer with received packets
+    buffer: ReceiverBuffer,
+    // list of pending RTX requestss
+    pending_rtxs: HashMap<u32, (timer::Timer, Message)>,
 }
 
 struct PointToPointState<P, V, T>
@@ -167,7 +172,7 @@ where
     channel_endpoint: ChannelEndpoint<P, V, T>,
 }
 
-// need to observers in order to distinguish RTX from ACK timers
+// need two observers in order to distinguish RTX from ACK timers
 struct RtxTimerObserver {
     tx: Sender<InternalMessage>,
 }
@@ -302,7 +307,7 @@ where
                                 timeouts,
                                 ack,
                             } => {
-                                println!("timer timeout for message id {}: {}", message_id, timeouts);
+                                debug!("timer timeout for message id {}: {}", message_id, timeouts);
                                 self.handle_timer_timeout(message_id, ack).await;
                             }
                             InternalMessage::TimerFailure {
@@ -345,13 +350,7 @@ where
     async fn handle_timer_timeout(&mut self, message_id: u32, ack: bool) {
         let message = if ack {
             match self.state.sender_state.pending_acks.get(&message_id) {
-                Some((_t, msg)) => {
-                    println!(
-                        "------missing Ack for message {}, send it again",
-                        message_id
-                    );
-                    msg.clone()
-                }
+                Some((_t, msg)) => msg.clone(),
                 None => {
                     warn!("the timer does not exists, ignore timeout");
                     return;
@@ -359,10 +358,7 @@ where
             }
         } else {
             match self.state.receiver_state.pending_rtxs.get(&message_id) {
-                Some((_t, msg)) => {
-                    println!("-----try send RTX message for message id {}", message_id);
-                    msg.clone()
-                }
+                Some((_t, msg)) => msg.clone(),
                 None => {
                     warn!("the timer does not exists, ignore timeout");
                     return;
@@ -380,10 +376,6 @@ where
         {
             // the message was already received, no need to send RTX
             if let Some((mut t, _m)) = self.state.receiver_state.pending_rtxs.remove(&message_id) {
-                println!(
-                    "-----message {} already recevied, do no send any RTX",
-                    message_id
-                );
                 t.stop();
                 return;
             }
@@ -711,12 +703,6 @@ where
             %source, %message_id, "received message from slim",
         );
 
-        //if self.state.config.initiator
-        //    && message.message.get_session_message_type() == ProtoSessionMessageType::RtxRequest
-        //{
-        //    println!("recv mesg {:?}", message.message);
-        //}
-
         // If session is unicast, check if the source matches the unicast name
         if self.state.config.unicast
             && let Some(name) = &self.state.unicast_name
@@ -949,8 +935,6 @@ where
 
         // here we need to reorder the messages if needed
         let session_id = message.info.id;
-        let msg_id_to_remove = message.message.get_session_header().message_id;
-        println!("TRY TO SEND TO APP message {} of TYPE {:?} {}", msg_id_to_remove, message.message.get_session_message_type(), self.state.source);
 
         let recv;
         let mut rtx = Vec::new();
@@ -1022,9 +1006,7 @@ where
         };
 
         if !rtx.is_empty() {
-            println!("---------");
             for msg_id in rtx {
-                println!("create rtx message for index {} on reception of {}", msg_id, msg_id_to_remove);
                 //let timer_duration = self.state.config.timeout.unwrap_or(Duration::from_secs(1)); //TODO how do we set this timer?
                 let timer_duration = Duration::from_secs(1);
                 let timer = timer::Timer::new(
@@ -1063,7 +1045,6 @@ where
                     .pending_rtxs
                     .insert(msg_id, (timer, rtx));
             }
-            println!("---------");
         }
 
         Ok(())

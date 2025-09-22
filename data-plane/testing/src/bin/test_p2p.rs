@@ -33,15 +33,15 @@ pub struct Args {
     )]
     mls_disabled: bool,
 
-    /// Runs a sticky p2p session.
+    /// Runs a unicast p2p session.
     #[arg(
         short,
         long,
-        value_name = "IS_STICKY",
+        value_name = "IS_UNICAST",
         required = false,
         default_value_t = false
     )]
-    is_sticky: bool,
+    is_unicast: bool,
 
     /// Runs a reliable p2p session.
     #[arg(
@@ -52,6 +52,26 @@ pub struct Args {
         default_value_t = false
     )]
     is_reliable: bool,
+
+    /// Runs SLIM node in background.
+    #[arg(
+        short,
+        long,
+        value_name = "RUN_SLIM",
+        required = false,
+        default_value_t = true
+    )]
+    run_slim: bool,
+
+    /// Apps to run.
+    #[arg(
+        short,
+        long,
+        value_name = "APPS",
+        required = false,
+        default_value_t = 3
+    )]
+    apps: u32,
 }
 
 impl Args {
@@ -59,18 +79,25 @@ impl Args {
         &self.mls_disabled
     }
 
-    pub fn is_sticky(&self) -> &bool {
-        &self.is_sticky
+    pub fn is_unicast(&self) -> &bool {
+        &self.is_unicast
     }
 
     pub fn is_reliable(&self) -> &bool {
         &self.is_reliable
     }
+
+    pub fn run_slim(&self) -> &bool {
+        &self.run_slim
+    }
+
+    pub fn apps(&self) -> &u32 {
+        &self.apps
+    }
 }
 
 async fn run_slim_node() -> Result<(), String> {
-    Ok(())
-    /*println!("Server task starting...");
+    println!("Server task starting...");
 
     let dataplane_server_config =
         GrpcServerConfig::with_endpoint(&format!("0.0.0.0:{}", DEFAULT_DATAPLANE_PORT))
@@ -112,7 +139,7 @@ async fn run_slim_node() -> Result<(), String> {
         }
     }
 
-    Ok(())*/
+    Ok(())
 }
 
 fn create_service_configuration(
@@ -198,13 +225,13 @@ async fn run_client_task(name: Name) -> Result<(), String> {
                                         println!("recevied message {}", msg.message.get_session_header().get_message_id());
                                         // reply with the same payload to be sure that is was
                                         // decoded correctly in case of MLS
-                                        let payload = val.into_bytes().to_vec();
-                                        if app.publish_to(msg.info, &publisher, conn, payload, None, None)
-                                            .await
-                                            .is_err()
-                                        {
-                                            panic!("an error occurred sending publication from moderator");
-                                        }
+                                        //let payload = val.into_bytes().to_vec();
+                                        //if app.publish_to(msg.info, &publisher, conn, payload, None, None)
+                                        //    .await
+                                        //    .is_err()
+                                        //{
+                                        //    panic!("an error occurred sending publication from moderator");
+                                        //}
                                     },
                                     Err(e) => {
                                         println!("Participant {}: error parsing message: {}", name, e);
@@ -230,26 +257,29 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // get command line conf
     let args = Args::parse();
     let msl_enabled = !*args.mls_disabled();
-    let is_sticky = *args.is_sticky();
+    let is_unicast = *args.is_unicast();
     let is_reliable = *args.is_reliable();
+    let run_slim = *args.run_slim();
+    let apps = *args.apps();
 
     println!(
-        "run test with MLS = {}, sticky session = {} and reliable session = {}",
-        msl_enabled, is_sticky, is_reliable,
+        "run test with MLS = {}, unicast session = {} and reliable session = {}",
+        msl_enabled, is_unicast, is_reliable,
     );
 
     // start slim node
-    tokio::spawn(async move {
-        let _ = run_slim_node().await;
-    });
+    if run_slim {
+        tokio::spawn(async move {
+            let _ = run_slim_node().await;
+        });
+    }
 
     // start clients
-    //let tot_clients = 3;
-    let tot_clients = 1;
+    let tot_clients = apps;
     let mut clients = vec![];
 
     for i in 0..tot_clients {
-        let c = Name::from_strings(["org", "ns", "client"]).with_id(i);
+        let c = Name::from_strings(["org", "ns", "client"]).with_id(i.into());
         clients.push(c.clone());
         tokio::spawn(async move {
             let _ = run_client_task(c).await;
@@ -306,7 +336,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             slim_service::session::SessionConfig::PointToPoint(PointToPointConfiguration::new(
                 timeout,
                 max_retries,
-                is_sticky,
+                is_unicast,
                 msl_enabled,
             )),
             None,
@@ -389,14 +419,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // the total number of packets received must be max_packets
     let mut sum = 0;
-    // if sticky we must see a single sendere
+    // if unicast we must see a single sendere
     let mut found_sender = false;
     for (c, n) in recv_msgs.read().iter() {
         println!("received {} messages from {}", *n, c);
         sum += *n;
-        if is_sticky && found_sender && *n != 0 {
+        if is_unicast && found_sender && *n != 0 {
             println!(
-                "this is a sticky session but we got messages from multiple clients. test failed"
+                "this is a unicast session but we got messages from multiple clients. test failed"
             );
             std::process::exit(1);
         }
