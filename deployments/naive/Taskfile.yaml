@@ -10,10 +10,16 @@ includes:
   templates: ../Taskfile.yaml
 
 tasks:
-  slim.deploy.naive:
+  log:strategy:name:
+    desc: Display the name of the deployment strategy
+    cmds:
+      - echo "Naive Deployment Strategy"
+
+
+  slim:deploy:
     desc: Deploy Slim using the naive deployment strategy
     deps: 
-      - templates:cluster.use-context
+      - templates:cluster:use-context
     cmds:
       - cmd: |
           helm upgrade slim ../../charts/slim \
@@ -22,7 +28,7 @@ tasks:
             --install \
             --values naive-values.yaml
   
-  slim.show-logs:
+  slim:show-logs:
     desc: Show logs for Slim components in the naive deployment
     cmds:
       - kubectl logs -l app.kubernetes.io/name=slim -n slim --tail=100 -f
