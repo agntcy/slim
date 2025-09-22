@@ -205,31 +205,11 @@ async fn run_client_task(name: Name) -> Result<(), String> {
                                         }
                                     }
                                 });
-                                //session_ctx_opt = Some(ctx);
                             }
                             _ => {
                                 println!("Unexpected notification type");
                                 continue;
                             }
-                            /*Ok(Notification::NewMessage(msg)) => {
-                                if let Some(slim_datapath::api::ProtoPublishType(publish)) = msg.message_type.as_ref() {
-                                    let publisher = msg.get_slim_header().get_source();
-                                    let conn = msg.get_slim_header().recv_from.unwrap_or(conn_id);
-                                    let blob = &publish.get_payload().blob;
-                                    match String::from_utf8(blob.to_vec()) {
-                                        Ok(val) => {
-                                            if val != *"hello there" { continue; }
-                                            if let Some(ctx) = session_ctx_opt.as_ref() {
-                                                let payload = val.into_bytes();
-                                                if ctx.session_arc().unwrap().publish_to(&publisher, conn, payload, None, None).await.is_err() {
-                                                    panic!("an error occurred sending publication from moderator");
-                                                }
-                                            }
-                                        }
-                                        Err(e) => { println!("Participant {}: error parsing message: {}", name, e); continue; }
-                                    }
-                                }
-                            }*/
                         }
                         Err(e) => { println!("Participant {} received error message: {:?}", name, e); }
                     }

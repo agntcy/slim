@@ -85,11 +85,6 @@ tasks:
     cmds:
       - cargo run --release --bin channel -- --config $CONFIG_CLIENT --name org/ns/t2/1 --moderator-name org/ns/moderator/1 --mls-disabled
 
-  channel-example:attacker:
-    desc: "start attacker for test channel"
-    cmds:
-      - cargo run --release --bin channel -- --config $CONFIG_CLIENT --name org/ns/t3/1 --moderator-name org/ns/moderator/1 --is-attacker
-
   test:group-session:
     desc: "start MLS dynamic group test"
     cmds:
