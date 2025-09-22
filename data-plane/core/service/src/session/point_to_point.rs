@@ -40,7 +40,7 @@ use crate::session::{
 pub struct PointToPointConfiguration {
     pub timeout: Option<std::time::Duration>,
     pub max_retries: Option<u32>,
-    pub sticky: bool,
+    pub unicast: bool,
     pub mls_enabled: bool,
     pub(crate) initiator: bool,
 }
@@ -50,7 +50,7 @@ impl Default for PointToPointConfiguration {
         PointToPointConfiguration {
             timeout: None,
             max_retries: Some(5),
-            sticky: false,
+            unicast: false,
             mls_enabled: false,
             initiator: true,
         }
@@ -61,20 +61,20 @@ impl PointToPointConfiguration {
     pub fn new(
         timeout: Option<Duration>,
         max_retries: Option<u32>,
-        mut sticky: bool,
+        mut unicast: bool,
         mls_enabled: bool,
     ) -> Self {
-        // If mls is enabled and session is not sticky, print a warning
-        if mls_enabled && !sticky {
-            warn!("MLS on non-sticky sessions is not supported yet. Forcing sticky session.");
+        // If mls is enabled and session is not unicast, print a warning
+        if mls_enabled && !unicast {
+            warn!("MLS on no-unicast sessions is not supported yet. Forcing unicast session.");
 
-            sticky = true;
+            unicast = true;
         }
 
         PointToPointConfiguration {
             timeout,
             max_retries,
-            sticky,
+            unicast,
             mls_enabled,
             initiator: true,
         }
@@ -108,7 +108,7 @@ impl std::fmt::Display for PointToPointConfiguration {
 }
 
 #[derive(Debug, Clone, PartialEq, Default)]
-enum StickySessionStatus {
+enum UnicastSessionStatus {
     #[default]
     Uninitialized,
     Discovering,
@@ -158,10 +158,10 @@ where
     source: Name,
     tx: T,
     config: PointToPointConfiguration,
-    sticky_name: Option<Name>,
-    sticky_connection: Option<u64>,
-    sticky_session_status: StickySessionStatus,
-    sticky_buffer: VecDeque<Message>,
+    unicast_name: Option<Name>,
+    unicast_connection: Option<u64>,
+    unicast_session_status: UnicastSessionStatus,
+    unicast_buffer: VecDeque<Message>,
     sender_state: SenderState,     // send packets with sequencial ids
     receiver_state: ReceiverState, // to be used only in case of unicast session
     channel_endpoint: ChannelEndpoint<P, V, T>,
@@ -360,7 +360,7 @@ where
         } else {
             match self.state.receiver_state.pending_rtxs.get(&message_id) {
                 Some((_t, msg)) => {
-                    println!("-----send RTX message for message id {}", message_id);
+                    println!("-----try send RTX message for message id {}", message_id);
                     msg.clone()
                 }
                 None => {
@@ -380,6 +380,10 @@ where
         {
             // the message was already received, no need to send RTX
             if let Some((mut t, _m)) = self.state.receiver_state.pending_rtxs.remove(&message_id) {
+                println!(
+                    "-----message {} already recevied, do no send any RTX",
+                    message_id
+                );
                 t.stop();
                 return;
             }
@@ -431,18 +435,18 @@ where
             .map_err(|e| SessionError::AppTransmission(e.to_string()));
     }
 
-    async fn start_sticky_session_discovery(&mut self, name: &Name) -> Result<(), SessionError> {
-        debug!("starting sticky session discovery");
+    async fn start_unicast_session_discovery(&mut self, name: &Name) -> Result<(), SessionError> {
+        debug!("starting unicast session discovery");
         // Set payload
         let payload = bincode::encode_to_vec(&self.state.source, bincode::config::standard())
             .map_err(|e| SessionError::Processing(e.to_string()))?;
 
-        // Create a probe message to discover the sticky session
+        // Create a probe message to discover the unicast session
         let mut probe_message = Message::new_publish(
             &self.state.source,
             name,
             None,
-            "sticky_session_discovery",
+            "unicast_session_discovery",
             payload,
         );
 
@@ -452,7 +456,7 @@ where
         session_header.set_session_id(self.state.session_id);
         session_header.set_message_id(rand::rng().random_range(0..u32::MAX));
 
-        self.state.sticky_session_status = StickySessionStatus::Discovering;
+        self.state.unicast_session_status = UnicastSessionStatus::Discovering;
 
         self.state.channel_endpoint.on_message(probe_message).await
     }
@@ -481,10 +485,10 @@ where
             .on_message(message.message)
             .await?;
 
-        // No error - this session is sticky
-        self.state.sticky_name = Some(source);
-        self.state.sticky_connection = Some(incoming_conn);
-        self.state.sticky_session_status = StickySessionStatus::Established;
+        // No error - this session is unicast
+        self.state.unicast_name = Some(source);
+        self.state.unicast_connection = Some(incoming_conn);
+        self.state.unicast_session_status = UnicastSessionStatus::Established;
 
         Ok(())
     }
@@ -493,13 +497,13 @@ where
         &mut self,
         message: SessionMessage,
     ) -> Result<(), SessionError> {
-        // Check if the sticky session is established
+        // Check if the unicast session is established
         let source = message.message.get_source();
         let incoming_conn = message.message.get_incoming_conn();
-        let status = self.state.sticky_session_status.clone();
+        let status = self.state.unicast_session_status.clone();
 
         debug!(
-            "received sticky session discovery reply from {} and incoming conn {}",
+            "received unicast session discovery reply from {} and incoming conn {}",
             source,
             message.message.get_incoming_conn()
         );
@@ -511,20 +515,20 @@ where
             .await?;
 
         match status {
-            StickySessionStatus::Discovering => {
-                debug!("sticky session discovery established with {}", source);
+            UnicastSessionStatus::Discovering => {
+                debug!("unicast session discovery established with {}", source);
 
-                // If we are still discovering, set the sticky name
-                self.state.sticky_name = Some(source);
-                self.state.sticky_connection = Some(incoming_conn);
-                self.state.sticky_session_status = StickySessionStatus::Established;
+                // If we are still discovering, set the unicast name
+                self.state.unicast_name = Some(source);
+                self.state.unicast_connection = Some(incoming_conn);
+                self.state.unicast_session_status = UnicastSessionStatus::Established;
 
                 // If MLS is not enabled, send all buffered messages
                 if !self.state.config.mls_enabled {
                     // Collect messages first to avoid multiple mutable borrows
-                    let messages: Vec<Message> = self.state.sticky_buffer.drain(..).collect();
+                    let messages: Vec<Message> = self.state.unicast_buffer.drain(..).collect();
 
-                    // Send all buffered messages to the sticky name
+                    // Send all buffered messages to the unicast name
                     for msg in messages {
                         self.send_message(msg, None).await?;
                     }
@@ -533,17 +537,17 @@ where
                 Ok(())
             }
             _ => {
-                debug!("sticky session discovery reply received, but already established");
+                debug!("unicast session discovery reply received, but already established");
 
-                // Check if the sticky name is already set, and if it's different from the source
-                if let Some(name) = &self.state.sticky_name {
+                // Check if the unicast name is already set, and if it's different from the source
+                if let Some(name) = &self.state.unicast_name {
                     let message = if name != &source {
                         format!(
-                            "sticky session already established with a different name: {}, received: {}",
+                            "unicast session already established with a different name: {}, received: {}",
                             name, source
                         )
                     } else {
-                        "sticky session already established".to_string()
+                        "unicast session already established".to_string()
                     };
 
                     return Err(SessionError::AppTransmission(message));
@@ -575,16 +579,16 @@ where
         header.set_message_id(message_id);
         header.set_session_id(self.state.session_id);
 
-        // If we have a sticky name, set the destination to use the ID in the sticky name
-        // and force the message to be sent to the sticky connection
-        if let Some(ref name) = self.state.sticky_name {
+        // If we have a unicast name, set the destination to use the ID in the unicast name
+        // and force the message to be sent to the unicast connection
+        if let Some(ref name) = self.state.unicast_name {
             let mut new_name = message.get_dst();
             new_name.set_id(name.id());
             message.get_slim_header_mut().set_destination(&new_name);
 
             message
                 .get_slim_header_mut()
-                .set_forward_to(self.state.sticky_connection);
+                .set_forward_to(self.state.unicast_connection);
         }
 
         // add the message to the sender buffer
@@ -647,10 +651,10 @@ where
             });
         }
 
-        // If session is sticky, and we have a sticky name, set the destination
-        // to use the ID in the sticky name
-        if self.state.config.sticky {
-            match self.state.sticky_name {
+        // If session is unicast, and we have a unicast name, set the destination
+        // to use the ID in the unicast name
+        if self.state.config.unicast {
+            match self.state.unicast_name {
                 Some(ref name) => {
                     let mut new_name = message.message.get_dst();
                     new_name.set_id(name.id());
@@ -661,30 +665,30 @@ where
                     message
                         .message
                         .get_slim_header_mut()
-                        .set_forward_to(self.state.sticky_connection);
+                        .set_forward_to(self.state.unicast_connection);
                 }
                 None => {
-                    let ret = match self.state.sticky_session_status {
-                        StickySessionStatus::Uninitialized => {
-                            self.start_sticky_session_discovery(
+                    let ret = match self.state.unicast_session_status {
+                        UnicastSessionStatus::Uninitialized => {
+                            self.start_unicast_session_discovery(
                                 &message.message.get_slim_header().get_dst(),
                             )
                             .await?;
 
-                            self.state.sticky_buffer.push_back(message.message);
+                            self.state.unicast_buffer.push_back(message.message);
 
                             Ok(())
                         }
-                        StickySessionStatus::Established => {
-                            // This should not happen, as we should have a sticky name
+                        UnicastSessionStatus::Established => {
+                            // This should not happen, as we should have a unicast name
                             Err(SessionError::AppTransmission(
-                                "sticky session already established".to_string(),
+                                "unicast session already established".to_string(),
                             ))
                         }
-                        StickySessionStatus::Discovering => {
-                            // Still discovering the sticky session. Store message in a buffer and send it later
-                            // when the sticky session is established
-                            self.state.sticky_buffer.push_back(message.message);
+                        UnicastSessionStatus::Discovering => {
+                            // Still discovering the unicast session. Store message in a buffer and send it later
+                            // when the unicast session is established
+                            self.state.unicast_buffer.push_back(message.message);
                             Ok(())
                         }
                     };
@@ -713,14 +717,14 @@ where
         //    println!("recv mesg {:?}", message.message);
         //}
 
-        // If session is sticky, check if the source matches the sticky name
-        if self.state.config.sticky
-            && let Some(name) = &self.state.sticky_name
+        // If session is unicast, check if the source matches the unicast name
+        if self.state.config.unicast
+            && let Some(name) = &self.state.unicast_name
         {
             let source = message.message.get_source();
             if *name != source {
                 return Err(SessionError::AppTransmission(format!(
-                    "message source {} does not match sticky name {}",
+                    "message source {} does not match unicast name {}",
                     source, name
                 )));
             }
@@ -748,18 +752,18 @@ where
             }
             ProtoSessionMessageType::P2PAck => {
                 // Remove the timer and drop the message
-                self.stop_and_remove_timer(message_id)
+                self.stop_and_remove_timer(message_id, true)
             }
             ProtoSessionMessageType::ChannelDiscoveryReply => {
-                // Handle sticky session discovery
+                // Handle unicast session discovery
                 self.handle_channel_discovery_reply(message).await
             }
             ProtoSessionMessageType::ChannelJoinRequest => {
-                // Handle sticky session discovery
+                // Handle unicast session discovery
                 self.handle_channel_join_request(message).await
             }
             ProtoSessionMessageType::ChannelJoinReply => {
-                // Handle sticky session discovery reply
+                // Handle unicast session discovery reply
                 self.handle_channel_join_reply(message).await
             }
             ProtoSessionMessageType::ChannelLeaveRequest
@@ -774,10 +778,10 @@ where
                     .on_message(message.message)
                     .await?;
 
-                // Flush the sticky buffer if MLS is enabled
+                // Flush the unicast buffer if MLS is enabled
                 if self.state.channel_endpoint.is_mls_up()? {
                     // If MLS is up, send all buffered messages
-                    let messages: Vec<Message> = self.state.sticky_buffer.drain(..).collect();
+                    let messages: Vec<Message> = self.state.unicast_buffer.drain(..).collect();
 
                     for msg in messages {
                         self.send_message(msg, None).await?;
@@ -842,7 +846,7 @@ where
                     session_id,
                     msg_rtx_id,
                     &Some(self.state.source.clone()),
-                    &Some(self.state.sticky_name.as_ref().unwrap_or(&pkt_dst).clone()),
+                    &Some(self.state.unicast_name.as_ref().unwrap_or(&pkt_dst).clone()),
                 ));
 
                 Message::new_publish_with_headers(
@@ -888,7 +892,7 @@ where
     ) -> Result<(), SessionError> {
         // Remove RTX timer
         let msg_id = message.message.get_session_header().get_message_id();
-        self.stop_and_remove_timer(msg_id)?;
+        self.stop_and_remove_timer(msg_id, false)?;
 
         let ack = self.create_ack(&message);
 
@@ -932,7 +936,7 @@ where
         // immediatly without reordering. notice that an anycast reliable session is possible
         // and the packet are re-send by the sender if acks are not received
         if message.message.get_session_message_type() == ProtoSessionMessageType::P2PMsg
-            || (!self.state.config.mls_enabled && !self.state.config.sticky)
+            || (!self.state.config.mls_enabled && !self.state.config.unicast)
         {
             // this is an anycast session so simply send the message to the app
             return self
@@ -945,6 +949,8 @@ where
 
         // here we need to reorder the messages if needed
         let session_id = message.info.id;
+        let msg_id_to_remove = message.message.get_session_header().message_id;
+        println!("TRY TO SEND TO APP message {} of TYPE {:?} {}", msg_id_to_remove, message.message.get_session_message_type(), self.state.source);
 
         let recv;
         let mut rtx = Vec::new();
@@ -999,7 +1005,7 @@ where
         // send any packet to the application the receiver can also ask for retransmissions.
         // doing so if a packet is available in the sender buffer it will be receoverd.
 
-        let destination = match &self.state.sticky_name {
+        let destination = match &self.state.unicast_name {
             Some(d) => d,
             None => {
                 warn!("cannot send rtx messages, destination name is missing");
@@ -1007,7 +1013,7 @@ where
             }
         };
 
-        let connection = match self.state.sticky_connection {
+        let connection = match self.state.unicast_connection {
             Some(c) => c,
             None => {
                 warn!("cannot send rtx messages, incoming connection is missing");
@@ -1018,7 +1024,7 @@ where
         if !rtx.is_empty() {
             println!("---------");
             for msg_id in rtx {
-                println!("create rtx message for index {}", msg_id);
+                println!("create rtx message for index {} on reception of {}", msg_id, msg_id_to_remove);
                 //let timer_duration = self.state.config.timeout.unwrap_or(Duration::from_secs(1)); //TODO how do we set this timer?
                 let timer_duration = Duration::from_secs(1);
                 let timer = timer::Timer::new(
@@ -1065,14 +1071,9 @@ where
 
     /// Helper function to stop and remove a timer by message ID.
     /// Returns Ok(()) if the timer was found and stopped, or an appropriate error if not.
-    fn stop_and_remove_timer(&mut self, message_id: u32) -> Result<(), SessionError> {
-        match self.state.sender_state.pending_acks.remove(&message_id) {
-            Some((mut timer, _message)) => {
-                // Stop the timer
-                timer.stop();
-                Ok(())
-            }
-            None => match self.state.receiver_state.pending_rtxs.remove(&message_id) {
+    fn stop_and_remove_timer(&mut self, message_id: u32, ack: bool) -> Result<(), SessionError> {
+        if ack {
+            match self.state.sender_state.pending_acks.remove(&message_id) {
                 Some((mut timer, _message)) => {
                     // Stop the timer
                     timer.stop();
@@ -1082,7 +1083,19 @@ where
                     "timer not found for message id {}",
                     message_id
                 ))),
-            },
+            }
+        } else {
+            match self.state.receiver_state.pending_rtxs.remove(&message_id) {
+                Some((mut timer, _message)) => {
+                    // Stop the timer
+                    timer.stop();
+                    Ok(())
+                }
+                None => Err(SessionError::AppTransmission(format!(
+                    "timer not found for message id {}",
+                    message_id
+                ))),
+            }
         }
     }
 }
@@ -1133,7 +1146,7 @@ where
             .mls()
             .map(|mls| MlsState::new(mls).expect("failed to create MLS state"));
 
-        // Create channel endpoint to handle sticky sessions and encryption
+        // Create channel endpoint to handle unicast sessions and encryption
         let channel_endpoint = match session_config.initiator {
             true => {
                 let cm = ChannelModerator::new(
@@ -1169,10 +1182,10 @@ where
             source: common.source().clone(),
             tx: tx_slim_app.clone(),
             config: session_config,
-            sticky_name: None,
-            sticky_connection: None,
-            sticky_session_status: StickySessionStatus::Uninitialized,
-            sticky_buffer: VecDeque::new(),
+            unicast_name: None,
+            unicast_connection: None,
+            unicast_session_status: UnicastSessionStatus::Uninitialized,
+            unicast_buffer: VecDeque::new(),
             channel_endpoint,
             sender_state: SenderState {
                 buffer: ProducerBuffer::with_capacity(500),
@@ -1466,7 +1479,7 @@ mod tests {
             PointToPointConfiguration {
                 timeout: Some(Duration::from_millis(500)),
                 max_retries: Some(5),
-                sticky: false,
+                unicast: false,
                 mls_enabled: false,
                 initiator: true,
             },
@@ -1541,7 +1554,7 @@ mod tests {
             PointToPointConfiguration {
                 timeout: Some(Duration::from_millis(500)),
                 max_retries: Some(5),
-                sticky: false,
+                unicast: false,
                 mls_enabled: false,
                 initiator: true,
             },
@@ -1673,7 +1686,7 @@ mod tests {
         // ));
     }
 
-    async fn template_test_point_to_point_sticky_session(mls_enabled: bool) {
+    async fn template_test_point_to_point_unicast_session(mls_enabled: bool) {
         let (sender_tx_slim, mut sender_rx_slim) = tokio::sync::mpsc::channel(1);
         let (sender_tx_app, _sender_rx_app) = tokio::sync::mpsc::channel(1);
 
@@ -1700,7 +1713,7 @@ mod tests {
             PointToPointConfiguration {
                 timeout: Some(Duration::from_millis(500)),
                 max_retries: Some(5),
-                sticky: true,
+                unicast: true,
                 mls_enabled,
                 initiator: true,
             },
@@ -1716,7 +1729,7 @@ mod tests {
             PointToPointConfiguration {
                 timeout: Some(Duration::from_millis(500)),
                 max_retries: Some(5),
-                sticky: false,
+                unicast: false,
                 mls_enabled,
                 initiator: false,
             },
@@ -1754,7 +1767,7 @@ mod tests {
             .await
             .expect("failed to send message");
 
-        // We should now get a sticky session discovery message
+        // We should now get a unicast session discovery message
         let mut msg = sender_rx_slim
             .recv()
             .await
@@ -1974,13 +1987,13 @@ mod tests {
 
     #[tokio::test]
     #[traced_test]
-    async fn test_point_to_point_sticky_session_no_mls() {
-        template_test_point_to_point_sticky_session(false).await;
+    async fn test_point_to_point_unicast_session_no_mls() {
+        template_test_point_to_point_unicast_session(false).await;
     }
 
     #[tokio::test]
     #[traced_test]
-    async fn test_point_to_point_sticky_session_mls() {
-        template_test_point_to_point_sticky_session(true).await;
+    async fn test_point_to_point_unicast_session_mls() {
+        template_test_point_to_point_unicast_session(true).await;
     }
 }

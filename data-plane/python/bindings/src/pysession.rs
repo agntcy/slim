@@ -120,7 +120,7 @@ impl From<session::SessionConfig> for PySessionConfiguration {
     fn from(session_config: session::SessionConfig) -> Self {
         match session_config {
             session::SessionConfig::PointToPoint(config) => {
-                if config.sticky {
+                if config.unicast {
                     PySessionConfiguration::Unicast {
                         timeout: config.timeout,
                         max_retries: config.max_retries,
