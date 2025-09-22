@@ -1,0 +1,12 @@
+
+# Copyright AGNTCY Contributors (https://github.com/agntcy)
+# SPDX-License-Identifier: Apache-2.0
+
+version: "3"
+
+# This Taskfile includes specific tasks for the naive deployment strategy.
+
+includes:
+  templates: ../Taskfile.yaml
+
+tasks:
