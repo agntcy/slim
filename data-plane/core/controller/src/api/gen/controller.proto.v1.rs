@@ -165,6 +165,8 @@ pub struct DeleteChannelRequest {
     /// ID of the channel
     #[prost(string, tag = "1")]
     pub channel_id: ::prost::alloc::string::String,
+    #[prost(string, repeated, tag = "2")]
+    pub moderators: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct AddParticipantRequest {
@@ -174,6 +176,8 @@ pub struct AddParticipantRequest {
     /// ID of participant (e.g. spiffe SVID)
     #[prost(string, tag = "2")]
     pub participant_id: ::prost::alloc::string::String,
+    #[prost(string, repeated, tag = "3")]
+    pub moderators: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct DeleteParticipantRequest {
@@ -183,6 +187,8 @@ pub struct DeleteParticipantRequest {
     /// ID of participant (e.g. spiffe SVID)
     #[prost(string, tag = "2")]
     pub participant_id: ::prost::alloc::string::String,
+    #[prost(string, repeated, tag = "3")]
+    pub moderators: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
 }
 #[derive(Clone, Copy, PartialEq, ::prost::Message)]
 pub struct ListChannelsRequest {}
