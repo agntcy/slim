@@ -16,6 +16,7 @@ use slim_auth::traits::{TokenProvider, Verifier};
 use slim_datapath::api::{ProtoMessage as Message, ProtoSessionMessageType, ProtoSessionType};
 use slim_datapath::messages::Name;
 
+use crate::session::MessageHandler;
 use crate::session::notification::Notification;
 use crate::session::transmitter::{AppTransmitter, SessionTransmitter};
 
@@ -232,7 +233,7 @@ where
             .session()
             .upgrade()
             .ok_or(SessionError::SessionNotFound(0))?
-            .publish_message(message, true)
+            .publish_message(message)
             .await
     }
 
@@ -276,7 +277,6 @@ where
     pub(crate) async fn handle_message_from_slim(
         &self,
         mut message: Message,
-        direction: MessageDirection,
     ) -> Result<(), SessionError> {
         // Pass message to interceptors in the transmitter
         self.transmitter
@@ -326,9 +326,7 @@ where
         if session_message_type == ProtoSessionMessageType::ChannelLeaveRequest {
             // send message to the session and delete it after
             if let Some(session) = self.pool.read().await.get(&id) {
-                session
-                    .publish_message(message, matches!(direction, MessageDirection::South))
-                    .await?;
+                session.publish_message(message).await?;
             } else {
                 warn!(
                     "received Channel Leave Request message with unknown session id, drop the message"
@@ -344,9 +342,7 @@ where
 
         if let Some(session) = self.pool.read().await.get(&id) {
             // pass the message to the session
-            return session
-                .publish_message(message, matches!(direction, MessageDirection::South))
-                .await;
+            return session.publish_message(message).await;
         }
 
         let new_session = match session_message_type {
@@ -443,7 +439,7 @@ where
             .ok_or(SessionError::SessionClosed(
                 "newly created session already closed: this should not happen".to_string(),
             ))?
-            .publish_message(message, matches!(direction, MessageDirection::South))
+            .on_message(message, MessageDirection::North)
             .await?;
 
         // send new session to the app

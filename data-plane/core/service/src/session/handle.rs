@@ -49,19 +49,15 @@ where
     T: Transmitter + Send + Sync + Clone + 'static,
 {
     /// Session ID - unique identifier for the session
-    #[allow(dead_code)]
     id: Id,
 
     /// Session state
-    #[allow(dead_code)]
     state: State,
 
     /// Token provider for authentication
-    #[allow(dead_code)]
     identity_provider: P,
 
     /// Verifier for authentication
-    #[allow(dead_code)]
     identity_verifier: V,
 
     /// Session type
@@ -160,14 +156,8 @@ where
     pub async fn publish_message(
         &self,
         message: Message,
-        southbound: bool,
     ) -> Result<(), SessionError> {
-        let direction = if southbound {
-            MessageDirection::South
-        } else {
-            MessageDirection::North
-        };
-        self.on_message(message, direction).await
+        self.on_message(message, MessageDirection::South).await
     }
 
     /// Publish a message to a specific connection (forward_to)
@@ -225,7 +215,7 @@ where
         }
 
         // southbound=true means towards slim
-        self.publish_message(msg, true).await
+        self.publish_message(msg).await
     }
 
     pub async fn invite_participant(&self, destination: &Name) -> Result<(), SessionError> {
@@ -245,7 +235,7 @@ where
                 ));
                 let msg =
                     Message::new_publish_with_headers(slim_header, session_header, "", vec![]);
-                self.publish_message(msg, true).await
+                self.publish_message(msg).await
             }
         }
     }
@@ -267,7 +257,7 @@ where
                 ));
                 let msg =
                     Message::new_publish_with_headers(slim_header, session_header, "", vec![]);
-                self.publish_message(msg, true).await
+                self.publish_message(msg).await
             }
         }
     }
@@ -397,7 +387,6 @@ where
         self.tx.clone()
     }
 
-    #[allow(dead_code)]
     fn tx_ref(&self) -> &T {
         &self.tx
     }
@@ -455,7 +444,6 @@ where
         self.tx.clone()
     }
 
-    #[allow(dead_code)]
     pub(crate) fn tx_ref(&self) -> &T {
         &self.tx
     }
