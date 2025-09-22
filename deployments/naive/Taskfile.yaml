@@ -20,13 +20,19 @@ tasks:
     desc: Deploy Slim using the naive deployment strategy
     deps: 
       - templates:cluster:use-context
+
+    requires:
+      vars: [SLIM_IMAGE_TAG]
+
     cmds:
       - cmd: |
           helm upgrade slim ../../charts/slim \
             --namespace slim \
             --create-namespace \
             --install \
-            --values naive-values.yaml
+            --set slim.image.tag="{{ .SLIM_IMAGE_TAG }}" 
+            --values naive-values.yaml \
+            - dry-run
   
   slim:show-logs:
     desc: Show logs for Slim components in the naive deployment

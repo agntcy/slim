@@ -13,8 +13,13 @@ tasks:
 
   slim:deploy:
     desc: Deploy Slim using the DaemonSet deployment strategy
+    
+    deps: 
+       - templates:cluster:use-context
+
     cmds:
       - helm upgrade --install slim ../../charts/slim \
           --namespace slim \
           --create-namespace \
+          --set slim.image.tag="{{ .SLIM_IMAGE_TAG }}" \
           --values ./deployments/daemonset-values.yaml
