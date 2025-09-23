@@ -13,7 +13,6 @@ use rmcp::{
 use slim::config::ConfigResult;
 use slim_auth::shared_secret::SharedSecret;
 use slim_datapath::messages::Name;
-use slim_service::app::App;
 use slim_service::{
     PointToPointConfiguration, Timer, TimerObserver, TimerType,
     session::{SessionConfig, context::SessionContext, notification::Notification},
@@ -199,15 +198,13 @@ where
                                 let _ = sink.close().await;
                                 break;
                             }
-                            if let (Some(remote), Some(conn)) = (remote_name.as_ref(), incoming_conn_id) {
-                                if let Some(session_arc) = weak.upgrade() {
-                                    let ping_req = PingRequest { method: PingRequestMethod };
-                                    let index = rand::random::<u32>();
-                                    pending_pings.insert(index);
-                                    let req = ServerJsonRpcMessage::Request(JsonRpcRequest { jsonrpc: rmcp::model::JsonRpcVersion2_0, id: Number(index), request: rmcp::model::ServerRequest::PingRequest(ping_req) });
-                                    let vec = serde_json::to_vec(&req).unwrap();
-                                    if let Err(e) = session_arc.publish_to(remote, conn, vec, None, None).await { error!("error sending ping: {}", e); }
-                                }
+                            if let (Some(remote), Some(conn)) = (remote_name.as_ref(), incoming_conn_id) && let Some(session_arc) = weak.upgrade() {
+                                let ping_req = PingRequest { method: PingRequestMethod };
+                                let index = rand::random::<u32>();
+                                pending_pings.insert(index);
+                                let req = ServerJsonRpcMessage::Request(JsonRpcRequest { jsonrpc: rmcp::model::JsonRpcVersion2_0, id: Number(index), request: rmcp::model::ServerRequest::PingRequest(ping_req) });
+                                let vec = serde_json::to_vec(&req).unwrap();
+                                if let Err(e) = session_arc.publish_to(remote, conn, vec, None, None).await { error!("error sending ping: {}", e); }
                             }
                         }
                     }
