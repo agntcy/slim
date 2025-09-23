@@ -54,7 +54,7 @@ async def run_client(
         # Select session type. Unicast enables sticky semantics; Anycast for fan-out.
         if unicast or enable_mls:
             session = await local_app.create_session(
-                slim_bindings.PySessionConfiguration.Unicast(
+                slim_bindings.PySessionConfiguration.Unicast(  # type: ignore
                     max_retries=5,
                     timeout=datetime.timedelta(seconds=5),
                     mls_enabled=enable_mls,
@@ -62,7 +62,7 @@ async def run_client(
             )
         else:
             session = await local_app.create_session(
-                slim_bindings.PySessionConfiguration.Anycast()
+                slim_bindings.PySessionConfiguration.Anycast()  # type: ignore
             )
 
         for i in range(iterations):

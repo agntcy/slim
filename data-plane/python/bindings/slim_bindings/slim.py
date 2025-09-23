@@ -49,7 +49,7 @@ class Slim:
         """
 
         # Initialize service
-        self.svc = svc
+        self._svc = svc
 
         # Save local names
         name.id = svc.id
@@ -96,7 +96,7 @@ class Slim:
             int: The ID of the app.
         """
 
-        return self.svc.id
+        return self._svc.id
 
     async def create_session(
         self,
@@ -110,8 +110,8 @@ class Slim:
         Returns:
             Session: Python wrapper around the created session context.
         """
-        ctx: PySessionContext = await create_session(self.svc, session_config)
-        return PySession(self.svc, ctx)
+        ctx: PySessionContext = await create_session(self._svc, session_config)
+        return PySession(self._svc, ctx)
 
     async def delete_session(self, session: PySession):
         """
@@ -128,7 +128,7 @@ class Slim:
         """
 
         # Remove the session from SLIM
-        await delete_session(self.svc, session._ctx)
+        await delete_session(self._svc, session._ctx)
 
     async def set_default_session_config(
         self,
@@ -144,7 +144,7 @@ class Slim:
             None
         """
 
-        await set_default_session_config(self.svc, session_config)
+        await set_default_session_config(self._svc, session_config)
 
     async def run_server(self, config: dict):
         """
@@ -158,7 +158,7 @@ class Slim:
             None
         """
 
-        await run_server(self.svc, config)
+        await run_server(self._svc, config)
 
     async def stop_server(self, endpoint: str):
         """
@@ -171,7 +171,7 @@ class Slim:
             None
         """
 
-        await stop_server(self.svc, endpoint)
+        await stop_server(self._svc, endpoint)
 
     async def connect(self, client_config: dict) -> int:
         """
@@ -186,7 +186,7 @@ class Slim:
         """
 
         conn_id = await connect(
-            self.svc,
+            self._svc,
             client_config,
         )
 
@@ -197,7 +197,7 @@ class Slim:
         self.conn_id = conn_id
 
         # Subscribe to the local name
-        await subscribe(self.svc, conn_id, self.local_name)
+        await subscribe(self._svc, conn_id, self.local_name)
 
         # return the connection ID
         return conn_id
@@ -215,7 +215,7 @@ class Slim:
 
         """
         conn = self.conn_ids[endpoint]
-        await disconnect(self.svc, conn)
+        await disconnect(self._svc, conn)
 
     async def set_route(
         self,
@@ -231,7 +231,7 @@ class Slim:
             None
         """
 
-        await set_route(self.svc, self.conn_id, name)
+        await set_route(self._svc, self.conn_id, name)
 
     async def remove_route(
         self,
@@ -247,7 +247,7 @@ class Slim:
             None
         """
 
-        await remove_route(self.svc, self.conn_id, name)
+        await remove_route(self._svc, self.conn_id, name)
 
     async def subscribe(self, name: PyName):
         """
@@ -260,7 +260,7 @@ class Slim:
             None
         """
 
-        await subscribe(self.svc, self.conn_id, name)
+        await subscribe(self._svc, self.conn_id, name)
 
     async def unsubscribe(self, name: PyName):
         """
@@ -273,7 +273,7 @@ class Slim:
             None
         """
 
-        await unsubscribe(self.svc, self.conn_id, name)
+        await unsubscribe(self._svc, self.conn_id, name)
 
     async def listen_for_session(
         self, timeout: Optional[timedelta] = None
@@ -290,5 +290,5 @@ class Slim:
             timeout = timedelta(days=365 * 100)  # ~100 years
 
         async with asyncio.timeout(timeout.total_seconds()):
-            session_ctx = await listen_for_session(self.svc)
-            return PySession(self.svc, session_ctx)
+            session_ctx = await listen_for_session(self._svc)
+            return PySession(self._svc, session_ctx)
