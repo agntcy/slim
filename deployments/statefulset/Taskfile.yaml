@@ -24,5 +24,5 @@ tasks:
         helm upgrade --install slim ../../charts/slim \
           --namespace slim \
           --create-namespace \
-          --set slim.image.tag="{{ .SLIM_IMAGE_TAG }}" 
+          --set slim.image.tag="{{ .SLIM_IMAGE_TAG }}" \
           --values statefulset-values.yaml
