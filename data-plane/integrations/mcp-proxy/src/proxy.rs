@@ -73,10 +73,8 @@ pub struct Proxy {
 }
 
 /// Spawn the async task that bridges a SLIM session with the MCP server.
-fn start_proxy_session<P, V>(
-    ctx: SessionContext<P, V>,
-    mcp_server: String,
-) where
+fn start_proxy_session<P, V>(ctx: SessionContext<P, V>, mcp_server: String)
+where
     P: slim_auth::traits::TokenProvider + Send + Sync + Clone + 'static,
     V: slim_auth::traits::Verifier + Send + Sync + Clone + 'static,
 {
