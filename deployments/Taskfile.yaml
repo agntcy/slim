@@ -14,6 +14,7 @@ vars:
   # Simple values
   SLIM_IMAGE_TAG: '{{ .SLIM_IMAGE_TAG | default "0.6.0-dev.1" }}'
   SLIM_CONTROLLER_IMAGE_TAG: "0.2.0-dev.1"
+  HELM_NAMESPACE: '{{ .HELM_NAMESPACE | default "slim" }}'
 
 tasks:
 
@@ -95,11 +96,12 @@ tasks:
   slim:contoller:deploy:
     desc: Deploy Slim Controller
     cmds:
-      - helm upgrade --install slim-control ../charts/slim-control-plane \
+      - |
+        helm upgrade --install slim-control ../charts/slim-control-plane \
           --namespace slim \
           --create-namespace \
-          --values ./deployments/controller-values.yaml            
-
+          --set image.tag="{{ .SLIM_CONTROLLER_IMAGE_TAG }}" \
+          --values controller-values.yaml            
 
   slim:deploy:client-apps:
     desc: Deploy sample client applications

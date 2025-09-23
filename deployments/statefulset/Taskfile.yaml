@@ -17,7 +17,7 @@ tasks:
       vars: [SLIM_IMAGE_TAG]
 
     deps: 
-      - templates:cluster:use-context
+      # - templates:cluster:use-context
 
     cmds:
       - | 

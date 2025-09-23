@@ -1,0 +1,33 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: alice
+  labels:
+    "app": "alice"
+spec:
+  selector:
+    matchLabels:
+      "app": "alice"
+  template:
+    metadata:
+      name: alice
+      labels:
+        "app": "alice"
+    spec:
+      containers:
+      - args:
+        - anycast
+        - --local
+        - org/ns/alice
+        - --shared-secret
+        - secret123
+        - --slim
+        - '{"endpoint":"http://127.0.0.1:46357","tls":{"insecure":true}}'
+        env:
+        - name: PYTHONUNBUFFERED
+          value: "1"
+        image: ghcr.io/agntcy/slim/bindings-examples:0.6.0-dev.1
+        imagePullPolicy: Always
+        name: alice
+      serviceAccount: default
+      serviceAccountName: default

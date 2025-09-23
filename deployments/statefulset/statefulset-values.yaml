@@ -31,7 +31,7 @@ slim:
 
     services:
       slim/0:
-        nodeId: ${env:SLIM_SVC_ID}
+        node_id: ${env:SLIM_SVC_ID}
         pubsub:
           servers:
             - endpoint: "0.0.0.0:{{ .Values.slim.service.data.port }}"
@@ -43,9 +43,10 @@ slim:
           clients:
             - endpoint: "https://slim-control:50052"
               tls:
-                cert_file: "/svids/tls.crt"
-                key_file: "/svids/tls.key"
-                ca_file: "/svids/svid_bundle.pem"
+                insecure: true
+                # cert_file: "/svids/tls.crt"
+                # key_file: "/svids/tls.key"
+                # ca_file: "/svids/svid_bundle.pem"
 
   # StatefulSet-specific settings
   # DaemonSet-specific settings
@@ -87,7 +88,7 @@ slim:
     #      - chart-example.local
 
 spire:
-  enabled: true
+  enabled: false
   helperImage:
     repository: ghcr.io/spiffe/spiffe-helper
     # This sets the pull policy for images.
