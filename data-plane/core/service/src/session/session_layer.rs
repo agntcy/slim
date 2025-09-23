@@ -397,6 +397,7 @@ where
                     ProtoSessionType::SessionMulticast => {
                         let mut conf = self.default_multicast_conf.read().clone();
                         conf.mls_enabled = message.contains_metadata(METADATA_MLS_ENABLED);
+                        conf.initiator = false;
                         self.create_session(SessionConfig::Multicast(conf), Some(id))
                             .await?
                     }
