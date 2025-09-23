@@ -43,7 +43,9 @@ async def run_client(
 
     created_session = None
     if chat_topic and invites:
-        format_message_print(f"Creating new multicast session (moderator)... {split_id(local)}")
+        format_message_print(
+            f"Creating new multicast session (moderator)... {split_id(local)}"
+        )
         created_session = await local_app.create_session(
             slim_bindings.PySessionConfiguration.Multicast(
                 topic=chat_topic,
@@ -70,7 +72,6 @@ async def run_client(
         else:
             session = created_session
 
-        first = True
         while True:
             try:
                 ctx, payload = await session.get_message()
@@ -78,7 +79,6 @@ async def run_client(
                     local,
                     f"-> Received message from {ctx.source_name}: {payload.decode()}",
                 )
-                first = False
             except asyncio.CancelledError:
                 break
             except Exception as e:

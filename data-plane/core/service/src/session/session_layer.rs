@@ -283,6 +283,12 @@ where
             .on_msg_from_slim_interceptors(&mut message)
             .await?;
 
+        tracing::trace!(
+            "received message from SLIM {} {}",
+            message.get_session_message_type().as_str_name(),
+            message.get_id()
+        );
+
         let (id, session_type, session_message_type) = {
             // get the session type and the session id from the message
             let header = message.get_session_header();

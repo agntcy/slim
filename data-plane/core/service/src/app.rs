@@ -267,6 +267,8 @@ where
                                             }
                                         }
 
+                                        tracing::trace!("received message from SLIM {} {}", msg.get_session_message_type().as_str_name(), msg.get_id());
+
                                         // Handle the message
                                         let res = session_layer
                                             .handle_message_from_slim(msg)

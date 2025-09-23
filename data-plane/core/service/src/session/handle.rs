@@ -609,10 +609,11 @@ mod tests {
         ) -> impl std::future::Future<Output = Result<(), SessionError>> + Send + 'static {
             let store = self.slim_msgs.clone();
             async move {
-                store.write().push(message.map_err(|s| s));
+                store.write().push(message);
                 Ok(())
             }
         }
+
         fn send_to_app(
             &self,
             message: Result<Message, SessionError>,
@@ -652,10 +653,11 @@ mod tests {
         ) -> impl std::future::Future<Output = Result<(), SessionError>> + Send + 'static {
             let store = self.slim_msgs.clone();
             async move {
-                store.write().push(message.map_err(|s| s));
+                store.write().push(message);
                 Ok(())
             }
         }
+
         fn send_to_app(
             &self,
             message: Result<Message, SessionError>,
@@ -704,8 +706,10 @@ mod tests {
             false,
             std::env::temp_dir(),
         );
-        let mut new_conf = PointToPointConfiguration::default();
-        new_conf.sticky = true;
+        let new_conf = PointToPointConfiguration {
+            sticky: true,
+            ..Default::default()
+        };
         common
             .set_session_config(&SessionConfig::PointToPoint(new_conf.clone()))
             .unwrap();
@@ -731,8 +735,10 @@ mod tests {
             false,
             std::env::temp_dir(),
         );
-        let mut new_conf = MulticastConfiguration::default();
-        new_conf.moderator = true;
+        let new_conf = MulticastConfiguration {
+            moderator: true,
+            ..Default::default()
+        };
         common
             .set_session_config(&SessionConfig::Multicast(new_conf.clone()))
             .unwrap();
@@ -777,8 +783,10 @@ mod tests {
         use crate::session::point_to_point::PointToPoint;
         let tx = MockTransmitter::default();
         let store = tx.slim_msgs.clone();
-        let mut conf = PointToPointConfiguration::default();
-        conf.sticky = sticky;
+        let conf = PointToPointConfiguration {
+            sticky,
+            ..Default::default()
+        };
         let source = make_name(["agntcy", "src", "p2p"]);
         let p2p = PointToPoint::new(
             id,
@@ -839,10 +847,10 @@ mod tests {
             .unwrap();
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
         let msgs = store.read();
-        if let Some(Ok(msg)) = msgs.get(0) {
-            if let Some(val) = msg.get_metadata("k") {
-                assert_eq!(val, "v");
-            }
+        if let Some(Ok(msg)) = msgs.first()
+            && let Some(val) = msg.get_metadata("k")
+        {
+            assert_eq!(val, "v");
         }
     }
 
@@ -857,7 +865,7 @@ mod tests {
             .unwrap();
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
         let msgs = store.read();
-        if let Some(Ok(msg)) = msgs.get(0) {
+        if let Some(Ok(msg)) = msgs.first() {
             assert_eq!(msg.get_forward_to(), Some(42));
         }
     }
@@ -883,13 +891,13 @@ mod tests {
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
         let msgs = store.read();
         if msgs.len() >= 2 {
-            if let Some(Ok(first)) = msgs.get(0) {
+            if let Some(Ok(first)) = msgs.first() {
                 assert_eq!(
                     first.get_session_message_type() as u32,
                     ProtoSessionMessageType::ChannelDiscoveryRequest as u32
                 );
             }
-            if let Some(Ok(second)) = msgs.get(1) {
+            if let Some(Ok(second)) = msgs.first() {
                 assert_eq!(
                     second.get_session_message_type() as u32,
                     ProtoSessionMessageType::ChannelLeaveRequest as u32
@@ -918,7 +926,7 @@ mod tests {
             std::env::temp_dir(),
         );
         assert!(
-            tx.get_interceptors().len() >= 1,
+            !tx.get_interceptors().is_empty(),
             "expected at least one interceptor when MLS enabled"
         );
     }
@@ -940,7 +948,7 @@ mod tests {
             std::env::temp_dir(),
         );
         assert!(
-            tx.get_interceptors().len() >= 1,
+            !tx.get_interceptors().is_empty(),
             "expected at least one interceptor when MLS enabled"
         );
     }

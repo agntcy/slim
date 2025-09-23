@@ -114,6 +114,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::SessionError;
     use crate::session::common::AppChannelSender;
     use crate::session::handle::Session as PublicSession;
     use crate::session::handle::SessionType;
@@ -172,25 +173,27 @@ mod tests {
     struct TestTransmitter {
         app_tx: Option<AppChannelSender>,
     }
+
     impl SessionInterceptorProvider for TestTransmitter {
         fn add_interceptor(&self, _i: Arc<dyn SessionInterceptor + Send + Sync + 'static>) {}
         fn get_interceptors(&self) -> Vec<Arc<dyn SessionInterceptor + Send + Sync + 'static>> {
             vec![]
         }
     }
+
     impl Transmitter for TestTransmitter {
+        #[allow(clippy::manual_async_fn)]
         fn send_to_slim(
             &self,
             _msg: Result<Message, Status>,
-        ) -> impl std::future::Future<Output = Result<(), crate::session::SessionError>> + Send + 'static
-        {
+        ) -> impl Future<Output = Result<(), SessionError>> + Send + 'static {
             async move { Ok(()) }
         }
+
         fn send_to_app(
             &self,
             msg: Result<Message, crate::session::SessionError>,
-        ) -> impl std::future::Future<Output = Result<(), crate::session::SessionError>> + Send + 'static
-        {
+        ) -> impl Future<Output = Result<(), SessionError>> + Send + 'static {
             let tx = self.app_tx.clone();
             async move {
                 if let Some(tx) = tx {

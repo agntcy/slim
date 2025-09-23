@@ -34,8 +34,8 @@ from slim_bindings._slim_bindings import (
     unsubscribe,
 )
 from slim_bindings.errors import SLIMTimeoutError
-from slim_bindings.slim import Slim
 from slim_bindings.session import PySession
+from slim_bindings.slim import Slim
 from slim_bindings.version import get_build_info, get_build_profile, get_version
 
 __all__ = [

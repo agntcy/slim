@@ -356,6 +356,8 @@ where
                                 }
                                 let (msg, direction) = result.unwrap();
 
+                                tracing::trace!("received message from SLIM {} {}", msg.get_session_message_type().as_str_name(), msg.get_id());
+
                                 // process the messages for the channel endpoint first
                                 match msg.get_session_header().session_message_type() {
                                     ProtoSessionMessageType::ChannelLeaveReply => {
@@ -626,6 +628,7 @@ async fn process_message_from_app<T>(
 
     msg.set_session_type(ProtoSessionType::SessionMulticast);
     msg.set_session_message_type(ProtoSessionMessageType::MulticastMsg);
+    msg.get_session_header_mut().set_session_id(session_id);
 
     msg.set_message_id(producer.next_id);
     msg.set_fanout(STREAM_BROADCAST);
@@ -677,6 +680,12 @@ async fn process_message_from_slim<T>(
 {
     let producer_name = msg.get_source();
     let producer_conn = msg.get_incoming_conn();
+
+    tracing::trace!(
+        "received message from SLIM {} {}",
+        msg.get_session_message_type().as_str_name(),
+        msg.get_id()
+    );
 
     let receiver = match receiver_state.buffers.get_mut(&producer_name) {
         Some(state) => state,
