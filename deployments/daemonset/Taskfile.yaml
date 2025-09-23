@@ -19,7 +19,7 @@ tasks:
 
     
     deps: 
-       - templates:cluster:use-context
+      #  - templates:cluster:use-context
 
     cmds:
       - |
