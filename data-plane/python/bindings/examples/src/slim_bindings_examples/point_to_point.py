@@ -51,9 +51,10 @@ async def run_client(
         remote_name = split_id(remote)
         await local_app.set_route(remote_name)
 
+        # Select session type. Unicast enables sticky semantics; Anycast for fan-out.
         if unicast or enable_mls:
             session = await local_app.create_session(
-                slim_bindings.PySessionConfiguration.Unicast(  # type: ignore
+                slim_bindings.PySessionConfiguration.Unicast(
                     max_retries=5,
                     timeout=datetime.timedelta(seconds=5),
                     mls_enabled=enable_mls,
@@ -61,7 +62,7 @@ async def run_client(
             )
         else:
             session = await local_app.create_session(
-                slim_bindings.PySessionConfiguration.Anycast()  # type: ignore
+                slim_bindings.PySessionConfiguration.Anycast()
             )
 
         for i in range(iterations):
@@ -71,15 +72,13 @@ async def run_client(
                     f"{instance}",
                     f"Sent message {message} - {i + 1}/{iterations}:",
                 )
-                msg_ctx, reply = await session.get_message()
+                _msg_ctx, reply = await session.get_message()
                 format_message_print(
                     f"{instance}",
                     f"received (from session {session.id}): {reply.decode()}",
                 )
-                # reply back again for demo
-                await session.publish_to(msg_ctx, f"ack {i}".encode())
             except Exception as e:
-                print("received error: ", e)
+                format_message_print(f"{instance}", f"error: {e}")
             await asyncio.sleep(1)
     else:
         while True:
@@ -94,6 +93,7 @@ async def run_client(
                     try:
                         msg_ctx, payload = await sess.get_message()
                     except Exception:
+                        # session probably closed
                         break
                     text = payload.decode()
                     format_message_print(f"{instance}", f"received: {text}")
