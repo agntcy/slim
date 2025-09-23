@@ -7,7 +7,10 @@ version: "3"
 # This Taskfile includes specific tasks for the naive deployment strategy.
 
 includes:
-  templates: ../Taskfile.yaml
+    templates: 
+      taskfile: ../Taskfile.yaml
+      dir: ../
+
 
 tasks:
   slim:deploy:
