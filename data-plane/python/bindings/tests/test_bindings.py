@@ -234,6 +234,15 @@ async def test_slim_wrapper(server):
     session_context_rec = await slim1.listen_for_session()
     msg_ctx, msg_rcv = await session_context_rec.get_message()
 
+    # make sure the received session is anycast as well
+    assert session_context_rec.session_type == slim_bindings.PySessionType.ANYCAST
+
+    # Make sure the dst of the session is None (anycast)
+    assert session_context_rec.dst is None
+
+    # Make sure the source is correct
+    assert session_context_rec.src == slim1.local_name
+
     # check if the message is correct
     assert msg_rcv == bytes(msg)
 

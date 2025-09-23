@@ -113,6 +113,7 @@ where
             inner: SessionInner::PointToPoint(s),
         }
     }
+
     pub(crate) fn from_multicast(s: Multicast<P, V, T>) -> Self {
         Session {
             inner: SessionInner::Multicast(s),
@@ -125,30 +126,35 @@ where
             SessionInner::Multicast(_) => SessionType::Multicast,
         }
     }
+
     pub fn id(&self) -> Id {
         match &self.inner {
             SessionInner::PointToPoint(s) => s.id(),
             SessionInner::Multicast(s) => s.id(),
         }
     }
+
     pub fn source(&self) -> &Name {
         match &self.inner {
             SessionInner::PointToPoint(s) => s.source(),
             SessionInner::Multicast(s) => s.source(),
         }
     }
+
     pub fn dst(&self) -> Option<Name> {
         match &self.inner {
             SessionInner::PointToPoint(s) => s.dst(),
             SessionInner::Multicast(s) => s.dst(),
         }
     }
+
     pub fn session_config(&self) -> SessionConfig {
         match &self.inner {
             SessionInner::PointToPoint(s) => s.session_config(),
             SessionInner::Multicast(s) => s.session_config(),
         }
     }
+
     pub fn set_session_config(&self, cfg: &SessionConfig) -> Result<(), SessionError> {
         match &self.inner {
             SessionInner::PointToPoint(s) => s.set_session_config(cfg),
@@ -156,14 +162,13 @@ where
         }
     }
 
-    pub fn incoming_connection() {}
-
     pub(crate) fn tx_ref(&self) -> &T {
         match &self.inner {
             SessionInner::PointToPoint(s) => s.tx_ref(),
             SessionInner::Multicast(s) => s.tx_ref(),
         }
     }
+
     fn inner_ref(&self) -> &SessionInner<P, V, T> {
         &self.inner
     }
