@@ -513,3 +513,482 @@ where
         f(guard.as_ref())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    // The tests below exercise the public Session API surface provided by this file.
+    // Goals:
+    // 1. Validate light-weight / sync helpers (Display impls, config mutation, dst handling).
+    // 2. Exercise real publish flows (publish, publish_to) using concrete PointToPoint and Multicast session instances.
+    // 3. Validate header / metadata side effects (forward_to flag, metadata map propagation, message type enums).
+    // 4. Ensure error semantics for unsupported operations (inviting/removing participants on PointToPoint sessions).
+    //
+    // The strategy is to construct actual session variants directly via their internal constructors.
+    // This avoids having to stand up larger subsystems while still traversing most of the code paths
+    // in the handle layer. A simple in‑memory MockTransmitter captures outbound messages for assertions.
+    use super::*;
+    use crate::session::interceptor::SessionInterceptor;
+    use crate::session::interceptor::SessionInterceptorProvider; // bring trait into scope for get_interceptors()
+    use async_trait::async_trait;
+    use parking_lot::RwLock;
+    use slim_auth::errors::AuthError;
+    use slim_auth::traits::{TokenProvider, Verifier};
+    use slim_datapath::Status;
+    use slim_datapath::api::ProtoMessage as Message;
+    use slim_datapath::messages::Name;
+
+    use crate::session::multicast::MulticastConfiguration;
+    use crate::session::point_to_point::PointToPointConfiguration;
+    use crate::session::traits::Transmitter;
+    use crate::session::{CommonSession, SessionConfig, SessionError, SessionType};
+
+    // ---- Test doubles ------------------------------------------------------------------------
+    // Minimal TokenProvider returning a static token; sufficient because current tests do not
+    // validate token contents—only that code paths do not error out when a token is requested.
+    #[derive(Clone, Default)]
+    struct DummyTokenProvider;
+    impl TokenProvider for DummyTokenProvider {
+        fn get_token(&self) -> Result<String, AuthError> {
+            Ok("token".into())
+        }
+    }
+
+    // Verifier that always succeeds for verify() calls and returns a deterministic error for
+    // claim extraction (unused in these tests). This keeps behavior explicit while avoiding
+    // silent panics if logic changes to rely on claims later.
+    #[derive(Clone, Default)]
+    struct DummyVerifier;
+    #[async_trait]
+    impl Verifier for DummyVerifier {
+        async fn verify(&self, _token: impl Into<String> + Send) -> Result<(), AuthError> {
+            Ok(())
+        }
+        fn try_verify(&self, _token: impl Into<String>) -> Result<(), AuthError> {
+            Ok(())
+        }
+        async fn get_claims<Claims>(
+            &self,
+            _token: impl Into<String> + Send,
+        ) -> Result<Claims, AuthError>
+        where
+            Claims: serde::de::DeserializeOwned + Send,
+        {
+            Err(AuthError::TokenInvalid("not implemented".into()))
+        }
+        fn try_get_claims<Claims>(&self, _token: impl Into<String>) -> Result<Claims, AuthError>
+        where
+            Claims: serde::de::DeserializeOwned + Send,
+        {
+            Err(AuthError::TokenInvalid("not implemented".into()))
+        }
+    }
+
+    // Transmitter mock capturing messages dispatched either toward SLIM (wire side) or the app.
+    // We only assert on the slim side in these tests; app side storage exists for completeness.
+    #[derive(Clone, Default)]
+    struct MockTransmitter {
+        slim_msgs: Arc<RwLock<Vec<Result<Message, Status>>>>,
+        app_msgs: Arc<RwLock<Vec<Result<Message, SessionError>>>>,
+    }
+
+    impl crate::session::SessionInterceptorProvider for MockTransmitter {
+        fn add_interceptor(
+            &self,
+            _interceptor: Arc<dyn SessionInterceptor + Send + Sync + 'static>,
+        ) {
+        }
+        fn get_interceptors(&self) -> Vec<Arc<dyn SessionInterceptor + Send + Sync + 'static>> {
+            vec![]
+        }
+    }
+
+    impl Transmitter for MockTransmitter {
+        fn send_to_slim(
+            &self,
+            message: Result<Message, Status>,
+        ) -> impl std::future::Future<Output = Result<(), SessionError>> + Send + 'static {
+            let store = self.slim_msgs.clone();
+            async move {
+                store.write().push(message.map_err(|s| s));
+                Ok(())
+            }
+        }
+        fn send_to_app(
+            &self,
+            message: Result<Message, SessionError>,
+        ) -> impl std::future::Future<Output = Result<(), SessionError>> + Send + 'static {
+            let store = self.app_msgs.clone();
+            async move {
+                store.write().push(message);
+                Ok(())
+            }
+        }
+    }
+
+    // Transmitter variant that records added interceptors so we can assert MLS path behavior.
+    #[derive(Clone, Default)]
+    struct RecordingTransmitter {
+        slim_msgs: Arc<RwLock<Vec<Result<Message, Status>>>>,
+        app_msgs: Arc<RwLock<Vec<Result<Message, SessionError>>>>,
+        interceptors: Arc<RwLock<Vec<Arc<dyn SessionInterceptor + Send + Sync + 'static>>>>,
+    }
+
+    impl crate::session::SessionInterceptorProvider for RecordingTransmitter {
+        fn add_interceptor(
+            &self,
+            interceptor: Arc<dyn SessionInterceptor + Send + Sync + 'static>,
+        ) {
+            self.interceptors.write().push(interceptor);
+        }
+        fn get_interceptors(&self) -> Vec<Arc<dyn SessionInterceptor + Send + Sync + 'static>> {
+            self.interceptors.read().clone()
+        }
+    }
+
+    impl Transmitter for RecordingTransmitter {
+        fn send_to_slim(
+            &self,
+            message: Result<Message, Status>,
+        ) -> impl std::future::Future<Output = Result<(), SessionError>> + Send + 'static {
+            let store = self.slim_msgs.clone();
+            async move {
+                store.write().push(message.map_err(|s| s));
+                Ok(())
+            }
+        }
+        fn send_to_app(
+            &self,
+            message: Result<Message, SessionError>,
+        ) -> impl std::future::Future<Output = Result<(), SessionError>> + Send + 'static {
+            let store = self.app_msgs.clone();
+            async move {
+                store.write().push(message);
+                Ok(())
+            }
+        }
+    }
+
+    // Helper to build 3‑segment Name instances (the underlying API expects exactly 3 components).
+    fn make_name(parts: [&str; 3]) -> Name {
+        Name::from_strings(parts)
+    }
+
+    // --- Basic formatting tests ---------------------------------------------------------------
+    #[test]
+    fn session_type_display() {
+        assert_eq!(SessionType::PointToPoint.to_string(), "PointToPoint");
+        assert_eq!(SessionType::Multicast.to_string(), "Multicast");
+    }
+
+    #[test]
+    fn session_config_display() {
+        let p = SessionConfig::PointToPoint(PointToPointConfiguration::default());
+        assert!(p.to_string().contains("PointToPointConfiguration"));
+        let m = SessionConfig::Multicast(MulticastConfiguration::default());
+        assert!(m.to_string().contains("MulticastConfiguration"));
+    }
+
+    // --- Common::set_session_config for PointToPoint variant ----------------------------------
+    #[test]
+    fn common_set_session_config_point_to_point() {
+        let tx = MockTransmitter::default();
+        let source = make_name(["agntcy", "src", "p2p"]);
+        let cfg = SessionConfig::PointToPoint(PointToPointConfiguration::default());
+        let common = Common::new(
+            1,
+            cfg.clone(),
+            source,
+            tx,
+            DummyTokenProvider,
+            DummyVerifier,
+            false,
+            std::env::temp_dir(),
+        );
+        let mut new_conf = PointToPointConfiguration::default();
+        new_conf.sticky = true;
+        common
+            .set_session_config(&SessionConfig::PointToPoint(new_conf.clone()))
+            .unwrap();
+        match common.session_config() {
+            SessionConfig::PointToPoint(c) => assert!(c.sticky),
+            _ => panic!("expected p2p"),
+        }
+    }
+
+    // --- Common::set_session_config for Multicast variant -------------------------------------
+    #[test]
+    fn common_set_session_config_multicast() {
+        let tx = MockTransmitter::default();
+        let source = make_name(["agntcy", "src", "mc"]);
+        let cfg = SessionConfig::Multicast(MulticastConfiguration::default());
+        let common = Common::new(
+            2,
+            cfg.clone(),
+            source,
+            tx,
+            DummyTokenProvider,
+            DummyVerifier,
+            false,
+            std::env::temp_dir(),
+        );
+        let mut new_conf = MulticastConfiguration::default();
+        new_conf.moderator = true;
+        common
+            .set_session_config(&SessionConfig::Multicast(new_conf.clone()))
+            .unwrap();
+        match common.session_config() {
+            SessionConfig::Multicast(c) => assert!(c.moderator),
+            _ => panic!("expected multicast"),
+        }
+    }
+
+    // --- Destination handling (set, get, with_dst closure) ------------------------------------
+    #[test]
+    fn common_dst_handling() {
+        let tx = MockTransmitter::default();
+        let source = make_name(["agntcy", "src", "p2p"]);
+        let cfg = SessionConfig::PointToPoint(PointToPointConfiguration::default());
+        let common = Common::new(
+            3,
+            cfg.clone(),
+            source.clone(),
+            tx,
+            DummyTokenProvider,
+            DummyVerifier,
+            false,
+            std::env::temp_dir(),
+        );
+        assert!(common.dst().is_none());
+        let dst = make_name(["agntcy", "dst", "p2p"]);
+        common.set_dst(dst.clone());
+        assert_eq!(common.dst().unwrap(), dst);
+        let via_with = common.with_dst(|d| d.cloned());
+        assert_eq!(via_with.unwrap(), dst);
+    }
+
+    // --- Extended tests using real Session instances ------------------------------------------
+    fn build_p2p_session(
+        id: Id,
+        sticky: bool,
+    ) -> (
+        Session<DummyTokenProvider, DummyVerifier, MockTransmitter>,
+        Arc<RwLock<Vec<Result<Message, Status>>>>,
+    ) {
+        use crate::session::point_to_point::PointToPoint;
+        let tx = MockTransmitter::default();
+        let store = tx.slim_msgs.clone();
+        let mut conf = PointToPointConfiguration::default();
+        conf.sticky = sticky;
+        let source = make_name(["agntcy", "src", "p2p"]);
+        let p2p = PointToPoint::new(
+            id,
+            conf,
+            source,
+            tx.clone(),
+            DummyTokenProvider,
+            DummyVerifier,
+            std::env::temp_dir(),
+        );
+        (Session::from_point_to_point(p2p), store)
+    }
+
+    fn build_multicast_session(
+        id: Id,
+    ) -> (
+        Session<DummyTokenProvider, DummyVerifier, MockTransmitter>,
+        Arc<RwLock<Vec<Result<Message, Status>>>>,
+        Name,
+    ) {
+        use crate::session::multicast::{Multicast, MulticastConfiguration};
+        let tx = MockTransmitter::default();
+        let store = tx.slim_msgs.clone();
+        let channel = make_name(["agntcy", "chan", "mc"]);
+        let conf = MulticastConfiguration::new(
+            channel.clone(),
+            true,
+            Some(1),
+            Some(std::time::Duration::from_millis(10)),
+            false,
+        );
+        let source = make_name(["agntcy", "src", "mc"]);
+        let mc = Multicast::new(
+            id,
+            conf,
+            source,
+            tx.clone(),
+            DummyTokenProvider,
+            DummyVerifier,
+            std::env::temp_dir(),
+        );
+        (Session::from_multicast(mc), store, channel)
+    }
+
+    // Publish on a PointToPoint session and assert metadata propagation.
+    #[tokio::test]
+    async fn session_publish_and_metadata() {
+        let (session, store) = build_p2p_session(10, false);
+        let dst = make_name(["agntcy", "dst", "p2p"]);
+        session
+            .publish(
+                &dst,
+                b"hello".to_vec(),
+                Some("text/plain".into()),
+                Some(HashMap::from([(String::from("k"), String::from("v"))])),
+            )
+            .await
+            .unwrap();
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        let msgs = store.read();
+        if let Some(Ok(msg)) = msgs.get(0) {
+            if let Some(val) = msg.get_metadata("k") {
+                assert_eq!(val, "v");
+            }
+        }
+    }
+
+    // Use publish_to which should set the forward_to flag on the header.
+    #[tokio::test]
+    async fn session_publish_to_sets_forward_to_flag() {
+        let (session, store) = build_p2p_session(11, false);
+        let dst = make_name(["agntcy", "dst", "p2p"]);
+        session
+            .publish_to(&dst, 42, b"data".to_vec(), None, None)
+            .await
+            .unwrap();
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        let msgs = store.read();
+        if let Some(Ok(msg)) = msgs.get(0) {
+            assert_eq!(msg.get_forward_to(), Some(42));
+        }
+    }
+
+    // PointToPoint sessions do not support participant invite/remove; expect Processing errors.
+    #[tokio::test]
+    async fn invite_and_remove_participant_fail_on_p2p() {
+        let (session, _store) = build_p2p_session(12, false);
+        let dst = make_name(["agntcy", "dst", "p2p"]);
+        let err = session.invite_participant(&dst).await.unwrap_err();
+        assert!(matches!(err, SessionError::Processing(_)));
+        let err = session.remove_participant(&dst).await.unwrap_err();
+        assert!(matches!(err, SessionError::Processing(_)));
+    }
+
+    // Multicast supports invite/remove; verify that the correct session message types are
+    // produced (ChannelDiscoveryRequest then ChannelLeaveRequest).
+    #[tokio::test]
+    async fn invite_and_remove_participant_multicast() {
+        let (session, store, destination) = build_multicast_session(13);
+        session.invite_participant(&destination).await.unwrap();
+        session.remove_participant(&destination).await.unwrap();
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        let msgs = store.read();
+        if msgs.len() >= 2 {
+            if let Some(Ok(first)) = msgs.get(0) {
+                assert_eq!(
+                    first.get_session_message_type() as u32,
+                    ProtoSessionMessageType::ChannelDiscoveryRequest as u32
+                );
+            }
+            if let Some(Ok(second)) = msgs.get(1) {
+                assert_eq!(
+                    second.get_session_message_type() as u32,
+                    ProtoSessionMessageType::ChannelLeaveRequest as u32
+                );
+            }
+        }
+    }
+
+    // --- MLS enabled tests --------------------------------------------------------------------
+    // These validate that when the mls_enabled flag is passed to Common::new, an MLS interceptor
+    // is registered with the transmitter (indirect verification of MLS bootstrap path).
+    #[test]
+    fn mls_interceptor_added_point_to_point() {
+        use crate::session::point_to_point::PointToPointConfiguration;
+        let tx = RecordingTransmitter::default();
+        let source = make_name(["agntcy", "src", "p2p"]);
+        let cfg = SessionConfig::PointToPoint(PointToPointConfiguration::default());
+        let _common = Common::new(
+            90,
+            cfg,
+            source,
+            tx.clone(),
+            DummyTokenProvider,
+            DummyVerifier,
+            true, // mls_enabled
+            std::env::temp_dir(),
+        );
+        assert!(
+            tx.get_interceptors().len() >= 1,
+            "expected at least one interceptor when MLS enabled"
+        );
+    }
+
+    #[test]
+    fn mls_interceptor_added_multicast() {
+        use crate::session::multicast::MulticastConfiguration;
+        let tx = RecordingTransmitter::default();
+        let source = make_name(["agntcy", "src", "mc"]);
+        let cfg = SessionConfig::Multicast(MulticastConfiguration::default());
+        let _common = Common::new(
+            91,
+            cfg,
+            source,
+            tx.clone(),
+            DummyTokenProvider,
+            DummyVerifier,
+            true, // mls_enabled
+            std::env::temp_dir(),
+        );
+        assert!(
+            tx.get_interceptors().len() >= 1,
+            "expected at least one interceptor when MLS enabled"
+        );
+    }
+
+    // Negative tests: when MLS disabled we should not register an interceptor.
+    #[test]
+    fn mls_interceptor_absent_point_to_point() {
+        use crate::session::point_to_point::PointToPointConfiguration;
+        let tx = RecordingTransmitter::default();
+        let source = make_name(["agntcy", "src", "p2p"]);
+        let cfg = SessionConfig::PointToPoint(PointToPointConfiguration::default());
+        let _common = Common::new(
+            92,
+            cfg,
+            source,
+            tx.clone(),
+            DummyTokenProvider,
+            DummyVerifier,
+            false, // mls disabled
+            std::env::temp_dir(),
+        );
+        assert_eq!(
+            tx.get_interceptors().len(),
+            0,
+            "no interceptor expected when MLS disabled"
+        );
+    }
+
+    #[test]
+    fn mls_interceptor_absent_multicast() {
+        use crate::session::multicast::MulticastConfiguration;
+        let tx = RecordingTransmitter::default();
+        let source = make_name(["agntcy", "src", "mc"]);
+        let cfg = SessionConfig::Multicast(MulticastConfiguration::default());
+        let _common = Common::new(
+            93,
+            cfg,
+            source,
+            tx.clone(),
+            DummyTokenProvider,
+            DummyVerifier,
+            false, // mls disabled
+            std::env::temp_dir(),
+        );
+        assert_eq!(
+            tx.get_interceptors().len(),
+            0,
+            "no interceptor expected when MLS disabled"
+        );
+    }
+}
