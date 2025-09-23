@@ -25,4 +25,4 @@ tasks:
           --namespace slim \
           --create-namespace \
           --set slim.image.tag="{{ .SLIM_IMAGE_TAG }}" 
-          --values ./deployments/statefulset-values.yaml
+          --values statefulset-values.yaml
