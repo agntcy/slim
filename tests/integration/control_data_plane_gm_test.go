@@ -119,7 +119,7 @@ var _ = Describe("Group management through control plane", func() {
 			Expect(err).NotTo(HaveOccurred())
 			Expect(addChannelOutput).NotTo(BeEmpty())
 
-			Eventually(slimNodeSession, 15*time.Second).Should(gbytes.Say("received a create channel request, this should happen"))
+			Eventually(slimNodeSession, 15*time.Second).Should(gbytes.Say("received a create channel request"))
 			Eventually(controlPlaneSession, 15*time.Second).Should(gbytes.Say("Channel created successfully"))
 			Eventually(controlPlaneSession, 15*time.Second).Should(gbytes.Say("Channel saved successfully"))
 
@@ -144,7 +144,7 @@ var _ = Describe("Group management through control plane", func() {
 			Expect(errA).NotTo(HaveOccurred())
 			Expect(addClientAOutput).NotTo(BeEmpty())
 
-			Eventually(slimNodeSession, 15*time.Second).Should(gbytes.Say("received a participant add request for channel"))
+			Eventually(slimNodeSession, 15*time.Second).Should(gbytes.Say("received a participant add request"))
 			Eventually(controlPlaneSession, 15*time.Second).Should(gbytes.Say("Ack message received, participant added successfully."))
 			Eventually(controlPlaneSession, 15*time.Second).Should(gbytes.Say("Channel updated, participant added successfully."))
 
@@ -160,7 +160,7 @@ var _ = Describe("Group management through control plane", func() {
 			Expect(errB).NotTo(HaveOccurred())
 			Expect(addClientCOutput).NotTo(BeEmpty())
 
-			Eventually(slimNodeSession, 15*time.Second).Should(gbytes.Say("received a participant add request for channel"))
+			Eventually(slimNodeSession, 15*time.Second).Should(gbytes.Say("received a participant add request"))
 			Eventually(moderatorSession, 15*time.Second).Should(gbytes.Say("Controller requested to add participant c to channel"))
 			Eventually(moderatorSession, 15*time.Second).Should(gbytes.Say("Successfully invited participant c to channel"))
 			Eventually(controlPlaneSession, 15*time.Second).Should(gbytes.Say("Ack message received, participant added successfully."))
@@ -186,7 +186,7 @@ var _ = Describe("Group management through control plane", func() {
 			Expect(errP).NotTo(HaveOccurred())
 			Expect(deleteParticipantOutput).NotTo(BeEmpty())
 
-			Eventually(slimNodeSession, 15*time.Second).Should(gbytes.Say("received a participant delete request, this should happen"))
+			Eventually(slimNodeSession, 15*time.Second).Should(gbytes.Say("received a participant delete request"))
 
 			Eventually(controlPlaneSession, 15*time.Second).Should(gbytes.Say("Ack message received, participant deleted successfully."))
 			Eventually(controlPlaneSession, 15*time.Second).Should(gbytes.Say("Channel updated, participant deleted successfully"))
@@ -201,7 +201,7 @@ var _ = Describe("Group management through control plane", func() {
 			Expect(errC).NotTo(HaveOccurred())
 			Expect(deleteChannelOutput).NotTo(BeEmpty())
 
-			Eventually(slimNodeSession, 15*time.Second).Should(gbytes.Say("received a channel delete request, this should happen"))
+			Eventually(slimNodeSession, 15*time.Second).Should(gbytes.Say("received a channel delete request"))
 
 			Eventually(controlPlaneSession, 15*time.Second).Should(gbytes.Say("Ack message received, channel deleted successfully."))
 			Eventually(controlPlaneSession, 15*time.Second).Should(gbytes.Say("Channel deleted successfully"))

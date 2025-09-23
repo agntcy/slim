@@ -544,24 +544,19 @@ impl ControllerService {
                         // received a connection list response, do nothing - this should not happen
                     }
                     Payload::RegisterNodeRequest(_) => {
-                        error!("received a register node request, this should not happen");
+                        error!("received a register node request");
                     }
                     Payload::RegisterNodeResponse(_) => {
                         // received a register node response, do nothing
                     }
                     Payload::DeregisterNodeRequest(_) => {
-                        error!("received a deregister node request, this should not happen");
+                        error!("received a deregister node request");
                     }
                     Payload::DeregisterNodeResponse(_) => {
                         // received a deregister node response, do nothing
                     }
                     Payload::CreateChannelRequest(req) => {
-                        info!(
-                            "received a create channel request, this should happen. Moderators: {:?}",
-                            req.moderators
-                        );
-                        info!("RAW MODERATORS ARRAY: {:?}", req.moderators);
-                        info!("MODERATORS LENGTH: {}", req.moderators.len());
+                        info!("received a create channel request");
 
                         let channel_id = req.channel_id.clone();
 
@@ -569,13 +564,13 @@ impl ControllerService {
                             let parts: Vec<&str> = first_moderator.split('/').collect();
                             if parts.len() != 4 {
                                 return Err(ControllerError::ConfigError(format!(
-                                    "Invalid moderator name format: {}",
+                                    "invalid moderator name format: {}",
                                     first_moderator
                                 )));
                             }
                             let id = parts[3].parse::<u64>().map_err(|_| {
                                 ControllerError::ConfigError(format!(
-                                    "Invalid moderator ID: {}",
+                                    "invalid moderator ID: {}",
                                     parts[3]
                                 ))
                             })?;
@@ -622,22 +617,18 @@ impl ControllerService {
 
                             let controller_identity = SharedSecret::new("controller", "group");
                             let identity_token = controller_identity.get_token().map_err(|e| {
-                                error!("Failed to generate identity token: {}", e);
+                                error!("failed to generate identity token: {}", e);
                                 ControllerError::DatapathError(e.to_string())
                             })?;
                             publish_msg.insert_metadata(SLIM_IDENTITY.to_string(), identity_token);
-                            info!(
-                                "PUBLISH_MSG created: source={:?}, dest={:?}",
-                                source_name, moderator_name
-                            );
 
                             if let Err(e) = self.send_control_message(publish_msg).await {
                                 error!(
-                                    "FAILED to send message to moderator {}: {}",
+                                    "failed to send message to moderator {}: {}",
                                     first_moderator, e
                                 );
                             } else {
-                                info!("SUCCESSFULLY sent message to moderator {}", first_moderator);
+                                info!("successfully sent message to moderator {}", first_moderator);
                             }
                         }
 
@@ -657,12 +648,30 @@ impl ControllerService {
                         }
                     }
                     Payload::DeleteChannelRequest(req) => {
-                        info!("received a channel delete request, this should happen");
+                        info!("received a channel delete request");
 
                         let channel_id = req.channel_id.clone();
 
-                        let moderator_name =
-                            Name::from_strings(["org", "default", "moderator1"]).with_id(0);
+                        let moderator_name = if let Some(first_moderator) = req.moderators.first() {
+                            let parts: Vec<&str> = first_moderator.split('/').collect();
+                            if parts.len() != 4 {
+                                return Err(ControllerError::ConfigError(format!(
+                                    "invalid moderator name format: {}",
+                                    first_moderator
+                                )));
+                            }
+                            let id = parts[3].parse::<u64>().map_err(|_| {
+                                ControllerError::ConfigError(format!(
+                                    "invalid moderator ID: {}",
+                                    parts[3]
+                                ))
+                            })?;
+                            Name::from_strings([parts[0], parts[1], parts[2]]).with_id(id)
+                        } else {
+                            return Err(ControllerError::ConfigError(
+                                "no moderators specified in delete channel request".to_string(),
+                            ));
+                        };
                         let source_name =
                             Name::from_strings(["controller", "controller", "controller"])
                                 .with_id(0);
@@ -703,15 +712,19 @@ impl ControllerService {
 
                         let controller_identity = SharedSecret::new("controller", "group");
                         let identity_token = controller_identity.get_token().map_err(|e| {
-                            error!("Failed to generate identity token: {}", e);
+                            error!("failed to generate identity token: {}", e);
                             ControllerError::DatapathError(e.to_string())
                         })?;
                         publish_msg.insert_metadata(SLIM_IDENTITY.to_string(), identity_token);
 
                         if let Err(e) = self.send_control_message(publish_msg).await {
-                            error!("FAILED to send message to moderator1: {}", e);
+                            error!(
+                                "failed to send message to moderator {}: {}",
+                                req.moderators.first().unwrap_or(&"unknown".to_string()),
+                                e
+                            );
                         } else {
-                            info!("SUCCESSFULLY sent delete_channel message to moderator1");
+                            info!("successfully sent delete_channel message to moderator");
                         }
                         let ack = Ack {
                             original_message_id: msg.message_id.clone(),
@@ -737,9 +750,26 @@ impl ControllerService {
                         let channel_id = req.channel_id.clone();
                         let participant_id = req.participant_id.clone();
 
-                        // Send message to moderator1 (hardcoded for now, same as CreateChannelRequest)
-                        let moderator_name =
-                            Name::from_strings(["org", "default", "moderator1"]).with_id(0);
+                        let moderator_name = if let Some(first_moderator) = req.moderators.first() {
+                            let parts: Vec<&str> = first_moderator.split('/').collect();
+                            if parts.len() != 4 {
+                                return Err(ControllerError::ConfigError(format!(
+                                    "invalid moderator name format: {}",
+                                    first_moderator
+                                )));
+                            }
+                            let id = parts[3].parse::<u64>().map_err(|_| {
+                                ControllerError::ConfigError(format!(
+                                    "invalid moderator ID: {}",
+                                    parts[3]
+                                ))
+                            })?;
+                            Name::from_strings([parts[0], parts[1], parts[2]]).with_id(id)
+                        } else {
+                            return Err(ControllerError::ConfigError(
+                                "no moderators specified in add participant request".to_string(),
+                            ));
+                        };
                         let source_name =
                             Name::from_strings(["controller", "controller", "controller"])
                                 .with_id(0);
@@ -781,15 +811,19 @@ impl ControllerService {
 
                         let controller_identity = SharedSecret::new("controller", "group");
                         let identity_token = controller_identity.get_token().map_err(|e| {
-                            error!("Failed to generate identity token: {}", e);
+                            error!("failed to generate identity token: {}", e);
                             ControllerError::DatapathError(e.to_string())
                         })?;
                         publish_msg.insert_metadata(SLIM_IDENTITY.to_string(), identity_token);
 
                         if let Err(e) = self.send_control_message(publish_msg).await {
-                            error!("FAILED to send message to moderator1: {}", e);
+                            error!(
+                                "failed to send message to moderator {}: {}",
+                                req.moderators.first().unwrap_or(&"unknown".to_string()),
+                                e
+                            );
                         } else {
-                            info!("SUCCESSFULLY sent add_participant message to moderator1");
+                            info!("successfully sent add_participant message to moderator");
                         }
 
                         let ack = Ack {
@@ -808,13 +842,31 @@ impl ControllerService {
                         }
                     }
                     Payload::DeleteParticipantRequest(req) => {
-                        info!("received a participant delete request, this should happen");
+                        info!("received a participant delete request");
 
                         let channel_id = req.channel_id.clone();
                         let participant_id = req.participant_id.clone();
 
-                        let moderator_name =
-                            Name::from_strings(["org", "default", "moderator1"]).with_id(0);
+                        let moderator_name = if let Some(first_moderator) = req.moderators.first() {
+                            let parts: Vec<&str> = first_moderator.split('/').collect();
+                            if parts.len() != 4 {
+                                return Err(ControllerError::ConfigError(format!(
+                                    "invalid moderator name format: {}",
+                                    first_moderator
+                                )));
+                            }
+                            let id = parts[3].parse::<u64>().map_err(|_| {
+                                ControllerError::ConfigError(format!(
+                                    "invalid moderator ID: {}",
+                                    parts[3]
+                                ))
+                            })?;
+                            Name::from_strings([parts[0], parts[1], parts[2]]).with_id(id)
+                        } else {
+                            return Err(ControllerError::ConfigError(
+                                "no moderators specified in delete participant request".to_string(),
+                            ));
+                        };
                         let source_name =
                             Name::from_strings(["controller", "controller", "controller"])
                                 .with_id(0);
@@ -862,9 +914,13 @@ impl ControllerService {
                         publish_msg.insert_metadata(SLIM_IDENTITY.to_string(), identity_token);
 
                         if let Err(e) = self.send_control_message(publish_msg).await {
-                            error!("FAILED to send message to moderator1: {}", e);
+                            error!(
+                                "failed to send message to moderator {}: {}",
+                                req.moderators.first().unwrap_or(&"unknown".to_string()),
+                                e
+                            );
                         } else {
-                            info!("SUCCESSFULLY sent remove_participant message to moderator1");
+                            info!("successfully sent remove_participant message to moderator");
                         }
                         let ack = Ack {
                             original_message_id: msg.message_id.clone(),
