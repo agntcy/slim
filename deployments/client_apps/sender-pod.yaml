@@ -5,7 +5,7 @@ metadata:
 spec:
   containers:
   - args:
-    - ff
+    - anycast
     - --message
     - hello
     - --iterations
@@ -21,9 +21,10 @@ spec:
     env:
     - name: PYTHONUNBUFFERED
       value: "1"
-    image: ghcr.io/agntcy/slim/bindings-examples:latest
+    image: ghcr.io/agntcy/slim/bindings-examples:0.6.0-dev.1
     imagePullPolicy: Always
     name: bob
     resources: {}
   serviceAccount: default
   serviceAccountName: default
+  restartPolicy: OnFailure
