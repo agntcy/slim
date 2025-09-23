@@ -51,7 +51,6 @@ async def test_sticky_session(server, mls_enabled):
         # Make sure the src of the session is the sender
         assert session.src == sender.local_name
 
-
         while True:
             try:
                 _ctx, _ = await session.get_message()

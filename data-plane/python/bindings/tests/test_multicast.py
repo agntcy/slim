@@ -97,7 +97,10 @@ async def test_multicast(server, mls_enabled):  # noqa: C901
                         recv_session = await participant.listen_for_session()
 
                         # make sure the received session is unicast
-                        assert recv_session.session_type == slim_bindings.PySessionType.MULTICAST
+                        assert (
+                            recv_session.session_type
+                            == slim_bindings.PySessionType.MULTICAST
+                        )
 
                         # Make sure the dst of the session is the channel name
                         assert recv_session.dst == chat_name
