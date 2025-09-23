@@ -43,9 +43,10 @@ slim:
           clients:
             - endpoint: "https://slim-control:50052"
               tls:
-                cert_file: "/svids/tls.crt"
-                key_file: "/svids/tls.key"
-                ca_file: "/svids/svid_bundle.pem"
+                insecure: true
+                # cert_file: "/svids/tls.crt"
+                # key_file: "/svids/tls.key"
+                # ca_file: "/svids/svid_bundle.pem"
 
   # StatefulSet-specific settings
   # DaemonSet-specific settings
