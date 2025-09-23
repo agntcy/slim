@@ -117,7 +117,7 @@ async fn main() {
     // create local app
     let app_name = Name::from_strings(["agntcy", "default", "publisher"]).with_id(id);
 
-    let (app, mut rx) = svc
+    let (app, _rx) = svc
         .create_app(
             &app_name,
             SharedSecret::new("a", "test"),
@@ -146,7 +146,6 @@ async fn main() {
     // wait for the connection to be established
     tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
 
-    // WORKLOAD MODE
     // setup app config
     let mut publication_list = HashMap::new();
     let mut oracle = HashMap::new();
@@ -211,8 +210,8 @@ async fn main() {
     }
 
     // get the session
-    let session_info = res.unwrap();
-    let session_id = session_info.id;
+    let session_ctx = res.unwrap();
+    let session_id = session_ctx.session.upgrade().unwrap().id();
 
     // start receiving loop
     let results_list = Arc::new(RwLock::new(HashMap::new()));
@@ -220,7 +219,10 @@ async fn main() {
     let token = CancellationToken::new();
     let token_clone = token.clone();
 
-    tokio::spawn(async move {
+    // Clone the Arc to session for later use
+    let session_arc = session_ctx.session_arc().unwrap();
+
+    session_ctx.spawn_receiver(move |mut rx, _weak, _meta| async move {
         loop {
             tokio::select! {
                 res = rx.recv() => {
@@ -229,44 +231,26 @@ async fn main() {
                             info!(%conn_id, "end of stream");
                             break;
                         }
-                        Some(msg_info) => {
-                            if msg_info.is_err() {
+                        Some(message) => {
+                            if message.is_err() {
                                 error!("error receiving message");
                                 continue;
                             }
-
-                            let msg_info = msg_info.unwrap();
-                            let msg = msg_info.message;
-
-                            // make sure the session matches
-                            if session_info.id != session_id {
-                                panic!("wrong session id {}", session_info.id);
-                            }
-
-                            match &msg.message_type.unwrap() {
-                                slim_datapath::api::ProtoPublishType(msg) => {
-                                    // parse payload and add info to the result list
-                                    let payload = &msg.get_payload().blob;
-                                    // the payload needs to start with the publication id and the received id
-                                    // so it must contain at least 18 bytes
-                                    if payload.len() < 18 {
-                                        panic!("error parsing message");
+                            let msg = message.unwrap();
+                                    if msg.get_session_header().get_session_id() != session_id { continue; }
+                                    if let Some(slim_datapath::api::ProtoPublishType(publish)) = msg.message_type.as_ref() {
+                                        let payload = &publish.get_payload().blob;
+                                        if payload.len() < 18 { panic!("error parsing message"); }
+                                        let pub_id = u64::from_be_bytes(payload[0..8].try_into().unwrap());
+                                        let recv_id = u64::from_be_bytes(payload[9..17].try_into().unwrap());
+                                        debug!("recv msg {} from {} on publisher {}", pub_id, recv_id, id);
+                                        let mut lock = clone_results_list.write();
+                                        lock.insert(pub_id, recv_id);
                                     }
-
-                                    let pub_id = u64::from_be_bytes(payload[0..8].try_into().unwrap());
-                                    let recv_id = u64::from_be_bytes(payload[9..17].try_into().unwrap());
-                                    debug!("recv msg {} from {} on puslihser {}", pub_id, recv_id, id);
-                                    let mut lock = clone_results_list.write();
-                                    //write[pub_id as usize] = recv_id;
-                                    lock.insert(pub_id, recv_id);
-                                }
-                                t => {
-                                    panic!("received unexpected message: {:?}", t);
-                                }
                             }
                         }
                     }
-                }
+
                 _ = token_clone.cancelled() => {
                     info!("shutting down receiving thread");
                     break;
@@ -297,11 +281,7 @@ async fn main() {
 
         // for the moment we send the message in anycast
         // we need to test also the match_all function
-        if app
-            .publish(session_info.clone(), p.1, payload, None, None)
-            .await
-            .is_err()
-        {
+        if session_arc.publish(p.1, payload, None, None).await.is_err() {
             error!(
                 "an error occurred sending publication {}, the test will fail",
                 p.0

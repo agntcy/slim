@@ -2,35 +2,32 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import asyncio
+from datetime import timedelta
 from typing import Optional
 
 from slim_bindings._slim_bindings import (  # type: ignore[attr-defined]
-    SESSION_UNSPECIFIED,
     PyIdentityProvider,
     PyIdentityVerifier,
     PyName,
     PyService,
     PySessionConfiguration,
-    PySessionInfo,
+    PySessionContext,
     connect,
     create_pyservice,
     create_session,
     delete_session,
     disconnect,
-    get_session_config,
-    invite,
-    publish,
-    receive,
+    listen_for_session,
     remove_route,
     run_server,
     set_default_session_config,
     set_route,
-    set_session_config,
     stop_server,
     subscribe,
     unsubscribe,
 )
-from slim_bindings.errors import SLIMTimeoutError
+
+from .session import PySession
 
 
 class Slim:
@@ -52,12 +49,7 @@ class Slim:
         """
 
         # Initialize service
-        self.svc = svc
-
-        # Create sessions map
-        self.sessions: dict[int, tuple[Optional[PySessionInfo], asyncio.Queue]] = {
-            SESSION_UNSPECIFIED: (None, asyncio.Queue()),
-        }
+        self._svc = svc
 
         # Save local names
         name.id = svc.id
@@ -65,47 +57,6 @@ class Slim:
 
         # Create connection ID map
         self.conn_ids: dict[str, int] = {}
-
-    async def __aenter__(self):
-        """
-        Start the receiver loop in the background.
-        This function is called when the SLIM instance is used in a
-        context manager (with statement).
-        It will start the receiver loop in the background and return the
-        SLIM instance.
-        Args:
-            None
-        Returns:
-            Slim: The SLIM instance.
-
-        """
-
-        # Run receiver loop in the background
-        self.task = asyncio.create_task(self._receive_loop())
-        return self
-
-    async def __aexit__(self, exc_type, exc_value, traceback):
-        """
-        Stop the receiver loop.
-        This function is called when the Slim instance is used in a
-        context manager (with statement).
-        It will stop the receiver loop and wait for it to finish.
-        Args:
-            exc_type: The exception type.
-            exc_value: The exception value.
-            traceback: The traceback object.
-        Returns:
-            None
-        """
-
-        # Cancel the receiver loop task
-        self.task.cancel()
-
-        # Wait for the task to finish
-        try:
-            await self.task
-        except asyncio.CancelledError:
-            pass
 
     @classmethod
     async def new(
@@ -145,36 +96,29 @@ class Slim:
             int: The ID of the app.
         """
 
-        return self.svc.id
+        return self._svc.id
 
     async def create_session(
         self,
         session_config: PySessionConfiguration,
-        queue_size: int = 0,
-    ) -> PySessionInfo:
-        """
-        Create a new streaming session.
+    ) -> PySession:
+        """Create and return a high-level `Session` wrapper.
 
         Args:
-            session_config (PySessionConfiguration): The session configuration.
-            queue_size (int): The size of the queue for the session.
-                                If 0, the queue will be unbounded.
-                                If a positive integer, the queue will be bounded to that size.
+            session_config: The configuration for the new session.
 
         Returns:
-            ID of the session
+            Session: Python wrapper around the created session context.
         """
+        ctx: PySessionContext = await create_session(self._svc, session_config)
+        return PySession(self._svc, ctx)
 
-        session = await create_session(self.svc, session_config)
-        self.sessions[session.id] = (session, asyncio.Queue(queue_size))
-        return session
-
-    async def delete_session(self, session_id: int):
+    async def delete_session(self, session: PySession):
         """
         Delete a session.
 
         Args:
-            session_id (int): The ID of the session to delete.
+            session_ctx (PySessionContext): The context of the session to delete.
 
         Returns:
             None
@@ -182,66 +126,9 @@ class Slim:
         Raises:
             ValueError: If the session ID is not found.
         """
-
-        # Check if the session ID is in the sessions map
-        if session_id not in self.sessions:
-            raise ValueError(f"session not found: {session_id}")
-
-        # Remove the session from the map
-        del self.sessions[session_id]
 
         # Remove the session from SLIM
-        await delete_session(self.svc, session_id)
-
-    async def set_session_config(
-        self,
-        session_id: int,
-        session_config: PySessionConfiguration,
-    ):
-        """
-        Set the session configuration for a specific session.
-
-        Args:
-            session_id (int): The ID of the session.
-            session_config (PySessionConfiguration): The new configuration for the session.
-
-        Returns:
-            None
-
-        Raises:
-            ValueError: If the session ID is not found.
-        """
-
-        # Check if the session ID is in the sessions map
-        if session_id not in self.sessions:
-            raise ValueError(f"session not found: {session_id}")
-
-        # Set the session configuration
-        await set_session_config(self.svc, session_id, session_config)
-
-    async def get_session_config(
-        self,
-        session_id: int,
-    ) -> PySessionConfiguration:
-        """
-        Get the session configuration for a specific session.
-
-        Args:
-            session_id (int): The ID of the session.
-
-        Returns:
-            PySessionConfiguration: The configuration of the session.
-
-        Raises:
-            ValueError: If the session ID is not found.
-        """
-
-        # Check if the session ID is in the sessions map
-        if session_id not in self.sessions:
-            raise ValueError(f"session not found: {session_id}")
-
-        # Get the session configuration
-        return await get_session_config(self.svc, session_id)
+        await delete_session(self._svc, session._ctx)
 
     async def set_default_session_config(
         self,
@@ -257,7 +144,7 @@ class Slim:
             None
         """
 
-        await set_default_session_config(self.svc, session_config)
+        await set_default_session_config(self._svc, session_config)
 
     async def run_server(self, config: dict):
         """
@@ -271,7 +158,7 @@ class Slim:
             None
         """
 
-        await run_server(self.svc, config)
+        await run_server(self._svc, config)
 
     async def stop_server(self, endpoint: str):
         """
@@ -284,7 +171,7 @@ class Slim:
             None
         """
 
-        await stop_server(self.svc, endpoint)
+        await stop_server(self._svc, endpoint)
 
     async def connect(self, client_config: dict) -> int:
         """
@@ -299,7 +186,7 @@ class Slim:
         """
 
         conn_id = await connect(
-            self.svc,
+            self._svc,
             client_config,
         )
 
@@ -310,7 +197,7 @@ class Slim:
         self.conn_id = conn_id
 
         # Subscribe to the local name
-        await subscribe(self.svc, conn_id, self.local_name)
+        await subscribe(self._svc, conn_id, self.local_name)
 
         # return the connection ID
         return conn_id
@@ -328,7 +215,7 @@ class Slim:
 
         """
         conn = self.conn_ids[endpoint]
-        await disconnect(self.svc, conn)
+        await disconnect(self._svc, conn)
 
     async def set_route(
         self,
@@ -344,7 +231,7 @@ class Slim:
             None
         """
 
-        await set_route(self.svc, self.conn_id, name)
+        await set_route(self._svc, self.conn_id, name)
 
     async def remove_route(
         self,
@@ -360,7 +247,7 @@ class Slim:
             None
         """
 
-        await remove_route(self.svc, self.conn_id, name)
+        await remove_route(self._svc, self.conn_id, name)
 
     async def subscribe(self, name: PyName):
         """
@@ -373,7 +260,7 @@ class Slim:
             None
         """
 
-        await subscribe(self.svc, self.conn_id, name)
+        await subscribe(self._svc, self.conn_id, name)
 
     async def unsubscribe(self, name: PyName):
         """
@@ -386,175 +273,22 @@ class Slim:
             None
         """
 
-        await unsubscribe(self.svc, self.conn_id, name)
+        await unsubscribe(self._svc, self.conn_id, name)
 
-    async def publish(
-        self,
-        session: PySessionInfo,
-        msg: bytes,
-        dest: PyName,
-        payload_type: Optional[str] = None,
-        metadata: Optional[dict] = None,
-    ):
+    async def listen_for_session(
+        self, timeout: Optional[timedelta] = None
+    ) -> PySession:
         """
-        Publish a message to an app or channel via normal matching in subscription table.
-
-        Args:
-            session (PySessionInfo): The session information.
-            msg (str): The message to publish.
-            dest (PyName): The destination name to publish the message to.
-            payload_type (str): The type of the message payload (optional)
-            metadata (dict): The metadata associated to the message (optional)
+        Wait for a new session to be established.
 
         Returns:
-            None
+            PySessionContext: the new session
         """
 
-        # Make sure the sessions exists
-        if session.id not in self.sessions:
-            raise Exception("session not found", session.id)
+        if timeout is None:
+            # Use a very large timeout value instead of trying to use datetime.max
+            timeout = timedelta(days=365 * 100)  # ~100 years
 
-        await publish(self.svc, session, 1, msg, dest, payload_type, metadata)
-
-    async def invite(
-        self,
-        session: PySessionInfo,
-        name: PyName,
-    ):
-        # Make sure the sessions exists
-        if session.id not in self.sessions:
-            raise Exception("session not found", session.id)
-
-        await invite(self.svc, session, name)
-
-    async def publish_to(
-        self,
-        session: PySessionInfo,
-        msg: bytes,
-        payload_type: Optional[str] = None,
-        metadata: Optional[dict] = None,
-    ):
-        """
-        Publish a message back to the application that sent it.
-        The information regarding the source app is stored in the session.
-
-        Args:
-            session (PySessionInfo): The session information.
-            msg (str): The message to publish.
-
-        Returns:
-            None
-        """
-
-        await publish(
-            self.svc, session, 1, msg, payload_type=payload_type, metadata=metadata
-        )
-
-    async def receive(
-        self, session: Optional[int] = None
-    ) -> tuple[PySessionInfo, Optional[bytes]]:
-        """
-        Receive a message , optionally waiting for a specific session ID.
-        If session ID is None, it will wait for new sessions to be created.
-        This function will block until a message is received (if the session id is specified)
-        or until a new session is created (if the session id is None).
-
-        Args:
-            session (int): The session ID. If None, the function will wait for any message.
-
-        Returns:
-            tuple: The PySessionInfo and the message.
-
-        Raise:
-            Exception: If the session ID is not found.
-        """
-
-        # If session is None, wait for any message
-        if session is None:
-            return await self.sessions[SESSION_UNSPECIFIED][1].get()
-        else:
-            # Check if the session ID is in the sessions map
-            if session not in self.sessions:
-                raise Exception(f"Session ID not found: {session}")
-
-            # Get the queue for the session
-            queue = self.sessions[session][1]
-
-            # Wait for a message from the queue
-            ret = await queue.get()
-
-            # If message is am exception, raise it
-            if isinstance(ret, Exception):
-                raise ret
-
-            # Otherwise, return the message
-            return ret
-
-    async def _receive_loop(self) -> None:
-        """
-        Receive messages in a loop running in the background.
-
-        Returns:
-            None
-        """
-
-        while True:
-            try:
-                session_info_msg = await receive(self.svc)
-
-                id: int = session_info_msg[0].id
-
-                # Check if the session ID is in the sessions map
-                if id not in self.sessions:
-                    # Create the entry in the sessions map
-                    self.sessions[id] = (
-                        session_info_msg,
-                        asyncio.Queue(),
-                    )
-
-                    # Also add a queue for the session
-                    await self.sessions[SESSION_UNSPECIFIED][1].put(session_info_msg)
-
-                await self.sessions[id][1].put(session_info_msg)
-            except asyncio.CancelledError:
-                raise
-            except Exception as e:
-                print("Error receiving message:", e)
-                # Try to parse the error message
-                try:
-                    message_id, session_id, reason = parse_error_message(str(e))
-
-                    # figure out what exception to raise based on the reason
-                    if reason == "timeout":
-                        err = SLIMTimeoutError(message_id, session_id)
-                    else:
-                        # we don't know the reason, just raise the original exception
-                        raise e
-
-                    if session_id in self.sessions:
-                        await self.sessions[session_id][1].put(
-                            err,
-                        )
-                    else:
-                        print(self.sessions.keys())
-                except Exception:
-                    raise e
-
-
-def parse_error_message(error_message):
-    import re
-
-    # Define the regular expression pattern
-    pattern = r"message=(\d+) session=(\d+): (.+)"
-
-    # Use re.search to find the pattern in the string
-    match = re.search(pattern, error_message)
-
-    if match:
-        # Extract message_id, session_id, and reason from the match groups
-        message_id = match.group(1)
-        session_id = match.group(2)
-        reason = match.group(3)
-        return int(message_id), int(session_id), reason
-    else:
-        raise ValueError("error message does not match the expected format.")
+        async with asyncio.timeout(timeout.total_seconds()):
+            session_ctx = await listen_for_session(self._svc)
+            return PySession(self._svc, session_ctx)

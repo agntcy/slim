@@ -129,7 +129,6 @@ Options:
   -c, --config <CONFIGURATION>     Slim config file
   -n, --name <ENDOPOINT>           Local endpoint name in the form org/ns/type/id
   -i, --is-moderator               Runs the endpoint in moderator mode
-  -a, --is-attacker                Runs the endpoint in attacker mode
   -m, --mls-disabled               Runs the endpoint with MLS disabled
   -p, --participants <PARITICIPANTS>... List of participant types to add to the channel (moderator mode only)
   -o, --moderator-name <MODERATOR_NAME> Moderator name (participant mode only)

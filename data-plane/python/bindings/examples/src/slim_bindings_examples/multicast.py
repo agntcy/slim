@@ -36,18 +36,19 @@ async def run_client(
         audience=audience,
     )
 
-    # If provided, split the remote IDs into their respective components
-    if remote:
-        broadcast_topic = split_id(remote)
+    # If provided, split the remote (chat/topic) ID into its components
+    chat_topic = split_id(remote) if remote else None
 
-    tasks = []
+    tasks: list[asyncio.Task] = []
 
-    if remote and invites:
-        format_message_print(local, "Creating new multicast sessions...")
-        # create a multicast session
-        session_info = await local_app.create_session(
+    created_session = None
+    if chat_topic and invites:
+        format_message_print(
+            f"Creating new multicast session (moderator)... {split_id(local)}"
+        )
+        created_session = await local_app.create_session(
             slim_bindings.PySessionConfiguration.Multicast(  # type: ignore
-                topic=broadcast_topic,
+                topic=chat_topic,
                 moderator=True,
                 max_retries=5,
                 timeout=datetime.timedelta(seconds=5),
@@ -55,64 +56,51 @@ async def run_client(
             )
         )
 
-        # invite all participants
-        for p in invites:
-            to_add = split_id(p)
-            await local_app.set_route(to_add)
-            await local_app.invite(session_info, to_add)
-            print(f"{local} -> add {to_add} to the group")
+        # Allow some time before sending invites (mirrors test timing slack)
+        await asyncio.sleep(1)
 
-    # define the background task
-    async def background_task():
-        async with local_app:
-            # init session from session
-            if invites:
-                recv_session = session_info
-            else:
-                format_message_print(local, "-> Waiting for session...")
-                recv_session, _ = await local_app.receive()
+        for invite in invites:
+            invite_name = split_id(invite)
+            await local_app.set_route(invite_name)
+            await created_session.invite(invite_name)
+            print(f"{local} -> add {invite_name} to the group")
 
-            while True:
-                try:
-                    # receive message from session
-                    recv_session, msg_rcv = await local_app.receive(
-                        session=recv_session.id
-                    )
+    async def receive_loop():
+        if created_session is None:
+            format_message_print(local, "-> Waiting for session...")
+            session = await local_app.listen_for_session()
+        else:
+            session = created_session
 
-                    # print received message
-                    format_message_print(
-                        local,
-                        f"-> Received message from {recv_session.id}: {msg_rcv.decode()}",
-                    )
+        while True:
+            try:
+                ctx, payload = await session.get_message()
+                format_message_print(
+                    local,
+                    f"-> Received message from {ctx.source_name}: {payload.decode()}",
+                )
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                format_message_print(local, f"-> Error receiving message: {e}")
+                break
 
-                    # Here we could send a message back to the channel, e.g.:
-                    # await participant.publish(session_info, f"Echo: {msg_rcv.decode()}".encode())
-                except asyncio.CancelledError:
-                    break
-                except Exception as e:
-                    format_message_print(local, f"-> Error receiving message: {e}")
-                    break
+    tasks.append(asyncio.create_task(receive_loop()))
 
-    tasks.append(asyncio.create_task(background_task()))
+    if created_session and chat_topic:
 
-    if remote and invites:
-
-        async def background_task_keyboard():
+        async def keyboard_loop():
             while True:
                 user_input = await asyncio.to_thread(input, "\033[1mmessage>\033[0m ")
-                if user_input == "exit":
+                if user_input.strip().lower() in ("exit", "quit"):
                     break
+                try:
+                    await created_session.publish(user_input.encode(), chat_topic)
+                except Exception as e:
+                    format_message_print(local, f"-> Error sending message: {e}")
 
-                # Send the message to the all participants
-                await local_app.publish(
-                    session_info,
-                    f"{user_input}".encode(),
-                    broadcast_topic,
-                )
+        tasks.append(asyncio.create_task(keyboard_loop()))
 
-        tasks.append(asyncio.create_task(background_task_keyboard()))
-
-    # Wait for both tasks to finish
     await asyncio.gather(*tasks)
 
 

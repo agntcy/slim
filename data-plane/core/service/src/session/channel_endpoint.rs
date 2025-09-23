@@ -25,7 +25,7 @@ use slim_datapath::{
 
 // Local crate
 use crate::session::{
-    Id, SessionError, SessionTransmitter,
+    Id, SessionError, Transmitter,
     interceptor_mls::{METADATA_MLS_ENABLED, METADATA_MLS_INIT_COMMIT_ID},
     moderator_task::{
         AddParticipant, AddParticipantMls, ModeratorTask, RemoveParticipant, RemoveParticipantMls,
@@ -39,7 +39,7 @@ const CHANNEL_SUBSCRIPTION: &str = "CHANNEL_SUBSCRIPTION";
 
 struct RequestTimerObserver<T>
 where
-    T: SessionTransmitter + Send + Sync + Clone + 'static,
+    T: Transmitter + Send + Sync + Clone + 'static,
 {
     /// message to send in case of timeout
     message: Message,
@@ -51,7 +51,7 @@ where
 #[async_trait]
 impl<T> crate::session::timer::TimerObserver for RequestTimerObserver<T>
 where
-    T: SessionTransmitter + Send + Sync + Clone + 'static,
+    T: Transmitter + Send + Sync + Clone + 'static,
 {
     async fn on_timeout(&self, timer_id: u32, timeouts: u32) {
         debug!("Timeout number {} for request {}", timeouts, timer_id);
@@ -98,7 +98,7 @@ impl<P, V, T> MlsEndpoint for ChannelEndpoint<P, V, T>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
-    T: SessionTransmitter + Send + Sync + Clone + 'static,
+    T: Transmitter + Send + Sync + Clone + 'static,
 {
     fn is_mls_up(&self) -> Result<bool, SessionError> {
         match self {
@@ -120,7 +120,7 @@ pub(crate) enum ChannelEndpoint<P, V, T>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
-    T: SessionTransmitter + Send + Sync + Clone + 'static,
+    T: Transmitter + Send + Sync + Clone + 'static,
 {
     ChannelParticipant(ChannelParticipant<P, V, T>),
     ChannelModerator(ChannelModerator<P, V, T>),
@@ -130,7 +130,7 @@ impl<P, V, T> ChannelEndpoint<P, V, T>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
-    T: SessionTransmitter + Send + Sync + Clone + 'static,
+    T: Transmitter + Send + Sync + Clone + 'static,
 {
     pub async fn on_message(&mut self, msg: Message) -> Result<(), SessionError> {
         match self {
@@ -517,7 +517,7 @@ impl MlsProposalMessagePayload {
 #[derive(Debug)]
 struct Endpoint<T>
 where
-    T: SessionTransmitter + Send + Sync + Clone + 'static,
+    T: Transmitter + Send + Sync + Clone + 'static,
 {
     /// endpoint name
     name: Name,
@@ -549,7 +549,7 @@ where
 
 impl<T> Endpoint<T>
 where
-    T: SessionTransmitter + Send + Sync + Clone + 'static,
+    T: Transmitter + Send + Sync + Clone + 'static,
 {
     const MAX_FANOUT: u32 = 256;
 
@@ -725,7 +725,7 @@ pub struct ChannelParticipant<P, V, T>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
-    T: SessionTransmitter + Send + Sync + Clone + 'static,
+    T: Transmitter + Send + Sync + Clone + 'static,
 {
     /// name of the moderator, used to send mls proposal messages
     moderator_name: Option<Name>,
@@ -744,7 +744,7 @@ impl<P, V, T> ChannelParticipant<P, V, T>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
-    T: SessionTransmitter + Send + Sync + Clone + 'static,
+    T: Transmitter + Send + Sync + Clone + 'static,
 {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
@@ -966,7 +966,7 @@ impl<P, V, T> MlsEndpoint for ChannelParticipant<P, V, T>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
-    T: SessionTransmitter + Send + Sync + Clone + 'static,
+    T: Transmitter + Send + Sync + Clone + 'static,
 {
     async fn update_mls_keys(&mut self) -> Result<(), SessionError> {
         if self.mls_state.is_none() || self.moderator_name.is_none() {
@@ -1037,7 +1037,7 @@ impl<P, V, T> OnMessageReceived for ChannelParticipant<P, V, T>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
-    T: SessionTransmitter + Send + Sync + Clone + 'static,
+    T: Transmitter + Send + Sync + Clone + 'static,
 {
     async fn on_message(&mut self, msg: Message) -> Result<(), SessionError> {
         let msg_type = msg.get_session_header().session_message_type();
@@ -1109,7 +1109,7 @@ pub struct ChannelModerator<P, V, T>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
-    T: SessionTransmitter + Send + Sync + Clone + 'static,
+    T: Transmitter + Send + Sync + Clone + 'static,
 {
     endpoint: Endpoint<T>,
 
@@ -1135,7 +1135,7 @@ impl<P, V, T> ChannelModerator<P, V, T>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
-    T: SessionTransmitter + Send + Sync + Clone + 'static,
+    T: Transmitter + Send + Sync + Clone + 'static,
 {
     pub fn new(
         name: Name,
@@ -1744,7 +1744,7 @@ impl<P, V, T> MlsEndpoint for ChannelModerator<P, V, T>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
-    T: SessionTransmitter + Send + Sync + Clone + 'static,
+    T: Transmitter + Send + Sync + Clone + 'static,
 {
     async fn update_mls_keys(&mut self) -> Result<(), SessionError> {
         debug!("Update local mls keys");
@@ -1821,7 +1821,7 @@ impl<P, V, T> OnMessageReceived for ChannelModerator<P, V, T>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
-    T: SessionTransmitter + Send + Sync + Clone + 'static,
+    T: Transmitter + Send + Sync + Clone + 'static,
 {
     async fn on_message(&mut self, msg: Message) -> Result<(), SessionError> {
         let msg_type = msg.get_session_header().session_message_type();
@@ -1917,7 +1917,7 @@ where
 
 #[cfg(test)]
 mod tests {
-    use crate::session::testutils::MockTransmitter;
+    use crate::session::transmitter::SessionTransmitter;
 
     use super::*;
     use slim_auth::shared_secret::SharedSecret;
@@ -1934,15 +1934,8 @@ mod tests {
         let (moderator_tx, mut moderator_rx) = tokio::sync::mpsc::channel(50);
         let (participant_tx, mut participant_rx) = tokio::sync::mpsc::channel(50);
 
-        let moderator_tx = MockTransmitter {
-            tx_app: tx_app.clone(),
-            tx_slim: moderator_tx,
-        };
-
-        let participant_tx = MockTransmitter {
-            tx_app: tx_app.clone(),
-            tx_slim: participant_tx,
-        };
+        let moderator_tx = SessionTransmitter::new(moderator_tx, tx_app.clone());
+        let participant_tx = SessionTransmitter::new(participant_tx, tx_app.clone());
 
         let moderator = Name::from_strings(["org", "default", "moderator"]).with_id(12345);
         let participant = Name::from_strings(["org", "default", "participant"]).with_id(5120);

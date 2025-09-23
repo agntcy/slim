@@ -9,7 +9,7 @@ import "controller/v1/controller.proto";
 option go_package = "github.com/agntcy/slim/control-plane/common/proto/controlplane/v1;controlplanev1";
 
 service ControlPlaneService {
-  rpc AddRoute(AddRouteRequest) returns (AddRouteResponse) {}  
+  rpc AddRoute(AddRouteRequest) returns (AddRouteResponse) {}
   rpc DeleteRoute(DeleteRouteRequest) returns (DeleteRouteResponse) {}
   rpc ListRoutes(Node) returns (controller.proto.v1.SubscriptionListResponse) {}
   rpc ListConnections(Node) returns (controller.proto.v1.ConnectionListResponse) {}

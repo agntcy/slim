@@ -414,14 +414,15 @@ impl From<ProtoMessage> for ProtoSubscribe {
 /// ProtoUnsubscribe
 /// This message is used to unsubscribe from a topic
 impl ProtoUnsubscribe {
-    pub fn with_header(header: Option<SlimHeader>) -> Self {
-        ProtoUnsubscribe { header }
-    }
-
     pub fn new(source: &Name, dst: &Name, flags: Option<SlimHeaderFlags>) -> Self {
         let header = Some(SlimHeader::new(source, dst, flags));
 
-        Self::with_header(header)
+        ProtoUnsubscribe {
+            header,
+            component_0: dst.components_strings().unwrap()[0].clone(),
+            component_1: dst.components_strings().unwrap()[1].clone(),
+            component_2: dst.components_strings().unwrap()[2].clone(),
+        }
     }
 }
 
@@ -738,27 +739,40 @@ impl ProtoMessage {
     }
 
     pub fn get_dst(&self) -> Name {
-        if let Some(ProtoPublishType(pubslih)) = &self.message_type {
-            // try to the get dst from the session header
-            if let Some(d) = pubslih.get_session_header().get_destination() {
-                return d;
+        match &self.message_type {
+            Some(ProtoPublishType(pubslih)) => {
+                // try to the get dst from the session header
+                if let Some(d) = pubslih.get_session_header().get_destination() {
+                    return d;
+                }
+                // get from the slim header
+                self.get_slim_header().get_dst()
+            }
+            Some(ProtoSubscribeType(subscribe)) => {
+                let dst = self.get_slim_header().get_dst();
+                // complete name with the original strings
+                Name::from_strings([
+                    subscribe.component_0.clone(),
+                    subscribe.component_1.clone(),
+                    subscribe.component_2.clone(),
+                ])
+                .with_id(dst.id())
+            }
+            Some(ProtoUnsubscribeType(unsubscribe)) => {
+                let dst = self.get_slim_header().get_dst();
+                // complete name with the original strings
+                Name::from_strings([
+                    unsubscribe.component_0.clone(),
+                    unsubscribe.component_1.clone(),
+                    unsubscribe.component_2.clone(),
+                ])
+                .with_id(dst.id())
+            }
+            None => {
+                // this should never happen
+                self.get_slim_header().get_dst()
             }
         }
-
-        // get from slim header
-        let dst = self.get_slim_header().get_dst();
-
-        // complete name with the original strings if the message is a subscribe
-        if let Some(ProtoSubscribeType(subscribe)) = &self.message_type {
-            return Name::from_strings([
-                subscribe.component_0.clone(),
-                subscribe.component_1.clone(),
-                subscribe.component_2.clone(),
-            ])
-            .with_id(dst.id());
-        }
-
-        dst
     }
 
     pub fn get_type(&self) -> &MessageType {

@@ -5,7 +5,7 @@
 use thiserror::Error;
 
 // Local crate
-use crate::session::SessionMessage;
+use slim_datapath::api::ProtoMessage as Message;
 
 #[derive(Error, Debug, PartialEq)]
 pub enum SessionError {
@@ -32,7 +32,7 @@ pub enum SessionError {
     #[error("session unknown: {0}")]
     SessionUnknown(String),
     #[error("session not found: {0}")]
-    SessionNotFound(String),
+    SessionNotFound(u32),
     #[error("default for session not supported: {0}")]
     SessionDefaultNotSupported(String),
     #[error("missing session id: {0}")]
@@ -43,7 +43,7 @@ pub enum SessionError {
     Timeout {
         session_id: u32,
         message_id: u32,
-        message: Box<SessionMessage>,
+        message: Box<Message>,
     },
     #[error("configuration error: {0}")]
     ConfigurationError(String),
