@@ -103,12 +103,25 @@ tasks:
           --set image.tag="{{ .SLIM_CONTROLLER_IMAGE_TAG }}" \
           --values controller-values.yaml            
 
-  slim:deploy:client-apps:
+  slim:client-apps.deploy:
     desc: Deploy sample client applications
+    deps:
+      - slim:client-apps:down
     cmds:
       - kubectl apply -f client_apps
 
   slim:deploy:client-apps-with-spire:
     desc: Deploy sample client applications with SPIRE integration
     cmds:
-      - kubectl apply -f client_apps/with-spire      
+      - kubectl apply -f client_apps/with-spire
+  
+  slim:client-apps:down:
+    desc: Cleanup sample client applications
+    cmds:
+      - kubectl delete -f client_apps --ignore-not-found
+
+  slim:client-apps:logs:
+    desc: Tail logs from sample client applications
+    cmds:
+      - kubectl logs alice
+      - kubectl logs bob
