@@ -10,10 +10,16 @@ pub struct Subscribe {
     #[prost(string, tag = "4")]
     pub component_2: ::prost::alloc::string::String,
 }
-#[derive(Clone, Copy, PartialEq, ::prost::Message)]
+#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct Unsubscribe {
     #[prost(message, optional, tag = "1")]
     pub header: ::core::option::Option<SlimHeader>,
+    #[prost(string, tag = "2")]
+    pub component_0: ::prost::alloc::string::String,
+    #[prost(string, tag = "3")]
+    pub component_1: ::prost::alloc::string::String,
+    #[prost(string, tag = "4")]
+    pub component_2: ::prost::alloc::string::String,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct Publish {

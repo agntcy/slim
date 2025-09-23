@@ -310,8 +310,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .expect("error sending invite message");
     }
 
-    tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
-
     // listen for messages
     let max_packets = 100;
     let recv_msgs = Arc::new(RwLock::new(vec![0; max_packets]));
@@ -329,7 +327,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
                 Some(message) => match message {
                     Ok(msg) => {
-                        println!("received message");
                         if let Some(slim_datapath::api::ProtoPublishType(publish)) =
                             msg.message_type.as_ref()
                         {
@@ -355,6 +352,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
     });
+
+    tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
 
     let msg_payload_str = "hello there";
     let p = msg_payload_str.as_bytes().to_vec();
