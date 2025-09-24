@@ -18,6 +18,9 @@ from ._slim_bindings import (
     invite as _invite,
 )
 from ._slim_bindings import (
+    remove as _remove,
+)
+from ._slim_bindings import (
     publish as _publish,
 )
 from ._slim_bindings import (
@@ -57,10 +60,55 @@ class PySession:
     async def publish(
         self,
         msg: bytes,
+        payload_type: str | None = None,
+        metadata: dict | None = None,
+    ) -> None:
+        """
+        Publish a message on the current session.
+
+        Args:
+            msg (bytes): The message payload to publish.
+            payload_type (str, optional): The type of the payload, if applicable.
+            metadata (dict, optional): Additional metadata to include with the
+                message.
+
+        Returns:
+            None
+        """
+        await _publish(
+            self._svc,
+            self._ctx,
+            1,
+            msg,
+            message_ctx=None,
+            name=dest,
+            payload_type=payload_type,
+            metadata=metadata,
+        )
+
+    async def publish_with_destination(
+        self,
+        msg: bytes,
         dest: PyName,
         payload_type: str | None = None,
         metadata: dict | None = None,
     ) -> None:
+        
+        """
+        Publish a message with a destination name on an existing session.
+        This is possible only on Anycast sessions. The function returns an error
+        in other cases.
+
+        Args:
+            msg (bytes): The message payload to publish.
+            dest (PyName): The destination name for the message.
+            payload_type (str, optional): The type of the payload, if applicable.
+            metadata (dict, optional): Additional metadata to include with the
+                message.
+
+        Returns:
+            None
+        """
         await _publish(
             self._svc,
             self._ctx,
@@ -80,12 +128,17 @@ class PySession:
         metadata: dict | None = None,
     ):
         """
-        Publish a message back to the application that sent it.
-        The information regarding the source app is stored in the session.
+        Publish a message back to the application that sent the original message.
+        The source application information is retrieved from the message context and
+        session.
 
         Args:
-            session (PySessionInfo): The session information.
-            msg (str): The message to publish.
+            message_ctx (PyMessageContext): The context of the original message,
+                used to identify the source application.
+            msg (bytes): The message payload to publish.
+            payload_type (str, optional): The type of the payload, if applicable.
+            metadata (dict, optional): Additional metadata to include with the
+                message.
 
         Returns:
             None
