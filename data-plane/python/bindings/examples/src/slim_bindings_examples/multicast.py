@@ -49,7 +49,6 @@ async def run_client(
         created_session = await local_app.create_session(
             slim_bindings.PySessionConfiguration.Multicast(  # type: ignore
                 topic=chat_topic,
-                moderator=True,
                 max_retries=5,
                 timeout=datetime.timedelta(seconds=5),
                 mls_enabled=enable_mls,
