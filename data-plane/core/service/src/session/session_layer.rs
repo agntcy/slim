@@ -402,6 +402,11 @@ where
                         let mut conf = self.default_multicast_conf.read().clone();
                         conf.mls_enabled = message.contains_metadata(METADATA_MLS_ENABLED);
                         conf.metadata = message.get_metadata_map();
+                        conf.channel_name = message
+                            .get_session_header()
+                            .get_destination()
+                            .ok_or(SessionError::MissingChannelName)?;
+
                         conf.initiator = false;
                         self.create_session(SessionConfig::Multicast(conf), Some(id))
                             .await?

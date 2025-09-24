@@ -611,7 +611,7 @@ where
             self.session_id,
             message_id,
             &None,
-            &None,
+            &Some(self.channel_name.clone()),
         ));
 
         Message::new_publish_with_headers(slim_header, session_header, "", payload)

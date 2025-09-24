@@ -53,11 +53,12 @@ class PyService:
 
 class PySessionContext:
     id: builtins.int
+    session_type: PySessionType
+    src: PyName
+    dst: typing.Optional[PyName]
     metadata: builtins.dict[builtins.str, builtins.str]
+    session_config: PySessionConfiguration
     def set_session_config(self, config:PySessionConfiguration) -> None:
-        ...
-
-    def get_session_config(self) -> PySessionConfiguration:
         ...
 
 
