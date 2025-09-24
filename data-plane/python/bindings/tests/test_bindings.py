@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import asyncio
+import datetime
 
 import pytest
 from common import create_slim, create_svc
@@ -40,42 +41,54 @@ async def test_end_to_end(server):
     # set routes
     await slim_bindings.set_route(svc_alice, conn_id_alice, bob_name)
 
-    # create fire and forget session
-    session_info = await slim_bindings.create_session(
-        svc_alice, slim_bindings.PySessionConfiguration.FireAndForget()
+    print(alice_name)
+    print(bob_name)
+
+    # create point to point session
+    session_context_alice = await slim_bindings.create_session(
+        svc_alice, slim_bindings.PySessionConfiguration.Anycast()
     )
 
     # send msg from Alice to Bob
     msg = [1, 2, 3, 4, 5, 6, 7, 8, 9]
-    await slim_bindings.publish(svc_alice, session_info, 1, msg, bob_name)
+    await slim_bindings.publish(svc_alice, session_context_alice, 1, msg, name=bob_name)
 
-    # receive message from Alice
-    session_info_ret, msg_rcv = await slim_bindings.receive(svc_bob)
+    # receive session from Alice
+    session_context_bob = await slim_bindings.listen_for_session(svc_bob)
+
+    # Receive message from Alice
+    message_ctx, msg_rcv = await slim_bindings.get_message(svc_bob, session_context_bob)
 
     # make sure the session id corresponds
-    assert session_info_ret.id == session_info.id
+    assert session_context_bob.id == session_context_alice.id
 
     # check if the message is correct
     assert msg_rcv == bytes(msg)
 
     # reply to Alice
-    await slim_bindings.publish(svc_bob, session_info_ret, 1, msg_rcv)
+    await slim_bindings.publish(
+        svc_bob, session_context_bob, 1, msg_rcv, message_ctx=message_ctx
+    )
 
     # wait for message
-    session_info_ret, msg_rcv = await slim_bindings.receive(svc_alice)
+    message_context, msg_rcv = await slim_bindings.get_message(
+        svc_alice, session_context_alice
+    )
 
     # check if the message is correct
     assert msg_rcv == bytes(msg)
 
     # delete sessions
-    await slim_bindings.delete_session(svc_alice, session_info.id)
-    await slim_bindings.delete_session(svc_bob, session_info.id)
+    await slim_bindings.delete_session(svc_alice, session_context_alice)
+    await slim_bindings.delete_session(svc_bob, session_context_bob)
 
     # try to send a message after deleting the session - this should raise an exception
     try:
-        await slim_bindings.publish(svc_alice, session_info, 1, msg, bob_name)
+        await slim_bindings.publish(
+            svc_alice, session_context_alice, 1, msg, name=bob_name
+        )
     except Exception as e:
-        assert "session not found" in str(e), f"Unexpected error message: {str(e)}"
+        assert "session closed" in str(e), f"Unexpected error message: {str(e)}"
 
     # disconnect alice
     await slim_bindings.disconnect(svc_alice, conn_id_alice)
@@ -85,9 +98,9 @@ async def test_end_to_end(server):
 
     # try to delete a random session, we should get an exception
     try:
-        await slim_bindings.delete_session(svc_alice, 123456789)
+        await slim_bindings.delete_session(svc_alice, session_context_alice)
     except Exception as e:
-        assert "session not found" in str(e)
+        assert "session closed" in str(e)
 
 
 @pytest.mark.asyncio
@@ -95,95 +108,89 @@ async def test_end_to_end(server):
 async def test_session_config(server):
     alice_name = slim_bindings.PyName("org", "default", "alice")
 
-    stream_name = slim_bindings.PyName("org", "default", "stream")
-
     # create svc
     svc = await create_svc(alice_name, "secret")
 
-    # create fire and forget session
-    session_config = slim_bindings.PySessionConfiguration.FireAndForget()
-    session_info = await slim_bindings.create_session(svc, session_config)
-
-    # get session configuration
-    session_config_ret = await slim_bindings.get_session_config(svc, session_info.id)
-
-    # check if the session config is correct
-    assert isinstance(
-        session_config, slim_bindings.PySessionConfiguration.FireAndForget
+    # create an anycast session with custom parameters
+    session_config = slim_bindings.PySessionConfiguration.Anycast(
+        timeout=datetime.timedelta(seconds=2),
     )
+
+    session_config2 = slim_bindings.PySessionConfiguration.Anycast(
+        timeout=datetime.timedelta(seconds=3),
+    )
+
+    session_context = await slim_bindings.create_session(svc, session_config)
+
+    # get per-session configuration via new API (synchronous method)
+    session_config_ret = session_context.get_session_config()
+
+    assert isinstance(session_config_ret, slim_bindings.PySessionConfiguration.Anycast)
     assert session_config == session_config_ret, (
-        f"session config are not equal: {session_config} vs {session_config_ret}"
+        f"session config mismatch: {session_config} vs {session_config_ret}"
+    )
+    assert session_config2 != session_config_ret, (
+        f"sessions should differ: {session_config2} vs {session_config_ret}"
     )
 
-    # check default values
-    await slim_bindings.set_default_session_config(
+    # Set the default session configuration (no direct read-back API; validate by creating a new session)
+    slim_bindings.set_default_session_config(svc, session_config2)
+
+    # ------------------------------------------------------------------
+    # Validate that a session initiated towards this service adopts the new default
+    # ------------------------------------------------------------------
+    peer_name = slim_bindings.PyName("org", "default", "peer")
+    peer_svc = await create_svc(peer_name, "secret")
+
+    # Connect both services to the running server
+    conn_id_local = await slim_bindings.connect(
         svc,
-        session_config,
+        {"endpoint": "http://127.0.0.1:12344", "tls": {"insecure": True}},
+    )
+    conn_id_peer = await slim_bindings.connect(
+        peer_svc,
+        {"endpoint": "http://127.0.0.1:12344", "tls": {"insecure": True}},
     )
 
-    # get default
-    session_config_ret = await slim_bindings.get_default_session_config(
-        svc, slim_bindings.PySessionType.FIRE_AND_FORGET
+    # Build fully qualified names (with instance IDs) and subscribe
+    local_name_with_id = slim_bindings.PyName("org", "default", "alice", id=svc.id)
+    peer_name_with_id = slim_bindings.PyName("org", "default", "peer", id=peer_svc.id)
+    await slim_bindings.subscribe(svc, conn_id_local, local_name_with_id)
+    await slim_bindings.subscribe(peer_svc, conn_id_peer, peer_name_with_id)
+
+    # Allow propagation
+    await asyncio.sleep(0.5)
+
+    # Set route from peer -> local so peer can send directly
+    await slim_bindings.set_route(peer_svc, conn_id_peer, local_name_with_id)
+
+    # Peer creates a session (using anycast; its config is irrelevant for local default assertion)
+    peer_session_ctx = await slim_bindings.create_session(
+        peer_svc, slim_bindings.PySessionConfiguration.Anycast()
     )
 
-    # check if the session config is correct
-    assert isinstance(
-        session_config_ret, slim_bindings.PySessionConfiguration.FireAndForget
-    )
-    assert session_config == session_config_ret, (
-        f"session config are not equal: {session_config} vs {session_config_ret}"
+    # Send a first message to trigger session creation on local service
+    msg = [9, 9, 9]
+    await slim_bindings.publish(
+        peer_svc, peer_session_ctx, 1, msg, name=local_name_with_id
     )
 
-    # Streaming session
-    session_config = slim_bindings.PySessionConfiguration.Streaming(
-        slim_bindings.PySessionDirection.SENDER, stream_name, False, 12345
+    # Local service should receive a new session notification
+    received_session_ctx = await slim_bindings.listen_for_session(svc)
+    received_config = received_session_ctx.get_session_config()
+
+    # Assert that the received session uses the default we set (session_config2)
+    assert received_config == session_config2, (
+        f"received session config does not match default: {received_config} vs {session_config2}"
     )
 
-    session_info = await slim_bindings.create_session(svc, session_config)
-    session_config_ret = await slim_bindings.get_session_config(svc, session_info.id)
-    # check if the session config is correct
-    assert isinstance(
-        session_config_ret, slim_bindings.PySessionConfiguration.Streaming
-    )
-    assert session_config == session_config_ret
+    # Basic sanity: message should be retrievable
+    _, payload = await slim_bindings.get_message(svc, received_session_ctx)
+    assert payload == bytes(msg)
 
-    # check default values
-
-    # This session direction
-    session_config = slim_bindings.PySessionConfiguration.Streaming(
-        slim_bindings.PySessionDirection.SENDER, stream_name, False, 12345
-    )
-
-    # Try to set a sender direction as default session. We should get an error, as we are trying to
-    # set a sender as default session
-    try:
-        await slim_bindings.set_default_session_config(
-            svc,
-            session_config,
-        )
-    except Exception as e:
-        assert "cannot change session direction" in str(e), (
-            f"Unexpected error message: {str(e)}"
-        )
-
-    # Use a receiver direction
-    session_config = slim_bindings.PySessionConfiguration.Streaming(
-        slim_bindings.PySessionDirection.RECEIVER, stream_name, False, 12345
-    )
-    await slim_bindings.set_default_session_config(
-        svc,
-        session_config,
-    )
-
-    # get default
-    session_config_ret = await slim_bindings.get_default_session_config(
-        svc, slim_bindings.PySessionType.STREAMING
-    )
-    # check if the session config is correct
-    assert isinstance(
-        session_config_ret, slim_bindings.PySessionConfiguration.Streaming
-    )
-    assert session_config == session_config_ret
+    # Cleanup connections (session deletion is implicit on drop / test end)
+    await slim_bindings.disconnect(peer_svc, conn_id_peer)
+    await slim_bindings.disconnect(svc, conn_id_local)
 
 
 @pytest.mark.asyncio
@@ -215,51 +222,48 @@ async def test_slim_wrapper(server):
     await slim2.set_route(name1)
 
     # create session
-    session_info = await slim2.create_session(
-        slim_bindings.PySessionConfiguration.FireAndForget()
+    session_context = await slim2.create_session(
+        slim_bindings.PySessionConfiguration.Anycast()
     )
 
-    async with slim1, slim2:
-        # publish message
-        msg = [1, 2, 3, 4, 5, 6, 7, 8, 9]
-        await slim2.publish(session_info, msg, name1)
+    # publish message
+    msg = [1, 2, 3, 4, 5, 6, 7, 8, 9]
+    await session_context.publish(msg, name1)
 
-        # wait for a new session
-        session_info_rec, _ = await slim1.receive()
+    # wait for a new session
+    session_context_rec = await slim1.listen_for_session()
+    msg_ctx, msg_rcv = await session_context_rec.get_message()
 
-        # new session received! listen for the message
-        session_info_rec, msg_rcv = await slim1.receive(session=session_info_rec.id)
+    # check if the message is correct
+    assert msg_rcv == bytes(msg)
 
-        # check if the message is correct
-        assert msg_rcv == bytes(msg)
+    # make sure the session id is correct
+    assert session_context.id == session_context_rec.id
 
-        # make sure the session info is correct
-        assert session_info.id == session_info_rec.id
+    # reply to Alice
+    await session_context_rec.publish_to(msg_ctx, msg_rcv)
 
-        # reply to Alice
-        await slim1.publish_to(session_info_rec, msg_rcv)
+    # wait for message
+    msg_ctx, msg_rcv = await session_context.get_message()
 
-        # wait for message
-        _, msg_rcv = await slim2.receive(session=session_info.id)
-
-        # check if the message is correct
-        assert msg_rcv == bytes(msg)
+    # check if the message is correct
+    assert msg_rcv == bytes(msg)
 
     # delete sessions
-    await slim1.delete_session(session_info.id)
-    await slim2.delete_session(session_info.id)
+    await slim1.delete_session(session_context_rec)
+    await slim2.delete_session(session_context)
 
     # try to send a message after deleting the session - this should raise an exception
     try:
-        await slim1.publish(session_info, msg, name1)
+        await session_context.publish(msg, name1)
     except Exception as e:
-        assert "session not found" in str(e), f"Unexpected error message: {str(e)}"
+        assert "session closed" in str(e), f"Unexpected error message: {str(e)}"
 
     # try to delete a random session, we should get an exception
     try:
-        await slim1.delete_session(123456789)
+        await slim1.delete_session(session_context)
     except Exception as e:
-        assert "session not found" in str(e), f"Unexpected error message: {str(e)}"
+        assert "session closed" in str(e), f"Unexpected error message: {str(e)}"
 
 
 @pytest.mark.asyncio
@@ -292,17 +296,23 @@ async def test_auto_reconnect_after_server_restart(server):
     # set routing from Alice to Bob
     await slim_bindings.set_route(svc_alice, conn_id_alice, bob_name)
 
-    # create fire and forget session
-    session_info = await slim_bindings.create_session(
-        svc_alice, slim_bindings.PySessionConfiguration.FireAndForget()
+    # create point to point session (Anycast)
+    session_context = await slim_bindings.create_session(
+        svc_alice, slim_bindings.PySessionConfiguration.Anycast()
     )
 
-    # verify baseline message exchange before the simulated server restart
+    # send baseline message Alice -> Bob; Bob should first receive a new session then the message
     baseline_msg = [1, 2, 3]
-    await slim_bindings.publish(svc_alice, session_info, 1, baseline_msg, bob_name)
+    await slim_bindings.publish(
+        svc_alice, session_context, 1, baseline_msg, name=bob_name
+    )
 
-    _, received = await slim_bindings.receive(svc_bob)
+    # Bob waits for new session
+    bob_session_ctx = await slim_bindings.listen_for_session(svc_bob)
+    msg_ctx, received = await slim_bindings.get_message(svc_bob, bob_session_ctx)
     assert received == bytes(baseline_msg)
+    # session ids should match
+    assert bob_session_ctx.id == session_context.id
 
     # restart the server
     await slim_bindings.stop_server(server, "127.0.0.1:12346")
@@ -314,8 +324,9 @@ async def test_auto_reconnect_after_server_restart(server):
 
     # test that the message exchange resumes normally after the simulated restart
     test_msg = [4, 5, 6]
-    await slim_bindings.publish(svc_alice, session_info, 1, test_msg, bob_name)
-    _, received = await slim_bindings.receive(svc_bob)
+    await slim_bindings.publish(svc_alice, session_context, 1, test_msg, name=bob_name)
+    # Bob should still use the existing session context; just receive next message
+    msg_ctx, received = await slim_bindings.get_message(svc_bob, bob_session_ctx)
     assert received == bytes(test_msg)
 
     # clean up
@@ -338,9 +349,9 @@ async def test_error_on_nonexistent_subscription(server):
     alice_class = slim_bindings.PyName("org", "default", "alice", id=svc_alice.id)
     await slim_bindings.subscribe(svc_alice, conn_id_alice, alice_class)
 
-    # create fire and forget session
-    session_info = await slim_bindings.create_session(
-        svc_alice, slim_bindings.PySessionConfiguration.FireAndForget()
+    # create point to point session (Alice only)
+    session_context = await slim_bindings.create_session(
+        svc_alice, slim_bindings.PySessionConfiguration.Anycast()
     )
 
     # create Bob's name, but do not instantiate or subscribe Bob
@@ -348,12 +359,13 @@ async def test_error_on_nonexistent_subscription(server):
 
     # publish a message from Alice intended for Bob (who is not there)
     msg = [7, 8, 9]
-    await slim_bindings.publish(svc_alice, session_info, 1, msg, bob_name)
+    await slim_bindings.publish(svc_alice, session_context, 1, msg, name=bob_name)
 
-    # an exception should be raised on receive
+    # attempt to receive on Alice's session context; since Bob does not exist, no message should arrive
+    # and we shohuld also get an error coming from SLIM
     try:
         _, src, received = await asyncio.wait_for(
-            slim_bindings.receive(svc_alice), timeout=5
+            slim_bindings.listen_for_session(svc_alice), timeout=5
         )
     except asyncio.TimeoutError:
         pytest.fail("timed out waiting for error message on receive channel")

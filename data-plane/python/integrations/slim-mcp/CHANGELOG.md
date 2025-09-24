@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.1.7](https://github.com/agntcy/slim/compare/slim-mcp-v0.1.6...slim-mcp-v0.1.7) (2025-09-18)
+
+### Bug Fixes
+
+* **slima2a, slimrpc:** make mypy happy ([#671](https://github.com/agntcy/slim/issues/671)) ([5ab4628](https://github.com/agntcy/slim/commit/5ab462854c57a4788cc5eec8eecc734ab34cb2d5))
+
 ## [0.1.6](https://github.com/agntcy/slim/compare/slim-mcp-v0.1.5...slim-mcp-v0.1.6) (2025-06-05)
 
 

@@ -9,6 +9,7 @@ use uuid::Uuid;
 
 use slim_config::component::id::ID;
 use slim_config::grpc::server::ServerConfig;
+use slim_config::metadata::MetadataValue;
 use tokio::sync::mpsc;
 use tokio_stream::{Stream, StreamExt, wrappers::ReceiverStream};
 use tokio_util::sync::CancellationToken;
@@ -21,7 +22,7 @@ use crate::api::proto::api::v1::{
     self, ConnectionListResponse, ConnectionType, SubscriptionListResponse,
 };
 use crate::api::proto::api::v1::{
-    Ack, ConnectionEntry, ControlMessage, SubscriptionEntry,
+    Ack, ConnectionDetails, ConnectionEntry, ControlMessage, SubscriptionEntry,
     controller_service_client::ControllerServiceClient,
     controller_service_server::ControllerService as GrpcControllerService,
 };
@@ -29,8 +30,7 @@ use crate::errors::ControllerError;
 use slim_auth::shared_secret::SharedSecret;
 use slim_auth::traits::TokenProvider;
 use slim_config::grpc::client::ClientConfig;
-use slim_datapath::api::ProtoMessage as PubsubMessage;
-use slim_datapath::api::{ProtoSessionMessageType, ProtoSessionType, SessionHeader, SlimHeader};
+use slim_datapath::api::ProtoMessage as DataPlaneMessage;
 use slim_datapath::message_processing::MessageProcessor;
 use slim_datapath::messages::Name;
 use slim_datapath::messages::utils::{SLIM_IDENTITY, SlimHeaderFlags};
@@ -54,6 +54,9 @@ struct ControllerServiceInternal {
     /// ID of this SLIM instance
     id: ID,
 
+    /// optional group name
+    group_name: Option<String>,
+
     /// underlying message processor
     message_processor: Arc<MessageProcessor>,
 
@@ -61,7 +64,7 @@ struct ControllerServiceInternal {
     connections: Arc<parking_lot::RwLock<HashMap<String, u64>>>,
 
     /// channel to send messages into the datapath
-    tx_slim: mpsc::Sender<Result<PubsubMessage, Status>>,
+    tx_slim: mpsc::Sender<Result<DataPlaneMessage, Status>>,
 
     /// channel to receive messages from the datapath
     _rx_slim: mpsc::Receiver<Result<PubsubMessage, Status>>,
@@ -74,6 +77,9 @@ struct ControllerServiceInternal {
 
     /// drain watch channel
     drain_rx: drain::Watch,
+
+    /// array of connection details
+    connection_details: Vec<ConnectionDetails>,
 }
 
 #[derive(Debug, Clone)]
@@ -93,6 +99,10 @@ pub struct ControlPlane {
 
     /// controller
     controller: ControllerService,
+
+    /// channel to receive message from the datapath
+    /// to be used in listen_from_data_plan
+    rx_slim_option: Option<mpsc::Receiver<Result<DataPlaneMessage, Status>>>,
 }
 
 /// ControllerServiceInternal implements Drop trait to cancel all running listeners and
@@ -103,6 +113,40 @@ impl Drop for ControlPlane {
         for (_endpoint, token) in self.controller.inner.cancellation_tokens.write().drain() {
             token.cancel();
         }
+    }
+}
+
+fn from_server_config(server_config: &ServerConfig) -> ConnectionDetails {
+    let group_name = server_config
+        .metadata
+        .as_ref()
+        .and_then(|m| m.get("group_name"))
+        .and_then(|v| match v {
+            MetadataValue::String(s) => Some(s.clone()),
+            _ => None,
+        });
+    let local_endpoint = server_config
+        .metadata
+        .as_ref()
+        .and_then(|m| m.get("local_endpoint"))
+        .and_then(|v| match v {
+            MetadataValue::String(s) => Some(s.clone()),
+            _ => None,
+        });
+    let external_endpoint = server_config
+        .metadata
+        .as_ref()
+        .and_then(|m| m.get("external_endpoint"))
+        .and_then(|v| match v {
+            MetadataValue::String(s) => Some(s.clone()),
+            _ => None,
+        });
+    ConnectionDetails {
+        endpoint: server_config.endpoint.clone(),
+        mtls_required: !server_config.tls_setting.insecure,
+        group_name,
+        local_endpoint,
+        external_endpoint,
     }
 }
 
@@ -121,13 +165,17 @@ impl ControlPlane {
     /// A new instance of ControlPlane.
     pub fn new(
         id: ID,
+        group_name: Option<String>,
         servers: Vec<ServerConfig>,
         clients: Vec<ClientConfig>,
         drain_rx: drain::Watch,
         message_processor: Arc<MessageProcessor>,
+        pubsub_servers: &[ServerConfig],
     ) -> Self {
         // create local connection with the message processor
         let (_, tx_slim, rx_slim) = message_processor.register_local_connection(true);
+
+        let connection_details = pubsub_servers.iter().map(from_server_config).collect();
 
         ControlPlane {
             servers,
@@ -135,6 +183,7 @@ impl ControlPlane {
             controller: ControllerService {
                 inner: Arc::new(ControllerServiceInternal {
                     id,
+                    group_name,
                     message_processor,
                     connections: Arc::new(parking_lot::RwLock::new(HashMap::new())),
                     tx_slim,
@@ -142,6 +191,7 @@ impl ControlPlane {
                     tx_channels: parking_lot::RwLock::new(HashMap::new()),
                     cancellation_tokens: parking_lot::RwLock::new(HashMap::new()),
                     drain_rx,
+                    connection_details,
                 }),
             },
         }
@@ -183,6 +233,104 @@ impl ControlPlane {
         }
 
         Ok(())
+    }
+
+    async fn listen_from_data_plane(
+        &mut self,
+        mut rx: mpsc::Receiver<Result<DataPlaneMessage, Status>>,
+    ) {
+        let cancellation_token = CancellationToken::new();
+        let cancellation_token_clone = cancellation_token.clone();
+        let drain = self.controller.inner.drain_rx.clone();
+
+        self.controller
+            .inner
+            .cancellation_tokens
+            .write()
+            .insert("DATA_PLANE".to_string(), cancellation_token_clone);
+
+        let clients = self.clients.clone();
+        let inner = self.controller.inner.clone();
+
+        tokio::spawn(async move {
+            loop {
+                tokio::select! {
+                    next = rx.recv() => {
+                        match next {
+                            Some(res) => {
+                                match res {
+                                    Ok(msg) => {
+                                        debug!("Send sub/unsub to control plane for message: {:?}", msg);
+
+                                        let mut sub_vec = vec![];
+                                        let mut unsub_vec = vec![];
+
+                                        let dst = msg.get_dst();
+                                        let components = dst.components_strings().unwrap();
+                                        let cmd = v1::Subscription {
+                                                    component_0: components[0].to_string(),
+                                                    component_1: components[1].to_string(),
+                                                    component_2: components[2].to_string(),
+                                                    id: Some(dst.id()),
+                                                    connection_id: "n/a".to_string(),
+                                        };
+                                        match msg.get_type() {
+                                            slim_datapath::api::MessageType::Subscribe(_) => {
+                                                sub_vec.push(cmd);
+                                            },
+                                            slim_datapath::api::MessageType::Unsubscribe(_) => {
+                                                unsub_vec.push(cmd);
+                                            }
+                                            slim_datapath::api::MessageType::Publish(_) => {
+                                                // drop publication messages
+                                                continue;
+                                            },
+                                        }
+
+                                        let ctrl = ControlMessage {
+                                            message_id: uuid::Uuid::new_v4().to_string(),
+                                            payload: Some(Payload::ConfigCommand(
+                                                v1::ConfigurationCommand {
+                                                    connections_to_create: vec![],
+                                                    subscriptions_to_set: sub_vec,
+                                                    subscriptions_to_delete: unsub_vec
+                                                })),
+                                        };
+
+                                        for c in &clients {
+                                            let tx = match inner.tx_channels.read().get(&c.endpoint) {
+                                                Some(tx) => tx.clone(),
+                                                None => continue,
+                                            };
+                                            if (tx.send(Ok(ctrl.clone())).await).is_err() {
+                                                error!("error while notifiyng the control plane");
+                                            };
+
+                                        }
+                                    }
+                                    Err(e) => {
+                                        error!("received error from the data plane {}", e.to_string());
+                                        continue;
+                                    }
+                                }
+                            }
+                            None => {
+                                debug!("Data plane receiver channel closed.");
+                                break;
+                            }
+                        }
+                    }
+                    _ = cancellation_token.cancelled() => {
+                        debug!("shutting down stream on cancellation token");
+                        break;
+                    }
+                    _ = drain.clone().signaled() => {
+                        debug!("shutting down stream on drain");
+                        break;
+                    }
+                }
+            }
+        });
     }
 
     /// Stop the ControlPlane service.
@@ -375,7 +523,7 @@ impl ControllerService {
                             ])
                             .with_id(subscription.id.unwrap_or(Name::NULL_COMPONENT));
 
-                            let msg = PubsubMessage::new_subscribe(
+                            let msg = DataPlaneMessage::new_subscribe(
                                 &source,
                                 &name,
                                 Some(SlimHeaderFlags::default().with_recv_from(conn)),
@@ -417,7 +565,7 @@ impl ControllerService {
                             ])
                             .with_id(subscription.id.unwrap_or(Name::NULL_COMPONENT));
 
-                            let msg = PubsubMessage::new_unsubscribe(
+                            let msg = DataPlaneMessage::new_unsubscribe(
                                 &source,
                                 &name,
                                 Some(SlimHeaderFlags::default().with_recv_from(conn)),
@@ -955,7 +1103,7 @@ impl ControllerService {
     }
 
     /// Send a control message to SLIM.
-    async fn send_control_message(&self, msg: PubsubMessage) -> Result<(), ControllerError> {
+    async fn send_control_message(&self, msg: DataPlaneMessage) -> Result<(), ControllerError> {
         self.inner.tx_slim.send(Ok(msg)).await.map_err(|e| {
             error!("error sending message into datapath: {}", e);
             ControllerError::DatapathError(e.to_string())
@@ -986,15 +1134,17 @@ impl ControllerService {
                 message_id: uuid::Uuid::new_v4().to_string(),
                 payload: Some(Payload::RegisterNodeRequest(v1::RegisterNodeRequest {
                     node_id: this.inner.id.to_string(),
+                    group_name: this.inner.group_name.clone(),
+                    connection_details: this.inner.connection_details.clone(),
                 })),
             };
 
             // send register request if client
-            if config.is_some() {
-                if let Err(e) = tx.send(Ok(register_request)).await {
-                    error!("failed to send register request: {}", e);
-                    return;
-                }
+            if config.is_some()
+                && let Err(e) = tx.send(Ok(register_request)).await
+            {
+                error!("failed to send register request: {}", e);
+                return;
             }
 
             // TODO; here we should wait for an ack
@@ -1040,25 +1190,23 @@ impl ControllerService {
 
             info!(%endpoint, "control plane stream closed");
 
-            if retry_connect {
-                if let Some(config) = config {
-                    info!(%config.endpoint, "retrying connection to control plane");
-                    this.connect(config.clone(), cancellation_token)
-                        .await
-                        .map_or_else(
-                            |e| {
-                                error!("failed to reconnect to control plane: {}", e);
-                            },
-                            |tx| {
-                                info!(%config.endpoint, "reconnected to control plane");
+            if retry_connect && let Some(config) = config {
+                info!(%config.endpoint, "retrying connection to control plane");
+                this.connect(config.clone(), cancellation_token)
+                    .await
+                    .map_or_else(
+                        |e| {
+                            error!("failed to reconnect to control plane: {}", e);
+                        },
+                        |tx| {
+                            info!(%config.endpoint, "reconnected to control plane");
 
-                                this.inner
-                                    .tx_channels
-                                    .write()
-                                    .insert(config.endpoint.clone(), tx);
-                            },
-                        )
-                }
+                            this.inner
+                                .tx_channels
+                                .write()
+                                .insert(config.endpoint.clone(), tx);
+                        },
+                    )
             }
         })
     }
@@ -1119,10 +1267,10 @@ impl ControllerService {
 
             // h2::Error do not expose std::io::Error with `source()`
             // https://github.com/hyperium/h2/pull/462
-            if let Some(h2_err) = err.downcast_ref::<h2::Error>() {
-                if let Some(io_err) = h2_err.get_io() {
-                    return Some(io_err);
-                }
+            if let Some(h2_err) = err.downcast_ref::<h2::Error>()
+                && let Some(io_err) = h2_err.get_io()
+            {
+                return Some(io_err);
             }
 
             err = err.source()?;
@@ -1203,20 +1351,25 @@ mod tests {
         let message_processor_server = MessageProcessor::with_drain_channel(watch_server.clone());
 
         // Create a control plane instance for server
+        let pubsub_servers = [server_config.clone()];
         let mut control_plane_server = ControlPlane::new(
             id_server,
+            None,
             vec![server_config],
             vec![],
             watch_server,
             Arc::new(message_processor_server),
+            &pubsub_servers,
         );
 
         let mut control_plane_client = ControlPlane::new(
             id_client,
+            None,
             vec![],
             vec![client_config],
             watch_client,
             Arc::new(message_processor_client),
+            &pubsub_servers,
         );
 
         // Start the server

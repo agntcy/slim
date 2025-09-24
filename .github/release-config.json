@@ -4,6 +4,7 @@
     "sequential-calls": true,
     "include-component-in-tag": true,
     "skip-github-release": false,
+    "signoff": "Agntcy Build Bot <build@agntcy.io>",
     "packages": {
         "data-plane/python/bindings": {
             "package-name": "slim-bindings",
@@ -41,7 +42,7 @@
             "package-name": "slim-testutils",
             "release-type": "simple"
         },
-        "data-plane/python/examples": {
+        "data-plane/python/bindings/examples": {
             "package-name": "slim-bindings-examples",
             "release-type": "python"
         },

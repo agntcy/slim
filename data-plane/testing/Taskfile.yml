@@ -9,8 +9,8 @@ verbose: false
 env:
   CONFIG_CLIENT: ../config/base/client-config.yaml
   CONFIG_SERVER: ./config/base/server-config.yaml
-  SUB: 1000000
-  PUB: 3000000
+  SUB: 5000
+  PUB: 10000
   SUB_APPS: 10
   PUB_APPS: 1
 
@@ -85,11 +85,6 @@ tasks:
     cmds:
       - cargo run --release --bin channel -- --config $CONFIG_CLIENT --name org/ns/t2/1 --moderator-name org/ns/moderator/1 --mls-disabled
 
-  channel-example:attacker:
-    desc: "start attacker for test channel"
-    cmds:
-      - cargo run --release --bin channel -- --config $CONFIG_CLIENT --name org/ns/t3/1 --moderator-name org/ns/moderator/1 --is-attacker
-
   test:group-session:
     desc: "start MLS dynamic group test"
     cmds:
@@ -98,10 +93,11 @@ tasks:
         cargo run --release --bin test-group -- --mls-disabled
 
   test:point-to-point-session:
-    desc: "start test for fire and forget session"
+    desc: "start test for point to point session"
     cmds:
       - |
-        cargo run --release --bin test-ff -- --mls-disabled
-        cargo run --release --bin test-ff -- --mls-disabled --is-sticky
-        cargo run --release --bin test-ff -- --is-sticky
+        cargo run --release --bin test-p2p -- --mls-disabled
+        cargo run --release --bin test-p2p -- --mls-disabled --is-reliable
+        cargo run --release --bin test-p2p -- --mls-disabled --is-unicast
+        cargo run --release --bin test-p2p -- --is-unicast
 

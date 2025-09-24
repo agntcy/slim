@@ -21,25 +21,38 @@ type mockDB struct {
 	saveChannelErr error
 }
 
+// AddRoute implements db.DataAccess.
+func (m *mockDB) AddRoute(route db.Route) string {
+	panic("unimplemented")
+}
+
+// DeleteRoute implements db.DataAccess.
+func (m *mockDB) DeleteRoute(routeID string) error {
+	panic("unimplemented")
+}
+
+// GetRouteByID implements db.DataAccess.
+func (m *mockDB) GetRouteByID(routeID string) *db.Route {
+	panic("unimplemented")
+}
+
+// GetRoutesForNodeID implements db.DataAccess.
+func (m *mockDB) GetRoutesForNodeID(nodeID string) []db.Route {
+	panic("unimplemented")
+}
+
+// MarkRouteAsDeleted implements db.DataAccess.
+func (m *mockDB) MarkRouteAsDeleted(routeID string) error {
+	panic("unimplemented")
+}
+
 func (m *mockDB) SaveChannel(_ string, _ []string) error {
 	return m.saveChannelErr
 }
 func (m *mockDB) DeleteConnection(_ string) error { return nil }
 
-// ListConnectionsByNodeID returns no connections for testing.
-// ListConnectionsByNodeID returns no connections for testing.
-func (m *mockDB) ListConnectionsByNodeID(_ string) ([]db.Connection, error) {
-	return nil, nil
-}
-func (m *mockDB) SaveConnection(_ db.Connection) (string, error) {
-	return "", nil
-}
-func (m *mockDB) GetConnection(_ string) (db.Connection, error) {
-	return db.Connection{}, nil
-}
-
 // Stubs for node operations
-func (m *mockDB) ListNodes() ([]db.Node, error) { return nil, nil }
+func (m *mockDB) ListNodes() []db.Node { return nil }
 func (m *mockDB) GetNode(_ string) (*db.Node, error) {
 	return nil, nil
 }
@@ -47,18 +60,6 @@ func (m *mockDB) SaveNode(_ db.Node) (string, error) {
 	return "", nil
 }
 func (m *mockDB) DeleteNode(_ string) error { return nil }
-
-// Stubs for subscription operations
-func (m *mockDB) ListSubscriptionsByNodeID(_ string) ([]db.Subscription, error) {
-	return nil, nil
-}
-func (m *mockDB) SaveSubscription(_ db.Subscription) (string, error) {
-	return "", nil
-}
-func (m *mockDB) GetSubscription(_ string) (db.Subscription, error) {
-	return db.Subscription{}, nil
-}
-func (m *mockDB) DeleteSubscription(_ string) error { return nil }
 
 // Stubs for channel operations
 func (m *mockDB) DeleteChannel(_ string) error            { return nil }

@@ -16,8 +16,9 @@ use slim_auth::traits::Verifier;
 use slim_datapath::messages::encoder::Name;
 use slim_datapath::messages::utils::SlimHeaderFlags;
 use slim_service::app::App;
-use slim_service::errors::SessionError;
 use slim_service::session;
+use slim_service::session::Notification;
+use slim_service::session::SessionError;
 use slim_service::{Service, ServiceError};
 use tokio::sync::RwLock;
 
@@ -25,8 +26,8 @@ use crate::pyidentity::IdentityProvider;
 use crate::pyidentity::IdentityVerifier;
 use crate::pyidentity::PyIdentityProvider;
 use crate::pyidentity::PyIdentityVerifier;
-use crate::pysession::PySessionType;
-use crate::pysession::{PySessionConfiguration, PySessionInfo};
+use crate::pymessage::PyMessageContext;
+use crate::pysession::{PySessionConfiguration, PySessionContext};
 use crate::utils::PyName;
 use slim_config::grpc::client::ClientConfig as PyGrpcClientConfig;
 use slim_config::grpc::server::ServerConfig as PyGrpcServerConfig;
@@ -46,7 +47,11 @@ where
     app: App<P, V>,
     service: Service,
     name: Name,
-    rx: RwLock<session::AppChannelReceiver>,
+    rx: RwLock<
+        tokio::sync::mpsc::Receiver<
+            Result<Notification<IdentityProvider, IdentityVerifier>, SessionError>,
+        >,
+    >,
 }
 
 #[gen_stub_pymethods]
@@ -106,14 +111,69 @@ impl PyService {
     async fn create_session(
         &self,
         session_config: session::SessionConfig,
-    ) -> Result<PySessionInfo, SessionError> {
-        Ok(PySessionInfo::from(
-            self.sdk.app.create_session(session_config, None).await?,
-        ))
+    ) -> Result<PySessionContext, SessionError> {
+        let ctx = self.sdk.app.create_session(session_config, None).await?;
+        Ok(PySessionContext::from(ctx))
     }
 
-    async fn delete_session(&self, session_id: session::Id) -> Result<(), SessionError> {
-        self.sdk.app.delete_session(session_id).await
+    // Start listening for messages for a specific session id.
+    async fn listen_for_session(&self) -> Result<PySessionContext, ServiceError> {
+        // Wait for new sessions
+        let mut rx = self.sdk.rx.write().await;
+
+        tokio::select! {
+            notification = rx.recv() => {
+                if notification.is_none() {
+                    return Err(ServiceError::ReceiveError("application channel closed".to_string()));
+                }
+
+                let notification = notification.unwrap();
+                match notification {
+                    Ok(Notification::NewSession(ctx)) => {
+                        Ok(PySessionContext::from(ctx))
+                    }
+                    Ok(Notification::NewMessage(m)) => {
+                        Err(ServiceError::ReceiveError(format!("receive unexpected message from app channel: {:?}", m)))
+                    }
+                    Err(e) => {
+                        Err(ServiceError::ReceiveError(format!("failed to receive notification: {}", e)))
+                    }
+                }
+
+            }
+        }
+    }
+
+    async fn get_message(
+        &self,
+        session_context: PySessionContext,
+    ) -> Result<(PyMessageContext, Vec<u8>), ServiceError> {
+        // Acquire rx lock and wait for new messages on the session
+        let mut rx = session_context.internal.rx.write().await;
+
+        tokio::select! {
+            msg = rx.recv() => {
+                if msg.is_none() {
+                    return Err(ServiceError::ReceiveError("application channel closed".to_string()));
+                }
+
+                let msg = msg.unwrap().map_err(|e| ServiceError::ReceiveError(format!("failed to decode message: {}", e)))?;
+                Ok(PyMessageContext::from_proto_message(msg)?)
+            }
+        }
+    }
+
+    async fn delete_session(&self, session: PySessionContext) -> Result<(), SessionError> {
+        // Get an Arc to the session
+        let session = session
+            .internal
+            .session
+            .upgrade()
+            .ok_or(SessionError::SessionClosed(
+                "session already closed".to_string(),
+            ))?;
+
+        self.sdk.app.delete_session(&session).await
     }
 
     async fn run_server(&self, config: PyGrpcServerConfig) -> Result<(), ServiceError> {
@@ -149,123 +209,79 @@ impl PyService {
         self.sdk.app.remove_route(&name.into(), conn).await
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn publish(
         &self,
-        session_info: session::Info,
+        session_ctx: PySessionContext,
         fanout: u32,
         blob: Vec<u8>,
+        message_ctx: Option<PyMessageContext>,
         name: Option<PyName>,
         payload_type: Option<String>,
         metadata: Option<HashMap<String, String>>,
     ) -> Result<(), ServiceError> {
-        let (name, conn_out) = match name {
-            Some(name) => (name.into(), None),
-            None => {
-                // use the session_info to set a name
-                match &session_info.message_source {
-                    Some(name_in_session) => {
-                        (name_in_session.clone(), session_info.input_connection)
-                    }
-                    None => {
-                        return Err(ServiceError::ConfigError(
-                            "no destination name specified".to_string(),
-                        ));
-                    }
+        let (name, conn_out) = match &name {
+            Some(name) => (name, None),
+            None => match &message_ctx {
+                Some(ctx) => (&ctx.source_name, Some(ctx.input_connection)),
+                None => {
+                    return Err(ServiceError::ConfigError(
+                        "no destination name specified".to_string(),
+                    ));
                 }
-            }
+            },
         };
+
+        let name = Name::from(name);
 
         // set flags
         let flags = SlimHeaderFlags::new(fanout, None, conn_out, None, None);
 
-        self.sdk
-            .app
-            .publish_with_flags(session_info, &name, flags, blob, payload_type, metadata)
+        session_ctx
+            .internal
+            .session
+            .upgrade()
+            .ok_or(ServiceError::SessionError("session closed".to_string()))?
+            .publish_with_flags(&name, flags, blob, payload_type, metadata)
             .await
+            .map_err(|e| ServiceError::SessionError(e.to_string()))
     }
 
-    async fn invite(&self, session_info: session::Info, name: PyName) -> Result<(), ServiceError> {
-        self.sdk
-            .app
-            .invite_participant(&name.into(), session_info)
-            .await
-    }
-
-    async fn remove(&self, session_info: session::Info, name: PyName) -> Result<(), ServiceError> {
-        self.sdk
-            .app
-            .remove_participant(&name.into(), session_info)
-            .await
-    }
-
-    async fn receive(&self) -> Result<(PySessionInfo, Vec<u8>), ServiceError> {
-        let mut rx = self.sdk.rx.write().await;
-
-        // tokio select
-        tokio::select! {
-            msg = rx.recv() => {
-                if msg.is_none() {
-                    return Err(ServiceError::ReceiveError("no message received".to_string()));
-                }
-
-                let msg = msg.unwrap().map_err(|e| ServiceError::ReceiveError(e.to_string()))?;
-
-                // extract payload
-                let content = match msg.message.message_type {
-                    Some(ref msg_type) => match msg_type {
-                        slim_datapath::api::ProtoPublishType(publish) => &publish.get_payload().blob,
-                        _ => Err(ServiceError::ReceiveError(
-                            "receive publish message type".to_string(),
-                        ))?,
-                    },
-                    _ => Err(ServiceError::ReceiveError(
-                        "no message received".to_string(),
-                    ))?,
-                };
-
-                Ok((PySessionInfo::from(msg.info), content.to_vec()))
-            }
-        }
-    }
-
-    async fn set_session_config(
+    async fn invite(
         &self,
-        session_id: u32,
-        config: session::SessionConfig,
-    ) -> Result<(), SessionError> {
-        self.sdk
-            .app
-            .set_session_config(&config, Some(session_id))
+        session_context: PySessionContext,
+        name: PyName,
+    ) -> Result<(), ServiceError> {
+        session_context
+            .internal
+            .session
+            .upgrade()
+            .ok_or(ServiceError::SessionError("session closed".to_string()))?
+            .invite_participant(&name.into())
             .await
+            .map_err(|e| ServiceError::SessionError(e.to_string()))
     }
 
-    async fn get_session_config(
+    async fn remove(
         &self,
-        session_id: u32,
-    ) -> Result<PySessionConfiguration, SessionError> {
-        self.sdk
-            .app
-            .get_session_config(session_id)
+        session_context: PySessionContext,
+        name: PyName,
+    ) -> Result<(), ServiceError> {
+        session_context
+            .internal
+            .session
+            .upgrade()
+            .ok_or(ServiceError::SessionError("session closed".to_string()))?
+            .remove_participant(&name.into())
             .await
-            .map(|val| val.into())
+            .map_err(|e| ServiceError::SessionError(e.to_string()))
     }
 
-    async fn set_default_session_config(
+    fn set_default_session_config(
         &self,
         config: session::SessionConfig,
     ) -> Result<(), SessionError> {
-        self.sdk.app.set_session_config(&config, None).await
-    }
-
-    async fn get_default_session_config(
-        &self,
-        session_type: session::SessionType,
-    ) -> Result<PySessionConfiguration, SessionError> {
-        self.sdk
-            .app
-            .get_default_session_config(session_type)
-            .await
-            .map(|val| val.into())
+        self.sdk.app.set_default_session_config(&config)
     }
 }
 
@@ -286,37 +302,14 @@ pub fn create_session(
 
 #[gen_stub_pyfunction]
 #[pyfunction]
-#[pyo3(signature = (svc, session_id))]
-pub fn delete_session(py: Python, svc: PyService, session_id: u32) -> PyResult<Bound<PyAny>> {
-    pyo3_async_runtimes::tokio::future_into_py(py, async move {
-        svc.delete_session(session_id)
-            .await
-            .map_err(|e| PyErr::new::<PyException, _>(e.to_string()))
-    })
-}
-
-#[gen_stub_pyfunction]
-#[pyfunction]
-#[pyo3(signature = (svc, session_id, config))]
-pub fn set_session_config(
+#[pyo3(signature = (svc, session_context))]
+pub fn delete_session(
     py: Python,
     svc: PyService,
-    session_id: u32,
-    config: PySessionConfiguration,
+    session_context: PySessionContext,
 ) -> PyResult<Bound<PyAny>> {
     pyo3_async_runtimes::tokio::future_into_py(py, async move {
-        svc.set_session_config(session_id, config.into())
-            .await
-            .map_err(|e| PyErr::new::<PyException, _>(e.to_string()))
-    })
-}
-
-#[gen_stub_pyfunction]
-#[pyfunction]
-#[pyo3(signature = (svc, session_id))]
-pub fn get_session_config(py: Python, svc: PyService, session_id: u32) -> PyResult<Bound<PyAny>> {
-    pyo3_async_runtimes::tokio::future_into_py(py, async move {
-        svc.get_session_config(session_id)
+        svc.delete_session(session_context)
             .await
             .map_err(|e| PyErr::new::<PyException, _>(e.to_string()))
     })
@@ -326,30 +319,12 @@ pub fn get_session_config(py: Python, svc: PyService, session_id: u32) -> PyResu
 #[pyfunction]
 #[pyo3(signature = (svc, config))]
 pub fn set_default_session_config(
-    py: Python,
+    _py: Python,
     svc: PyService,
     config: PySessionConfiguration,
-) -> PyResult<Bound<PyAny>> {
-    pyo3_async_runtimes::tokio::future_into_py(py, async move {
-        svc.set_default_session_config(config.into())
-            .await
-            .map_err(|e| PyErr::new::<PyException, _>(e.to_string()))
-    })
-}
-
-#[gen_stub_pyfunction]
-#[pyfunction]
-#[pyo3(signature = (svc, session_type))]
-pub fn get_default_session_config(
-    py: Python,
-    svc: PyService,
-    session_type: PySessionType,
-) -> PyResult<Bound<PyAny>> {
-    pyo3_async_runtimes::tokio::future_into_py(py, async move {
-        svc.get_default_session_config(session_type.into())
-            .await
-            .map_err(|e| PyErr::new::<PyException, _>(e.to_string()))
-    })
+) -> PyResult<()> {
+    svc.set_default_session_config(config.into())
+        .map_err(|e| PyErr::new::<PyException, _>(e.to_string()))
 }
 
 #[gen_stub_pyfunction]
@@ -454,22 +429,24 @@ pub fn remove_route(py: Python, svc: PyService, conn: u64, name: PyName) -> PyRe
 #[allow(clippy::too_many_arguments)]
 #[gen_stub_pyfunction]
 #[pyfunction]
-#[pyo3(signature = (svc, session_info, fanout, blob, name=None, payload_type=None, metadata=None))]
+#[pyo3(signature = (svc, session_context, fanout, blob, message_ctx=None, name=None, payload_type=None, metadata=None))]
 pub fn publish(
     py: Python,
     svc: PyService,
-    session_info: PySessionInfo,
+    session_context: PySessionContext,
     fanout: u32,
     blob: Vec<u8>,
+    message_ctx: Option<PyMessageContext>,
     name: Option<PyName>,
     payload_type: Option<String>,
     metadata: Option<HashMap<String, String>>,
 ) -> PyResult<Bound<PyAny>> {
     pyo3_async_runtimes::tokio::future_into_py(py, async move {
         svc.publish(
-            session_info.session_info,
+            session_context,
             fanout,
             blob,
+            message_ctx,
             name,
             payload_type,
             metadata,
@@ -481,15 +458,15 @@ pub fn publish(
 
 #[gen_stub_pyfunction]
 #[pyfunction]
-#[pyo3(signature = (svc, session_info, name))]
+#[pyo3(signature = (svc, session_context, name))]
 pub fn invite(
     py: Python,
     svc: PyService,
-    session_info: PySessionInfo,
+    session_context: PySessionContext,
     name: PyName,
 ) -> PyResult<Bound<PyAny>> {
     pyo3_async_runtimes::tokio::future_into_py(py, async move {
-        svc.invite(session_info.session_info, name)
+        svc.invite(session_context, name)
             .await
             .map_err(|e| PyErr::new::<PyException, _>(e.to_string()))
     })
@@ -497,15 +474,15 @@ pub fn invite(
 
 #[gen_stub_pyfunction]
 #[pyfunction]
-#[pyo3(signature = (svc, session_info, name))]
+#[pyo3(signature = (svc, session_context, name))]
 pub fn remove(
     py: Python,
     svc: PyService,
-    session_info: PySessionInfo,
+    session_context: PySessionContext,
     name: PyName,
 ) -> PyResult<Bound<PyAny>> {
     pyo3_async_runtimes::tokio::future_into_py(py, async move {
-        svc.remove(session_info.session_info, name)
+        svc.remove(session_context, name)
             .await
             .map_err(|e| PyErr::new::<PyException, _>(e.to_string()))
     })
@@ -514,12 +491,27 @@ pub fn remove(
 #[gen_stub_pyfunction]
 #[pyfunction]
 #[pyo3(signature = (svc))]
-pub fn receive(py: Python, svc: PyService) -> PyResult<Bound<PyAny>> {
+pub fn listen_for_session(py: Python, svc: PyService) -> PyResult<Bound<PyAny>> {
+    pyo3_async_runtimes::tokio::future_into_py(py, async move {
+        svc.listen_for_session()
+            .await
+            .map_err(|e| PyErr::new::<PyException, _>(e.to_string()))
+    })
+}
+
+#[gen_stub_pyfunction]
+#[pyfunction]
+#[pyo3(signature = (svc, session_context))]
+pub fn get_message(
+    py: Python,
+    svc: PyService,
+    session_context: PySessionContext,
+) -> PyResult<Bound<PyAny>> {
     pyo3_async_runtimes::tokio::future_into_py_with_locals(
         py,
         pyo3_async_runtimes::tokio::get_current_locals(py)?,
         async move {
-            svc.receive()
+            svc.get_message(session_context)
                 .await
                 .map_err(|e| PyErr::new::<PyException, _>(e.to_string()))
         },

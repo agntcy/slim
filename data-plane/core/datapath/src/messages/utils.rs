@@ -10,7 +10,8 @@ use super::encoder::Name;
 use crate::api::{
     Content, MessageType, ProtoMessage, ProtoName, ProtoPublish, ProtoPublishType,
     ProtoSessionType, ProtoSubscribe, ProtoSubscribeType, ProtoUnsubscribe, ProtoUnsubscribeType,
-    SessionHeader, SlimHeader, proto::pubsub::v1::SessionMessageType,
+    SessionHeader, SlimHeader,
+    proto::dataplane::v1::{OriginalName, SessionMessageType},
 };
 
 use thiserror::Error;
@@ -268,12 +269,36 @@ impl SessionHeader {
         session_message_type: i32,
         session_id: u32,
         message_id: u32,
+        source: &Option<Name>,
+        destination: &Option<Name>,
     ) -> Self {
+        let src = match source {
+            Some(name) => name.components_strings().map(|c| OriginalName {
+                component_0: c[0].clone(),
+                component_1: c[1].clone(),
+                component_2: c[2].clone(),
+                component_3: name.id(),
+            }),
+            None => None,
+        };
+
+        let dst = match destination {
+            Some(name) => name.components_strings().map(|c| OriginalName {
+                component_0: c[0].clone(),
+                component_1: c[1].clone(),
+                component_2: c[2].clone(),
+                component_3: name.id(),
+            }),
+            None => None,
+        };
+
         Self {
             session_type,
             session_message_type,
             session_id,
             message_id,
+            source: src,
+            destination: dst,
         }
     }
 
@@ -296,6 +321,68 @@ impl SessionHeader {
     pub fn clear(&mut self) {
         self.session_id = 0;
         self.message_id = 0;
+    }
+
+    pub fn get_source(&self) -> Option<Name> {
+        match &self.source {
+            Some(src) => {
+                let n = Name::from_strings([
+                    src.component_0.clone(),
+                    src.component_1.clone(),
+                    src.component_2.clone(),
+                ])
+                .with_id(src.component_3);
+                Some(n)
+            }
+            None => None,
+        }
+    }
+
+    pub fn set_source(&mut self, source: &Name) {
+        let c_opt = source.components_strings();
+        if c_opt.is_none() {
+            return;
+        }
+
+        let c = c_opt.unwrap();
+
+        self.source = Some(OriginalName {
+            component_0: c[0].clone(),
+            component_1: c[1].clone(),
+            component_2: c[2].clone(),
+            component_3: source.id(),
+        });
+    }
+
+    pub fn get_destination(&self) -> Option<Name> {
+        match &self.destination {
+            Some(src) => {
+                let n = Name::from_strings([
+                    src.component_0.clone(),
+                    src.component_1.clone(),
+                    src.component_2.clone(),
+                ])
+                .with_id(src.component_3);
+                Some(n)
+            }
+            None => None,
+        }
+    }
+
+    pub fn set_destination(&mut self, destination: &Name) {
+        let c_opt = destination.components_strings();
+        if c_opt.is_none() {
+            return;
+        }
+
+        let c = c_opt.unwrap();
+
+        self.destination = Some(OriginalName {
+            component_0: c[0].clone(),
+            component_1: c[1].clone(),
+            component_2: c[2].clone(),
+            component_3: destination.id(),
+        });
     }
 }
 
@@ -327,14 +414,15 @@ impl From<ProtoMessage> for ProtoSubscribe {
 /// ProtoUnsubscribe
 /// This message is used to unsubscribe from a topic
 impl ProtoUnsubscribe {
-    pub fn with_header(header: Option<SlimHeader>) -> Self {
-        ProtoUnsubscribe { header }
-    }
-
     pub fn new(source: &Name, dst: &Name, flags: Option<SlimHeaderFlags>) -> Self {
         let header = Some(SlimHeader::new(source, dst, flags));
 
-        Self::with_header(header)
+        ProtoUnsubscribe {
+            header,
+            component_0: dst.components_strings().unwrap()[0].clone(),
+            component_1: dst.components_strings().unwrap()[1].clone(),
+            component_2: dst.components_strings().unwrap()[2].clone(),
+        }
     }
 }
 
@@ -372,14 +460,16 @@ impl ProtoPublish {
     ) -> Self {
         let slim_header = Some(SlimHeader::new(source, dst, flags));
 
-        let session_header = Some(SessionHeader::default());
+        let mut session_header = SessionHeader::default();
+        session_header.set_source(source);
+        session_header.set_destination(dst);
 
         let msg = Some(Content {
             content_type: content_type.to_string(),
             blob,
         });
 
-        Self::with_header(slim_header, session_header, msg)
+        Self::with_header(slim_header, Some(session_header), msg)
     }
 
     pub fn get_slim_header(&self) -> &SlimHeader {
@@ -613,6 +703,14 @@ impl ProtoMessage {
     }
 
     pub fn get_source(&self) -> Name {
+        if let Some(ProtoPublishType(pubslih)) = &self.message_type {
+            // try to the src dst from the session header
+            if let Some(s) = pubslih.get_session_header().get_source() {
+                return s;
+            }
+        }
+
+        // get from slim header
         self.get_slim_header().get_source()
     }
 
@@ -641,19 +739,40 @@ impl ProtoMessage {
     }
 
     pub fn get_dst(&self) -> Name {
-        let dst = self.get_slim_header().get_dst();
-
-        // complete name with the original strings if the message is a subscribe
-        if let Some(ProtoSubscribeType(subscribe)) = &self.message_type {
-            return Name::from_strings([
-                subscribe.component_0.clone(),
-                subscribe.component_1.clone(),
-                subscribe.component_2.clone(),
-            ])
-            .with_id(dst.id());
+        match &self.message_type {
+            Some(ProtoPublishType(pubslih)) => {
+                // try to the get dst from the session header
+                if let Some(d) = pubslih.get_session_header().get_destination() {
+                    return d;
+                }
+                // get from the slim header
+                self.get_slim_header().get_dst()
+            }
+            Some(ProtoSubscribeType(subscribe)) => {
+                let dst = self.get_slim_header().get_dst();
+                // complete name with the original strings
+                Name::from_strings([
+                    subscribe.component_0.clone(),
+                    subscribe.component_1.clone(),
+                    subscribe.component_2.clone(),
+                ])
+                .with_id(dst.id())
+            }
+            Some(ProtoUnsubscribeType(unsubscribe)) => {
+                let dst = self.get_slim_header().get_dst();
+                // complete name with the original strings
+                Name::from_strings([
+                    unsubscribe.component_0.clone(),
+                    unsubscribe.component_1.clone(),
+                    unsubscribe.component_2.clone(),
+                ])
+                .with_id(dst.id())
+            }
+            None => {
+                // this should never happen
+                self.get_slim_header().get_dst()
+            }
         }
-
-        dst
     }
 
     pub fn get_type(&self) -> &MessageType {
@@ -748,7 +867,7 @@ impl AsRef<ProtoPublish> for ProtoMessage {
 
 #[cfg(test)]
 mod tests {
-    use crate::{api::proto::pubsub::v1::SessionMessageType, messages::encoder::Name};
+    use crate::{api::proto::dataplane::v1::SessionMessageType, messages::encoder::Name};
 
     use super::*;
 
@@ -1046,7 +1165,7 @@ mod tests {
     #[test]
     fn test_panic_session_header() {
         // create a unusual session header
-        let header = SessionHeader::new(0, 0, 0, 0);
+        let header = SessionHeader::new(0, 0, 0, 0, &None, &None);
 
         // the operations to retrieve session_id and message_id should not fail with panic
         let result = std::panic::catch_unwind(|| header.get_session_id());

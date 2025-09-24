@@ -128,13 +128,13 @@ impl TokenCache {
             .as_secs();
 
         let token = token.into();
-        if let Some(entry) = self.entries.read().get(&token) {
-            if entry.expiry > now {
-                // Decode the claims part of the token
-                let parts: Vec<&str> = token.split('.').collect();
-                if parts.len() == 3 {
-                    return Some(parts[1].to_string());
-                }
+        if let Some(entry) = self.entries.read().get(&token)
+            && entry.expiry > now
+        {
+            // Decode the claims part of the token
+            let parts: Vec<&str> = token.split('.').collect();
+            if parts.len() == 3 {
+                return Some(parts[1].to_string());
             }
         }
 

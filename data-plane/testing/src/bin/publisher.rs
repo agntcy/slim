@@ -3,12 +3,10 @@
 
 use std::fs::File;
 use std::io::prelude::*;
-use std::time::Duration;
 use std::{collections::HashMap, sync::Arc};
 
 use parking_lot::RwLock;
 use slim_datapath::messages::Name;
-use slim_service::SlimHeaderFlags;
 use testing::parse_line;
 use tokio_util::sync::CancellationToken;
 
@@ -18,34 +16,13 @@ use tracing::{debug, error, info};
 
 use slim::config;
 use slim_auth::shared_secret::SharedSecret;
-use slim_service::streaming::StreamingConfiguration;
 
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
 pub struct Args {
-    /// Workload input file, required if used in workload mode. If this is set the streaming mode is set to false.
+    /// Workload input file, required if used in workload mode. If this is set the multicast mode is set to false.
     #[arg(short, long, value_name = "WORKLOAD", required = false)]
     workload: Option<String>,
-
-    /// Runs in streaming mode.
-    #[arg(
-        short,
-        long,
-        value_name = "STREAMING",
-        required = false,
-        default_value_t = false
-    )]
-    streaming: bool,
-
-    /// Runs in pub/sub mode.
-    #[arg(
-        short,
-        long,
-        value_name = "PUBSUB",
-        required = false,
-        default_value_t = false
-    )]
-    pubsub: bool,
 
     /// Slim config file
     #[arg(short, long, value_name = "CONFIGURATION", required = true)]
@@ -84,10 +61,6 @@ pub struct Args {
         default_value_t = 0
     )]
     frequency: u32,
-
-    /// used only in streaming mode, defines the maximum number of packets to send
-    #[arg(short, long, value_name = "PACKETS", required = false)]
-    max_packets: Option<u64>,
 }
 
 impl Args {
@@ -97,14 +70,6 @@ impl Args {
 
     pub fn workload(&self) -> &Option<String> {
         &self.workload
-    }
-
-    pub fn streaming(&self) -> &bool {
-        &self.streaming
-    }
-
-    pub fn pubsub(&self) -> &bool {
-        &self.pubsub
     }
 
     pub fn id(&self) -> &u64 {
@@ -122,10 +87,6 @@ impl Args {
     pub fn frequency(&self) -> &u32 {
         &self.frequency
     }
-
-    pub fn max_packets(&self) -> &Option<u64> {
-        &self.max_packets
-    }
 }
 
 #[tokio::main]
@@ -137,30 +98,12 @@ async fn main() {
     let msg_size = *args.msg_size();
     let id = *args.id();
     let frequency = *args.frequency();
-    let mut streaming = *args.streaming();
-    let mut pubsub = *args.pubsub();
-    let max_packets = args.max_packets;
-
-    // if a workload file is given put streaming and pubsub to false
-    if input.is_some() {
-        streaming = false;
-        pubsub = false;
-    }
-
-    // be sure that is streaming is set pubsub is not and viceversa
-    if pubsub {
-        streaming = false;
-    } else if streaming {
-        pubsub = false;
-    }
 
     info!(
-        "configuration -- workload file: {}, config {}, publisher id: {}, streaming mode: {}, pubsub mode: {}, msg size: {}",
+        "configuration -- workload file: {}, config {}, publisher id: {}, msg size: {}",
         input.as_ref().unwrap_or(&"None".to_string()),
         config_file,
         id,
-        streaming,
-        pubsub,
         msg_size,
     );
 
@@ -174,11 +117,11 @@ async fn main() {
     // create local app
     let app_name = Name::from_strings(["agntcy", "default", "publisher"]).with_id(id);
 
-    let (app, mut rx) = svc
+    let (app, _rx) = svc
         .create_app(
             &app_name,
-            SharedSecret::new("a", "group"),
-            SharedSecret::new("a", "group"),
+            SharedSecret::new("a", "test"),
+            SharedSecret::new("a", "test"),
         )
         .await
         .expect("failed to create app");
@@ -203,115 +146,6 @@ async fn main() {
     // wait for the connection to be established
     tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
 
-    // STREAMING/PUBSUB MODE
-    if streaming || pubsub {
-        // set route for the topic
-        let topic = match streaming {
-            true => Name::from_strings(["agntcy", "default", "subscriber"]),
-            false => Name::from_strings(["topic", "topic", "topic"]),
-        };
-
-        // subscribe for the topic
-        match app.subscribe(&topic, Some(conn_id)).await {
-            Ok(_) => {}
-            Err(e) => {
-                panic!("an error accoured while adding a subscription {}", e);
-            }
-        }
-
-        app.set_route(&topic, conn_id).await.unwrap();
-
-        // create session
-        let res = match streaming {
-            true => {
-                // create a producer streaming session
-                app.create_session(
-                    slim_service::session::SessionConfig::Streaming(StreamingConfiguration::new(
-                        slim_service::session::SessionDirection::Sender,
-                        topic.clone(),
-                        false,
-                        None,
-                        None,
-                        false,
-                    )),
-                    None,
-                )
-                .await
-            }
-            false => {
-                // create a pubsub session
-                app.create_session(
-                    slim_service::session::SessionConfig::Streaming(StreamingConfiguration::new(
-                        slim_service::session::SessionDirection::Bidirectional,
-                        topic.clone(),
-                        false,
-                        Some(10),
-                        Some(Duration::from_millis(1000)),
-                        false,
-                    )),
-                    None,
-                )
-                .await
-            }
-        };
-
-        if res.is_err() {
-            panic!("error creating fire and forget session");
-        }
-
-        // receive packets from slim
-        tokio::spawn(async move {
-            loop {
-                match rx.recv().await {
-                    None => {
-                        info!(%conn_id, "end of stream");
-                        break;
-                    }
-                    Some(msg_info) => match msg_info {
-                        Ok(msg) => {
-                            if streaming {
-                                panic!("received message from slim, this should never happen");
-                            }
-                            if pubsub {
-                                let publisher_id = msg.message.get_slim_header().get_source();
-                                info!(
-                                    "received message {} from publisher {}",
-                                    msg.info.message_id.unwrap(),
-                                    publisher_id
-                                ); // TODO put message id + pub id
-                            }
-                        }
-                        Err(e) => {
-                            error!("received an error message {:?}", e);
-                        }
-                    },
-                }
-            }
-        });
-
-        // get the session
-        let session_info = res.unwrap();
-
-        for i in 0..max_packets.unwrap_or(u64::MAX) {
-            let payload: Vec<u8> = vec![120; msg_size as usize]; // ASCII for 'x' = 120
-            info!("publishing message {}", i);
-            // set fanout > 1 to send the message in broadcast
-            let flags = SlimHeaderFlags::new(10, None, None, None, None);
-            if app
-                .publish_with_flags(session_info.clone(), &topic, flags, payload, None, None)
-                .await
-                .is_err()
-            {
-                error!("an error occurred sending publication, the test will fail",);
-            }
-            if frequency != 0 {
-                tokio::time::sleep(tokio::time::Duration::from_millis(frequency as u64)).await;
-            }
-        }
-        return;
-    }
-
-    // WORKLOAD MODE
     // setup app config
     let mut publication_list = HashMap::new();
     let mut oracle = HashMap::new();
@@ -362,23 +196,22 @@ async fn main() {
     // wait for the connection to be established
     tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
 
-    // create fire and forget session
-    // create a fire and forget session
+    // create a point to point session
     let res = app
         .create_session(
-            slim_service::session::SessionConfig::FireAndForget(
-                slim_service::FireAndForgetConfiguration::default(),
+            slim_service::session::SessionConfig::PointToPoint(
+                slim_service::PointToPointConfiguration::default(),
             ),
             None,
         )
         .await;
     if res.is_err() {
-        panic!("error creating fire and forget session");
+        panic!("error creating point to point session");
     }
 
     // get the session
-    let session_info = res.unwrap();
-    let session_id = session_info.id;
+    let session_ctx = res.unwrap();
+    let session_id = session_ctx.session.upgrade().unwrap().id();
 
     // start receiving loop
     let results_list = Arc::new(RwLock::new(HashMap::new()));
@@ -386,7 +219,10 @@ async fn main() {
     let token = CancellationToken::new();
     let token_clone = token.clone();
 
-    tokio::spawn(async move {
+    // Clone the Arc to session for later use
+    let session_arc = session_ctx.session_arc().unwrap();
+
+    session_ctx.spawn_receiver(move |mut rx, _weak, _meta| async move {
         loop {
             tokio::select! {
                 res = rx.recv() => {
@@ -395,44 +231,26 @@ async fn main() {
                             info!(%conn_id, "end of stream");
                             break;
                         }
-                        Some(msg_info) => {
-                            if msg_info.is_err() {
+                        Some(message) => {
+                            if message.is_err() {
                                 error!("error receiving message");
                                 continue;
                             }
-
-                            let msg_info = msg_info.unwrap();
-                            let msg = msg_info.message;
-
-                            // make sure the session matches
-                            if session_info.id != session_id {
-                                panic!("wrong session id {}", session_info.id);
-                            }
-
-                            match &msg.message_type.unwrap() {
-                                slim_datapath::api::ProtoPublishType(msg) => {
-                                    // parse payload and add info to the result list
-                                    let payload = &msg.get_payload().blob;
-                                    // the payload needs to start with the publication id and the received id
-                                    // so it must contain at least 18 bytes
-                                    if payload.len() < 18 {
-                                        panic!("error parsing message");
+                            let msg = message.unwrap();
+                                    if msg.get_session_header().get_session_id() != session_id { continue; }
+                                    if let Some(slim_datapath::api::ProtoPublishType(publish)) = msg.message_type.as_ref() {
+                                        let payload = &publish.get_payload().blob;
+                                        if payload.len() < 18 { panic!("error parsing message"); }
+                                        let pub_id = u64::from_be_bytes(payload[0..8].try_into().unwrap());
+                                        let recv_id = u64::from_be_bytes(payload[9..17].try_into().unwrap());
+                                        debug!("recv msg {} from {} on publisher {}", pub_id, recv_id, id);
+                                        let mut lock = clone_results_list.write();
+                                        lock.insert(pub_id, recv_id);
                                     }
-
-                                    let pub_id = u64::from_be_bytes(payload[0..8].try_into().unwrap());
-                                    let recv_id = u64::from_be_bytes(payload[9..17].try_into().unwrap());
-                                    debug!("recv msg {} from {} on puslihser {}", pub_id, recv_id, id);
-                                    let mut lock = clone_results_list.write();
-                                    //write[pub_id as usize] = recv_id;
-                                    lock.insert(pub_id, recv_id);
-                                }
-                                t => {
-                                    panic!("received unexpected message: {:?}", t);
-                                }
                             }
                         }
                     }
-                }
+
                 _ = token_clone.cancelled() => {
                     info!("shutting down receiving thread");
                     break;
@@ -463,11 +281,7 @@ async fn main() {
 
         // for the moment we send the message in anycast
         // we need to test also the match_all function
-        if app
-            .publish(session_info.clone(), p.1, payload, None, None)
-            .await
-            .is_err()
-        {
+        if session_arc.publish(p.1, payload, None, None).await.is_err() {
             error!(
                 "an error occurred sending publication {}, the test will fail",
                 p.0

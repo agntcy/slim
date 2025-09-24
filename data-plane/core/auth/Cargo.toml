@@ -1,6 +1,6 @@
 [package]
 name = "agntcy-slim-auth"
-version = "0.2.0"
+version = "0.3.0"
 license = { workspace = true }
 edition = { workspace = true }
 description = "Authentication utilities for the Agntcy Slim framework"
@@ -35,5 +35,5 @@ url = { workspace = true }
 wiremock = { workspace = true }
 
 [dev-dependencies]
-agntcy-slim-config = { workspace = true }
+agntcy-slim-config = { path = "../config" }
 tracing-test = { workspace = true }

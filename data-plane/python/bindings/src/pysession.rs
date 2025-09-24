@@ -1,110 +1,96 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
+use pyo3::exceptions::PyException;
 use std::collections::HashMap;
+use std::sync::{Arc, Weak};
+use tokio::sync::RwLock;
 
 use pyo3::prelude::*;
 use pyo3_stub_gen::derive::gen_stub_pyclass;
 use pyo3_stub_gen::derive::gen_stub_pyclass_enum;
 use pyo3_stub_gen::derive::gen_stub_pymethods;
-use slim_datapath::messages::Name;
+use slim_service::{AppChannelReceiver, SessionError};
+// (Python-only session wrapper will provide higher-level methods; keep Rust minimal)
 
+use crate::pyidentity::{IdentityProvider, IdentityVerifier};
 use crate::utils::PyName;
-use slim_service::FireAndForgetConfiguration;
-use slim_service::StreamingConfiguration;
+use slim_service::MulticastConfiguration;
+use slim_service::PointToPointConfiguration;
 use slim_service::session;
 pub use slim_service::session::SESSION_UNSPECIFIED;
+use slim_service::session::Session;
+use slim_service::session::context::SessionContext;
+
+pub(crate) struct PySessionCtxInternal {
+    pub(crate) session: Weak<Session<IdentityProvider, IdentityVerifier>>,
+    pub(crate) rx: RwLock<AppChannelReceiver>,
+    pub(crate) metadata: HashMap<String, String>,
+}
 
 #[gen_stub_pyclass]
 #[pyclass]
 #[derive(Clone)]
-pub(crate) struct PySessionInfo {
-    pub(crate) session_info: session::Info,
+pub(crate) struct PySessionContext {
+    pub(crate) internal: Arc<PySessionCtxInternal>,
 }
 
-impl From<session::Info> for PySessionInfo {
-    fn from(session_info: session::Info) -> Self {
-        PySessionInfo { session_info }
+impl From<SessionContext<IdentityProvider, IdentityVerifier>> for PySessionContext {
+    fn from(ctx: SessionContext<IdentityProvider, IdentityVerifier>) -> Self {
+        // split context into parts
+        let (session, rx, metadata) = ctx.into_parts();
+        let rx = RwLock::new(rx);
+
+        PySessionContext {
+            internal: Arc::new(PySessionCtxInternal {
+                session,
+                rx,
+                metadata: metadata.unwrap_or(HashMap::new()),
+            }),
+        }
     }
 }
 
 #[gen_stub_pymethods]
 #[pymethods]
-impl PySessionInfo {
-    #[new]
-    fn new(session_id: u32) -> Self {
-        PySessionInfo {
-            session_info: session::Info::new(session_id),
-        }
+impl PySessionContext {
+    #[getter]
+    pub fn id(&self) -> PyResult<u32> {
+        let id = self
+            .internal
+            .session
+            .upgrade()
+            .ok_or_else(|| SessionError::SessionClosed("session already closed".to_string()))
+            .map_err(|e| PyErr::new::<PyException, _>(e.to_string()))?
+            .id();
+
+        Ok(id)
     }
 
     #[getter]
-    fn id(&self) -> u32 {
-        self.session_info.id
+    pub fn metadata(&self) -> &HashMap<String, String> {
+        &self.internal.metadata
     }
 
-    #[getter]
-    fn source_name(&self) -> PyName {
-        let name = match &self.session_info.message_source {
-            Some(n) => n.clone(),
-            None => Name::from_strings(["", "", ""]),
-        };
-        PyName::from(name)
+    pub fn set_session_config(&self, config: PySessionConfiguration) -> PyResult<()> {
+        let session = self.internal.session.upgrade().ok_or_else(|| {
+            PyErr::new::<PyException, _>(
+                SessionError::SessionClosed("session already closed".to_string()).to_string(),
+            )
+        })?;
+        session
+            .set_session_config(&config.into())
+            .map_err(|e| PyErr::new::<PyException, _>(e.to_string()))?;
+        Ok(())
     }
 
-    #[getter]
-    pub fn destination_name(&self) -> PyName {
-        let name = match &self.session_info.message_destination {
-            Some(n) => n.clone(),
-            None => Name::from_strings(["", "", ""]),
-        };
-        PyName::from(name)
-    }
-
-    #[getter]
-    pub fn payload_type(&self) -> String {
-        match &self.session_info.payload_type {
-            Some(t) => t.clone(),
-            None => "".to_string(),
-        }
-    }
-
-    #[getter]
-    pub fn metadata(&self) -> HashMap<String, String> {
-        self.session_info.metadata.clone()
-    }
-}
-
-/// session direction
-#[gen_stub_pyclass_enum]
-#[pyclass(eq, eq_int)]
-#[derive(PartialEq, Clone)]
-pub(crate) enum PySessionDirection {
-    #[pyo3(name = "SENDER")]
-    Sender = session::SessionDirection::Sender as isize,
-    #[pyo3(name = "RECEIVER")]
-    Receiver = session::SessionDirection::Receiver as isize,
-    #[pyo3(name = "BIDIRECTIONAL")]
-    Bidirectional = session::SessionDirection::Bidirectional as isize,
-}
-
-impl From<PySessionDirection> for session::SessionDirection {
-    fn from(value: PySessionDirection) -> Self {
-        match value {
-            PySessionDirection::Sender => session::SessionDirection::Sender,
-            PySessionDirection::Receiver => session::SessionDirection::Receiver,
-            PySessionDirection::Bidirectional => session::SessionDirection::Bidirectional,
-        }
-    }
-}
-
-impl From<session::SessionDirection> for PySessionDirection {
-    fn from(session_direction: session::SessionDirection) -> Self {
-        match session_direction {
-            session::SessionDirection::Sender => PySessionDirection::Sender,
-            session::SessionDirection::Receiver => PySessionDirection::Receiver,
-            session::SessionDirection::Bidirectional => PySessionDirection::Bidirectional,
-        }
+    pub fn get_session_config(&self) -> PyResult<PySessionConfiguration> {
+        let session = self.internal.session.upgrade().ok_or_else(|| {
+            PyErr::new::<PyException, _>(
+                SessionError::SessionClosed("session already closed".to_string()).to_string(),
+            )
+        })?;
+        Ok(session.session_config().into())
     }
 }
 
@@ -112,37 +98,35 @@ impl From<session::SessionDirection> for PySessionDirection {
 #[gen_stub_pyclass_enum]
 #[pyclass(eq, eq_int)]
 #[derive(PartialEq, Clone)]
-pub(crate) enum PySessionType {
-    #[pyo3(name = "FIRE_AND_FORGET")]
-    FireAndForget = session::SessionType::FireAndForget as isize,
-    #[pyo3(name = "STREAMING")]
-    Streaming = session::SessionType::Streaming as isize,
-}
-
-impl From<PySessionType> for session::SessionType {
-    fn from(value: PySessionType) -> Self {
-        match value {
-            PySessionType::FireAndForget => session::SessionType::FireAndForget,
-            PySessionType::Streaming => session::SessionType::Streaming,
-        }
-    }
+pub enum PySessionType {
+    #[pyo3(name = "ANYCAST")]
+    Anycast = 0,
+    #[pyo3(name = "UNICAST")]
+    Unicast = 1,
+    #[pyo3(name = "MULTICAST")]
+    Multicast = 2,
 }
 
 #[gen_stub_pyclass_enum]
 #[derive(Clone, PartialEq)]
 #[pyclass(eq)]
 pub(crate) enum PySessionConfiguration {
-    #[pyo3(constructor = (timeout=None, max_retries=None, sticky=false, mls_enabled=false))]
-    FireAndForget {
+    #[pyo3(constructor = (timeout=None, max_retries=None, mls_enabled=false))]
+    Anycast {
         timeout: Option<std::time::Duration>,
         max_retries: Option<u32>,
-        sticky: bool,
         mls_enabled: bool,
     },
 
-    #[pyo3(constructor = (session_direction, topic, moderator=false, max_retries=0, timeout=std::time::Duration::from_millis(1000), mls_enabled=false))]
-    Streaming {
-        session_direction: PySessionDirection,
+    #[pyo3(constructor = (timeout=None, max_retries=None, mls_enabled=false))]
+    Unicast {
+        timeout: Option<std::time::Duration>,
+        max_retries: Option<u32>,
+        mls_enabled: bool,
+    },
+
+    #[pyo3(constructor = (topic, moderator=false, max_retries=0, timeout=std::time::Duration::from_millis(1000), mls_enabled=false))]
+    Multicast {
         topic: PyName,
         moderator: bool,
         max_retries: u32,
@@ -154,16 +138,22 @@ pub(crate) enum PySessionConfiguration {
 impl From<session::SessionConfig> for PySessionConfiguration {
     fn from(session_config: session::SessionConfig) -> Self {
         match session_config {
-            session::SessionConfig::FireAndForget(config) => {
-                PySessionConfiguration::FireAndForget {
-                    timeout: config.timeout,
-                    max_retries: config.max_retries,
-                    sticky: config.sticky,
-                    mls_enabled: config.mls_enabled,
+            session::SessionConfig::PointToPoint(config) => {
+                if config.unicast {
+                    PySessionConfiguration::Unicast {
+                        timeout: config.timeout,
+                        max_retries: config.max_retries,
+                        mls_enabled: config.mls_enabled,
+                    }
+                } else {
+                    PySessionConfiguration::Anycast {
+                        timeout: config.timeout,
+                        max_retries: config.max_retries,
+                        mls_enabled: config.mls_enabled,
+                    }
                 }
             }
-            session::SessionConfig::Streaming(config) => PySessionConfiguration::Streaming {
-                session_direction: config.direction.into(),
+            session::SessionConfig::Multicast(config) => PySessionConfiguration::Multicast {
                 topic: config.channel_name.into(),
                 moderator: config.moderator,
                 max_retries: config.max_retries,
@@ -177,26 +167,33 @@ impl From<session::SessionConfig> for PySessionConfiguration {
 impl From<PySessionConfiguration> for session::SessionConfig {
     fn from(value: PySessionConfiguration) -> Self {
         match value {
-            PySessionConfiguration::FireAndForget {
+            PySessionConfiguration::Anycast {
                 timeout,
                 max_retries,
-                sticky,
                 mls_enabled,
-            } => session::SessionConfig::FireAndForget(FireAndForgetConfiguration::new(
+            } => session::SessionConfig::PointToPoint(PointToPointConfiguration::new(
                 timeout,
                 max_retries,
-                sticky,
+                false,
                 mls_enabled,
             )),
-            PySessionConfiguration::Streaming {
-                session_direction,
+            PySessionConfiguration::Unicast {
+                timeout,
+                max_retries,
+                mls_enabled,
+            } => session::SessionConfig::PointToPoint(PointToPointConfiguration::new(
+                timeout,
+                max_retries,
+                true,
+                mls_enabled,
+            )),
+            PySessionConfiguration::Multicast {
                 topic,
                 moderator,
                 max_retries,
                 timeout,
                 mls_enabled,
-            } => session::SessionConfig::Streaming(StreamingConfiguration::new(
-                session_direction.into(),
+            } => session::SessionConfig::Multicast(MulticastConfiguration::new(
                 topic.into(),
                 moderator,
                 Some(max_retries),

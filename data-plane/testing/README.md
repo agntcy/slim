@@ -1,10 +1,12 @@
 # SLIM Testing
 
-SLIM testing includes applications to test the performance and correctness of SLIM.
+SLIM testing involves applications designed to evaluate the performance and correctness of SLIM.
 
-## Applications
+## Workload-based test
+This test takes a workload file as input and executes a test by sending messages from one publisher to multiple subscribers.
+
 ### Workload-gen
-```workload-gen``` is an application that generates a workload file that is used as input for the other applications. It can be run with the following command:
+```workload-gen``` iis an application that generates a workload file, which is then used as input for other applications. It can be run with the following command:
 ```
 $ cargo run --release --bin workload-gen -- --help
 Usage: workload-gen [OPTIONS] --subscriptions <SUBSCRIPTIONS> --publications <PUBLICATIONS>
@@ -20,36 +22,32 @@ Options:
 ```
 
 #### Workload file structure
-The names used by SLIM are in the form
+The names used by SLIM are in the format:
 ```
-organization/namespace/app_class/app_id
+organization/namespace/service/id
 ```
-These four components are strings decided by the application. For performance reason SLIM internally encodes these strings in u64 values. The workload generator application ignores the strings and creates random names by generating four random u64.
 
-A subscription is represented as follow
+A subscription is represented as follows:
 ```
-SUB 24 7 9025227877545173655 4093485893050047688 12129358409937561971 3376091243880048110
+SUB 6 2 NM8Hjo3 880olhZ lFWEuqP 4021443650295720152
 ```
-- ```SUB``` indicates that the line is a subscription
-- ```24``` is the index of the subscription
-- ```7``` is the ID of the subscriber that will generate the subscription. This is randomly generated and is a value between 0 and ```APPS``` that is provided as input. Be sure to spawn enough subscriber apps (see below) to cover all the IDs
-- the last for numbers are random generated and are the subscription name in the form ```organization/namespace/app_class/app_id```
+- ```SUB``` indicates that the line represents a subscription.
+- ```6``` is the index of the subscription in the workload.
+- ```2``` is the ID of the subscriber that will generate the subscription. This is randomly generated and is a value between 0 and APPS (which is provided as input). Ensure enough subscriber apps are spawned (see below) to cover all the IDs.
+- The other four components (```NM8Hjo3, 880olhZ, lFWEuqP, 4021443650295720152```) represent the subscription name.
 
-A publication is represented as follow
+A publication is represented as follows:
 ```
-PUB 13 16626561741245539420 10461745917985659451 6613773069593221921 0 3 3 4 9
-PUB 14 17926574898407524295 7737506283686582136 9887701346115217859 3014426321123145721 1 8
+PUB 3 p60YHNb tkWn1yi uEMNxKG 18446744073709551615 7 0 4 6 9 5 7 8
 ```
-- ```PUB``` indicates that the line is a publication
-- ```13``` or ```14``` are the indexes of the publication
-- the following three values encode the fist part of the name of the publication, meaning ```organization/namespace/app_class```
-- the fourth value indicates the ```app_id``` where to send the publication (unicast publication) or 0 if we want to send the publication in anycast. The workload generator creates randomly unicast or anycast publications.
-- The first value after the publication name indicates how many publisher can potently receive a publication with this name. Pub ```13``` can be received by 3 subscribers, while pub ```14``` can be forwarded only to a single subscriber.
-- The last values are the list of IDs of the subscribers that can receive the publication. This list is used by the publisher to verify that the test worked correctly.
+- ```PUB``` indicates that the line is a publication.
+- ```3``` is the index of the publication in the workload.
+- The next four fields (```p60YHNb tkWn1yi uEMNxKG 18446744073709551615```) indicate the destination name of the publication.
+- ```7``` indicates how many subscribers can potentially receive a publication with this name.
 
 ### Subscriber
-```subscriber``` is an application that takes as input a workload file, connects to a remote SLIM, setup all the subscriptions available in the workload file and waits for incoming message. For each message received it replays with a new message with the format specified below. It can be run as follow:
-```
+```subscriber``` is an application that takes a workload file as input, connects to a remote SLIM instance, sets up all the subscriptions available in the workload file,
+and waits for incoming messages. It can be run as follows:
 $ cargo run --release --bin subscriber -- --help
 Usage: subscriber --workload <WORKLOAD> --config <CONFIGURATION> --id <ID>
 
@@ -62,7 +60,8 @@ Options:
 ```
 
 ### Publisher
-```publisher``` takes the workload file as input, connects to a remote SLIM and generates all the publications specified in the workload file. Using the information in the workload file the publisher is able to verify if during the test all the publications were sent to the right subscriber and if the reply was received back correctly. The publisher can be run as follow:
+```publisher``` takes the workload file as input, connects to a remote SLIM instance, and generates all the publications specified in the workload file. Using the information in the workload file,
+the publisher can verify if all publications were sent to the correct subscribers during the test and if replies were received back correctly. The publisher can be run as follows:
 ```
 $ cargo run --release --bin publisher -- --help
 Usage: publisher [OPTIONS] --workload <WORKLOAD> --config <CONFIGURATION> --id <ID>
@@ -78,7 +77,49 @@ Options:
   -V, --version                 Print version
 ```
 
-### Channel
+## How to run the test using the Taskfile
+The Taskfile contains several commands that can be used to run a simple test with one SLIM instance, 10 subscribers, and 1 publisher. 
+All options can be modified within the Taskfile. The topology of the test is as follows:
+
+```mermaid
+graph LR
+B((Slim))--> A((Sub 0))
+B --> C((Sub 1))
+B --> D((......))
+B --> E((Sub 9))
+F((Pub 0)) --> B
+```
+Follow these steps to run the test:
+
+1. create a new workflow
+```
+task run:workload-gen
+```
+This will create the workload file 
+
+2. run SLIM:
+```
+task run:slim
+```
+
+3. run the subscribers:
+```
+task run:subscribers
+```
+
+4. run the publisher:
+```
+task run:publisher
+```
+
+At the end of the test, if everything works correctly, the publisher will print the string "test succeeded"; otherwise, a list of errors will be shown.
+
+To stop all the processes, run
+```
+task run:shutdown
+```
+
+## Channel Test
 ```channel``` is an application that tests streaming sessions with MLS encryption support. It can run in moderator mode (creates and manages the channel) or participant mode (joins an existing channel). It supports both MLS-enabled and MLS-disabled modes for testing purposes. It can be run as follow:
 ```
 $ cargo run --release --bin channel -- --help
@@ -88,7 +129,6 @@ Options:
   -c, --config <CONFIGURATION>     Slim config file
   -n, --name <ENDOPOINT>           Local endpoint name in the form org/ns/type/id
   -i, --is-moderator               Runs the endpoint in moderator mode
-  -a, --is-attacker                Runs the endpoint in attacker mode
   -m, --mls-disabled               Runs the endpoint with MLS disabled
   -p, --participants <PARITICIPANTS>... List of participant types to add to the channel (moderator mode only)
   -o, --moderator-name <MODERATOR_NAME> Moderator name (participant mode only)
@@ -98,65 +138,5 @@ Options:
   -V, --version                    Print version
 ```
 
-#### Message format and test verification
-The payload of a publication message has this format
-```
- 0                   1                   2                   3
- 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-|    Pub_ID       |0|                  Payload                  |
-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-++-+-+-+-+-+-++-+
-|                           ...                                 |
-```
-
-The ```Pub_ID``` is taken from the workload file while the ```Payload``` is composed by a series of ```x``` and the size is decided from the publisher application command line.
-
-The payload of the reply to this publication has the following format
-```
- 0                   1                   2                   3
- 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-|    Pub_ID       |0|    Sub_ID     |0|       Payload           |
-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-++-+-+-+-+-+-++-+
-|                           ...                                 |
-```
-Where the ```Sub_ID``` is the identifier of the subscriber that received the publication message and replied to it. Using this field, and comparing it to the list of subscribers ids available in the workload file for each publication, the  publisher is able to verify if the message was forwarded in the right way. In this way the publisher app can verify if the test succeeded or not.
 
 
-## Taskfile and test setup
-The Taskfile contains few commands that can be used to run a simple test with one SLIM instance, 10 subscribers and 1 publisher. All the options can be modified inside the Taskfile. The topology of the test is the following one:
-```mermaid
-graph LR
-B((Slim))--> A((Sub 0))
-B --> C((Sub 1))
-B --> D((......))
-B --> E((Sub 9))
-F((Pub 0)) --> B
-```
-
-First of all a new workload file needs to be created with 
-```
-task run:workload-gen
-```
-This will create the workload file ```sub1000000_pub3000000_i10_s10.dat``` with 1M subscriptions generated by 10 subscribers (about 100K subscriptions from each one) and 3M publications. The parameters can be adjust in the Taskfile itself.
-
-Once the workload is created run SLIM app:
-```
-task run:slim
-```
-and the subscribers (in another terminal)
-```
-task run:subscribers
-```
-this second command will create 10 subscribers that will load the corresponding subscriptions from the workload file
-
-At this point run the publisher
-```
-task run:publisher
-```
-At the end of the test, if everything works in the right way, the publisher will print the string ```test succeeded```, otherwise a list of errors will be shown.
-
-To stop all the processes, run
-```
-task run:shutdown
-```

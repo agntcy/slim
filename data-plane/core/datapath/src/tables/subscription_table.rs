@@ -126,11 +126,10 @@ impl Connections {
         let mut i = index;
         while !stop {
             let opt = self.pool.get(i);
-            if opt.is_some() {
-                let out = opt.unwrap().conn_id;
-                if out != except_conn {
-                    return Some(out);
-                }
+            if let Some(opt) = opt
+                && opt.conn_id != except_conn
+            {
+                return Some(opt.conn_id);
             }
             i = (i + 1) % (self.pool.max_set() + 1);
             if i == index {
@@ -157,12 +156,7 @@ impl Connections {
                 out.push(*val.0);
             }
         }
-        if out.is_empty() {
-            debug!("no output connection available");
-            None
-        } else {
-            Some(out)
-        }
+        if out.is_empty() { None } else { Some(out) }
     }
 }
 
@@ -663,13 +657,18 @@ impl SubscriptionTable for SubscriptionTableImpl {
                 // be sent try on remote ones
                 let local_out = state.get_all_connections(name.id(), incoming_conn, true);
                 if let Some(out) = local_out {
+                    debug!("found local connections {:?}", out);
                     return Ok(out);
                 }
+
+                debug!("no local connection available, trying remote connections");
                 let remote_out = state.get_all_connections(name.id(), incoming_conn, false);
                 if let Some(out) = remote_out {
+                    debug!("found remote connections {:?}", out);
                     return Ok(out);
                 }
-                error!("no output connection available");
+
+                error!("no connection available (local/remote)");
                 Err(SubscriptionTableError::NoMatch(format!("{}", name)))
             }
         }
