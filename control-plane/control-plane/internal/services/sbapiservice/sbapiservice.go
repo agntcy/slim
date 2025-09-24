@@ -101,6 +101,9 @@ func (s *sbAPIService) OpenControlChannel(stream controllerapi.ControllerService
 	// Check for ControlMessage_RegisterNodeRequest
 	if regReq, ok := msg.Payload.(*controllerapi.ControlMessage_RegisterNodeRequest); ok {
 		registeredNodeID = regReq.RegisterNodeRequest.NodeId
+		if regReq.RegisterNodeRequest.GroupName != nil && *regReq.RegisterNodeRequest.GroupName != "" {
+			registeredNodeID = *regReq.RegisterNodeRequest.GroupName + "/" + registeredNodeID
+		}
 		zlog.Info().Msgf("Registering node with ID: %v", registeredNodeID)
 
 		connDetails := make([]db.ConnectionDetails, 0, len(regReq.RegisterNodeRequest.ConnectionDetails))
