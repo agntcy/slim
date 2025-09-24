@@ -63,6 +63,32 @@ impl ReceiverBuffer {
         rtx
     }
 
+    pub fn message_already_received(&self, msg_id: usize) -> bool {
+        if self.last_sent == usize::MAX {
+            // no message received yet
+            return false;
+        }
+
+        if msg_id <= self.last_sent {
+            // this message was already delivered to the app
+            // or it is impossible to recover it, no need
+            // for RTX messages
+            return true;
+        }
+
+        if self.buffer.is_empty()
+            || msg_id > (self.last_sent + (self.buffer.len() - self.first_entry))
+        {
+            // in this case the buffer is empty or the message id > the buffer range
+            // this packet is still missing
+            return false;
+        }
+
+        // the message is in the buffer range, check if it was received or not
+        let pos = msg_id - (self.last_sent + 1) + self.first_entry;
+        self.buffer[pos].is_some()
+    }
+
     fn internal_on_received_message(
         &mut self,
         msg_id: usize,
@@ -565,5 +591,48 @@ mod tests {
         assert_eq!(recv.len(), 1);
         assert_eq!(rtx.len(), 0);
         assert_eq!(recv[0], Some(p5.clone()));
+
+        // test message_already_received function
+        // Case 1: No message received yet
+        let buffer = ReceiverBuffer::default();
+        assert!(!buffer.message_already_received(0));
+        assert!(!buffer.message_already_received(1));
+
+        // Case 2: Receive message 0
+        let mut buffer = ReceiverBuffer::default();
+        let (_recv, _rtx) = buffer.on_received_message(p0.clone());
+        // 0 delivered, so 0 is already received, 1 is not
+        assert!(buffer.message_already_received(0));
+        assert!(!buffer.message_already_received(1));
+        assert!(!buffer.message_already_received(2));
+
+        // Case 3: Receive messages 1 and 2 in order
+        let (_recv, _rtx) = buffer.on_received_message(p1.clone());
+        let (_recv, _rtx) = buffer.on_received_message(p2.clone());
+        // 0,1,2 delivered
+        assert!(buffer.message_already_received(0));
+        assert!(buffer.message_already_received(1));
+        assert!(buffer.message_already_received(2));
+        assert!(!buffer.message_already_received(3));
+
+        // Case 4: Out-of-order message (skip 3, receive 4)
+        let mut buffer = ReceiverBuffer::default();
+        let (_recv, _rtx) = buffer.on_received_message(p0.clone());
+        let (_recv, _rtx) = buffer.on_received_message(p2.clone());
+        let (_recv, _rtx) = buffer.on_received_message(p4.clone());
+        // 0 delivered, 1 and 3 missing, 2 and 4 received OOO
+        assert!(buffer.message_already_received(0));
+        assert!(!buffer.message_already_received(1));
+        assert!(buffer.message_already_received(2)); // in buffer
+        assert!(!buffer.message_already_received(3));
+        assert!(buffer.message_already_received(4)); // in buffer
+        assert!(!buffer.message_already_received(5));
+
+        // Case 5: Mark 1 as lost
+        let _ = buffer.on_lost_message(1);
+        // Now 1 should be marked as received
+        assert!(buffer.message_already_received(1));
+        // 3 is still missing
+        assert!(!buffer.message_already_received(3));
     }
 }
