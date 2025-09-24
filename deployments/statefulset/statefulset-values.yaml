@@ -32,7 +32,7 @@ slim:
     services:
       slim/0:
         node_id: ${env:SLIM_SVC_ID}
-        pubsub:
+        dataplane:
           servers:
             - endpoint: "0.0.0.0:{{ .Values.slim.service.data.port }}"
               tls:

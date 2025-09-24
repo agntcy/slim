@@ -32,19 +32,20 @@ slim:
     services:
       slim/0:
         node_id: ${env:SLIM_SVC_ID}
-        group_id: "cluster-b"
-        pubsub:
+        group_name: "cluster-b"
+        dataplane:
           servers:
             - endpoint: "0.0.0.0:{{ .Values.slim.service.data.port }}"
               metadata:
-                external_endpoint: "cluster-b:{{ .Values.slim.service.data.port }}"
+                local_endpoint: "${env:MY_POD_IP}:{{ .Values.slim.service.data.port }}"
+                external_endpoint: "172.18.0.8:{{ .Values.slim.service.data.port }}"
               tls:
                 insecure: true
 
           clients: []
         controller:
           clients:
-            - endpoint: "https://slim-control-a:50052"
+            - endpoint: "https://172.18.0.6:50052"
               tls:
                 insecure: true
                 # cert_file: "/svids/tls.crt"
