@@ -31,10 +31,15 @@ slim:
 
     services:
       slim/0:
-        nodeId: ${env:SLIM_SVC_ID}
+        node_id: ${env:SLIM_SVC_ID}
+        # group id of the SLIM node in case of multiple clusters
+        # group_id: "default"
         dataplane:
           servers:
             - endpoint: "0.0.0.0:{{ .Values.slim.service.data.port }}"
+              # metadata:
+                # external_endpoint is required to be set when SLIM nodes are behind a NAT or Load Balancer
+                # external_endpoint: "slim.example.com:{{ .Values.slim.service.data.port }}"
               tls:
                 insecure: true
 
