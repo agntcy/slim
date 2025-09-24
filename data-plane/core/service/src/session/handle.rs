@@ -935,6 +935,58 @@ mod tests {
         assert_eq!(msg.get_metadata("k").unwrap(), "override");
     }
 
+    // Verify insert_metadata updates the session-level map and that per-message metadata
+    // still overrides inserted keys on subsequent publishes.
+    #[tokio::test]
+    async fn session_insert_metadata_and_publish() {
+        let (session, store) = build_p2p_session(14, false);
+
+        // Insert a single key and publish without per-message metadata
+        session.insert_metadata("alpha".to_string(), "1".to_string());
+        let dst = make_name(["agntcy", "dst", "p2p"]);
+        session
+            .publish(&dst, b"first".to_vec(), None, None)
+            .await
+            .unwrap();
+
+        // Insert another key and update the first key, then publish with per-message overrides
+        session.insert_metadata("alpha".to_string(), "session".to_string());
+        session.insert_metadata("beta".to_string(), "2".to_string());
+        session
+            .publish(
+                &dst,
+                b"second".to_vec(),
+                None,
+                Some(HashMap::from([
+                    ("beta".to_string(), "override".to_string()),
+                    ("gamma".to_string(), "3".to_string()),
+                ])),
+            )
+            .await
+            .unwrap();
+
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        let msgs = store.read();
+        assert!(msgs.len() >= 2, "expected at least two published messages");
+
+        // First message should contain only alpha=1 (session metadata at publish time)
+        if let Some(Ok(first)) = msgs.first() {
+            assert_eq!(first.get_metadata("alpha").unwrap(), "1");
+            assert!(first.get_metadata("beta").is_none());
+        } else {
+            panic!("missing first message");
+        }
+
+        // Second message should reflect updated session metadata alpha=session, beta=2 overridden by per-message beta=override, plus gamma=3
+        if let Some(Ok(second)) = msgs.get(1) {
+            assert_eq!(second.get_metadata("alpha").unwrap(), "session");
+            assert_eq!(second.get_metadata("beta").unwrap(), "override");
+            assert_eq!(second.get_metadata("gamma").unwrap(), "3");
+        } else {
+            panic!("missing second message");
+        }
+    }
+
     // Use publish_to which should set the forward_to flag on the header.
     #[tokio::test]
     async fn session_publish_to_sets_forward_to_flag() {
