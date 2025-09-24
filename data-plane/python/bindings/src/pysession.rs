@@ -51,20 +51,53 @@ impl From<SessionContext<IdentityProvider, IdentityVerifier>> for PySessionConte
     }
 }
 
+// Internal helper to obtain a strong session reference or raise a Python exception
+fn strong_session(
+    weak: &Weak<Session<IdentityProvider, IdentityVerifier>>,
+) -> PyResult<Arc<Session<IdentityProvider, IdentityVerifier>>> {
+    weak.upgrade().ok_or_else(|| {
+        PyErr::new::<PyException, _>(
+            SessionError::SessionClosed("session already closed".to_string()).to_string(),
+        )
+    })
+}
+
 #[gen_stub_pymethods]
 #[pymethods]
 impl PySessionContext {
     #[getter]
     pub fn id(&self) -> PyResult<u32> {
-        let id = self
-            .internal
-            .session
-            .upgrade()
-            .ok_or_else(|| SessionError::SessionClosed("session already closed".to_string()))
-            .map_err(|e| PyErr::new::<PyException, _>(e.to_string()))?
-            .id();
+        let id = strong_session(&self.internal.session)?.id();
 
         Ok(id)
+    }
+
+    #[getter]
+    pub fn session_type(&self) -> PyResult<PySessionType> {
+        let session = strong_session(&self.internal.session)?;
+
+        let session_type = session.kind();
+        let dst = session.dst();
+
+        match (session_type, dst) {
+            (session::SessionType::PointToPoint, Some(_)) => Ok(PySessionType::Unicast),
+            (session::SessionType::PointToPoint, None) => Ok(PySessionType::Anycast),
+            (session::SessionType::Multicast, _) => Ok(PySessionType::Multicast),
+        }
+    }
+
+    #[getter]
+    pub fn src(&self) -> PyResult<PyName> {
+        let session = strong_session(&self.internal.session)?;
+
+        Ok(session.source().clone().into())
+    }
+
+    #[getter]
+    pub fn dst(&self) -> PyResult<Option<PyName>> {
+        let session = strong_session(&self.internal.session)?;
+
+        Ok(session.dst().map(|name| name.into()))
     }
 
     #[getter]
@@ -72,25 +105,18 @@ impl PySessionContext {
         &self.internal.metadata
     }
 
+    #[getter]
+    pub fn session_config(&self) -> PyResult<PySessionConfiguration> {
+        let session = strong_session(&self.internal.session)?;
+        Ok(session.session_config().into())
+    }
+
     pub fn set_session_config(&self, config: PySessionConfiguration) -> PyResult<()> {
-        let session = self.internal.session.upgrade().ok_or_else(|| {
-            PyErr::new::<PyException, _>(
-                SessionError::SessionClosed("session already closed".to_string()).to_string(),
-            )
-        })?;
+        let session = strong_session(&self.internal.session)?;
         session
             .set_session_config(&config.into())
             .map_err(|e| PyErr::new::<PyException, _>(e.to_string()))?;
         Ok(())
-    }
-
-    pub fn get_session_config(&self) -> PyResult<PySessionConfiguration> {
-        let session = self.internal.session.upgrade().ok_or_else(|| {
-            PyErr::new::<PyException, _>(
-                SessionError::SessionClosed("session already closed".to_string()).to_string(),
-            )
-        })?;
-        Ok(session.session_config().into())
     }
 }
 

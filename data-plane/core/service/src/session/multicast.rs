@@ -67,7 +67,7 @@ impl SessionConfigTrait for MulticastConfiguration {
 impl Default for MulticastConfiguration {
     fn default() -> Self {
         MulticastConfiguration {
-            channel_name: Name::from_strings(["agntcy", "ns", "mulitcast"]),
+            channel_name: Name::from_strings(["agntcy", "ns", "multicast"]),
             max_retries: 10,
             timeout: std::time::Duration::from_millis(1000),
             mls_enabled: false,

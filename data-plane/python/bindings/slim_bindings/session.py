@@ -9,6 +9,7 @@ from ._slim_bindings import (
     PyService,
     PySessionConfiguration,
     PySessionContext,
+    PySessionType,
 )
 from ._slim_bindings import delete_session as _delete_session
 from ._slim_bindings import (
@@ -48,8 +49,21 @@ class PySession:
     def metadata(self) -> dict[str, str]:
         return self._ctx.metadata
 
-    def get_session_config(self) -> PySessionConfiguration:
-        return self._ctx.get_session_config()
+    @property
+    def session_type(self) -> PySessionType:
+        return self._ctx.session_type
+
+    @property
+    def session_config(self) -> PySessionConfiguration:
+        return self._ctx.session_config
+
+    @property
+    def src(self) -> PyName:
+        return self._ctx.src
+
+    @property
+    def dst(self) -> PyName | None:
+        return self._ctx.dst
 
     def set_session_config(self, config: PySessionConfiguration) -> None:
         self._ctx.set_session_config(config)

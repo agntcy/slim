@@ -41,6 +41,16 @@ async def test_sticky_session(server, mls_enabled):
         )
 
         session = await receiver.listen_for_session()
+
+        # make sure the received session is unicast
+        assert session.session_type == slim_bindings.PySessionType.UNICAST
+
+        # Make sure the dst of the session is the receiver name
+        assert session.dst == sender.local_name
+
+        # Make sure the src of the session is the sender
+        assert session.src == receiver.local_name
+
         while True:
             try:
                 _ctx, _ = await session.get_message()
