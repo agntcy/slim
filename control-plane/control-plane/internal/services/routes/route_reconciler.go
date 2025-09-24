@@ -79,7 +79,7 @@ func (s *RouteReconciler) getConnectionDetails(route db.Route) (controllerapi.Co
 	if len(destNode.ConnDetails) == 0 {
 		return controllerapi.Connection{}, fmt.Errorf("no connections found for destination node %s", destNode.ID)
 	}
-	srcNode, err2 := s.dbService.GetNode(route.DestNodeID)
+	srcNode, err2 := s.dbService.GetNode(route.SourceNodeID)
 	if err2 != nil {
 		return controllerapi.Connection{}, fmt.Errorf("failed to fetch destination node %s: %w", route.DestNodeID, err2)
 	}
