@@ -53,7 +53,7 @@ class PyService:
 
 class PySessionContext:
     id: builtins.int
-    received_metadata: builtins.dict[builtins.str, builtins.str]
+    metadata: builtins.dict[builtins.str, builtins.str]
     def set_session_config(self, config:PySessionConfiguration) -> None:
         ...
 
