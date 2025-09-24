@@ -168,7 +168,7 @@ fn spawn_session_receiver(
     id_bytes: Vec<u8>,
 ) -> std::sync::Arc<slim_service::session::Session<SharedSecret, SharedSecret>> {
     session_ctx
-        .spawn_receiver(move |mut rx, weak, _meta| async move {
+        .spawn_receiver(move |mut rx, weak| async move {
             info!("session handler started");
             loop {
                 match rx.recv().await {

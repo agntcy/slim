@@ -391,6 +391,7 @@ where
 
                         conf.unicast = true;
                         conf.mls_enabled = message.contains_metadata(METADATA_MLS_ENABLED);
+                        conf.metadata = message.get_metadata_map();
 
                         let conf = conf.with_remote(message.get_source());
 
@@ -400,6 +401,7 @@ where
                     ProtoSessionType::SessionMulticast => {
                         let mut conf = self.default_multicast_conf.read().clone();
                         conf.mls_enabled = message.contains_metadata(METADATA_MLS_ENABLED);
+                        conf.metadata = message.get_metadata_map();
                         conf.channel_name = message
                             .get_session_header()
                             .get_destination()
@@ -445,9 +447,6 @@ where
         };
 
         debug_assert!(new_session.session().upgrade().unwrap().id() == id);
-
-        // update session context with metadata from the message
-        let new_session = new_session.with_metadata(message.metadata.clone());
 
         // process the message
         new_session

@@ -222,7 +222,7 @@ async fn main() {
     // Clone the Arc to session for later use
     let session_arc = session_ctx.session_arc().unwrap();
 
-    session_ctx.spawn_receiver(move |mut rx, _weak, _meta| async move {
+    session_ctx.spawn_receiver(move |mut rx, _weak| async move {
         loop {
             tokio::select! {
                 res = rx.recv() => {

@@ -25,7 +25,6 @@ use slim_service::session::context::SessionContext;
 pub(crate) struct PySessionCtxInternal {
     pub(crate) session: Weak<Session<IdentityProvider, IdentityVerifier>>,
     pub(crate) rx: RwLock<AppChannelReceiver>,
-    pub(crate) metadata: HashMap<String, String>,
 }
 
 #[gen_stub_pyclass]
@@ -38,15 +37,11 @@ pub(crate) struct PySessionContext {
 impl From<SessionContext<IdentityProvider, IdentityVerifier>> for PySessionContext {
     fn from(ctx: SessionContext<IdentityProvider, IdentityVerifier>) -> Self {
         // split context into parts
-        let (session, rx, metadata) = ctx.into_parts();
+        let (session, rx) = ctx.into_parts();
         let rx = RwLock::new(rx);
 
         PySessionContext {
-            internal: Arc::new(PySessionCtxInternal {
-                session,
-                rx,
-                metadata: metadata.unwrap_or(HashMap::new()),
-            }),
+            internal: Arc::new(PySessionCtxInternal { session, rx }),
         }
     }
 }
@@ -70,6 +65,18 @@ impl PySessionContext {
         let id = strong_session(&self.internal.session)?.id();
 
         Ok(id)
+    }
+
+    #[getter]
+    pub fn metadata(&self) -> PyResult<HashMap<String, String>> {
+        let session = self.internal.session.upgrade().ok_or_else(|| {
+            PyErr::new::<PyException, _>(
+                SessionError::SessionClosed("session already closed".to_string()).to_string(),
+            )
+        })?;
+        let session_config = session.session_config();
+
+        Ok(session_config.metadata())
     }
 
     #[getter]
@@ -98,11 +105,6 @@ impl PySessionContext {
         let session = strong_session(&self.internal.session)?;
 
         Ok(session.dst().map(|name| name.into()))
-    }
-
-    #[getter]
-    pub fn metadata(&self) -> &HashMap<String, String> {
-        &self.internal.metadata
     }
 
     #[getter]
@@ -137,26 +139,29 @@ pub enum PySessionType {
 #[derive(Clone, PartialEq)]
 #[pyclass(eq)]
 pub(crate) enum PySessionConfiguration {
-    #[pyo3(constructor = (timeout=None, max_retries=None, mls_enabled=false))]
+    #[pyo3(constructor = (timeout=None, max_retries=None, mls_enabled=false, metadata=HashMap::new()))]
     Anycast {
         timeout: Option<std::time::Duration>,
         max_retries: Option<u32>,
         mls_enabled: bool,
+        metadata: HashMap<String, String>,
     },
 
-    #[pyo3(constructor = (timeout=None, max_retries=None, mls_enabled=false))]
+    #[pyo3(constructor = (timeout=None, max_retries=None, mls_enabled=false, metadata=HashMap::new()))]
     Unicast {
         timeout: Option<std::time::Duration>,
         max_retries: Option<u32>,
         mls_enabled: bool,
+        metadata: HashMap<String, String>,
     },
 
-    #[pyo3(constructor = (topic, max_retries=0, timeout=std::time::Duration::from_millis(1000), mls_enabled=false))]
+    #[pyo3(constructor = (topic, max_retries=0, timeout=std::time::Duration::from_millis(1000), mls_enabled=false, metadata=HashMap::new()))]
     Multicast {
         topic: PyName,
         max_retries: u32,
         timeout: std::time::Duration,
         mls_enabled: bool,
+        metadata: HashMap<String, String>,
     },
 }
 
@@ -169,12 +174,14 @@ impl From<session::SessionConfig> for PySessionConfiguration {
                         timeout: config.timeout,
                         max_retries: config.max_retries,
                         mls_enabled: config.mls_enabled,
+                        metadata: config.metadata,
                     }
                 } else {
                     PySessionConfiguration::Anycast {
                         timeout: config.timeout,
                         max_retries: config.max_retries,
                         mls_enabled: config.mls_enabled,
+                        metadata: config.metadata,
                     }
                 }
             }
@@ -183,6 +190,7 @@ impl From<session::SessionConfig> for PySessionConfiguration {
                 max_retries: config.max_retries,
                 timeout: config.timeout,
                 mls_enabled: config.mls_enabled,
+                metadata: config.metadata,
             },
         }
     }
@@ -195,32 +203,38 @@ impl From<PySessionConfiguration> for session::SessionConfig {
                 timeout,
                 max_retries,
                 mls_enabled,
+                metadata,
             } => session::SessionConfig::PointToPoint(PointToPointConfiguration::new(
                 timeout,
                 max_retries,
                 false,
                 mls_enabled,
+                metadata,
             )),
             PySessionConfiguration::Unicast {
                 timeout,
                 max_retries,
                 mls_enabled,
+                metadata,
             } => session::SessionConfig::PointToPoint(PointToPointConfiguration::new(
                 timeout,
                 max_retries,
                 true,
                 mls_enabled,
+                metadata,
             )),
             PySessionConfiguration::Multicast {
                 topic,
                 max_retries,
                 timeout,
                 mls_enabled,
+                metadata,
             } => session::SessionConfig::Multicast(MulticastConfiguration::new(
                 topic.into(),
                 Some(max_retries),
                 Some(timeout),
                 mls_enabled,
+                metadata,
             )),
         }
     }

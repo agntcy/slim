@@ -226,8 +226,9 @@ where
         let ct = payload_type.unwrap_or_else(|| "msg".to_string());
 
         let mut msg = Message::new_publish(self.source(), name, Some(flags), &ct, blob);
-
-        if let Some(map) = metadata {
+        if let Some(map) = metadata
+            && !map.is_empty()
+        {
             msg.set_metadata_map(map);
         }
 
@@ -818,6 +819,7 @@ mod tests {
             Some(1),
             Some(std::time::Duration::from_millis(10)),
             false,
+            HashMap::new(),
         );
         let source = make_name(["agntcy", "src", "mc"]);
         let mc = Multicast::new(

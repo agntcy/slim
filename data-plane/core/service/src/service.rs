@@ -670,6 +670,7 @@ mod tests {
             Some(time::Duration::from_secs(123)),
             false,
             false,
+            HashMap::new(),
         ));
         let session_info = app
             .create_session(session_config.clone(), None)
@@ -689,6 +690,7 @@ mod tests {
             Some(time::Duration::from_secs(1234)),
             false,
             false,
+            HashMap::new(),
         ));
 
         session_info
@@ -711,6 +713,7 @@ mod tests {
             Some(time::Duration::from_secs(123456)),
             false,
             false,
+            HashMap::new(),
         ));
 
         app.set_default_session_config(&session_config)

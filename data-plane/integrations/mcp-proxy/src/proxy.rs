@@ -78,7 +78,7 @@ where
     V: slim_auth::traits::Verifier + Send + Sync + Clone + 'static,
 {
     let session_id_val = ctx.session_arc().unwrap().id();
-    ctx.spawn_receiver(move |mut rx, weak, _meta| async move {
+    ctx.spawn_receiver(move |mut rx, weak| async move {
         info!("Session handler task started (session id={})", session_id_val);
 
         let remote_name = weak.upgrade().as_ref().unwrap().dst();
