@@ -282,7 +282,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .create_session(
             slim_service::session::SessionConfig::Multicast(MulticastConfiguration::new(
                 channel_name.clone(),
-                true,
                 Some(10),
                 Some(Duration::from_secs(1)),
                 msl_enabled,

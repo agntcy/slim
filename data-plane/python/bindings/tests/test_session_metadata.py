@@ -40,6 +40,6 @@ async def test_session_metadata_merge_roundtrip(server):
     session_receiver = await receiver.listen_for_session()
 
     # make sure the received metadata matches
-    session_metadata = session_receiver.received_metadata
+    session_metadata = session_receiver.metadata
     for k, v in metadata.items():
         assert v == session_metadata[k]

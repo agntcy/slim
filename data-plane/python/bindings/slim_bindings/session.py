@@ -46,7 +46,7 @@ class PySession:
 
     @property
     def metadata(self) -> dict[str, str]:
-        return self._ctx.received_metadata
+        return self._ctx.metadata
 
     def get_session_config(self) -> PySessionConfiguration:
         return self._ctx.get_session_config()
