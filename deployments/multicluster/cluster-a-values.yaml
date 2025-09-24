@@ -32,12 +32,13 @@ slim:
     services:
       slim/0:
         node_id: ${env:SLIM_SVC_ID}
-        group_id: "cluster-a"
-        pubsub:
+        group_name: "cluster-a"
+        dataplane:
           servers:
             - endpoint: "0.0.0.0:{{ .Values.slim.service.data.port }}"
               metadata:
-                external_endpoint: "cluster-a:{{ .Values.slim.service.data.port }}"
+                local_endpoint: "${env:MY_POD_IP}:{{ .Values.slim.service.data.port }}"
+                external_endpoint: "172.18.0.7:{{ .Values.slim.service.data.port }}"             
               tls:
                 insecure: true
 
