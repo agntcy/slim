@@ -25,7 +25,7 @@ const DEFAULT_SERVICE_ID: &str = "slim/0";
 
 #[derive(Parser, Debug)]
 pub struct Args {
-    /// Runs the endpoint with MLS disabled.
+    /// Runs the session with MLS disabled.
     #[arg(
         short,
         long,
@@ -35,15 +35,45 @@ pub struct Args {
     )]
     mls_disabled: bool,
 
-    /// Runs a sticky ff session.
+    /// Runs a unicast p2p session.
     #[arg(
         short,
         long,
-        value_name = "IS_STICKY",
+        value_name = "IS_UNICAST",
         required = false,
         default_value_t = false
     )]
-    is_sticky: bool,
+    is_unicast: bool,
+
+    /// Runs a reliable p2p session.
+    #[arg(
+        short,
+        long,
+        value_name = "IS_RELIABLE",
+        required = false,
+        default_value_t = false
+    )]
+    is_reliable: bool,
+
+    /// Runs SLIM node in background.
+    #[arg(
+        short,
+        long,
+        value_name = "SLIM_DISABLED",
+        required = false,
+        default_value_t = false
+    )]
+    slim_disabled: bool,
+
+    /// Apps to run.
+    #[arg(
+        short,
+        long,
+        value_name = "APPS",
+        required = false,
+        default_value_t = 3
+    )]
+    apps: u32,
 }
 
 impl Args {
@@ -51,8 +81,20 @@ impl Args {
         &self.mls_disabled
     }
 
-    pub fn is_sticky(&self) -> &bool {
-        &self.is_sticky
+    pub fn is_unicast(&self) -> &bool {
+        &self.is_unicast
+    }
+
+    pub fn is_reliable(&self) -> &bool {
+        &self.is_reliable
+    }
+
+    pub fn slim_disabled(&self) -> &bool {
+        &self.slim_disabled
+    }
+
+    pub fn apps(&self) -> &u32 {
+        &self.apps
     }
 }
 
@@ -189,6 +231,7 @@ async fn run_client_task(name: Name) -> Result<(), String> {
                                                             if val != *"hello there" { continue; }
                                                             if let Some(session_arc) = weak.upgrade() {
                                                                 let payload = val.into_bytes();
+                                                                println!("received message {} on app {}", msg.get_session_header().get_message_id(), name_clone_session);
                                                                 if session_arc.publish_to(&publisher, conn, payload, None, None).await.is_err() {
                                                                     panic!("an error occurred sending publication from moderator");
                                                                 }
@@ -226,24 +269,34 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // get command line conf
     let args = Args::parse();
     let msl_enabled = !*args.mls_disabled();
-    let is_sticky = *args.is_sticky();
+    let is_unicast = *args.is_unicast();
+    let mut is_reliable = *args.is_reliable();
+    let slim_disabled = *args.slim_disabled();
+    let apps = *args.apps();
+
+    if is_unicast {
+        // if unicast is also reliable
+        is_reliable = true;
+    }
 
     println!(
-        "run test with MLS {} and sticky session {}",
-        msl_enabled, is_sticky
+        "run test with MLS = {}, unicast session = {} and reliable session = {}, number of apps = {}, SLIM on = {}",
+        msl_enabled, is_unicast, is_reliable, apps, !slim_disabled,
     );
 
     // start slim node
-    tokio::spawn(async move {
-        let _ = run_slim_node().await;
-    });
+    if !slim_disabled {
+        tokio::spawn(async move {
+            let _ = run_slim_node().await;
+        });
+    }
 
     // start clients
-    let tot_clients = 3;
+    let tot_clients = apps;
     let mut clients = vec![];
 
     for i in 0..tot_clients {
-        let c = Name::from_strings(["org", "ns", "client"]).with_id(i);
+        let c = Name::from_strings(["org", "ns", "client"]).with_id(i.into());
         clients.push(c.clone());
         tokio::spawn(async move {
             let _ = run_client_task(c).await;
@@ -251,7 +304,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     // wait for all the processes to start
-    tokio::time::sleep(tokio::time::Duration::from_millis(10000)).await;
+    tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
 
     // start moderator
     let name = Name::from_strings(["org", "ns", "main"]).with_id(1);
@@ -289,12 +342,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .await
         .map_err(|_| format!("Failed to subscribe for participant {}", name))?;
 
+    let (timeout, max_retries) = if is_reliable {
+        (Some(Duration::from_secs(1)), Some(10))
+    } else {
+        (None, None)
+    };
+
     let session_ctx = app
         .create_session(
             slim_service::session::SessionConfig::PointToPoint(PointToPointConfiguration::new(
-                Some(Duration::from_secs(1)),
-                Some(10),
-                is_sticky,
+                timeout,
+                max_retries,
+                is_unicast,
                 msl_enabled,
             )),
             None,
@@ -309,7 +368,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .expect("an error occurred while adding a route");
     }
 
-    tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
+    tokio::time::sleep(tokio::time::Duration::from_millis(10000)).await;
 
     // listen for messages
     let max_packets = 50;
@@ -378,16 +437,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
     }
 
+    tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
+
     // the total number of packets received must be max_packets
     let mut sum = 0;
-    // if sticky we must see a single sendere
+    // if unicast we must see a single sendere
     let mut found_sender = false;
-    for (c, n) in recv_msgs.read().iter() {
-        println!("received {} messages from {}", *n, c);
+    for (_c, n) in recv_msgs.read().iter() {
         sum += *n;
-        if is_sticky && found_sender && *n != 0 {
+        if is_unicast && found_sender && *n != 0 {
             println!(
-                "this is a sticky session but we got messages from multiple clients. test failed"
+                "this is a unicast session but we got messages from multiple clients. test failed"
             );
             std::process::exit(1);
         }

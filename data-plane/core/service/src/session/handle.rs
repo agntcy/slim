@@ -749,14 +749,14 @@ mod tests {
             std::env::temp_dir(),
         );
         let new_conf = PointToPointConfiguration {
-            sticky: true,
+            unicast: true,
             ..Default::default()
         };
         common
             .set_session_config(&SessionConfig::PointToPoint(new_conf.clone()))
             .unwrap();
         match common.session_config() {
-            SessionConfig::PointToPoint(c) => assert!(c.sticky),
+            SessionConfig::PointToPoint(c) => assert!(c.unicast),
             _ => panic!("expected p2p"),
         }
     }
@@ -817,7 +817,7 @@ mod tests {
     // --- Extended tests using real Session instances ------------------------------------------
     fn build_p2p_session(
         id: Id,
-        sticky: bool,
+        unicast: bool,
     ) -> (
         Session<DummyTokenProvider, DummyVerifier, MockTransmitter>,
         Arc<RwLock<Vec<Result<Message, Status>>>>,
@@ -826,7 +826,7 @@ mod tests {
         let tx = MockTransmitter::default();
         let store = tx.slim_msgs.clone();
         let conf = PointToPointConfiguration {
-            sticky,
+            unicast,
             ..Default::default()
         };
         let source = make_name(["agntcy", "src", "p2p"]);
