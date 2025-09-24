@@ -46,10 +46,10 @@ async def test_sticky_session(server, mls_enabled):
         assert session.session_type == slim_bindings.PySessionType.UNICAST
 
         # Make sure the dst of the session is the receiver name
-        assert session.dst == receiver_name
+        assert session.dst == sender.local_name
 
         # Make sure the src of the session is the sender
-        assert session.src == sender.local_name
+        assert session.src == receiver.local_name
 
         while True:
             try:
