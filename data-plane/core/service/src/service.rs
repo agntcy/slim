@@ -664,11 +664,11 @@ mod tests {
 
         let stream = Name::from_strings(["agntcy", "ns", "stream"]);
 
-        let session_config = SessionConfig::Multicast(MulticastConfiguration::new(
+        let session_config = SessionConfig::Multicast(MulticastConfiguration::new_with_initiator(
             stream.clone(),
-            false,
             Some(1000),
             Some(time::Duration::from_secs(123)),
+            false,
             false,
         ));
         let session_info = app
@@ -683,11 +683,11 @@ mod tests {
             "session config mismatch"
         );
 
-        let session_config = SessionConfig::Multicast(MulticastConfiguration::new(
+        let session_config = SessionConfig::Multicast(MulticastConfiguration::new_with_initiator(
             stream.clone(),
-            false,
             Some(2000),
             Some(time::Duration::from_secs(1234)),
+            false,
             false,
         ));
 
@@ -705,11 +705,11 @@ mod tests {
             "session config mismatch"
         );
 
-        let session_config = SessionConfig::Multicast(MulticastConfiguration::new(
+        let session_config = SessionConfig::Multicast(MulticastConfiguration::new_with_initiator(
             stream.clone(),
-            false,
             Some(20000),
             Some(time::Duration::from_secs(123456)),
+            false,
             false,
         ));
 

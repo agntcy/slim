@@ -63,7 +63,7 @@ where
     transmitter: T,
 
     /// Default configuration for the session
-    default_ff_conf: SyncRwLock<PointToPointConfiguration>,
+    default_p2p_conf: SyncRwLock<PointToPointConfiguration>,
     default_multicast_conf: SyncRwLock<MulticastConfiguration>,
 
     /// Storage path for app data
@@ -89,7 +89,7 @@ where
         storage_path: std::path::PathBuf,
     ) -> Self {
         // Create default configurations
-        let default_ff_conf = SyncRwLock::new(PointToPointConfiguration::default());
+        let default_p2p_conf = SyncRwLock::new(PointToPointConfiguration::default());
         let default_multicast_conf = SyncRwLock::new(MulticastConfiguration::default());
 
         Self {
@@ -101,7 +101,7 @@ where
             tx_slim,
             tx_app,
             transmitter,
-            default_ff_conf,
+            default_p2p_conf,
             default_multicast_conf,
             storage_path,
         }
@@ -353,7 +353,7 @@ where
 
         let new_session = match session_message_type {
             ProtoSessionMessageType::P2PMsg | ProtoSessionMessageType::P2PReliable => {
-                let mut conf = self.default_ff_conf.read().clone();
+                let mut conf = self.default_p2p_conf.read().clone();
 
                 // Set that the session was initiated by another app
                 conf.initiator = false;
@@ -376,9 +376,11 @@ where
                 // Create a new session based on the SessionType contained in the message
                 match message.get_session_header().session_type() {
                     ProtoSessionType::SessionPointToPoint => {
-                        let mut conf = self.default_ff_conf.read().clone();
+                        let mut conf = self.default_p2p_conf.read().clone();
                         conf.initiator = false;
 
+                        // TODO (micpapal): this timer should be part of the session context
+                        // to be added in the JoinRequest
                         if conf.timeout.is_none() {
                             conf.timeout = Some(std::time::Duration::from_secs(5));
                         }
@@ -387,6 +389,7 @@ where
                             conf.max_retries = Some(5);
                         }
 
+                        conf.unicast = true;
                         conf.mls_enabled = message.contains_metadata(METADATA_MLS_ENABLED);
 
                         let conf = conf.with_remote(message.get_source());
@@ -402,6 +405,7 @@ where
                             .get_destination()
                             .ok_or(SessionError::MissingChannelName)?;
 
+                        conf.initiator = false;
                         self.create_session(SessionConfig::Multicast(conf), Some(id))
                             .await?
                     }
@@ -469,7 +473,7 @@ where
     ) -> Result<(), SessionError> {
         // If no session ID is provided, modify the default session
         match session_config {
-            SessionConfig::PointToPoint(_) => self.default_ff_conf.write().replace(session_config),
+            SessionConfig::PointToPoint(_) => self.default_p2p_conf.write().replace(session_config),
             SessionConfig::Multicast(_) => {
                 self.default_multicast_conf.write().replace(session_config)
             }
@@ -483,7 +487,7 @@ where
     ) -> Result<SessionConfig, SessionError> {
         match session_type {
             SessionType::PointToPoint => Ok(SessionConfig::PointToPoint(
-                self.default_ff_conf.read().clone(),
+                self.default_p2p_conf.read().clone(),
             )),
             SessionType::Multicast => Ok(SessionConfig::Multicast(
                 self.default_multicast_conf.read().clone(),

@@ -45,7 +45,6 @@ async def test_multicast(server, mls_enabled):  # noqa: C901
             session = await participant.create_session(
                 slim_bindings.PySessionConfiguration.Multicast(
                     topic=chat_name,
-                    moderator=True,
                     max_retries=5,
                     timeout=datetime.timedelta(seconds=5),
                     mls_enabled=mls_enabled,

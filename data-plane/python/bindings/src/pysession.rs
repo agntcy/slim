@@ -151,10 +151,9 @@ pub(crate) enum PySessionConfiguration {
         mls_enabled: bool,
     },
 
-    #[pyo3(constructor = (topic, moderator=false, max_retries=0, timeout=std::time::Duration::from_millis(1000), mls_enabled=false))]
+    #[pyo3(constructor = (topic, max_retries=0, timeout=std::time::Duration::from_millis(1000), mls_enabled=false))]
     Multicast {
         topic: PyName,
-        moderator: bool,
         max_retries: u32,
         timeout: std::time::Duration,
         mls_enabled: bool,
@@ -165,7 +164,7 @@ impl From<session::SessionConfig> for PySessionConfiguration {
     fn from(session_config: session::SessionConfig) -> Self {
         match session_config {
             session::SessionConfig::PointToPoint(config) => {
-                if config.sticky {
+                if config.unicast {
                     PySessionConfiguration::Unicast {
                         timeout: config.timeout,
                         max_retries: config.max_retries,
@@ -181,7 +180,6 @@ impl From<session::SessionConfig> for PySessionConfiguration {
             }
             session::SessionConfig::Multicast(config) => PySessionConfiguration::Multicast {
                 topic: config.channel_name.into(),
-                moderator: config.moderator,
                 max_retries: config.max_retries,
                 timeout: config.timeout,
                 mls_enabled: config.mls_enabled,
@@ -215,13 +213,11 @@ impl From<PySessionConfiguration> for session::SessionConfig {
             )),
             PySessionConfiguration::Multicast {
                 topic,
-                moderator,
                 max_retries,
                 timeout,
                 mls_enabled,
             } => session::SessionConfig::Multicast(MulticastConfiguration::new(
                 topic.into(),
-                moderator,
                 Some(max_retries),
                 Some(timeout),
                 mls_enabled,
