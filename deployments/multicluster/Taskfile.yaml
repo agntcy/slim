@@ -1,0 +1,72 @@
+
+# Copyright AGNTCY Contributors (https://github.com/agntcy)
+# SPDX-License-Identifier: Apache-2.0
+
+version: "3"
+
+# This Taskfile includes specific tasks for the naive deployment strategy.
+
+includes:
+    templates: 
+      taskfile: ../Taskfile.yaml
+      dir: ../
+
+
+tasks:
+  multi-cluster:up:
+    desc: Start a local Kubernetes cluster using Kind
+    cmds: 
+      - kind create cluster --name slim-cluster-a --config ../slim-cluster.yaml
+      # Start cloud provider for LoadBalancer support
+      - |
+        echo "Starting Kind cloud provider for LoadBalancer support..."
+        go run sigs.k8s.io/cloud-provider-kind@latest > /dev/null 2>&1 &
+        echo "Cloud provider started in background"
+      - kind create cluster --name slim-cluster-b      
+      # Start cloud provider for LoadBalancer support
+      - |
+        echo "Starting Kind cloud provider for LoadBalancer support..."
+        go run sigs.k8s.io/cloud-provider-kind@latest > /dev/null 2>&1 &
+        echo "Cloud provider started in background"      
+
+  multi-cluster:down:
+    desc: Delete the local Kubernetes cluster
+    cmds: 
+      - kind delete cluster --name slim-cluster-a
+      - kind delete cluster --name slim-cluster-b      
+
+  slim:contoller:deploy:
+    desc: Deploy Slim Controller
+    cmds:
+      - kubectl config use-context kind-slim-cluster-a
+      - |
+        helm upgrade --install slim-control ../../charts/slim-control-plane \
+          --namespace slim \
+          --create-namespace \
+          --set image.tag="{{ .SLIM_CONTROLLER_IMAGE_TAG }}" \
+          --values controller-values.yaml   
+
+  slim:deploy:
+    desc: Deploy Slim using the StatefulSet deployment strategy
+
+    requires:
+      vars: [SLIM_IMAGE_TAG]
+
+    deps: 
+      # - templates:cluster:use-context
+
+    cmds:
+      - kubectl config use-context kind-slim-cluster-a
+      - |
+        helm upgrade --install slim ../../charts/slim \
+          --namespace slim \
+          --create-namespace \
+          --set slim.image.tag="{{ .SLIM_IMAGE_TAG }}" \
+          --values cluster-a-values.yaml
+      - kubectl config use-context kind-slim-cluster-b
+      - |
+        helm upgrade --install slim ../../charts/slim \
+          --namespace slim \
+          --create-namespace \
+          --set slim.image.tag="{{ .SLIM_IMAGE_TAG }}" \
+          --values cluster-b-values.yaml
