@@ -23,12 +23,6 @@ type NodeManager interface {
 		context.Context, *controlplaneApi.NodeListRequest,
 	) (*controlplaneApi.NodeListResponse, error)
 	GetNodeByID(nodeID string) (*controlplaneApi.NodeEntry, error)
-	SaveConnection(
-		nodeEntry *controlplaneApi.NodeEntry, connection *controllerapi.Connection,
-	) (string, error)
-	GetConnectionDetails(nodeID string, connectionID string) (string, error)
-	SaveSubscription(nodeID string, subscription *controllerapi.Subscription) (string, error)
-	GetSubscription(nodeID string, subscriptionID string) (*controllerapi.Subscription, error)
 }
 
 type RouteManager interface {
@@ -40,21 +34,9 @@ type RouteManager interface {
 		_ context.Context,
 		nodeEntry *controlplaneApi.NodeEntry,
 	) (*controllerapi.ConnectionListResponse, error)
-	CreateConnection(
-		ctx context.Context,
-		nodeEntry *controlplaneApi.NodeEntry,
-		connection *controllerapi.Connection,
-	) error
-	CreateSubscription(
-		ctx context.Context,
-		nodeEntry *controlplaneApi.NodeEntry,
-		subscription *controllerapi.Subscription,
-	) error
-	DeleteSubscription(
-		ctx context.Context,
-		nodeEntry *controlplaneApi.NodeEntry,
-		subscription *controllerapi.Subscription,
-	) error
+
+	AddRoute(ctx context.Context, route routes.Route) (string, error)
+	DeleteRoute(ctx context.Context, route routes.Route) error
 }
 
 type nbAPIService struct {
@@ -62,16 +44,16 @@ type nbAPIService struct {
 	config config.APIConfig
 
 	logConfig    config.LogConfig
-	nodeService  *NodeService
-	routeService *routes.RouteService
+	nodeService  NodeManager
+	routeService RouteManager
 	groupService *groupservice.GroupService
 }
 
 func NewNorthboundAPIServer(
 	config config.APIConfig,
 	logConfig config.LogConfig,
-	nodeService *NodeService,
-	routeService *routes.RouteService,
+	nodeService NodeManager,
+	routeService RouteManager,
 	groupService *groupservice.GroupService,
 ) NorthboundAPIServer {
 	cpServer := &nbAPIService{
