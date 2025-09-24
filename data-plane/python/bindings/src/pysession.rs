@@ -25,7 +25,6 @@ use slim_service::session::context::SessionContext;
 pub(crate) struct PySessionCtxInternal {
     pub(crate) session: Weak<Session<IdentityProvider, IdentityVerifier>>,
     pub(crate) rx: RwLock<AppChannelReceiver>,
-    pub(crate) metadata: HashMap<String, String>,
 }
 
 #[gen_stub_pyclass]
@@ -38,15 +37,11 @@ pub(crate) struct PySessionContext {
 impl From<SessionContext<IdentityProvider, IdentityVerifier>> for PySessionContext {
     fn from(ctx: SessionContext<IdentityProvider, IdentityVerifier>) -> Self {
         // split context into parts
-        let (session, rx, metadata) = ctx.into_parts();
+        let (session, rx) = ctx.into_parts();
         let rx = RwLock::new(rx);
 
         PySessionContext {
-            internal: Arc::new(PySessionCtxInternal {
-                session,
-                rx,
-                metadata: metadata.unwrap_or(HashMap::new()),
-            }),
+            internal: Arc::new(PySessionCtxInternal { session, rx }),
         }
     }
 }
@@ -74,12 +69,9 @@ impl PySessionContext {
                 SessionError::SessionClosed("session already closed".to_string()).to_string(),
             )
         })?;
-        Ok(session.metadata())
-    }
+        let session_config = session.session_config();
 
-    #[getter]
-    pub fn received_metadata(&self) -> HashMap<String, String> {
-        self.internal.metadata.clone()
+        Ok(session_config.metadata())
     }
 
     pub fn set_session_config(&self, config: PySessionConfiguration) -> PyResult<()> {
@@ -103,25 +95,7 @@ impl PySessionContext {
         Ok(session.session_config().into())
     }
 
-    pub fn set_metadata(&self, metadata: HashMap<String, String>) -> PyResult<()> {
-        let session = self.internal.session.upgrade().ok_or_else(|| {
-            PyErr::new::<PyException, _>(
-                SessionError::SessionClosed("session already closed".to_string()).to_string(),
-            )
-        })?;
-        session.set_metadata_map(metadata);
-        Ok(())
-    }
-
-    pub fn insert_metadata(&self, key: String, value: String) -> PyResult<()> {
-        let session = self.internal.session.upgrade().ok_or_else(|| {
-            PyErr::new::<PyException, _>(
-                SessionError::SessionClosed("session already closed".to_string()).to_string(),
-            )
-        })?;
-        session.insert_metadata(key, value);
-        Ok(())
-    }
+    // set_metadata / insert_metadata removed (immutable config metadata only)
 }
 
 /// session type
@@ -141,27 +115,30 @@ pub enum PySessionType {
 #[derive(Clone, PartialEq)]
 #[pyclass(eq)]
 pub(crate) enum PySessionConfiguration {
-    #[pyo3(constructor = (timeout=None, max_retries=None, mls_enabled=false))]
+    #[pyo3(constructor = (timeout=None, max_retries=None, mls_enabled=false, metadata=HashMap::new()))]
     Anycast {
         timeout: Option<std::time::Duration>,
         max_retries: Option<u32>,
         mls_enabled: bool,
+        metadata: HashMap<String, String>,
     },
 
-    #[pyo3(constructor = (timeout=None, max_retries=None, mls_enabled=false))]
+    #[pyo3(constructor = (timeout=None, max_retries=None, mls_enabled=false, metadata=HashMap::new()))]
     Unicast {
         timeout: Option<std::time::Duration>,
         max_retries: Option<u32>,
         mls_enabled: bool,
+        metadata: HashMap<String, String>,
     },
 
-    #[pyo3(constructor = (topic, moderator=false, max_retries=0, timeout=std::time::Duration::from_millis(1000), mls_enabled=false))]
+    #[pyo3(constructor = (topic, moderator=false, max_retries=0, timeout=std::time::Duration::from_millis(1000), mls_enabled=false, metadata=HashMap::new()))]
     Multicast {
         topic: PyName,
         moderator: bool,
         max_retries: u32,
         timeout: std::time::Duration,
         mls_enabled: bool,
+        metadata: HashMap<String, String>,
     },
 }
 
@@ -174,12 +151,14 @@ impl From<session::SessionConfig> for PySessionConfiguration {
                         timeout: config.timeout,
                         max_retries: config.max_retries,
                         mls_enabled: config.mls_enabled,
+                        metadata: config.metadata,
                     }
                 } else {
                     PySessionConfiguration::Anycast {
                         timeout: config.timeout,
                         max_retries: config.max_retries,
                         mls_enabled: config.mls_enabled,
+                        metadata: config.metadata,
                     }
                 }
             }
@@ -189,6 +168,7 @@ impl From<session::SessionConfig> for PySessionConfiguration {
                 max_retries: config.max_retries,
                 timeout: config.timeout,
                 mls_enabled: config.mls_enabled,
+                metadata: config.metadata,
             },
         }
     }
@@ -201,21 +181,25 @@ impl From<PySessionConfiguration> for session::SessionConfig {
                 timeout,
                 max_retries,
                 mls_enabled,
+                metadata,
             } => session::SessionConfig::PointToPoint(PointToPointConfiguration::new(
                 timeout,
                 max_retries,
                 false,
                 mls_enabled,
+                metadata,
             )),
             PySessionConfiguration::Unicast {
                 timeout,
                 max_retries,
                 mls_enabled,
+                metadata,
             } => session::SessionConfig::PointToPoint(PointToPointConfiguration::new(
                 timeout,
                 max_retries,
                 true,
                 mls_enabled,
+                metadata,
             )),
             PySessionConfiguration::Multicast {
                 topic,
@@ -223,12 +207,14 @@ impl From<PySessionConfiguration> for session::SessionConfig {
                 max_retries,
                 timeout,
                 mls_enabled,
+                metadata,
             } => session::SessionConfig::Multicast(MulticastConfiguration::new(
                 topic.into(),
                 moderator,
                 Some(max_retries),
                 Some(timeout),
                 mls_enabled,
+                metadata,
             )),
         }
     }

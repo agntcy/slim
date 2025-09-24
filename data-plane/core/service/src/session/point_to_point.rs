@@ -44,6 +44,7 @@ pub struct PointToPointConfiguration {
     pub mls_enabled: bool,
     pub remote: Option<Name>,
     pub(crate) initiator: bool,
+    pub metadata: HashMap<String, String>,
 }
 
 impl Default for PointToPointConfiguration {
@@ -55,6 +56,7 @@ impl Default for PointToPointConfiguration {
             mls_enabled: false,
             remote: None,
             initiator: true,
+            metadata: HashMap::new(),
         }
     }
 }
@@ -65,6 +67,7 @@ impl PointToPointConfiguration {
         max_retries: Option<u32>,
         mut unicast: bool,
         mls_enabled: bool,
+        metadata: HashMap<String, String>,
     ) -> Self {
         // If mls is enabled and session is not unicast, print a warning
         if mls_enabled && !unicast {
@@ -80,6 +83,7 @@ impl PointToPointConfiguration {
             mls_enabled,
             remote: None,
             initiator: true,
+            metadata,
         }
     }
 
@@ -1113,7 +1117,7 @@ where
                     Duration::from_secs(1),
                     mls,
                     tx_slim_app.clone(),
-                    common.metadata(),
+                    session_config.metadata.clone(),
                 );
                 ChannelEndpoint::ChannelModerator(cm)
             }
@@ -1127,7 +1131,7 @@ where
                     Duration::from_secs(1),
                     mls,
                     tx_slim_app.clone(),
-                    common.metadata(),
+                    session_config.metadata.clone(),
                 );
                 ChannelEndpoint::ChannelParticipant(cp)
             }
@@ -1175,18 +1179,6 @@ where
 
     pub fn with_dst<R>(&self, f: impl FnOnce(Option<&Name>) -> R) -> R {
         self.common.with_dst(f)
-    }
-
-    pub fn metadata(&self) -> std::sync::Arc<RwLock<HashMap<String, String>>> {
-        self.common.metadata()
-    }
-
-    pub fn set_metadata_map(&self, map: HashMap<String, String>) {
-        self.common.set_metadata_map(map);
-    }
-
-    pub fn insert_metadata(&self, k: String, v: String) {
-        self.common.insert_metadata(k, v);
     }
 }
 
@@ -1490,6 +1482,7 @@ mod tests {
                 mls_enabled: false,
                 remote: None,
                 initiator: true,
+                metadata: HashMap::new(),
             },
             source.clone(),
             tx,
@@ -1558,6 +1551,7 @@ mod tests {
                 mls_enabled: false,
                 remote: None,
                 initiator: true,
+                metadata: HashMap::new(),
             },
             local.clone(),
             tx_sender,
@@ -1711,6 +1705,7 @@ mod tests {
                 mls_enabled,
                 remote: None,
                 initiator: true,
+                metadata: HashMap::new(),
             },
             local.clone(),
             sender_tx,
@@ -1728,6 +1723,7 @@ mod tests {
                 mls_enabled,
                 remote: None,
                 initiator: false,
+                metadata: HashMap::new(),
             },
             remote.clone(),
             receiver_tx,

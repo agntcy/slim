@@ -162,7 +162,7 @@ async fn run_participant_task(name: Name) -> Result<(), String> {
                                 let session_moderator_clone = moderator_clone.clone();
                                 let session_channel_name_clone = channel_name_clone.clone();
                                 let session_name = name_clone.clone();
-                                session_ctx.spawn_receiver(move |mut rx, weak, _meta| async move {
+                                session_ctx.spawn_receiver(move |mut rx, weak| async move {
                                     loop{
                                         match rx.recv().await {
                                             None => {
@@ -286,6 +286,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 Some(10),
                 Some(Duration::from_secs(1)),
                 msl_enabled,
+                HashMap::new(),
             )),
             None,
         )
@@ -318,7 +319,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Clone the Arc to session for later use
     let session_arc = session_ctx.session_arc().unwrap();
 
-    session_ctx.spawn_receiver(move |mut rx, _weak, _meta| async move {
+    session_ctx.spawn_receiver(move |mut rx, _weak| async move {
         loop {
             match rx.recv().await {
                 None => {

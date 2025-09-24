@@ -45,18 +45,8 @@ class PySession:
         return self._ctx.id  # exposed by PySessionContext
 
     @property
-    def local_metadata(self) -> dict[str, str]:
-        return self._ctx.local_metadata
-
-    @property
-    def received_metadata(self) -> dict[str, str]:
+    def metadata(self) -> dict[str, str]:
         return self._ctx.received_metadata
-
-    def set_local_metadata(self, metadata: dict[str, str]):
-        return self._ctx.set_local_metadata(metadata)
-
-    def insert_metadata(self, key: str, value: str):
-        return self._ctx.insert_metadata(key, value)
 
     def get_session_config(self) -> PySessionConfiguration:
         return self._ctx.get_session_config()

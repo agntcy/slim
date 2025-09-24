@@ -214,7 +214,7 @@ async fn run_client_task(name: Name) -> Result<(), String> {
                             Notification::NewSession(session_ctx) => {
                                 println!("create new session on client {}", name_clone);
                                 let name_clone_session = name_clone.clone();
-                                session_ctx.spawn_receiver(move |mut rx, weak, _meta| async move {
+                                session_ctx.spawn_receiver(move |mut rx, weak| async move {
                                     loop{
                                         match rx.recv().await {
                                             None => {
@@ -355,6 +355,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 max_retries,
                 is_unicast,
                 msl_enabled,
+                HashMap::new(),
             )),
             None,
         )
@@ -378,7 +379,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Clone the Arc to session for later use
     let session_arc = session_ctx.session_arc().unwrap();
 
-    session_ctx.spawn_receiver(move |mut rx, _weak, _meta| async move {
+    session_ctx.spawn_receiver(move |mut rx, _weak| async move {
         loop {
             match rx.recv().await {
                 None => {

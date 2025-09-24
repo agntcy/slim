@@ -47,6 +47,7 @@ pub struct MulticastConfiguration {
     pub max_retries: u32,
     pub timeout: std::time::Duration,
     pub mls_enabled: bool,
+    pub metadata: HashMap<String, String>,
 }
 
 impl SessionConfigTrait for MulticastConfiguration {
@@ -72,6 +73,7 @@ impl Default for MulticastConfiguration {
             max_retries: 10,
             timeout: std::time::Duration::from_millis(1000),
             mls_enabled: false,
+            metadata: HashMap::new(),
         }
     }
 }
@@ -96,6 +98,7 @@ impl MulticastConfiguration {
         max_retries: Option<u32>,
         timeout: Option<std::time::Duration>,
         mls_enabled: bool,
+        metadata: HashMap<String, String>,
     ) -> Self {
         MulticastConfiguration {
             channel_name,
@@ -103,6 +106,7 @@ impl MulticastConfiguration {
             max_retries: max_retries.unwrap_or(0),
             timeout: timeout.unwrap_or(std::time::Duration::from_millis(0)),
             mls_enabled,
+            metadata,
         }
     }
 }
@@ -295,7 +299,6 @@ where
         let tx = self.common.tx();
         let source = self.common.source().clone();
         let id = self.common.id();
-        let session_metadata = self.common.metadata();
         tokio::spawn(async move {
             debug!("starting message processing on session {}", session_id);
 
@@ -325,7 +328,7 @@ where
                         Duration::from_secs(1),
                         mls,
                         tx.clone(),
-                        session_metadata.clone(),
+                        session_config.metadata.clone(),
                     );
                     ChannelEndpoint::ChannelModerator(cm)
                 }
@@ -339,7 +342,7 @@ where
                         Duration::from_secs(1),
                         mls,
                         tx.clone(),
-                        session_metadata.clone(),
+                        session_config.metadata.clone(),
                     );
                     ChannelEndpoint::ChannelParticipant(cp)
                 }
@@ -492,18 +495,6 @@ where
 
     pub fn with_dst<R>(&self, f: impl FnOnce(Option<&Name>) -> R) -> R {
         self.common.with_dst(f)
-    }
-
-    pub fn metadata(&self) -> std::sync::Arc<RwLock<HashMap<String, String>>> {
-        self.common.metadata()
-    }
-
-    pub fn set_metadata_map(&self, map: HashMap<String, String>) {
-        self.common.set_metadata_map(map);
-    }
-
-    pub fn insert_metadata(&self, k: String, v: String) {
-        self.common.insert_metadata(k, v);
     }
 }
 
@@ -1053,7 +1044,7 @@ mod tests {
         let stream = Name::from_strings(["agntcy", "ns", "local_stream"]).with_id(0);
 
         let session_config: MulticastConfiguration =
-            MulticastConfiguration::new(stream.clone(), false, None, None, false);
+            MulticastConfiguration::new(stream.clone(), false, None, None, false, HashMap::new());
 
         let session = Multicast::new(
             0,
@@ -1078,6 +1069,7 @@ mod tests {
             Some(10),
             Some(Duration::from_millis(1000)),
             false,
+            HashMap::new(),
         );
 
         let session = Multicast::new(
@@ -1123,13 +1115,14 @@ mod tests {
         let recv = Name::from_strings(["cisco", "default", "receiver"]).with_id(0);
 
         let session_config_sender: MulticastConfiguration =
-            MulticastConfiguration::new(send.clone(), false, None, None, false);
+            MulticastConfiguration::new(send.clone(), false, None, None, false, HashMap::new());
         let session_config_receiver: MulticastConfiguration = MulticastConfiguration::new(
             send.clone(),
             false,
             Some(5),
             Some(Duration::from_millis(500)),
             false,
+            HashMap::new(),
         );
 
         let sender = Multicast::new(
@@ -1210,6 +1203,7 @@ mod tests {
             Some(5),
             Some(Duration::from_millis(500)),
             false,
+            HashMap::new(),
         );
 
         let session = Multicast::new(
@@ -1294,6 +1288,7 @@ mod tests {
             Some(5),
             Some(Duration::from_millis(500)),
             false,
+            HashMap::new(),
         );
 
         let session = Multicast::new(
@@ -1398,7 +1393,7 @@ mod tests {
         let recv = Name::from_strings(["cisco", "default", "receiver"]).with_id(0);
 
         let session_config_sender: MulticastConfiguration =
-            MulticastConfiguration::new(recv.clone(), false, None, None, false);
+            MulticastConfiguration::new(recv.clone(), false, None, None, false, HashMap::new());
         let session_config_receiver: MulticastConfiguration = MulticastConfiguration::new(
             recv.clone(),
             false,
@@ -1406,6 +1401,7 @@ mod tests {
             Some(Duration::from_millis(100)), // keep the timer shorter with respect to the beacon one
             // otherwise we don't know which message will be received first
             false,
+            HashMap::new(),
         );
 
         let sender = Multicast::new(
@@ -1609,7 +1605,7 @@ mod tests {
         let stream = Name::from_strings(["agntcy", "ns", "stream"]);
 
         let session_config: MulticastConfiguration =
-            MulticastConfiguration::new(stream, false, None, None, false);
+            MulticastConfiguration::new(stream, false, None, None, false, HashMap::new());
 
         {
             let _session = Multicast::new(

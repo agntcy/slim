@@ -22,7 +22,7 @@ fn spawn_session_receiver(
     route: Name,
 ) -> std::sync::Arc<slim_service::session::Session<SharedSecret, SharedSecret>> {
     session_ctx
-        .spawn_receiver(|mut rx, weak, _meta| async move {
+        .spawn_receiver(|mut rx, weak| async move {
             info!("Session handler task started");
 
             // Local deque for queuing reply messages

@@ -53,18 +53,11 @@ class PyService:
 
 class PySessionContext:
     id: builtins.int
-    local_metadata: builtins.dict[builtins.str, builtins.str]
     received_metadata: builtins.dict[builtins.str, builtins.str]
     def set_session_config(self, config:PySessionConfiguration) -> None:
         ...
 
     def get_session_config(self) -> PySessionConfiguration:
-        ...
-
-    def set_local_metadata(self, metadata:typing.Mapping[builtins.str, builtins.str]) -> None:
-        ...
-
-    def insert_metadata(self, key:builtins.str, value:builtins.str) -> None:
         ...
 
 

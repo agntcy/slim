@@ -77,8 +77,6 @@ where
 
     /// Transmitter for sending messages to slim and app
     tx: T,
-    /// Session-level metadata (merged into every inbound/outbound message)
-    metadata: Arc<RwLock<HashMap<String, String>>>,
 }
 
 /// Internal session representation (private)
@@ -158,27 +156,6 @@ where
         }
     }
 
-    pub fn metadata(&self) -> HashMap<String, String> {
-        match &self.inner {
-            SessionInner::PointToPoint(s) => s.metadata().read().clone(),
-            SessionInner::Multicast(s) => s.metadata().read().clone(),
-        }
-    }
-
-    pub fn set_metadata_map(&self, map: HashMap<String, String>) {
-        match &self.inner {
-            SessionInner::PointToPoint(s) => s.set_metadata_map(map),
-            SessionInner::Multicast(s) => s.set_metadata_map(map),
-        }
-    }
-
-    pub fn insert_metadata(&self, k: String, v: String) {
-        match &self.inner {
-            SessionInner::PointToPoint(s) => s.insert_metadata(k, v),
-            SessionInner::Multicast(s) => s.insert_metadata(k, v),
-        }
-    }
-
     pub fn incoming_connection() {}
 
     pub(crate) fn tx_ref(&self) -> &T {
@@ -244,15 +221,10 @@ where
         let ct = payload_type.unwrap_or_else(|| "msg".to_string());
 
         let mut msg = Message::new_publish(self.source(), name, Some(flags), &ct, blob);
-        // Merge session-level metadata first
-        let mut merged = self.metadata();
-        if let Some(map) = metadata {
-            for (k, v) in map.into_iter() {
-                merged.insert(k, v);
-            }
-        }
-        if !merged.is_empty() {
-            msg.set_metadata_map(merged);
+        if let Some(map) = metadata
+            && !map.is_empty()
+        {
+            msg.set_metadata_map(map);
         }
 
         // southbound=true means towards slim
@@ -514,7 +486,6 @@ where
             dst: Arc::new(RwLock::new(None)),
             mls,
             tx,
-            metadata: Arc::new(RwLock::new(HashMap::new())),
         };
 
         if let Some(mls) = session.mls() {
@@ -535,18 +506,6 @@ where
 
     pub(crate) fn mls(&self) -> Option<Arc<Mutex<Mls<P, V>>>> {
         self.mls.as_ref().map(|mls| mls.clone())
-    }
-
-    pub(crate) fn metadata(&self) -> Arc<RwLock<HashMap<String, String>>> {
-        self.metadata.clone()
-    }
-
-    pub(crate) fn set_metadata_map(&self, map: HashMap<String, String>) {
-        *self.metadata.write() = map;
-    }
-
-    pub(crate) fn insert_metadata(&self, k: String, v: String) {
-        self.metadata.write().insert(k, v);
     }
 
     /// Internal helper to pass an immutable reference to dst without cloning.
@@ -859,6 +818,7 @@ mod tests {
             Some(1),
             Some(std::time::Duration::from_millis(10)),
             false,
+            HashMap::new(),
         );
         let source = make_name(["agntcy", "src", "mc"]);
         let mc = Multicast::new(
@@ -893,97 +853,6 @@ mod tests {
             && let Some(val) = msg.get_metadata("k")
         {
             assert_eq!(val, "v");
-        }
-    }
-
-    // Verify that session-level metadata is merged into per-message metadata
-    // and that per-message keys override session-level keys.
-    #[tokio::test]
-    async fn session_level_metadata_merge() {
-        let (session, store) = build_p2p_session(11, false);
-        // Set session-level metadata
-        session.set_metadata_map(HashMap::from([
-            ("a".to_string(), "1".to_string()),
-            ("k".to_string(), "session".to_string()),
-        ]));
-
-        let dst = make_name(["agntcy", "dst", "p2p"]);
-        // Publish overriding key k and adding new b
-        session
-            .publish(
-                &dst,
-                b"hello".to_vec(),
-                None,
-                Some(HashMap::from([
-                    ("k".to_string(), "override".to_string()),
-                    ("b".to_string(), "2".to_string()),
-                ])),
-            )
-            .await
-            .unwrap();
-
-        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-        let msgs = store.read();
-        let msg = msgs
-            .first()
-            .expect("no message published")
-            .as_ref()
-            .unwrap();
-        assert_eq!(msg.get_metadata("a").unwrap(), "1");
-        assert_eq!(msg.get_metadata("b").unwrap(), "2");
-        // Overridden value
-        assert_eq!(msg.get_metadata("k").unwrap(), "override");
-    }
-
-    // Verify insert_metadata updates the session-level map and that per-message metadata
-    // still overrides inserted keys on subsequent publishes.
-    #[tokio::test]
-    async fn session_insert_metadata_and_publish() {
-        let (session, store) = build_p2p_session(14, false);
-
-        // Insert a single key and publish without per-message metadata
-        session.insert_metadata("alpha".to_string(), "1".to_string());
-        let dst = make_name(["agntcy", "dst", "p2p"]);
-        session
-            .publish(&dst, b"first".to_vec(), None, None)
-            .await
-            .unwrap();
-
-        // Insert another key and update the first key, then publish with per-message overrides
-        session.insert_metadata("alpha".to_string(), "session".to_string());
-        session.insert_metadata("beta".to_string(), "2".to_string());
-        session
-            .publish(
-                &dst,
-                b"second".to_vec(),
-                None,
-                Some(HashMap::from([
-                    ("beta".to_string(), "override".to_string()),
-                    ("gamma".to_string(), "3".to_string()),
-                ])),
-            )
-            .await
-            .unwrap();
-
-        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-        let msgs = store.read();
-        assert!(msgs.len() >= 2, "expected at least two published messages");
-
-        // First message should contain only alpha=1 (session metadata at publish time)
-        if let Some(Ok(first)) = msgs.first() {
-            assert_eq!(first.get_metadata("alpha").unwrap(), "1");
-            assert!(first.get_metadata("beta").is_none());
-        } else {
-            panic!("missing first message");
-        }
-
-        // Second message should reflect updated session metadata alpha=session, beta=2 overridden by per-message beta=override, plus gamma=3
-        if let Some(Ok(second)) = msgs.get(1) {
-            assert_eq!(second.get_metadata("alpha").unwrap(), "session");
-            assert_eq!(second.get_metadata("beta").unwrap(), "override");
-            assert_eq!(second.get_metadata("gamma").unwrap(), "3");
-        } else {
-            panic!("missing second message");
         }
     }
 
