@@ -41,103 +41,65 @@ async def run_client(
     )
 
     instance = local_app.get_id()
-    local_name = split_id(local)
 
     if message:
         if not remote:
             raise ValueError("Remote ID must be provided when message is specified.")
 
-    async with local_app:
-        if message:
-            # Split the IDs into their respective components
-            remote_name = split_id(remote)
+    # Wrapper objects are not async context managers; operate directly.
+    if message:
+        remote_name = split_id(remote)
+        await local_app.set_route(remote_name)
 
-            # Create a route to the remote ID
-            await local_app.set_route(remote_name)
-
-            # create a session
-            if unicast or enable_mls:
-                print("create unincast session {}", enable_mls)
-                session = await local_app.create_session(
-                    slim_bindings.PySessionConfiguration.Unicast(  # type: ignore
-                        max_retries=5,
-                        timeout=datetime.timedelta(seconds=5),
-                        mls_enabled=enable_mls,
-                    )
+        # Select session type. Unicast enables sticky semantics; Anycast for fan-out.
+        if unicast or enable_mls:
+            session = await local_app.create_session(
+                slim_bindings.PySessionConfiguration.Unicast(  # type: ignore
+                    max_retries=5,
+                    timeout=datetime.timedelta(seconds=5),
+                    mls_enabled=enable_mls,
                 )
-            else:
-                session = await local_app.create_session(
-                    slim_bindings.PySessionConfiguration.Anycast()  # type: ignore
-                )
-
-            for i in range(0, iterations):
-                try:
-                    # Send the message
-                    await local_app.publish(
-                        session,
-                        message.encode(),
-                        remote_name,
-                    )
-
-                    format_message_print(
-                        f"{instance}",
-                        f"Sent message {message} - {i + 1}/{iterations}:",
-                    )
-
-                    # Wait for a reply
-                    session_info, msg = await local_app.receive(session=session.id)
-
-                    if msg:
-                        format_message_print(
-                            f"{instance}",
-                            f"received (from session {session_info.id}): {msg.decode()}",
-                        )
-
-                    if not session_info.destination_name.equal_without_id(local_name):
-                        format_message_print(
-                            f"received message with wrong name, exit. local {local_name}, dst {session_info.destination_name}"
-                        )
-                        exit(1)
-
-                except Exception as e:
-                    print("received error: ", e)
-
-                await asyncio.sleep(1)
+            )
         else:
-            # Wait for a message and reply in a loop
-            while True:
+            session = await local_app.create_session(
+                slim_bindings.PySessionConfiguration.Anycast()  # type: ignore
+            )
+
+        for i in range(iterations):
+            try:
+                await session.publish(message.encode(), remote_name)
                 format_message_print(
                     f"{instance}",
-                    "waiting for new session to be established",
+                    f"Sent message {message} - {i + 1}/{iterations}:",
                 )
-
-                session_info, _ = await local_app.receive()
+                _msg_ctx, reply = await session.get_message()
                 format_message_print(
-                    f"{instance} received a new session:",
-                    f"{session_info.id}",
+                    f"{instance}",
+                    f"received (from session {session.id}): {reply.decode()}",
                 )
+            except Exception as e:
+                format_message_print(f"{instance}", f"error: {e}")
+            await asyncio.sleep(1)
+    else:
+        while True:
+            format_message_print(
+                f"{instance}", "waiting for new session to be established"
+            )
+            session = await local_app.listen_for_session()
+            format_message_print(f"{instance}", f"new session {session.id}")
 
-                async def background_task(session_id):
-                    while True:
-                        # Receive the message from the session
-                        session, msg = await local_app.receive(session=session_id)
-                        format_message_print(
-                            f"{instance}",
-                            f"received (from session {session_id}): {msg.decode()}",
-                        )
+            async def session_loop(sess: slim_bindings.PySession):  # type: ignore
+                while True:
+                    try:
+                        msg_ctx, payload = await sess.get_message()
+                    except Exception:
+                        # session probably closed
+                        break
+                    text = payload.decode()
+                    format_message_print(f"{instance}", f"received: {text}")
+                    await sess.publish_to(msg_ctx, f"{text} from {instance}".encode())
 
-                        if not session.destination_name.equal_without_id(local_name):
-                            format_message_print(
-                                f"received message with wrong name, exit. local {local_name}, dst {session.destination_name}"
-                            )
-                            exit(1)
-
-                        ret = f"{msg.decode()} from {instance}"
-
-                        await local_app.publish_to(session, ret.encode())
-                        format_message_print(f"{instance}", f"replies: {ret}")
-
-                asyncio.create_task(background_task(session_info.id))
+            asyncio.create_task(session_loop(session))
 
 
 def p2p_options(function):

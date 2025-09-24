@@ -11,6 +11,14 @@ class PyKey:
     key: PyKeyData
     def __new__(cls,algorithm:PyAlgorithm, format:PyKeyFormat, key:PyKeyData): ...
 
+class PyMessageContext:
+    source_name: PyName
+    destination_name: PyName
+    payload_type: builtins.str
+    metadata: builtins.dict[builtins.str, builtins.str]
+    input_connection: builtins.int
+    def __new__(cls,): ...
+
 class PyName:
     r"""
     name class
@@ -43,13 +51,15 @@ class PyService:
     id: builtins.int
     name: PyName
 
-class PySessionInfo:
+class PySessionContext:
     id: builtins.int
-    source_name: PyName
-    destination_name: PyName
-    payload_type: builtins.str
     metadata: builtins.dict[builtins.str, builtins.str]
-    def __new__(cls,session_id:builtins.int): ...
+    def set_session_config(self, config:PySessionConfiguration) -> None:
+        ...
+
+    def get_session_config(self) -> PySessionConfiguration:
+        ...
+
 
 class PyAlgorithm(Enum):
     HS256 = auto()
@@ -105,28 +115,28 @@ def create_pyservice(name:PyName, provider:PyIdentityProvider, verifier:PyIdenti
 def create_session(svc:PyService, config:PySessionConfiguration) -> typing.Any:
     ...
 
-def delete_session(svc:PyService, session_id:builtins.int) -> typing.Any:
+def delete_session(svc:PyService, session_context:PySessionContext) -> typing.Any:
     ...
 
 def disconnect(svc:PyService, conn:builtins.int) -> typing.Any:
     ...
 
-def get_session_config(svc:PyService, session_id:builtins.int) -> typing.Any:
+def get_message(svc:PyService, session_context:PySessionContext) -> typing.Any:
     ...
 
 def init_tracing(config:dict) -> typing.Any:
     ...
 
-def invite(svc:PyService, session_info:PySessionInfo, name:PyName) -> typing.Any:
+def invite(svc:PyService, session_context:PySessionContext, name:PyName) -> typing.Any:
     ...
 
-def publish(svc:PyService, session_info:PySessionInfo, fanout:builtins.int, blob:typing.Sequence[builtins.int], name:typing.Optional[PyName]=None, payload_type:typing.Optional[builtins.str]=None, metadata:typing.Optional[typing.Mapping[builtins.str, builtins.str]]=None) -> typing.Any:
+def listen_for_session(svc:PyService) -> typing.Any:
     ...
 
-def receive(svc:PyService) -> typing.Any:
+def publish(svc:PyService, session_context:PySessionContext, fanout:builtins.int, blob:typing.Sequence[builtins.int], message_ctx:typing.Optional[PyMessageContext]=None, name:typing.Optional[PyName]=None, payload_type:typing.Optional[builtins.str]=None, metadata:typing.Optional[typing.Mapping[builtins.str, builtins.str]]=None) -> typing.Any:
     ...
 
-def remove(svc:PyService, session_info:PySessionInfo, name:PyName) -> typing.Any:
+def remove(svc:PyService, session_context:PySessionContext, name:PyName) -> typing.Any:
     ...
 
 def remove_route(svc:PyService, conn:builtins.int, name:PyName) -> typing.Any:
@@ -135,13 +145,10 @@ def remove_route(svc:PyService, conn:builtins.int, name:PyName) -> typing.Any:
 def run_server(svc:PyService, config:dict) -> typing.Any:
     ...
 
-def set_default_session_config(svc:PyService, config:PySessionConfiguration) -> typing.Any:
+def set_default_session_config(svc:PyService, config:PySessionConfiguration):
     ...
 
 def set_route(svc:PyService, conn:builtins.int, name:PyName) -> typing.Any:
-    ...
-
-def set_session_config(svc:PyService, session_id:builtins.int, config:PySessionConfiguration) -> typing.Any:
     ...
 
 def stop_server(svc:PyService, endpoint:builtins.str) -> typing.Any:

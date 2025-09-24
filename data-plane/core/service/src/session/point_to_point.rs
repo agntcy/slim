@@ -8,6 +8,7 @@ use std::time::Duration;
 
 // Third-party crates
 use async_trait::async_trait;
+use parking_lot::RwLock;
 use rand::Rng;
 use tokio::sync::mpsc::{self, Receiver, Sender};
 use tokio::time::{self, Instant};
@@ -21,13 +22,12 @@ use slim_datapath::api::{
 use slim_datapath::messages::Name;
 use slim_datapath::messages::utils::SlimHeaderFlags;
 
-use crate::session::Info;
 use crate::session::producer_buffer::ProducerBuffer;
 use crate::session::receiver_buffer::ReceiverBuffer;
 // Local crate
 use crate::session::{
     Common, CommonSession, Id, MessageDirection, MessageHandler, SessionConfig, SessionConfigTrait,
-    SessionMessage, SessionTransmitter, State,
+    State, Transmitter,
     channel_endpoint::{
         ChannelEndpoint, ChannelModerator, ChannelParticipant, MlsEndpoint, MlsState,
     },
@@ -42,6 +42,7 @@ pub struct PointToPointConfiguration {
     pub max_retries: Option<u32>,
     pub unicast: bool,
     pub mls_enabled: bool,
+    pub remote: Option<Name>,
     pub(crate) initiator: bool,
 }
 
@@ -52,6 +53,7 @@ impl Default for PointToPointConfiguration {
             max_retries: Some(5),
             unicast: false,
             mls_enabled: false,
+            remote: None,
             initiator: true,
         }
     }
@@ -76,8 +78,14 @@ impl PointToPointConfiguration {
             max_retries,
             unicast,
             mls_enabled,
+            remote: None,
             initiator: true,
         }
+    }
+
+    pub fn with_remote(mut self, remote: Name) -> Self {
+        self.remote = Some(remote);
+        self
     }
 }
 
@@ -100,9 +108,13 @@ impl std::fmt::Display for PointToPointConfiguration {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "PointToPointConfiguration: timeout: {} ms, max retries: {}",
+            "PointToPointConfiguration: timeout: {} ms, max retries: {}, remote: {}",
             self.timeout.unwrap_or_default().as_millis(),
             self.max_retries.unwrap_or_default(),
+            self.remote
+                .as_ref()
+                .map(|n| n.to_string())
+                .unwrap_or_else(|| "<unset>".to_string()),
         )
     }
 }
@@ -119,7 +131,7 @@ enum UnicastSessionStatus {
 #[allow(clippy::large_enum_variant)]
 enum InternalMessage {
     OnMessage {
-        message: SessionMessage,
+        message: Message,
         direction: MessageDirection,
     },
     SetConfig {
@@ -157,12 +169,13 @@ struct PointToPointState<P, V, T>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
-    T: SessionTransmitter + Send + Sync + Clone + 'static,
+    T: Transmitter + Send + Sync + Clone + 'static,
 {
     session_id: u32,
     source: Name,
     tx: T,
     config: PointToPointConfiguration,
+    dst: Arc<RwLock<Option<Name>>>,
     unicast_name: Option<Name>,
     unicast_connection: Option<u64>,
     unicast_session_status: UnicastSessionStatus,
@@ -186,7 +199,7 @@ struct PointToPointProcessor<P, V, T>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
-    T: SessionTransmitter + Send + Sync + Clone + 'static,
+    T: Transmitter + Send + Sync + Clone + 'static,
 {
     state: PointToPointState<P, V, T>,
     ack_timer_observer: Arc<AckTimerObserver>,
@@ -259,7 +272,7 @@ impl<P, V, T> PointToPointProcessor<P, V, T>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
-    T: SessionTransmitter + Send + Sync + Clone + 'static,
+    T: Transmitter + Send + Sync + Clone + 'static,
 {
     fn new(
         state: PointToPointState<P, V, T>,
@@ -421,7 +434,7 @@ where
             .send_to_app(Err(SessionError::Timeout {
                 session_id: self.state.session_id,
                 message_id,
-                message: Box::new(SessionMessage::from(message.clone())),
+                message: Box::new(message),
             }))
             .await
             .map_err(|e| SessionError::AppTransmission(e.to_string()));
@@ -455,29 +468,21 @@ where
 
     async fn handle_channel_discovery_reply(
         &mut self,
-        message: SessionMessage,
+        message: Message,
     ) -> Result<(), SessionError> {
-        self.state
-            .channel_endpoint
-            .on_message(message.message)
-            .await
+        self.state.channel_endpoint.on_message(message).await
     }
 
-    async fn handle_channel_join_request(
-        &mut self,
-        message: SessionMessage,
-    ) -> Result<(), SessionError> {
+    async fn handle_channel_join_request(&mut self, message: Message) -> Result<(), SessionError> {
         // Save source and incoming connection
-        let source = message.message.get_source();
-        let incoming_conn = message.message.get_incoming_conn();
+        let source = message.get_source();
+        let incoming_conn = message.get_incoming_conn();
 
         // pass the message to the channel endpoint
-        self.state
-            .channel_endpoint
-            .on_message(message.message)
-            .await?;
+        self.state.channel_endpoint.on_message(message).await?;
 
         // No error - this session is unicast
+        *self.state.dst.write() = Some(source.clone());
         self.state.unicast_name = Some(source);
         self.state.unicast_connection = Some(incoming_conn);
         self.state.unicast_session_status = UnicastSessionStatus::Established;
@@ -485,32 +490,27 @@ where
         Ok(())
     }
 
-    async fn handle_channel_join_reply(
-        &mut self,
-        message: SessionMessage,
-    ) -> Result<(), SessionError> {
+    async fn handle_channel_join_reply(&mut self, message: Message) -> Result<(), SessionError> {
         // Check if the unicast session is established
-        let source = message.message.get_source();
-        let incoming_conn = message.message.get_incoming_conn();
+        let source = message.get_source();
+        let incoming_conn = message.get_incoming_conn();
         let status = self.state.unicast_session_status.clone();
 
         debug!(
             "received unicast session discovery reply from {} and incoming conn {}",
             source,
-            message.message.get_incoming_conn()
+            message.get_incoming_conn()
         );
 
         // send message to channel endpoint
-        self.state
-            .channel_endpoint
-            .on_message(message.message)
-            .await?;
+        self.state.channel_endpoint.on_message(message).await?;
 
         match status {
             UnicastSessionStatus::Discovering => {
                 debug!("unicast session discovery established with {}", source);
 
                 // If we are still discovering, set the unicast name
+                *self.state.dst.write() = Some(source.clone());
                 self.state.unicast_name = Some(source);
                 self.state.unicast_connection = Some(incoming_conn);
                 self.state.unicast_session_status = UnicastSessionStatus::Established;
@@ -617,30 +617,15 @@ where
 
     pub(crate) async fn handle_message_to_slim(
         &mut self,
-        mut message: SessionMessage,
+        mut message: Message,
     ) -> Result<(), SessionError> {
-        // Reference to session info
-        let info = &message.info;
-
         // Set the session type
-        let header = message.message.get_session_header_mut();
-        header.set_session_type(if info.session_type_unset() {
-            ProtoSessionType::SessionPointToPoint
-        } else {
-            info.get_session_type()
-        });
+        let header = message.get_session_header_mut();
+        header.set_session_type(ProtoSessionType::SessionPointToPoint);
         if self.state.config.timeout.is_some() {
-            header.set_session_message_type(if info.session_message_type_unset() {
-                ProtoSessionMessageType::P2PReliable
-            } else {
-                info.get_session_message_type()
-            });
+            header.set_session_message_type(ProtoSessionMessageType::P2PReliable);
         } else {
-            header.set_session_message_type(if info.session_message_type_unset() {
-                ProtoSessionMessageType::P2PMsg
-            } else {
-                info.get_session_message_type()
-            });
+            header.set_session_message_type(ProtoSessionMessageType::P2PMsg);
         }
 
         // If session is unicast, and we have a unicast name, set the destination
@@ -648,14 +633,10 @@ where
         if self.state.config.unicast {
             match self.state.unicast_name {
                 Some(ref name) => {
-                    let mut new_name = message.message.get_dst();
+                    let mut new_name = message.get_dst();
                     new_name.set_id(name.id());
+                    message.get_slim_header_mut().set_destination(&new_name);
                     message
-                        .message
-                        .get_slim_header_mut()
-                        .set_destination(&new_name);
-                    message
-                        .message
                         .get_slim_header_mut()
                         .set_forward_to(self.state.unicast_connection);
                 }
@@ -663,11 +644,11 @@ where
                     let ret = match self.state.unicast_session_status {
                         UnicastSessionStatus::Uninitialized => {
                             self.start_unicast_session_discovery(
-                                &message.message.get_slim_header().get_dst(),
+                                &message.get_slim_header().get_dst(),
                             )
                             .await?;
 
-                            self.state.unicast_buffer.push_back(message.message);
+                            self.state.unicast_buffer.push_back(message);
 
                             Ok(())
                         }
@@ -680,7 +661,7 @@ where
                         UnicastSessionStatus::Discovering => {
                             // Still discovering the unicast session. Store message in a buffer and send it later
                             // when the unicast session is established
-                            self.state.unicast_buffer.push_back(message.message);
+                            self.state.unicast_buffer.push_back(message);
                             Ok(())
                         }
                     };
@@ -690,15 +671,15 @@ where
             }
         }
 
-        self.send_message(message.message, None).await
+        self.send_message(message, None).await
     }
 
     pub(crate) async fn handle_message_to_app(
         &mut self,
-        message: SessionMessage,
+        message: Message,
     ) -> Result<(), SessionError> {
-        let message_id = message.info.message_id.expect("message id not found");
-        let source = message.message.get_source();
+        let message_id = message.get_session_header().get_message_id();
+        let source = message.get_source();
         debug!(
             %source, %message_id, "received message from slim",
         );
@@ -707,7 +688,7 @@ where
         if self.state.config.unicast
             && let Some(name) = &self.state.unicast_name
         {
-            let source = message.message.get_source();
+            let source = message.get_source();
             if *name != source {
                 return Err(SessionError::AppTransmission(format!(
                     "message source {} does not match unicast name {}",
@@ -716,7 +697,7 @@ where
             }
         }
 
-        match message.message.get_session_message_type() {
+        match message.get_session_message_type() {
             ProtoSessionMessageType::P2PMsg => {
                 // Simply send the message to the application
                 self.send_message_to_app(message).await
@@ -759,10 +740,7 @@ where
             | ProtoSessionMessageType::ChannelMlsProposal
             | ProtoSessionMessageType::ChannelMlsAck => {
                 // Handle mls stuff
-                self.state
-                    .channel_endpoint
-                    .on_message(message.message)
-                    .await?;
+                self.state.channel_endpoint.on_message(message).await?;
 
                 // Flush the unicast buffer if MLS is enabled
                 if self.state.channel_endpoint.is_mls_up()? {
@@ -788,21 +766,18 @@ where
                 // Unexpected header
                 Err(SessionError::AppTransmission(format!(
                     "invalid session header {}",
-                    message.message.get_session_message_type() as u32
+                    message.get_session_message_type() as u32
                 )))
             }
         }
     }
 
-    async fn process_incoming_rtx_request(
-        &mut self,
-        message: SessionMessage,
-    ) -> Result<(), SessionError> {
-        let msg_rtx_id = message.message.get_id();
-        let pkt_src = message.message.get_source();
-        let pkt_dst = message.message.get_dst();
-        let incoming_conn = message.message.get_incoming_conn();
-        let session_id = message.message.get_session_header().session_id;
+    async fn process_incoming_rtx_request(&mut self, message: Message) -> Result<(), SessionError> {
+        let msg_rtx_id = message.get_id();
+        let pkt_src = message.get_source();
+        let pkt_dst = message.get_dst();
+        let incoming_conn = message.get_incoming_conn();
+        let session_id = message.get_session_header().session_id;
 
         let rtx_pub = match self.state.sender_state.buffer.get(msg_rtx_id as usize) {
             Some(packet) => {
@@ -872,12 +847,9 @@ where
         self.state.tx.send_to_slim(Ok(rtx_pub)).await
     }
 
-    async fn process_incoming_rtx_reply(
-        &mut self,
-        message: SessionMessage,
-    ) -> Result<(), SessionError> {
+    async fn process_incoming_rtx_reply(&mut self, message: Message) -> Result<(), SessionError> {
         // Remove RTX timer
-        let msg_id = message.message.get_session_header().get_message_id();
+        let msg_id = message.get_session_header().get_message_id();
         self.stop_and_remove_timer(msg_id, false)?;
 
         let ack = self.create_ack(&message);
@@ -893,19 +865,19 @@ where
             .map_err(|e| SessionError::SlimTransmission(e.to_string()))
     }
 
-    fn create_ack(&self, message: &SessionMessage) -> Message {
-        let src = message.message.get_source();
-        let message_id = message.message.get_session_header().message_id;
+    fn create_ack(&self, message: &Message) -> Message {
+        let src = message.get_source();
+        let message_id = message.get_session_header().message_id;
         let slim_header = Some(SlimHeader::new(
             &self.state.source,
             &src,
-            Some(SlimHeaderFlags::default().with_forward_to(message.message.get_incoming_conn())),
+            Some(SlimHeaderFlags::default().with_forward_to(message.get_incoming_conn())),
         ));
 
         let session_header = Some(SessionHeader::new(
             ProtoSessionType::SessionPointToPoint.into(),
             ProtoSessionMessageType::P2PAck.into(),
-            message.info.id,
+            message.get_session_header().session_id,
             message_id,
             &None,
             &None,
@@ -916,12 +888,12 @@ where
 
     /// Helper function to send a message to the application.
     /// This is used by both the P2p and F2pReliable message handlers.
-    async fn send_message_to_app(&mut self, message: SessionMessage) -> Result<(), SessionError> {
+    async fn send_message_to_app(&mut self, message: Message) -> Result<(), SessionError> {
         // if the session is not reliable or is not unicast we can accept holes in the
         // sequence of the received messages and so we send this packets to the application
         // immediately without reordering. notice that an anycast reliable session is possible
         // and the packet are re-send by the sender if acks are not received
-        if message.message.get_session_message_type() == ProtoSessionMessageType::P2PMsg
+        if message.get_session_message_type() == ProtoSessionMessageType::P2PMsg
             || (!self.state.config.mls_enabled && !self.state.config.unicast)
         {
             // this is an anycast session so simply send the message to the app
@@ -934,26 +906,26 @@ where
         }
 
         // here we need to reorder the messages if needed
-        let session_id = message.info.id;
+        let session_id = message.get_session_header().session_id;
 
         let recv;
         let mut rtx = Vec::new();
-        if message.message.get_session_message_type() == ProtoSessionMessageType::RtxReply
-            && message.message.get_error().is_some()
-            && message.message.get_error().unwrap()
+        if message.get_session_message_type() == ProtoSessionMessageType::RtxReply
+            && message.get_error().is_some()
+            && message.get_error().unwrap()
         {
             // this is a packet that cannot be recovered anymore
             recv = self
                 .state
                 .receiver_state
                 .buffer
-                .on_lost_message(message.message.get_session_header().get_message_id());
+                .on_lost_message(message.get_session_header().get_message_id());
         } else {
             let (r, rtx_vec) = self
                 .state
                 .receiver_state
                 .buffer
-                .on_received_message(message.message);
+                .on_received_message(message);
             recv = r;
             rtx = rtx_vec;
         }
@@ -961,10 +933,8 @@ where
         for opt in recv {
             match opt {
                 Some(m) => {
-                    let info = Info::from(&m);
-                    let session_msg = SessionMessage::new(m, info);
                     // send message to the app
-                    if self.state.tx.send_to_app(Ok(session_msg)).await.is_err() {
+                    if self.state.tx.send_to_app(Ok(m)).await.is_err() {
                         error!("error sending packet to app on session {}", session_id);
                     };
                 }
@@ -1007,8 +977,7 @@ where
 
         if !rtx.is_empty() {
             for msg_id in rtx {
-                //let timer_duration = self.state.config.timeout.unwrap_or(Duration::from_secs(1)); //TODO how do we set this timer?
-                let timer_duration = Duration::from_secs(1);
+                let timer_duration = self.state.config.timeout.unwrap_or(Duration::from_secs(1));
                 let timer = timer::Timer::new(
                     msg_id,
                     timer::TimerType::Constant,
@@ -1082,11 +1051,12 @@ where
 }
 
 /// The interface for the point to point session
+#[derive(Debug)]
 pub(crate) struct PointToPoint<P, V, T>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
-    T: SessionTransmitter + Send + Sync + Clone + 'static,
+    T: Transmitter + Send + Sync + Clone + 'static,
 {
     common: Common<P, V, T>,
     tx: Sender<InternalMessage>,
@@ -1096,7 +1066,7 @@ impl<P, V, T> PointToPoint<P, V, T>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
-    T: SessionTransmitter + Send + Sync + Clone + 'static,
+    T: Transmitter + Send + Sync + Clone + 'static,
 {
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn new(
@@ -1121,6 +1091,10 @@ where
             session_config.mls_enabled,
             storage_path,
         );
+
+        if let Some(remote) = session_config.remote.clone() {
+            common.set_dst(remote);
+        }
 
         // Create mls state if needed
         let mls = common
@@ -1163,6 +1137,7 @@ where
             source: common.source().clone(),
             tx: tx_slim_app.clone(),
             config: session_config,
+            dst: common.dst_arc(),
             unicast_name: None,
             unicast_connection: None,
             unicast_session_status: UnicastSessionStatus::Uninitialized,
@@ -1195,6 +1170,10 @@ where
             cancellation_token,
         }
     }
+
+    pub fn with_dst<R>(&self, f: impl FnOnce(Option<&Name>) -> R) -> R {
+        self.common.with_dst(f)
+    }
 }
 
 #[async_trait]
@@ -1202,7 +1181,7 @@ impl<P, V, T> CommonSession<P, V, T> for PointToPoint<P, V, T>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
-    T: SessionTransmitter + Send + Sync + Clone + 'static,
+    T: Transmitter + Send + Sync + Clone + 'static,
 {
     fn id(&self) -> Id {
         // concat the token stream
@@ -1245,6 +1224,14 @@ where
         self.common.source()
     }
 
+    fn dst(&self) -> Option<Name> {
+        self.common.dst()
+    }
+
+    fn dst_arc(&self) -> Arc<RwLock<Option<Name>>> {
+        self.common.dst_arc()
+    }
+
     fn identity_provider(&self) -> P {
         self.common.identity_provider().clone()
     }
@@ -1260,13 +1247,17 @@ where
     fn tx_ref(&self) -> &T {
         self.common.tx_ref()
     }
+
+    fn set_dst(&self, dst: Name) {
+        self.common.set_dst(dst)
+    }
 }
 
 impl<P, V, T> Drop for PointToPoint<P, V, T>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
-    T: SessionTransmitter + Send + Sync + Clone + 'static,
+    T: Transmitter + Send + Sync + Clone + 'static,
 {
     fn drop(&mut self) {
         // Signal the processor to stop
@@ -1279,11 +1270,11 @@ impl<P, V, T> MessageHandler for PointToPoint<P, V, T>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
-    T: SessionTransmitter + Send + Sync + Clone + 'static,
+    T: Transmitter + Send + Sync + Clone + 'static,
 {
     async fn on_message(
         &self,
-        message: SessionMessage,
+        message: Message,
         direction: MessageDirection,
     ) -> Result<(), SessionError> {
         self.tx
@@ -1302,8 +1293,7 @@ mod tests {
 
     use super::*;
     use crate::session::{
-        channel_endpoint::handle_channel_discovery_message, testutils::MockTransmitter,
-        transmitter::Transmitter,
+        channel_endpoint::handle_channel_discovery_message, transmitter::SessionTransmitter,
     };
     use slim_datapath::{api::ProtoMessage, messages::Name};
 
@@ -1312,7 +1302,7 @@ mod tests {
         let (tx_slim, _) = tokio::sync::mpsc::channel(1);
         let (tx_app, _) = tokio::sync::mpsc::channel(1);
 
-        let tx = MockTransmitter { tx_app, tx_slim };
+        let tx = SessionTransmitter::new(tx_app, tx_slim);
 
         let source = Name::from_strings(["cisco", "default", "local"]).with_id(0);
 
@@ -1335,11 +1325,37 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_point_to_point_create_with_remote_dst() {
+        let (tx_slim, _) = tokio::sync::mpsc::channel(1);
+        let (tx_app, _) = tokio::sync::mpsc::channel(1);
+
+        let tx = SessionTransmitter::new(tx_app, tx_slim);
+
+        let source = Name::from_strings(["cisco", "default", "local"]).with_id(0);
+        let remote = Name::from_strings(["cisco", "default", "remote"]).with_id(999);
+
+        let config = PointToPointConfiguration::default().with_remote(remote.clone());
+
+        let session = PointToPoint::new(
+            0,
+            config,
+            source.clone(),
+            tx,
+            SharedSecret::new("a", "group"),
+            SharedSecret::new("a", "group"),
+            std::path::PathBuf::from("/tmp/test_session"),
+        );
+
+        assert_eq!(session.dst(), Some(remote));
+    }
+
+    #[tokio::test]
     async fn test_point_to_point_on_message() {
         let (tx_slim, _rx_slim) = tokio::sync::mpsc::channel(1);
         let (tx_app, mut rx_app) = tokio::sync::mpsc::channel(1);
 
-        let tx = MockTransmitter { tx_app, tx_slim };
+        // SessionTransmitter::new expects (slim_tx, app_tx)
+        let tx = SessionTransmitter::new(tx_slim, tx_app);
 
         let source = Name::from_strings(["cisco", "default", "local"]).with_id(0);
 
@@ -1361,16 +1377,13 @@ mod tests {
             vec![0x1, 0x2, 0x3, 0x4],
         );
 
-        // set the session id in the message
+        // set the session id in the message (session created with id 0)
         let header = message.get_session_header_mut();
-        header.session_id = 1;
+        header.session_id = 0;
         header.set_session_message_type(ProtoSessionMessageType::P2PMsg);
 
         let res = session
-            .on_message(
-                SessionMessage::from(message.clone()),
-                MessageDirection::North,
-            )
+            .on_message(message.clone(), MessageDirection::North)
             .await;
         assert!(res.is_ok());
 
@@ -1379,8 +1392,8 @@ mod tests {
             .await
             .expect("no message received")
             .expect("error");
-        assert_eq!(msg.message, message);
-        assert_eq!(msg.info.id, 1);
+        assert_eq!(msg, message);
+        assert_eq!(msg.get_session_header().get_message_id(), 0);
     }
 
     #[tokio::test]
@@ -1388,7 +1401,7 @@ mod tests {
         let (tx_slim, mut rx_slim) = tokio::sync::mpsc::channel(1);
         let (tx_app, mut rx_app) = tokio::sync::mpsc::channel(1);
 
-        let tx = MockTransmitter { tx_app, tx_slim };
+        let tx = SessionTransmitter::new(tx_slim, tx_app);
 
         let source = Name::from_strings(["cisco", "default", "local"]).with_id(0);
 
@@ -1417,10 +1430,7 @@ mod tests {
         header.set_session_message_type(ProtoSessionMessageType::P2PReliable);
 
         let res = session
-            .on_message(
-                SessionMessage::from(message.clone()),
-                MessageDirection::North,
-            )
+            .on_message(message.clone(), MessageDirection::North)
             .await;
         assert!(res.is_ok());
 
@@ -1429,8 +1439,9 @@ mod tests {
             .await
             .expect("no message received")
             .expect("error");
-        assert_eq!(msg.message, message);
-        assert_eq!(msg.info.id, 0);
+        assert_eq!(msg, message);
+        assert_eq!(msg.get_session_header().get_message_id(), 12345);
+        assert_eq!(msg.get_session_header().get_session_id(), 0);
 
         let msg = rx_slim
             .recv()
@@ -1451,7 +1462,8 @@ mod tests {
         let (tx_slim, mut rx_slim) = tokio::sync::mpsc::channel(1);
         let (tx_app, mut rx_app) = tokio::sync::mpsc::channel(1);
 
-        let tx = MockTransmitter { tx_app, tx_slim };
+        // SessionTransmitter::new expects (slim_tx, app_tx)
+        let tx = SessionTransmitter::new(tx_slim, tx_app);
 
         let source = Name::from_strings(["cisco", "default", "local"]).with_id(0);
 
@@ -1462,6 +1474,7 @@ mod tests {
                 max_retries: Some(5),
                 unicast: false,
                 mls_enabled: false,
+                remote: None,
                 initiator: true,
             },
             source.clone(),
@@ -1480,10 +1493,7 @@ mod tests {
         );
 
         let res = session
-            .on_message(
-                SessionMessage::from(message.clone()),
-                MessageDirection::South,
-            )
+            .on_message(message.clone(), MessageDirection::South)
             .await;
         assert!(res.is_ok());
 
@@ -1499,6 +1509,7 @@ mod tests {
                 .await
                 .expect("no message received")
                 .expect("error");
+
             // msg must be the same as message, except for the random message_id
             let header = msg.get_session_header_mut();
             header.message_id = 0;
@@ -1514,18 +1525,12 @@ mod tests {
         let (tx_slim_sender, mut rx_slim_sender) = tokio::sync::mpsc::channel(1);
         let (tx_app_sender, _rx_app_sender) = tokio::sync::mpsc::channel(1);
 
-        let tx_sender = MockTransmitter {
-            tx_app: tx_app_sender,
-            tx_slim: tx_slim_sender,
-        };
+        let tx_sender = SessionTransmitter::new(tx_slim_sender, tx_app_sender);
 
         let (tx_slim_receiver, mut rx_slim_receiver) = tokio::sync::mpsc::channel(1);
         let (tx_app_receiver, mut rx_app_receiver) = tokio::sync::mpsc::channel(1);
 
-        let tx_receiver = MockTransmitter {
-            tx_app: tx_app_receiver,
-            tx_slim: tx_slim_receiver,
-        };
+        let tx_receiver = SessionTransmitter::new(tx_slim_receiver, tx_app_receiver);
 
         let local = Name::from_strings(["cisco", "default", "local"]).with_id(0);
         let remote = Name::from_strings(["cisco", "default", "remote"]).with_id(0);
@@ -1537,6 +1542,7 @@ mod tests {
                 max_retries: Some(5),
                 unicast: false,
                 mls_enabled: false,
+                remote: None,
                 initiator: true,
             },
             local.clone(),
@@ -1572,10 +1578,7 @@ mod tests {
         header.set_session_message_type(ProtoSessionMessageType::P2PReliable);
 
         let res = session_sender
-            .on_message(
-                SessionMessage::from(message.clone()),
-                MessageDirection::South,
-            )
+            .on_message(message.clone(), MessageDirection::South)
             .await;
         assert!(res.is_ok());
 
@@ -1599,7 +1602,7 @@ mod tests {
 
         // this second message is received by the receiver
         let res = session_recv
-            .on_message(SessionMessage::from(msg.clone()), MessageDirection::North)
+            .on_message(msg.clone(), MessageDirection::North)
             .await;
         assert!(res.is_ok());
 
@@ -1610,9 +1613,9 @@ mod tests {
             .expect("no message received")
             .expect("error");
         // msg must be the same as message, except for the random message_id
-        let header = msg.message.get_session_header_mut();
+        let header = msg.get_session_header_mut();
         header.set_message_id(0);
-        assert_eq!(msg.message, message);
+        assert_eq!(msg, message);
 
         // the session layer should generate an ack
         let ack = rx_slim_receiver
@@ -1620,6 +1623,7 @@ mod tests {
             .await
             .expect("no message received")
             .expect("error");
+
         let header = ack.get_session_header();
         assert_eq!(
             header.session_message_type(),
@@ -1631,7 +1635,7 @@ mod tests {
 
         // deliver the ack to the sender
         let res = session_sender
-            .on_message(SessionMessage::from(ack.clone()), MessageDirection::North)
+            .on_message(ack.clone(), MessageDirection::North)
             .await;
         assert!(res.is_ok());
     }
@@ -1642,7 +1646,7 @@ mod tests {
         let (tx_slim, _) = tokio::sync::mpsc::channel(1);
         let (tx_app, _) = tokio::sync::mpsc::channel(1);
 
-        let tx = MockTransmitter { tx_app, tx_slim };
+        let tx = SessionTransmitter::new(tx_app, tx_slim);
 
         let source = Name::from_strings(["cisco", "default", "local"]).with_id(0);
 
@@ -1666,7 +1670,7 @@ mod tests {
         let (sender_tx_slim, mut sender_rx_slim) = tokio::sync::mpsc::channel(1);
         let (sender_tx_app, _sender_rx_app) = tokio::sync::mpsc::channel(1);
 
-        let sender_tx = Transmitter {
+        let sender_tx = SessionTransmitter {
             slim_tx: sender_tx_slim,
             app_tx: sender_tx_app,
             interceptors: Arc::new(RwLock::new(Vec::new())),
@@ -1675,7 +1679,7 @@ mod tests {
         let (receiver_tx_slim, mut receiver_rx_slim) = tokio::sync::mpsc::channel(1);
         let (receiver_tx_app, mut receiver_rx_app) = tokio::sync::mpsc::channel(1);
 
-        let receiver_tx = Transmitter {
+        let receiver_tx = SessionTransmitter {
             slim_tx: receiver_tx_slim,
             app_tx: receiver_tx_app,
             interceptors: Arc::new(RwLock::new(Vec::new())),
@@ -1691,6 +1695,7 @@ mod tests {
                 max_retries: Some(5),
                 unicast: true,
                 mls_enabled,
+                remote: None,
                 initiator: true,
             },
             local.clone(),
@@ -1707,6 +1712,7 @@ mod tests {
                 max_retries: Some(5),
                 unicast: false,
                 mls_enabled,
+                remote: None,
                 initiator: false,
             },
             remote.clone(),
@@ -1736,10 +1742,7 @@ mod tests {
 
         // Send the message
         sender_session
-            .on_message(
-                SessionMessage::from(message.clone()),
-                MessageDirection::South,
-            )
+            .on_message(message.clone(), MessageDirection::South)
             .await
             .expect("failed to send message");
 
@@ -1778,10 +1781,7 @@ mod tests {
 
         // Pass discovery reply message to the sender session
         sender_session
-            .on_message(
-                SessionMessage::from(discovery_reply),
-                MessageDirection::North,
-            )
+            .on_message(discovery_reply, MessageDirection::North)
             .await
             .expect("failed to handle discovery reply");
 
@@ -1819,7 +1819,7 @@ mod tests {
 
         // Pass the channel join request message to the receiver session
         receiver_session
-            .on_message(SessionMessage::from(msg.clone()), MessageDirection::North)
+            .on_message(msg.clone(), MessageDirection::North)
             .await
             .expect("failed to handle channel join request");
 
@@ -1849,9 +1849,16 @@ mod tests {
         // Pass the channel join reply message to the sender session
         msg.set_incoming_conn(Some(0));
         sender_session
-            .on_message(SessionMessage::from(msg), MessageDirection::North)
+            .on_message(msg, MessageDirection::North)
             .await
             .expect("failed to handle channel join reply");
+
+        // wait one moment
+        tokio::time::sleep(Duration::from_millis(100)).await;
+
+        // After channel join reply only the sender (initiator, sticky) should have dst set
+        assert_eq!(sender_session.dst(), Some(remote.clone()));
+        assert_eq!(receiver_session.dst(), Some(local.clone()));
 
         // Check the payload
         if mls_enabled {
@@ -1876,7 +1883,7 @@ mod tests {
 
             // Pass the MlsWelcome message to the receiver session
             receiver_session
-                .on_message(SessionMessage::from(msg), MessageDirection::North)
+                .on_message(msg, MessageDirection::North)
                 .await
                 .expect("failed to handle mls welcome");
 
@@ -1898,7 +1905,7 @@ mod tests {
             // Send the ack to the sender session
             msg.set_incoming_conn(Some(0));
             sender_session
-                .on_message(SessionMessage::from(msg), MessageDirection::North)
+                .on_message(msg, MessageDirection::North)
                 .await
                 .expect("failed to handle mls ack");
 
@@ -1929,7 +1936,7 @@ mod tests {
             // Pass message to the receiver session
             msg.set_incoming_conn(Some(0));
             receiver_session
-                .on_message(SessionMessage::from(msg), MessageDirection::North)
+                .on_message(msg, MessageDirection::North)
                 .await
                 .expect("failed to handle message");
 
@@ -1939,9 +1946,7 @@ mod tests {
                 .await
                 .expect("no message received")
                 .expect("error");
-
-            // Check that the payload is decrypted
-            assert_eq!(msg.message.get_payload(), message.get_payload());
+            assert_eq!(msg.get_payload(), message.get_payload());
         } else {
             // The sender session should now send the original message to the receiver
             let mut msg = sender_rx_slim

@@ -29,6 +29,8 @@ pub enum ServiceError {
     ReceiveError(String),
     #[error("session not found: {0}")]
     SessionNotFound(String),
+    #[error("to be able to call invite/remove, session must be multicast: {0}")]
+    SessionMustBeMulticast(String),
     #[error("error in session: {0}")]
     SessionError(String),
     #[error("client already connected: {0}")]

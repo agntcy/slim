@@ -4,6 +4,7 @@
 package integration
 
 import (
+	"fmt"
 	"os/exec"
 	"time"
 
@@ -45,20 +46,7 @@ var _ = Describe("Routing", func() {
 		// wait for SLIM instances to start
 		time.Sleep(2000 * time.Millisecond)
 
-		// add routes
-		Expect(exec.Command(slimctlPath,
-			"route", "add", "org/default/b/0",
-			"via", "./testdata/client-b-config-data.json",
-			"-s", "127.0.0.1:50051",
-			"-n", "slim/a",
-		).Run()).To(Succeed())
-
-		Expect(exec.Command(slimctlPath,
-			"route", "add", "org/default/a/0",
-			"via", "./testdata/client-a-config-data.json",
-			"-s", "127.0.0.1:50051",
-			"-n", "slim/b",
-		).Run()).To(Succeed())
+		// no need to add routes, they will be created dynamically by the control plane
 	})
 
 	AfterEach(func() {
@@ -115,9 +103,6 @@ var _ = Describe("Routing", func() {
 			Eventually(clientASession.Out, 5*time.Second).
 				Should(gbytes.Say(`received message: hello from the b`))
 
-		})
-
-		It("should have the valid routes and connections", func() {
 			// test listing routes for node a
 			routeListOutA, err := exec.Command(
 				slimctlPath,
@@ -128,6 +113,7 @@ var _ = Describe("Routing", func() {
 			Expect(err).NotTo(HaveOccurred(), "slimctl route list failed: %s", string(routeListOutA))
 
 			routeListOutputA := string(routeListOutA)
+			fmt.Println("XXXXXX:" + routeListOutputA)
 			Expect(routeListOutputA).To(ContainSubstring("org/default/b"))
 
 			// test listing connections for node a
@@ -165,7 +151,9 @@ var _ = Describe("Routing", func() {
 
 			connectionOutputB := string(connectionListOutB)
 			Expect(connectionOutputB).To(ContainSubstring(":46357"))
+
 		})
+
 	})
 
 })

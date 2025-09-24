@@ -17,6 +17,9 @@ message Subscribe {
 
 message Unsubscribe {
   SLIMHeader header = 1;
+  string component_0 = 2;
+  string component_1 = 3;
+  string component_2 = 4;
 }
 
 message Publish {

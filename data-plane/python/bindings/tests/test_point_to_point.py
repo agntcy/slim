@@ -17,6 +17,9 @@ async def test_sticky_session(server, mls_enabled):
     sender_name = slim_bindings.PyName("org", "default", "sender")
     receiver_name = slim_bindings.PyName("org", "default", "receiver")
 
+    print(f"Sender name: {sender_name}")
+    print(f"Receiver name: {receiver_name}")
+
     # create new slim object
     sender = await create_slim(sender_name, "secret")
 
@@ -30,35 +33,29 @@ async def test_sticky_session(server, mls_enabled):
 
     receiver_counts = {i: 0 for i in range(10)}
 
-    # run 10 receivers concurrently
     async def run_receiver(i: int):
-        # create new receiver object
         receiver = await create_slim(receiver_name, "secret")
-
         # Connect to the service and subscribe for the local name
         _ = await receiver.connect(
-            {"endpoint": "http://127.0.1:22345", "tls": {"insecure": True}}
+            {"endpoint": "http://127.0.0.1:22345", "tls": {"insecure": True}}
         )
 
-        async with receiver:
-            # wait for a new session
-            session_info_rec, _ = await receiver.receive()
+        session = await receiver.listen_for_session()
+        while True:
+            try:
+                _ctx, _ = await session.get_message()
+            except Exception as e:
+                print(f"Receiver {i} error: {e}")
+                break
 
-            print(f"Receiver {i} received session: {session_info_rec.id}")
+            if (
+                _ctx.destination_name.equal_without_id(receiver_name)
+                and _ctx.payload_type == "hello message"
+                and _ctx.metadata.get("sender") == "hello"
+            ):
+                # store the count in dictionary
+                receiver_counts[i] += 1
 
-            # new session received! listen for the message
-            while True:
-                info, _ = await receiver.receive(session=session_info_rec.id)
-
-                if (
-                    info.destination_name.equal_without_id(receiver_name)
-                    and info.payload_type == "hello message"
-                    and info.metadata.get("sender") == "hello"
-                ):
-                    # store the count in dictionary
-                    receiver_counts[i] += 1
-
-    # run 10 receivers concurrently
     tasks = []
     for i in range(10):
         t = asyncio.create_task(run_receiver(i))
@@ -66,7 +63,7 @@ async def test_sticky_session(server, mls_enabled):
         await asyncio.sleep(0.1)
 
     # create a new session
-    session_info = await sender.create_session(
+    sender_session = await sender.create_session(
         slim_bindings.PySessionConfiguration.Unicast(
             max_retries=5,
             timeout=datetime.timedelta(seconds=5),
@@ -81,9 +78,12 @@ async def test_sticky_session(server, mls_enabled):
     metadata = {"sender": "hello"}
 
     # send a message to the receiver
-    for i in range(1000):
-        await sender.publish(
-            session_info, b"Hello from sender", receiver_name, payload_type, metadata
+    for _ in range(1000):
+        await sender_session.publish(
+            b"Hello from sender",
+            receiver_name,
+            payload_type=payload_type,
+            metadata=metadata,
         )
 
     # Wait for all receivers to finish
@@ -91,8 +91,10 @@ async def test_sticky_session(server, mls_enabled):
 
     # As we setup a sticky session, all the message should be received by only one
     # receiver. Check that the count is 1000 for one of the receivers
+    # Expect all sent messages go to exactly one receiver due to stickiness
+    assert sum(receiver_counts.values()) == 1000
     assert 1000 in receiver_counts.values()
 
     # Kill all tasks
-    for task in tasks:
-        task.cancel()
+    for t in tasks:
+        t.cancel()
