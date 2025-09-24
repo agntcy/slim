@@ -20,12 +20,12 @@ tasks:
 
   cluster:up:
     desc: Start a local Kubernetes cluster using Kind
-    cmd: kind create cluster --name slim-cluster --config slim-cluster-a.yaml
+    cmd: kind create cluster --name slim-cluster --config slim-cluster.yaml
 
   cluster:down:
     desc: Delete the local Kubernetes cluster
     cmd: kind delete cluster --name slim-cluster
-  
+
   cluster:use-context:
     desc: Set the current kubectl context to kind-slim-cluster
     deps:
