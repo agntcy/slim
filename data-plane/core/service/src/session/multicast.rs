@@ -295,6 +295,7 @@ where
         let tx = self.common.tx();
         let source = self.common.source().clone();
         let id = self.common.id();
+        let session_metadata = self.common.metadata();
         tokio::spawn(async move {
             debug!("starting message processing on session {}", session_id);
 
@@ -324,6 +325,7 @@ where
                         Duration::from_secs(1),
                         mls,
                         tx.clone(),
+                        session_metadata.clone(),
                     );
                     ChannelEndpoint::ChannelModerator(cm)
                 }
@@ -337,6 +339,7 @@ where
                         Duration::from_secs(1),
                         mls,
                         tx.clone(),
+                        session_metadata.clone(),
                     );
                     ChannelEndpoint::ChannelParticipant(cp)
                 }
@@ -489,6 +492,18 @@ where
 
     pub fn with_dst<R>(&self, f: impl FnOnce(Option<&Name>) -> R) -> R {
         self.common.with_dst(f)
+    }
+
+    pub fn metadata(&self) -> std::sync::Arc<RwLock<HashMap<String, String>>> {
+        self.common.metadata()
+    }
+
+    pub fn set_metadata_map(&self, map: HashMap<String, String>) {
+        self.common.set_metadata_map(map);
+    }
+
+    pub fn insert_metadata(&self, k: String, v: String) {
+        self.common.insert_metadata(k, v);
     }
 }
 

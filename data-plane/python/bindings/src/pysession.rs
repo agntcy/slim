@@ -68,8 +68,18 @@ impl PySessionContext {
     }
 
     #[getter]
-    pub fn metadata(&self) -> &HashMap<String, String> {
-        &self.internal.metadata
+    pub fn metadata(&self) -> PyResult<HashMap<String, String>> {
+        let session = self.internal.session.upgrade().ok_or_else(|| {
+            PyErr::new::<PyException, _>(
+                SessionError::SessionClosed("session already closed".to_string()).to_string(),
+            )
+        })?;
+        Ok(session.metadata())
+    }
+
+    #[getter]
+    pub fn received_metadata(&self) -> HashMap<String, String> {
+        self.internal.metadata.clone()
     }
 
     pub fn set_session_config(&self, config: PySessionConfiguration) -> PyResult<()> {
@@ -91,6 +101,26 @@ impl PySessionContext {
             )
         })?;
         Ok(session.session_config().into())
+    }
+
+    pub fn set_metadata(&self, metadata: HashMap<String, String>) -> PyResult<()> {
+        let session = self.internal.session.upgrade().ok_or_else(|| {
+            PyErr::new::<PyException, _>(
+                SessionError::SessionClosed("session already closed".to_string()).to_string(),
+            )
+        })?;
+        session.set_metadata_map(metadata);
+        Ok(())
+    }
+
+    pub fn insert_metadata(&self, key: String, value: String) -> PyResult<()> {
+        let session = self.internal.session.upgrade().ok_or_else(|| {
+            PyErr::new::<PyException, _>(
+                SessionError::SessionClosed("session already closed".to_string()).to_string(),
+            )
+        })?;
+        session.insert_metadata(key, value);
+        Ok(())
     }
 }
 

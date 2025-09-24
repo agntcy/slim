@@ -11,7 +11,7 @@ use std::{
 // Third-party crates
 use async_trait::async_trait;
 use bincode::{Decode, Encode};
-use parking_lot::Mutex;
+use parking_lot::{Mutex, RwLock};
 use tracing::{debug, error, trace};
 
 use slim_auth::traits::{TokenProvider, Verifier};
@@ -545,6 +545,9 @@ where
 
     /// transmitter to send messages to the local SLIM instance and to the application
     tx: T,
+
+    /// session-level metadata (shared with parent session)
+    session_metadata: Arc<RwLock<HashMap<String, String>>>,
 }
 
 impl<T> Endpoint<T>
@@ -562,6 +565,7 @@ where
         max_retries: u32,
         retries_interval: Duration,
         tx: T,
+        session_metadata: Arc<RwLock<HashMap<String, String>>>,
     ) -> Self {
         Endpoint {
             name,
@@ -573,6 +577,7 @@ where
             max_retries,
             retries_interval,
             tx,
+            session_metadata,
         }
     }
 
@@ -756,6 +761,7 @@ where
         retries_interval: Duration,
         mls: Option<MlsState<P, V>>,
         tx: T,
+        session_metadata: Arc<RwLock<HashMap<String, String>>>,
     ) -> Self {
         let endpoint = Endpoint::new(
             name,
@@ -765,6 +771,7 @@ where
             max_retries,
             retries_interval,
             tx,
+            session_metadata,
         );
         ChannelParticipant {
             moderator_name: None,
@@ -1146,6 +1153,7 @@ where
         retries_interval: Duration,
         mls: Option<MlsState<P, V>>,
         tx: T,
+        session_metadata: Arc<RwLock<HashMap<String, String>>>,
     ) -> Self {
         let p = JoinMessagePayload::new(channel_name.clone(), name.clone());
         let invite_payload: Vec<u8> = bincode::encode_to_vec(p, bincode::config::standard())
@@ -1161,6 +1169,7 @@ where
             max_retries,
             retries_interval,
             tx,
+            session_metadata,
         );
         ChannelModerator {
             endpoint,
@@ -1365,6 +1374,15 @@ where
             debug!("Reply with the join request, MLS is enabled");
         } else {
             debug!("Reply with the join request, MLS is disabled");
+        }
+
+        // Merge session-level metadata (do not override existing keys)
+        if !self.endpoint.session_metadata.read().is_empty() {
+            for (k, v) in self.endpoint.session_metadata.read().iter() {
+                if !join.contains_metadata(k) {
+                    join.insert_metadata(k.clone(), v.clone());
+                }
+            }
         }
 
         // add a new timer for the join message
@@ -1967,6 +1985,7 @@ mod tests {
             Duration::from_millis(100),
             Some(moderator_mls),
             moderator_tx,
+            Arc::new(RwLock::new(HashMap::new())),
         );
         let mut cp = ChannelParticipant::new(
             participant.clone(),
@@ -1977,6 +1996,7 @@ mod tests {
             Duration::from_millis(100),
             Some(participant_mls),
             participant_tx,
+            Arc::new(RwLock::new(HashMap::new())),
         );
 
         // create a discovery request
