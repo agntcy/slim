@@ -123,7 +123,7 @@ async def test_session_config(server):
     session_context = await slim_bindings.create_session(svc, session_config)
 
     # get per-session configuration via new API (synchronous method)
-    session_config_ret = session_context.get_session_config()
+    session_config_ret = session_context.session_config
 
     assert isinstance(session_config_ret, slim_bindings.PySessionConfiguration.Anycast)
     assert session_config == session_config_ret, (
@@ -177,7 +177,7 @@ async def test_session_config(server):
 
     # Local service should receive a new session notification
     received_session_ctx = await slim_bindings.listen_for_session(svc)
-    received_config = received_session_ctx.get_session_config()
+    received_config = received_session_ctx.session_config
 
     # Assert that the received session uses the default we set (session_config2)
     assert received_config == session_config2, (
@@ -233,6 +233,15 @@ async def test_slim_wrapper(server):
     # wait for a new session
     session_context_rec = await slim1.listen_for_session()
     msg_ctx, msg_rcv = await session_context_rec.get_message()
+
+    # make sure the received session is anycast as well
+    assert session_context_rec.session_type == slim_bindings.PySessionType.ANYCAST
+
+    # Make sure the dst of the session is None (anycast)
+    assert session_context_rec.dst is None
+
+    # Make sure the source is correct
+    assert session_context_rec.src == slim1.local_name
 
     # check if the message is correct
     assert msg_rcv == bytes(msg)

@@ -51,10 +51,6 @@ class Slim:
         # Initialize service
         self._svc = svc
 
-        # Save local names
-        name.id = svc.id
-        self.local_name = name
-
         # Create connection ID map
         self.conn_ids: dict[str, int] = {}
 
@@ -85,18 +81,13 @@ class Slim:
             name,
         )
 
-    def get_id(self) -> int:
-        """
-        Get the ID of the app.
-
-        Args:
-            None
-
-        Returns:
-            int: The ID of the app.
-        """
-
+    @property
+    def id(self) -> int:
         return self._svc.id
+
+    @property
+    def local_name(self) -> PyName:
+        return self._svc.name
 
     async def create_session(
         self,
@@ -197,7 +188,7 @@ class Slim:
         self.conn_id = conn_id
 
         # Subscribe to the local name
-        await subscribe(self._svc, conn_id, self.local_name)
+        await subscribe(self._svc, conn_id, self._svc.name)
 
         # return the connection ID
         return conn_id

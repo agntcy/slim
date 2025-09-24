@@ -45,7 +45,6 @@ async def test_multicast(server, mls_enabled):  # noqa: C901
             session = await participant.create_session(
                 slim_bindings.PySessionConfiguration.Multicast(
                     topic=chat_name,
-                    moderator=True,
                     max_retries=5,
                     timeout=datetime.timedelta(seconds=5),
                     mls_enabled=mls_enabled,
@@ -95,6 +94,19 @@ async def test_multicast(server, mls_enabled):  # noqa: C901
                 else:
                     if first_message:
                         recv_session = await participant.listen_for_session()
+
+                        # make sure the received session is unicast
+                        assert (
+                            recv_session.session_type
+                            == slim_bindings.PySessionType.MULTICAST
+                        )
+
+                        # Make sure the dst of the session is the channel name
+                        assert recv_session.dst == chat_name
+
+                        # Make sure the first 3 components of the source belong to participant 0
+                        assert recv_session.src == participant.local_name
+
                         first_message = False
 
                 # receive message from session
