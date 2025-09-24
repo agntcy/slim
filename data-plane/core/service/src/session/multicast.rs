@@ -47,6 +47,7 @@ pub struct MulticastConfiguration {
     pub timeout: std::time::Duration,
     pub mls_enabled: bool,
     pub(crate) initiator: bool,
+    pub metadata: HashMap<String, String>,
 }
 
 impl SessionConfigTrait for MulticastConfiguration {
@@ -72,6 +73,7 @@ impl Default for MulticastConfiguration {
             timeout: std::time::Duration::from_millis(1000),
             mls_enabled: false,
             initiator: true,
+            metadata: HashMap::new(),
         }
     }
 }
@@ -95,6 +97,7 @@ impl MulticastConfiguration {
         max_retries: Option<u32>,
         timeout: Option<std::time::Duration>,
         mls_enabled: bool,
+        metadata: HashMap<String, String>,
     ) -> Self {
         MulticastConfiguration {
             channel_name,
@@ -102,6 +105,7 @@ impl MulticastConfiguration {
             timeout: timeout.unwrap_or(std::time::Duration::from_millis(0)),
             mls_enabled,
             initiator: true,
+            metadata,
         }
     }
 
@@ -112,6 +116,7 @@ impl MulticastConfiguration {
         timeout: Option<std::time::Duration>,
         mls_enabled: bool,
         initiator: bool,
+        metadata: HashMap<String, String>,
     ) -> Self {
         Self {
             channel_name,
@@ -119,6 +124,7 @@ impl MulticastConfiguration {
             timeout: timeout.unwrap_or(std::time::Duration::from_millis(0)),
             mls_enabled,
             initiator,
+            metadata,
         }
     }
 }
@@ -340,6 +346,7 @@ where
                         Duration::from_secs(1),
                         mls,
                         tx.clone(),
+                        session_config.metadata.clone(),
                     );
                     ChannelEndpoint::ChannelModerator(cm)
                 }
@@ -353,6 +360,7 @@ where
                         Duration::from_secs(1),
                         mls,
                         tx.clone(),
+                        session_config.metadata.clone(),
                     );
                     ChannelEndpoint::ChannelParticipant(cp)
                 }
@@ -1053,8 +1061,14 @@ mod tests {
         let source = Name::from_strings(["agntcy", "ns", "local"]).with_id(0);
         let stream = Name::from_strings(["agntcy", "ns", "local_stream"]).with_id(0);
 
-        let session_config: MulticastConfiguration =
-            MulticastConfiguration::new_with_initiator(stream.clone(), None, None, false, false);
+        let session_config: MulticastConfiguration = MulticastConfiguration::new_with_initiator(
+            stream.clone(),
+            None,
+            None,
+            false,
+            false,
+            HashMap::new(),
+        );
 
         let session = Multicast::new(
             0,
@@ -1079,6 +1093,7 @@ mod tests {
             Some(Duration::from_millis(1000)),
             false,
             false,
+            HashMap::new(),
         );
 
         let session = Multicast::new(
@@ -1124,15 +1139,21 @@ mod tests {
         let recv = Name::from_strings(["cisco", "default", "receiver"]).with_id(0);
 
         let session_config_sender: MulticastConfiguration =
-            MulticastConfiguration::new_with_initiator(send.clone(), None, None, false, false);
-        let session_config_receiver: MulticastConfiguration =
             MulticastConfiguration::new_with_initiator(
                 send.clone(),
-                Some(5),
-                Some(Duration::from_millis(500)),
+                None,
+                None,
                 false,
                 false,
+                HashMap::new(),
             );
+        let session_config_receiver: MulticastConfiguration = MulticastConfiguration::new(
+            send.clone(),
+            Some(5),
+            Some(Duration::from_millis(500)),
+            false,
+            HashMap::new(),
+        );
 
         let sender = Multicast::new(
             0,
@@ -1212,6 +1233,7 @@ mod tests {
             Some(Duration::from_millis(500)),
             false,
             false,
+            HashMap::new(),
         );
 
         let session = Multicast::new(
@@ -1296,6 +1318,7 @@ mod tests {
             Some(Duration::from_millis(500)),
             false,
             false,
+            HashMap::new(),
         );
 
         let session = Multicast::new(
@@ -1400,16 +1423,22 @@ mod tests {
         let recv = Name::from_strings(["cisco", "default", "receiver"]).with_id(0);
 
         let session_config_sender: MulticastConfiguration =
-            MulticastConfiguration::new_with_initiator(recv.clone(), None, None, false, false);
-        let session_config_receiver: MulticastConfiguration =
             MulticastConfiguration::new_with_initiator(
                 recv.clone(),
-                Some(5),
-                Some(Duration::from_millis(100)), // keep the timer shorter with respect to the beacon one
-                // otherwise we don't know which message will be received first
+                None,
+                None,
                 false,
                 false,
+                HashMap::new(),
             );
+        let session_config_receiver: MulticastConfiguration = MulticastConfiguration::new(
+            recv.clone(),
+            Some(5),
+            Some(Duration::from_millis(100)), // keep the timer shorter with respect to the beacon one
+            // otherwise we don't know which message will be received first
+            false,
+            HashMap::new(),
+        );
 
         let sender = Multicast::new(
             0,
@@ -1611,8 +1640,14 @@ mod tests {
         let source = Name::from_strings(["agntcy", "ns", "local"]).with_id(0);
         let stream = Name::from_strings(["agntcy", "ns", "stream"]);
 
-        let session_config: MulticastConfiguration =
-            MulticastConfiguration::new_with_initiator(stream, None, None, false, false);
+        let session_config: MulticastConfiguration = MulticastConfiguration::new_with_initiator(
+            stream,
+            None,
+            None,
+            false,
+            false,
+            HashMap::new(),
+        );
 
         {
             let _session = Multicast::new(

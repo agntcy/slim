@@ -1,7 +1,7 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
-use std::time::Duration;
+use std::{collections::HashMap, time::Duration};
 
 use clap::Parser;
 use slim::config;
@@ -213,6 +213,7 @@ async fn main() {
                     Some(10),
                     Some(Duration::from_secs(1)),
                     msl_enabled,
+                    HashMap::new(),
                 )),
                 Some(12345),
             )
@@ -234,7 +235,7 @@ async fn main() {
 
         let session_arc = session_ctx.session_arc().unwrap();
         // listen for messages
-        session_ctx.spawn_receiver(move |mut rx, _weak, _meta| async move {
+        session_ctx.spawn_receiver(move |mut rx, _weak| async move {
             loop {
                 match rx.recv().await {
                     None => {
@@ -302,7 +303,7 @@ async fn main() {
                             let moderator_clone = moderator.clone();
                             let channel_name_clone = channel_name.clone();
                             let msg_payload_str_clone = msg_payload_str.clone();
-                            session_ctx.spawn_receiver(move |mut rx, weak, _meta| async move {
+                            session_ctx.spawn_receiver(move |mut rx, weak| async move {
                                 loop {
                                     match rx.recv().await {
                                         None => {
