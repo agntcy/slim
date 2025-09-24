@@ -86,7 +86,7 @@ class Slim:
         return self._svc.id
 
     @property
-    def local_name(self) -> int:
+    def local_name(self) -> PyName:
         return self._svc.name
 
     async def create_session(
