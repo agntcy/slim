@@ -167,7 +167,7 @@ where
     unicast_connection: Option<u64>,
     unicast_session_status: UnicastSessionStatus,
     unicast_buffer: VecDeque<Message>,
-    sender_state: SenderState,     // send packets with sequencial ids
+    sender_state: SenderState,     // send packets with sequential ids
     receiver_state: ReceiverState, // to be used only in case of unicast session
     channel_endpoint: ChannelEndpoint<P, V, T>,
 }
@@ -919,7 +919,7 @@ where
     async fn send_message_to_app(&mut self, message: SessionMessage) -> Result<(), SessionError> {
         // if the session is not reliable or is not unicast we can accept holes in the
         // sequence of the received messages and so we send this packets to the application
-        // immediatly without reordering. notice that an anycast reliable session is possible
+        // immediately without reordering. notice that an anycast reliable session is possible
         // and the packet are re-send by the sender if acks are not received
         if message.message.get_session_message_type() == ProtoSessionMessageType::P2PMsg
             || (!self.state.config.mls_enabled && !self.state.config.unicast)
@@ -1660,11 +1660,6 @@ mod tests {
 
         // sleep for a bit to let the session drop
         tokio::time::sleep(Duration::from_millis(1000)).await;
-
-        // // check that the session is closed
-        // assert!(logs_contain(
-        //     "point to point channel closed, exiting processor loop"
-        // ));
     }
 
     async fn template_test_point_to_point_unicast_session(mls_enabled: bool) {

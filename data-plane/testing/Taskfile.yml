@@ -102,6 +102,7 @@ tasks:
     cmds:
       - |
         cargo run --release --bin test-p2p -- --mls-disabled
-        cargo run --release --bin test-p2p -- --mls-disabled --is-sticky
-        cargo run --release --bin test-p2p -- --is-sticky
+        cargo run --release --bin test-p2p -- --mls-disabled --is-reliable
+        cargo run --release --bin test-p2p -- --mls-disabled --is-unicast
+        cargo run --release --bin test-p2p -- --is-unicast
 

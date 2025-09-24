@@ -403,6 +403,7 @@ where
                         }
 
                         conf.mls_enabled = message.message.contains_metadata(METADATA_MLS_ENABLED);
+                        conf.unicast = true;
 
                         self.create_session(SessionConfig::PointToPoint(conf), Some(id))
                             .await?

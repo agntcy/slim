@@ -57,11 +57,11 @@ pub struct Args {
     #[arg(
         short,
         long,
-        value_name = "RUN_SLIM",
+        value_name = "SLIM_DISABLED",
         required = false,
-        default_value_t = true
+        default_value_t = false
     )]
-    run_slim: bool,
+    slim_disabled: bool,
 
     /// Apps to run.
     #[arg(
@@ -87,8 +87,8 @@ impl Args {
         &self.is_reliable
     }
 
-    pub fn run_slim(&self) -> &bool {
-        &self.run_slim
+    pub fn slim_disabled(&self) -> &bool {
+        &self.slim_disabled
     }
 
     pub fn apps(&self) -> &u32 {
@@ -221,17 +221,16 @@ async fn run_client_task(name: Name) -> Result<(), String> {
                                             // received corrupted message from the moderator
                                             continue;
                                         }
-
-                                        println!("recevied message {}", msg.message.get_session_header().get_message_id());
                                         // reply with the same payload to be sure that is was
                                         // decoded correctly in case of MLS
-                                        //let payload = val.into_bytes().to_vec();
-                                        //if app.publish_to(msg.info, &publisher, conn, payload, None, None)
-                                        //    .await
-                                        //    .is_err()
-                                        //{
-                                        //    panic!("an error occurred sending publication from moderator");
-                                        //}
+                                        println!("received message {} on app {}", msg.message.get_session_header().get_message_id(), name);
+                                        let payload = val.into_bytes().to_vec();
+                                        if app.publish_to(msg.info, &publisher, conn, payload, None, None)
+                                            .await
+                                            .is_err()
+                                        {
+                                            panic!("an error occurred sending publication from moderator");
+                                        }
                                     },
                                     Err(e) => {
                                         println!("Participant {}: error parsing message: {}", name, e);
@@ -258,17 +257,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = Args::parse();
     let msl_enabled = !*args.mls_disabled();
     let is_unicast = *args.is_unicast();
-    let is_reliable = *args.is_reliable();
-    let run_slim = *args.run_slim();
+    let mut is_reliable = *args.is_reliable();
+    let slim_disabled = *args.slim_disabled();
     let apps = *args.apps();
 
+    if is_unicast {
+        // if unicast is also reliable
+        is_reliable = true;
+    }
+
     println!(
-        "run test with MLS = {}, unicast session = {} and reliable session = {}",
-        msl_enabled, is_unicast, is_reliable,
+        "run test with MLS = {}, unicast session = {} and reliable session = {}, number of apps = {}, SLIM on = {}",
+        msl_enabled, is_unicast, is_reliable, apps, !slim_disabled,
     );
 
     // start slim node
-    if run_slim {
+    if !slim_disabled {
         tokio::spawn(async move {
             let _ = run_slim_node().await;
         });
@@ -351,7 +355,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .expect("an error occurred while adding a route");
     }
 
-    tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
+    tokio::time::sleep(tokio::time::Duration::from_millis(10000)).await;
 
     // listen for messages
     let max_packets = 50;
@@ -414,15 +418,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             panic!("an error occurred sending publication from moderator",);
         }
 
-        tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
     }
+
+    tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
 
     // the total number of packets received must be max_packets
     let mut sum = 0;
     // if unicast we must see a single sendere
     let mut found_sender = false;
-    for (c, n) in recv_msgs.read().iter() {
-        println!("received {} messages from {}", *n, c);
+    for (_c, n) in recv_msgs.read().iter() {
         sum += *n;
         if is_unicast && found_sender && *n != 0 {
             println!(
