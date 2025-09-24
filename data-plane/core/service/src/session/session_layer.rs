@@ -379,7 +379,7 @@ where
                         let mut conf = self.default_p2p_conf.read().clone();
                         conf.initiator = false;
 
-                        // TODO (micpapal): this timer should be part of the session context 
+                        // TODO (micpapal): this timer should be part of the session context
                         // to be added in the JoinRequest
                         if conf.timeout.is_none() {
                             conf.timeout = Some(std::time::Duration::from_secs(5));
