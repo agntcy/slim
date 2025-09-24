@@ -20,14 +20,9 @@ tasks:
       # Start cloud provider for LoadBalancer support
       - |
         echo "Starting Kind cloud provider for LoadBalancer support..."
-        go run sigs.k8s.io/cloud-provider-kind@latest > /dev/null 2>&1 &
+        go run sigs.k8s.io/cloud-provider-kind@latest &
         echo "Cloud provider started in background"
       - kind create cluster --name slim-cluster-b      
-      # Start cloud provider for LoadBalancer support
-      - |
-        echo "Starting Kind cloud provider for LoadBalancer support..."
-        go run sigs.k8s.io/cloud-provider-kind@latest > /dev/null 2>&1 &
-        echo "Cloud provider started in background"      
 
   multi-cluster:down:
     desc: Delete the local Kubernetes cluster
