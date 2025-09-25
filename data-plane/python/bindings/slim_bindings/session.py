@@ -90,6 +90,10 @@ class PySession:
         """Return the destination name if UNICAST/MULTICAST, otherwise None."""
         return self._ctx.dst
 
+    @property
+    def destination_name(self) -> PyName | None:
+        return self._ctx.destination_name
+
     def set_session_config(self, config: PySessionConfiguration) -> None:
         """Replace the current session configuration.
 
@@ -105,25 +109,63 @@ class PySession:
     async def publish(
         self,
         msg: bytes,
+        payload_type: str | None = None,
+        metadata: dict | None = None,
+    ) -> None:
+        """
+        Publish a message on the current session.
+
+        Args:
+            msg (bytes): The message payload to publish.
+            payload_type (str, optional): The type of the payload, if applicable.
+            metadata (dict, optional): Additional metadata to include with the
+                message.
+
+        Returns:
+            None
+        """
+
+        if self._ctx.session_type == PySessionType.ANYCAST:
+            raise RuntimeError("unexpected session type: expected UNICAST or MULTICAST")
+
+        dst = self.destination_name
+
+        await _publish(
+            self._svc,
+            self._ctx,
+            1,
+            msg,
+            message_ctx=None,
+            name=dst,
+            payload_type=payload_type,
+            metadata=metadata,
+        )
+
+    async def publish_with_destination(
+        self,
+        msg: bytes,
         dest: PyName,
         payload_type: str | None = None,
         metadata: dict | None = None,
     ) -> None:
-        """Publish a message to the specified destination within this session.
-
-        For point-to-point (unicast/anycast) sessions, the destination must
-        be a valid peer/application name. For multicast sessions the `dest`
-        is typically the multicast topic/channel.
+        """
+        Publish a message with a destination name on an existing session.
+        This is possible only on Anycast sessions. The function returns an error
+        in other cases.
 
         Args:
-            msg: Raw bytes payload to send.
-            dest: Destination `PyName` (app/channel).
-            payload_type: Optional content-type or type discriminator string.
-            metadata: Optional per-message metadata (string->string mapping).
+            msg (bytes): The message payload to publish.
+            dest (PyName): The destination name for the message.
+            payload_type (str, optional): The type of the payload, if applicable.
+            metadata (dict, optional): Additional metadata to include with the
+                message.
 
-        Raises:
-            RuntimeError (wrapped) if sending fails or the session is closed.
+        Returns:
+            None
         """
+        if self._ctx.session_type != PySessionType.ANYCAST:
+            raise RuntimeError("unexpected session type: expected ANYCAST")
+
         await _publish(
             self._svc,
             self._ctx,

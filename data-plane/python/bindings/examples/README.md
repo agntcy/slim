@@ -207,7 +207,7 @@ The helper script below provisions a KIND cluster and configures a local registr
 curl -L https://kind.sigs.k8s.io/examples/kind-with-registry.sh | sh
 ```
 
-
+### Install SPIRE (server + CRDs + agents)
 
 ```bash
 helm upgrade --install -n spire-server spire-crds spire-crds --repo https://spiffe.github.io/helm-charts-hardened/ --create-namespace

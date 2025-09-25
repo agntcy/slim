@@ -62,7 +62,7 @@ tasks:
       EXTRA_ARGS: '{{.EXTRA_ARGS | default ""}}'
 
   python:example:p2p:unicast:mls:bob:
-    desc: "Unicast Point to Point example - Bob will send unencrypted messages to Alice"
+    desc: "Unicast Point to Point example - Bob will send encrypted messages to Alice"
     env:
       SLIM_INSTANCE_ID: bob
     cmds:

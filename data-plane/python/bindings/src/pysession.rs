@@ -149,6 +149,21 @@ impl PySessionContext {
         Ok(session.session_config().into())
     }
 
+    #[getter]
+    pub fn destination_name(&self) -> PyResult<Option<PyName>> {
+        let session = strong_session(&self.internal.session)?;
+        let session_config = session.session_config();
+
+        let name_opt = match session_config {
+            session::SessionConfig::PointToPoint(cfg) => {
+                cfg.unicast_name.as_ref().map(|n| n.clone().into())
+            } // None if Anycast
+            session::SessionConfig::Multicast(cfg) => Some(cfg.channel_name.clone().into()),
+        };
+
+        Ok(name_opt)
+    }
+
     /// Replace the underlying session configuration with a new one.
     ///
     /// Safety/Consistency:
@@ -275,10 +290,9 @@ pub(crate) enum PySessionConfiguration {
         mls_enabled: bool,
     },
 
-    /// Point-to-point configuration with a single explicit destination.
-    #[pyo3(constructor = (timeout=None, max_retries=None, mls_enabled=false, metadata=HashMap::new()))]
+    #[pyo3(constructor = (unicast_name, timeout=None, max_retries=None, mls_enabled=false, metadata=HashMap::new()))]
     Unicast {
-        /// Optional overall timeout for operations.
+        unicast_name: PyName,
         timeout: Option<std::time::Duration>,
         /// Optional maximum retry attempts.
         max_retries: Option<u32>,
@@ -308,8 +322,9 @@ impl From<session::SessionConfig> for PySessionConfiguration {
     fn from(session_config: session::SessionConfig) -> Self {
         match session_config {
             session::SessionConfig::PointToPoint(config) => {
-                if config.unicast {
+                if config.unicast_name.is_some() {
                     PySessionConfiguration::Unicast {
+                        unicast_name: config.unicast_name.unwrap().into(),
                         timeout: config.timeout,
                         max_retries: config.max_retries,
                         mls_enabled: config.mls_enabled,
@@ -344,11 +359,12 @@ impl From<PySessionConfiguration> for session::SessionConfig {
             } => session::SessionConfig::PointToPoint(PointToPointConfiguration::new(
                 timeout,
                 max_retries,
-                false,
                 mls_enabled,
-                HashMap::new(),
+                None,
+                metadata,
             )),
             PySessionConfiguration::Unicast {
+                unicast_name,
                 timeout,
                 max_retries,
                 mls_enabled,
@@ -356,8 +372,8 @@ impl From<PySessionConfiguration> for session::SessionConfig {
             } => session::SessionConfig::PointToPoint(PointToPointConfiguration::new(
                 timeout,
                 max_retries,
-                true,
                 mls_enabled,
+                Some(unicast_name.into()),
                 metadata,
             )),
             PySessionConfiguration::Multicast {

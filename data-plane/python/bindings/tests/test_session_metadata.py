@@ -70,12 +70,11 @@ async def test_session_metadata_merge_roundtrip(server):
     # Metadata we want to propagate with the session creation
     metadata = {"a": "1", "k": "session"}
 
-    # Create a Unicast session with the metadata
-    sess_cfg = PySessionConfiguration.Unicast(metadata=metadata)
+    # Create unicast session
+    sess_cfg = PySessionConfiguration.Unicast(receiver_name, metadata=metadata)
     session_sender = await sender.create_session(sess_cfg)
 
-    # Publish an initial message to cause the receiver to observe / accept the session
-    await session_sender.publish(b"hello", receiver_name)
+    await session_sender.publish(b"hello")
 
     # Receiver obtains the new session context
     session_receiver = await receiver.listen_for_session()

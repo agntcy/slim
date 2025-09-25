@@ -168,7 +168,7 @@ async def run_client(
                 if user_input.strip().lower() in ("exit", "quit"):
                     break
                 try:
-                    await created_session.publish(user_input.encode(), chat_channel)
+                    await created_session.publish(user_input.encode())
                 except Exception as e:
                     format_message_print(local, f"-> Error sending message: {e}")
 

@@ -211,7 +211,7 @@ class Slim:
             None
         """
 
-        await set_default_session_config(self._svc, session_config)
+        set_default_session_config(self._svc, session_config)
 
     async def run_server(self, config: dict):
         """

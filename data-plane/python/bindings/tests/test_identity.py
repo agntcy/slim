@@ -186,8 +186,8 @@ async def test_identity_verification(server, audience):
         # send a request and expect a response in slim2
         if audience == test_audience:
             # As audience matches, we expect a successful request/reply
-            await session_info.publish(pub_msg, receiver_name)  # Send request
-            _ctx2, message = await session_info.get_message()  # Await reply
+            await session_info.publish_with_destination(pub_msg, receiver_name)
+            _ctx2, message = await session_info.get_message()
 
             # check if the message is correct
             assert message == bytes(res_msg)
@@ -198,9 +198,7 @@ async def test_identity_verification(server, audience):
             # expect an exception due to audience mismatch
             with pytest.raises(asyncio.TimeoutError):
                 # As audience matches, we expect a successful request/reply
-                await session_info.publish(
-                    pub_msg, receiver_name
-                )  # Attempt publish (expected mismatch)
+                await session_info.publish_with_destination(pub_msg, receiver_name)
                 await asyncio.wait_for(session_info.get_message(), timeout=3.0)
 
             # cancel the background task

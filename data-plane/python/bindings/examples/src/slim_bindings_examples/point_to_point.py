@@ -110,10 +110,11 @@ async def run_client(
         if unicast or enable_mls:
             session = await local_app.create_session(
                 slim_bindings.PySessionConfiguration.Unicast(  # type: ignore
+                    unicast_name=remote_name,
                     max_retries=5,
                     timeout=datetime.timedelta(seconds=5),
                     mls_enabled=enable_mls,
-                )
+                ),
             )
         else:
             session = await local_app.create_session(
@@ -123,8 +124,12 @@ async def run_client(
         # Iterate send->receive cycles.
         for i in range(iterations):
             try:
-                # Publish request payload (encoded to bytes).
-                await session.publish(message.encode(), remote_name)
+                if unicast or enable_mls:
+                    await session.publish(message.encode())
+                else:
+                    await session.publish_with_destination(
+                        message.encode(), remote_name
+                    )
                 format_message_print(
                     f"{instance}",
                     f"Sent message {message} - {i + 1}/{iterations}:",
