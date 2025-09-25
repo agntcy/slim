@@ -228,7 +228,7 @@ async def test_slim_wrapper(server):
 
     # publish message
     msg = [1, 2, 3, 4, 5, 6, 7, 8, 9]
-    await session_context.publish(msg, name1)
+    await session_context.publish_with_destination(msg, name1)
 
     # wait for a new session
     session_context_rec = await slim1.listen_for_session()
@@ -264,7 +264,7 @@ async def test_slim_wrapper(server):
 
     # try to send a message after deleting the session - this should raise an exception
     try:
-        await session_context.publish(msg, name1)
+        await session_context.publish_with_destination(msg, name1)
     except Exception as e:
         assert "session closed" in str(e), f"Unexpected error message: {str(e)}"
 

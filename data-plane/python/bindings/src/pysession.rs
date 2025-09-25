@@ -147,8 +147,9 @@ pub(crate) enum PySessionConfiguration {
         metadata: HashMap<String, String>,
     },
 
-    #[pyo3(constructor = (timeout=None, max_retries=None, mls_enabled=false, metadata=HashMap::new()))]
+    #[pyo3(constructor = (unicast_name, timeout=None, max_retries=None, mls_enabled=false, metadata=HashMap::new()))]
     Unicast {
+        unicast_name: PyName,
         timeout: Option<std::time::Duration>,
         max_retries: Option<u32>,
         mls_enabled: bool,
@@ -169,8 +170,9 @@ impl From<session::SessionConfig> for PySessionConfiguration {
     fn from(session_config: session::SessionConfig) -> Self {
         match session_config {
             session::SessionConfig::PointToPoint(config) => {
-                if config.unicast {
+                if config.unicast_name.is_some() {
                     PySessionConfiguration::Unicast {
+                        unicast_name: config.unicast_name.unwrap().into(),
                         timeout: config.timeout,
                         max_retries: config.max_retries,
                         mls_enabled: config.mls_enabled,
@@ -207,11 +209,12 @@ impl From<PySessionConfiguration> for session::SessionConfig {
             } => session::SessionConfig::PointToPoint(PointToPointConfiguration::new(
                 timeout,
                 max_retries,
-                false,
                 mls_enabled,
+                None,
                 metadata,
             )),
             PySessionConfiguration::Unicast {
+                unicast_name,
                 timeout,
                 max_retries,
                 mls_enabled,
@@ -219,8 +222,8 @@ impl From<PySessionConfiguration> for session::SessionConfig {
             } => session::SessionConfig::PointToPoint(PointToPointConfiguration::new(
                 timeout,
                 max_retries,
-                true,
                 mls_enabled,
+                Some(unicast_name.into()),
                 metadata,
             )),
             PySessionConfiguration::Multicast {

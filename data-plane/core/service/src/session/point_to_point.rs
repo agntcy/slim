@@ -40,9 +40,8 @@ use crate::session::{
 pub struct PointToPointConfiguration {
     pub timeout: Option<std::time::Duration>,
     pub max_retries: Option<u32>,
-    pub unicast: bool,
     pub mls_enabled: bool,
-    pub remote: Option<Name>,
+    pub unicast_name: Option<Name>,
     pub(crate) initiator: bool,
     pub metadata: HashMap<String, String>,
 }
@@ -52,9 +51,8 @@ impl Default for PointToPointConfiguration {
         PointToPointConfiguration {
             timeout: None,
             max_retries: Some(5),
-            unicast: false,
             mls_enabled: false,
-            remote: None,
+            unicast_name: None,
             initiator: true,
             metadata: HashMap::new(),
         }
@@ -65,30 +63,27 @@ impl PointToPointConfiguration {
     pub fn new(
         timeout: Option<Duration>,
         max_retries: Option<u32>,
-        mut unicast: bool,
         mls_enabled: bool,
+        unicast_name: Option<Name>,
         metadata: HashMap<String, String>,
     ) -> Self {
-        // If mls is enabled and session is not unicast, print a warning
-        if mls_enabled && !unicast {
-            warn!("MLS on no-unicast sessions is not supported yet. Forcing unicast session.");
-
-            unicast = true;
+        // If mls is enabled the session must be unicast
+        if mls_enabled && unicast_name.is_none() {
+            panic!("MLS on no-unicast sessions is not supported.");
         }
 
         PointToPointConfiguration {
             timeout,
             max_retries,
-            unicast,
             mls_enabled,
-            remote: None,
+            unicast_name,
             initiator: true,
             metadata,
         }
     }
 
-    pub fn with_remote(mut self, remote: Name) -> Self {
-        self.remote = Some(remote);
+    pub fn with_unicat_name(mut self, name: Name) -> Self {
+        self.unicast_name = Some(name);
         self
     }
 }
@@ -112,10 +107,10 @@ impl std::fmt::Display for PointToPointConfiguration {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "PointToPointConfiguration: timeout: {} ms, max retries: {}, remote: {}",
+            "PointToPointConfiguration: timeout: {} ms, max retries: {}, remote endpoint: {}",
             self.timeout.unwrap_or_default().as_millis(),
             self.max_retries.unwrap_or_default(),
-            self.remote
+            self.unicast_name
                 .as_ref()
                 .map(|n| n.to_string())
                 .unwrap_or_else(|| "<unset>".to_string()),
@@ -180,7 +175,6 @@ where
     tx: T,
     config: PointToPointConfiguration,
     dst: Arc<RwLock<Option<Name>>>,
-    unicast_name: Option<Name>,
     unicast_connection: Option<u64>,
     unicast_session_status: UnicastSessionStatus,
     unicast_buffer: VecDeque<Message>,
@@ -487,7 +481,7 @@ where
 
         // No error - this session is unicast
         *self.state.dst.write() = Some(source.clone());
-        self.state.unicast_name = Some(source);
+        self.state.config.unicast_name = Some(source);
         self.state.unicast_connection = Some(incoming_conn);
         self.state.unicast_session_status = UnicastSessionStatus::Established;
 
@@ -515,7 +509,7 @@ where
 
                 // If we are still discovering, set the unicast name
                 *self.state.dst.write() = Some(source.clone());
-                self.state.unicast_name = Some(source);
+                self.state.config.unicast_name = Some(source);
                 self.state.unicast_connection = Some(incoming_conn);
                 self.state.unicast_session_status = UnicastSessionStatus::Established;
 
@@ -536,7 +530,7 @@ where
                 debug!("unicast session discovery reply received, but already established");
 
                 // Check if the unicast name is already set, and if it's different from the source
-                if let Some(name) = &self.state.unicast_name {
+                if let Some(name) = &self.state.config.unicast_name {
                     let message = if name != &source {
                         format!(
                             "unicast session already established with a different name: {}, received: {}",
@@ -577,7 +571,7 @@ where
 
         // If we have a unicast name, set the destination to use the ID in the unicast name
         // and force the message to be sent to the unicast connection
-        if let Some(ref name) = self.state.unicast_name {
+        if let Some(ref name) = self.state.config.unicast_name {
             let mut new_name = message.get_dst();
             new_name.set_id(name.id());
             message.get_slim_header_mut().set_destination(&new_name);
@@ -632,50 +626,39 @@ where
             header.set_session_message_type(ProtoSessionMessageType::P2PMsg);
         }
 
-        // If session is unicast, and we have a unicast name, set the destination
-        // to use the ID in the unicast name
-        if self.state.config.unicast {
-            match self.state.unicast_name {
-                Some(ref name) => {
+        // If session is unicast, decide what to do according to the session state
+        if self.state.config.unicast_name.is_some() {
+            match self.state.unicast_session_status {
+                UnicastSessionStatus::Uninitialized => {
+                    self.start_unicast_session_discovery(&message.get_slim_header().get_dst())
+                        .await?;
+
+                    self.state.unicast_buffer.push_back(message);
+
+                    Ok(())
+                }
+                UnicastSessionStatus::Discovering => {
+                    // Still discovering the unicast session. Store message in a buffer and send it later
+                    // when the unicast session is established
+                    self.state.unicast_buffer.push_back(message);
+                    Ok(())
+                }
+                UnicastSessionStatus::Established => {
+                    // the session state is established, send message
                     let mut new_name = message.get_dst();
-                    new_name.set_id(name.id());
+                    new_name.set_id(self.state.config.unicast_name.as_ref().unwrap().id());
                     message.get_slim_header_mut().set_destination(&new_name);
                     message
                         .get_slim_header_mut()
                         .set_forward_to(self.state.unicast_connection);
-                }
-                None => {
-                    let ret = match self.state.unicast_session_status {
-                        UnicastSessionStatus::Uninitialized => {
-                            self.start_unicast_session_discovery(
-                                &message.get_slim_header().get_dst(),
-                            )
-                            .await?;
 
-                            self.state.unicast_buffer.push_back(message);
-
-                            Ok(())
-                        }
-                        UnicastSessionStatus::Established => {
-                            // This should not happen, as we should have a unicast name
-                            Err(SessionError::AppTransmission(
-                                "unicast session already established".to_string(),
-                            ))
-                        }
-                        UnicastSessionStatus::Discovering => {
-                            // Still discovering the unicast session. Store message in a buffer and send it later
-                            // when the unicast session is established
-                            self.state.unicast_buffer.push_back(message);
-                            Ok(())
-                        }
-                    };
-
-                    return ret;
+                    self.send_message(message, None).await
                 }
             }
+        } else {
+            // anycast session, just send
+            self.send_message(message, None).await
         }
-
-        self.send_message(message, None).await
     }
 
     pub(crate) async fn handle_message_to_app(
@@ -689,16 +672,18 @@ where
         );
 
         // If session is unicast, check if the source matches the unicast name
-        if self.state.config.unicast
-            && let Some(name) = &self.state.unicast_name
+        if let Some(name) = &self.state.config.unicast_name
+            && !(self.state.unicast_session_status == UnicastSessionStatus::Discovering
+                && (message.get_session_message_type()
+                    == ProtoSessionMessageType::ChannelDiscoveryReply
+                    || message.get_session_message_type()
+                        == ProtoSessionMessageType::ChannelJoinReply))
+            && *name != source
         {
-            let source = message.get_source();
-            if *name != source {
-                return Err(SessionError::AppTransmission(format!(
-                    "message source {} does not match unicast name {}",
-                    source, name
-                )));
-            }
+            return Err(SessionError::AppTransmission(format!(
+                "message source {} does not match unicast name {}",
+                source, name
+            )));
         }
 
         match message.get_session_message_type() {
@@ -811,7 +796,14 @@ where
                     session_id,
                     msg_rtx_id,
                     &Some(self.state.source.clone()),
-                    &Some(self.state.unicast_name.as_ref().unwrap_or(&pkt_dst).clone()),
+                    &Some(
+                        self.state
+                            .config
+                            .unicast_name
+                            .as_ref()
+                            .unwrap_or(&pkt_dst)
+                            .clone(),
+                    ),
                 ));
 
                 Message::new_publish_with_headers(
@@ -898,7 +890,7 @@ where
         // immediately without reordering. notice that an anycast reliable session is possible
         // and the packet are re-send by the sender if acks are not received
         if message.get_session_message_type() == ProtoSessionMessageType::P2PMsg
-            || (!self.state.config.mls_enabled && !self.state.config.unicast)
+            || (!self.state.config.mls_enabled && self.state.config.unicast_name.is_none())
         {
             // this is an anycast session so simply send the message to the app
             return self
@@ -963,7 +955,7 @@ where
         // send any packet to the application the receiver can also ask for retransmissions.
         // doing so if a packet is available in the sender buffer it will be receoverd.
 
-        let destination = match &self.state.unicast_name {
+        let destination = match &self.state.config.unicast_name {
             Some(d) => d,
             None => {
                 warn!("cannot send rtx messages, destination name is missing");
@@ -1096,7 +1088,7 @@ where
             storage_path,
         );
 
-        if let Some(remote) = session_config.remote.clone() {
+        if let Some(remote) = session_config.unicast_name.clone() {
             common.set_dst(remote);
         }
 
@@ -1144,7 +1136,6 @@ where
             tx: tx_slim_app.clone(),
             config: session_config,
             dst: common.dst_arc(),
-            unicast_name: None,
             unicast_connection: None,
             unicast_session_status: UnicastSessionStatus::Uninitialized,
             unicast_buffer: VecDeque::new(),
@@ -1340,7 +1331,7 @@ mod tests {
         let source = Name::from_strings(["cisco", "default", "local"]).with_id(0);
         let remote = Name::from_strings(["cisco", "default", "remote"]).with_id(999);
 
-        let config = PointToPointConfiguration::default().with_remote(remote.clone());
+        let config = PointToPointConfiguration::default().with_unicat_name(remote.clone());
 
         let session = PointToPoint::new(
             0,
@@ -1478,9 +1469,8 @@ mod tests {
             PointToPointConfiguration {
                 timeout: Some(Duration::from_millis(500)),
                 max_retries: Some(5),
-                unicast: false,
                 mls_enabled: false,
-                remote: None,
+                unicast_name: None,
                 initiator: true,
                 metadata: HashMap::new(),
             },
@@ -1547,9 +1537,8 @@ mod tests {
             PointToPointConfiguration {
                 timeout: Some(Duration::from_millis(500)),
                 max_retries: Some(5),
-                unicast: false,
                 mls_enabled: false,
-                remote: None,
+                unicast_name: None,
                 initiator: true,
                 metadata: HashMap::new(),
             },
@@ -1701,9 +1690,8 @@ mod tests {
             PointToPointConfiguration {
                 timeout: Some(Duration::from_millis(500)),
                 max_retries: Some(5),
-                unicast: true,
                 mls_enabled,
-                remote: None,
+                unicast_name: Some(remote.clone()),
                 initiator: true,
                 metadata: HashMap::new(),
             },
@@ -1719,9 +1707,8 @@ mod tests {
             PointToPointConfiguration {
                 timeout: Some(Duration::from_millis(500)),
                 max_retries: Some(5),
-                unicast: false,
                 mls_enabled,
-                remote: None,
+                unicast_name: None,
                 initiator: false,
                 metadata: HashMap::new(),
             },

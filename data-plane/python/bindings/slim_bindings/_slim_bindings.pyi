@@ -53,10 +53,10 @@ class PyService:
 
 class PySessionContext:
     id: builtins.int
+    metadata: builtins.dict[builtins.str, builtins.str]
     session_type: PySessionType
     src: PyName
     dst: typing.Optional[PyName]
-    metadata: builtins.dict[builtins.str, builtins.str]
     session_config: PySessionConfiguration
     def set_session_config(self, config:PySessionConfiguration) -> None:
         ...
@@ -146,7 +146,7 @@ def remove_route(svc:PyService, conn:builtins.int, name:PyName) -> typing.Any:
 def run_server(svc:PyService, config:dict) -> typing.Any:
     ...
 
-def set_default_session_config(svc:PyService, config:PySessionConfiguration):
+def set_default_session_config(svc:PyService, config:PySessionConfiguration) -> None:
     ...
 
 def set_route(svc:PyService, conn:builtins.int, name:PyName) -> typing.Any:

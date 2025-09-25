@@ -75,11 +75,11 @@ async def test_sticky_session(server, mls_enabled):
     # create a new session
     sender_session = await sender.create_session(
         slim_bindings.PySessionConfiguration.Unicast(
+            unicast_name=receiver_name,
             max_retries=5,
             timeout=datetime.timedelta(seconds=5),
             mls_enabled=mls_enabled,
         ),
-        receiver_name,
     )
 
     # Wait a moment
