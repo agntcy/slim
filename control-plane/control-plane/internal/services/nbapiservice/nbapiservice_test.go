@@ -12,6 +12,7 @@ import (
 	controlplaneApi "github.com/agntcy/slim/control-plane/common/proto/controlplane/v1"
 	"github.com/agntcy/slim/control-plane/control-plane/internal/config"
 	"github.com/agntcy/slim/control-plane/control-plane/internal/services/groupservice"
+	"github.com/agntcy/slim/control-plane/control-plane/internal/services/routes"
 )
 
 type mockNodeService struct {
@@ -98,6 +99,14 @@ type mockRouteService struct {
 		ctx context.Context, node *controlplaneApi.NodeEntry, subscription *controllerapi.Subscription) error
 	deleteSubscriptionFunc func(
 		ctx context.Context, node *controlplaneApi.NodeEntry, subscription *controllerapi.Subscription) error
+}
+
+func (m *mockRouteService) AddRoute(ctx context.Context, route routes.Route) (string, error) {
+	return "route-id", nil
+}
+
+func (m *mockRouteService) DeleteRoute(ctx context.Context, route routes.Route) error {
+	return nil
 }
 
 func (m *mockRouteService) ListSubscriptions(
