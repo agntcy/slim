@@ -178,7 +178,7 @@ class PyIdentityVerifier(Enum):
         of the respective claims. `autoresolve=True` enables JWKS retrieval
         (public_key must be omitted in that case).
     * SharedSecret { identity, shared_secret }:
-        Verifies HMAC-style tokens generated with the same shared secret.
+        Verifies tokens generated with the same shared secret.
 
     JWKS Auto-Resolve:
       When `autoresolve=True`, the verifier will attempt to resolve keys

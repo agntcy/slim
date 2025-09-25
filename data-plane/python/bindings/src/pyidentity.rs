@@ -209,8 +209,67 @@ pub(crate) enum IdentityProvider {
 /// * SharedSecret { identity, shared_secret }:
 ///     Symmetric token provider using a shared secret. Used mainly for testing.
 ///
-/// Usage (Python):
+/// Examples (Python):
+///
+/// Static (pre-issued) JWT token loaded from a file:
 /// ```python
+/// from slim_bindings import PyIdentityProvider
+///
+/// provider = PyIdentityProvider.StaticJwt(path="service.token")
+/// # 'provider.get_token()' (internally) will manage reloading of the file if it changes.
+/// ```
+///
+/// Dynamically signed JWT using a private key (claims + duration):
+/// ```python
+/// from slim_bindings import (
+///     PyIdentityProvider, PyKey, PyAlgorithm, PyKeyFormat, PyKeyData
+/// )
+/// import datetime
+///
+/// signing_key = PyKey(
+///     algorithm=PyAlgorithm.RS256,
+///     format=PyKeyFormat.Pem,
+///     key=PyKeyData.File("private_key.pem"),
+/// )
+///
+/// provider = PyIdentityProvider.Jwt(
+///     private_key=signing_key,
+///     duration=datetime.timedelta(minutes=30),
+///     issuer="my-issuer",
+///     audience=["downstream-svc"],
+///     subject="svc-a",
+/// )
+/// ```
+///
+/// Shared secret token provider for tests / local development:
+/// ```python
+/// from slim_bindings import PyIdentityProvider
+///
+/// provider = PyIdentityProvider.SharedSecret(
+///     identity="svc-a",
+///     shared_secret="not-for-production",
+/// )
+/// ```
+///
+/// End-to-end example pairing with a verifier:
+/// ```python
+/// # For a simple shared-secret flow:
+/// from slim_bindings import PyIdentityProvider, PyIdentityVerifier
+///
+/// provider = PyIdentityProvider.SharedSecret(identity="svc-a", shared_secret="dev-secret")
+/// verifier = PyIdentityVerifier.SharedSecret(identity="svc-a", shared_secret="dev-secret")
+///
+/// # Pass both into Slim.new(local_name, provider, verifier)
+/// ```
+///
+/// Jwt variant quick start (full):
+/// ```python
+/// import datetime
+/// from slim_bindings import (
+///     PyIdentityProvider, PyIdentityVerifier,
+///     PyKey, PyAlgorithm, PyKeyFormat, PyKeyData
+/// )
+///
 /// key = PyKey(PyAlgorithm.RS256, PyKeyFormat.Pem, PyKeyData.File("private_key.pem"))
 /// provider = PyIdentityProvider.Jwt(
 ///     private_key=key,
@@ -219,6 +278,7 @@ pub(crate) enum IdentityProvider {
 ///     audience=["svc-b"],
 ///     subject="svc-a"
 /// )
+/// # Verifier would normally use the corresponding public key (PyIdentityVerifier.Jwt).
 /// ```
 #[gen_stub_pyclass_enum]
 #[derive(Clone, PartialEq)]
@@ -308,7 +368,7 @@ pub(crate) enum IdentityVerifier {
 ///     of the respective claims. `autoresolve=True` enables JWKS retrieval
 ///     (public_key must be omitted in that case).
 /// * SharedSecret { identity, shared_secret }:
-///     Verifies HMAC-style tokens generated with the same shared secret.
+///     Verifies tokens generated with the same shared secret.
 ///
 /// JWKS Auto-Resolve:
 ///   When `autoresolve=True`, the verifier will attempt to resolve keys
