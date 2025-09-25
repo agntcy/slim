@@ -6,6 +6,14 @@ import typing
 from enum import Enum, auto
 
 class PyKey:
+    r"""
+    Composite key description used for signing or verification.
+
+    Fields:
+    * algorithm: `PyAlgorithm` to apply
+    * format: `PyKeyFormat` describing encoding
+    * key: `PyKeyData` where the actual bytes originate
+    """
     algorithm: PyAlgorithm
     format: PyKeyFormat
     key: PyKeyData
@@ -14,10 +22,10 @@ class PyKey:
 class PyMessageContext:
     r"""
     Python-visible context accompanying every received message.
-    
+
     Provides routing and descriptive metadata needed for replying,
     auditing, and instrumentation.
-    
+
     Fields:
     * `source_name`: Fully-qualified sender identity.
     * `destination_name`: Fully-qualified destination identity (may be an empty placeholder
@@ -68,15 +76,15 @@ class PyService:
 class PySessionContext:
     r"""
     Python-exposed session context wrapper.
-    
+
     A thin, clonable handle around the underlying Rust session state. All
     getters perform a safe upgrade of the weak internal session reference,
     returning a Python exception if the session has already been closed.
     The internal message receiver is intentionally not exposed at this level.
-    
+
     Higher-level Python code (see `session.py`) provides ergonomic async
     operations on top of this context.
-    
+
     Properties (getters exposed to Python):
     - id -> int: Unique numeric identifier of the session. Raises a Python
       exception if the session has been closed.
@@ -103,7 +111,7 @@ class PySessionContext:
     def set_session_config(self, config:PySessionConfiguration) -> None:
         r"""
         Replace the underlying session configuration with a new one.
-        
+
         Safety/Consistency:
         The underlying service validates and applies changes atomically.
         Errors (e.g. invalid transitions) are surfaced as Python exceptions.
@@ -112,6 +120,12 @@ class PySessionContext:
 
 
 class PyAlgorithm(Enum):
+    r"""
+    JWT / signature algorithms exposed to Python.
+
+    Maps 1:1 to `slim_auth::jwt::Algorithm`.
+    Provides stable integer values for stub generation / introspection.
+    """
     HS256 = auto()
     HS384 = auto()
     HS512 = auto()
@@ -126,19 +140,154 @@ class PyAlgorithm(Enum):
     EdDSA = auto()
 
 class PyIdentityProvider(Enum):
+    r"""
+    Python-facing identity provider definitions.
+
+    Variants:
+    * StaticJwt { path }: Load a token from a file (cached, static).
+    * Jwt { private_key, duration, issuer?, audience?, subject? }:
+        Dynamically sign tokens using provided private key with optional
+        standard JWT claims (iss, aud, sub) and a token validity duration.
+    * SharedSecret { identity, shared_secret }:
+        Symmetric token provider using a shared secret. Used mainly for testing.
+
+    Usage (Python):
+    ```python
+    key = PyKey(PyAlgorithm.RS256, PyKeyFormat.Pem, PyKeyData.File("private_key.pem"))
+    provider = PyIdentityProvider.Jwt(
+        private_key=key,
+        duration=datetime.timedelta(hours=1),
+        issuer="my-issuer",
+        audience=["svc-b"],
+        subject="svc-a"
+    )
+    ```
+    """
     StaticJwt = auto()
     Jwt = auto()
     SharedSecret = auto()
 
 class PyIdentityVerifier(Enum):
+    r"""
+    Python-facing identity verifier definitions.
+
+    Variants:
+    * Jwt { public_key?, autoresolve, issuer?, audience?, subject?, require_* }:
+        Verifies tokens using a public key or via JWKS auto-resolution.
+        `require_iss`, `require_aud`, `require_sub` toggle mandatory presence
+        of the respective claims. `autoresolve=True` enables JWKS retrieval
+        (public_key must be omitted in that case).
+    * SharedSecret { identity, shared_secret }:
+        Verifies HMAC-style tokens generated with the same shared secret.
+
+    JWKS Auto-Resolve:
+      When `autoresolve=True`, the verifier will attempt to resolve keys
+      dynamically (e.g. from a JWKS endpoint) if supported by the underlying
+      implementation.
+
+    Safety:
+      A direct panic occurs if neither `public_key` nor `autoresolve=True`
+      is provided for the Jwt variant (invalid configuration).
+
+    Autoresolve key selection (concise algorithm):
+    1. If a static JWKS was injected, use it directly.
+    2. Else if a cached JWKS for the issuer exists and is within TTL, use it.
+    3. Else discover JWKS:
+       - Try {issuer}/.well-known/openid-configuration for "jwks_uri"
+       - Fallback to {issuer}/.well-known/jwks.json
+    4. Fetch & cache the JWKS (default TTL ~1h unless overridden).
+    5. If JWT header has 'kid', pick the matching key ID; otherwise choose the
+       first key whose algorithm matches the token header's alg.
+    6. Convert JWK -> DecodingKey and verify signature; then enforce required
+       claims (iss/aud/sub) per the require_* flags.
+
+    # Examples (Python)
+
+    Basic JWT verification with explicit public key:
+    ```python
+    pub_key = PyKey(
+        PyAlgorithm.RS256,
+        PyKeyFormat.Pem,
+        PyKeyData.File("public_key.pem"),
+    )
+    verifier = PyIdentityVerifier.Jwt(
+        public_key=pub_key,
+        autoresolve=False,
+        issuer="my-issuer",
+        audience=["service-b"],
+        subject="service-a",
+        require_iss=True,
+        require_aud=True,
+        require_sub=True,
+    )
+    ```
+
+    Auto-resolving JWKS (no public key provided):
+    ```python
+    # The underlying implementation must know how / where to resolve JWKS.
+    verifier = PyIdentityVerifier.Jwt(
+        public_key=None,
+        autoresolve=True,
+        issuer="https://auth.example.com",
+        audience=["svc-cluster"],
+        subject=None,
+        require_iss=True,
+        require_aud=True,
+        require_sub=False,
+    )
+    ```
+
+    Shared secret verifier (symmetric):
+    ```python
+    verifier = PyIdentityVerifier.SharedSecret(
+        identity="service-a",
+        shared_secret="super-secret-value",
+    )
+    ```
+
+    Pairing with a provider when constructing Slim:
+    ```python
+    provider = PyIdentityProvider.SharedSecret(
+        identity="service-a",
+        shared_secret="super-secret-value",
+    )
+    slim = await Slim.new(local_name, provider, verifier)
+    ```
+
+    Enforcing strict claims (reject tokens missing aud/sub):
+    ```python
+    strict_verifier = PyIdentityVerifier.Jwt(
+        public_key=pub_key,
+        autoresolve=False,
+        issuer="my-issuer",
+        audience=["service-a"],
+        subject="service-a",
+        require_iss=True,
+        require_aud=True,
+        require_sub=True,
+    )
+    ```
+    """
     Jwt = auto()
     SharedSecret = auto()
 
 class PyKeyData(Enum):
+    r"""
+    Key material origin.
+
+    Either a path on disk (`File`) or inline string content (`Content`)
+    containing the encoded key. The interpretation depends on the
+    accompanying `PyKeyFormat`.
+    """
     File = auto()
     Content = auto()
 
 class PyKeyFormat(Enum):
+    r"""
+    Supported key encoding formats.
+
+    Used during parsing / loading of provided key material.
+    """
     Pem = auto()
     Jwk = auto()
     Jwks = auto()
@@ -146,26 +295,26 @@ class PyKeyFormat(Enum):
 class PySessionConfiguration(Enum):
     r"""
     User-facing configuration for establishing and tuning sessions.
-    
+
     Each variant corresponds to an underlying core `SessionConfig`.
     Common fields:
     * `timeout`: How long to wait for operations (creation / messaging) before failing.
     * `max_retries`: Optional retry count for establishment or delivery.
     * `mls_enabled`: Whether to negotiate/use MLS secure group messaging.
     * `metadata`: Free-form string map propagated with session context.
-    
+
     Variant-specific notes:
     * `Anycast` / `Unicast`: Point-to-point; anycast will pick any available peer
                              for each message sent, while unicast targets a specific
                              peer for all messages.
     * `Multicast`: Uses a named channel and distributes to multiple subscribers.
-    
+
     # Examples
-    
+
     ## Python: Create different session configs
     ```python
     from slim_bindings import PySessionConfiguration, PyName
-    
+
     # Anycast session (no fixed destination; service picks an available peer)
     # MLS is not available with Anycast sessions, and session metadata is not supported,
     # as there is no session establishment phase, only per-message routing.
@@ -173,7 +322,7 @@ class PySessionConfiguration(Enum):
         timeout=datetime.timedelta(seconds=2), # try to send a message within 2 seconds
         max_retries=5, # retry up to 5 times
     )
-    
+
     # Unicast session. Try to send a message within 2 seconds, retry up to 5 times,
     # enable MLS, and attach some metadata.
     unicast_cfg = PySessionConfiguration.Unicast(
@@ -182,7 +331,7 @@ class PySessionConfiguration(Enum):
         mls_enabled=True, # enable MLS
         metadata={"trace_id": "1234abcd"} # arbitrary key/value pairs to send at session establishment
     )
-    
+
     # Multicast session (channel-based)
     channel = PyName("org", "namespace", "channel")
     multicast_cfg = PySessionConfiguration.Multicast(
@@ -193,7 +342,7 @@ class PySessionConfiguration(Enum):
         metadata={"role": "publisher"} # arbitrary key/value pairs to send at session establishment
     )
     ```
-    
+
     ## Python: Using a config when creating a session
     ```python
     slim = await Slim.new(local_name, provider, verifier)
@@ -202,7 +351,7 @@ class PySessionConfiguration(Enum):
     print("Type:", session.session_type)
     print("Metadata:", session.metadata)
     ```
-    
+
     ## Python: Updating configuration after creation
     ```python
     # Adjust retries & metadata dynamically
@@ -214,7 +363,7 @@ class PySessionConfiguration(Enum):
     )
     session.set_session_config(new_cfg)
     ```
-    
+
     ## Rust (internal conversion flow)
     The enum transparently converts to and from `session::SessionConfig`:
     ```rust
@@ -230,7 +379,7 @@ class PySessionConfiguration(Enum):
 class PySessionType(Enum):
     r"""
     High-level session classification presented to Python.
-    
+
     Variants map onto core `SessionType` plus additional inference
     (e.g. presence of a concrete destination for UNICAST).
     """
@@ -277,7 +426,7 @@ def remove_route(svc:PyService, conn:builtins.int, name:PyName) -> typing.Any:
 def run_server(svc:PyService, config:dict) -> typing.Any:
     ...
 
-def set_default_session_config(svc:PyService, config:PySessionConfiguration) -> None:
+def set_default_session_config(svc:PyService, config:PySessionConfiguration):
     ...
 
 def set_route(svc:PyService, conn:builtins.int, name:PyName) -> typing.Any:
@@ -291,4 +440,3 @@ def subscribe(svc:PyService, conn:builtins.int, name:PyName) -> typing.Any:
 
 def unsubscribe(svc:PyService, conn:builtins.int, name:PyName) -> typing.Any:
     ...
-

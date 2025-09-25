@@ -50,7 +50,7 @@ async def run_client(
     remote: str | None,
     enable_opentelemetry: bool = False,
     enable_mls: bool = False,
-    shared_secret: str | None = None,
+    shared_secret: str = "secret",
     jwt: str | None = None,
     bundle: str | None = None,
     audience: list[str] | None = None,
@@ -95,12 +95,11 @@ async def run_client(
     instance = local_app.id
 
     # If user intends to send messages, remote must be provided for routing.
-    if message:
-        if not remote:
-            raise ValueError("Remote ID must be provided when message is specified.")
+    if message and not remote:
+        raise ValueError("Remote ID must be provided when message is specified.")
 
     # ACTIVE MODE (publishing + expecting replies)
-    if message:
+    if message and remote:
         # Convert the remote ID string into a PyName.
         remote_name = split_id(remote)
         # Establish routing so outbound publishes know the remote destination.
@@ -205,7 +204,7 @@ def main_anycast(
     remote: str | None = None,
     enable_opentelemetry: bool = False,
     enable_mls: bool = False,
-    shared_secret: str | None = None,
+    shared_secret: str = "secret",
     jwt: str | None = None,
     bundle: str | None = None,
     audience: list[str] | None = None,
@@ -254,7 +253,7 @@ def main_unicast(
     remote: str | None = None,
     enable_opentelemetry: bool = False,
     enable_mls: bool = False,
-    shared_secret: str | None = None,
+    shared_secret: str = "secret",
     jwt: str | None = None,
     bundle: str | None = None,
     audience: list[str] | None = None,

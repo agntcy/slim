@@ -93,10 +93,10 @@ def shared_secret_identity(identity: str, secret: str):
     Returns:
         (provider, verifier): Tuple of PyIdentityProvider & PyIdentityVerifier.
     """
-    provider = slim_bindings.PyIdentityProvider.SharedSecret(
+    provider = slim_bindings.PyIdentityProvider.SharedSecret(  # type: ignore
         identity=identity, shared_secret=secret
     )
-    verifier = slim_bindings.PyIdentityVerifier.SharedSecret(
+    verifier = slim_bindings.PyIdentityVerifier.SharedSecret(  # type: ignore
         identity=identity, shared_secret=secret
     )
     return provider, verifier
@@ -290,7 +290,7 @@ async def create_local_app(
     slim: dict,
     remote: str | None = None,
     enable_opentelemetry: bool = False,
-    shared_secret: str | None = None,
+    shared_secret: str = "secret",
     jwt: str | None = None,
     bundle: str | None = None,
     audience: list[str] | None = None,
@@ -329,7 +329,7 @@ async def create_local_app(
     )
 
     # Validate mutual exclusivity (we allow only one auth path).
-    if not jwt and not bundle:
+    if not (jwt or bundle or audience):
         if not shared_secret:
             raise ValueError(
                 "Either JWT or bundle must be provided, or a shared secret."

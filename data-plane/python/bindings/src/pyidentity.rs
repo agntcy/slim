@@ -193,7 +193,7 @@ impl From<PyKey> for Key {
 
 /// Internal enum for token provisioning strategies.
 #[derive(Clone)]
-enum IdentityProvider {
+pub(crate) enum IdentityProvider {
     StaticJwt(StaticTokenProvider),
     SharedSecret(SharedSecret),
     SignerJwt(SignerJwt),
@@ -294,7 +294,7 @@ impl TokenProvider for IdentityProvider {
 
 /// Internal enum for verification strategies.
 #[derive(Clone)]
-enum IdentityVerifier {
+pub(crate) enum IdentityVerifier {
     Jwt(Box<VerifierJwt>),
     SharedSecret(SharedSecret),
 }

@@ -49,7 +49,7 @@ async def run_client(
     remote: str | None,
     enable_opentelemetry: bool = False,
     enable_mls: bool = False,
-    shared_secret: str | None = None,
+    shared_secret: str = "secret",
     jwt: str | None = None,
     bundle: str | None = None,
     audience: list[str] | None = None,
@@ -100,7 +100,7 @@ async def run_client(
         )
         created_session = await local_app.create_session(
             slim_bindings.PySessionConfiguration.Multicast(  # type: ignore
-                topic=chat_channel,
+                channel_name=chat_channel,
                 max_retries=5,
                 timeout=datetime.timedelta(seconds=5),
                 mls_enabled=enable_mls,
@@ -185,7 +185,7 @@ def main(
     remote: str | None = None,
     enable_opentelemetry: bool = False,
     enable_mls: bool = False,
-    shared_secret: str | None = None,
+    shared_secret: str = "secret",
     jwt: str | None = None,
     bundle: str | None = None,
     audience: list[str] | None = None,
