@@ -39,7 +39,7 @@ pub(crate) struct PySessionCtxInternal {
 
 /// Python-exposed session context wrapper.
 ///
-/// A thin, clonable handle around the underlying Rust session state. All
+/// A thin, cloneable handle around the underlying Rust session state. All
 /// getters perform a safe upgrade of the weak internal session reference,
 /// returning a Python exception if the session has already been closed.
 /// The internal message receiver is intentionally not exposed at this level.
@@ -361,7 +361,7 @@ impl From<PySessionConfiguration> for session::SessionConfig {
                 max_retries,
                 mls_enabled,
                 None,
-                metadata,
+                HashMap::new(),
             )),
             PySessionConfiguration::Unicast {
                 unicast_name,
