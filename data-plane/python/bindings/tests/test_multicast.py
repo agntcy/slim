@@ -81,10 +81,7 @@ async def test_multicast(server, mls_enabled):  # noqa: C901
 
             called = True
 
-            await session.publish(
-                f"{msg}".encode(),
-                chat_name,
-            )
+            await session.publish(f"{msg}".encode())
 
         while True:
             try:
@@ -137,8 +134,7 @@ async def test_multicast(server, mls_enabled):  # noqa: C901
                     next_participant_name = f"participant-{next_participant}"
                     print(f"{part_name} -> Calling out {next_participant_name}...")
                     await recv_session.publish(
-                        f"{message} - {next_participant_name}".encode(),
-                        chat_name,
+                        f"{message} - {next_participant_name}".encode()
                     )
                 else:
                     print(

@@ -31,10 +31,10 @@ async def test_session_metadata_merge_roundtrip(server):
     metadata = {"a": "1", "k": "session"}
 
     # Create unicast session
-    sess_cfg = PySessionConfiguration.Unicast(metadata=metadata)
+    sess_cfg = PySessionConfiguration.Unicast(receiver_name, metadata=metadata)
     session_sender = await sender.create_session(sess_cfg)
 
-    await session_sender.publish(b"hello", receiver_name)
+    await session_sender.publish(b"hello")
 
     # receive session in receiver
     session_receiver = await receiver.listen_for_session()
