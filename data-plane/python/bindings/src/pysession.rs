@@ -119,10 +119,9 @@ impl PySessionContext {
         let session_config = session.session_config();
 
         let name_opt = match session_config {
-            session::SessionConfig::PointToPoint(cfg) => cfg
-                .unicast_name
-                .as_ref()
-                .map(|n| n.clone().into()), // None if Anycast
+            session::SessionConfig::PointToPoint(cfg) => {
+                cfg.unicast_name.as_ref().map(|n| n.clone().into())
+            } // None if Anycast
             session::SessionConfig::Multicast(cfg) => Some(cfg.channel_name.clone().into()),
         };
 
