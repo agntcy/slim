@@ -1,42 +1,41 @@
 # Multicast Example with SLIM Python Bindings
 
-
-This example demonstrates how to use the SLIM Python bindings to create and
-manage a multicast session between distributed application instances. Multicast
-enables one-to-many and many-to-many communication, where messages sent to a
-channel are delivered to all participants. The test application allows you to
-create a multicast group, invite participants, and exchange messages. This is
-useful for chat-like applications, collaborative applications, or any scenario
-where multiple distributed services need to communicate as a group.
+This example shows how to use the SLIM Python bindings to create and manage a
+multicast (group) messaging session between distributed application instances.
+Multicast enables one-to-many and many-to-many communication: any message
+published to the channel is delivered to every current participant. This is
+useful for chat, collaborative tools, live telemetry, or coordinated
+control signals.
 
 ## Features
-- Create a multicast session as a moderator
-- Invite multiple participants to the group
-- Receive messages from the multicast channel
-- Optionally enable Messaging Layer Security (MLS) for secure group messaging
+- Create a multicast session (the creator implicitly acts as moderator)
+- Invite multiple participants to join dynamically
+- Receive messages (with sender context) from the multicast channel
+- Optionally enable Messaging Layer Security (MLS) for end‑to‑end secure group messaging
+- Interactive publishing from the moderator terminal
 
 ## How It Works
 
 ### 1. Create the local application
 
-The script initializes a local SLIM application instance using several configuration options:
+The script first initializes a local SLIM application instance using several configuration options:
 
 ```python
 local_app = await create_local_app(
     local,
     slim,
-    enable_opentelemetry=enable_opentelemetry,  # (bool, default: False)
-    shared_secret=shared_secret,                # (str | None, default: None)
-    jwt=jwt,                                    # (str | None, default: None)
-    bundle=bundle,                              # (str | None, default: None)
-    audience=audience,                          # (list[str] | None, default: None)
+    enable_opentelemetry=enable_opentelemetry,  # (bool, default False)
+    shared_secret=shared_secret,                # (str | None)
+    jwt=jwt,                                    # (str | None)
+    bundle=bundle,                              # (str | None)
+    audience=audience,                          # (list[str] | None)
 )
 ```
 
 
 
-`create_local_app` is a helper function defined in `common.py` that creates and
-configures a new local SLIM application instance. The main parameters are:
+`create_local_app` (in `common.py`) creates and configures a new SLIM
+application instance. Main parameters:
 
 
 
@@ -60,103 +59,107 @@ configures a new local SLIM application instance. The main parameters are:
     JWKS).
 - `audience` (list[str] | None, default: `None`): List of allowed audiences for
     JWT authentication.
-If neither `jwt` nor `bundle` is provided, `shared_secret` must be set. This
-setting is discouraged in a production environment and should be used only for
-testing purposes.
+If neither `jwt` nor `bundle` is provided, `shared_secret` must be set (only
+recommended for local testing / examples, not production).
 
-The part of the helper function that actually creates the local application and
-connects it to the remote SLIM node is:
+The part that actually creates the local application and connects it to the
+remote SLIM node is:
 ```python
-    local_app = await slim_bindings.Slim.new(local_name, provider, verifier)
-
-    format_message_print(f"{local_app.get_id()}", "Created app")
-
-    # Connect to slim server
-    _ = await local_app.connect(slim)
-    format_message_print(f"{local_app.get_id()}", f"Connected to {slim['endpoint']}")
+local_app = await slim_bindings.Slim.new(local_name, provider, verifier)
+format_message_print(f"{local_app.id}", "Created app")
+_ = await local_app.connect(slim)
+format_message_print(f"{local_app.id}", f"Connected to {slim['endpoint']}")
 ```
+### 2. Create the session and invite participants
 
-
-### 2. Create the moderator and invite participants
-
-
-If the application is started as a moderator (i.e., both `remote` and `invites`
-arguments are provided), the code creates a new multicast session as a
-moderator and invites participants to join the group.
+If the application is started with both a `--remote` (multicast channel name) and
+at least one `--invites` flag, it becomes the creator of a new
+multicast session and it can invite participants.
 
 ```python
-session_info = await local_app.create_session(
+chat_topic = split_id(remote)  # e.g. agntcy/ns/chat
+session = await local_app.create_session(
     slim_bindings.PySessionConfiguration.Multicast(
-
-        topic=broadcast_topic,           # (str or tuple) The multicast topic/channel name.
-        moderator=True,                  # (bool) If True, this app can invite/remove participants.
-        max_retries=5,                   # (int) Number of retransmissions for lost messages.
-        timeout=datetime.timedelta(seconds=5), # (timedelta) Time between each retransmission atempt.
-        mls_enabled=enable_mls,          # (bool) Enable Messaging Layer Security (MLS) for secure group messaging.
+        topic=chat_topic,
+        max_retries=5,                             # max retransmissions for lost messages
+        timeout=datetime.timedelta(seconds=5),     # interval between retries
+        mls_enabled=enable_mls,                    # enable MLS secure group messaging
     )
 )
+
+await asyncio.sleep(1)  # small slack before inviting
+for invite in invites:
+    invite_name = split_id(invite)
+    await local_app.set_route(invite_name)  # ensure routing info is set
+    await session.invite(invite_name)
+    print(f"{local} -> add {invite_name} to the group")
 ```
 
+The `session.invite(...)` call returns quickly; background protocol exchanges
+(and MLS key schedule if enabled) may take a short time before the participant
+fully joins. See [SESSION.md](../../../SESSION.md) for deeper protocol details.
 
+### 3. Receiving messages (all participants)
 
-- `topic`: The multicast channel or topic. This is a PyName that indicates the
-    SLIM name of the channel.
-- `moderator`: If `True`, this app can invite or remove participants from the
-    session.
-- `max_retries`: Number of retransmissions for lost messages. In this example,
-    at most 5 retransmissions are allowed.
-- `timeout`: Time between each retransmission attempt (set to 5 seconds here).
-- `mls_enabled`: Enables secure group messaging using Messaging Layer Security
-    (MLS). Set to `True` to enable encryption and authentication for all group
-    messages.
+Non‑moderator participants (clients) start without a session and wait to be
+invited:
 
-Once the session is created, the application can invite new participants to the
-channel using the `invite` function. This is done inside this loop:
 ```python
-# Invite all participants
-for p in invites:
-    to_add = split_id(p)
-    await local_app.set_route(to_add)
-    await local_app.invite(session_info, to_add)
-    print(f"{local} -> add {to_add} to the group")
+format_message_print(local, "-> Waiting for session...")
+session = await local_app.listen_for_session()
 ```
 
+Once a session is available (from creation or invite), messages are received in a loop:
 
+```python
+while True:
+    ctx, payload = await session.get_message()
+    format_message_print(
+        local,
+        f"-> Received message from {ctx.source_name}: {payload.decode()}",
+    )
+```
 
-Note: The `invite` function returns immediately, but it may require some time
-to actually add the new participant to the channel. This is because several
-message exchanges need to be performed in the background (e.g., for secure
-group setup if MLS is enabled). You can check all the details of the invite
-process in [SESSION.md](../../../SESSION.md).
+`ctx.source_name` is the `PyName` of the sender; `payload` is a `bytes` object
+carrying the published message.
 
-TODO: the recv session and recv msg will change soon, continue this after the refactor.
+### 4. Publishing messages (moderator / any publisher)
+
+The moderator example also provides an interactive input loop so you can type
+messages which are immediately published to the multicast group:
+
+```python
+while True:
+    user_input = input("message> ")
+    if user_input.strip().lower() in ("exit", "quit"):
+        break
+    await session.publish(user_input.encode())
+```
+
+Any participant with the appropriate permissions can call `session.publish` in
+similar fashion (the provided example only wires the loop for the creating
+process for clarity).
 
 
 ## Usage
 
-
-The recommended way to run the multicast example is via the Taskfile commands.
-If you want to see all the command flags, check the
-[Taskfile.yaml](../../Taskfile.yaml) file.
+Use the Taskfile commands for reproducible local runs. See
+[Taskfile.yaml](../../Taskfile.yaml) for all options.
 
 ### 1. Start the SLIM server
 
-
-Before running the multicast example, you need a running SLIM server. You can
-start a local SLIM server using the Taskfile:
+Start a local SLIM server:
 
 ```bash
 task python:example:server
 ```
 
 
-This will start the SLIM server on `127.0.0.1:46357` by default.
+By default this listens on `127.0.0.1:46357`.
 
-### 2. Run the participants
+### 2. Start participants (receivers)
 
-
-Open two terminals and run the following commands to start the multicast
-clients:
+Open two terminals and run:
 
 ```bash
 task python:example:multicast:client-1
@@ -167,18 +170,28 @@ task python:example:multicast:client-2
 ```
 
 
-Each client will wait to be invited to the multicast channel and then receive
-messages.
+Each client waits to be invited, then prints any received messages.
 
-### 3. Run the multicast moderator
+### 3. Start the moderator (creator + interactive publisher)
 
-
-In a separate terminal, run:
+In a third terminal run:
 
 ```bash
 task python:example:multicast:moderator
 ```
 
 
-This will execute the moderator example, which creates a multicast channel and
-invites participants.
+This creates the channel (`agntcy/ns/chat`), invites the two clients, and then
+lets you type messages. Type `exit` or `quit` to stop the moderator. Clients
+will continue printing messages until you terminate them (Ctrl+C).
+
+### 4. (Optional) Enable MLS
+
+Append `EXTRA_ARGS=--enable-mls` when running any of the Task targets to enable
+secure group messaging. Example:
+
+```bash
+task python:example:multicast:moderator EXTRA_ARGS=--enable-mls
+```
+
+All participants must use the same MLS setting for the session.
