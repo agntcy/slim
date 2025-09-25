@@ -1,6 +1,128 @@
 # SLIM Python Bindings
 
-Bindings to call the SLIM APIs from a python program.
+High-level asynchronous Python bindings for the SLIM data‑plane service (Rust core).
+They let you embed SLIM directly into your Python application to:
+
+- Instantiate a local SLIM service (`Slim.new`)
+- Run a server listener (start / stop a SLIM endpoint)
+- Establish outbound client connections (`connect` / `disconnect`)
+- Create, accept, configure, and delete sessions (Anycast / Unicast / Multicast)
+- Publish / receive messages (point‑to‑point or channel based)
+- Manage routing and subscriptions (add / remove routes, subscribe / unsubscribe)
+- Configure identity & trust (shared secret, static JWT, dynamic signing JWT, JWKS auto‑resolve)
+- Integrate tracing / OpenTelemetry
+
+---
+
+## Supported Session Types
+
+| Type      | Description                                                                              | Sticky Peer | Metadata | MLS (group security) |
+|-----------|------------------------------------------------------------------------------------------|-------------|----------|----------------------|
+| Anycast   | Point-to-point with late binding: first suitable / available peer                        | No          | Limited* | No (not negotiated)  |
+| Unicast   | Point-to-point with a fixed destination (affinity)                                       | Yes         | Yes      | Yes                  |
+| Multicast | One-to-many via channel/topic name (moderator can invite/remove participants)            | N/A         | Yes      | Yes                  |
+
+\* Anycast has no establishment phase, so only per‑message routing; session metadata is not negotiated.
+
+---
+
+## Identity & Authentication
+
+You can choose among multiple identity provider / verifier strategies:
+
+| Provider Variant                      | Use Case                               | Notes |
+|--------------------------------------|-----------------------------------------|-------|
+| `PyIdentityProvider.SharedSecret`    | Local dev / tests                       | Symmetric; not for production |
+| `PyIdentityProvider.StaticJwt`       | Pre-issued token loaded from file       | No key rotation; simple |
+| `PyIdentityProvider.Jwt`             | Dynamically signed JWT (private key)    | Supports exp, iss, aud, sub, duration |
+| `PyIdentityVerifier.Jwt`             | Verifies JWT (public key or JWKS auto)  | Optional claim requirements (`require_iss`, etc.) |
+| `PyIdentityVerifier.SharedSecret`    | Matches shared secret provider          | Symmetric validation |
+
+JWKS auto‑resolution (when configured in the verifier with `autoresolve=True`) will:
+1. Try OpenID discovery (`/.well-known/openid-configuration`) for `jwks_uri`
+2. Fallback to `/.well-known/jwks.json`
+3. Cache the key set with a TTL and prefer `kid` match, else algorithm match.
+
+---
+
+## Quick Start
+
+### 1. Install
+
+```bash
+pip install slim-bindings
+```
+
+### 2. Minimal Receiver Example
+
+```python
+import asyncio
+import slim_bindings
+
+async def main():
+    # 1. Create identity (shared secret for demo)
+    provider = slim_bindings.PyIdentityProvider.SharedSecret(identity="demo", shared_secret="secret")
+    verifier = slim_bindings.PyIdentityVerifier.SharedSecret(identity="demo", shared_secret="secret")
+
+    local_name = slim_bindings.PyName("org", "namespace", "demo")
+    slim = await slim_bindings.Slim.new(local_name, provider, verifier)
+
+    # 2. (Optionally) connect as a client to a remote endpoint
+    # await slim.connect({"endpoint": "http://127.0.0.1:50000", "tls": {"insecure": True}})
+
+    # 3. (Optionally) run a local server (insecure TLS for local dev)
+    # await slim.run_server({"endpoint": "127.0.0.1:40000", "tls": {"insecure": True}})
+
+    # 4. Wait for inbound session
+    print("Waiting for an inbound session...")
+    session = await slim.listen_for_session()
+
+    # 5. Receive one message and reply
+    msg_ctx, payload = await session.get_message()
+    print("Received:", payload)
+    await session.publish_to(msg_ctx, b"echo:" + payload)
+
+    # 6. Clean shutdown
+    await slim.delete_session(session)
+    await slim.stop_server("127.0.0.1:40000")
+
+asyncio.run(main())
+```
+
+### 3. Outbound Session (Unicast)
+
+```python
+session = await slim.create_session(
+    slim_bindings.PySessionConfiguration.Unicast(
+        mls_enabled=True,
+        metadata={"trace_id": "abc123"},
+    )
+)
+remote = slim_bindings.PyName("org", "namespace", "peer")
+await slim.set_route(remote)
+await session.publish(b"hello", remote)
+ctx, reply = await session.get_message()
+print("Reply:", reply)
+await slim.delete_session(session)
+```
+
+---
+
+## Tracing / Observability
+
+Initialize tracing (optionally enabling OpenTelemetry export):
+
+```python
+await slim_bindings.init_tracing({
+    "log_level": "info",
+    "opentelemetry": {
+        "enabled": True,
+        "grpc": {"endpoint": "http://localhost:4317"}
+    }
+})
+```
+
+---
 
 ## Installation
 
@@ -8,9 +130,11 @@ Bindings to call the SLIM APIs from a python program.
 pip install slim-bindings
 ```
 
-## Include as dependency
+---
 
-### With pyproject.toml
+## Include as Dependency
+
+### With `pyproject.toml`
 
 ```toml
 [project]
@@ -23,7 +147,7 @@ dependencies = [
 ]
 ```
 
-### With poetry project
+### With Poetry
 
 ```toml
 [tool.poetry]
@@ -36,6 +160,58 @@ python = ">=3.9,<3.14"
 slim-bindings = ">=0.5.0"
 ```
 
-## Example programs
+---
 
-Example apps can be found in the [repo](https://github.com/agntcy/slim/tree/slim-v0.5.0/data-plane/python/bindings/examples)
+## Feature Highlights
+
+| Area            | Capability |
+|-----------------|------------|
+| Server          | `run_server`, `stop_server` |
+| Client          | `connect`, `disconnect`, automatic subscribe to local name |
+| Routing         | `set_route`, `remove_route` |
+| Subscriptions   | `subscribe`, `unsubscribe` |
+| Sessions        | `create_session`, `listen_for_session`, `delete_session`, `set_session_config` |
+| Messaging       | `publish`, `publish_to`, `get_message` |
+| Identity        | Shared secret, static JWT, dynamic JWT signing, JWT verification (public key / JWKS) |
+| Tracing         | Structured logs & optional OpenTelemetry export |
+
+---
+
+## Example Programs
+
+Complete runnable examples (anycast, unicast, multicast, server) live in the repository:
+
+https://github.com/agntcy/slim/tree/slim-v0.5.0/data-plane/python/bindings/examples
+
+You can install and invoke them (after building) via:
+
+```bash
+slim-bindings-examples anycast ...
+slim-bindings-examples unicast ...
+slim-bindings-examples multicast ...
+slim-bindings-examples slim ...
+```
+
+---
+
+## When to Use Each Session Type
+
+| Use Case                          | Recommended Type |
+|----------------------------------|------------------|
+| Load-balanced request/reply      | Anycast          |
+| Stable peer workflow / stateful  | Unicast          |
+| Group chat / fan-out             | Multicast        |
+
+---
+
+## Security Notes
+
+- Prefer asymmetric JWT-based identity in production.
+- Rotate keys periodically and enable `require_iss`, `require_aud`, `require_sub`.
+- Shared secret is only suitable for local tests and prototypes.
+
+---
+
+## License
+
+Apache-2.0 (see repository for full license text).
