@@ -1,34 +1,34 @@
 
 # Point-to-Point Example with SLIM Python Bindings
 
-This example demonstrates how to use the SLIM Python bindings to create and
-manage point-to-point sessions (Anycast and Unicast) between distributed
-application instances. The script allows you to send and receive messages
-directly between two endpoints, with optional security using Messaging Layer
+This example shows how to build point‑to‑point communication flows (Anycast
+and Unicast) with the SLIM Python bindings. You can run a sender (Bob) and one
+or more receivers (Alice instances) and observe differences in routing,
+delivery semantics, and (optionally) secure messaging with Messaging Layer
 Security (MLS).
 
 ## Features
 
-- Create point-to-point sessions (Anycast or Unicast)
-- Send and receive messages between two endpoints
-- Optionally enable Messaging Layer Security (MLS) for secure communication
+- Anycast sessions (per-message dynamic target selection / load distribution)
+- Unicast sessions (sticky peer selection after discovery)
+- Automatic echo reply example from receiver
+- Optional secure Unicast with MLS (`--enable-mls`)
 
 ## How It Works
 
 ### 1. Create the local application
 
-The script initializes a local SLIM application instance using several
-configuration options:
+First we construct a local SLIM application instance:
 
 ```python
 local_app = await create_local_app(
-        local,
-        slim,
-        enable_opentelemetry=enable_opentelemetry,  # (bool, default: False)
-        shared_secret=shared_secret,                # (str | None, default: None)
-        jwt=jwt,                                    # (str | None, default: None)
-        bundle=bundle,                              # (str | None, default: None)
-        audience=audience,                          # (list[str] | None, default: None)
+    local,
+    slim,
+    enable_opentelemetry=enable_opentelemetry,
+    shared_secret=shared_secret,
+    jwt=jwt,
+    bundle=bundle,
+    audience=audience,
 )
 ```
 
@@ -56,81 +56,126 @@ configures a new local SLIM application instance. The main parameters are:
     JWKS).
 - `audience` (list[str] | None, default: `None`): List of allowed audiences for
     JWT authentication.
-If neither `jwt` nor `bundle` is provided, `shared_secret` must be set. This
-setting is discouraged in a production environment and should be used only for
-testing purposes.
+If neither `jwt` nor `bundle` is provided, `shared_secret` must be set (only
+recommended for local/example usage, not production).
 
-### 2. Create a Session
+### 2. Sender vs Receiver
 
-The script can act as either a sender or a receiver, depending on whether the
-`--message` flag is provided. If the message is set, the application runs as a
-sender and sets up the session according to the parameters specified. You can
-see the [Taskfile.yaml](../../Taskfile.yaml) file to check all the available
-parameters.
+The example process acts as a sender when you pass `--message`. Otherwise it
+behaves as a long‑running receiver that waits for sessions initiated by
+senders and echoes messages back.
+
+Relevant options (see [Taskfile.yaml](../../Taskfile.yaml)):
+- `--message`: triggers sender mode
+- `--iterations`: how many messages to send (default 10 in Taskfile examples)
+- `--enable-mls`: enable MLS (forces Unicast semantics)
+- `--remote`: the target application name (required in sender mode)
 
 
 ### Anycast session
-If the unicast option is not selected and MLS is disabled, the session created
-by the sender is an Anycast session. This means that if there are multiple
-instances of the same app running, each message can be routed to a different
-application instance, providing natural load balancing.
+
+If neither the `unicast` flag nor MLS is enabled, an Anycast session is used.
+Each message may be directed to potentially different healthy instances of
+the destination name (stateless load distribution).
 
 ```python
-    session = await local_app.create_session(
-        slim_bindings.PySessionConfiguration.Anycast()  # type: ignore
-    )
+session = await local_app.create_session(
+    slim_bindings.PySessionConfiguration.Anycast()  # type: ignore
+)
 ```
 
+In this mode the example uses `publish_with_destination` to explicitly name
+the destination for each message while still allowing the underlying routing
+to select an instance.
 
-In this example, no retransmission parameter is set. To see all the parameters
-and for a more in-depth explanation of how the Anycast session works, please
-check [SESSION.md](../../../SESSION.md).
+See [SESSION.md](../../../SESSION.md) for advanced Anycast behavior and
+parameters.
 
 
-### Unicast session
-If the unicast option is set or MLS is enabled, a Unicast session is created.
-This session first runs a discovery phase to find one instance of an
-application with a certain name, and after this, all messages are always
-routed to the same endpoint for the duration of the session.
+### Unicast session (with optional MLS)
+
+If the sender chooses the unicast path (explicit unicast example) or enables
+MLS, a Unicast session is created. Discovery selects one target instance and
+all subsequent traffic is pinned to that peer for the session lifetime.
 
 ```python
-    session = await local_app.create_session(
-        slim_bindings.PySessionConfiguration.Unicast(  # type: ignore
-            max_retries=5,
-            timeout=datetime.timedelta(seconds=5),
-            mls_enabled=enable_mls,
-        )
+remote_name = split_id(remote)
+await local_app.set_route(remote_name)
+session = await local_app.create_session(
+    slim_bindings.PySessionConfiguration.Unicast(  # type: ignore
+        unicast_name=remote_name,
+        max_retries=5,
+        timeout=datetime.timedelta(seconds=5),
+        mls_enabled=enable_mls,
     )
+)
 ```
 
-In this example, we set the parameters for retransmissions, and MLS can be
-enabled or not depending on the `mls_enabled` flag. Check
-[SESSION.md](../../../SESSION.md) for more information on all the parameters
-and to see how the Unicast session works.
+Reliability parameters:
+- `max_retries`: maximum retransmission attempts for lost messages.
+- `timeout`: interval (timedelta) between retransmission attempts.
 
+When MLS is enabled (`--enable-mls`), payloads are protected using the MLS
+protocol; only session members can decrypt and authenticate messages.
 
-TODO: receive part depends on the new code
+### 3. Sender publish & response handling
+
+In sender mode the example loops for `iterations` times, publishing and then
+waiting for a reply (Alice echoes it). Logic summary:
+
+```python
+for i in range(iterations):
+    if unicast or enable_mls:
+        await session.publish(message.encode())
+    else:
+        await session.publish_with_destination(message.encode(), remote_name)
+    _ctx, reply = await session.get_message()
+    print("received reply", reply.decode())
+```
+
+Anycast uses `publish_with_destination` to specify the logical destination
+name; Unicast (and Unicast+MLS) uses `publish` since the peer is already
+bound.
+
+### 4. Receiver session & echo loop
+
+Without `--message`, the process waits for inbound sessions:
+
+```python
+while True:
+    session = await local_app.listen_for_session()
+    async def session_loop(sess):
+        while True:
+            msg_ctx, payload = await sess.get_message()
+            text = payload.decode()
+            await sess.publish_to(msg_ctx, f"{text} from {local_app.id}".encode())
+    asyncio.create_task(session_loop(session))
+```
+
+Key APIs:
+- `listen_for_session()`: blocks until a remote sender establishes a session.
+- `get_message()`: returns `(context, payload)`.
+- `publish_to(msg_ctx, data)`: reply directly to sender context.
+
+This model supports multiple concurrent sessions (each gets its own task).
 
 
 ## Usage
 
-The recommended way to run the point-to-point example is via the Taskfile commands.
-If you want to see all the command flags, check the
-[Taskfile.yaml](../../Taskfile.yaml) file.
+Use the Taskfile targets for reproducible runs. See
+[Taskfile.yaml](../../Taskfile.yaml) for full command reference.
 
 ### 1. Start the SLIM server
 
-Before running the point-to-point example, you need a running SLIM server.
- You can start a local SLIM server using the Taskfile:
+Start the local SLIM server:
 
 ```bash
 task python:example:server
 ```
 
-This will start the SLIM server on `127.0.0.1:46357` by default.
+Default endpoint: `127.0.0.1:46357`.
 
 ### 2. Run Alice (receiver)
-
 
 Open a terminal and run:
 
@@ -138,13 +183,12 @@ Open a terminal and run:
 task python:example:p2p:alice
 ```
 
-Alice will listen for messages and echo them back to the sender. You can run
-multiple instances of Alice if you want to test the differences between
-Anycast and Unicast.
+Alice waits for sessions and echoes each received message with its own ID.
+Run multiple Alice instances to observe Anycast load distribution.
 
 ### 3. Run Bob (sender)
 
-In a separate terminal, you can run Bob in different modes:
+In another terminal run one of:
 
 #### a) Anycast (no MLS)
 
@@ -164,5 +208,19 @@ task python:example:p2p:unicast:no-mls:bob
 task python:example:p2p:unicast:mls:bob
 ```
 
-Each command will send a message to Alice using the specified session type
-and security options.
+Each command sends the configured `--message` (default in Taskfile: "hey there")
+for the default number of iterations and prints echoed replies.
+
+#### Customizing message & iterations
+
+You can override message / iterations, for example:
+
+```bash
+task python:example:p2p:anycast:bob EXTRA_ARGS='--message "ping" --iterations 5'
+```
+
+#### Enabling MLS explicitly
+
+MLS is only available in Unicast mode. The Taskfile target already adds
+`--enable-mls`, but you could also supply it through `EXTRA_ARGS` if adapting
+other tasks.
