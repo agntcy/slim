@@ -1,47 +1,51 @@
 
 # SLIM Sessions
 
+This document explains the SLIM session layer and the three supported session
+types. It helps you pick the right pattern, understand reliability and security
+trade‑offs, and shows concrete Python usage examples.
 
 ---
-## TL;DR: SLIM Session Types Overview
+## Quick Reference
 
-| Session Type | Pattern         | Reliability | Security (MLS) | Use Case / Notes                  |
-|--------------|----------------|-------------|----------------|-----------------------------------|
-| Anycast      | 1:1, stateless | Optional    | Not supported  | Load balancing, stateless comms   |
-| Unicast      | 1:1, stateful  | Optional    | Supported      | Stateful, secure, persistent      |
-| Multicast    | N:N, group     | Optional    | Supported      | Group messaging, channel control  |
+| Type     | Pattern        | Reliability            | MLS | Primary Uses                          | Avoid When                                 |
+|----------|----------------|------------------------|-----|----------------------------------------|--------------------------------------------|
+| Anycast  | 1:1 stateless  | Best‑effort or retries | No  | Load balance, idempotent RPC, fan‑out  | Need per‑peer state or E2E encryption      |
+| Unicast  | 1:1 stateful   | Optional acks + retries| Yes | Stateful convo, sticky peer, secure P2P| Need broadcast / many recipients           |
+| Multicast| N:N channel    | Optional acks + retries| Yes | Group chat, pub/sub, coordination      | Need strict single recipient semantics     |
 
-**Key Points:**
-- **Anycast:** Each message goes to one instance; no persistent state; no MLS.
-- **Unicast:** Messages go to a specific instance; supports MLS for security.
-- **Multicast:** Group/channel messaging; moderator can add/remove participants;
-    supports MLS for secure group comms.
+Key takeaways:
+* Pick Anycast for simple stateless request distribution.
+* Pick Unicast when you must bind to one specific instance and optionally
+    secure with MLS.
+* Pick Multicast for one or more producers and many consumers sharing a secure
+    channel.
+
 ---
-
-This document describes the different session types available to applications 
-running on SLIM. Each session type is designed for specific communication patterns 
-and use cases, supporting a range of reliability and security settings.
-
-
+## Table of Contents
+1. [Anycast](#anycast)
+2. [Unicast](#unicast)
+3. [Multicast](#multicast)
+---
 ## Anycast
 
 
-The anycast session enables point-to-point (1:1) communication where each message
-sent to a service is delivered to only one of its available instances. This
-pattern provides natural load balancing and redundancy for stateless services.
-Anycast is best suited for distributing requests across multiple instances
-without maintaining session state.
+The anycast session enables point-to-point (1:1) communication where each
+message sent to a service is delivered to only one of its available instances.
+This pattern provides natural load balancing and redundancy for stateless
+services. Anycast is best suited for distributing requests across multiple
+instances without maintaining session state.
 
-Let's see an example of the communication pattern in the anycast session using the 
-sequence diagram below. The anycast session sends each
-message to a service (e.g., App-B) and the message is delivered to only one of its
-available instances of that service (e.g., App-B/1 or App-B/2). The SLIM Node dynamically
-routes each message to one of the running instances, so consecutive messages
-may be delivered to different endpoints. 
+Let's see an example of the communication pattern in the anycast session using
+the sequence diagram below. The anycast session sends each message to a service
+(e.g., App-B) and the message is delivered to only one of its available
+instances (e.g., App-B/1 or App-B/2). The SLIM Node dynamically routes each
+message to one of the running instances, so consecutive messages may be
+delivered to different endpoints.
 
 If reliability is enabled, the sender expects an acknowledgment (Ack) for every
-message sent. This ensures that the sender is notified of successful delivery,
-even though the specific recipient instance may vary for each message.
+message sent. This confirms successful delivery, even though the specific
+instance may vary per message.
 
 The diagram below illustrates two consecutive messages from App-A to the
 service agntcy/ns/App-B. The first message is delivered to App-B/1, the second
@@ -67,10 +71,9 @@ sequenceDiagram
     SLIM Node->>App-A: Ack
 ```
 
-**Note:** Anycast sessions are stateless and do not allow persistent state to
-be stored on the remote endpoint. As a result, Messaging Layer Security (MLS)
-cannot be enabled for anycast sessions. If MLS is required for point-to-point
-communication, use a unicast session instead.
+Note: Anycast sessions are stateless and do not allow persistent per‑recipient
+state. Consequently, Messaging Layer Security (MLS) cannot be enabled. If MLS
+is required for point‑to‑point communication, use a Unicast session instead.
 
 
 ### Create an Anycast Session
@@ -78,39 +81,63 @@ communication, use a unicast session instead.
 Using the SLIM Python bindings, you can create an Anycast session as follows:
 
 ```python
-import datetime
-
 # Assume local_app is an initialized application instance
-session_info = await local_app.create_session(
+session = await local_app.create_session(
     slim_bindings.PySessionConfiguration.Anycast(
-        max_retries=5,  # Number of times to retry message delivery on failure
-        timeout=datetime.timedelta(seconds=5),  # Timeout for each retry
+        max_retries=5,  # Retries before giving up (omit for best-effort)
+        timeout=datetime.timedelta(seconds=5),  # Wait per attempt for Ack
     )
 )
 ```
 
-**Parameter explanations:**
-- `max_retries`: Number of times to retry message delivery on failure. Default is 5.
-- `timeout`: How long to wait for an acknowledgment at each retry. Default is 5 seconds.
+Parameters:
+* `max_retries` (optional, int): Number of retry attempts if an Ack is not
+    received. If omitted along with `timeout`, session is best‑effort.
+* `timeout` (optional, timedelta): How long to wait for an Ack before retrying.
 
+If neither is provided the session is best‑effort (unreliable): lost messages
+are not retransmitted.
+
+### Sending and Replying in Anycast
+Anycast sessions are not pinned to a single remote instance. Each outgoing
+message must therefore specify a destination application name. Use
+`publish_with_destination` for sends. The plain `publish` API is only valid for
+sessions that already have an implicit peer or channel (Unicast / Multicast).
+
+```python
+remote_name = split_id("agntcy/ns/App-B")  # Resolve target service name
+await session.publish_with_destination(b"hello", remote_name)
+
+# This would raise for Anycast (no implicit peer):
+# await session.publish(b"hello")
+```
+
+To reply to a received message, use `publish_to`, which routes a response back
+to the original sender using the message context acquired via `get_message`:
+
+```python
+async def session_loop(session: slim_bindings.PySession):  # type: ignore
+    while True:
+        try:
+            msg_ctx, payload = await session.get_message()
+        except Exception:
+            break  # Session likely closed
+        text = payload.decode()
+        format_message_print(f"{instance}", f"received: {text}")
+        await session.publish_to(msg_ctx, f"{text} from {instance}".encode())
+```
 
 ## Unicast
 
-The unicast session enables point-to-point communication with a specific instance
-of an application. Unlike anycast, which may route each message to a different
-instance, unicast begins with a discovery phase to identify one of the running
-instances of the target application. After discovery, all subsequent messages in
-the session are sent to the same instance, providing a stable communication
-channel. This approach is useful when stateful interactions or session continuity are
-required between the sender and a particular recipient. If reliability is
-enabled, the sender expects an acknowledgment (Ack) for every message sent.
+The Unicast session enables point‑to‑point communication with a specific
+instance. Unlike Anycast (which re‑selects an instance each message), Unicast
+performs a discovery phase to bind to one instance; all subsequent traffic in
+the session targets that same endpoint. This enables stateful interactions and
+session continuity. With reliability enabled each message must be Acked.
 
-If Messaging Layer Security (MLS) is enabled, the unicast session setup the MLS 
-state after the discovery. App-A sends an invite to App-B/1, which
-responds with its MLS key package. App-A then sends an MLS Welcome message to
-App-B/1, establishing a secure group with just these two participants. This is
-similar to the MLS setup in multicast (see next session), but here the group contains 
-only App-A and App-B/1.
+If MLS is enabled, the Unicast session establishes a two‑member MLS group after
+discovery: invite → key package reply → MLS Welcome. This mirrors the
+Multicast flow but with only two participants.
 
 
 The diagram below illustrates a unicast session from App-A to agntcy/ns/App-B.
@@ -167,123 +194,148 @@ sequenceDiagram
 Using the SLIM Python bindings, you can create a Unicast session as follows:
 
 ```python
-import datetime
-
 # Assume local_app is an initialized application instance
-session_info = await local_app.create_session(
+session = await local_app.create_session(
     slim_bindings.PySessionConfiguration.Unicast(
-        max_retries=5,  # Number of times to retry message delivery on failure
-        timeout=datetime.timedelta(seconds=5),  # Timeout for each retry
-        mls_enabled=True,  # Enable Messaging Layer Security (MLS) for secure comms
+        unicast_name=remote_name,
+        max_retries=5,
+        timeout=datetime.timedelta(seconds=5),
+        mls_enabled=True,  # Enable MLS for end-to-end security
     )
 )
 ```
 
-**Parameter explanations:**
-- `max_retries`: Number of times to retry message delivery on failure. Default is 5.
-- `timeout`: How long to wait for an acknowledgment at each retry. Default is 5 seconds.
-- `mls_enabled`: Enables secure messaging using Messaging Layer Security (MLS). Set to 
-`True` to enable encryption and authentication for the session.
+Parameters:
+* `unicast_name` (required, PyName): Identifier of the remote participant
+    instance.
+* `max_retries` (optional, int): Retry attempts per message if Ack missing.
+* `timeout` (optional, timedelta): Wait per attempt for an Ack before retry.
+* `mls_enabled` (optional, bool): Enable end‑to‑end encryption (MLS).
+
+If `max_retries` and `timeout` are not set the session is best‑effort.
+
+### Sending and Replying in Unicast
+In Unicast the session is bound to a single remote instance after discovery, so
+outbound messages use the implicit destination. Use `publish` for normal sends
+and `publish_to` to reply using a previously received message context. Do not
+use `publish_with_destination` (it will raise) because the peer is already
+fixed.
+
+```python
+# Send a request
+await session.publish(b"hello")
+
+# Await reply from remote (pattern depends on your control loop)
+msg_ctx, payload = await session.get_message()
+print(payload.decode())
+
+# Send a correlated response back (echo style)
+await session.publish_to(msg_ctx, b"hi")
+```
 
 ## Multicast
 
-The multicast session allows N:N communication where all applications can
-exchange messages on a shared channel. The messages are delivered to all the
-participants that are on the same channel.
+The Multicast session allows N:N communication on a named channel. Each
+message is delivered to all current participants.
 
 
-Each channel is managed by a moderator who can add or remove participants from
-the channel. A moderator can be part of the application logic itself or a
-separate application used only to manage the channel. This can also be
-controlled via the control plane.
+Each channel has a moderator that can add or remove participants. Moderation
+can be built into your application or delegated to a separate control service
+or the SLIM control plane.
 
 
 Below are examples using the latest Python bindings, along with explanations of
 what happens inside the session layer when a participant is added or removed
 from the channel.
 
-### Create a multicast session
+### Create a Multicast Session
 
-To create a multicast session, you need to configure the session with a topic name,
-set yourself as moderator if you want to manage participants, and specify other
-options such as retries, timeout, and security settings. Here is an example:
+To create a multicast session, you need to configure the session with a topic
+name, set yourself as moderator if you want to manage participants, and specify
+other options such as retries, timeout, and security settings. Here is an
+example:
 
 ```python
-import datetime
-
 # Assume local_app is an initialized application instance
-session_info = await local_app.create_session(
+session = await local_app.create_session(
     slim_bindings.PySessionConfiguration.Multicast(
-        topic=("namespace", "app", "instance"),  # The multicast topic/channel (tuple or string)
-        moderator=True,  # Set True if this app will invite/remove participants
-        max_retries=10,  # Number of times to retry session creation on failure
-        timeout=datetime.timedelta(seconds=1),  # Timeout for session creation
-        mls_enabled=True,  # Enable Messaging Layer Security (MLS) for secure group messaging
+        topic=chat_topic,
+        max_retries=5,
+        timeout=datetime.timedelta(seconds=5),
+        mls_enabled=True,
     )
 )
 ```
 
-**Parameter explanations:**
-- `topic`: The multicast channel or topic. This can be a string or a tuple
-    (namespace, app, instance) identifying the group.
-- `moderator`: If True, this app can invite or remove participants from the
-    session.
-- `max_retries`: On packet loss detection, how many times to retry to retrieve
-    a message before notifying the application with an error. 
-    If set to None, every packet loss will be ignored.
-- `timeout`: How long to wait for the message to come back at every
-    retransmission request.
-- `mls_enabled`: Enables secure group messaging using Messaging Layer Security
-    (MLS).
+Parameters:
+* `topic` (required, PyName): Channel/Topic name where all the messages are
+    delivered.
+* `max_retries` (optional, int): Retry attempts for missing Acks.
+* `timeout` (optional, timedelta): Wait per attempt for Ack before retry.
+* `mls_enabled` (optional, bool): Enable secure group MLS messaging.
 
+If `max_retries` and `timeout` are not set the session is best‑effort.
 
-### Invite New Participant
-
-A moderator can invite a new participant to the channel using the `invite` method
-after creating the session.
-
-#### Example: Inviting a participant (Python)
+### Sending and Replying in Multicast
+In Multicast the session targets a channel: all sends are broadcast to current
+participants. Use `publish` to send. `publish_with_destination` cannot be used
+in Multicast because the channel name is implicit in the session.
 
 ```python
-await local_app.set_route(participant_name)  # Set up routing for the participant
-await local_app.invite(session_info, participant_name)  # Invite the participant to the session
+# Broadcast to the channel
+await session.publish(b"hello")
+
+# Handle inbound messages
+msg_ctx, data = await session.get_message()
+print("channel received:", data.decode())
+
+# Reply to every participant
+await session.publish(b"hi")
 ```
 
-**Parameter explanations:**
-- `session_info`: The session object returned by `create_session`.
-- `participant_name`: The participant's identifier (tuple or string, e.g.,
-  (namespace, app, instance)).
+### Invite a New Participant
+
+A moderator can invite a new participant to the channel using the `invite`
+method after creating the session.
+
+```python
+# After creating the session as moderator:
+invite_name = split_id(invite)  # Use the participant's ID string
+await local_app.set_route(invite_name)
+await session.invite(invite_name)
+```
+
+Parameter:
+* `invite_name` (PyName): Identifier of the participant to add.
 
 
-When a moderator wants to add a new participant (e.g., an instance of App-C) to a
-multicast session, the following steps occur. All the steps are visualized in the
-diagram below:
+When a moderator wants to add a new participant (e.g., an instance of App-C) to
+a multicast session, the following steps occur. All the steps are visualized in
+the diagram below:
 
 
-1. **Discovery Phase:**
-    The moderator initiates a discovery request to find a running instance of the
-    desired application (App-C). This request is sent to the SLIM Node, which
-    forwards it in anycast to one of the App-C instances. In the example, the
-    message is forwarded to App-C/1 that replies with its full identifier. The
-    SLIM Node relays this reply back to the moderator.
+1. **Discovery Phase:** The moderator initiates a discovery request to find a
+    running instance of the desired application (App-C). This request is sent to
+    the SLIM Node, which forwards it in anycast to one of the App-C instances.
+    In the example, the message is forwarded to App-C/1 that replies with its
+    full identifier. The SLIM Node relays this reply back to the moderator.
 
-2. **Invitation:**
-    The moderator sends an invite message for the discovered instance (App-C/1)
-    to the SLIM Node, which forwards it to App-C/1. Upon receiving the invite,
-    App-C/1 creates a new multicast session, subscribes to the channel, and
-    replies with its MLS (Messaging Layer Security) key package. This reply is
-    routed back to the moderator.
+2. **Invitation:** The moderator sends an invite message for the discovered
+    instance (App-C/1) to the SLIM Node, which forwards it to App-C/1. Upon
+    receiving the invite, App-C/1 creates a new multicast session, subscribes to
+    the channel, and replies with its MLS (Messaging Layer Security) key
+    package. This reply is routed back to the moderator.
 
-3. **MLS State Update:**
-    The moderator initiates an MLS commit to add App-C/1 to the secure group.
-    The message is sent using the channel name and so the SLIM Node distributes
-    this commit to all current participants (App-B/2 and App-A/1), who update
-    their MLS state and acknowledge the commit. The moderator collects all
-    acknowledgments. Once all acknowledgments are received, the moderator sends
-    an MLS Welcome message to App-C/1. App-C/1 initializes its MLS state and
-    acknowledges receipt. At the end of this process, all participants
-    (including the new one) share a secure group state and can exchange
-    encrypted messages on the multicast channel. If MLS is disabled, the MLS state update and welcome step are skipped.
+3. **MLS State Update:** The moderator initiates an MLS commit to add App-C/1
+    to the secure group. The message is sent using the channel name and so the
+    SLIM Node distributes this commit to all current participants (App-B/2 and
+    App-A/1), who update their MLS state and acknowledge the commit. The
+    moderator collects all acknowledgments. Once all acknowledgments are
+    received, the moderator sends an MLS Welcome message to App-C/1. App-C/1
+    initializes its MLS state and acknowledges receipt. At the end of this
+    process, all participants (including the new one) share a secure group state
+    and can exchange encrypted messages on the multicast channel. If MLS is
+    disabled, the MLS state update and welcome step are skipped.
 
 ```mermaid
 sequenceDiagram
@@ -331,23 +383,21 @@ sequenceDiagram
     SLIM Node->>Moderator: Ack(MLS Welcome)
 ```
 
-### Remove Participant
+### Remove a Participant
 
 
-A moderator can remove a participant from the channel using the `remove` method
-after creating the session.
-
-#### Example: Removing a participant (Python)
+A moderator can remove a participant from the channel using the `remove`
+method after creating the session.
 
 ```python
-await local_app.remove(session_info, participant_name)  # Remove the participant from the session
+# To remove a participant from the session:
+remove_name = split_id(participant)  # Use the participant's ID string
+await session.remove(remove_name)
 ```
 
 
-**Parameter explanations:**
-- `session_info`: The session object returned by `create_session`.
-- `participant_name`: The participant's identifier (tuple or string, e.g.,
-  (namespace, app, instance)).
+Parameter:
+* `remove_name` (PyName): Identifier of the participant to remove.
 
 
 When a moderator wants to remove a participant (e.g., App-C/1) from a multicast
@@ -355,21 +405,19 @@ session, the following steps occur. All the steps are visualized in the diagram
 below:
 
 
-1. **MLS State Update:**
-    The moderator creates an MLS commit to remove App-C/1 from the secure group.
-    This commit is sent to the multicast channel and the SLIM Node distributes it
-    to all current participants (App-C/1, App-B/2, and App-A/1). Each
-    participant updates its MLS state and acknowledges the commit. The moderator
-    collects all acknowledgments. In case the MLS is disabled, this step is not
-    executed.
+1. **MLS State Update:** The moderator creates an MLS commit to remove App-C/1
+    from the secure group. This commit is sent to the multicast channel and the
+    SLIM Node distributes it to all current participants (App-C/1, App-B/2, and
+    App-A/1). Each participant updates its MLS state and acknowledges the
+    commit. The moderator collects all acknowledgments. In case the MLS is
+    disabled, this step is not executed.
 
-2. **Removal:**
-    After the MLS state is updated, the moderator sends a remove message to
-    App-C/1. Upon receiving the remove message, App-C/1 unsubscribes from the
-    channel, deletes its multicast session, and replies with a confirmation. The
-    SLIM Node relays this confirmation back to the moderator. At the end of this
-    process, App-C/1 is no longer a member of the multicast group and cannot
-    send or receive messages on the channel.
+2. **Removal:** After the MLS state is updated, the moderator sends a remove
+    message to App-C/1. Upon receiving the remove message, App-C/1 unsubscribes
+    from the channel, deletes its multicast session, and replies with a
+    confirmation. The SLIM Node relays this confirmation back to the moderator.
+    At the end of this process, App-C/1 is no longer a member of the multicast
+    group and cannot send or receive messages on the channel.
 
 ```mermaid
 sequenceDiagram
