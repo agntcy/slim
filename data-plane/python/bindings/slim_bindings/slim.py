@@ -145,6 +145,18 @@ class Slim:
         return self._svc.id
 
     @property
+    def id_str(self) -> str:
+        """String representation of the unique identifier of the underlying app instance.
+
+        Returns:
+            str: String representation of the Service ID allocated by the native layer.
+        """
+
+        components_string = self.local_name.components_strings()
+
+        return f"{components_string[0]}/{components_string[1]}/{components_string[2]}/{self._svc.id}"
+
+    @property
     def local_name(self) -> PyName:
         """Local fully-qualified PyName (org/namespace/app) for this app.
 

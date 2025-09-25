@@ -244,6 +244,7 @@ def common_options(function):
         "--shared-secret",
         type=str,
         help="Shared secret for authentication. Don't use this in production.",
+        default="secret",
     )(function)
 
     # JWT token path (static token case).
@@ -255,9 +256,9 @@ def common_options(function):
 
     # JWKS / key bundle path.
     function = click.option(
-        "--bundle",
+        "--spire-trust-bundle",
         type=str,
-        help="Key bundle for authentication, in JWKS format.",
+        help="SPIRE trust bundle for authentication.",
     )(function)
 
     # Audience to assert for JWT verification.
@@ -330,12 +331,16 @@ async def create_local_app(
 
     # Derive identity provider & verifier using JWT/JWKS if all pieces supplied.
     if jwt and spire_trust_bundle and audience:
+        print("Using JWT + JWKS authentication.")
         provider, verifier = jwt_identity(
             jwt,
             spire_trust_bundle,
             aud=audience,
         )
     else:
+        print(
+            "Warning: Falling back to shared-secret authentication. Don't use this in production!"
+        )
         # Fall back to shared secret (dev-friendly default).
         provider, verifier = shared_secret_identity(
             identity=local,
@@ -349,12 +354,12 @@ async def create_local_app(
     local_app = await slim_bindings.Slim.new(local_name, provider, verifier)
 
     # Provide feedback to user (instance numeric id).
-    format_message_print(f"{local_app.id}", "Created app")
+    format_message_print(f"{local_app.id_str}", "Created app")
 
     # Establish outbound connection using provided parameters.
     _ = await local_app.connect(slim)
 
     # Confirm endpoint connectivity.
-    format_message_print(f"{local_app.id}", f"Connected to {slim['endpoint']}")
+    format_message_print(f"{local_app.id_str}", f"Connected to {slim['endpoint']}")
 
     return local_app

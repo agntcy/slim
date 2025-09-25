@@ -92,7 +92,7 @@ async def run_client(
     )
 
     # Numeric unique instance ID (useful for distinguishing multiple processes).
-    instance = local_app.id
+    instance = local_app.id_str
 
     # If user intends to send messages, remote must be provided for routing.
     if message and not remote:

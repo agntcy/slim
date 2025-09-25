@@ -177,7 +177,7 @@ pub enum PySessionType {
     /// Point-to-point with a single, explicit destination name.
     #[pyo3(name = "UNICAST")]
     Unicast = 1,
-    /// One-to-many distribution via a multicast topic/channel.
+    /// One-to-many distribution via a multicast channel_name/channel.
     #[pyo3(name = "MULTICAST")]
     Multicast = 2,
 }
@@ -223,7 +223,7 @@ pub enum PySessionType {
 /// # Multicast session (channel-based)
 /// channel = PyName("org", "namespace", "channel")
 /// multicast_cfg = PySessionConfiguration.Multicast(
-///     channel, # multicast topic
+///     channel, # multicast channel_name
 ///     max_retries=2, # retry up to 2 times
 ///     timeout=datetime.timedelta(seconds=2), # try to send a message within 2 seconds
 ///     mls_enabled=True, # enable MLS
@@ -288,11 +288,11 @@ pub(crate) enum PySessionConfiguration {
         metadata: HashMap<String, String>,
     },
 
-    /// Multicast configuration: one-to-many distribution through a topic/channel.
-    #[pyo3(constructor = (topic, max_retries=0, timeout=std::time::Duration::from_millis(1000), mls_enabled=false, metadata=HashMap::new()))]
+    /// Multicast configuration: one-to-many distribution through a channel_name.
+    #[pyo3(constructor = (channel_name, max_retries=0, timeout=std::time::Duration::from_millis(1000), mls_enabled=false, metadata=HashMap::new()))]
     Multicast {
-        /// Multicast topic (channel) identifier.
-        topic: PyName,
+        /// Multicast channel_name (channel) identifier.
+        channel_name: PyName,
         /// Maximum retry attempts for setup or message send.
         max_retries: u32,
         /// Per-operation timeout.
@@ -324,7 +324,7 @@ impl From<session::SessionConfig> for PySessionConfiguration {
                 }
             }
             session::SessionConfig::Multicast(config) => PySessionConfiguration::Multicast {
-                topic: config.channel_name.into(),
+                channel_name: config.channel_name.into(),
                 max_retries: config.max_retries,
                 timeout: config.timeout,
                 mls_enabled: config.mls_enabled,
@@ -361,13 +361,13 @@ impl From<PySessionConfiguration> for session::SessionConfig {
                 metadata,
             )),
             PySessionConfiguration::Multicast {
-                topic,
+                channel_name,
                 max_retries,
                 timeout,
                 mls_enabled,
                 metadata,
             } => session::SessionConfig::Multicast(MulticastConfiguration::new(
-                topic.into(),
+                channel_name.into(),
                 Some(max_retries),
                 Some(timeout),
                 mls_enabled,
