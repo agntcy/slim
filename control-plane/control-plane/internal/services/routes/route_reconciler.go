@@ -25,14 +25,16 @@ type RouteReconcileRequest struct {
 type RouteReconciler struct {
 	dbService          db.DataAccess
 	nodeCommandHandler nodecontrol.NodeCommandHandler
-	queue              *workqueue.Typed[RouteReconcileRequest]
+	queue              workqueue.TypedRateLimitingInterface[RouteReconcileRequest]
 	threadName         string
+	maxRequeues        int
 }
 
 // NewRouteReconciler creates a new instance of RouteReconciler
 func NewRouteReconciler(
 	threadName string,
-	queue *workqueue.Typed[RouteReconcileRequest],
+	maxRequeues int,
+	queue workqueue.TypedRateLimitingInterface[RouteReconcileRequest],
 	dbService db.DataAccess,
 	nodeCommandHandler nodecontrol.NodeCommandHandler,
 ) *RouteReconciler {
@@ -41,6 +43,7 @@ func NewRouteReconciler(
 		nodeCommandHandler: nodeCommandHandler,
 		queue:              queue,
 		threadName:         threadName,
+		maxRequeues:        maxRequeues,
 	}
 }
 
@@ -58,7 +61,12 @@ func (s *RouteReconciler) Run(ctx context.Context) {
 			if err := s.handleRequest(ctx, req); err != nil {
 				zlog.Error().Err(err).Msg("Failed to process route reconciliation request")
 				// Optionally requeue the request for retry
-				s.queue.Add(req)
+				if s.queue.NumRequeues(req) < s.maxRequeues {
+					s.queue.AddRateLimited(req)
+				} else {
+					zlog.Warn().Msgf("Max retries reached for request: %v, dropping from queue", req)
+					s.queue.Forget(req)
+				}
 			}
 		}()
 	}
