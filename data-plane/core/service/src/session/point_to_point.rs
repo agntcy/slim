@@ -82,7 +82,7 @@ impl PointToPointConfiguration {
         }
     }
 
-    pub fn with_unicat_name(mut self, name: Name) -> Self {
+    pub fn with_unicast_name(mut self, name: Name) -> Self {
         self.unicast_name = Some(name);
         self
     }
@@ -1331,7 +1331,7 @@ mod tests {
         let source = Name::from_strings(["cisco", "default", "local"]).with_id(0);
         let remote = Name::from_strings(["cisco", "default", "remote"]).with_id(999);
 
-        let config = PointToPointConfiguration::default().with_unicat_name(remote.clone());
+        let config = PointToPointConfiguration::default().with_unicast_name(remote.clone());
 
         let session = PointToPoint::new(
             0,

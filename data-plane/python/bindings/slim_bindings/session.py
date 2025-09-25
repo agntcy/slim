@@ -65,22 +65,12 @@ class PySession:
     def dst(self) -> PyName | None:
         return self._ctx.dst
 
+    @property
+    def destination_name(self) -> PyName | None:
+        return self._ctx.destination_name
+
     def set_session_config(self, config: PySessionConfiguration) -> None:
         self._ctx.set_session_config(config)
-
-    def _destination_name(self) -> PyName:
-        """
-        Return the destination name implied by the current session configuration.
-        Unicast -> unicast_name
-        Multicast -> topic
-        Anycast has no fixed destination (raises).
-        """
-        cfg = self._ctx.session_config
-        if hasattr(cfg, "unicast_name"):  # Unicast variant
-            return cfg.unicast_name
-        if hasattr(cfg, "topic"):  # Multicast variant
-            return cfg.topic
-        raise RuntimeError("ANYCAST session has no fixed destination")
 
     async def publish(
         self,
@@ -104,7 +94,7 @@ class PySession:
         if self._ctx.session_type == PySessionType.ANYCAST:
             raise RuntimeError("unexpected session type: expected UNICAST or MULTICAST")
 
-        dst = self._destination_name()
+        dst = self.destination_name
 
         await _publish(
             self._svc,

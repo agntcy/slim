@@ -58,6 +58,7 @@ class PySessionContext:
     src: PyName
     dst: typing.Optional[PyName]
     session_config: PySessionConfiguration
+    destination_name: typing.Optional[PyName]
     def set_session_config(self, config:PySessionConfiguration) -> None:
         ...
 
