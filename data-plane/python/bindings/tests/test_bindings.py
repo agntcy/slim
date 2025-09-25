@@ -1,6 +1,21 @@
 # Copyright AGNTCY Contributors (https://github.com/agntcy)
 # SPDX-License-Identifier: Apache-2.0
 
+"""
+Integration tests for the slim_bindings Python layer.
+
+These tests exercise:
+- End-to-end anycast session creation, message publish/reply, and cleanup.
+- Session configuration retrieval and default session configuration propagation.
+- Usage of the high-level Slim wrapper (PySession helper methods).
+- Automatic client reconnection after a server restart.
+- Error handling when targeting a non-existent subscription.
+
+Authentication is simplified by using SharedSecret identity provider/verifier
+pairs. Network operations run against an in-process server fixture defined
+in tests.conftest.
+"""
+
 import asyncio
 import datetime
 
@@ -13,6 +28,15 @@ import slim_bindings
 @pytest.mark.asyncio
 @pytest.mark.parametrize("server", ["127.0.0.1:12344"], indirect=True)
 async def test_end_to_end(server):
+    """Full round-trip:
+    - Two services connect (Alice, Bob)
+    - Subscribe & route setup
+    - Anycast session creation (Alice -> Bob)
+    - Publish + receive + reply
+    - Validate session IDs, payload integrity
+    - Test error behavior after deleting session
+    - Disconnect cleanup
+    """
     alice_name = slim_bindings.PyName("org", "default", "alice")
     bob_name = slim_bindings.PyName("org", "default", "bob")
 
@@ -106,6 +130,14 @@ async def test_end_to_end(server):
 @pytest.mark.asyncio
 @pytest.mark.parametrize("server", ["127.0.0.1:12344"], indirect=True)
 async def test_session_config(server):
+    """Verify per-session configuration reflection and default override:
+    - Create initial Anycast session with custom timeout
+    - Read back config via session_context.session_config
+    - Set new default session configuration
+    - Cause remote peer to create a session toward local service
+    - Assert received session adopts new default
+    - Validate message delivery still works
+    """
     alice_name = slim_bindings.PyName("org", "default", "alice")
 
     # create svc
@@ -196,6 +228,15 @@ async def test_session_config(server):
 @pytest.mark.asyncio
 @pytest.mark.parametrize("server", ["127.0.0.1:12345"], indirect=True)
 async def test_slim_wrapper(server):
+    """Exercise high-level Slim + PySession convenience API:
+    - Instantiate two Slim instances
+    - Connect & establish routing
+    - Create Anycast session and publish
+    - Receive via listen_for_session + get_message
+    - Validate src/dst/session_type invariants
+    - Reply using publish_to helper
+    - Ensure errors after session deletion are surfaced
+    """
     name1 = slim_bindings.PyName("org", "default", "slim1")
     name2 = slim_bindings.PyName("org", "default", "slim2")
 
@@ -278,6 +319,13 @@ async def test_slim_wrapper(server):
 @pytest.mark.asyncio
 @pytest.mark.parametrize("server", ["127.0.0.1:12346"], indirect=True)
 async def test_auto_reconnect_after_server_restart(server):
+    """Test resilience / auto-reconnect:
+    - Establish connection and session
+    - Exchange a baseline message
+    - Stop and restart server
+    - Wait for automatic reconnection
+    - Publish again and confirm continuity using original session context
+    """
     alice_name = slim_bindings.PyName("org", "default", "alice")
     bob_name = slim_bindings.PyName("org", "default", "bob")
 
@@ -346,6 +394,11 @@ async def test_auto_reconnect_after_server_restart(server):
 @pytest.mark.asyncio
 @pytest.mark.parametrize("server", ["127.0.0.1:12347"], indirect=True)
 async def test_error_on_nonexistent_subscription(server):
+    """Validate error path when publishing to an unsubscribed / nonexistent destination:
+    - Create only Alice, subscribe her
+    - Publish message addressed to Bob (not connected)
+    - Expect an error surfaced (no matching subscription)
+    """
     name = slim_bindings.PyName("org", "default", "alice")
 
     svc_alice = await create_svc(name, "secret")

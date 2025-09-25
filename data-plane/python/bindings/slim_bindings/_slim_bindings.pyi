@@ -12,6 +12,20 @@ class PyKey:
     def __new__(cls,algorithm:PyAlgorithm, format:PyKeyFormat, key:PyKeyData): ...
 
 class PyMessageContext:
+    r"""
+    Python-visible context accompanying every received message.
+    
+    Provides routing and descriptive metadata needed for replying,
+    auditing, and instrumentation.
+    
+    Fields:
+    * `source_name`: Fully-qualified sender identity.
+    * `destination_name`: Fully-qualified destination identity (may be an empty placeholder
+      when not explicitly set, e.g. broadcast/multicast scenarios).
+    * `payload_type`: Logical/semantic type (defaults to "msg" if unspecified).
+    * `metadata`: Arbitrary key/value pairs supplied by the sender (e.g. tracing IDs).
+    * `input_connection`: Numeric identifier of the inbound connection carrying the message.
+    """
     source_name: PyName
     destination_name: PyName
     payload_type: builtins.str
@@ -52,13 +66,48 @@ class PyService:
     name: PyName
 
 class PySessionContext:
+    r"""
+    Python-exposed session context wrapper.
+    
+    A thin, clonable handle around the underlying Rust session state. All
+    getters perform a safe upgrade of the weak internal session reference,
+    returning a Python exception if the session has already been closed.
+    The internal message receiver is intentionally not exposed at this level.
+    
+    Higher-level Python code (see `session.py`) provides ergonomic async
+    operations on top of this context.
+    
+    Properties (getters exposed to Python):
+    - id -> int: Unique numeric identifier of the session. Raises a Python
+      exception if the session has been closed.
+    - metadata -> dict[str,str]: Arbitrary key/value metadata copied from the
+      current SessionConfig. A cloned map is returned so Python can mutate
+      without racing the underlying config.
+    - session_type -> PySessionType: High-level transport classification
+      (ANYCAST, UNICAST, MULTICAST), inferred from internal kind + destination.
+    - src -> PyName: Fully qualified source identity that originated / owns
+      the session.
+    - dst -> Optional[PyName]: Destination identity when applicable:
+        * PyName of the peer for UNICAST
+        * None for ANYCAST (no fixed peer)
+        * PyName of the channel for MULTICAST
+    - session_config -> PySessionConfiguration: Current effective configuration
+      converted to the Python-facing enum variant.
+    """
     id: builtins.int
+    metadata: builtins.dict[builtins.str, builtins.str]
     session_type: PySessionType
     src: PyName
     dst: typing.Optional[PyName]
-    metadata: builtins.dict[builtins.str, builtins.str]
     session_config: PySessionConfiguration
     def set_session_config(self, config:PySessionConfiguration) -> None:
+        r"""
+        Replace the underlying session configuration with a new one.
+        
+        Safety/Consistency:
+        The underlying service validates and applies changes atomically.
+        Errors (e.g. invalid transitions) are surfaced as Python exceptions.
+        """
         ...
 
 
@@ -95,13 +144,95 @@ class PyKeyFormat(Enum):
     Jwks = auto()
 
 class PySessionConfiguration(Enum):
+    r"""
+    User-facing configuration for establishing and tuning sessions.
+    
+    Each variant corresponds to an underlying core `SessionConfig`.
+    Common fields:
+    * `timeout`: How long to wait for operations (creation / messaging) before failing.
+    * `max_retries`: Optional retry count for establishment or delivery.
+    * `mls_enabled`: Whether to negotiate/use MLS secure group messaging.
+    * `metadata`: Free-form string map propagated with session context.
+    
+    Variant-specific notes:
+    * `Anycast` / `Unicast`: Point-to-point; anycast will pick any available peer
+                             for each message sent, while unicast targets a specific
+                             peer for all messages.
+    * `Multicast`: Uses a named channel and distributes to multiple subscribers.
+    
+    # Examples
+    
+    ## Python: Create different session configs
+    ```python
+    from slim_bindings import PySessionConfiguration, PyName
+    
+    # Anycast session (no fixed destination; service picks an available peer)
+    # MLS is not available with Anycast sessions, and session metadata is not supported,
+    # as there is no session establishment phase, only per-message routing.
+    anycast_cfg = PySessionConfiguration.Anycast
+        timeout=datetime.timedelta(seconds=2), # try to send a message within 2 seconds
+        max_retries=5, # retry up to 5 times
+    )
+    
+    # Unicast session. Try to send a message within 2 seconds, retry up to 5 times,
+    # enable MLS, and attach some metadata.
+    unicast_cfg = PySessionConfiguration.Unicast(
+        timeout=datetime.timedelta(seconds=2), # try to send a message within 2 seconds
+        max_retries=5, # retry up to 5 times
+        mls_enabled=True, # enable MLS
+        metadata={"trace_id": "1234abcd"} # arbitrary key/value pairs to send at session establishment
+    )
+    
+    # Multicast session (channel-based)
+    channel = PyName("org", "namespace", "channel")
+    multicast_cfg = PySessionConfiguration.Multicast(
+        channel, # multicast topic
+        max_retries=2, # retry up to 2 times
+        timeout=datetime.timedelta(seconds=2), # try to send a message within 2 seconds
+        mls_enabled=True, # enable MLS
+        metadata={"role": "publisher"} # arbitrary key/value pairs to send at session establishment
+    )
+    ```
+    
+    ## Python: Using a config when creating a session
+    ```python
+    slim = await Slim.new(local_name, provider, verifier)
+    session = await slim.create_session(unicast_cfg)
+    print("Session ID:", session.id)
+    print("Type:", session.session_type)
+    print("Metadata:", session.metadata)
+    ```
+    
+    ## Python: Updating configuration after creation
+    ```python
+    # Adjust retries & metadata dynamically
+    new_cfg = PySessionConfiguration.Unicast(
+        timeout=None,
+        max_retries=10,
+        mls_enabled=True,
+        metadata={"trace_id": "1234abcd", "phase": "retrying"}
+    )
+    session.set_session_config(new_cfg)
+    ```
+    
+    ## Rust (internal conversion flow)
+    The enum transparently converts to and from `session::SessionConfig`:
+    ```rust
+    let core: session::SessionConfig = py_cfg.clone().into();
+    let roundtrip: PySessionConfiguration = core.into();
+    assert_eq!(py_cfg, roundtrip);
+    ```
+    """
     Anycast = auto()
     Unicast = auto()
     Multicast = auto()
 
 class PySessionType(Enum):
     r"""
-    session type
+    High-level session classification presented to Python.
+    
+    Variants map onto core `SessionType` plus additional inference
+    (e.g. presence of a concrete destination for UNICAST).
     """
     ANYCAST = auto()
     UNICAST = auto()
@@ -146,7 +277,7 @@ def remove_route(svc:PyService, conn:builtins.int, name:PyName) -> typing.Any:
 def run_server(svc:PyService, config:dict) -> typing.Any:
     ...
 
-def set_default_session_config(svc:PyService, config:PySessionConfiguration):
+def set_default_session_config(svc:PyService, config:PySessionConfiguration) -> None:
     ...
 
 def set_route(svc:PyService, conn:builtins.int, name:PyName) -> typing.Any:

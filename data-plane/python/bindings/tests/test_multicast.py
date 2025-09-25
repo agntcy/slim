@@ -1,6 +1,32 @@
 # Copyright AGNTCY Contributors (https://github.com/agntcy)
 # SPDX-License-Identifier: Apache-2.0
 
+"""
+Multicast integration test for Slim bindings.
+
+Scenario:
+  - A configurable number of participants (participants_count) join a multicast
+    "chat" identified by a shared topic (PyName).
+  - Participant 0 (the "moderator") creates the multicast session, invites
+    every other participant, and publishes the first message addressed to the
+    next participant in a logical ring.
+  - Each participant, upon receiving a message that ends with its own name,
+    publishes a new message naming the next participant, continuing the ring.
+  - Each participant exits after observing (participants_count - 1) messages.
+
+What is validated implicitly:
+  * Multicast session establishment (session_type == MULTICAST).
+  * dst equals the channel/topic PyName for non-creator participants.
+  * src matches the participant's own local identity when receiving.
+  * Message propagation across all participants without loss.
+  * Optional MLS flag is parameterized.
+
+Note:
+  The test relies on timing (sleep calls) to allow route propagation and
+  invitation distribution; in a production-grade test suite you might
+  replace these with explicit synchronization primitives or polling.
+"""
+
 import asyncio
 import datetime
 
@@ -12,8 +38,24 @@ import slim_bindings
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("server", ["127.0.0.1:12375"], indirect=True)
-@pytest.mark.parametrize("mls_enabled", [False])
+@pytest.mark.parametrize("mls_enabled", [False, True])
 async def test_multicast(server, mls_enabled):  # noqa: C901
+    """Exercise multicast session behavior with N participants relaying a message in a ring.
+
+    Steps:
+      1. Participant 0 creates multicast session (optionally with MLS enabled).
+      2. Participant 0 invites remaining participants after short delay.
+      3. Participant 0 seeds first message naming participant-1.
+      4. Each participant that is "called" republishes naming the next participant.
+      5. Each participant terminates after seeing (N - 1) messages.
+
+    Args:
+        server: Injected server fixture providing an active Slim server endpoint.
+        mls_enabled (bool): Whether MLS secure group features are enabled for the session.
+
+    This test asserts invariants via inline assertions and stops when all
+    participant tasks complete successfully.
+    """
     message = "Calling app"
 
     # participant count
@@ -22,8 +64,14 @@ async def test_multicast(server, mls_enabled):  # noqa: C901
 
     chat_name = slim_bindings.PyName("org", "default", "chat")
 
-    # define the background task
+    # Background task: each participant joins/creates the session and relays messages around the ring
     async def background_task(index):
+        """Participant coroutine.
+
+        Responsibilities:
+          * Index 0: create multicast session, invite others, publish initial message.
+          * Others: wait for inbound session, validate session properties, relay when addressed.
+        """
         part_name = f"participant-{index}"
         local_count = 0
 
