@@ -41,8 +41,8 @@ class Slim:
       * Session lifecycle (create_session / delete_session / listen_for_session)
 
     Core Concepts:
-      - PyName: Fully-qualified identity (org / namespace / app-or-channel). Used for
-        routing, subscriptions, and identifying peers or multicast topics.
+      - PyName: Fully-qualified name of the app (org / namespace / app-or-channel). Used for
+        routing, subscriptions.
       - Session: Logical communication context. Types supported include:
           * Anycast  : Point-to-point without a fixed destination (service picks a peer).
           * Unicast  : Point-to-point with a fixed, stable destination (sticky).
@@ -69,12 +69,10 @@ class Slim:
 
     Threading / Concurrency:
       - All network / I/O operations are async and awaitable.
-      - A single Slim instance can service multiple concurrent awaiters, but
-        per-session ordering guarantees depend on the underlying service semantics.
+      - A single Slim instance can service multiple concurrent awaiters.
 
     Error Handling:
       - Methods propagate underlying exceptions (e.g., invalid routing, closed sessions).
-      - After delete_session, further use of that session raises an error from the bindings.
       - connect / run_server may raise if the endpoint is unreachable or already bound.
 
     Performance Notes:

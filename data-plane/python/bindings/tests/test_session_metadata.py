@@ -17,8 +17,6 @@ What is covered:
 
 Not supported:
   * Mutating metadata after session establishment.
-  * Anycast / Multicast metadata behavior.
-  * MLS interaction with metadata.
 
 Pass criteria:
   All key/value pairs inserted in the initiating configuration must appear

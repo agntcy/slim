@@ -51,7 +51,7 @@ async def run_client(
     enable_mls: bool = False,
     shared_secret: str = "secret",
     jwt: str | None = None,
-    bundle: str | None = None,
+    spire_trust_bundle: str | None = None,
     audience: list[str] | None = None,
     invites: list[str] | None = None,
 ):
@@ -81,7 +81,7 @@ async def run_client(
         enable_opentelemetry=enable_opentelemetry,
         shared_secret=shared_secret,
         jwt=jwt,
-        bundle=bundle,
+        spire_trust_bundle=spire_trust_bundle,
         audience=audience,
     )
 
@@ -206,7 +206,7 @@ def main(
                 enable_mls=enable_mls,
                 shared_secret=shared_secret,
                 jwt=jwt,
-                bundle=bundle,
+                spire_trust_bundle=bundle,
                 audience=audience,
                 invites=invites,
             )

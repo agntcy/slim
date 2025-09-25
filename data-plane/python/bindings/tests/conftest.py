@@ -28,7 +28,7 @@ async def server(request):
     Behavior:
         1. Creates a PyService with SharedSecret auth (identity 'server').
            This is not used here, as we use this SLIM instance only for packet forwarding.
-        2. Initializes tracing (log_level=info) once per fixture invocation.
+        2. Initializes tracing (log_level=info) once.
         3. Starts the server with the provided endpoint (non-blocking).
         4. Waits briefly (1s) to ensure the server socket is listening.
         5. Yields the underlying service handle for test use.

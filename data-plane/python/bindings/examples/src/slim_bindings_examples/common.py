@@ -292,7 +292,7 @@ async def create_local_app(
     enable_opentelemetry: bool = False,
     shared_secret: str = "secret",
     jwt: str | None = None,
-    bundle: str | None = None,
+    spire_trust_bundle: str | None = None,
     audience: list[str] | None = None,
 ):
     """
@@ -328,18 +328,11 @@ async def create_local_app(
         }
     )
 
-    # Validate mutual exclusivity (we allow only one auth path).
-    if not (jwt or bundle or audience):
-        if not shared_secret:
-            raise ValueError(
-                "Either JWT or bundle must be provided, or a shared secret."
-            )
-
     # Derive identity provider & verifier using JWT/JWKS if all pieces supplied.
-    if jwt and bundle and audience:
+    if jwt and spire_trust_bundle and audience:
         provider, verifier = jwt_identity(
             jwt,
-            bundle,
+            spire_trust_bundle,
             aud=audience,
         )
     else:
