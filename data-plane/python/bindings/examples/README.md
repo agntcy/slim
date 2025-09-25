@@ -260,8 +260,7 @@ helm install \
   -n slim \
   slim ./slim \
   --set slim.image.repository=localhost:5001/slim \
-  --set slim.image.tag=latest \
-  --set spire.enabled=true
+  --set slim.image.tag=latest
 ```
 
 Confirm the pod is running:
