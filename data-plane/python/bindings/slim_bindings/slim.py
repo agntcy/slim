@@ -31,6 +31,62 @@ from .session import PySession
 
 
 class Slim:
+    """
+    High-level façade over the underlying PyService (Rust core) providing a
+    Pythonic API for:
+      * Service initialization & authentication (via Slim.new)
+      * Client connections to remote Slim services (connect / disconnect)
+      * Server lifecycle management (run_server / stop_server)
+      * Subscription & routing management (subscribe / unsubscribe / set_route / remove_route)
+      * Session lifecycle (create_session / delete_session / listen_for_session)
+
+    Core Concepts:
+      - PyName: Fully-qualified identity (org / namespace / app-or-channel). Used for
+        routing, subscriptions, and identifying peers or multicast topics.
+      - Session: Logical communication context. Types supported include:
+          * Anycast  : Point-to-point without a fixed destination (service picks a peer).
+          * Unicast  : Point-to-point with a fixed, stable destination (sticky).
+          * Multicast: One-to-many via a named channel/topic.
+      - Default Session Configuration: A fallback used when inbound sessions are created
+        towards this service (set via set_default_session_config).
+
+    Typical Lifecycle (Client):
+      1. slim = await Slim.new(local_name, identity_provider, identity_verifier)
+      2. await slim.connect({"endpoint": "...", "tls": {"insecure": True}})
+      3. await slim.set_route(remote_name)
+      4. session = await slim.create_session(PySessionConfiguration.Anycast())
+      5. await session.publish(b"payload", remote_name)
+      6. await slim.delete_session(session)
+      7. await slim.disconnect("endpoint-string")
+
+    Typical Lifecycle (Server):
+      1. slim = await Slim.new(local_name, provider, verifier)
+      2. await slim.run_server({"endpoint": "127.0.0.1:12345", "tls": {"insecure": True}})
+      3. inbound = await slim.listen_for_session()
+      4. msg_ctx, data = await inbound.get_message()
+      5. await inbound.publish_to(msg_ctx, b"reply")
+      6. await slim.stop_server("127.0.0.1:12345")
+
+    Threading / Concurrency:
+      - All network / I/O operations are async and awaitable.
+      - A single Slim instance can service multiple concurrent awaiters, but
+        per-session ordering guarantees depend on the underlying service semantics.
+
+    Error Handling:
+      - Methods propagate underlying exceptions (e.g., invalid routing, closed sessions).
+      - After delete_session, further use of that session raises an error from the bindings.
+      - connect / run_server may raise if the endpoint is unreachable or already bound.
+
+    Performance Notes:
+      - Route changes are lightweight but may take a short time to propagate remotely.
+      - listen_for_session can be long-lived; provide a timeout if you need bounded wait.
+
+    Security Notes:
+      - Identity provider & verifier determine trust model (e.g. shared secret vs JWT).
+      - For production, prefer asymmetric keys / JWT over shared secrets.
+
+    """
+
     def __init__(
         self,
         svc: PyService,
@@ -83,7 +139,7 @@ class Slim:
 
     @property
     def id(self) -> int:
-        """Unique numeric identifier of the underlying service instance.
+        """Unique numeric identifier of the underlying app instance.
 
         Returns:
             int: Service ID allocated by the native layer.
@@ -92,10 +148,10 @@ class Slim:
 
     @property
     def local_name(self) -> PyName:
-        """Local fully-qualified PyName (org/namespace/app) for this service.
+        """Local fully-qualified PyName (org/namespace/app) for this app.
 
         Returns:
-            PyName: Immutable identity object used for routing, subscriptions, etc.
+            PyName: Immutable name used for routing, subscriptions, etc.
         """
         return self._svc.name
 

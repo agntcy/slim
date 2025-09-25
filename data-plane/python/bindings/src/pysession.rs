@@ -57,7 +57,7 @@ pub(crate) struct PySessionCtxInternal {
 ///   (ANYCAST, UNICAST, MULTICAST), inferred from internal kind + destination.
 /// - src -> PyName: Fully qualified source identity that originated / owns
 ///   the session.
-/// - dst -> Optional[PyName]: Destination identity when applicable:
+/// - dst -> Optional[PyName]: Destination name when applicable:
 ///     * PyName of the peer for UNICAST
 ///     * None for ANYCAST (no fixed peer)
 ///     * PyName of the channel for MULTICAST
@@ -174,7 +174,7 @@ pub enum PySessionType {
     /// Point-to-point without a fixed destination (best-available / load-balanced).
     #[pyo3(name = "ANYCAST")]
     Anycast = 0,
-    /// Point-to-point with a single, explicit destination identity.
+    /// Point-to-point with a single, explicit destination name.
     #[pyo3(name = "UNICAST")]
     Unicast = 1,
     /// One-to-many distribution via a multicast topic/channel.

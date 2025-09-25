@@ -95,7 +95,7 @@ class PySessionContext:
       (ANYCAST, UNICAST, MULTICAST), inferred from internal kind + destination.
     - src -> PyName: Fully qualified source identity that originated / owns
       the session.
-    - dst -> Optional[PyName]: Destination identity when applicable:
+    - dst -> Optional[PyName]: Destination name when applicable:
         * PyName of the peer for UNICAST
         * None for ANYCAST (no fixed peer)
         * PyName of the channel for MULTICAST

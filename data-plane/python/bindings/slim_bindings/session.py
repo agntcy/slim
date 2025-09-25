@@ -87,7 +87,7 @@ class PySession:
 
     @property
     def dst(self) -> PyName | None:
-        """Return the destination identity if UNICAST/MULTICAST, otherwise None."""
+        """Return the destination name if UNICAST/MULTICAST, otherwise None."""
         return self._ctx.dst
 
     def set_session_config(self, config: PySessionConfiguration) -> None:
