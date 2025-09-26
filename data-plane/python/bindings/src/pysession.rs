@@ -113,21 +113,6 @@ impl PySessionContext {
         Ok(session.session_config().into())
     }
 
-    #[getter]
-    pub fn destination_name(&self) -> PyResult<Option<PyName>> {
-        let session = strong_session(&self.internal.session)?;
-        let session_config = session.session_config();
-
-        let name_opt = match session_config {
-            session::SessionConfig::PointToPoint(cfg) => {
-                cfg.unicast_name.as_ref().map(|n| n.clone().into())
-            } // None if Anycast
-            session::SessionConfig::Multicast(cfg) => Some(cfg.channel_name.clone().into()),
-        };
-
-        Ok(name_opt)
-    }
-
     pub fn set_session_config(&self, config: PySessionConfiguration) -> PyResult<()> {
         let session = strong_session(&self.internal.session)?;
         session
