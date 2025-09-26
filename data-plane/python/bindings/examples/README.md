@@ -2,8 +2,10 @@
 
 This directory contains runnable example programs that demonstrate how to use the SLIM Python bindings for different communication patterns:
 
-- Anycast: Send to one of many eligible receivers (chosen pseudo-randomly / load-balanced)
-- Unicast: Send to a specific peer
+- Anycast: Send to one of many eligible receivers.
+           A different destination can be selected at each message (chosen pseudo-randomly / load-balanced)
+- Unicast: Selects one of many eligible receivers when the session is created,
+           and sends all the messages to the same specific peer
 - Multicast: Send to a group (moderator-driven membership)
 - With or without MLS (Messaging Layer Security) for end-to-end encryption
 
@@ -49,8 +51,8 @@ task -v python:example:server
 
 | Pattern   | Delivery Semantics                                   | Typical Use Case                       | MLS Support |
 |-----------|-------------------------------------------------------|----------------------------------------|-------------|
-| Anycast   | One of N receivers (probabilistic / load-sharing)     | Stateless workers, load balancing      | Absent    |
-| Unicast   | Exactly one intended peer                            | Direct messaging / RPC-like flows      | Present    |
+| Anycast   | Send to one of many eligible receivers. A different destination can be selected at each message (chosen pseudo-randomly / load-balanced)    | Stateless workers, load balancing      | Absent    |
+| Unicast   | Selects one of many eligible receivers when the session is created, and sends all the messages to the same specific peer                            | Direct messaging / RPC-like flows      | Present    |
 | Multicast | All members of a moderator-defined group             | Group coordination / pub-sub-like      | Present |
 
 MLS (Messaging Layer Security) provides end-to-end encryption and group state management. Non-MLS modes may still use channel protection in the links between SLIM nodes, but are not full E2E group cryptographic sessions.
@@ -75,6 +77,11 @@ Open two terminals and start two `alice` instances:
 
 ```bash
 task python:example:p2p:alice
+```
+
+The output will look like:
+
+```bash
 Agntcy/ns/alice/9429169046562807017          Created app
 Agntcy/ns/alice/9429169046562807017          Connected to http://localhost:46357
 Agntcy/ns/alice/9429169046562807017          waiting for new session to be established
@@ -125,7 +132,7 @@ Result: only one `alice` instance receives each message — this is deterministi
 
 ### Step 4: Multicast Example
 
-Stop the prior `alice` processes (to reduce noise). Start two multicast clients:
+Stop the prior `alice` and `bob` processes (to reduce noise). Start two multicast clients:
 
 ```bash
 # Client 1
@@ -161,7 +168,8 @@ Typical client output (example):
 Agntcy/ns/client-2                           -> Received message from 169ca82eb17d6bc2/eef9769a4c6990d1/fc9bbc406957794b/16c2160a341f6513 (agntcy/ns/moderator/16c2160a341f6513): hey guys
 ```
 
-In the baseline example only the moderator sends; you can enable bidirectional publishing (see [Modifying the Examples](#modifying-the-examples)).
+In the baseline example only the moderator sends, but the session is bidirectional
+and all participants can send messages on the shared channel (see [Modifying the Examples](#modifying-the-examples)).
 
 ---
 
@@ -172,18 +180,6 @@ In the baseline example only the moderator sends; you can enable bidirectional p
 - `Waiting for session...`: Peer is idle until a session (unicast/multicast) is formed.
 - Session or group IDs (hex fragments) represent cryptographic / routing context.
 - MLS-enabled logs may include group or epoch transitions (depending on verbosity).
-
----
-
-## Modifying the Examples
-
-Ideas:
-1. Allow multicast clients to send messages:
-   - Locate the event loop reading stdin in the moderator example and replicate a similar loop in the client implementation.
-2. Add structured logging (JSON) for easier parsing.
-3. Inject artificial delays to study ordering and fairness.
-4. Add metrics counters (messages sent / received per peer).
-5. Switch between MLS and non-MLS to profile overhead.
 
 ---
 
@@ -461,7 +457,8 @@ kubectl get pods -l app.kubernetes.io/name=slim-client -o wide
 
 You can inspect each pod’s SPIFFE ID with:
 ```bash
-kubectl exec -it <pod> -c spiffe-helper -- cat /svids/jwt_svid.token | head -1
+POD_NAME=$(kubectl get pods -l app.kubernetes.io/component=client-a -o jsonpath="{.items[0].metadata.name}")
+kubectl exec -c slim-client -it ${POD_NAME} -- ls -l /svids
 ```
 
 ### Run the unicast example (inside the cluster)
@@ -503,7 +500,7 @@ Run the sender:
   --audience slim-demo \
   --local agntcy/example/sender \
   --remote agntcy/example/receiver \
-  --mls-enabled \
+  --enable-mls \
   --message "hey there"
 ```
 
@@ -517,17 +514,3 @@ Agntcy/example/sender/...  received (from session ...): hey there from agntcy/ex
 ```
 
 At this point the two workloads are securely exchanging messages authenticated by SPIRE-issued identities and authorized via JWT claims (audience + expiration). The MLS flag demonstrates establishing an end-to-end encrypted channel.
-
----
-
-
-## Summary
-
-- Anycast: Load-balanced delivery across identical service instances.
-- Unicast: Direct, deterministic peer-to-peer communication.
-- Multicast: Group-oriented, moderator-managed distribution.
-- MLS (where enabled): Provides end-to-end encrypted group state and forward secrecy benefits.
-
-Experiment, extend, and adapt—these examples are a foundation for building secure, flexible distributed applications with SLIM.
-
-Happy hacking!

@@ -69,7 +69,7 @@ async def run_client(
         enable_mls: Enable MLS (forces UNICAST for point-to-point).
         shared_secret: Shared secret for symmetric auth (dev/demo).
         jwt: Path to static JWT token (if JWT auth path chosen).
-        bundle: Path to JWKS bundle (if JWT auth path chosen).
+        spire_trust_bundle: SPIRE trust bundle file path.
         audience: Audience claim(s) for JWT verification.
         message: If provided, run in active mode sending this payload.
         iterations: Number of request/reply cycles in active mode.

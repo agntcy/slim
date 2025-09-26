@@ -70,7 +70,7 @@ async def run_client(
         enable_mls: Enable group MLS features.
         shared_secret: Shared secret for symmetric auth (demo only).
         jwt: Path to static JWT token (if using JWT auth).
-        bundle: JWKS bundle path (if using JWT auth).
+        spire_trust_bundle: SPIRE trust bundle file path.
         audience: Audience list for JWT verification.
         invites: List of participant IDs to invite (moderator only).
     """
