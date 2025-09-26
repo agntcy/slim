@@ -85,7 +85,8 @@ Using the SLIM Python bindings, you can create an Anycast session as follows:
 session = await local_app.create_session(
     slim_bindings.PySessionConfiguration.Anycast(
         max_retries=5,  # Retries before giving up
-        timeout=datetime.timedelta(seconds=5),  # Wait per attempt for Ack (omit for best-effort)
+        timeout=datetime.timedelta(seconds=5),  # Wait per attempt for Ack 
+                                                # (omit for best-effort)
     )
 )
 ```
