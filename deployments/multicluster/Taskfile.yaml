@@ -26,7 +26,7 @@ tasks:
         go run sigs.k8s.io/cloud-provider-kind@latest &
         echo "Cloud provider started in background"      
 
-      - kind create cluster --name slim-cluster-b  
+      - kind create cluster --name slim-cluster-b
       # Start cloud provider for LoadBalancer support
       - |
         echo "Starting Kind cloud provider for LoadBalancer support..."
@@ -44,7 +44,7 @@ tasks:
     vars:
       TRUST_DOMAIN: '{{ .TRUST_DOMAIN | default "example.org" }}'
       SERVICE_TYPE: '{{ .SERVICE_TYPE | default "LoadBalancer" }}'
-      BUNDLE_PATH: '{{ .BUNDLE_PATH | default "/tmp/spire-bundle.spiffe" }}'    
+      BUNDLE_PATH: '{{ .BUNDLE_PATH | default "/tmp/spire-bundle.spiffe" }}'
     cmds:
       - |
         helm upgrade --install  \
@@ -72,9 +72,9 @@ tasks:
         kubectl get configmap -n spire spire-bundle -o json | jq '.data."bundle.spiffe"' -r > {{ .BUNDLE_PATH }}      
 
   spire:federation:deploy:
-    desc: Set up federation between two SPIRE servers      
+    desc: Set up federation between two SPIRE servers
     cmds:
-      - kubectl config use-context kind-slim-cluster-a    
+      - kubectl config use-context kind-slim-cluster-a
       - task: spire:deploy
         vars:
           TRUST_DOMAIN: '{{ .CLUSTER_A_TRUST_DOMAIN }}'
@@ -102,7 +102,7 @@ tasks:
           --set image.tag="{{ .SLIM_CONTROLLER_IMAGE_TAG }}" \
           --values controller-values.yaml   
 
-      - task slim:wait-for-lb LB_HOSTNAME=slim-control.cluster-a.org SVC_NAME=slim-control   
+      - task slim:wait-for-lb LB_HOSTNAME=slim-control.cluster-a.org SVC_NAME=slim-control
 
   slim:deploy:
     desc: Deploy Slim using the StatefulSet deployment strategy
@@ -123,7 +123,7 @@ tasks:
           --set slim.image.tag="{{ .SLIM_IMAGE_TAG }}" \
           --values cluster-a-values.yaml
 
-      - task slim:wait-for-lb LB_HOSTNAME=slim.cluster-a.org          
+      - task slim:wait-for-lb LB_HOSTNAME=slim.cluster-a.org
       # Deploy SLIM to cluster-b
       - kubectl config use-context kind-slim-cluster-b
       - |
@@ -132,8 +132,24 @@ tasks:
           --create-namespace \
           --set slim.image.tag="{{ .SLIM_IMAGE_TAG }}" \
           --values cluster-b-values.yaml
+    
 
-      - task slim:wait-for-lb LB_HOSTNAME=slim.cluster-b.org       
+  multi-cluster:lb:up:
+    desc: Start cloud provider for LoadBalancer support
+    cmds:
+    - bash -c "go run sigs.k8s.io/cloud-provider-kind@latest >/dev/null 2>&1 &"
+
+  multi-cluster:lb:down:
+    desc: Stop cloud provider for LoadBalancer support
+
+    status:
+      - ps aux | grep '[c]loud-provider-kind'; x=$?; [[ $x -eq 1 ]]
+
+    cmds:
+      - kill -9 $(ps aux | grep [c]loud-provider-kind | awk '{print $2}')
+      # - echo xxx
+
+      - task slim:wait-for-lb LB_HOSTNAME=slim.cluster-b.org
 
   slim:wait-for-lb:
     desc: Wait for LoadBalancer IP to be available (with timeout)
