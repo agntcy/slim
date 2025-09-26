@@ -32,14 +32,16 @@ slim:
     services:
       slim/0:
         node_id: ${env:SLIM_SVC_ID}
-        # group id of the SLIM node in case of multiple clusters
+        # group id of the SLIM node is required in case of multi-clusters
         group_name: "default"
         dataplane:
           servers:
             - endpoint: "0.0.0.0:{{ .Values.slim.service.data.port }}"
               # metadata:
+              #   # local_endpoint is required to be set to the Pod IP using the Downward API in case of multi-cluster setup
+              #   local_endpoint: ${env:MY_POD_IP}
               #   # external_endpoint is required to be set when SLIM nodes are behind a NAT or Load Balancer
-              #   external_endpoint: "slim.example.com:{{ .Values.slim.service.data.port }}"                            
+              #   external_endpoint: "slim.example.com:{{ .Values.slim.service.data.port }}"
               tls:
                 insecure: true
 
