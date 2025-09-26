@@ -10,7 +10,7 @@ build-backend = "maturin"
 
 [project]
 name = "slim-bindings"
-version = "0.5.0"
+version = "1.0.0"
 description = "SLIM Rust bindings for Python"
 requires-python = ">=3.9, <4.0"
 readme = "README.md"
