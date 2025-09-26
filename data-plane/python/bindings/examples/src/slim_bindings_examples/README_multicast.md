@@ -27,7 +27,7 @@ local_app = await create_local_app(
     enable_opentelemetry=enable_opentelemetry,  # (bool, default False)
     shared_secret=shared_secret,                # (str | None)
     jwt=jwt,                                    # (str | None)
-    bundle=bundle,                              # (str | None)
+    spire_trust_bundle=spire_trust_bundle,      # (str | None)
     audience=audience,                          # (list[str] | None)
 )
 ```
@@ -52,14 +52,22 @@ application instance. Main parameters:
 - `enable_opentelemetry` (bool, default: `False`): Enable OpenTelemetry
     tracing. If `True`, traces are sent to `http://localhost:4317` by default.
 - `shared_secret` (str | None, default: `None`): Shared secret for identity and
-    authentication. Required if JWT and bundle are not provided.
+    authentication. Required if JWT, bundle and audience are not provided.
 - `jwt` (str | None, default: `None`): JWT token for identity. Used with
-    `bundle` and `audience` for JWT-based authentication.
-- `bundle` (str | None, default: `None`): JWT trust bundle (CA certificates or
-    JWKS).
+    `spire_trust_bundle` and `audience` for JWT-based authentication.
+- `spire_trust_bundle` (str | None, default: `None`): JWT trust bundle (CA certificates or
+    JWKS). It is expected in JSON format such as
+    ```json
+    {
+        "trust-domain-1.org": "base-64-encoded-jwks",
+        "trust-domain-2.org": "base-64-encoded-jwks",
+        ...
+    }
+    ```
 - `audience` (list[str] | None, default: `None`): List of allowed audiences for
     JWT authentication.
-If neither `jwt` nor `bundle` is provided, `shared_secret` must be set (only
+    
+If `jwt`, `spire-trust-bundle` and `audience` are not provided, `shared_secret` must be set (only
 recommended for local testing / examples, not production).
 
 The part that actually creates the local application and connects it to the
@@ -80,7 +88,7 @@ multicast session and it can invite participants.
 chat_topic = split_id(remote)  # e.g. agntcy/ns/chat
 session = await local_app.create_session(
     slim_bindings.PySessionConfiguration.Multicast(
-        topic=chat_topic,
+        channel_namec=chat_topic,
         max_retries=5,                             # max retransmissions for lost messages
         timeout=datetime.timedelta(seconds=5),     # interval between retries
         mls_enabled=enable_mls,                    # enable MLS secure group messaging
@@ -95,7 +103,7 @@ for invite in invites:
     print(f"{local} -> add {invite_name} to the group")
 ```
 
-The `session.invite(...)` call returns quickly; background protocol exchanges
+The `session.invite(...)` is executed asynchronously; the background protocol exchanges
 (and MLS key schedule if enabled) may take a short time before the participant
 fully joins. See [SESSION.md](../../../SESSION.md) for deeper protocol details.
 
@@ -136,7 +144,7 @@ while True:
     await session.publish(user_input.encode())
 ```
 
-Any participant with the appropriate permissions can call `session.publish` in
+Any participant can call `session.publish` in a
 similar fashion (the provided example only wires the loop for the creating
 process for clarity).
 
@@ -184,14 +192,3 @@ task python:example:multicast:moderator
 This creates the channel (`agntcy/ns/chat`), invites the two clients, and then
 lets you type messages. Type `exit` or `quit` to stop the moderator. Clients
 will continue printing messages until you terminate them (Ctrl+C).
-
-### 4. (Optional) Enable MLS
-
-Append `EXTRA_ARGS=--enable-mls` when running any of the Task targets to enable
-secure group messaging. Example:
-
-```bash
-task python:example:multicast:moderator EXTRA_ARGS=--enable-mls
-```
-
-All participants must use the same MLS setting for the session.

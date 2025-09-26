@@ -18,7 +18,7 @@ Key takeaways:
 * Pick Anycast for simple stateless request distribution.
 * Pick Unicast when you must bind to one specific instance and optionally
     secure with MLS.
-* Pick Multicast for one or more producers and many consumers sharing a secure
+* Pick Multicast when many peers need to exchange messages over the same shared
     channel.
 
 ---
@@ -84,18 +84,19 @@ Using the SLIM Python bindings, you can create an Anycast session as follows:
 # Assume local_app is an initialized application instance
 session = await local_app.create_session(
     slim_bindings.PySessionConfiguration.Anycast(
-        max_retries=5,  # Retries before giving up (omit for best-effort)
-        timeout=datetime.timedelta(seconds=5),  # Wait per attempt for Ack
+        max_retries=5,  # Retries before giving up
+        timeout=datetime.timedelta(seconds=5),  # Wait per attempt for Ack (omit for best-effort)
     )
 )
 ```
 
 Parameters:
 * `max_retries` (optional, int): Number of retry attempts if an Ack is not
-    received. If omitted along with `timeout`, session is best‑effort.
+    received.
 * `timeout` (optional, timedelta): How long to wait for an Ack before retrying.
+    If omitted the session is best‑effort
 
-If neither is provided the session is best‑effort (unreliable): lost messages
+If timeout is not provided the session is best‑effort (unreliable): lost messages
 are not retransmitted.
 
 ### Sending and Replying in Anycast
@@ -212,7 +213,7 @@ Parameters:
 * `timeout` (optional, timedelta): Wait per attempt for an Ack before retry.
 * `mls_enabled` (optional, bool): Enable end‑to‑end encryption (MLS).
 
-If `max_retries` and `timeout` are not set the session is best‑effort.
+If `timeout` is not set the session is best‑effort.
 
 ### Sending and Replying in Unicast
 In Unicast the session is bound to a single remote instance after discovery, so
@@ -274,7 +275,7 @@ Parameters:
 * `timeout` (optional, timedelta): Wait per attempt for Ack before retry.
 * `mls_enabled` (optional, bool): Enable secure group MLS messaging.
 
-If `max_retries` and `timeout` are not set the session is best‑effort.
+If `timeout` is not set the session is best‑effort.
 
 ### Sending and Replying in Multicast
 In Multicast the session targets a channel: all sends are broadcast to current

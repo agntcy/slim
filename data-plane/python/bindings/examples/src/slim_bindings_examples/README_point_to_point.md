@@ -27,7 +27,7 @@ local_app = await create_local_app(
     enable_opentelemetry=enable_opentelemetry,
     shared_secret=shared_secret,
     jwt=jwt,
-    bundle=bundle,
+    spire_trust_bundle=spire_trust_bundle,
     audience=audience,
 )
 ```
@@ -51,13 +51,20 @@ configures a new local SLIM application instance. The main parameters are:
 - `shared_secret` (str | None, default: `None`): Shared secret for identity and
     authentication. Required if JWT and bundle are not provided.
 - `jwt` (str | None, default: `None`): JWT token for identity. Used with
-    `bundle` and `audience` for JWT-based authentication.
-- `bundle` (str | None, default: `None`): JWT trust bundle (CA certificates or
-    JWKS).
+    `spire_trust_bundle` and `audience` for JWT-based authentication.
+- `spire_trust_bundle` (str | None, default: `None`): JWT trust bundle (CA certificates or
+    JWKS). It is expected in JSON format such as
+    ```json
+    {
+        "trust-domain-1.org": "base-64-encoded-jwks",
+        "trust-domain-2.org": "base-64-encoded-jwks",
+        ...
+    }
+    ```
 - `audience` (list[str] | None, default: `None`): List of allowed audiences for
     JWT authentication.
-If neither `jwt` nor `bundle` is provided, `shared_secret` must be set (only
-recommended for local/example usage, not production).
+If `jwt`, `spire-trust-bundle` and `audience` are not, `shared_secret` must be set (only
+recommended for local testing / example, not production).
 
 ### 2. Sender vs Receiver
 
@@ -144,11 +151,11 @@ Without `--message`, the process waits for inbound sessions:
 ```python
 while True:
     session = await local_app.listen_for_session()
-    async def session_loop(sess):
+    async def session_loop(session):
         while True:
-            msg_ctx, payload = await sess.get_message()
+            msg_ctx, payload = await session.get_message()
             text = payload.decode()
-            await sess.publish_to(msg_ctx, f"{text} from {local_app.id}".encode())
+            await session.publish_to(msg_ctx, f"{text} from {local_app.id}".encode())
     asyncio.create_task(session_loop(session))
 ```
 
@@ -210,17 +217,3 @@ task python:example:p2p:unicast:mls:bob
 
 Each command sends the configured `--message` (default in Taskfile: "hey there")
 for the default number of iterations and prints echoed replies.
-
-#### Customizing message & iterations
-
-You can override message / iterations, for example:
-
-```bash
-task python:example:p2p:anycast:bob EXTRA_ARGS='--message "ping" --iterations 5'
-```
-
-#### Enabling MLS explicitly
-
-MLS is only available in Unicast mode. The Taskfile target already adds
-`--enable-mls`, but you could also supply it through `EXTRA_ARGS` if adapting
-other tasks.
