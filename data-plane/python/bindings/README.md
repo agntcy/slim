@@ -100,7 +100,7 @@ session = await slim.create_session(
 )
 remote = slim_bindings.PyName("org", "namespace", "peer")
 await slim.set_route(remote)
-await session.publish(b"hello", remote)
+await session.publish(b"hello")
 ctx, reply = await session.get_message()
 print("Reply:", reply)
 await slim.delete_session(session)
@@ -143,7 +143,7 @@ version = "0.1.0"
 description = "Python program using SLIM"
 requires-python = ">=3.9"
 dependencies = [
-    "slim-bindings>=0.5.0"
+    "slim-bindings>=0.6.0"
 ]
 ```
 

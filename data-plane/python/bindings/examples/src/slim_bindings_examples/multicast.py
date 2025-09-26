@@ -99,11 +99,13 @@ async def run_client(
             f"Creating new multicast session (moderator)... {split_id(local)}"
         )
         created_session = await local_app.create_session(
-            slim_bindings.PySessionConfiguration.Multicast(  # type: ignore
-                channel_name=chat_channel,
-                max_retries=5,
-                timeout=datetime.timedelta(seconds=5),
-                mls_enabled=enable_mls,
+            slim_bindings.PySessionConfiguration.Multicast(  # type: ignore  # Build multicast session configuration
+                channel_name=chat_channel,  # Logical multicast channel (PyName) all participants join; acts as group/topic identifier.
+                max_retries=5,  # Max per-message resend attempts upon missing ack before reporting a delivery failure.
+                timeout=datetime.timedelta(
+                    seconds=5
+                ),  # Ack / delivery wait window; after this duration a retry is triggered (until max_retries).
+                mls_enabled=enable_mls,  # Enable Messaging Layer Security for end-to-end encrypted & authenticated group communication.
             )
         )
 
@@ -136,6 +138,8 @@ async def run_client(
         while True:
             try:
                 # Await next inbound message from the multicast session.
+                # The returned parameters are a message context and the raw payload bytes.
+                # Check session.py for details on PyMessageContext contents.
                 ctx, payload = await session.get_message()
                 format_message_print(
                     local,
@@ -168,6 +172,9 @@ async def run_client(
                 if user_input.strip().lower() in ("exit", "quit"):
                     break
                 try:
+                    # Send message to the channel_name specified when creating the session.
+                    # As the session is multicast, all participants will receive it.
+                    # calling publish_with_destination on a multicast session will raise an error.
                     await created_session.publish(user_input.encode())
                 except Exception as e:
                     format_message_print(local, f"-> Error sending message: {e}")

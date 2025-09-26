@@ -192,19 +192,19 @@ pub enum PySessionType {
     /// Point-to-point with a single, explicit destination name.
     #[pyo3(name = "UNICAST")]
     Unicast = 1,
-    /// One-to-many distribution via a multicast channel_name/channel.
+    /// Many-to-many distribution via a multicast channel_name/channel.
     #[pyo3(name = "MULTICAST")]
     Multicast = 2,
 }
 
 /// User-facing configuration for establishing and tuning sessions.
 ///
-/// Each variant corresponds to an underlying core `SessionConfig`.
-/// Common fields:
-/// * `timeout`: How long to wait for operations (creation / messaging) before failing.
-/// * `max_retries`: Optional retry count for establishment or delivery.
-/// * `mls_enabled`: Whether to negotiate/use MLS secure group messaging.
-/// * `metadata`: Free-form string map propagated with session context.
+/// Each variant maps to a core `SessionConfig`.
+/// Common fields (casual rundown):
+/// * `timeout`: How long we wait for an ack before trying again.
+/// * `max_retries`: Number of attempts to send a message. If we run out, you get a delivery error.
+/// * `mls_enabled`: Turn on MLS for end‑to‑end crypto (ignored for Anycast which doesn’t negotiate a session).
+/// * `metadata`: One-shot string key/value tags sent at session start; the other side can read them for tracing, routing, auth, etc.
 ///
 /// Variant-specific notes:
 /// * `Anycast` / `Unicast`: Point-to-point; anycast will pick any available peer
@@ -221,28 +221,29 @@ pub enum PySessionType {
 /// # Anycast session (no fixed destination; service picks an available peer)
 /// # MLS is not available with Anycast sessions, and session metadata is not supported,
 /// # as there is no session establishment phase, only per-message routing.
-/// anycast_cfg = PySessionConfiguration.Anycast
-///     timeout=datetime.timedelta(seconds=2), # try to send a message within 2 seconds
+/// anycast_cfg = PySessionConfiguration.Anycast(
+///     timeout=datetime.timedelta(seconds=2), # wait 2 seconds for an ack
 ///     max_retries=5, # retry up to 5 times
 /// )
 ///
-/// # Unicast session. Try to send a message within 2 seconds, retry up to 5 times,
+/// # Unicast session. Wait up to 2 seconds for an ack for each message, retry up to 5 times,
 /// # enable MLS, and attach some metadata.
 /// unicast_cfg = PySessionConfiguration.Unicast(
-///     timeout=datetime.timedelta(seconds=2), # try to send a message within 2 seconds
+///     unicast_name=PyName("org", "namespace", "service"), # target peer
+///     timeout=datetime.timedelta(seconds=2), # wait 2 seconds for an ack
 ///     max_retries=5, # retry up to 5 times
 ///     mls_enabled=True, # enable MLS
-///     metadata={"trace_id": "1234abcd"} # arbitrary key/value pairs to send at session establishment
+///     metadata={"trace_id": "1234abcd"} # arbitrary (string -> string) key/value pairs to send at session establishment
 /// )
 ///
 /// # Multicast session (channel-based)
 /// channel = PyName("org", "namespace", "channel")
 /// multicast_cfg = PySessionConfiguration.Multicast(
-///     channel, # multicast channel_name
+///     channel_name=channel, # multicast channel_name
 ///     max_retries=2, # retry up to 2 times
-///     timeout=datetime.timedelta(seconds=2), # try to send a message within 2 seconds
+///     timeout=datetime.timedelta(seconds=2), # wait 2 seconds for an ack
 ///     mls_enabled=True, # enable MLS
-///     metadata={"role": "publisher"} # arbitrary key/value pairs to send at session establishment
+///     metadata={"role": "publisher"} # arbitrary (string -> string) key/value pairs to send at session establishment
 /// )
 /// ```
 ///

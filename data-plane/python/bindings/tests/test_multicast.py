@@ -92,7 +92,7 @@ async def test_multicast(server, mls_enabled):  # noqa: C901
             # and it will invite all the other participants to the session
             session = await participant.create_session(
                 slim_bindings.PySessionConfiguration.Multicast(
-                    topic=chat_name,
+                    channel_name=chat_name,
                     max_retries=5,
                     timeout=datetime.timedelta(seconds=5),
                     mls_enabled=mls_enabled,

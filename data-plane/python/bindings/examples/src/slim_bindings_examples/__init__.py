@@ -42,12 +42,6 @@ def main():
         * Reads the first CLI argument (if any) to select a subcommand.
         * Rewrites sys.argv so the delegated example sees only its own args.
         * Falls back to printing the HELP text if no/unknown command is given.
-
-    Note:
-        The dispatch uses two consecutive 'if' statements for "anycast" and
-        "unicast" instead of 'elif'. In practice only one will match because
-        `command` is a single string, but the separate 'if' for "unicast"
-        means it is logically independent (no side effects here).
     """
     # Import inside function to avoid importing sys at module load if
     # this main isn't executed (e.g. introspection tools).
@@ -65,7 +59,7 @@ def main():
         if command == "anycast":
             # Run the anycast point-to-point messaging example.
             anycast_main()
-        if command == "unicast":
+        elif command == "unicast":
             # Run the unicast (sticky, fixed-destination) example.
             unicast_main()
         elif command == "multicast":

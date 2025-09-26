@@ -145,8 +145,7 @@ async def test_identity_verification(server, audience):
     # set route
     await slim_sender.set_route(receiver_name)
 
-    # create request/reply session with default config
-    # Create Anycast session (no fixed dst; per-message routing via set_route)
+    # Create Anycast session (no fixed dst; per-message routing)
     session_info = await slim_sender.create_session(
         slim_bindings.PySessionConfiguration.Anycast(
             timeout=datetime.timedelta(seconds=1), max_retries=3

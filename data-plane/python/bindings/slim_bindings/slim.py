@@ -46,7 +46,7 @@ class Slim:
       - Session: Logical communication context. Types supported include:
           * Anycast  : Point-to-point without a fixed destination (service picks a peer).
           * Unicast  : Point-to-point with a fixed, stable destination (sticky).
-          * Multicast: One-to-many via a named channel/topic.
+          * Multicast: Many-to-many via a named channel/topic.
       - Default Session Configuration: A fallback used when inbound sessions are created
         towards this service (set via set_default_session_config).
 
@@ -55,7 +55,7 @@ class Slim:
       2. await slim.connect({"endpoint": "...", "tls": {"insecure": True}})
       3. await slim.set_route(remote_name)
       4. session = await slim.create_session(PySessionConfiguration.Anycast())
-      5. await session.publish(b"payload", remote_name)
+      5. await session.publish_with_destination(b"payload", remote_name)
       6. await slim.delete_session(session)
       7. await slim.disconnect("endpoint-string")
 

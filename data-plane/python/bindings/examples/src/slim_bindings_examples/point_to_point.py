@@ -125,8 +125,10 @@ async def run_client(
         for i in range(iterations):
             try:
                 if unicast or enable_mls:
+                    # UNICAST publish (no dest required, fixed peer, derived from session configuration).
                     await session.publish(message.encode())
                 else:
+                    # ANYCAST publish (dest required, load-balanced to any available peer).
                     await session.publish_with_destination(
                         message.encode(), remote_name
                     )
