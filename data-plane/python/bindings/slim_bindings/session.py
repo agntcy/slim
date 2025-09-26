@@ -71,6 +71,39 @@ class PySession:
     async def publish(
         self,
         msg: bytes,
+        payload_type: str | None = None,
+        metadata: dict | None = None,
+    ) -> None:
+        """
+        Publish a message on the current session.
+
+        Args:
+            msg (bytes): The message payload to publish.
+            payload_type (str, optional): The type of the payload, if applicable.
+            metadata (dict, optional): Additional metadata to include with the
+                message.
+
+        Returns:
+            None
+        """
+
+        if self._ctx.session_type == PySessionType.ANYCAST:
+            raise RuntimeError("unexpected session type: expected UNICAST or MULTICAST")
+
+        await _publish(
+            self._svc,
+            self._ctx,
+            1,
+            msg,
+            message_ctx=None,
+            name=None,
+            payload_type=payload_type,
+            metadata=metadata,
+        )
+
+    async def publish_with_destination(
+        self,
+        msg: bytes,
         dest: PyName,
         payload_type: str | None = None,
         metadata: dict | None = None,

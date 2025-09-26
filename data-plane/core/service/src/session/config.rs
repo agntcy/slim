@@ -3,6 +3,8 @@
 
 use std::collections::HashMap;
 
+use slim_datapath::messages::Name;
+
 use crate::session::multicast::MulticastConfiguration;
 use crate::session::point_to_point::PointToPointConfiguration;
 
@@ -26,6 +28,13 @@ impl SessionConfig {
         match self {
             SessionConfig::PointToPoint(c) => c.metadata.clone(),
             SessionConfig::Multicast(c) => c.metadata.clone(),
+        }
+    }
+
+    pub fn destination_name(&self) -> Option<Name> {
+        match self {
+            SessionConfig::PointToPoint(c) => c.unicast_name.as_ref().cloned(),
+            SessionConfig::Multicast(c) => Some(c.channel_name.clone()),
         }
     }
 }

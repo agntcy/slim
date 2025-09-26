@@ -113,6 +113,11 @@ impl PySessionContext {
         Ok(session.session_config().into())
     }
 
+    /// Replace the underlying session configuration with a new one.
+    ///
+    /// Safety/Consistency:
+    /// The underlying service validates and applies changes atomically.
+    /// Errors (e.g. invalid transitions) are surfaced as Python exceptions.
     pub fn set_session_config(&self, config: PySessionConfiguration) -> PyResult<()> {
         let session = strong_session(&self.internal.session)?;
         session

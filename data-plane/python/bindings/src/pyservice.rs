@@ -220,15 +220,24 @@ impl PyService {
         payload_type: Option<String>,
         metadata: Option<HashMap<String, String>>,
     ) -> Result<(), ServiceError> {
+        let session = session_ctx
+            .internal
+            .session
+            .upgrade()
+            .ok_or(ServiceError::SessionError("session closed".to_string()))?;
+
         let (name, conn_out) = match &name {
             Some(name) => (name, None),
             None => match &message_ctx {
                 Some(ctx) => (&ctx.source_name, Some(ctx.input_connection)),
-                None => {
-                    return Err(ServiceError::ConfigError(
-                        "no destination name specified".to_string(),
-                    ));
-                }
+                None => match session.session_config().destination_name() {
+                    Some(n) => (&PyName::from(n), None),
+                    None => {
+                        return Err(ServiceError::SessionError(
+                            "either name or message_ctx must be provided for publish".to_string(),
+                        ));
+                    }
+                },
             },
         };
 
@@ -237,11 +246,7 @@ impl PyService {
         // set flags
         let flags = SlimHeaderFlags::new(fanout, None, conn_out, None, None);
 
-        session_ctx
-            .internal
-            .session
-            .upgrade()
-            .ok_or(ServiceError::SessionError("session closed".to_string()))?
+        session
             .publish_with_flags(&name, flags, blob, payload_type, metadata)
             .await
             .map_err(|e| ServiceError::SessionError(e.to_string()))
