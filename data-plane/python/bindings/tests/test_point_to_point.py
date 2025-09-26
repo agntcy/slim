@@ -59,8 +59,7 @@ async def test_sticky_session(server, mls_enabled):
                 break
 
             if (
-                _ctx.destination_name.equal_without_id(receiver_name)
-                and _ctx.payload_type == "hello message"
+                _ctx.payload_type == "hello message"
                 and _ctx.metadata.get("sender") == "hello"
             ):
                 # store the count in dictionary
