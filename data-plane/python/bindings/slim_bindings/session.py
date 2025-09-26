@@ -65,10 +65,6 @@ class PySession:
     def dst(self) -> PyName | None:
         return self._ctx.dst
 
-    @property
-    def destination_name(self) -> PyName | None:
-        return self._ctx.destination_name
-
     def set_session_config(self, config: PySessionConfiguration) -> None:
         self._ctx.set_session_config(config)
 
