@@ -213,7 +213,7 @@ def main_anycast(
     enable_mls: bool = False,
     shared_secret: str = "secret",
     jwt: str | None = None,
-    bundle: str | None = None,
+    spire_trust_bundle: str | None = None,
     audience: list[str] | None = None,
     invites: list[str] | None = None,
     message: str | None = None,
