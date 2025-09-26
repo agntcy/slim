@@ -13,7 +13,7 @@ version: "3"
 vars:
   # Simple values
   SLIM_IMAGE_TAG: '{{ .SLIM_IMAGE_TAG | default "0.6.0-dev.1" }}'
-  SLIM_CONTROLLER_IMAGE_TAG: "0.2.0-dev.3"
+  SLIM_CONTROLLER_IMAGE_TAG: "0.2.0-dev.4"
   HELM_NAMESPACE: '{{ .HELM_NAMESPACE | default "slim" }}'
 
 tasks:

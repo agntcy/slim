@@ -37,15 +37,15 @@ slim:
           servers:
             - endpoint: "0.0.0.0:{{ .Values.slim.service.data.port }}"
               metadata:
-                local_endpoint: "${env:MY_POD_IP}:{{ .Values.slim.service.data.port }}"
-                external_endpoint: "172.18.0.7:{{ .Values.slim.service.data.port }}"             
+                local_endpoint: ${env:MY_POD_IP}
+                external_endpoint: "messaging.slim.cluster.a:{{ .Values.slim.service.data.port }}"             
               tls:
                 insecure: true
 
           clients: []
         controller:
           clients:
-            - endpoint: "https://slim-control:50052"
+            - endpoint: "https://controller.slim:50052"
               tls:
                 insecure: true
                 # cert_file: "/svids/tls.crt"

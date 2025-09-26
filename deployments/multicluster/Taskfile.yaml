@@ -16,13 +16,19 @@ tasks:
   multi-cluster:up:
     desc: Start a local Kubernetes cluster using Kind
     cmds: 
-      - kind create cluster --name slim-cluster-a --config ../slim-cluster.yaml
+      - kind create cluster --name slim-cluster-a
+      # Start cloud provider for LoadBalancer support
+      - |
+        echo "Starting Kind cloud provider for LoadBalancer support..."
+        go run sigs.k8s.io/cloud-provider-kind@latest &
+        echo "Cloud provider started in background"      
+
+      - kind create cluster --name slim-cluster-b  
       # Start cloud provider for LoadBalancer support
       - |
         echo "Starting Kind cloud provider for LoadBalancer support..."
         go run sigs.k8s.io/cloud-provider-kind@latest &
         echo "Cloud provider started in background"
-      - kind create cluster --name slim-cluster-b      
 
   multi-cluster:down:
     desc: Delete the local Kubernetes cluster
@@ -41,6 +47,8 @@ tasks:
           --set image.tag="{{ .SLIM_CONTROLLER_IMAGE_TAG }}" \
           --values controller-values.yaml   
 
+      - task slim:wait-for-lb LB_HOSTNAME=control.slim.cluster SVC_NAME=slim-control   
+
   slim:deploy:
     desc: Deploy Slim using the StatefulSet deployment strategy
 
@@ -51,6 +59,7 @@ tasks:
       # - templates:cluster:use-context
 
     cmds:
+      # Deploy SLIM to cluster-a
       - kubectl config use-context kind-slim-cluster-a
       - |
         helm upgrade --install slim ../../charts/slim \
@@ -58,6 +67,9 @@ tasks:
           --create-namespace \
           --set slim.image.tag="{{ .SLIM_IMAGE_TAG }}" \
           --values cluster-a-values.yaml
+
+      - task slim:wait-for-lb LB_HOSTNAME=messaging.slim.cluster.a          
+      # Deploy SLIM to cluster-b
       - kubectl config use-context kind-slim-cluster-b
       - |
         helm upgrade --install slim ../../charts/slim \
@@ -65,3 +77,29 @@ tasks:
           --create-namespace \
           --set slim.image.tag="{{ .SLIM_IMAGE_TAG }}" \
           --values cluster-b-values.yaml
+
+      - task slim:wait-for-lb LB_HOSTNAME=messaging.slim.cluster.b        
+
+  slim:wait-for-lb:
+    desc: Wait for LoadBalancer IP to be available (with timeout)
+    vars:
+      TIMEOUT: '{{.TIMEOUT | default "300"}}'  # 5 minutes default timeout
+      LB_HOSTNAME: ''
+      SVC_NAME: '{{.SVC_NAME | default "slim"}}'
+    cmds:
+      - |
+        echo "Waiting for LoadBalancer IP to be assigned (timeout: {{.TIMEOUT}}s)..."
+        COUNTER=0
+        while [ $COUNTER -lt {{.TIMEOUT}} ]; do
+          LB_IP=$(kubectl get service -n slim {{.SVC_NAME}} -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo "")
+          if [ -n "$LB_IP" ] && [ "$LB_IP" != "<pending>" ] && [ "$LB_IP" != "null" ]; then
+            echo "LoadBalancer IP assigned: $LB_IP"
+            echo "Add to your /etc/hosts: $LB_IP    {{.LB_HOSTNAME}}"
+            exit 0
+          fi
+          echo "LoadBalancer IP not yet available, waiting... ($COUNTER/{{.TIMEOUT}})"
+          sleep 5
+          COUNTER=$((COUNTER + 5))
+        done
+        echo "Timeout waiting for LoadBalancer IP after {{.TIMEOUT}} seconds"
+        exit 1
