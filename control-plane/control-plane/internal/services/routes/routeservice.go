@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"reflect"
 	"sync"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/rs/zerolog"
@@ -22,7 +23,7 @@ const AllNodesID = "*"
 
 type RouteService struct {
 	mu                sync.RWMutex
-	queue             *workqueue.Typed[RouteReconcileRequest]
+	queue             workqueue.TypedRateLimitingInterface[RouteReconcileRequest]
 	dbService         db.DataAccess
 	cmdHandler        nodecontrol.NodeCommandHandler
 	reconcilerConfig  config.ReconcilerConfig
@@ -44,8 +45,11 @@ type Route struct {
 
 func NewRouteService(dbService db.DataAccess, cmdHandler nodecontrol.NodeCommandHandler,
 	reconcilerConfig config.ReconcilerConfig) *RouteService {
+	rateLimiter := workqueue.NewTypedItemExponentialFailureRateLimiter[RouteReconcileRequest](
+		5*time.Millisecond, 1000*time.Second)
+	queue := workqueue.NewTypedRateLimitingQueue[RouteReconcileRequest](rateLimiter)
 	return &RouteService{
-		queue:            workqueue.NewTyped[RouteReconcileRequest](),
+		queue:            queue,
 		dbService:        dbService,
 		cmdHandler:       cmdHandler,
 		reconcilerConfig: reconcilerConfig,
@@ -58,7 +62,8 @@ func (s *RouteService) Start(ctx context.Context) error {
 	zlog.Info().Msg("Starting route reconcilers")
 	s.reconcilerThreads = make([]*RouteReconciler, s.reconcilerConfig.Threads)
 	for i := 0; i < s.reconcilerConfig.Threads; i++ {
-		reconciler := NewRouteReconciler(fmt.Sprintf("reconciler-%v", i), s.queue, s.dbService, s.cmdHandler)
+		reconciler := NewRouteReconciler(fmt.Sprintf("reconciler-%v", i),
+			s.reconcilerConfig.MaxRequeues, s.queue, s.dbService, s.cmdHandler)
 		s.reconcilerThreads[i] = reconciler
 		go func(r *RouteReconciler) {
 			r.Run(ctx)
