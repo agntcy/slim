@@ -241,7 +241,7 @@ def main_anycast(
                 enable_mls=False,
                 shared_secret=shared_secret,
                 jwt=jwt,
-                spire_trust_bundle=bundle,
+                spire_trust_bundle=spire_trust_bundle,
                 audience=audience,
                 message=message,
                 iterations=iterations,
