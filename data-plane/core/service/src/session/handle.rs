@@ -701,6 +701,7 @@ mod tests {
     fn common_set_session_config_point_to_point() {
         let tx = MockTransmitter::default();
         let source = make_name(["agntcy", "src", "p2p"]);
+        let dst = make_name(["agntcy", "src", "p2p-remote"]);
         let cfg = SessionConfig::PointToPoint(PointToPointConfiguration::default());
         let common = Common::new(
             1,
@@ -713,14 +714,14 @@ mod tests {
             std::env::temp_dir(),
         );
         let new_conf = PointToPointConfiguration {
-            unicast: true,
+            unicast_name: Some(dst.clone()),
             ..Default::default()
         };
         common
             .set_session_config(&SessionConfig::PointToPoint(new_conf.clone()))
             .unwrap();
         match common.session_config() {
-            SessionConfig::PointToPoint(c) => assert!(c.unicast),
+            SessionConfig::PointToPoint(c) => assert!(c.unicast_name.is_some()),
             _ => panic!("expected p2p"),
         }
     }
@@ -778,7 +779,7 @@ mod tests {
     // --- Extended tests using real Session instances ------------------------------------------
     fn build_p2p_session(
         id: Id,
-        unicast: bool,
+        unicast_name: Option<Name>,
     ) -> (
         Session<DummyTokenProvider, DummyVerifier, MockTransmitter>,
         Arc<RwLock<Vec<Result<Message, Status>>>>,
@@ -787,7 +788,7 @@ mod tests {
         let tx = MockTransmitter::default();
         let store = tx.slim_msgs.clone();
         let conf = PointToPointConfiguration {
-            unicast,
+            unicast_name,
             ..Default::default()
         };
         let source = make_name(["agntcy", "src", "p2p"]);
@@ -837,8 +838,8 @@ mod tests {
     // Publish on a PointToPoint session and assert metadata propagation.
     #[tokio::test]
     async fn session_publish_and_metadata() {
-        let (session, store) = build_p2p_session(10, false);
         let dst = make_name(["agntcy", "dst", "p2p"]);
+        let (session, store) = build_p2p_session(10, Some(dst.clone()));
         session
             .publish(
                 &dst,
@@ -860,7 +861,7 @@ mod tests {
     // Use publish_to which should set the forward_to flag on the header.
     #[tokio::test]
     async fn session_publish_to_sets_forward_to_flag() {
-        let (session, store) = build_p2p_session(11, false);
+        let (session, store) = build_p2p_session(11, None);
         let dst = make_name(["agntcy", "dst", "p2p"]);
         session
             .publish_to(&dst, 42, b"data".to_vec(), None, None)
@@ -876,7 +877,7 @@ mod tests {
     // PointToPoint sessions do not support participant invite/remove; expect Processing errors.
     #[tokio::test]
     async fn invite_and_remove_participant_fail_on_p2p() {
-        let (session, _store) = build_p2p_session(12, false);
+        let (session, _store) = build_p2p_session(12, None);
         let dst = make_name(["agntcy", "dst", "p2p"]);
         let err = session.invite_participant(&dst).await.unwrap_err();
         assert!(matches!(err, SessionError::Processing(_)));

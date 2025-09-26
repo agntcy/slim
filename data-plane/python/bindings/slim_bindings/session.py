@@ -65,6 +65,10 @@ class PySession:
     def dst(self) -> PyName | None:
         return self._ctx.dst
 
+    @property
+    def destination_name(self) -> PyName | None:
+        return self._ctx.destination_name
+
     def set_session_config(self, config: PySessionConfiguration) -> None:
         self._ctx.set_session_config(config)
 
@@ -108,6 +112,24 @@ class PySession:
         payload_type: str | None = None,
         metadata: dict | None = None,
     ) -> None:
+        """
+        Publish a message with a destination name on an existing session.
+        This is possible only on Anycast sessions. The function returns an error
+        in other cases.
+
+        Args:
+            msg (bytes): The message payload to publish.
+            dest (PyName): The destination name for the message.
+            payload_type (str, optional): The type of the payload, if applicable.
+            metadata (dict, optional): Additional metadata to include with the
+                message.
+
+        Returns:
+            None
+        """
+        if self._ctx.session_type != PySessionType.ANYCAST:
+            raise RuntimeError("unexpected session type: expected ANYCAST")
+
         await _publish(
             self._svc,
             self._ctx,
@@ -127,12 +149,17 @@ class PySession:
         metadata: dict | None = None,
     ):
         """
-        Publish a message back to the application that sent it.
-        The information regarding the source app is stored in the session.
+        Publish a message back to the application that sent the original message.
+        The source application information is retrieved from the message context and
+        session.
 
         Args:
-            session (PySessionInfo): The session information.
-            msg (str): The message to publish.
+            message_ctx (PyMessageContext): The context of the original message,
+                used to identify the source application.
+            msg (bytes): The message payload to publish.
+            payload_type (str, optional): The type of the payload, if applicable.
+            metadata (dict, optional): Additional metadata to include with the
+                message.
 
         Returns:
             None
