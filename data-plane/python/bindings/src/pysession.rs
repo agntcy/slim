@@ -202,7 +202,7 @@ pub enum PySessionType {
 /// Each variant maps to a core `SessionConfig`.
 /// Common fields (casual rundown):
 /// * `timeout`: How long we wait for an ack before trying again.
-/// * `max_retries`: Number of attempts to send a message. If we run out, you get a delivery error.
+/// * `max_retries`: Number of attempts to send a message. If we run out, an error is returned.
 /// * `mls_enabled`: Turn on MLS for end‑to‑end crypto (ignored for Anycast which doesn’t negotiate a session).
 /// * `metadata`: One-shot string key/value tags sent at session start; the other side can read them for tracing, routing, auth, etc.
 ///
