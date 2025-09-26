@@ -1,5 +1,25 @@
 # Changelog
 
+## [1.0.0](https://github.com/agntcy/slim/compare/slim-bindings-examples-v0.1.1...slim-bindings-examples-v1.0.0) (2025-09-26)
+
+
+### ⚠ BREAKING CHANGES
+
+* session layer APIs updated.
+
+### Features
+
+* **multicast:** remove moderator parameter from configuration ([#739](https://github.com/agntcy/slim/issues/739)) ([464d523](https://github.com/agntcy/slim/commit/464d523205a6f972e633eddd842c007929bb7974))
+* **pysession:** expose session type, src and dst names ([#737](https://github.com/agntcy/slim/issues/737)) ([1c16ccc](https://github.com/agntcy/slim/commit/1c16ccc74d4b0572a424369223320bf8a52269c2))
+* **python/bindings:** improve publish function ([#749](https://github.com/agntcy/slim/issues/749)) ([85fd2ca](https://github.com/agntcy/slim/commit/85fd2ca2e24794998203fd25b51964eabc10c04e))
+* **python/bindings:** remove request-reply API ([#677](https://github.com/agntcy/slim/issues/677)) ([65cec9d](https://github.com/agntcy/slim/commit/65cec9d9fc4439a696aadae2edad940792a52fa1))
+* refactor session receive() API ([#731](https://github.com/agntcy/slim/issues/731)) ([787d111](https://github.com/agntcy/slim/commit/787d111d030de5768385b72ea7a794ced85d6652))
+
+
+### Documentation
+
+* **python/bindings:** add documentantion for sessions and example ([#750](https://github.com/agntcy/slim/issues/750)) ([04f1d0f](https://github.com/agntcy/slim/commit/04f1d0f583698e94394b86f73445532c328a7796))
+
 ## [0.1.1](https://github.com/agntcy/slim/compare/slim-bindings-examples-v0.1.0...slim-bindings-examples-v0.1.1) (2025-09-18)
 
 
