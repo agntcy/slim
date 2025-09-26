@@ -9,6 +9,7 @@ description = "Controller service and control API to configure the SLIM data pla
 name = "slim_controller"
 
 [dependencies]
+agntcy-slim-auth = { workspace = true }
 agntcy-slim-config = { workspace = true }
 agntcy-slim-datapath = { workspace = true }
 agntcy-slim-signal = { workspace = true }

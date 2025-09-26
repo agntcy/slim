@@ -32,12 +32,14 @@ func main() {
 	dbService := db.NewInMemoryDBService()
 	cmdHandler := nodecontrol.DefaultNodeCommandHandler()
 	nodeService := nbapiservice.NewNodeService(dbService, cmdHandler)
+
+	groupService := groupservice.NewGroupService(dbService, cmdHandler)
+
 	routeService := routes.NewRouteService(dbService, cmdHandler, config.Reconciler)
 	err := routeService.Start(ctx)
 	if err != nil {
 		zlog.Fatal().Msgf("failed to start route service: %v", err)
 	}
-	groupService := groupservice.NewGroupService(dbService)
 
 	// wait for go processes to exit
 	var wg sync.WaitGroup

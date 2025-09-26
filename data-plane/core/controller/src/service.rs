@@ -5,6 +5,8 @@ use std::collections::HashMap;
 use std::pin::Pin;
 use std::sync::Arc;
 
+use uuid::Uuid;
+
 use slim_config::component::id::ID;
 use slim_config::grpc::server::ServerConfig;
 use slim_config::metadata::MetadataValue;
@@ -25,12 +27,20 @@ use crate::api::proto::api::v1::{
     controller_service_server::ControllerService as GrpcControllerService,
 };
 use crate::errors::ControllerError;
+use slim_auth::shared_secret::SharedSecret;
+use slim_auth::traits::TokenProvider;
 use slim_config::grpc::client::ClientConfig;
 use slim_datapath::api::ProtoMessage as DataPlaneMessage;
 use slim_datapath::message_processing::MessageProcessor;
 use slim_datapath::messages::Name;
-use slim_datapath::messages::utils::SlimHeaderFlags;
+use slim_datapath::messages::utils::{SLIM_IDENTITY, SlimHeaderFlags};
 use slim_datapath::tables::SubscriptionTable;
+
+use crate::api::proto::moderator::v1::{
+    AddParticipantRequest, CreateChannelRequest, DeleteChannelRequest, ModeratorMessage,
+    RemoveParticipantRequest,
+};
+use prost::Message;
 
 type TxChannel = mpsc::Sender<Result<ControlMessage, Status>>;
 type TxChannels = HashMap<String, TxChannel>;
@@ -55,6 +65,9 @@ struct ControllerServiceInternal {
 
     /// channel to send messages into the datapath
     tx_slim: mpsc::Sender<Result<DataPlaneMessage, Status>>,
+
+    /// channel to receive messages from the datapath
+    _rx_slim: mpsc::Receiver<Result<PubsubMessage, Status>>,
 
     /// channels to send control messages
     tx_channels: parking_lot::RwLock<TxChannels>,
@@ -159,6 +172,7 @@ impl ControlPlane {
         message_processor: Arc<MessageProcessor>,
         pubsub_servers: &[ServerConfig],
     ) -> Self {
+        // create local connection with the message processor
         let (_, tx_slim, rx_slim) = message_processor.register_local_connection(true);
 
         let connection_details = pubsub_servers.iter().map(from_server_config).collect();
@@ -173,13 +187,13 @@ impl ControlPlane {
                     message_processor,
                     connections: Arc::new(parking_lot::RwLock::new(HashMap::new())),
                     tx_slim,
+                    _rx_slim: rx_slim,
                     tx_channels: parking_lot::RwLock::new(HashMap::new()),
                     cancellation_tokens: parking_lot::RwLock::new(HashMap::new()),
                     drain_rx,
                     connection_details,
                 }),
             },
-            rx_slim_option: Some(rx_slim),
         }
     }
 
@@ -217,9 +231,6 @@ impl ControlPlane {
         for client in clients {
             self.run_client(client).await?;
         }
-
-        let rx = self.rx_slim_option.take();
-        self.listen_from_data_plane(rx.unwrap()).await;
 
         Ok(())
     }
@@ -681,22 +692,399 @@ impl ControllerService {
                         // received a connection list response, do nothing - this should not happen
                     }
                     Payload::RegisterNodeRequest(_) => {
-                        error!("received a register node request, this should not happen");
+                        error!("received a register node request");
                     }
                     Payload::RegisterNodeResponse(_) => {
                         // received a register node response, do nothing
                     }
                     Payload::DeregisterNodeRequest(_) => {
-                        error!("received a deregister node request, this should not happen");
+                        error!("received a deregister node request");
                     }
                     Payload::DeregisterNodeResponse(_) => {
                         // received a deregister node response, do nothing
                     }
-                    Payload::CreateChannelRequest(_) => {}
-                    Payload::CreateChannelResponse(_) => {}
-                    Payload::DeleteChannelRequest(_) => {}
-                    Payload::AddParticipantRequest(_) => {}
-                    Payload::DeleteParticipantRequest(_) => {}
+                    Payload::CreateChannelRequest(req) => {
+                        info!("received a create channel request");
+
+                        let channel_id = req.channel_id.clone();
+
+                        if let Some(first_moderator) = req.moderators.first() {
+                            let parts: Vec<&str> = first_moderator.split('/').collect();
+                            if parts.len() != 4 {
+                                return Err(ControllerError::ConfigError(format!(
+                                    "invalid moderator name format: {}",
+                                    first_moderator
+                                )));
+                            }
+                            let id = parts[3].parse::<u64>().map_err(|_| {
+                                ControllerError::ConfigError(format!(
+                                    "invalid moderator ID: {}",
+                                    parts[3]
+                                ))
+                            })?;
+                            let moderator_name =
+                                Name::from_strings([parts[0], parts[1], parts[2]]).with_id(id);
+                            let source_name =
+                                Name::from_strings(["controller", "controller", "controller"])
+                                    .with_id(0);
+                            let moderator_request = ModeratorMessage {
+                                message_id: Uuid::new_v4().to_string(),
+                                timestamp: std::time::SystemTime::now()
+                                    .duration_since(std::time::UNIX_EPOCH)
+                                    .unwrap_or_default()
+                                    .as_secs() as i64,
+                                payload: Some(crate::api::proto::moderator::v1::moderator_message::Payload::CreateChannel(
+                                    CreateChannelRequest {
+                                        channel_id: channel_id.clone(),
+                                        moderators: vec![],
+                                        metadata: std::collections::HashMap::new(),
+                                    }
+                                )),
+                            };
+
+                            let message_content = moderator_request.encode_to_vec();
+
+                            let slim_header = Some(SlimHeader::new(
+                                &source_name,
+                                &moderator_name,
+                                Some(SlimHeaderFlags::default()),
+                            ));
+                            let session_header = Some(SessionHeader::new(
+                                ProtoSessionType::SessionFireForget.into(),
+                                ProtoSessionMessageType::FnfMsg.into(),
+                                0,
+                                Uuid::new_v4().as_u128() as u32,
+                            ));
+
+                            let mut publish_msg = PubsubMessage::new_publish_with_headers(
+                                slim_header,
+                                session_header,
+                                "application/x-moderator-protobuf",
+                                message_content,
+                            );
+
+                            let controller_identity = SharedSecret::new("controller", "group");
+                            let identity_token = controller_identity.get_token().map_err(|e| {
+                                error!("failed to generate identity token: {}", e);
+                                ControllerError::DatapathError(e.to_string())
+                            })?;
+                            publish_msg.insert_metadata(SLIM_IDENTITY.to_string(), identity_token);
+
+                            if let Err(e) = self.send_control_message(publish_msg).await {
+                                error!(
+                                    "failed to send message to moderator {}: {}",
+                                    first_moderator, e
+                                );
+                            } else {
+                                info!("successfully sent message to moderator {}", first_moderator);
+                            }
+                        }
+
+                        let ack = Ack {
+                            original_message_id: msg.message_id.clone(),
+                            success: true,
+                            messages: vec![msg.message_id.clone()],
+                        };
+
+                        let reply = ControlMessage {
+                            message_id: uuid::Uuid::new_v4().to_string(),
+                            payload: Some(Payload::Ack(ack)),
+                        };
+
+                        if let Err(e) = tx.send(Ok(reply)).await {
+                            error!("failed to send Ack: {}", e);
+                        }
+                    }
+                    Payload::DeleteChannelRequest(req) => {
+                        info!("received a channel delete request");
+
+                        let channel_id = req.channel_id.clone();
+
+                        let moderator_name = if let Some(first_moderator) = req.moderators.first() {
+                            let parts: Vec<&str> = first_moderator.split('/').collect();
+                            if parts.len() != 4 {
+                                return Err(ControllerError::ConfigError(format!(
+                                    "invalid moderator name format: {}",
+                                    first_moderator
+                                )));
+                            }
+                            let id = parts[3].parse::<u64>().map_err(|_| {
+                                ControllerError::ConfigError(format!(
+                                    "invalid moderator ID: {}",
+                                    parts[3]
+                                ))
+                            })?;
+                            Name::from_strings([parts[0], parts[1], parts[2]]).with_id(id)
+                        } else {
+                            return Err(ControllerError::ConfigError(
+                                "no moderators specified in delete channel request".to_string(),
+                            ));
+                        };
+                        let source_name =
+                            Name::from_strings(["controller", "controller", "controller"])
+                                .with_id(0);
+
+                        let moderator_request = ModeratorMessage {
+                            message_id: Uuid::new_v4().to_string(),
+                            timestamp: std::time::SystemTime::now()
+                                .duration_since(std::time::UNIX_EPOCH)
+                                .unwrap_or_default()
+                                .as_secs() as i64,
+                            payload: Some(crate::api::proto::moderator::v1::moderator_message::Payload::DeleteChannel(
+                                DeleteChannelRequest {
+                                    channel_id: channel_id.clone(),
+                                }
+                            )),
+                        };
+
+                        let message_content = moderator_request.encode_to_vec();
+
+                        let slim_header = Some(SlimHeader::new(
+                            &source_name,
+                            &moderator_name,
+                            Some(SlimHeaderFlags::default()),
+                        ));
+                        let session_header = Some(SessionHeader::new(
+                            ProtoSessionType::SessionFireForget.into(),
+                            ProtoSessionMessageType::FnfMsg.into(),
+                            0,
+                            Uuid::new_v4().as_u128() as u32,
+                        ));
+
+                        let mut publish_msg = PubsubMessage::new_publish_with_headers(
+                            slim_header,
+                            session_header,
+                            "application/x-moderator-protobuf",
+                            message_content,
+                        );
+
+                        let controller_identity = SharedSecret::new("controller", "group");
+                        let identity_token = controller_identity.get_token().map_err(|e| {
+                            error!("failed to generate identity token: {}", e);
+                            ControllerError::DatapathError(e.to_string())
+                        })?;
+                        publish_msg.insert_metadata(SLIM_IDENTITY.to_string(), identity_token);
+
+                        if let Err(e) = self.send_control_message(publish_msg).await {
+                            error!(
+                                "failed to send message to moderator {}: {}",
+                                req.moderators.first().unwrap_or(&"unknown".to_string()),
+                                e
+                            );
+                        } else {
+                            info!("successfully sent delete_channel message to moderator");
+                        }
+                        let ack = Ack {
+                            original_message_id: msg.message_id.clone(),
+                            success: true,
+                            messages: vec![msg.message_id.clone()],
+                        };
+
+                        let reply = ControlMessage {
+                            message_id: uuid::Uuid::new_v4().to_string(),
+                            payload: Some(Payload::Ack(ack)),
+                        };
+
+                        if let Err(e) = tx.send(Ok(reply)).await {
+                            error!("failed to send Ack: {}", e);
+                        }
+                    }
+                    Payload::AddParticipantRequest(req) => {
+                        info!(
+                            "received a participant add request for channel: {}, participant: {}",
+                            req.channel_id, req.participant_id
+                        );
+
+                        let channel_id = req.channel_id.clone();
+                        let participant_id = req.participant_id.clone();
+
+                        let moderator_name = if let Some(first_moderator) = req.moderators.first() {
+                            let parts: Vec<&str> = first_moderator.split('/').collect();
+                            if parts.len() != 4 {
+                                return Err(ControllerError::ConfigError(format!(
+                                    "invalid moderator name format: {}",
+                                    first_moderator
+                                )));
+                            }
+                            let id = parts[3].parse::<u64>().map_err(|_| {
+                                ControllerError::ConfigError(format!(
+                                    "invalid moderator ID: {}",
+                                    parts[3]
+                                ))
+                            })?;
+                            Name::from_strings([parts[0], parts[1], parts[2]]).with_id(id)
+                        } else {
+                            return Err(ControllerError::ConfigError(
+                                "no moderators specified in add participant request".to_string(),
+                            ));
+                        };
+                        let source_name =
+                            Name::from_strings(["controller", "controller", "controller"])
+                                .with_id(0);
+                        let moderator_request = ModeratorMessage {
+                            message_id: Uuid::new_v4().to_string(),
+                            timestamp: std::time::SystemTime::now()
+                                .duration_since(std::time::UNIX_EPOCH)
+                                .unwrap_or_default()
+                                .as_secs() as i64,
+                            payload: Some(crate::api::proto::moderator::v1::moderator_message::Payload::AddParticipant(
+                                AddParticipantRequest {
+                                    channel_id: channel_id.clone(),
+                                    participant_id: participant_id.clone(),
+                                    metadata: std::collections::HashMap::new(),
+                                }
+                            )),
+                        };
+
+                        let message_content = moderator_request.encode_to_vec();
+
+                        let slim_header = Some(SlimHeader::new(
+                            &source_name,
+                            &moderator_name,
+                            Some(SlimHeaderFlags::default()),
+                        ));
+                        let session_header = Some(SessionHeader::new(
+                            ProtoSessionType::SessionFireForget.into(),
+                            ProtoSessionMessageType::FnfMsg.into(),
+                            0,
+                            Uuid::new_v4().as_u128() as u32,
+                        ));
+
+                        let mut publish_msg = PubsubMessage::new_publish_with_headers(
+                            slim_header,
+                            session_header,
+                            "application/x-moderator-protobuf",
+                            message_content,
+                        );
+
+                        let controller_identity = SharedSecret::new("controller", "group");
+                        let identity_token = controller_identity.get_token().map_err(|e| {
+                            error!("failed to generate identity token: {}", e);
+                            ControllerError::DatapathError(e.to_string())
+                        })?;
+                        publish_msg.insert_metadata(SLIM_IDENTITY.to_string(), identity_token);
+
+                        if let Err(e) = self.send_control_message(publish_msg).await {
+                            error!(
+                                "failed to send message to moderator {}: {}",
+                                req.moderators.first().unwrap_or(&"unknown".to_string()),
+                                e
+                            );
+                        } else {
+                            info!("successfully sent add_participant message to moderator");
+                        }
+
+                        let ack = Ack {
+                            original_message_id: msg.message_id.clone(),
+                            success: true,
+                            messages: vec![msg.message_id.clone()],
+                        };
+
+                        let reply = ControlMessage {
+                            message_id: uuid::Uuid::new_v4().to_string(),
+                            payload: Some(Payload::Ack(ack)),
+                        };
+
+                        if let Err(e) = tx.send(Ok(reply)).await {
+                            error!("failed to send Ack: {}", e);
+                        }
+                    }
+                    Payload::DeleteParticipantRequest(req) => {
+                        info!("received a participant delete request");
+
+                        let channel_id = req.channel_id.clone();
+                        let participant_id = req.participant_id.clone();
+
+                        let moderator_name = if let Some(first_moderator) = req.moderators.first() {
+                            let parts: Vec<&str> = first_moderator.split('/').collect();
+                            if parts.len() != 4 {
+                                return Err(ControllerError::ConfigError(format!(
+                                    "invalid moderator name format: {}",
+                                    first_moderator
+                                )));
+                            }
+                            let id = parts[3].parse::<u64>().map_err(|_| {
+                                ControllerError::ConfigError(format!(
+                                    "invalid moderator ID: {}",
+                                    parts[3]
+                                ))
+                            })?;
+                            Name::from_strings([parts[0], parts[1], parts[2]]).with_id(id)
+                        } else {
+                            return Err(ControllerError::ConfigError(
+                                "no moderators specified in delete participant request".to_string(),
+                            ));
+                        };
+                        let source_name =
+                            Name::from_strings(["controller", "controller", "controller"])
+                                .with_id(0);
+
+                        let moderator_request = ModeratorMessage {
+                            message_id: Uuid::new_v4().to_string(),
+                            timestamp: std::time::SystemTime::now()
+                                .duration_since(std::time::UNIX_EPOCH)
+                                .unwrap_or_default()
+                                .as_secs() as i64,
+                            payload: Some(crate::api::proto::moderator::v1::moderator_message::Payload::RemoveParticipant(
+                                RemoveParticipantRequest {
+                                    channel_id: channel_id.clone(),
+                                    participant_id: participant_id.clone(),
+                                }
+                            )),
+                        };
+
+                        let message_content = moderator_request.encode_to_vec();
+
+                        let slim_header = Some(SlimHeader::new(
+                            &source_name,
+                            &moderator_name,
+                            Some(SlimHeaderFlags::default()),
+                        ));
+                        let session_header = Some(SessionHeader::new(
+                            ProtoSessionType::SessionFireForget.into(),
+                            ProtoSessionMessageType::FnfMsg.into(),
+                            0,
+                            Uuid::new_v4().as_u128() as u32,
+                        ));
+
+                        let mut publish_msg = PubsubMessage::new_publish_with_headers(
+                            slim_header,
+                            session_header,
+                            "application/x-moderator-protobuf",
+                            message_content,
+                        );
+
+                        let controller_identity = SharedSecret::new("controller", "group");
+                        let identity_token = controller_identity.get_token().map_err(|e| {
+                            error!("Failed to generate identity token: {}", e);
+                            ControllerError::DatapathError(e.to_string())
+                        })?;
+                        publish_msg.insert_metadata(SLIM_IDENTITY.to_string(), identity_token);
+
+                        if let Err(e) = self.send_control_message(publish_msg).await {
+                            error!(
+                                "failed to send message to moderator {}: {}",
+                                req.moderators.first().unwrap_or(&"unknown".to_string()),
+                                e
+                            );
+                        } else {
+                            info!("successfully sent remove_participant message to moderator");
+                        }
+                        let ack = Ack {
+                            original_message_id: msg.message_id.clone(),
+                            success: true,
+                            messages: vec![msg.message_id.clone()],
+                        };
+
+                        let reply = ControlMessage {
+                            message_id: uuid::Uuid::new_v4().to_string(),
+                            payload: Some(Payload::Ack(ack)),
+                        };
+
+                        if let Err(e) = tx.send(Ok(reply)).await {
+                            error!("failed to send Ack: {}", e);
+                        }
+                    }
                     Payload::ListChannelRequest(_) => {}
                     Payload::ListChannelResponse(_) => {}
                     Payload::ListParticipantsRequest(_) => {}
@@ -942,9 +1330,9 @@ mod tests {
     async fn test_end_to_end() {
         // Create an ID for slim instance
         let id_server =
-            ID::new_with_name(Kind::new("slim").unwrap(), "test-server-instance").unwrap();
+            ID::new_with_name(Kind::new("slim").unwrap(), "test_server_instance").unwrap();
         let id_client =
-            ID::new_with_name(Kind::new("slim").unwrap(), "test-client-instance").unwrap();
+            ID::new_with_name(Kind::new("slim").unwrap(), "test_client_instance").unwrap();
 
         // Create a server configuration
         let server_config = ServerConfig::with_endpoint("127.0.0.1:50051")
