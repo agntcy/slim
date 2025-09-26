@@ -85,6 +85,7 @@ export PYO3_CROSS_INCLUDE_DIR=~/.local/share/uv/python/cpython-3.13.3-linux-${RU
 export PYO3_CROSS_LIB_DIR=~/.local/share/uv/python/cpython-3.13.3-linux-${RUSTARCH}-gnu/lib
 export CARGO_BUILD_TARGET=${RUSTARCH}-unknown-linux-gnu
 task -v python:examples:build TARGET=${RUSTARCH}-unknown-linux-gnu PROFILE=release
+rm /app/bin/python && ln -s /usr/local/bin/python /app/bin/python
 EOF
 
 FROM python:3.13-bookworm AS slim-bindings-examples

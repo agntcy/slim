@@ -97,6 +97,9 @@ dmypy.json
 # VS Code
 .vscode/
 
+# Ropeproject
+.ropeproject
+
 # MacOS
 .DS_Store
 
