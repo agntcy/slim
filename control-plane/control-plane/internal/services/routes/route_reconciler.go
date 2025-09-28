@@ -249,6 +249,7 @@ func (s *RouteReconciler) handleRequest(ctx context.Context, req RouteReconcileR
 func generateConfigData(detail db.ConnectionDetails, localConnection bool) (string, string, error) {
 	truev := true
 	falsev := false
+	skipVerify := false
 	config := ConnectionConfig{
 		Endpoint: detail.Endpoint,
 	}
@@ -257,6 +258,8 @@ func generateConfigData(detail db.ConnectionDetails, localConnection bool) (stri
 			return "", "", fmt.Errorf("no external endpoint defined for connection %v", detail)
 		}
 		config.Endpoint = *detail.ExternalEndpoint
+	} else {
+		skipVerify = true // skip verification for local connections
 	}
 	if !detail.MTLSRequired {
 		config.Endpoint = "http://" + config.Endpoint
@@ -265,7 +268,7 @@ func generateConfigData(detail db.ConnectionDetails, localConnection bool) (stri
 		config.Endpoint = "https://" + config.Endpoint
 		config.TLS = &TLS{
 			Insecure:           &falsev,
-			InsecureSkipVerify: &falsev,
+			InsecureSkipVerify: &skipVerify,
 			CERTFile:           stringPtr("/svids/tls.crt"),
 			KeyFile:            stringPtr("/svids/tls.key"),
 			CAFile:             stringPtr("/svids/svid_bundle.pem"),
