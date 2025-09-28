@@ -163,7 +163,7 @@ func getConnDetails(host string, detail *controllerapi.ConnectionDetails) db.Con
 
 	connDetails := db.ConnectionDetails{
 		Endpoint:         endPoint,
-		MTLSRequired:     false,
+		MTLSRequired:     detail.MtlsRequired,
 		GroupName:        detail.GroupName,
 		ExternalEndpoint: detail.ExternalEndpoint,
 	}
