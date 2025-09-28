@@ -17,7 +17,12 @@ Sender client is deployed on cluster A and connected to SLIM service endpoint in
 
 ## Example
 
+task multi-cluster:up
+task spire:federation:deploy
+task slim:contoller:deploy
+task slim:deploy
 
+deploy receiver from with_sprei on one cluster then sender on other one.
 
 ### Commands to check the deployment
 

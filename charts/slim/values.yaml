@@ -171,6 +171,13 @@ spire:
     pullPolicy: IfNotPresent
     # Overrides the image tag whose default is the chart appVersion.
     tag: "0.10.0"
+  trustDomain: example.org
+  federation: []
+    # # Config: https://github.com/spiffe/spire-controller-manager/blob/main/docs/clusterfederatedtrustdomain-crd.md
+    # - trustDomain: other-domain.org
+    #   bundleEndpointURL: https://0.0.0.0:8081
+    #   bundleEndpointProfile:
+    #     type: https_web    
 
 
 # This is for the secretes for pulling an image from a private repository more information can be found here: https://kubernetes.io/docs/tasks/configure-pod-container/pull-image-private-registry/
