@@ -264,10 +264,11 @@ func generateConfigData(detail db.ConnectionDetails, localConnection bool) (stri
 	} else {
 		config.Endpoint = "https://" + config.Endpoint
 		config.TLS = &TLS{
-			Insecure: &falsev,
-			CERTFile: stringPtr("/svids/tls.crt"),
-			KeyFile:  stringPtr("/svids/tls.key"),
-			CAFile:   stringPtr("/svids/svid_bundle.pem"),
+			Insecure:           &falsev,
+			InsecureSkipVerify: &falsev,
+			CERTFile:           stringPtr("/svids/tls.crt"),
+			KeyFile:            stringPtr("/svids/tls.key"),
+			CAFile:             stringPtr("/svids/svid_bundle.pem"),
 		}
 	}
 	var bufferSize int64 = 1024
