@@ -11,6 +11,9 @@ includes:
       taskfile: ../Taskfile.yaml
       dir: ../
 
+vars:
+  CLUSTER_A_TRUST_DOMAIN: '{{ .CLUSTER_A_TRUST_DOMAIN | default "cluster.a" }}'
+  CLUSTER_B_TRUST_DOMAIN: '{{ .CLUSTER_B_TRUST_DOMAIN | default "cluster.b" }}'
 
 tasks:
   multi-cluster:up:
@@ -35,6 +38,61 @@ tasks:
     cmds: 
       - kind delete cluster --name slim-cluster-a
       - kind delete cluster --name slim-cluster-b      
+
+  spire:deploy:
+    desc: Deploy SPIRE server
+    vars:
+      TRUST_DOMAIN: '{{ .TRUST_DOMAIN | default "example.org" }}'
+      SERVICE_TYPE: '{{ .SERVICE_TYPE | default "LoadBalancer" }}'
+      BUNDLE_PATH: '{{ .BUNDLE_PATH | default "/tmp/spire-bundle.spiffe" }}'    
+    cmds:
+      - |
+        helm upgrade --install  \
+        spire-crds \
+        spire-crds \
+        --repo https://spiffe.github.io/helm-charts-hardened/ \
+        --namespace {{ .SPIRE_NAMESPACE }} \
+        --create-namespace \
+        --wait \
+        --wait-for-jobs \
+        --timeout "15m"
+      - |
+        helm upgrade --install  \
+        spire \
+        spire \
+        --repo https://spiffe.github.io/helm-charts-hardened/ \
+        --set global.spire.trustDomain="{{ .TRUST_DOMAIN }}" \
+        --set spire-server.service.type="{{ .SERVICE_TYPE }}" \
+        --set spire-server.federation.enabled="true" \
+        --set spire-server.controllerManager.watchClassless="true" \        
+        --namespace {{ .SPIRE_NAMESPACE }} \
+        --create-namespace \
+        --wait \
+        --wait-for-jobs \
+        --timeout "15m"    
+
+      - |
+        kubectl get configmap -n spire spire-bundle -o json | jq '.data."bundle.spiffe"' -r > {{ .BUNDLE_PATH }}      
+
+  spire:federation:deploy:
+    desc: Set up federation between two SPIRE servers      
+    cmds:
+      - kubectl config use-context kind-slim-cluster-a    
+      - task: spire:deploy
+        vars:
+          TRUST_DOMAIN: '{{ .CLUSTER_A_TRUST_DOMAIN }}'
+          BUNDLE_PATH: /tmp/{{ .CLUSTER_A_TRUST_DOMAIN }}.spiffe
+          SPIRE_NAMESPACE: '{{ .SPIRE_NAMESPACE }}'
+
+      - task slim:wait-for-lb LB_HOSTNAME=spire.cluster.a SVC_NAME=spire-server NAMESPACE='{{ .SPIRE_NAMESPACE }}'
+
+      - kubectl config use-context kind-slim-cluster-b
+      - task: spire:deploy
+        vars:
+          TRUST_DOMAIN: '{{ .CLUSTER_B_TRUST_DOMAIN }}'
+          BUNDLE_PATH: /tmp/{{ .CLUSTER_B_TRUST_DOMAIN }}.spiffe
+
+      - task slim:wait-for-lb LB_HOSTNAME=spire.cluster.b SVC_NAME=spire-server NAMESPACE='{{ .SPIRE_NAMESPACE }}'
 
   slim:contoller:deploy:
     desc: Deploy Slim Controller
@@ -86,12 +144,13 @@ tasks:
       TIMEOUT: '{{.TIMEOUT | default "300"}}'  # 5 minutes default timeout
       LB_HOSTNAME: ''
       SVC_NAME: '{{.SVC_NAME | default "slim"}}'
+      NAMESPACE: '{{.NAMESPACE | default "slim"}}'
     cmds:
       - |
         echo "Waiting for LoadBalancer IP to be assigned (timeout: {{.TIMEOUT}}s)..."
         COUNTER=0
         while [ $COUNTER -lt {{.TIMEOUT}} ]; do
-          LB_IP=$(kubectl get service -n slim {{.SVC_NAME}} -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo "")
+          LB_IP=$(kubectl get service -n {{.NAMESPACE}} {{.SVC_NAME}} -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo "")
           if [ -n "$LB_IP" ] && [ "$LB_IP" != "<pending>" ] && [ "$LB_IP" != "null" ]; then
             echo "LoadBalancer IP assigned: $LB_IP"
             echo "Add to your /etc/hosts: $LB_IP    {{.LB_HOSTNAME}}"

@@ -40,29 +40,20 @@ slim:
                 local_endpoint: ${env:MY_POD_IP}
                 external_endpoint: "messaging.slim.cluster.b:{{ .Values.slim.service.data.port }}"
               tls:
-                insecure: true
+                insecure_skip_verify: false
+                cert_file: "/svids/tls.crt"
+                key_file: "/svids/tls.key"
+                ca_file: "/svids/svid_bundle.pem"
 
           clients: []
         controller:
           clients:
             - endpoint: "https://controller.slim:50052"
               tls:
-                insecure: true
-                # cert_file: "/svids/tls.crt"
-                # key_file: "/svids/tls.key"
-                # ca_file: "/svids/svid_bundle.pem"
-
-  # StatefulSet-specific settings
-  # DaemonSet-specific settings
-  hostNetwork: false
-  dnsPolicy: "ClusterFirst"  # or "ClusterFirstWithHostNet" if hostNetwork: true
-
-  # Updated updateStrategy to support DaemonSet maxUnavailable
-  updateStrategy:
-    type: "RollingUpdate"  # or "OnDelete"
-    rollingUpdate:
-      partition: 0  # StatefulSet only
-      maxUnavailable: 1  # DaemonSet only
+                insecure_skip_verify: false
+                cert_file: "/svids/tls.crt"
+                key_file: "/svids/tls.key"
+                ca_file: "/svids/svid_bundle.pem"
 
   # This is for setting up a service more information can be found here: https://kubernetes.io/docs/concepts/services-networking/service/
   service:
@@ -92,61 +83,19 @@ slim:
     #      - chart-example.local
 
 spire:
-  enabled: false
+  enabled: true
   helperImage:
     repository: ghcr.io/spiffe/spiffe-helper
     # This sets the pull policy for images.
     pullPolicy: IfNotPresent
     # Overrides the image tag whose default is the chart appVersion.
     tag: "0.10.0"
-
-
-# This is for the secretes for pulling an image from a private repository more information can be found here: https://kubernetes.io/docs/tasks/configure-pod-container/pull-image-private-registry/
-imagePullSecrets: []
-# This is to override the chart name.
-nameOverride: ""
-fullnameOverride: ""
-
-# This section builds out the service account more information can be found here: https://kubernetes.io/docs/concepts/security/service-accounts/
-serviceAccount:
-  # Specifies whether a service account should be created
-  create: true
-  # Automatically mount a ServiceAccount's API credentials?
-  automount: true
-  # Annotations to add to the service account
-  annotations: {}
-  # The name of the service account to use.
-  # If not set and create is true, a name is generated using the fullname template
-  name: "slim"
-
-# This is for setting Kubernetes Annotations to a Pod.
-# For more information checkout: https://kubernetes.io/docs/concepts/overview/working-with-objects/annotations/
-podAnnotations: {}
-# This is for setting Kubernetes Labels to a Pod.
-# For more information checkout: https://kubernetes.io/docs/concepts/overview/working-with-objects/labels/
-podLabels: {}
-
-podSecurityContext: {}
-  # fsGroup: 2000
-
-securityContext: {}
-  # capabilities:
-  #   drop:
-  #   - ALL
-  # readOnlyRootFilesystem: true
-  # runAsNonRoot: true
-  # runAsUser: 1000
-
-# This section is for setting up autoscaling more information can be found here: https://kubernetes.io/docs/concepts/workloads/autoscaling/
-autoscaling:
-  enabled: false
-  minReplicas: 1
-  maxReplicas: 100
-  targetCPUUtilizationPercentage: 80
-  # targetMemoryUtilizationPercentage: 80
-
-nodeSelector: {}
-
-tolerations: []
-
-affinity: {}
+  trustDomain: cluster-b    
+  federation:
+  - trustDomain: {{ .CLUSTER_A_TRUST_DOMAIN }}
+    bundleEndpointURL: https://spire.cluster-a:8443
+    bundleEndpointProfile:
+      type: https_spiffe
+      endpointSPIFFEID: spiffe://{{ .CLUSTER_A_TRUST_DOMAIN }}/spire/server
+    # trustDomainBundle: |-
+    #   $(cat /tmp/{{ .CLUSTER_A_TRUST_DOMAIN }}.spiffe)    
