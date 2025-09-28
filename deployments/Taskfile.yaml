@@ -11,16 +11,16 @@ version: "3"
 #
 
 vars:
-  # Simple values
+  SPIRE_NAMESPACE: '{{ .SPIRE_NAMESPACE | default "spire-server" }}'
+  SLIM_NAMESPACE: '{{ .SLIM_NAMESPACE | default "slim" }}'
   SLIM_IMAGE_TAG: '{{ .SLIM_IMAGE_TAG | default "0.6.0-dev.1" }}'
-  SLIM_CONTROLLER_IMAGE_TAG: "0.2.0-dev.4"
-  HELM_NAMESPACE: '{{ .HELM_NAMESPACE | default "slim" }}'
-
+  SLIM_CONTROLLER_IMAGE_TAG: '{{ .SLIM_CONTROLLER_IMAGE_TAG | default "0.2.0-dev.6" }}'
+  
 tasks:
 
   cluster:up:
     desc: Start a local Kubernetes cluster using Kind
-    cmd: kind create cluster --name slim-cluster --config slim-cluster.yaml
+    cmd: kind create cluster --name slim-cluster --wait 60s || true # --config slim-cluster.yaml
 
   cluster:down:
     desc: Delete the local Kubernetes cluster
@@ -35,7 +35,7 @@ tasks:
   cluster:port-forward:controller:setup:
     desc: Set up port forwarding to the Slim Controller service
     cmds:
-      - kubectl port-forward svc/slim-control -n {{ .HELM_NAMESPACE }} 50051:50051 &
+      - kubectl port-forward svc/slim-control -n {{ .SLIM_NAMESPACE }} 50051:50051 &
       - sleep 1
 
   cluster:port-forward:controller:teardown:
@@ -98,7 +98,7 @@ tasks:
     cmds:
       - |
         helm upgrade --install slim-control ../charts/slim-control-plane \
-          --namespace slim \
+          --namespace {{ .SLIM_NAMESPACE }} \
           --create-namespace \
           --set image.tag="{{ .SLIM_CONTROLLER_IMAGE_TAG }}" \
           --values controller-values.yaml            

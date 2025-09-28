@@ -6,17 +6,17 @@ metadata:
 spec:
   containers:
   - args:
-    - ff
+    - anycast
     - --local
     - org/ns/alice
     - --shared-secret
     - secret123
-    - --config
-    - '{"endpoint":"https://agntcy-slim-1:46357","tls":{"cert_file":"/svids/tls.crt","key_file":"/svids/tls.key","ca_file":"/svids/svid_bundle.pem"}}'
+    - --slim
+    - '{"endpoint":"https://slim.slim.svc.cluster.local:46357","tls":{"insecure_skip_verify": false, "cert_file":"/svids/tls.crt","key_file":"/svids/tls.key","ca_file":"/svids/svid_bundle.pem"}}'    
     env:
     - name: PYTHONUNBUFFERED
       value: "1"
-    image: ghcr.io/agntcy/slim/bindings-examples:latest
+    image: ghcr.io/agntcy/slim/bindings-examples:0.6.0-dev.1
     imagePullPolicy: Always
     name: alice
     volumeMounts:
