@@ -1,12 +1,12 @@
 apiVersion: v1
 kind: Pod
 metadata:
-  name: alice
+  name: bob
   namespace: default
 spec:
   containers:
   - args:
-    - ff
+    - anycast
     - --message
     - hello
     - --iterations
@@ -18,11 +18,11 @@ spec:
     - --shared-secret
     - secret123
     - --slim
-    - '{"endpoint":"http://agntcy-slim-2:46357","tls":{"insecure":true}}'
+    - '{"endpoint":"https://slim.slim.svc.cluster.local:46357","tls":{"insecure_skip_verify": false, "cert_file":"/svids/tls.crt","key_file":"/svids/tls.key","ca_file":"/svids/svid_bundle.pem"}}'
     env:
     - name: PYTHONUNBUFFERED
       value: "1"
-    image: ghcr.io/agntcy/slim/bindings-examples:latest
+    image: ghcr.io/agntcy/slim/bindings-examples:0.6.0-dev.1
     imagePullPolicy: Always
     name: alice
     volumeMounts:
