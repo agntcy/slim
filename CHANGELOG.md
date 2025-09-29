@@ -262,7 +262,12 @@ active_sessions.append(session)
 await app.invite(session_info, participant_name)
 
 # NEW: Session-level invitation management
+
+# Add a participant
 await session.invite(participant_name)
+
+# Remove a participant
+wait session.remove(participant_name)
 ```
 
 ---
