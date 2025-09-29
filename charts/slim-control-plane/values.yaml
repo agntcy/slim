@@ -44,7 +44,7 @@ config:
 spire:
   enabled: false
   trustDomain: example.org
-  federation: []  
+  federation: []
 
 env:
   - name: NB_API_HTTP_HOST
