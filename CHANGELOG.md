@@ -294,7 +294,7 @@ except Exception as e:
 ## 10. Complete Migration Checklist
 
 ### Phase 1: Dependencies and Basic Setup
-- [ ] Update `slim-bindings` to `>=0.5.0`
+- [ ] Update `slim-bindings` to `>=0.6.0`
 - [ ] Replace `app.get_id()` with `app.id_str`
 - [ ] Remove `async with app:` context managers
 
