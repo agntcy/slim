@@ -4,6 +4,320 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## v0.6.0 (30 September 2025)
+
+# SLIM Python Bindings API Migration Guide: v0.5.0 → Current
+
+This guide covers the breaking changes and migration path for applications using SLIM Python bindings when upgrading from v0.5.0 to the current version.
+
+## Overview of Changes
+
+The API has undergone a fundamental architectural shift from **app-centric messaging** to **session-centric messaging**:
+
+- **Old paradigm**: Messages sent through the `Slim` application instance with session IDs
+- **New paradigm**: Messages sent directly through `Session` objects
+
+---
+
+## 1. Dependency Updates
+
+### Update your requirements
+```diff
+# pyproject.toml or requirements.txt
+- slim-bindings>=0.3.6
++ slim-bindings>=0.5.0
+```
+
+---
+
+## 2. Application Instance Management
+
+### Instance ID Access
+```python
+# OLD: Method call
+app = await slim_bindings.Slim.new(name, provider, verifier)
+instance_id = app.get_id()
+
+# NEW: Property access
+app = await slim_bindings.Slim.new(name, provider, verifier)
+instance_id = app.id_str
+```
+
+### Context Manager Usage
+```python
+# OLD: Required context manager
+async with app:
+    session = await app.create_session(config)
+    await app.publish(session, message, destination)
+
+# NEW: No context manager needed
+session = await app.create_session(config)
+await session.publish(message)
+```
+
+**Migration**: Remove `async with app:` context managers and replace `app.get_id()` with `app.id_str`.
+
+---
+
+## 3. Session Configuration (Major Changes)
+
+The session configuration system has been completely redesigned around communication patterns.
+
+### Old Session Types → New Session Types
+
+#### Fire-and-Forget → Anycast/Unicast
+```python
+# OLD: Fire-and-forget with sticky flag
+session = await app.create_session(
+    slim_bindings.PySessionConfiguration.FireAndForget(
+        max_retries=5,
+        timeout=datetime.timedelta(seconds=5),
+        sticky=False,  # Non-sticky = load balanced
+        mls_enabled=enable_mls,
+    )
+)
+
+# NEW: Explicit Anycast (load-balanced)
+session = await app.create_session(
+    slim_bindings.PySessionConfiguration.Anycast(
+        # max_retries=5,
+        # timeout=datetime.timedelta(seconds=5),
+    )
+)
+```
+
+```python
+# OLD: Fire-and-forget with sticky=True
+session = await app.create_session(
+    slim_bindings.PySessionConfiguration.FireAndForget(
+        max_retries=5,
+        timeout=datetime.timedelta(seconds=5),
+        sticky=True,  # Sticky = same peer
+        mls_enabled=enable_mls,
+    )
+)
+
+# NEW: Explicit Unicast (peer-to-peer)
+session = await app.create_session(
+    slim_bindings.PySessionConfiguration.Unicast(
+        unicast_name=remote_name,
+        max_retries=5,
+        timeout=datetime.timedelta(seconds=5),
+        mls_enabled=enable_mls,
+    )
+)
+```
+
+#### Streaming → Multicast
+```python
+# OLD: Bidirectional streaming with topic
+session = await app.create_session(
+    slim_bindings.PySessionConfiguration.Streaming(
+        slim_bindings.PySessionDirection.BIDIRECTIONAL,
+        topic=channel_name,
+        moderator=True,
+        max_retries=5,
+        timeout=datetime.timedelta(seconds=5),
+        mls_enabled=enable_mls,
+    )
+)
+
+# NEW: Multicast with channel
+session = await app.create_session(
+    slim_bindings.PySessionConfiguration.Multicast(
+        channel_name=channel_name,
+        max_retries=5,
+        timeout=datetime.timedelta(seconds=5),
+        mls_enabled=enable_mls,
+    )
+)
+```
+
+**Migration Mapping**:
+- `FireAndForget(sticky=False)` → `Anycast()`
+- `FireAndForget(sticky=True)` → `Unicast(unicast_name=target)`
+- `Streaming(BIDIRECTIONAL, topic=X)` → `Multicast(channel_name=X)`
+
+---
+
+## 5. Message Sending
+
+The message sending API has moved from app-level methods to session-level methods.
+
+### Basic Message Publishing
+```python
+# OLD: App-level publishing with session reference
+await app.publish(session, message.encode(), destination_name)
+
+# NEW: Session-level publishing
+# For Anycast (requires explicit destination)
+await session.publish_with_destination(message.encode(), destination_name)
+
+# For Unicast/Multicast (destination implicit)
+await session.publish(message.encode())
+```
+
+### Reply to Received Messages
+```python
+# OLD: App-level reply
+await app.publish_to(session_info, reply.encode())
+
+# NEW: Session-level reply with message context
+await session.publish_to(msg_ctx, reply.encode())
+```
+
+---
+
+## 6. Message Receiving
+
+Message receiving has changed from app-level session management to session-level message handling.
+
+### Waiting for New Sessions
+```python
+# OLD: App-level receive for new sessions
+session_info, initial_message = await app.receive()
+session_id = session_info.id
+
+# NEW: Explicit session listening
+session = await app.listen_for_session()
+session_id = session.id
+```
+
+### Receiving Messages from Sessions
+```python
+# OLD: App-level receive with session ID
+session_info, message = await app.receive(session=session_id)
+
+# NEW: Session-level message receiving
+msg_ctx, message = await session.get_message()
+```
+
+### Message Context Changes
+```python
+# OLD: Session info contained source/destination details
+source = session_info.destination_name:
+dst = session_info.source_name
+
+# NEW: Message context contains source/destination details
+source_name = msg_ctx.source_name
+dst_name = session.destination_name
+```
+
+---
+
+## 7. Session Lifecycle Management
+
+### Session Object Usage
+```python
+# OLD: Sessions referenced by ID, managed through app
+async def handle_session(app, session_id):
+    while True:
+        session_info, msg = await app.receive(session=session_id)
+        await app.publish_to(session_info, response.encode())
+
+# NEW: Sessions are first-class objects
+async def handle_session(session):
+    while True:
+        msg_ctx, msg = await session.get_message()
+        await session.publish_to(msg_ctx, response.encode())
+```
+
+### Multiple Session Handling
+```python
+# OLD: Track sessions by ID
+active_sessions = {}
+session_info, _ = await app.receive()
+session_id = session_info.id
+active_sessions[session_id] = session_info
+
+# NEW: Work directly with session objects
+active_sessions = []
+session = await app.listen_for_session()
+active_sessions.append(session)
+```
+
+---
+
+## 8. Group Management (Invitations)
+
+### Inviting Participants
+```python
+# OLD: App-level invitation management
+await app.invite(session_info, participant_name)
+
+# NEW: Session-level invitation management
+await session.invite(participant_name)
+```
+
+---
+
+## 9. Error Handling Changes
+
+### Session-Related Errors
+```python
+# OLD: Errors handled at app level with session IDs
+try:
+    session_info, msg = await app.receive(session=session_id)
+except Exception as e:
+    # Handle session-specific errors
+
+# NEW: Errors handled at session level
+try:
+    msg_ctx, msg = await session.get_message()
+except Exception as e:
+    # Handle session-specific errors
+```
+
+---
+
+## 10. Complete Migration Checklist
+
+### Phase 1: Dependencies and Basic Setup
+- [ ] Update `slim-bindings` to `>=0.5.0`
+- [ ] Replace `app.get_id()` with `app.id_str`
+- [ ] Remove `async with app:` context managers
+
+### Phase 2: Session Configuration
+- [ ] Map `FireAndForget(sticky=False)` → `Anycast()`
+- [ ] Map `FireAndForget(sticky=True)` → `Unicast(unicast_name=target)`
+- [ ] Map `Streaming(BIDIRECTIONAL)` → `Multicast(channel_name=topic)`
+- [ ] Update session configuration parameters
+
+### Phase 3: Message Sending
+- [ ] Replace `app.publish()` with `session.publish()` (unicast/multicast) or `session.publish_with_destination()` (anycast)
+- [ ] Replace `app.publish_to()` with `session.publish_to()`
+
+### Phase 4: Message Receiving
+- [ ] Replace `app.receive()` with `app.listen_for_session()` for new sessions
+- [ ] Replace `app.receive(session=id)` with `session.get_message()`
+- [ ] Update message context handling (`msg_ctx.source_name` vs `session_info.destination_name`)
+
+### Phase 5: Session Management
+- [ ] Update background task signatures to accept session objects instead of IDs
+- [ ] Replace `app.invite()` with `session.invite()`
+- [ ] Update session tracking to use objects instead of IDs
+
+### Phase 6: Testing and Validation
+- [ ] Test all communication patterns (anycast, unicast, multicast)
+- [ ] Verify MLS functionality if used
+- [ ] Test error handling and edge cases
+- [ ] Validate performance characteristics
+
+---
+
+## 11. Key Benefits of Migration
+
+After migration, your code will benefit from:
+
+- **Clearer API semantics**: Communication patterns are explicitly defined
+- **Better encapsulation**: Session operations are contained within session objects
+- **Improved type safety**: Session objects provide stronger typing
+- **Simplified message handling**: Direct session-to-session communication
+- **Enhanced debugging**: Session-level error handling and logging
+
+The new API design makes the communication patterns more explicit and provides a cleaner separation of concerns between application-level and session-level operations.
+
+
 ## v0.5.0 (19 September 2025)
 
 ### Key Highlights
