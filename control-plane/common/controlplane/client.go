@@ -4,28 +4,38 @@
 package controlplane
 
 import (
+	"context"
 	"fmt"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/metadata"
 
 	"github.com/agntcy/slim/control-plane/common/options"
 	cpApi "github.com/agntcy/slim/control-plane/common/proto/controlplane/v1"
 )
 
 func GetClient(
+	ctx context.Context,
 	opts *options.CommonOptions,
-) (cpApi.ControlPlaneServiceClient, error) {
+) (cpApi.ControlPlaneServiceClient, context.Context, error) {
 	var creds credentials.TransportCredentials
 	if opts.TLSInsecure {
 		creds = insecure.NewCredentials()
 	} else if opts.TLSCAFile != "" {
 		c, err := credentials.NewClientTLSFromFile(opts.TLSCAFile, "")
 		if err != nil {
-			return nil, fmt.Errorf("loading CA file %q: %w", opts.TLSCAFile, err)
+			return nil, ctx, fmt.Errorf("loading CA file %q: %w", opts.TLSCAFile, err)
 		}
 		creds = c
+	}
+
+	if opts.BasicAuthKey != "" {
+		md := metadata.New(map[string]string{
+			"authorization": "Basic " + opts.BasicAuthKey,
+		})
+		ctx = metadata.NewOutgoingContext(ctx, md)
 	}
 
 	conn, err := grpc.NewClient(
@@ -33,9 +43,9 @@ func GetClient(
 		grpc.WithTransportCredentials(creds),
 	)
 	if err != nil {
-		return nil, fmt.Errorf("error connecting to server(%s): %w", opts.Server, err)
+		return nil, ctx, fmt.Errorf("error connecting to server(%s): %w", opts.Server, err)
 	}
 
 	client := cpApi.NewControlPlaneServiceClient(conn)
-	return client, nil
+	return client, ctx, nil
 }

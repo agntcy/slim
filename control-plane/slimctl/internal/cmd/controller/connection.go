@@ -46,12 +46,12 @@ func newListConnectionsCmd(opts *options.CommonOptions) *cobra.Command {
 			ctx, cancel := context.WithTimeout(cmd.Context(), opts.Timeout)
 			defer cancel()
 
-			cpCLient, err := cpApi.GetClient(opts)
+			cpClient, ctx, err := cpApi.GetClient(ctx, opts)
 			if err != nil {
 				return fmt.Errorf("failed to get control plane client: %w", err)
 			}
 
-			connectionListResponse, err := cpCLient.ListConnections(ctx, &controlplaneApi.Node{
+			connectionListResponse, err := cpClient.ListConnections(ctx, &controlplaneApi.Node{
 				Id: nodeID,
 			})
 			if err != nil {

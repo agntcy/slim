@@ -10,6 +10,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/metadata"
 
 	"github.com/agntcy/slim/control-plane/common/options"
 	controllerApi "github.com/agntcy/slim/control-plane/common/proto/controller/v1"
@@ -36,6 +37,13 @@ func OpenControlChannel(
 	)
 	if err != nil {
 		return nil, fmt.Errorf("error connecting to server(%s): %w", opts.Server, err)
+	}
+
+	if opts.BasicAuthKey != "" {
+		md := metadata.New(map[string]string{
+			"authorization": "Basic " + opts.BasicAuthKey,
+		})
+		ctx = metadata.NewOutgoingContext(ctx, md)
 	}
 
 	client := controllerApi.NewControllerServiceClient(conn)

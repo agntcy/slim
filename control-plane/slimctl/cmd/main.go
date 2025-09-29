@@ -31,12 +31,13 @@ var k = koanf.New(".")
 func initConfig(opts *options.CommonOptions, flagSet *pflag.FlagSet) error {
 	// defaults
 	defaults := map[string]interface{}{
-		"server":        "localhost:50051",
-		"timeout":       "5s",
-		"tls.insecure":  true,
-		"tls.ca_file":   "",
-		"tls.cert_file": "",
-		"tls.key_file":  "",
+		"basic_auth_key": "",
+		"server":         "localhost:50051",
+		"timeout":        "15s",
+		"tls.insecure":   true,
+		"tls.ca_file":    "",
+		"tls.cert_file":  "",
+		"tls.key_file":   "",
 	}
 	if err := k.Load(confmap.Provider(defaults, "."), nil); err != nil {
 		return fmt.Errorf("error loading defaults: %w", err)
@@ -73,6 +74,7 @@ func initConfig(opts *options.CommonOptions, flagSet *pflag.FlagSet) error {
 		return fmt.Errorf("error loading env: %w", err)
 	}
 
+	opts.BasicAuthKey = k.String("basic_auth_key")
 	opts.Server = k.String("server")
 	opts.Timeout = k.Duration("timeout")
 	opts.TLSInsecure = k.Bool("tls.insecure")
@@ -104,6 +106,12 @@ func main() {
 			return nil
 		},
 	}
+	rootCmd.PersistentFlags().StringP(
+		"basic_auth_key",
+		"b",
+		k.String("basic_auth_key"),
+		"Basic auth key for authentication",
+	)
 
 	rootCmd.PersistentFlags().StringP(
 		"server",
@@ -114,7 +122,7 @@ func main() {
 
 	rootCmd.PersistentFlags().Duration(
 		"timeout",
-		5*time.Second,
+		15*time.Second,
 		"gRPC request timeout (e.g. 5s, 1m)",
 	)
 
