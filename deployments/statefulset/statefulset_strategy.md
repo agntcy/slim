@@ -1,39 +1,76 @@
-## Statefulset deployment strategy
+# Statefulset Deployment Strategy
 
 ## Description
 
-Multiple SLIM nodes are deployed connected to a Controller.
-Clients can connect to a k8s ClusterIP Service which load balances requests between SLIM nodes.
-Routes are created by Controller upon new subscriptions. SLIM nodes are connected to each other and Controller using Spire.
-Clients are also running on the same cluster connecting with MTLS using Spire.
+The statefulset deployment strategy provides a more robust approach to deploying SLIM in a Kubernetes cluster, specifically designed for scenarios requiring high availability and ordered deployment patterns. This strategy deploys SLIM itself as a StatefulSet rather than a standard Deployment.
 
+**Target Audience:**
+- Production environments requiring high availability
+- Applications needing ordered scaling and updates
+- Deployments requiring predictable pod management
 
-### Target audience
+**Use Cases:**
+- Production SLIM deployments with high availability
+- Applications with complex initialization sequences
+- Deployments needing predictable pod naming and ordering
+- Environments requiring reliable service continuity
 
+## Details
 
-### Details
+Multiple SLIM nodes are deployed connected to a Controller. Clients can connect to a k8s ClusterIP Service which load balances requests between SLIM nodes. Routes are created by Controller upon new subscriptions. SLIM nodes are connected to each other and Controller using Spire. Clients are also running on the same cluster connecting with MTLS using Spire.
 
+The statefulset deployment strategy deploys SLIM components with enhanced configuration:
+- StatefulSet-based deployment for SLIM pods
+- Ordered pod management for reliable scaling
+- Enhanced configuration through dedicated values file
 
-## Setup steps in detail
+This approach deploys SLIM as a StatefulSet, which provides guarantees around ordered deployment and scaling, supporting high availability scenarios. The deployment is driven by the `statefulset-values.yaml` file, which contains specific configuration parameters optimized for stateful workloads.
 
-task cluster:up
-task spire:deploy
-task slim:contoller:deploy
+**Key Features:**
+- Ordered deployment and scaling for high availability
+- Predictable pod management
+- Enhanced SLIM configuration options
+
+## Usage
+
+Follow these steps to deploy SLIM using the statefulset deployment strategy:
+
+### 1. Set up the Kubernetes cluster
+```bash
+task templates:cluster:up
+task templates:cluster:use-context
+```
+
+### 2. Deploy SLIM controller
+```bash
+task templates:slim:controller:deploy
+```
+
+### 3. Deploy SLIM as StatefulSet
+```bash
 task slim:deploy
+```
 
-Deploy receiver from with_spire on one cluster then sender on other one.
+### 4. Verify the deployment
+```bash
+kubectl get statefulsets -n slim
+kubectl get pods -n slim
+```
 
-k apply -f ../client_apps/with_spire/helper-config.yaml
-k apply -f ../client_apps/with_spire/receiver-pod.yaml
-k apply -f ../client_apps/with_spire/sender-pod.yaml
+### 5. View SLIM logs
+```bash
+task slim:show-logs
+```
 
+### 6. (Optional) Deploy sample client applications for testing
+```bash
+task templates:slim:client-apps.deploy
+```
 
-### Commands to check the deployment
+### 7. Clean up when done
+```bash
+task slim:delete
+task templates:cluster:down
+```
 
-
-
-
-
-
-
-
+**Note:** The statefulset strategy uses the `statefulset-values.yaml` file for Helm chart configuration. This values file contains specific settings for StatefulSet deployment, including SLIM-specific parameters and enhanced resource definitions. Review and customize this file according to your SLIM requirements.
