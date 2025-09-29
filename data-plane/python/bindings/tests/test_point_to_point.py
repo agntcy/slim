@@ -1,6 +1,30 @@
 # Copyright AGNTCY Contributors (https://github.com/agntcy)
 # SPDX-License-Identifier: Apache-2.0
 
+"""
+Point-to-point (unicast) sticky session integration test.
+
+Scenario:
+  - One logical sender creates a UNICAST session and sends 1000 messages
+    to a shared logical receiver identity.
+  - Ten receiver instances (same PyName) concurrently listen for an
+    inbound session. Only one should become the bound peer for the
+    UNICAST session (stickiness).
+  - All 1000 messages must arrive at exactly one receiver (verifying
+    session affinity) and none at the others.
+  - Test runs with MLS enabled / disabled (parametrized) to ensure
+    stickiness is orthogonal to MLS.
+
+Validated invariants:
+  * session_type == UNICAST for receiver-side context
+  * dst == sender.local_name and src == receiver.local_name
+  * Exactly one receiver_counts[i] == 1000 and total sum == 1000
+
+Notes:
+  The test uses simple sleeps for propagation; production-grade suites
+  might replace those with explicit readiness signaling.
+"""
+
 import asyncio
 import datetime
 
@@ -14,6 +38,22 @@ import slim_bindings
 @pytest.mark.parametrize("server", ["127.0.0.1:22345"], indirect=True)
 @pytest.mark.parametrize("mls_enabled", [True, False])
 async def test_sticky_session(server, mls_enabled):
+    """Ensure all messages in a UNICAST (sticky) session are delivered to a single receiver instance.
+
+    Args:
+        server: Pytest fixture starting the Slim server on a dedicated port.
+        mls_enabled (bool): Whether to enable MLS for the created unicast session.
+
+    Flow:
+        1. Spawn 10 receiver tasks (same logical PyName).
+        2. Sender establishes UNICAST session.
+        3. Sender publishes 1000 messages with consistent metadata + payload_type.
+        4. Each receiver tallies only messages addressed to the logical receiver name.
+        5. Assert affinity: exactly one receiver processed all messages.
+
+    Expectation:
+        Sticky routing pins all messages to the first receiver that accepted the session.
+    """
     sender_name = slim_bindings.PyName("org", "default", "sender")
     receiver_name = slim_bindings.PyName("org", "default", "receiver")
 
@@ -34,6 +74,12 @@ async def test_sticky_session(server, mls_enabled):
     receiver_counts = {i: 0 for i in range(10)}
 
     async def run_receiver(i: int):
+        """Receiver task:
+        - Creates its own Slim instance using the shared receiver PyName.
+        - Awaits the inbound UNICAST session (only one task should get bound).
+        - Counts messages matching expected routing + metadata.
+        - Continues until sender finishes publishing (loop ends by external cancel or test end).
+        """
         receiver = await create_slim(receiver_name, "secret")
         # Connect to the service and subscribe for the local name
         _ = await receiver.connect(
@@ -87,7 +133,9 @@ async def test_sticky_session(server, mls_enabled):
     payload_type = "hello message"
     metadata = {"sender": "hello"}
 
-    # send a message to the receiver
+    # Flood the established UNICAST session with messages.
+    # Stickiness requirement: every one of these 1000 publishes should be delivered
+    # to exactly the same receiver instance (affinity).
     for _ in range(1000):
         await sender_session.publish(
             b"Hello from sender",
@@ -98,9 +146,9 @@ async def test_sticky_session(server, mls_enabled):
     # Wait for all receivers to finish
     await asyncio.sleep(1)
 
-    # As we setup a sticky session, all the message should be received by only one
-    # receiver. Check that the count is 1000 for one of the receivers
-    # Expect all sent messages go to exactly one receiver due to stickiness
+    # Affinity assertions:
+    #  * Sum of all per-receiver counts == total sent (1000)
+    #  * Exactly one bucket contains 1000 (the sticky peer)
     assert sum(receiver_counts.values()) == 1000
     assert 1000 in receiver_counts.values()
 

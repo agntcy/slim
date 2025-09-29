@@ -1,5 +1,33 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
+//
+// Identity & cryptography related Python bindings.
+// These pyclasses/enums provide a Python-facing configuration surface
+// for supplying identity (token generation) and verification logic
+// to the Slim service. They mirror internal Rust types and are
+// converted transparently across the FFI boundary.
+//
+// Overview:
+// - PyAlgorithm: Supported JWT / signature algorithms.
+// - PyKeyData: Source of key material (file path vs inline content).
+// - PyKeyFormat: Format of the key material (PEM / JWK / JWKS).
+// - PyKey: Composite describing an algorithm, format and key payload.
+// - PyIdentityProvider: Strategies for producing tokens (static file,
+//   signing with private key, or shared secret).
+// - PyIdentityVerifier: Strategies for validating tokens (JWT or
+//   shared secret).
+//
+// Typical Flow (Python):
+//   1. Create a PyKey (if using a JWT signing or verification scenario)
+//   2. Build a PyIdentityProvider (e.g. Jwt {...})
+//   3. Build a PyIdentityVerifier (e.g. Jwt {...})
+//   4. Pass provider + verifier into Slim.new(...)
+//
+// Error Handling:
+//   Construction helpers will panic only in unrecoverable internal
+//   builder misconfigurations (should not happen for valid user input).
+//   Runtime token generation / verification errors surface as Python
+//   exceptions when methods are invoked across the boundary.
 
 use pyo3::prelude::*;
 use pyo3_stub_gen::derive::{gen_stub_pyclass, gen_stub_pyclass_enum, gen_stub_pymethods};
@@ -15,6 +43,10 @@ use slim_auth::shared_secret::SharedSecret;
 use slim_auth::traits::TokenProvider;
 use slim_auth::traits::Verifier;
 
+/// JWT / signature algorithms exposed to Python.
+///
+/// Maps 1:1 to `slim_auth::jwt::Algorithm`.
+/// Provides stable integer values for stub generation / introspection.
 #[gen_stub_pyclass_enum]
 #[pyclass(eq, eq_int)]
 #[derive(PartialEq, Clone)]
@@ -64,6 +96,11 @@ impl From<PyAlgorithm> for Algorithm {
     }
 }
 
+/// Key material origin.
+///
+/// Either a path on disk (`File`) or inline string content (`Content`)
+/// containing the encoded key. The interpretation depends on the
+/// accompanying `PyKeyFormat`.
 #[gen_stub_pyclass_enum]
 #[derive(Clone, PartialEq)]
 #[pyclass(eq)]
@@ -83,6 +120,9 @@ impl From<PyKeyData> for KeyData {
     }
 }
 
+/// Supported key encoding formats.
+///
+/// Used during parsing / loading of provided key material.
 #[gen_stub_pyclass_enum]
 #[derive(Clone, PartialEq)]
 #[pyclass(eq)]
@@ -102,6 +142,12 @@ impl From<PyKeyFormat> for KeyFormat {
     }
 }
 
+/// Composite key description used for signing or verification.
+///
+/// Fields:
+/// * algorithm: `PyAlgorithm` to apply
+/// * format: `PyKeyFormat` describing encoding
+/// * key: `PyKeyData` where the actual bytes originate
 #[gen_stub_pyclass]
 #[pyclass]
 #[derive(Clone, PartialEq)]
@@ -119,6 +165,12 @@ pub(crate) struct PyKey {
 #[gen_stub_pymethods]
 #[pymethods]
 impl PyKey {
+    /// Construct a new `PyKey`.
+    ///
+    /// Args:
+    ///   algorithm: Algorithm used for signing / verification.
+    ///   format: Representation format (PEM/JWK/JWKS).
+    ///   key: Source (file vs inline content).
     #[new]
     pub fn new(algorithm: PyAlgorithm, format: PyKeyFormat, key: PyKeyData) -> Self {
         PyKey {
@@ -139,6 +191,7 @@ impl From<PyKey> for Key {
     }
 }
 
+/// Internal enum for token provisioning strategies.
 #[derive(Clone)]
 pub(crate) enum IdentityProvider {
     StaticJwt(StaticTokenProvider),
@@ -146,6 +199,87 @@ pub(crate) enum IdentityProvider {
     SignerJwt(SignerJwt),
 }
 
+/// Python-facing identity provider definitions.
+///
+/// Variants:
+/// * StaticJwt { path }: Load a token from a file (cached, static).
+/// * Jwt { private_key, duration, issuer?, audience?, subject? }:
+///     Dynamically sign tokens using provided private key with optional
+///     standard JWT claims (iss, aud, sub) and a token validity duration.
+/// * SharedSecret { identity, shared_secret }:
+///     Symmetric token provider using a shared secret. Used mainly for testing.
+///
+/// Examples (Python):
+///
+/// Static (pre-issued) JWT token loaded from a file:
+/// ```python
+/// from slim_bindings import PyIdentityProvider
+///
+/// provider = PyIdentityProvider.StaticJwt(path="service.token")
+/// # 'provider.get_token()' (internally) will manage reloading of the file if it changes.
+/// ```
+///
+/// Dynamically signed JWT using a private key (claims + duration):
+/// ```python
+/// from slim_bindings import (
+///     PyIdentityProvider, PyKey, PyAlgorithm, PyKeyFormat, PyKeyData
+/// )
+/// import datetime
+///
+/// signing_key = PyKey(
+///     algorithm=PyAlgorithm.RS256,
+///     format=PyKeyFormat.Pem,
+///     key=PyKeyData.File("private_key.pem"),
+/// )
+///
+/// provider = PyIdentityProvider.Jwt(
+///     private_key=signing_key,
+///     duration=datetime.timedelta(minutes=30),
+///     issuer="my-issuer",
+///     audience=["downstream-svc"],
+///     subject="svc-a",
+/// )
+/// ```
+///
+/// Shared secret token provider for tests / local development:
+/// ```python
+/// from slim_bindings import PyIdentityProvider
+///
+/// provider = PyIdentityProvider.SharedSecret(
+///     identity="svc-a",
+///     shared_secret="not-for-production",
+/// )
+/// ```
+///
+/// End-to-end example pairing with a verifier:
+/// ```python
+/// # For a simple shared-secret flow:
+/// from slim_bindings import PyIdentityProvider, PyIdentityVerifier
+///
+/// provider = PyIdentityProvider.SharedSecret(identity="svc-a", shared_secret="dev-secret")
+/// verifier = PyIdentityVerifier.SharedSecret(identity="svc-a", shared_secret="dev-secret")
+///
+/// # Pass both into Slim.new(local_name, provider, verifier)
+/// ```
+///
+/// Jwt variant quick start (full):
+/// ```python
+/// import datetime
+/// from slim_bindings import (
+///     PyIdentityProvider, PyIdentityVerifier,
+///     PyKey, PyAlgorithm, PyKeyFormat, PyKeyData
+/// )
+///
+/// key = PyKey(PyAlgorithm.RS256, PyKeyFormat.Pem, PyKeyData.File("private_key.pem"))
+/// provider = PyIdentityProvider.Jwt(
+///     private_key=key,
+///     duration=datetime.timedelta(hours=1),
+///     issuer="my-issuer",
+///     audience=["svc-b"],
+///     subject="svc-a"
+/// )
+/// # Verifier would normally use the corresponding public key (PyIdentityVerifier.Jwt).
+/// ```
 #[gen_stub_pyclass_enum]
 #[derive(Clone, PartialEq)]
 #[pyclass(eq)]
@@ -218,12 +352,111 @@ impl TokenProvider for IdentityProvider {
     }
 }
 
+/// Internal enum for verification strategies.
 #[derive(Clone)]
 pub(crate) enum IdentityVerifier {
     Jwt(Box<VerifierJwt>),
     SharedSecret(SharedSecret),
 }
 
+/// Python-facing identity verifier definitions.
+///
+/// Variants:
+/// * Jwt { public_key?, autoresolve, issuer?, audience?, subject?, require_* }:
+///     Verifies tokens using a public key or via JWKS auto-resolution.
+///     `require_iss`, `require_aud`, `require_sub` toggle mandatory presence
+///     of the respective claims. `autoresolve=True` enables JWKS retrieval
+///     (public_key must be omitted in that case).
+/// * SharedSecret { identity, shared_secret }:
+///     Verifies tokens generated with the same shared secret.
+///
+/// JWKS Auto-Resolve:
+///   When `autoresolve=True`, the verifier will attempt to resolve keys
+///   dynamically (e.g. from a JWKS endpoint) if supported by the underlying
+///   implementation.
+///
+/// Safety:
+///   A direct panic occurs if neither `public_key` nor `autoresolve=True`
+///   is provided for the Jwt variant (invalid configuration).
+///
+/// Autoresolve key selection (concise algorithm):
+/// 1. If a static JWKS was injected, use it directly.
+/// 2. Else if a cached JWKS for the issuer exists and is within TTL, use it.
+/// 3. Else discover JWKS:
+///    - Try {issuer}/.well-known/openid-configuration for "jwks_uri"
+///    - Fallback to {issuer}/.well-known/jwks.json
+/// 4. Fetch & cache the JWKS (default TTL ~1h unless overridden).
+/// 5. If JWT header has 'kid', pick the matching key ID; otherwise choose the
+///    first key whose algorithm matches the token header's alg.
+/// 6. Convert JWK -> DecodingKey and verify signature; then enforce required
+///    claims (iss/aud/sub) per the require_* flags.
+///
+/// # Examples (Python)
+///
+/// Basic JWT verification with explicit public key:
+/// ```python
+/// pub_key = PyKey(
+///     PyAlgorithm.RS256,
+///     PyKeyFormat.Pem,
+///     PyKeyData.File("public_key.pem"),
+/// )
+/// verifier = PyIdentityVerifier.Jwt(
+///     public_key=pub_key,
+///     autoresolve=False,
+///     issuer="my-issuer",
+///     audience=["service-b"],
+///     subject="service-a",
+///     require_iss=True,
+///     require_aud=True,
+///     require_sub=True,
+/// )
+/// ```
+///
+/// Auto-resolving JWKS (no public key provided):
+/// ```python
+/// # The underlying implementation must know how / where to resolve JWKS.
+/// verifier = PyIdentityVerifier.Jwt(
+///     public_key=None,
+///     autoresolve=True,
+///     issuer="https://auth.example.com",
+///     audience=["svc-cluster"],
+///     subject=None,
+///     require_iss=True,
+///     require_aud=True,
+///     require_sub=False,
+/// )
+/// ```
+///
+/// Shared secret verifier (symmetric):
+/// ```python
+/// verifier = PyIdentityVerifier.SharedSecret(
+///     identity="service-a",
+///     shared_secret="super-secret-value",
+/// )
+/// ```
+///
+/// Pairing with a provider when constructing Slim:
+/// ```python
+/// provider = PyIdentityProvider.SharedSecret(
+///     identity="service-a",
+///     shared_secret="super-secret-value",
+/// )
+/// slim = await Slim.new(local_name, provider, verifier)
+/// ```
+///
+/// Enforcing strict claims (reject tokens missing aud/sub):
+/// ```python
+/// strict_verifier = PyIdentityVerifier.Jwt(
+///     public_key=pub_key,
+///     autoresolve=False,
+///     issuer="my-issuer",
+///     audience=["service-a"],
+///     subject="service-a",
+///     require_iss=True,
+///     require_aud=True,
+///     require_sub=True,
+/// )
+/// ```
 #[gen_stub_pyclass_enum]
 #[derive(Clone, PartialEq)]
 #[pyclass(eq)]

@@ -12,6 +12,18 @@ use slim_service::ServiceError;
 
 use crate::utils::PyName;
 
+/// Python-visible context accompanying every received message.
+///
+/// Provides routing and descriptive metadata needed for replying,
+/// auditing, and instrumentation.
+///
+/// Fields:
+/// * `source_name`: Fully-qualified sender identity.
+/// * `destination_name`: Fully-qualified destination identity (may be an empty placeholder
+///   when not explicitly set, e.g. broadcast/multicast scenarios).
+/// * `payload_type`: Logical/semantic type (defaults to "msg" if unspecified).
+/// * `metadata`: Arbitrary key/value pairs supplied by the sender (e.g. tracing IDs).
+/// * `input_connection`: Numeric identifier of the inbound connection carrying the message.
 #[gen_stub_pyclass]
 #[pyclass]
 #[derive(Clone)]
@@ -29,6 +41,9 @@ pub struct PyMessageContext {
 }
 
 impl PyMessageContext {
+    /// Internal constructor used by helper conversion functions. Not exposed
+    /// to Python directly; Python code receives already-constructed instances
+    /// when consuming messages.
     pub fn new(
         source: Name,
         destination: Option<Name>,
@@ -47,6 +62,15 @@ impl PyMessageContext {
         }
     }
 
+    /// Build a `PyMessageContext` plus the raw payload bytes from a low-level
+    /// `ProtoMessage`. Returns an error if the message type is unsupported
+    /// (i.e. not a publish payload).
+    ///
+    /// On success:
+    /// * The context captures source/destination identities
+    /// * `payload_type` defaults to "msg" if unset
+    /// * `metadata` is copied from the underlying protocol envelope
+    /// * The returned `Vec<u8>` is the raw application payload
     pub fn from_proto_message(msg: ProtoMessage) -> Result<(Self, Vec<u8>), ServiceError> {
         if let Some(ProtoPublishType(publish)) = msg.message_type.as_ref() {
             let source = msg.get_source();
@@ -82,6 +106,8 @@ impl PyMessageContext {
 #[gen_stub_pymethods]
 #[pymethods]
 impl PyMessageContext {
+    /// Prevent direct construction from Python. `PyMessageContext` instances
+    /// are created internally when messages are received from the service.
     #[new]
     pub fn new_py() -> PyResult<Self> {
         Err(pyo3::exceptions::PyException::new_err(
