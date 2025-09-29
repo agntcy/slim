@@ -52,8 +52,8 @@ configures a new local SLIM application instance. The main parameters are:
     authentication. Required if JWT and bundle are not provided.
 - `jwt` (str | None, default: `None`): JWT token for identity. Used with
     `spire_trust_bundle` and `audience` for JWT-based authentication.
-- `spire_trust_bundle` (str | None, default: `None`): JWT trust bundle (CA certificates or
-    JWKS). It is expected in JSON format such as
+- `spire_trust_bundle` (str | None, default: `None`): JWT trust bundle (list 
+    of JWKs, one for each trust domain). It is expected in JSON format such as
     ```json
     {
         "trust-domain-1.org": "base-64-encoded-jwks",
