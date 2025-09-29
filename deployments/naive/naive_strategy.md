@@ -1,54 +1,62 @@
+# Naive Deployment Strategy
+
 ## Description
 
-The `naive` is the simplest deployment strategy. 
+The naive deployment strategy provides the simplest approach to deploying SLIM in a Kubernetes cluster. This strategy is designed for development, testing, and proof-of-concept scenarios where ease of deployment takes precedence over production-grade features like high availability or complex configurations.
 
-### Target audience
- It's mainly intended to be used by developers or users learning SLIM. 
+**Target Audience:**
+- Developers getting started with SLIM
+- Testing and development environments
+- Quick demonstrations and prototypes
 
-### Details
-A single plain SLIM node is started that exposes its (northbound and southbound) APIs, no authentication, secure communication (MLS) and group management is enabled.
+**Use Cases:**
+- Local development and testing
+- Initial SLIM evaluation
+- Simple single-instance deployments
+- Educational and learning purposes
 
-## Example
+## Details
 
-The example deployment of the strategy can be achieved by executing the following tasks in a terminal:
+The naive deployment strategy deploys SLIM components with minimal configuration:
+- Single instance deployment (no high availability)
+- Basic configuration setup
+- Minimal external dependencies
 
+This approach prioritizes simplicity and quick startup time over production readiness. It's ideal for environments where you need to quickly spin up a SLIM instance to test functionality or demonstrate capabilities.
 
-``` bash
-# deploys SLIM
-task slim:deploy:naive
-```
+## Usage
 
-At this point, if the commands execute successfully there is a SLIM pod deployed to the cluster in the slim namespace.
+Follow these steps to deploy SLIM using the naive deployment strategy:
 
-``` bash
-kubectl -n slim get po
-
-NAME     READY   STATUS    RESTARTS   AGE
-slim-0   1/1     Running   0          23h
-```
-
-
-``` bash
-# deploys clients for testing the deployment (in the default namespace)
-task slim.deploy.client-apps
-```
-
-
-### Commands to check the deployment
-
+### 1. Set up the Kubernetes cluster
 ```bash
-# check the SLIM logs
-kubectl -n slim logs slim-0
+task templates:cluster:up
+task templates:cluster:use-context
+```
 
-# receiver client pod logs
-kubectl -n logs alice
+### 2. Deploy SLIM using the naive strategy
+```bash
+task slim:deploy
+```
 
-# sender client pod logs
-kubectl -n logs bob
+### 3. Verify the deployment
+```bash
+kubectl get pods -n slim
+```
 
+### 4. View SLIM logs
+```bash
+task slim:show-logs
+```
 
+### 5. (Optional) Deploy sample client applications for testing
+```bash
+task templates:slim:client-apps.deploy
+```
 
+### 6. Clean up when done
+```bash
+task templates:cluster:down
+```
 
-
-
-
+**Note:** The naive strategy uses the `naive-values.yaml` file for Helm chart configuration. You can customize this file to adjust deployment parameters as needed.
