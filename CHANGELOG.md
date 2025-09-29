@@ -104,9 +104,10 @@ session = await app.create_session(
 session = await app.create_session(
     slim_bindings.PySessionConfiguration.Unicast(
         unicast_name=remote_name,
-        max_retries=5,
-        timeout=datetime.timedelta(seconds=5),
-        mls_enabled=enable_mls,
+        # uncomment to enable reliable delivery and MLS
+        # max_retries=5,
+        # timeout=datetime.timedelta(seconds=5),
+        # mls_enabled=enable_mls,
     )
 )
 ```
@@ -130,9 +131,10 @@ session = await app.create_session(
 session = await app.create_session(
     slim_bindings.PySessionConfiguration.Multicast(
         channel_name=channel_name,
-        max_retries=5,
-        timeout=datetime.timedelta(seconds=5),
-        mls_enabled=enable_mls,
+        # uncomment to enable reliable delivery and MLS
+        # max_retries=5,
+        # timeout=datetime.timedelta(seconds=5),
+        # mls_enabled=enable_mls,
     )
 )
 ```
