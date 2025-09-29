@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Standard library imports
-use std::collections::HashMap;
 use std::future::Future;
 use std::sync::{Arc, Weak};
 
@@ -29,9 +28,6 @@ where
 
     /// Receive queue for the session
     pub rx: AppChannelReceiver,
-
-    /// Optional metadata map received upon session creation
-    pub metadata: Option<HashMap<String, String>>,
 }
 
 impl<P, V, T> SessionContext<P, V, T>
@@ -45,14 +41,6 @@ where
         SessionContext {
             session: Arc::downgrade(&session),
             rx,
-            metadata: None,
-        }
-    }
-
-    pub fn with_metadata(self, metadata: HashMap<String, String>) -> Self {
-        SessionContext {
-            metadata: Some(metadata),
-            ..self
         }
     }
 
@@ -67,14 +55,8 @@ where
     }
 
     /// Consume the context returning session, receiver and optional metadata.
-    pub fn into_parts(
-        self,
-    ) -> (
-        Weak<Session<P, V, T>>,
-        AppChannelReceiver,
-        Option<HashMap<String, String>>,
-    ) {
-        (self.session, self.rx, self.metadata)
+    pub fn into_parts(self) -> (Weak<Session<P, V, T>>, AppChannelReceiver) {
+        (self.session, self.rx)
     }
 
     /// Spawn a Tokio task to process the receive channel while returning the session handle.
@@ -93,19 +75,13 @@ where
     /// ```
     pub fn spawn_receiver<F, Fut>(self, f: F) -> Weak<Session<P, V, T>>
     where
-        F: FnOnce(
-                AppChannelReceiver,
-                Weak<Session<P, V, T>>,
-                Option<HashMap<String, String>>,
-            ) -> Fut
-            + Send
-            + 'static,
+        F: FnOnce(AppChannelReceiver, Weak<Session<P, V, T>>) -> Fut + Send + 'static,
         Fut: Future<Output = ()> + Send + 'static,
     {
-        let (session, rx, metadata) = self.into_parts();
+        let (session, rx) = self.into_parts();
         let session_clone = session.clone();
         tokio::spawn(async move {
-            f(rx, session_clone, metadata).await;
+            f(rx, session_clone).await;
         });
         session
     }
@@ -249,20 +225,6 @@ mod tests {
     }
 
     #[tokio::test]
-    // Ensures metadata provided via with_metadata is preserved and returned correctly
-    // through into_parts() together with the Weak session and receiver.
-    async fn context_with_metadata_and_into_parts() {
-        let (tx_app, rx_app) = mpsc::channel(4);
-        let session = build_session_with_app_tx(2, tx_app);
-        let mut meta = HashMap::new();
-        meta.insert("k".into(), "v".into());
-        let ctx = SessionContext::new(session.clone(), rx_app).with_metadata(meta.clone());
-        let (weak, _rx, extracted) = ctx.into_parts();
-        assert!(weak.upgrade().is_some());
-        assert_eq!(extracted.unwrap().get("k").map(|s| s.as_str()), Some("v"));
-    }
-
-    #[tokio::test]
     // Validates spawn_receiver executes the provided closure on a background task and that
     // the Weak<Session> captured inside can still be upgraded while the original Arc exists.
     async fn context_spawn_receiver_runs_closure() {
@@ -271,7 +233,7 @@ mod tests {
         let ctx = SessionContext::new(session.clone(), rx_app);
         let flag = Arc::new(tokio::sync::Mutex::new(false));
         let flag_clone = flag.clone();
-        let weak = ctx.spawn_receiver(move |_rx, s, _m| async move {
+        let weak = ctx.spawn_receiver(move |_rx, s| async move {
             assert!(s.upgrade().is_some());
             *flag_clone.lock().await = true;
         });
@@ -287,7 +249,7 @@ mod tests {
         let (tx_app, rx_app) = mpsc::channel(4);
         let session = build_session_with_app_tx(4, tx_app);
         let ctx = SessionContext::new(session.clone(), rx_app);
-        let weak = ctx.spawn_receiver(|_rx, s, _m| async move {
+        let weak = ctx.spawn_receiver(|_rx, s| async move {
             let _ = s;
         });
         // Drop strong Arc
@@ -307,7 +269,7 @@ mod tests {
         let session = build_session_with_app_tx(5, tx_app);
         let ctx = SessionContext::new(session.clone(), rx_app);
         let (done_tx, done_rx) = oneshot::channel();
-        let weak = ctx.spawn_receiver(move |mut rx, _s, _m| async move {
+        let weak = ctx.spawn_receiver(move |mut rx, _s| async move {
             // Simply drain the channel; exit when sender side is closed.
             while rx.recv().await.is_some() {}
             let _ = done_tx.send(());

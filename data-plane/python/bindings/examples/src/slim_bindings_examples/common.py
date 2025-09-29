@@ -1,15 +1,29 @@
 # Copyright AGNTCY Contributors (https://github.com/agntcy)
 # SPDX-License-Identifier: Apache-2.0
+"""
+Shared helper utilities for the slim_bindings CLI examples.
 
-import base64
-import json
+This module centralizes:
+  * Pretty-print / color formatting helpers
+  * Identity (auth) helper constructors (shared secret / JWT / JWKS)
+  * Command-line option decoration (Click integration)
+  * Convenience coroutine for constructing and connecting a local Slim app
 
-import click
+The heavy inline commenting is intentional: it is meant to teach newcomers
+exactly what each step does, line by line.
+"""
 
-import slim_bindings
+import base64  # Used to decode base64-encoded JWKS content (when provided).
+import json  # Used for parsing JWKS JSON and dynamic option values.
+
+import click  # CLI option parsing & command composition library.
+
+import slim_bindings  # The Python bindings package we are demonstrating.
 
 
 class color:
+    """ANSI escape sequences for terminal styling."""
+
     PURPLE = "\033[95m"
     CYAN = "\033[96m"
     DARKCYAN = "\033[36m"
@@ -22,20 +36,43 @@ class color:
     END = "\033[0m"
 
 
-# Format a message for display
-def format_message(message1, message2=""):
+def format_message(message1: str, message2: str = "") -> str:
+    """
+    Format a message for display with bold/cyan prefix column and optional suffix.
+
+    Args:
+        message1: Primary label (left column, capitalized & padded).
+        message2: Optional trailing description/value.
+
+    Returns:
+        A colorized string ready to print.
+    """
+    # Capitalize the first message, pad to 45 chars, inject color & style codes.
     return f"{color.BOLD}{color.CYAN}{message1.capitalize():<45}{color.END}{message2}"
 
 
-def format_message_print(message1, message2=""):
+def format_message_print(message1: str, message2: str = "") -> None:
+    """
+    Print a formatted message using format_message().
+
+    Provided as a thin convenience wrapper to keep example code concise.
+    """
     print(format_message(message1, message2))
 
 
-# Split an ID into its components
-# Expected format: organization/namespace/application
-# Raises ValueError if the format is incorrect
-# Returns a PyName with the 3 components
-def split_id(id):
+def split_id(id: str) -> slim_bindings.PyName:
+    """
+    Split an ID of form organization/namespace/application (or channel).
+
+    Args:
+        id: String in the canonical 'org/namespace/app-or-stream' format.
+
+    Raises:
+        ValueError: If the id cannot be split into exactly three segments.
+
+    Returns:
+        PyName: Constructed identity object.
+    """
     try:
         organization, namespace, app = id.split("/")
     except ValueError as e:
@@ -45,63 +82,85 @@ def split_id(id):
     return slim_bindings.PyName(organization, namespace, app)
 
 
-# Create a shared secret identity provider and verifier
-# This is used for shared secret authentication
-# Takes an identity and a shared secret as parameters
-# Returns a tuple of (provider, verifier)
-# This is used for shared secret authentication
-def shared_secret_identity(identity, secret):
+def shared_secret_identity(identity: str, secret: str):
     """
-    Create a provider and verifier using a shared secret.
-    """
-    provider = slim_bindings.PyIdentityProvider.SharedSecret(
-        identity=identity, shared_secret=secret
-    )
-    verifier = slim_bindings.PyIdentityVerifier.SharedSecret(
-        identity=identity, shared_secret=secret
-    )
+    Create a provider & verifier pair for shared-secret (symmetric) authentication.
 
+    Args:
+        identity: Logical identity string (often same as PyName string form).
+        secret: Shared secret used to sign / verify tokens (not for production).
+
+    Returns:
+        (provider, verifier): Tuple of PyIdentityProvider & PyIdentityVerifier.
+    """
+    provider = slim_bindings.PyIdentityProvider.SharedSecret(  # type: ignore
+        identity=identity, shared_secret=secret
+    )
+    verifier = slim_bindings.PyIdentityVerifier.SharedSecret(  # type: ignore
+        identity=identity, shared_secret=secret
+    )
     return provider, verifier
 
 
-# Create a JWT identity provider and verifier
-# This is used for JWT authentication
-# Takes private key path, public key path, and algorithm as parameters
-# Returns a Slim object with the provider and verifier
 def jwt_identity(
     jwt_path: str,
-    jwk_path: str,
+    spire_bundle_path: str,
     iss: str | None = None,
     sub: str | None = None,
     aud: list[str] | None = None,
 ):
     """
-    Parse the JWK and JWT from the provided strings.
+    Construct a static-JWT provider and JWT verifier from file inputs.
+
+    Process:
+      1. Read a JSON structure containing (base64-encoded) JWKS data (a SPIRE
+         bundle with a JWKs for each trust domain).
+      2. For simplicity, take the FIRST item in the bundle and base64‑decode its
+         value to obtain a JWKS JSON string (in real production code you would
+         iterate / select by key id).
+      3. Create a StaticJwt identity provider pointing at a local JWT file.
+      4. Wrap the JWKS JSON as PyKey with RS256 & JWKS format.
+      5. Build a Jwt verifier using the JWKS-derived public key.
+
+    Args:
+        jwt_path: Path to a file containing a (static) JWT token.
+        spire_bundle_path: Path (relative or absolute) to a SPIRE (or similar) bundle JSON
+                  whose first entry’s value is a base64-encoded JWKS. For simplicity we
+                  take only the first item (production code should select the correct trust domain).
+        iss: Optional issuer claim to enforce.
+        sub: Optional subject claim to enforce.
+        aud: Optional audience list.
+
+    Returns:
+        (provider, verifier): Configured PyIdentityProvider & PyIdentityVerifier.
     """
+    print(f"Using SPIRE bundle file: {spire_bundle_path}")
 
-    print(f"Using JWk file: {jwk_path}")
+    # Read raw file content (outer JSON containing base64).
+    with open(spire_bundle_path) as sb:
+        spire_bundle_string = sb.read()
 
-    with open(jwk_path) as jwk_file:
-        jwk_string = jwk_file.read()
+    # Parse as JSON (expects a dict-like structure).
+    spire_bundle = json.loads(spire_bundle_string)
 
-    # The JWK is normally encoded as base64, so we need to decode it
-    spire_jwks = json.loads(jwk_string)
-
-    for _, v in spire_jwks.items():
-        # Decode first item from base64
+    # Extract the first value & base64 decode it to yield JWKS JSON.
+    for _, v in spire_bundle.items():
         spire_jwks = base64.b64decode(v)
         break
 
+    # Static provider returns the same token each request (demo usage).
     provider = slim_bindings.PyIdentityProvider.StaticJwt(  # type: ignore
         path=jwt_path,
     )
 
+    # Wrap decoded JWKS JSON string into a PyKey for the verifier.
     pykey = slim_bindings.PyKey(
-        algorithm=slim_bindings.PyAlgorithm.RS256,
+        algorithm=slim_bindings.PyAlgorithm.RS256,  # Hard-coded for example clarity.
         format=slim_bindings.PyKeyFormat.Jwks,
         key=slim_bindings.PyKeyData.Content(content=spire_jwks.decode("utf-8")),  # type: ignore
     )
 
+    # Build verifier. We nest audience list in list to preserve shape.
     verifier = slim_bindings.PyIdentityVerifier.Jwt(  # type: ignore
         public_key=pykey,
         issuer=iss,
@@ -112,16 +171,22 @@ def jwt_identity(
     return provider, verifier
 
 
-# A custom click parameter type for parsing dictionaries from JSON strings
-# This is useful for passing complex configurations via command line arguments
 class DictParamType(click.ParamType):
+    """
+    Custom Click parameter type that interprets string input as JSON.
+
+    Accepts:
+      * Pre-parsed dict (returned unchanged)
+      * JSON string (parsed & returned)
+    Raises a Click usage error if parsing fails.
+    """
+
     name = "dict"
 
     def convert(self, value, param, ctx):
-        import json
-
+        # If already a dict (e.g. default value), return it unchanged.
         if isinstance(value, dict):
-            return value  # Already a dict (for default value)
+            return value
         try:
             return json.loads(value)
         except json.JSONDecodeError:
@@ -129,8 +194,17 @@ class DictParamType(click.ParamType):
 
 
 def common_options(function):
+    """
+    Decorator stacking all shared CLI options for example commands.
+
+    It:
+      * Registers the function as a Click command.
+      * Adds identity / connection / auth flags.
+      * Returns the wrapped function (Click handles invocation).
+    """
     function = click.command(context_settings={"auto_envvar_prefix": "SLIM"})(function)
 
+    # Local identity (required).
     function = click.option(
         "--local",
         type=str,
@@ -138,12 +212,14 @@ def common_options(function):
         help="Local ID in the format organization/namespace/application",
     )(function)
 
+    # Remote identity (optional) used for routing or topics.
     function = click.option(
         "--remote",
         type=str,
         help="Remote ID in the format organization/namespace/application-or-stream",
     )(function)
 
+    # Slim connection parameters (JSON or env var expansion).
     function = click.option(
         "--slim",
         default={
@@ -156,36 +232,43 @@ def common_options(function):
         help="slim connection parameters",
     )(function)
 
+    # Flag to enable OTEL tracing (no-op if collector unreachable).
     function = click.option(
         "--enable-opentelemetry",
         is_flag=True,
         help="Enable OpenTelemetry tracing",
     )(function)
 
+    # Shared secret for symmetric auth (dev/demo only).
     function = click.option(
         "--shared-secret",
         type=str,
         help="Shared secret for authentication. Don't use this in production.",
+        default="secret",
     )(function)
 
+    # JWT token path (static token case).
     function = click.option(
         "--jwt",
         type=str,
         help="JWT token for authentication.",
     )(function)
 
+    # JWKS / key bundle path.
     function = click.option(
-        "--bundle",
+        "--spire-trust-bundle",
         type=str,
-        help="Key bundle for authentication, in JWKS format.",
+        help="SPIRE trust bundle for authentication.",
     )(function)
 
+    # Audience to assert for JWT verification.
     function = click.option(
         "--audience",
         type=str,
         help="Audience for the JWT.",
     )(function)
 
+    # Invite multiple participants to a multicast session.
     function = click.option(
         "--invites",
         type=str,
@@ -193,6 +276,7 @@ def common_options(function):
         help="Invite other participants to the multicast session. Can be specified multiple times.",
     )(function)
 
+    # Enable MLS (group security) on session creation.
     function = click.option(
         "--enable-mls",
         is_flag=True,
@@ -207,12 +291,32 @@ async def create_local_app(
     slim: dict,
     remote: str | None = None,
     enable_opentelemetry: bool = False,
-    shared_secret: str | None = None,
+    shared_secret: str = "secret",
     jwt: str | None = None,
-    bundle: str | None = None,
+    spire_trust_bundle: str | None = None,
     audience: list[str] | None = None,
 ):
-    # init tracing
+    """
+    Build and connect a Slim application instance given user CLI parameters.
+
+    Resolution precedence for auth:
+      1. If jwt + bundle + audience provided -> JWT/JWKS flow.
+      2. Else -> shared secret (must be provided, raises if missing).
+
+    Args:
+        local: Local identity string (org/ns/app).
+        slim: Dict of connection parameters (endpoint, tls flags, etc.).
+        remote: Optional remote identity (unused here, reserved for future).
+        enable_opentelemetry: Enable OTEL tracing export.
+        shared_secret: Symmetric secret for shared-secret mode.
+        jwt: Path to static JWT token (for StaticJwt provider).
+        spire_trust_bundle: Path to a spire trust bundle file (containing the JWKs for each trust domain).
+        audience: Audience list for JWT verification.
+
+    Returns:
+        Slim: Connected high-level Slim instance.
+    """
+    # Initialize tracing (synchronous init; not awaited as binding returns immediately).
     slim_bindings.init_tracing(
         {
             "log_level": "info",
@@ -225,35 +329,37 @@ async def create_local_app(
         }
     )
 
-    if not jwt and not bundle:
-        if not shared_secret:
-            raise ValueError(
-                "Either JWT or bundle must be provided, or a shared secret."
-            )
-
-    # Derive identity provider and verifier from JWK and JWT
-    if jwt and bundle and audience:
+    # Derive identity provider & verifier using JWT/JWKS if all pieces supplied.
+    if jwt and spire_trust_bundle and audience:
+        print("Using JWT + JWKS authentication.")
         provider, verifier = jwt_identity(
             jwt,
-            bundle,
+            spire_trust_bundle,
             aud=audience,
         )
     else:
+        print(
+            "Warning: Falling back to shared-secret authentication. Don't use this in production!"
+        )
+        # Fall back to shared secret (dev-friendly default).
         provider, verifier = shared_secret_identity(
             identity=local,
             secret=shared_secret,
         )
 
-    # Split the local IDs into their respective components
+    # Convert local identifier to a strongly typed PyName.
     local_name = split_id(local)
 
+    # Instantiate Slim (async constructor prepares underlying PyService).
     local_app = await slim_bindings.Slim.new(local_name, provider, verifier)
 
-    format_message_print(f"{local_app.get_id()}", "Created app")
+    # Provide feedback to user (instance numeric id).
+    format_message_print(f"{local_app.id_str}", "Created app")
 
-    # Connect to slim server
+    # Establish outbound connection using provided parameters.
     _ = await local_app.connect(slim)
 
-    format_message_print(f"{local_app.get_id()}", f"Connected to {slim['endpoint']}")
+    # Confirm endpoint connectivity.
+    format_message_print(f"{local_app.id_str}", f"Connected to {slim['endpoint']}")
 
     return local_app

@@ -55,7 +55,7 @@ pub struct Args {
     )]
     is_reliable: bool,
 
-    /// Runs SLIM node in background.
+    /// Do not run SLIM node in background.
     #[arg(
         short,
         long,
@@ -214,7 +214,7 @@ async fn run_client_task(name: Name) -> Result<(), String> {
                             Notification::NewSession(session_ctx) => {
                                 println!("create new session on client {}", name_clone);
                                 let name_clone_session = name_clone.clone();
-                                session_ctx.spawn_receiver(move |mut rx, weak, _meta| async move {
+                                session_ctx.spawn_receiver(move |mut rx, weak| async move {
                                     loop{
                                         match rx.recv().await {
                                             None => {
@@ -348,13 +348,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         (None, None)
     };
 
+    // if is unicast set the remote endpoint name
+    let unicast_name = if is_unicast {
+        Some(Name::from_strings(["org", "ns", "client"]))
+    } else {
+        None
+    };
+
     let session_ctx = app
         .create_session(
             slim_service::session::SessionConfig::PointToPoint(PointToPointConfiguration::new(
                 timeout,
                 max_retries,
-                is_unicast,
                 msl_enabled,
+                unicast_name,
+                HashMap::new(),
             )),
             None,
         )
@@ -378,7 +386,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Clone the Arc to session for later use
     let session_arc = session_ctx.session_arc().unwrap();
 
-    session_ctx.spawn_receiver(move |mut rx, _weak, _meta| async move {
+    session_ctx.spawn_receiver(move |mut rx, _weak| async move {
         loop {
             match rx.recv().await {
                 None => {
@@ -443,7 +451,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut sum = 0;
     // if unicast we must see a single sendere
     let mut found_sender = false;
-    for (_c, n) in recv_msgs.read().iter() {
+    for (c, n) in recv_msgs.read().iter() {
         sum += *n;
         if is_unicast && found_sender && *n != 0 {
             println!(
@@ -454,12 +462,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         if *n != 0 {
             found_sender = true;
         }
+        println!("received {} messages from {}", n, c);
     }
 
     if sum != max_packets {
         println!(
             "expected {} packets, received {}. test failed",
-            sum, max_packets
+            max_packets, sum
         );
         std::process::exit(1);
     }

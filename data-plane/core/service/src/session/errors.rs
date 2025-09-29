@@ -29,6 +29,8 @@ pub enum SessionError {
     MissingSlimHeader(String),
     #[error("missing session header")]
     MissingSessionHeader,
+    #[error("missing channel name")]
+    MissingChannelName,
     #[error("session unknown: {0}")]
     SessionUnknown(String),
     #[error("session not found: {0}")]

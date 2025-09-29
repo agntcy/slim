@@ -113,6 +113,7 @@ where
             inner: SessionInner::PointToPoint(s),
         }
     }
+
     pub(crate) fn from_multicast(s: Multicast<P, V, T>) -> Self {
         Session {
             inner: SessionInner::Multicast(s),
@@ -125,30 +126,35 @@ where
             SessionInner::Multicast(_) => SessionType::Multicast,
         }
     }
+
     pub fn id(&self) -> Id {
         match &self.inner {
             SessionInner::PointToPoint(s) => s.id(),
             SessionInner::Multicast(s) => s.id(),
         }
     }
+
     pub fn source(&self) -> &Name {
         match &self.inner {
             SessionInner::PointToPoint(s) => s.source(),
             SessionInner::Multicast(s) => s.source(),
         }
     }
+
     pub fn dst(&self) -> Option<Name> {
         match &self.inner {
             SessionInner::PointToPoint(s) => s.dst(),
             SessionInner::Multicast(s) => s.dst(),
         }
     }
+
     pub fn session_config(&self) -> SessionConfig {
         match &self.inner {
             SessionInner::PointToPoint(s) => s.session_config(),
             SessionInner::Multicast(s) => s.session_config(),
         }
     }
+
     pub fn set_session_config(&self, cfg: &SessionConfig) -> Result<(), SessionError> {
         match &self.inner {
             SessionInner::PointToPoint(s) => s.set_session_config(cfg),
@@ -156,14 +162,13 @@ where
         }
     }
 
-    pub fn incoming_connection() {}
-
     pub(crate) fn tx_ref(&self) -> &T {
         match &self.inner {
             SessionInner::PointToPoint(s) => s.tx_ref(),
             SessionInner::Multicast(s) => s.tx_ref(),
         }
     }
+
     fn inner_ref(&self) -> &SessionInner<P, V, T> {
         &self.inner
     }
@@ -221,8 +226,9 @@ where
         let ct = payload_type.unwrap_or_else(|| "msg".to_string());
 
         let mut msg = Message::new_publish(self.source(), name, Some(flags), &ct, blob);
-
-        if let Some(map) = metadata {
+        if let Some(map) = metadata
+            && !map.is_empty()
+        {
             msg.set_metadata_map(map);
         }
 
@@ -695,6 +701,7 @@ mod tests {
     fn common_set_session_config_point_to_point() {
         let tx = MockTransmitter::default();
         let source = make_name(["agntcy", "src", "p2p"]);
+        let dst = make_name(["agntcy", "src", "p2p-remote"]);
         let cfg = SessionConfig::PointToPoint(PointToPointConfiguration::default());
         let common = Common::new(
             1,
@@ -707,14 +714,14 @@ mod tests {
             std::env::temp_dir(),
         );
         let new_conf = PointToPointConfiguration {
-            unicast: true,
+            unicast_name: Some(dst.clone()),
             ..Default::default()
         };
         common
             .set_session_config(&SessionConfig::PointToPoint(new_conf.clone()))
             .unwrap();
         match common.session_config() {
-            SessionConfig::PointToPoint(c) => assert!(c.unicast),
+            SessionConfig::PointToPoint(c) => assert!(c.unicast_name.is_some()),
             _ => panic!("expected p2p"),
         }
     }
@@ -735,15 +742,12 @@ mod tests {
             false,
             std::env::temp_dir(),
         );
-        let new_conf = MulticastConfiguration {
-            moderator: true,
-            ..Default::default()
-        };
+        let new_conf = MulticastConfiguration::default();
         common
             .set_session_config(&SessionConfig::Multicast(new_conf.clone()))
             .unwrap();
         match common.session_config() {
-            SessionConfig::Multicast(c) => assert!(c.moderator),
+            SessionConfig::Multicast(c) => assert!(c.initiator),
             _ => panic!("expected multicast"),
         }
     }
@@ -775,7 +779,7 @@ mod tests {
     // --- Extended tests using real Session instances ------------------------------------------
     fn build_p2p_session(
         id: Id,
-        unicast: bool,
+        unicast_name: Option<Name>,
     ) -> (
         Session<DummyTokenProvider, DummyVerifier, MockTransmitter>,
         Arc<RwLock<Vec<Result<Message, Status>>>>,
@@ -784,7 +788,7 @@ mod tests {
         let tx = MockTransmitter::default();
         let store = tx.slim_msgs.clone();
         let conf = PointToPointConfiguration {
-            unicast,
+            unicast_name,
             ..Default::default()
         };
         let source = make_name(["agntcy", "src", "p2p"]);
@@ -813,10 +817,10 @@ mod tests {
         let channel = make_name(["agntcy", "chan", "mc"]);
         let conf = MulticastConfiguration::new(
             channel.clone(),
-            true,
             Some(1),
             Some(std::time::Duration::from_millis(10)),
             false,
+            HashMap::new(),
         );
         let source = make_name(["agntcy", "src", "mc"]);
         let mc = Multicast::new(
@@ -834,8 +838,8 @@ mod tests {
     // Publish on a PointToPoint session and assert metadata propagation.
     #[tokio::test]
     async fn session_publish_and_metadata() {
-        let (session, store) = build_p2p_session(10, false);
         let dst = make_name(["agntcy", "dst", "p2p"]);
+        let (session, store) = build_p2p_session(10, Some(dst.clone()));
         session
             .publish(
                 &dst,
@@ -857,7 +861,7 @@ mod tests {
     // Use publish_to which should set the forward_to flag on the header.
     #[tokio::test]
     async fn session_publish_to_sets_forward_to_flag() {
-        let (session, store) = build_p2p_session(11, false);
+        let (session, store) = build_p2p_session(11, None);
         let dst = make_name(["agntcy", "dst", "p2p"]);
         session
             .publish_to(&dst, 42, b"data".to_vec(), None, None)
@@ -873,7 +877,7 @@ mod tests {
     // PointToPoint sessions do not support participant invite/remove; expect Processing errors.
     #[tokio::test]
     async fn invite_and_remove_participant_fail_on_p2p() {
-        let (session, _store) = build_p2p_session(12, false);
+        let (session, _store) = build_p2p_session(12, None);
         let dst = make_name(["agntcy", "dst", "p2p"]);
         let err = session.invite_participant(&dst).await.unwrap_err();
         assert!(matches!(err, SessionError::Processing(_)));

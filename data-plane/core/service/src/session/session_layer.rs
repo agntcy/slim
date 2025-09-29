@@ -389,10 +389,9 @@ where
                             conf.max_retries = Some(5);
                         }
 
-                        conf.unicast = true;
+                        conf.unicast_name = Some(message.get_source());
                         conf.mls_enabled = message.contains_metadata(METADATA_MLS_ENABLED);
-
-                        let conf = conf.with_remote(message.get_source());
+                        conf.metadata = message.get_metadata_map();
 
                         self.create_session(SessionConfig::PointToPoint(conf), Some(id))
                             .await?
@@ -400,6 +399,13 @@ where
                     ProtoSessionType::SessionMulticast => {
                         let mut conf = self.default_multicast_conf.read().clone();
                         conf.mls_enabled = message.contains_metadata(METADATA_MLS_ENABLED);
+                        conf.metadata = message.get_metadata_map();
+                        conf.channel_name = message
+                            .get_session_header()
+                            .get_destination()
+                            .ok_or(SessionError::MissingChannelName)?;
+
+                        conf.initiator = false;
                         self.create_session(SessionConfig::Multicast(conf), Some(id))
                             .await?
                     }
@@ -439,9 +445,6 @@ where
         };
 
         debug_assert!(new_session.session().upgrade().unwrap().id() == id);
-
-        // update session context with metadata from the message
-        let new_session = new_session.with_metadata(message.metadata.clone());
 
         // process the message
         new_session
