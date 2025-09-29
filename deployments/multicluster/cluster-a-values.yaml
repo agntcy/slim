@@ -38,7 +38,7 @@ slim:
             - endpoint: "0.0.0.0:{{ .Values.slim.service.data.port }}"
               metadata:
                 local_endpoint: ${env:MY_POD_IP}
-                external_endpoint: "messaging.slim.cluster.a:{{ .Values.slim.service.data.port }}"             
+                external_endpoint: "slim.cluster-a.org:{{ .Values.slim.service.data.port }}"             
               tls:
                 insecure_skip_verify: false
                 cert_file: "/svids/tls.crt"
@@ -48,7 +48,7 @@ slim:
           clients: []
         controller:
           clients:
-            - endpoint: "https://controller.slim:50052"
+            - endpoint: "https://slim-control:50052"
               tls:
                 insecure_skip_verify: false
                 cert_file: "/svids/tls.crt"
@@ -90,10 +90,10 @@ spire:
     pullPolicy: IfNotPresent
     # Overrides the image tag whose default is the chart appVersion.
     tag: "0.10.0"
-  trustDomain: cluster-a
+  trustDomain: cluster-a.org
   federation:
   - trustDomain: {{ .CLUSTER_B_TRUST_DOMAIN }}
-    bundleEndpointURL: https://spire.cluster-b:8443
+    bundleEndpointURL: https://spire.cluster-b.org:8443
     bundleEndpointProfile:
       type: https_spiffe
       endpointSPIFFEID: spiffe://{{ .CLUSTER_B_TRUST_DOMAIN }}/spire/server

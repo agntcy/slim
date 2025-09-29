@@ -40,7 +40,7 @@ config:
 
 spire:
   enabled: true
-  trustDomain: cluster.a
+  trustDomain: cluster-a.org
   federation:    
   - trustDomain: {{ .CLUSTER_B_TRUST_DOMAIN }}
 
