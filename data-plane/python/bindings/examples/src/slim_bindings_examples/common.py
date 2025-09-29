@@ -114,7 +114,7 @@ def jwt_identity(
 
     Process:
       1. Read a JSON structure containing (base64-encoded) JWKS data (a SPIRE
-         bundle or similar trust bundle).
+         bundle with a JWKs for each trust domain).
       2. For simplicity, take the FIRST item in the bundle and base64‑decode its
          value to obtain a JWKS JSON string (in real production code you would
          iterate / select by key id).
@@ -126,7 +126,7 @@ def jwt_identity(
         jwt_path: Path to a file containing a (static) JWT token.
         spire_bundle_path: Path (relative or absolute) to a SPIRE (or similar) bundle JSON
                   whose first entry’s value is a base64-encoded JWKS. For simplicity we
-                  take only the first item (production code should select by key id / criteria).
+                  take only the first item (production code should select the correct trust domain).
         iss: Optional issuer claim to enforce.
         sub: Optional subject claim to enforce.
         aud: Optional audience list.
@@ -310,7 +310,7 @@ async def create_local_app(
         enable_opentelemetry: Enable OTEL tracing export.
         shared_secret: Symmetric secret for shared-secret mode.
         jwt: Path to static JWT token (for StaticJwt provider).
-        bundle: Path to JWKS-like bundle (for constructing public key).
+        spire_trust_bundle: Path to a spire trust bundle file (containing the JWKs for each trust domain).
         audience: Audience list for JWT verification.
 
     Returns:

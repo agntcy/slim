@@ -113,7 +113,8 @@ async def run_client(
         await asyncio.sleep(1)
 
         # Invite each provided participant. Route is set before inviting to ensure
-        # outbound control messages can reach them.
+        # outbound control messages can reach them. For more info see
+        # https://github.com/agntcy/slim/blob/main/data-plane/python/bindings/SESSION.md#invite-a-new-participant
         for invite in invites:
             invite_name = split_id(invite)
             await local_app.set_route(invite_name)

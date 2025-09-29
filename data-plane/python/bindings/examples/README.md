@@ -93,6 +93,11 @@ Then start `bob` (the sender) in a third terminal:
 
 ```bash
 task python:example:p2p:anycast:bob
+```
+
+The output will look like:
+
+```bash
 Agntcy/ns/bob/14478648478491643199           Created app
 Agntcy/ns/bob/14478648478491643199           Connected to http://localhost:46357
 Agntcy/ns/bob/14478648478491643199           Sent message hey there - 1/10:
@@ -129,6 +134,7 @@ Agntcy/ns/bob/1309096762860029159            received (from session 2689354079):
 ```
 
 Result: only one `alice` instance receives each message — this is deterministic selection vs anycast's pseudo-random distribution.
+For more info details the session protocols, see https://github.com/agntcy/slim/blob/main/data-plane/python/bindings/SESSION.md#slim-sessions
 
 ### Step 4: Multicast Example
 
@@ -170,16 +176,6 @@ Agntcy/ns/client-2                           -> Received message from 169ca82eb1
 
 In the baseline example only the moderator sends, but the session is bidirectional
 and all participants can send messages on the shared channel (see [Modifying the Examples](#modifying-the-examples)).
-
----
-
-## Interpreting the Output
-
-- `Agntcy/ns/<name>/<numeric_id>`: Identifies the logical application instance.
-- `Created app / Connected`: Lifecycle events for the client bootstrap.
-- `Waiting for session...`: Peer is idle until a session (unicast/multicast) is formed.
-- Session or group IDs (hex fragments) represent cryptographic / routing context.
-- MLS-enabled logs may include group or epoch transitions (depending on verbosity).
 
 ---
 
