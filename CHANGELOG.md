@@ -82,6 +82,7 @@ session = await app.create_session(
 # NEW: Explicit Anycast (load-balanced)
 session = await app.create_session(
     slim_bindings.PySessionConfiguration.Anycast(
+        # uncomment to enable reliable delivery
         # max_retries=5,
         # timeout=datetime.timedelta(seconds=5),
     )
