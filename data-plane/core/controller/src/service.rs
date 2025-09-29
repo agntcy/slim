@@ -31,6 +31,7 @@ use slim_auth::shared_secret::SharedSecret;
 use slim_auth::traits::TokenProvider;
 use slim_config::grpc::client::ClientConfig;
 use slim_datapath::api::ProtoMessage as DataPlaneMessage;
+use slim_datapath::api::{ProtoSessionMessageType, ProtoSessionType, SessionHeader, SlimHeader};
 use slim_datapath::message_processing::MessageProcessor;
 use slim_datapath::messages::Name;
 use slim_datapath::messages::utils::{SLIM_IDENTITY, SlimHeaderFlags};
@@ -65,9 +66,6 @@ struct ControllerServiceInternal {
 
     /// channel to send messages into the datapath
     tx_slim: mpsc::Sender<Result<DataPlaneMessage, Status>>,
-
-    /// channel to receive messages from the datapath
-    _rx_slim: mpsc::Receiver<Result<PubsubMessage, Status>>,
 
     /// channels to send control messages
     tx_channels: parking_lot::RwLock<TxChannels>,
@@ -187,13 +185,13 @@ impl ControlPlane {
                     message_processor,
                     connections: Arc::new(parking_lot::RwLock::new(HashMap::new())),
                     tx_slim,
-                    _rx_slim: rx_slim,
                     tx_channels: parking_lot::RwLock::new(HashMap::new()),
                     cancellation_tokens: parking_lot::RwLock::new(HashMap::new()),
                     drain_rx,
                     connection_details,
                 }),
             },
+            rx_slim_option: Some(rx_slim),
         }
     }
 
@@ -231,6 +229,9 @@ impl ControlPlane {
         for client in clients {
             self.run_client(client).await?;
         }
+
+        let rx = self.rx_slim_option.take();
+        self.listen_from_data_plane(rx.unwrap()).await;
 
         Ok(())
     }
@@ -750,13 +751,15 @@ impl ControllerService {
                                 Some(SlimHeaderFlags::default()),
                             ));
                             let session_header = Some(SessionHeader::new(
-                                ProtoSessionType::SessionFireForget.into(),
-                                ProtoSessionMessageType::FnfMsg.into(),
+                                ProtoSessionType::SessionPointToPoint.into(),
+                                ProtoSessionMessageType::P2PMsg.into(),
                                 0,
                                 Uuid::new_v4().as_u128() as u32,
+                                &None,
+                                &None,
                             ));
 
-                            let mut publish_msg = PubsubMessage::new_publish_with_headers(
+                            let mut publish_msg = DataPlaneMessage::new_publish_with_headers(
                                 slim_header,
                                 session_header,
                                 "application/x-moderator-protobuf",
@@ -845,13 +848,15 @@ impl ControllerService {
                             Some(SlimHeaderFlags::default()),
                         ));
                         let session_header = Some(SessionHeader::new(
-                            ProtoSessionType::SessionFireForget.into(),
-                            ProtoSessionMessageType::FnfMsg.into(),
+                            ProtoSessionType::SessionPointToPoint.into(),
+                            ProtoSessionMessageType::P2PMsg.into(),
                             0,
                             Uuid::new_v4().as_u128() as u32,
+                            &None,
+                            &None,
                         ));
 
-                        let mut publish_msg = PubsubMessage::new_publish_with_headers(
+                        let mut publish_msg = DataPlaneMessage::new_publish_with_headers(
                             slim_header,
                             session_header,
                             "application/x-moderator-protobuf",
@@ -944,13 +949,15 @@ impl ControllerService {
                             Some(SlimHeaderFlags::default()),
                         ));
                         let session_header = Some(SessionHeader::new(
-                            ProtoSessionType::SessionFireForget.into(),
-                            ProtoSessionMessageType::FnfMsg.into(),
+                            ProtoSessionType::SessionPointToPoint.into(),
+                            ProtoSessionMessageType::P2PMsg.into(),
                             0,
                             Uuid::new_v4().as_u128() as u32,
+                            &None,
+                            &None,
                         ));
 
-                        let mut publish_msg = PubsubMessage::new_publish_with_headers(
+                        let mut publish_msg = DataPlaneMessage::new_publish_with_headers(
                             slim_header,
                             session_header,
                             "application/x-moderator-protobuf",
@@ -1041,13 +1048,15 @@ impl ControllerService {
                             Some(SlimHeaderFlags::default()),
                         ));
                         let session_header = Some(SessionHeader::new(
-                            ProtoSessionType::SessionFireForget.into(),
-                            ProtoSessionMessageType::FnfMsg.into(),
+                            ProtoSessionType::SessionPointToPoint.into(),
+                            ProtoSessionMessageType::P2PMsg.into(),
                             0,
                             Uuid::new_v4().as_u128() as u32,
+                            &None,
+                            &None,
                         ));
 
-                        let mut publish_msg = PubsubMessage::new_publish_with_headers(
+                        let mut publish_msg = DataPlaneMessage::new_publish_with_headers(
                             slim_header,
                             session_header,
                             "application/x-moderator-protobuf",
