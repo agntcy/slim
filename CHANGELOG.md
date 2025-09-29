@@ -67,6 +67,7 @@ The session configuration system has been completely redesigned around communica
 ### Old Session Types → New Session Types
 
 #### Fire-and-Forget → Anycast/Unicast
+
 ```python
 # OLD: Fire-and-forget with sticky flag
 session = await app.create_session(
