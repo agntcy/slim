@@ -12,8 +12,8 @@ includes:
       dir: ../
 
 vars:
-  CLUSTER_A_TRUST_DOMAIN: '{{ .CLUSTER_A_TRUST_DOMAIN | default "cluster.a" }}'
-  CLUSTER_B_TRUST_DOMAIN: '{{ .CLUSTER_B_TRUST_DOMAIN | default "cluster.b" }}'
+  CLUSTER_A_TRUST_DOMAIN: '{{ .CLUSTER_A_TRUST_DOMAIN | default "cluster-a.org" }}'
+  CLUSTER_B_TRUST_DOMAIN: '{{ .CLUSTER_B_TRUST_DOMAIN | default "cluster-b.org" }}'
 
 tasks:
   multi-cluster:up:
@@ -57,20 +57,17 @@ tasks:
         --wait-for-jobs \
         --timeout "15m"
       - |
-        helm upgrade --install  \
-        spire \
-        spire \
+        helm upgrade --install spire spire \
         --repo https://spiffe.github.io/helm-charts-hardened/ \
         --set global.spire.trustDomain="{{ .TRUST_DOMAIN }}" \
         --set spire-server.service.type="{{ .SERVICE_TYPE }}" \
         --set spire-server.federation.enabled="true" \
-        --set spire-server.controllerManager.watchClassless="true" \        
+        --set spire-server.controllerManager.watchClassless="true" \
         --namespace {{ .SPIRE_NAMESPACE }} \
         --create-namespace \
         --wait \
         --wait-for-jobs \
-        --timeout "15m"    
-
+        --timeout "15m"
       - |
         kubectl get configmap -n spire spire-bundle -o json | jq '.data."bundle.spiffe"' -r > {{ .BUNDLE_PATH }}      
 
@@ -84,7 +81,7 @@ tasks:
           BUNDLE_PATH: /tmp/{{ .CLUSTER_A_TRUST_DOMAIN }}.spiffe
           SPIRE_NAMESPACE: '{{ .SPIRE_NAMESPACE }}'
 
-      - task slim:wait-for-lb LB_HOSTNAME=spire.cluster.a SVC_NAME=spire-server NAMESPACE='{{ .SPIRE_NAMESPACE }}'
+      - task slim:wait-for-lb LB_HOSTNAME=spire.cluster-a.org SVC_NAME=spire-server NAMESPACE='{{ .SPIRE_NAMESPACE }}'
 
       - kubectl config use-context kind-slim-cluster-b
       - task: spire:deploy
@@ -92,7 +89,7 @@ tasks:
           TRUST_DOMAIN: '{{ .CLUSTER_B_TRUST_DOMAIN }}'
           BUNDLE_PATH: /tmp/{{ .CLUSTER_B_TRUST_DOMAIN }}.spiffe
 
-      - task slim:wait-for-lb LB_HOSTNAME=spire.cluster.b SVC_NAME=spire-server NAMESPACE='{{ .SPIRE_NAMESPACE }}'
+      - task slim:wait-for-lb LB_HOSTNAME=spire.cluster-b.org SVC_NAME=spire-server NAMESPACE='{{ .SPIRE_NAMESPACE }}'
 
   slim:contoller:deploy:
     desc: Deploy Slim Controller
@@ -105,7 +102,7 @@ tasks:
           --set image.tag="{{ .SLIM_CONTROLLER_IMAGE_TAG }}" \
           --values controller-values.yaml   
 
-      - task slim:wait-for-lb LB_HOSTNAME=control.slim.cluster SVC_NAME=slim-control   
+      - task slim:wait-for-lb LB_HOSTNAME=slim-control.cluster-a.org SVC_NAME=slim-control   
 
   slim:deploy:
     desc: Deploy Slim using the StatefulSet deployment strategy
@@ -126,7 +123,7 @@ tasks:
           --set slim.image.tag="{{ .SLIM_IMAGE_TAG }}" \
           --values cluster-a-values.yaml
 
-      - task slim:wait-for-lb LB_HOSTNAME=messaging.slim.cluster.a          
+      - task slim:wait-for-lb LB_HOSTNAME=slim.cluster-a.org          
       # Deploy SLIM to cluster-b
       - kubectl config use-context kind-slim-cluster-b
       - |
@@ -136,7 +133,7 @@ tasks:
           --set slim.image.tag="{{ .SLIM_IMAGE_TAG }}" \
           --values cluster-b-values.yaml
 
-      - task slim:wait-for-lb LB_HOSTNAME=messaging.slim.cluster.b        
+      - task slim:wait-for-lb LB_HOSTNAME=slim.cluster-b.org       
 
   slim:wait-for-lb:
     desc: Wait for LoadBalancer IP to be available (with timeout)
