@@ -1,0 +1,11 @@
+{{- if eq .Values.spire.enabled true }}
+{{- range .Values.spire.federation }}
+apiVersion: spire.spiffe.io/v1alpha1
+kind: ClusterFederatedTrustDomain
+metadata:
+  name: {{ include "chart.fullname" $ }}-{{ .trustDomain | replace "." "-" }}
+spec:
+  className: spire-server-spire
+  {{ . | toYaml | nindent 2 }}
+{{- end }}
+{{- end }}
