@@ -40,7 +40,8 @@ instance_id = app.get_id()
 
 # NEW: Property access
 app = await slim_bindings.Slim.new(name, provider, verifier)
-instance_id = app.id_str
+instance_id_str = app.id_str
+instance_id = app.id
 ```
 
 ### Context Manager Usage
