@@ -56,7 +56,7 @@ session = await app.create_session(config)
 await session.publish(message)
 ```
 
-**Migration**: Remove `async with app:` context managers and replace `app.get_id()` with `app.id_str`.
+**Migration**: Remove `async with app:` context managers, replace `app.get_id()` with `app.id_str` or `app.id`.
 
 ---
 
