@@ -112,6 +112,7 @@ session = await app.create_session(
 ```
 
 #### Streaming → Multicast
+
 ```python
 # OLD: Bidirectional streaming with topic
 session = await app.create_session(
