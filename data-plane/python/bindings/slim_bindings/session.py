@@ -90,10 +90,6 @@ class PySession:
         """Return the destination name if UNICAST/MULTICAST, otherwise None."""
         return self._ctx.dst
 
-    @property
-    def destination_name(self) -> PyName | None:
-        return self._ctx.destination_name
-
     def set_session_config(self, config: PySessionConfiguration) -> None:
         """Replace the current session configuration.
 
@@ -128,15 +124,13 @@ class PySession:
         if self._ctx.session_type == PySessionType.ANYCAST:
             raise RuntimeError("unexpected session type: expected UNICAST or MULTICAST")
 
-        dst = self.destination_name
-
         await _publish(
             self._svc,
             self._ctx,
             1,
             msg,
             message_ctx=None,
-            name=dst,
+            name=None,
             payload_type=payload_type,
             metadata=metadata,
         )

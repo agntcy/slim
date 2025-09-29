@@ -108,7 +108,6 @@ class PySessionContext:
     src: PyName
     dst: typing.Optional[PyName]
     session_config: PySessionConfiguration
-    destination_name: typing.Optional[PyName]
     def set_session_config(self, config:PySessionConfiguration) -> None:
         r"""
         Replace the underlying session configuration with a new one.
@@ -487,7 +486,7 @@ def remove_route(svc:PyService, conn:builtins.int, name:PyName) -> typing.Any:
 def run_server(svc:PyService, config:dict) -> typing.Any:
     ...
 
-def set_default_session_config(svc:PyService, config:PySessionConfiguration) -> None:
+def set_default_session_config(svc:PyService, config:PySessionConfiguration):
     ...
 
 def set_route(svc:PyService, conn:builtins.int, name:PyName) -> typing.Any:
