@@ -24,8 +24,8 @@ The API has undergone a fundamental architectural shift from **app-centric messa
 ### Update your requirements
 ```diff
 # pyproject.toml or requirements.txt
-- slim-bindings>=0.3.6
-+ slim-bindings>=0.5.0
+- slim-bindings>=0.5.0
++ slim-bindings>=0.6.0
 ```
 
 ---
