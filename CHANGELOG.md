@@ -186,7 +186,14 @@ session_id = session_info.id
 
 # NEW: Explicit session listening
 session = await app.listen_for_session()
+
+# Session also contains additional properties
 session_id = session.id
+session_metadata = session.metadata
+session_type = session.session_type
+session_config = session.session_config
+session_src = session.src
+session_dst = session.dst # None if anycast
 ```
 
 ### Receiving Messages from Sessions
@@ -200,13 +207,16 @@ msg_ctx, message = await session.get_message()
 
 ### Message Context Changes
 ```python
-# OLD: Session info contained source/destination details
+# OLD: Session info contained properties regarding the last message received
 source = session_info.destination_name:
 dst = session_info.source_name
 
-# NEW: Message context contains source/destination details
+# NEW: Message context contains additional received message properties
 source_name = msg_ctx.source_name
-dst_name = session.destination_name
+dst_name = msg_ctx.destination_name
+payload_type = msg_ctx.payload_type
+message_metadata = msg_ctx.metadata
+input_connection = msg_ctx.input_connection
 ```
 
 ---
