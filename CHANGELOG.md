@@ -267,7 +267,7 @@ await app.invite(session_info, participant_name)
 await session.invite(participant_name)
 
 # Remove a participant
-wait session.remove(participant_name)
+await session.remove(participant_name)
 ```
 
 ---
