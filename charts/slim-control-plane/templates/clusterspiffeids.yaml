@@ -23,4 +23,10 @@ spec:
     - k8s:sa:{{ include "control-plane.serviceAccountName" . }}
   spiffeIDTemplate: {{ "spiffe://{{ .TrustDomain }}/ns/{{ .PodMeta.Namespace }}/sa/slim-control" }}
   autoPopulateDNSNames: true
+  {{- if .Values.spire.federation }}
+  federatesWith:
+  {{ range .Values.spire.federation }}
+    - {{ .trustDomain }}
+  {{ end }}
+  {{- end }}   
 {{ end }}
