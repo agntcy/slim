@@ -76,6 +76,10 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.name
+            - name: MY_POD_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP                  
           ports:
             - name: data-plane
               containerPort: {{ .Values.slim.service.data.port }}

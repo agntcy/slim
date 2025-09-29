@@ -31,19 +31,20 @@ slim:
 
     services:
       slim/0:
-        node_id: ${env:SLIM_SVC_ID}
+        nodeId: ${env:SLIM_SVC_ID}
         # group id of the SLIM node is required in case of multi-clusters
-        group_name: "default"
+        # group_name: "default"
         dataplane:
           servers:
             - endpoint: "0.0.0.0:{{ .Values.slim.service.data.port }}"
+              tls:
+                insecure: true
               # metadata:
               #   # local_endpoint is required to be set to the Pod IP using the Downward API in case of multi-cluster setup
               #   local_endpoint: ${env:MY_POD_IP}
               #   # external_endpoint is required to be set when SLIM nodes are behind a NAT or Load Balancer
               #   external_endpoint: "slim.example.com:{{ .Values.slim.service.data.port }}"
-              tls:
-                insecure: true
+
 
           clients: []
         controller:
@@ -178,6 +179,13 @@ spire:
     pullPolicy: IfNotPresent
     # Overrides the image tag whose default is the chart appVersion.
     tag: "0.10.0"
+  trustDomain: example.org
+  federation: []
+    # # Config: https://github.com/spiffe/spire-controller-manager/blob/main/docs/clusterfederatedtrustdomain-crd.md
+    # - trustDomain: other-domain.org
+    #   bundleEndpointURL: https://0.0.0.0:8081
+    #   bundleEndpointProfile:
+    #     type: https_web    
 
 
 # This is for the secretes for pulling an image from a private repository more information can be found here: https://kubernetes.io/docs/tasks/configure-pod-container/pull-image-private-registry/
