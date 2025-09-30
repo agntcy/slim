@@ -74,8 +74,7 @@ async fn main() {
     // Parse CLI
     let args = args::Args::parse();
 
-    // Take owned copies of CLI inputs so we don't hold references to Args across awaits/spawn
-    let config_file = args.config().to_string();
+    let config_file = args.config();
     let local_name = args.local_name();
 
     // Load configuration
