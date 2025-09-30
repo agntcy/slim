@@ -49,7 +49,6 @@ async fn create_channel(
 ) -> Result<ChannelInfo, Box<dyn std::error::Error + Send + Sync>> {
     info!("Creating channel '{}'", channel_id);
 
-    // Channel name (org/ns/type style is arbitrary here – matching test examples)
     let channel_name = Name::from_strings(["channel", "channel", channel_id]);
 
     let session_ctx = app
