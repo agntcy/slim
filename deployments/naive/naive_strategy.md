@@ -24,6 +24,8 @@ The naive deployment strategy deploys SLIM components with minimal configuration
 
 This approach prioritizes simplicity and quick startup time over production readiness. It's ideal for environments where you need to quickly spin up a SLIM instance to test functionality or demonstrate capabilities.
 
+![SLIM Naive Deployment Diagram](img/slim_naive.svg)
+
 ## Usage
 
 Follow these steps to deploy SLIM using the naive deployment strategy:
