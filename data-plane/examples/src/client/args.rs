@@ -13,30 +13,14 @@ pub struct Args {
     #[clap(long, env, required = true)]
     #[arg(short, long, value_name = "LOCAL_NAME")]
     local_name: String,
-
-    #[clap(long, env, required = true)]
-    #[arg(short, long, value_name = "REMOTE_NAME")]
-    remote_name: String,
-
-    #[clap(long, env)]
-    #[arg(short, long, value_name = "MESSAGE")]
-    message: Option<String>,
 }
 
 impl Args {
-    pub fn config(&self) -> &String {
+    pub fn config(&self) -> &str {
         &self.config
     }
 
     pub fn local_name(&self) -> &str {
         &self.local_name
-    }
-
-    pub fn remote_name(&self) -> &str {
-        &self.remote_name
-    }
-
-    pub fn message(&self) -> Option<&str> {
-        self.message.as_deref()
     }
 }

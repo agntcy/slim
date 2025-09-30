@@ -2,40 +2,42 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use clap::Parser;
-use std::collections::HashMap;
+use prost::Message;
+use slim_service::app::App;
+use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 use std::time::Duration;
 use tokio::time;
-use tracing::{error, info};
-
-use prost::Message;
-use slim_controller::api::proto::moderator::v1::{ModeratorMessage, moderator_message::Payload};
+use tracing::{error, info, warn};
 
 use slim::config;
 use slim_auth::shared_secret::SharedSecret;
 use slim_datapath::messages::Name;
-use slim_mls::mls::Mls;
 use slim_service::{
-    FireAndForgetConfiguration, StreamingConfiguration,
-    session::{Info as SessionInfo, SessionConfig, SessionDirection},
+    MulticastConfiguration, SlimHeaderFlags,
+    session::{Notification, SessionConfig},
 };
+
+use slim_controller::api::proto::moderator::v1::{ModeratorMessage, moderator_message::Payload};
 
 mod args;
 
-#[derive(Debug)]
+// (Debug derive removed; SessionContext generic includes a transmitter type without Debug)
 struct ChannelInfo {
-    mls_group_id: Option<Vec<u8>>,
-    session_info: Option<SessionInfo>,
-    participants: std::collections::HashSet<String>,
-    mls: Option<Mls<SharedSecret, SharedSecret>>,
+    channel_name: Name,
+    session: Arc<slim_service::session::Session<SharedSecret, SharedSecret>>,
+    participants: HashSet<String>,
 }
 
 impl ChannelInfo {
-    fn new() -> Self {
+    fn new(
+        channel_name: Name,
+        session: Arc<slim_service::session::Session<SharedSecret, SharedSecret>>,
+    ) -> Self {
         Self {
-            mls_group_id: None,
-            session_info: None,
-            participants: std::collections::HashSet::new(),
-            mls: None,
+            channel_name,
+            session,
+            participants: HashSet::new(),
         }
     }
 }
@@ -43,313 +45,122 @@ impl ChannelInfo {
 async fn create_channel(
     app: &slim_service::app::App<SharedSecret, SharedSecret>,
     channel_id: &str,
-    moderator_name: &str,
-    channels: &mut HashMap<String, ChannelInfo>,
-) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    info!("Creating channel {}", channel_id);
+    mls_enabled: bool,
+) -> Result<ChannelInfo, Box<dyn std::error::Error + Send + Sync>> {
+    info!("Creating channel '{}'", channel_id);
 
-    let mut channel_info = ChannelInfo::new();
+    // Channel name (org/ns/type style is arbitrary here – matching test examples)
+    let channel_name = Name::from_strings(["channel", "channel", channel_id]);
 
-    info!("Creating MLS group for channel: {}", channel_id);
-
-    // Create MLS instance
-    let identity_provider = SharedSecret::new(moderator_name, "group");
-    let identity_verifier = SharedSecret::new(moderator_name, "group");
-    let moderator_name_obj = Name::from_strings(["org", "default", moderator_name]).with_id(0);
-    let mls_storage_path =
-        std::path::PathBuf::from(format!("/tmp/mls_moderator_{}", moderator_name));
-
-    let mut mls = Mls::new(
-        moderator_name_obj,
-        identity_provider,
-        identity_verifier,
-        mls_storage_path,
-    );
-
-    mls.initialize()?;
-
-    // Create MLS group
-    let group_id = mls.create_group()?;
-    info!("Created MLS group with ID: {:?}", group_id);
-
-    channel_info.mls_group_id = Some(group_id);
-    channel_info.mls = Some(mls);
-
-    let channel_name = Name::from_strings(["channel", "channel", channel_id]).with_id(0);
-    let session_info = app
+    let session_ctx = app
         .create_session(
-            SessionConfig::Streaming(StreamingConfiguration::new(
-                SessionDirection::Bidirectional,
+            SessionConfig::Multicast(MulticastConfiguration::new(
                 channel_name.clone(),
-                true,
                 Some(10),
                 Some(Duration::from_secs(1)),
-                true,
+                mls_enabled,
+                HashMap::new(),
             )),
-            Some(channel_id.parse::<u32>().unwrap_or(12345)),
+            None,
         )
-        .await?;
+        .await
+        .map_err(|e| {
+            format!(
+                "failed to create multicast session for channel {}: {}",
+                channel_id, e
+            )
+        })?;
+    let session_arc = session_ctx
+        .session_arc()
+        .expect("session just created must be available");
 
-    channel_info.session_info = Some(session_info);
-
-    channels.insert(channel_id.to_string(), channel_info);
-    info!(
-        "Channel {} stored in channels map. Total channels: {}",
-        channel_id,
-        channels.len()
-    );
-
-    Ok(())
+    Ok(ChannelInfo::new(channel_name, session_arc))
 }
 
 #[tokio::main]
 async fn main() {
-    // Parse command line arguments
+    // Parse args
     let args = args::Args::parse();
-
-    // Get config file
     let config_file = args.config();
-
-    // Get moderator name
     let moderator_name = args.name();
+    let mls_enabled = args.mls();
 
-    // Get MLS setting for created channels
-    let _mls_enabled = args.mls();
-
-    // Create configured components
+    // Load configuration
     let mut config = config::load_config(config_file).expect("failed to load configuration");
     let _guard = config.tracing.setup_tracing_subscriber();
 
-    info!(%config_file, %moderator_name, "starting moderator");
+    info!(%config_file, %moderator_name, %mls_enabled, "starting moderator example");
 
-    // Get service
-    let id = slim_config::component::id::ID::new_with_str("slim/0").unwrap();
-    let mut svc = config.services.remove(&id).unwrap();
+    // Acquire the service (assumes service id "slim/0" exists in config)
+    let service_id =
+        slim_config::component::id::ID::new_with_str("slim/0").expect("invalid service id");
+    let mut svc = config
+        .services
+        .remove(&service_id)
+        .expect("missing service slim/0 in configuration");
 
-    // Create moderator app
-    let id = 0;
-    let name = Name::from_strings(["org", "default", moderator_name]).with_id(id);
+    // Build local moderator Name
+    let local_name = Name::from_strings(["org", "default", moderator_name]).with_id(0);
+
+    // Create app
     let (app, mut rx) = svc
         .create_app(
-            &name,
+            &local_name,
             SharedSecret::new(moderator_name, "group"),
             SharedSecret::new(moderator_name, "group"),
         )
         .await
-        .expect("failed to create app");
+        .expect("failed to create moderator app");
 
-    // Run the service
-    svc.run().await.unwrap();
+    // Run service (establish connections)
+    svc.run().await.expect("service run failed");
 
-    // Get the connection id
+    // Resolve connection id
     let conn_id = svc
         .get_connection_id(&svc.config().clients()[0].endpoint)
-        .unwrap();
-    info!("MODERATOR_CONN_ID: {:?}", conn_id);
-    info!(
-        "MODERATOR_ENDPOINT: {:?}",
-        svc.config().clients()[0].endpoint
-    );
+        .expect("no connection id found");
+    info!(%conn_id, "remote connection established");
 
-    // Subscribe to moderator's own endpoint for control messages
-    app.subscribe(&name, Some(conn_id)).await.unwrap();
-    info!(
-        "Moderator subscribed to: {:?} with conn_id: {:?}",
-        name, conn_id
-    );
-
-    // Create a fire and forget session with ID 0 to handle incoming control messages
-    let _session_info = app
-        .create_session(
-            SessionConfig::FireAndForget(FireAndForgetConfiguration::default()),
-            Some(0),
-        )
+    // Subscribe to own endpoint to receive control messages
+    app.subscribe(&local_name, Some(conn_id))
         .await
-        .expect("failed to create session");
+        .expect("failed to subscribe moderator endpoint");
 
-    // Wait for connection to be established
+    // Small delay to ensure subscription is sent
     tokio::time::sleep(Duration::from_millis(100)).await;
 
-    info!("Starting moderator, waiting for requests...");
-    let mut channels: HashMap<String, ChannelInfo> = HashMap::new();
+    info!("Moderator ready, waiting for control messages...");
 
     loop {
         tokio::select! {
             _ = slim_signal::shutdown() => {
-                info!("Received shutdown signal");
+                info!("shutdown signal received");
                 break;
             }
-            next = rx.recv() => {
-                if next.is_none() {
-                    info!("Moderator: received None message, breaking");
-                    break;
-                }
-
-                info!("Moderator: received a message from rx.recv()");
-                let session_msg = match next.unwrap() {
-                    Ok(msg) => msg,
-                    Err(e) => {
-                        error!("Moderator: error receiving session message: {}", e);
-                        continue;
+            maybe_notification = rx.recv() => {
+                let notification = match maybe_notification {
+                    None => {
+                        info!("app channel closed");
+                        break;
                     }
-                };
-                info!("MODERATOR_MSG_DEBUG: session_info={:?}", session_msg.info);
-                info!("MODERATOR_MSG_DEBUG: message={:?}", session_msg.message);
-
-                // Process incoming messages
-                match &session_msg.message.message_type.unwrap() {
-                    slim_datapath::api::ProtoPublishType(msg) => {
-                        let payload = msg.get_payload();
-
-                        match payload.content_type.as_str() {
-                            "application/x-moderator-protobuf" => {
-                                match ModeratorMessage::decode(&*payload.blob) {
-                                    Ok(moderator_msg) => {
-                                        info!("Received moderator message: {}", moderator_msg.message_id);
-
-                                        match moderator_msg.payload {
-                                            Some(Payload::CreateChannel(req)) => {
-                                                info!("Controller requested channel creation for channel_id: {}", req.channel_id);
-
-                                                match create_channel(&app, &req.channel_id, moderator_name, &mut channels).await {
-                                                    Ok(()) => {
-                                                        info!("Successfully created channel: {}", req.channel_id);
-                                                    }
-                                                    Err(e) => {
-                                                        error!("Failed to create channel {}: {}", req.channel_id, e);
-                                                    }
-                                                }
-                                            }
-                                            Some(Payload::AddParticipant(req)) => {
-                                                info!("Controller requested to add participant {} to channel {}",
-                                                      req.participant_id, req.channel_id);
-
-                                                info!("MODERATOR: Current channels in map: {:?}", channels.keys().collect::<Vec<_>>());
-                                                info!("MODERATOR: Looking for channel: {}", req.channel_id);
-
-                                                if let Some(channel_info) = channels.get_mut(&req.channel_id) {
-                                                    if let Some(session_info) = &channel_info.session_info {
-                                                        let participant_name = Name::from_strings(["org", "default", &req.participant_id]).with_id(0);
-
-                                                        info!("Inviting participant {} to channel {} with session ID {}",
-                                                              req.participant_id, req.channel_id, session_info.id);
-
-                                                        // Set up route to participant before inviting
-                                                        if let Err(e) = app.set_route(&participant_name, conn_id).await {
-                                                            error!("Failed to set route to participant {}: {}", req.participant_id, e);
-                                                        }
-
-                                                        info!("MODERATOR: About to call invite_participant for {}", participant_name);
-                                                        match app.invite_participant(&participant_name, session_info.clone()).await {
-                                                            Ok(()) => {
-                                                                channel_info.participants.insert(req.participant_id.clone());
-                                                                info!("Successfully invited participant {} to channel {}",
-                                                                      req.participant_id, req.channel_id);
-
-                                                                // Send a trigger message to start communication after both participants are added
-                                                                if channel_info.participants.len() == 2 {
-                                                                    tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
-                                                                    let trigger_msg = "start communication";
-                                                                    let channel_name = Name::from_strings(["channel", "channel", &req.channel_id]).with_id(0);
-
-                                                                    info!("MODERATOR: Sending trigger message '{}' to channel {}", trigger_msg, channel_name);
-                                                                    use slim_service::SlimHeaderFlags;
-                                                                    let flags = SlimHeaderFlags::new(10, None, None, None, None);
-
-                                                                    match app.publish_with_flags(session_info.clone(), &channel_name, flags, trigger_msg.into(), None, None).await {
-                                                                        Ok(()) => {
-                                                                            info!("MODERATOR: Successfully sent trigger message to channel");
-                                                                        }
-                                                                        Err(e) => {
-                                                                            error!("Failed to send trigger message to channel: {}", e);
-                                                                        }
-                                                                    }
-                                                                }
-                                                            }
-                                                            Err(e) => {
-                                                                error!("Failed to invite participant {} to channel {}: {}",
-                                                                       req.participant_id, req.channel_id, e);
-                                                            }
-                                                        }
-                                                    } else {
-                                                        error!("Channel {} has no session info", req.channel_id);
-                                                    }
-                                                } else {
-                                                    error!("Channel {} does not exist", req.channel_id);
-                                                }
-                                            }
-                                            Some(Payload::RemoveParticipant(req)) => {
-                                                info!("Controller requested to remove participant {} from channel {}",
-                                                      req.participant_id, req.channel_id);
-
-                                                if let Some(channel_info) = channels.get_mut(&req.channel_id) {
-                                                    if let Some(session_info) = &channel_info.session_info {
-                                                        let participant_name = Name::from_strings(["org", "default", &req.participant_id]).with_id(0);
-
-                                                        info!("Removing participant {} from channel {} with session ID {}",
-                                                              req.participant_id, req.channel_id, session_info.id);
-
-                                                        match app.remove_participant(&participant_name, session_info.clone()).await {
-                                                            Ok(()) => {
-                                                                channel_info.participants.remove(&req.participant_id);
-                                                                info!("Successfully removed participant {} from channel {}",
-                                                                      req.participant_id, req.channel_id);
-                                                            }
-                                                            Err(e) => {
-                                                                error!("Failed to remove participant {} from channel {}: {}",
-                                                                       req.participant_id, req.channel_id, e);
-                                                            }
-                                                        }
-                                                    } else {
-                                                        error!("Channel {} has no session info", req.channel_id);
-                                                    }
-                                                } else {
-                                                    error!("Channel {} does not exist", req.channel_id);
-                                                }
-                                            }
-                                            Some(Payload::DeleteChannel(req)) => {
-                                                info!("Controller requested to delete channel {}", req.channel_id);
-
-                                                if let Some(channel_info) = channels.get(&req.channel_id) {
-                                                    if let Some(session_info) = &channel_info.session_info {
-                                                        let participants_to_remove: Vec<String> = channel_info.participants.iter().cloned().collect();
-
-                                                        for participant_id in participants_to_remove {
-                                                            let participant_name = Name::from_strings(["org", "default", &participant_id]).with_id(0);
-                                                            info!("Removing participant {} before deleting channel {}", participant_id, req.channel_id);
-
-                                                            if let Err(e) = app.remove_participant(&participant_name, session_info.clone()).await {
-                                                                error!("Failed to remove participant {} before deleting channel {}: {}", participant_id, req.channel_id, e);
-                                                            }
-                                                        }
-                                                    }
-
-                                                    channels.remove(&req.channel_id);
-                                                    info!("Successfully deleted channel {}", req.channel_id);
-                                                } else {
-                                                    error!("Channel {} does not exist", req.channel_id);
-                                                }
-                                            }
-                                            None => {
-                                                error!("Received ModeratorMessage with no payload");
-                                            }
-                                            _ => {
-                                                error!("Received unknown moderator message type");
-                                            }
-                                        }
-                                    }
-                                    Err(e) => {
-                                        error!("Failed to decode protobuf message: {}", e);
-                                    }
-                                }
-                            }
-                            _ => {
-                                error!("Unsupported content type: {}", payload.content_type);
-                            }
+                    Some(res) => match res {
+                        Ok(n) => n,
+                        Err(e) => {
+                            error!("error receiving notification: {}", e);
+                            continue;
                         }
                     }
-                    t => {
-                        info!("Received message type: {:?}", t);
+                };
+
+                match notification {
+                    Notification::NewSession(session_ctx) => {
+                        info!("new session established");
+
+                        // Spawn a task to handle session notifications
+                        spawn_session_receiver(session_ctx, app.clone(), mls_enabled, conn_id);
+                    }
+                    Notification::NewMessage(_msg) => {
+                        error!("received unexpected direct message; ignoring");
                     }
                 }
             }
@@ -359,9 +170,205 @@ async fn main() {
     info!("Moderator shutting down");
 
     let signal = svc.signal();
-
     match time::timeout(config.runtime.drain_timeout(), signal.drain()).await {
-        Ok(()) => {}
-        Err(_) => panic!("Timeout waiting for drain for service"),
+        Ok(()) => info!("service drained"),
+        Err(_) => error!("timeout draining service"),
+    }
+}
+
+fn spawn_session_receiver(
+    session_ctx: slim_service::session::context::SessionContext<SharedSecret, SharedSecret>,
+    app: App<SharedSecret, SharedSecret>,
+    mls_enabled: bool,
+    conn_id: u64,
+) -> std::sync::Arc<slim_service::session::Session<SharedSecret, SharedSecret>> {
+    let app_clone = app.clone();
+
+    session_ctx
+        .spawn_receiver(move |mut rx, _session| async move {
+            info!("Received session");
+
+            let mut channels = HashMap::new();
+
+            while let Some(msg) = rx.recv().await {
+                let msg = match msg {
+                    Ok(m) => m,
+                    Err(e) => {
+                        error!("error receiving session message: {}", e);
+                        continue;
+                    }
+                };
+
+                // Only process publish messages with the expected content type
+                if let Some(slim_datapath::api::ProtoPublishType(publish)) =
+                    msg.message_type.as_ref()
+                {
+                    let payload = publish.get_payload();
+                    if payload.content_type == "application/x-moderator-protobuf" {
+                        match ModeratorMessage::decode(&*payload.blob) {
+                            Ok(m) => {
+                                handle_moderator_message(
+                                    &m,
+                                    mls_enabled,
+                                    &app_clone,
+                                    conn_id,
+                                    &mut channels,
+                                )
+                                .await;
+                            }
+                            Err(e) => {
+                                error!("failed to decode ModeratorMessage protobuf: {}", e);
+                            }
+                        }
+                    } else {
+                        // Ignore other content types
+                        error!(
+                            "ignoring message with unexpected content type: {}",
+                            payload.content_type
+                        );
+                        continue;
+                    }
+                }
+            }
+
+            info!("session receiver task ending");
+        })
+        .upgrade()
+        .expect("failed to upgrade session weak reference")
+}
+
+async fn handle_moderator_message(
+    msg: &ModeratorMessage,
+    mls_enabled: bool,
+    app: &slim_service::app::App<SharedSecret, SharedSecret>,
+    conn_id: u64,
+    channels: &mut HashMap<String, ChannelInfo>,
+) {
+    match &msg.payload {
+        Some(Payload::CreateChannel(req)) => {
+            let channel_id = req.channel_id.clone();
+
+            info!(
+                "Controller requested channel creation for channel_id: {}",
+                channel_id
+            );
+            if channels.contains_key(&channel_id) {
+                warn!(
+                    "channel '{}' already exists, ignoring CreateChannel",
+                    channel_id
+                );
+                return;
+            }
+            match create_channel(app, &channel_id, mls_enabled).await {
+                Ok(info_struct) => {
+                    info!("created channel '{}'", channel_id);
+                    channels.insert(channel_id, info_struct);
+                }
+                Err(e) => error!("failed to create channel '{}': {}", channel_id, e),
+            }
+        }
+        Some(Payload::AddParticipant(req)) => {
+            let channel_id = &req.channel_id;
+            let participant_id = &req.participant_id;
+            let Some(channel) = channels.get_mut(channel_id) else {
+                error!("AddParticipant: channel '{}' not found", channel_id);
+                return;
+            };
+
+            let participant_name =
+                Name::from_strings(["org", "default", participant_id]).with_id(0);
+
+            // Ensure route exists before inviting
+            if let Err(e) = app.set_route(&participant_name, conn_id).await {
+                error!(
+                    "failed to set route for participant '{}': {}",
+                    participant_id, e
+                );
+                return;
+            }
+
+            let session_arc = channel.session.clone();
+            match session_arc.invite_participant(&participant_name).await {
+                Ok(_) => {
+                    channel.participants.insert(participant_id.clone());
+                    info!(
+                        "invited participant '{}' to channel '{}'",
+                        participant_id, channel_id
+                    );
+
+                    // When we have at least two participants, send a trigger message.
+                    if channel.participants.len() == 2 {
+                        let flags = SlimHeaderFlags::new(10, None, None, None, None);
+                        let trigger = b"start communication".to_vec();
+                        if let Err(e) = session_arc
+                            .publish_with_flags(&channel.channel_name, flags, trigger, None, None)
+                            .await
+                        {
+                            error!(
+                                "failed to send trigger message for channel '{}': {}",
+                                channel_id, e
+                            );
+                        } else {
+                            info!("sent trigger message for channel '{}'", channel_id);
+                        }
+                    }
+                }
+                Err(e) => {
+                    error!(
+                        "failed to invite participant '{}' to channel '{}': {}",
+                        participant_id, channel_id, e
+                    );
+                }
+            }
+        }
+        Some(Payload::RemoveParticipant(req)) => {
+            let channel_id = &req.channel_id;
+            let participant_id = &req.participant_id;
+            let Some(channel) = channels.get_mut(channel_id) else {
+                error!("RemoveParticipant: channel '{}' not found", channel_id);
+                return;
+            };
+            let participant_name =
+                Name::from_strings(["org", "default", participant_id]).with_id(0);
+
+            let session_arc = channel.session.clone();
+            match session_arc.remove_participant(&participant_name).await {
+                Ok(_) => {
+                    channel.participants.remove(participant_id);
+                    info!(
+                        "removed participant '{}' from channel '{}'",
+                        participant_id, channel_id
+                    );
+                }
+                Err(e) => {
+                    error!(
+                        "failed to remove participant '{}' from channel '{}': {}",
+                        participant_id, channel_id, e
+                    );
+                }
+            }
+        }
+        Some(Payload::DeleteChannel(req)) => {
+            let channel_id = &req.channel_id;
+            let Some(channel) = channels.remove(channel_id) else {
+                error!("DeleteChannel: channel '{}' not found", channel_id);
+                return;
+            };
+
+            let session_arc = &channel.session;
+            for p in &channel.participants {
+                let name = Name::from_strings(["org", "default", p]).with_id(0);
+                let _ = session_arc.remove_participant(&name).await;
+            }
+
+            info!("deleted channel '{}'", channel_id);
+        }
+        None => {
+            error!("ModeratorMessage received with empty payload");
+        }
+        // Other response variants are ignored in this simple example
+        _ => {
+            info!("received a ModeratorMessage response variant; ignoring in example");
+        }
     }
 }
