@@ -18,12 +18,16 @@ func LoadCertificates(ctx context.Context, apiConfig config.APIConfig) (credenti
 
 	cfg := apiConfig.TLS
 	if cfg.UseSpiffe {
-		source, err := workloadapi.NewX509Source(ctx,
-			workloadapi.WithClientOptions(workloadapi.WithAddr(apiConfig.Spire.SocketPath)))
+		cl := workloadapi.WithClientOptions(workloadapi.WithAddr(apiConfig.Spire.SocketPath))
+		source, err := workloadapi.NewX509Source(ctx, cl)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create X.509 source using SPIRE Workload API: %w", err)
 		}
-		tlsConfig := tlsconfig.MTLSServerConfig(source, source, tlsconfig.AuthorizeAny())
+		bundleSource, err := workloadapi.NewBundleSource(ctx, cl)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create bundle source using SPIRE Workload API: %w", err)
+		}
+		tlsConfig := tlsconfig.MTLSServerConfig(source, bundleSource, tlsconfig.AuthorizeAny())
 		return credentials.NewTLS(tlsConfig), nil
 	}
 
