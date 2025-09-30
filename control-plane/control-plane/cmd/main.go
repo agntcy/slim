@@ -2,13 +2,17 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 	"flag"
 	"fmt"
 	"net"
 	"sync"
 
 	"github.com/rs/zerolog"
+	"github.com/spiffe/go-spiffe/v2/spiffegrpc/grpccredentials"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
+	"google.golang.org/grpc/peer"
 
 	southboundApi "github.com/agntcy/slim/control-plane/common/proto/controller/v1"
 	controlplaneApi "github.com/agntcy/slim/control-plane/common/proto/controlplane/v1"
@@ -76,6 +80,12 @@ func main() {
 			}
 		}
 
+		// Add TLS debug interceptors
+		opts = append(opts,
+			grpc.UnaryInterceptor(tlsDebugUnaryInterceptor),
+			grpc.StreamInterceptor(tlsDebugStreamInterceptor),
+		)
+
 		sbGrpcServer := grpc.NewServer(opts...)
 		sbAPISvc := sbapiservice.NewSBAPIService(config.Southbound, config.LogConfig, dbService, cmdHandler,
 			routeService, groupService)
@@ -95,4 +105,85 @@ func main() {
 	}()
 
 	wg.Wait()
+}
+
+// Add this to your main.go
+func tlsDebugUnaryInterceptor(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo,
+	handler grpc.UnaryHandler) (interface{}, error) {
+	zlog := zerolog.Ctx(ctx)
+
+	sid, ok := grpccredentials.PeerIDFromContext(ctx)
+	if ok {
+		trustDomain := sid.TrustDomain().String()
+		zlog.Debug().Msgf("TLS Debug Unary Interceptor: trustDomain: %s", trustDomain)
+	}
+
+	// Extract TLS connection info
+	if peer, ok := peer.FromContext(ctx); ok {
+		if tlsInfo, ok := peer.AuthInfo.(credentials.TLSInfo); ok {
+			zlog.Debug().
+				Str("method", info.FullMethod).
+				Str("remote_addr", peer.Addr.String()).
+				Str("tls_version", getTLSVersion(tlsInfo.State.Version)).
+				Str("cipher_suite", tls.CipherSuiteName(tlsInfo.State.CipherSuite)).
+				Bool("handshake_complete", tlsInfo.State.HandshakeComplete).
+				Msg("TLS connection info")
+
+			// Log client certificate info if present
+			if len(tlsInfo.State.PeerCertificates) > 0 {
+				clientCert := tlsInfo.State.PeerCertificates[0]
+				zlog.Debug().
+					Str("method", info.FullMethod).
+					Str("client_subject", clientCert.Subject.String()).
+					Str("client_issuer", clientCert.Issuer.String()).
+					Str("client_serial", clientCert.SerialNumber.String()).
+					Msg("Client certificate authenticated")
+			} else {
+				zlog.Debug().
+					Str("method", info.FullMethod).
+					Msg("No client certificate provided")
+			}
+		}
+	}
+
+	return handler(ctx, req)
+}
+
+func tlsDebugStreamInterceptor(srv interface{}, ss grpc.ServerStream, info *grpc.StreamServerInfo,
+	handler grpc.StreamHandler) error {
+	ctx := ss.Context()
+	zlog := zerolog.Ctx(ctx)
+
+	sid, ok := grpccredentials.PeerIDFromContext(ctx)
+	if ok {
+		trustDomain := sid.TrustDomain().String()
+		zlog.Debug().Msgf("TLS Debug Stream Interceptor: trustDomain: %s", trustDomain)
+	}
+
+	if peer, ok := peer.FromContext(ctx); ok {
+		if tlsInfo, ok := peer.AuthInfo.(credentials.TLSInfo); ok {
+			zlog.Debug().
+				Str("stream", info.FullMethod).
+				Str("remote_addr", peer.Addr.String()).
+				Bool("handshake_complete", tlsInfo.State.HandshakeComplete).
+				Msg("TLS stream connection")
+		}
+	}
+
+	return handler(srv, ss)
+}
+
+func getTLSVersion(version uint16) string {
+	switch version {
+	case tls.VersionTLS10:
+		return "TLS 1.0"
+	case tls.VersionTLS11:
+		return "TLS 1.1"
+	case tls.VersionTLS12:
+		return "TLS 1.2"
+	case tls.VersionTLS13:
+		return "TLS 1.3"
+	default:
+		return fmt.Sprintf("Unknown (0x%04x)", version)
+	}
 }
