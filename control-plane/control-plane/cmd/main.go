@@ -120,6 +120,13 @@ func tlsDebugUnaryInterceptor(ctx context.Context, req interface{}, info *grpc.U
 
 	// Extract TLS connection info
 	if peer, ok := peer.FromContext(ctx); ok {
+
+		sid, ok := grpccredentials.PeerIDFromPeer(peer)
+		if ok {
+			trustDomain := sid.TrustDomain().String()
+			zlog.Debug().Msgf("TLS Debug Stream Interceptor: trustDomain: %s", trustDomain)
+		}
+
 		if tlsInfo, ok := peer.AuthInfo.(credentials.TLSInfo); ok {
 			zlog.Debug().
 				Str("method", info.FullMethod).
@@ -154,13 +161,13 @@ func tlsDebugStreamInterceptor(srv interface{}, ss grpc.ServerStream, info *grpc
 	ctx := ss.Context()
 	zlog := zerolog.Ctx(ctx)
 
-	sid, ok := grpccredentials.PeerIDFromContext(ctx)
-	if ok {
-		trustDomain := sid.TrustDomain().String()
-		zlog.Debug().Msgf("TLS Debug Stream Interceptor: trustDomain: %s", trustDomain)
-	}
-
 	if peer, ok := peer.FromContext(ctx); ok {
+		sid, ok := grpccredentials.PeerIDFromPeer(peer)
+		if ok {
+			trustDomain := sid.TrustDomain().String()
+			zlog.Debug().Msgf("TLS Debug Stream Interceptor: trustDomain: %s", trustDomain)
+		}
+
 		if tlsInfo, ok := peer.AuthInfo.(credentials.TLSInfo); ok {
 			zlog.Debug().
 				Str("stream", info.FullMethod).
