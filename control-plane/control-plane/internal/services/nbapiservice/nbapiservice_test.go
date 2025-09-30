@@ -101,11 +101,11 @@ type mockRouteService struct {
 		ctx context.Context, node *controlplaneApi.NodeEntry, subscription *controllerapi.Subscription) error
 }
 
-func (m *mockRouteService) AddRoute(ctx context.Context, route routes.Route) (string, error) {
+func (m *mockRouteService) AddRoute(_ context.Context, _ routes.Route) (string, error) {
 	return "route-id", nil
 }
 
-func (m *mockRouteService) DeleteRoute(ctx context.Context, route routes.Route) error {
+func (m *mockRouteService) DeleteRoute(_ context.Context, _ routes.Route) error {
 	return nil
 }
 

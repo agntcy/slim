@@ -22,27 +22,27 @@ type mockDB struct {
 }
 
 // AddRoute implements db.DataAccess.
-func (m *mockDB) AddRoute(route db.Route) string {
+func (m *mockDB) AddRoute(_ db.Route) string {
 	panic("unimplemented")
 }
 
 // DeleteRoute implements db.DataAccess.
-func (m *mockDB) DeleteRoute(routeID string) error {
+func (m *mockDB) DeleteRoute(_ string) error {
 	panic("unimplemented")
 }
 
 // GetRouteByID implements db.DataAccess.
-func (m *mockDB) GetRouteByID(routeID string) *db.Route {
+func (m *mockDB) GetRouteByID(_ string) *db.Route {
 	panic("unimplemented")
 }
 
 // GetRoutesForNodeID implements db.DataAccess.
-func (m *mockDB) GetRoutesForNodeID(nodeID string) []db.Route {
+func (m *mockDB) GetRoutesForNodeID(_ string) []db.Route {
 	panic("unimplemented")
 }
 
 // MarkRouteAsDeleted implements db.DataAccess.
-func (m *mockDB) MarkRouteAsDeleted(routeID string) error {
+func (m *mockDB) MarkRouteAsDeleted(_ string) error {
 	panic("unimplemented")
 }
 

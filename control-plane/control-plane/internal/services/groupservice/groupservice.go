@@ -190,7 +190,7 @@ func (s *GroupService) AddParticipant(
 
 	zlog.Debug().Msgf("Sending AddParticipantRequest for channel %s to node: %s",
 		addParticipantRequest.ChannelId, nodeEntry.Id)
-	if err := s.cmdHandler.SendMessage(ctx, nodeEntry.Id, msg); err != nil {
+	if err = s.cmdHandler.SendMessage(ctx, nodeEntry.Id, msg); err != nil {
 		return nil, fmt.Errorf("failed to send message: %w", err)
 	}
 
