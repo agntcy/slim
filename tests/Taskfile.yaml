@@ -23,9 +23,9 @@ tasks:
 
   tests:mocks:build:
     desc: "Build sdk-mock example"
-    dir: "../data-plane/examples"
+    dir: "../data-plane"
     cmds:
-      - cargo build --bin sdk-mock --bin moderator --bin client
+      - task data-plane:build BUILD_ARGS="--bin sdk-mock --bin client"
 
   tests:integration:
     desc: "Run integration tests"
