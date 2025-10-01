@@ -5,11 +5,13 @@ package controller
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/metadata"
 
 	"github.com/agntcy/slim/control-plane/common/options"
 	controllerApi "github.com/agntcy/slim/control-plane/common/proto/controller/v1"
@@ -36,6 +38,14 @@ func OpenControlChannel(
 	)
 	if err != nil {
 		return nil, fmt.Errorf("error connecting to server(%s): %w", opts.Server, err)
+	}
+
+	if opts.BasicAuthCredentials != "" {
+		encodedAuth := base64.StdEncoding.EncodeToString([]byte(opts.BasicAuthCredentials))
+		md := metadata.New(map[string]string{
+			"authorization": "Basic " + encodedAuth,
+		})
+		ctx = metadata.NewOutgoingContext(ctx, md)
 	}
 
 	client := controllerApi.NewControllerServiceClient(conn)

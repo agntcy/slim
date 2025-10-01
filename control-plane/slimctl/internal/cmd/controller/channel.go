@@ -13,7 +13,7 @@ import (
 	cpApi "github.com/agntcy/slim/control-plane/common/controlplane"
 	"github.com/agntcy/slim/control-plane/common/options"
 	grpcapi "github.com/agntcy/slim/control-plane/common/proto/controller/v1"
-	controlplaneApi "github.com/agntcy/slim/control-plane/common/proto/controlplane/v1"
+	controlplanev1 "github.com/agntcy/slim/control-plane/common/proto/controlplane/v1"
 	"github.com/agntcy/slim/control-plane/common/util"
 )
 
@@ -47,12 +47,12 @@ func newCreateChannelCmd(opts *options.CommonOptions) *cobra.Command {
 			ctx, cancel := context.WithTimeout(cmd.Context(), opts.Timeout)
 			defer cancel()
 
-			cpCLient, err := cpApi.GetClient(opts)
+			cpClient, ctx, err := cpApi.GetClient(ctx, opts)
 			if err != nil {
 				return fmt.Errorf("failed to get control plane client: %w", err)
 			}
 
-			createChannelResponse, err := cpCLient.CreateChannel(ctx, &controlplaneApi.CreateChannelRequest{
+			createChannelResponse, err := cpClient.CreateChannel(ctx, &controlplanev1.CreateChannelRequest{
 				Moderators: moderators,
 			})
 			if err != nil {
@@ -83,12 +83,12 @@ func newDeleteChannelCmd(opts *options.CommonOptions) *cobra.Command {
 			ctx, cancel := context.WithTimeout(cmd.Context(), opts.Timeout)
 			defer cancel()
 
-			cpCLient, err := cpApi.GetClient(opts)
+			cpClient, ctx, err := cpApi.GetClient(ctx, opts)
 			if err != nil {
 				return fmt.Errorf("failed to get control plane client: %w", err)
 			}
 
-			deleteChannelResponse, err := cpCLient.DeleteChannel(ctx, &grpcapi.DeleteChannelRequest{
+			deleteChannelResponse, err := cpClient.DeleteChannel(ctx, &grpcapi.DeleteChannelRequest{
 				ChannelName: channelName,
 			})
 			if err != nil {
@@ -112,12 +112,12 @@ func newListChannelsCmd(opts *options.CommonOptions) *cobra.Command {
 			ctx, cancel := context.WithTimeout(cmd.Context(), opts.Timeout)
 			defer cancel()
 
-			cpCLient, err := cpApi.GetClient(opts)
+			cpClient, ctx, err := cpApi.GetClient(ctx, opts)
 			if err != nil {
 				return fmt.Errorf("failed to get control plane client: %w", err)
 			}
 
-			listChannelsResponse, err := cpCLient.ListChannels(ctx, &grpcapi.ListChannelsRequest{})
+			listChannelsResponse, err := cpClient.ListChannels(ctx, &grpcapi.ListChannelsRequest{})
 			if err != nil {
 				return fmt.Errorf("failed to list channels: %w", err)
 			}

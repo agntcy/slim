@@ -20,7 +20,6 @@ func NewNodeCmd(opts *options.CommonOptions) *cobra.Command {
 		Short: "Manage SLIM nodes",
 		Long:  `Manage SLIM nodes`,
 	}
-
 	cmd.AddCommand(newListNodesCmd(opts))
 
 	return cmd
@@ -36,11 +35,11 @@ func newListNodesCmd(opts *options.CommonOptions) *cobra.Command {
 			ctx, cancel := context.WithTimeout(cmd.Context(), opts.Timeout)
 			defer cancel()
 
-			cpCLient, err := cpApi.GetClient(opts)
+			cpClient, ctx, err := cpApi.GetClient(ctx, opts)
 			if err != nil {
 				return fmt.Errorf("failed to get control plane client: %w", err)
 			}
-			listResponse, err := cpCLient.ListNodes(ctx, &controlplaneApi.NodeListRequest{})
+			listResponse, err := cpClient.ListNodes(ctx, &controlplaneApi.NodeListRequest{})
 			if err != nil {
 				return fmt.Errorf("failed to list nodes: %w", err)
 			}
