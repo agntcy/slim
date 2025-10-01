@@ -49,16 +49,16 @@ func ParseRoute(route string) (
 // '/' separated components (expectedComponents) and that none of them are empty.
 func ValidateName(name string, expectedComponents int) ([]string, error) {
 	if name == "" {
-		return nil, fmt.Errorf("channel name cannot be empty")
+		return nil, fmt.Errorf("name cannot be empty")
 	}
 
 	parts := strings.Split(name, "/")
 	if len(parts) != expectedComponents {
-		return nil, fmt.Errorf("invalid channel name format, expected %d components separated by '/'", expectedComponents)
+		return nil, fmt.Errorf("invalid name format, expected %d components separated by '/'", expectedComponents)
 	}
 
 	if slices.Contains(parts, "") {
-		return nil, fmt.Errorf("invalid channel name format, none of the %d components can be empty", expectedComponents)
+		return nil, fmt.Errorf("invalid name format, none of the %d components can be empty", expectedComponents)
 	}
 
 	return parts, nil

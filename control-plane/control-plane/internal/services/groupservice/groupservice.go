@@ -181,14 +181,14 @@ func (s *GroupService) AddParticipant(
 ) (*controllerapi.Ack, error) {
 	zlog := zerolog.Ctx(ctx)
 
-	_, err := commonutil.ValidateName(addParticipantRequest.ParticipantId, 4)
-	if err != nil {
-		return nil, fmt.Errorf("invalid participant name: %w", err)
-	}
-
-	_, err = commonutil.ValidateName(addParticipantRequest.ChannelName, 3)
+	_, err := commonutil.ValidateName(addParticipantRequest.ChannelName, 3)
 	if err != nil {
 		return nil, fmt.Errorf("invalid channel name: %w", err)
+	}
+
+	_, err = commonutil.ValidateName(addParticipantRequest.ParticipantId, 4)
+	if err != nil {
+		return nil, fmt.Errorf("invalid participant name: %w", err)
 	}
 
 	// Control plane side DB operations

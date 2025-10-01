@@ -59,20 +59,20 @@ func (m *mockDB) DeleteChannel(_ string) error        { return nil }
 func (m *mockDB) UpdateChannel(_ db.Channel) error    { return nil }
 func (m *mockDB) ListChannels() ([]db.Channel, error) { return nil, nil }
 
-func (m *mockDB) GetChannel(channelID string) (db.Channel, error) {
-	if channelID == "validParticipantList" {
+func (m *mockDB) GetChannel(channelName string) (db.Channel, error) {
+	if channelName == "validParticipantList" {
 		return db.Channel{
 			ID:           "validParticipantList",
-			Moderators:   []string{"mod1"},
-			Participants: []string{"participant1", "participant2"},
+			Moderators:   []string{"org/ns/mod1/0"},
+			Participants: []string{"org/ns/participant1/0", "org/ns/participant2/0"},
 		}, nil
 	}
 
-	if channelID == "deleteParticipantChannel" {
+	if channelName == "deleteParticipantChannel" {
 		return db.Channel{
 			ID:           "deleteParticipantChannel",
-			Moderators:   []string{"mod1"},
-			Participants: []string{"participantToDelete", "participant2"},
+			Moderators:   []string{"org/ns/mod1/0"},
+			Participants: []string{"org/ns/participantToDelete/0", "org/ns/participant2/0"},
 		}, nil
 	}
 
@@ -119,15 +119,33 @@ func TestCreateChannel_Success(t *testing.T) {
 	cmdHandler := &mockNodeCommandHandler{}
 	svc := NewGroupService(db, cmdHandler)
 	ctx := context.Background()
+	nodeEntry := &controlplaneApi.NodeEntry{Id: "node123"}
 
 	// create a valid request
 	request := &controlplaneApi.CreateChannelRequest{
 		Moderators: []string{"org/ns/mod/0"},
 	}
-	resp, err := svc.CreateChannel(ctx, request, nil)
+	resp, err := svc.CreateChannel(ctx, request, nodeEntry)
 	assert.NoError(t, err)
 	assert.NotEmpty(t, resp.ChannelName)
 	assert.Contains(t, resp.ChannelName, "org/ns/")
+}
+
+func TestCreateChannel_InvalidModeratorName(t *testing.T) {
+	db := &mockDB{}
+	cmdHandler := &mockNodeCommandHandler{}
+	svc := NewGroupService(db, cmdHandler)
+	ctx := context.Background()
+	nodeEntry := &controlplaneApi.NodeEntry{Id: "node123"}
+
+	// create a valid request
+	request := &controlplaneApi.CreateChannelRequest{
+		Moderators: []string{"asd"},
+	}
+	resp, err := svc.CreateChannel(ctx, request, nodeEntry)
+	assert.Error(t, err)
+	assert.Nil(t, resp)
+	assert.Contains(t, err.Error(), "invalid moderator name")
 }
 
 // TestCreateChannel_SaveChannelError verifies that an error from SaveChannel is propagated.
@@ -137,7 +155,7 @@ func TestCreateChannel_SaveChannelError(t *testing.T) {
 	svc := NewGroupService(db, cmdHandler)
 	ctx := context.Background()
 	request := &controlplaneApi.CreateChannelRequest{
-		Moderators: []string{"mod1"},
+		Moderators: []string{"org/ns/mod1/0"},
 	}
 	nodeEntry := &controlplaneApi.NodeEntry{Id: "node123"}
 	_, err := svc.CreateChannel(ctx, request, nodeEntry)
@@ -163,7 +181,7 @@ func TestCreateChannel_NilNodeEntry(t *testing.T) {
 	svc := NewGroupService(db, cmdHandler)
 	ctx := context.Background()
 	request := &controlplaneApi.CreateChannelRequest{
-		Moderators: []string{"mod1"},
+		Moderators: []string{"org/ns/mod1/0"},
 	}
 	assert.Panics(t, func() {
 		_, _ = svc.CreateChannel(ctx, request, nil)
@@ -177,7 +195,7 @@ func TestDeleteChannel_Success(t *testing.T) {
 	svc := NewGroupService(db, cmdHandler)
 	ctx := context.Background()
 	request := &controllerapi.DeleteChannelRequest{
-		ChannelId: "channel123",
+		ChannelName: "org/ns/channel123",
 	}
 	nodeEntry := &controlplaneApi.NodeEntry{Id: "node123"}
 	resp, err := svc.DeleteChannel(ctx, request, nodeEntry)
@@ -185,19 +203,19 @@ func TestDeleteChannel_Success(t *testing.T) {
 	assert.True(t, resp.Success)
 }
 
-// TestDeleteChannel_EmptyChannelID verifies error when channel ID is empty.
-func TestDeleteChannel_EmptyChannelID(t *testing.T) {
+// TestDeleteChannel_EmptyChannelName verifies error when channel ID is empty.
+func TestDeleteChannel_EmptyChannelName(t *testing.T) {
 	db := &mockDB{}
 	cmdHandler := &mockNodeCommandHandler{}
 	svc := NewGroupService(db, cmdHandler)
 	ctx := context.Background()
 	request := &controllerapi.DeleteChannelRequest{
-		ChannelId: "",
+		ChannelName: "",
 	}
 	nodeEntry := &controlplaneApi.NodeEntry{Id: "node123"}
 	_, err := svc.DeleteChannel(ctx, request, nodeEntry)
 	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "channel ID cannot be empty")
+	assert.Contains(t, err.Error(), "name cannot be empty")
 }
 
 // TestAddParticipant_Success verifies successful participant addition.
@@ -207,8 +225,8 @@ func TestAddParticipant_Success(t *testing.T) {
 	svc := NewGroupService(db, cmdHandler)
 	ctx := context.Background()
 	request := &controllerapi.AddParticipantRequest{
-		ChannelId:     "channel123",
-		ParticipantId: "participant123",
+		ChannelName:   "org/ns/channel123",
+		ParticipantId: "org/ns/participant123/0",
 	}
 	nodeEntry := &controlplaneApi.NodeEntry{Id: "node123"}
 	resp, err := svc.AddParticipant(ctx, request, nodeEntry)
@@ -216,20 +234,20 @@ func TestAddParticipant_Success(t *testing.T) {
 	assert.True(t, resp.Success)
 }
 
-// TestAddParticipant_EmptyChannelID verifies error when channel ID is empty.
-func TestAddParticipant_EmptyChannelID(t *testing.T) {
+// TestAddParticipant_EmptyChannelName verifies error when channel ID is empty.
+func TestAddParticipant_EmptyChannelName(t *testing.T) {
 	db := &mockDB{}
 	cmdHandler := &mockNodeCommandHandler{}
 	svc := NewGroupService(db, cmdHandler)
 	ctx := context.Background()
 	request := &controllerapi.AddParticipantRequest{
-		ChannelId:     "",
+		ChannelName:   "",
 		ParticipantId: "participant123",
 	}
 	nodeEntry := &controlplaneApi.NodeEntry{Id: "node123"}
 	_, err := svc.AddParticipant(ctx, request, nodeEntry)
 	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "channel ID cannot be empty")
+	assert.Contains(t, err.Error(), "name cannot be empty")
 }
 
 // TestAddParticipant_EmptyParticipantID verifies error when participant ID is empty.
@@ -239,13 +257,13 @@ func TestAddParticipant_EmptyParticipantID(t *testing.T) {
 	svc := NewGroupService(db, cmdHandler)
 	ctx := context.Background()
 	request := &controllerapi.AddParticipantRequest{
-		ChannelId:     "channel123",
+		ChannelName:   "org/name/channel123",
 		ParticipantId: "",
 	}
 	nodeEntry := &controlplaneApi.NodeEntry{Id: "node123"}
 	_, err := svc.AddParticipant(ctx, request, nodeEntry)
 	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "participant ID cannot be empty")
+	assert.Contains(t, err.Error(), "name cannot be empty")
 }
 
 // TestDeleteParticipant_Success verifies successful participant deletion.
@@ -255,8 +273,8 @@ func TestDeleteParticipant_Success(t *testing.T) {
 	svc := NewGroupService(db, cmdHandler)
 	ctx := context.Background()
 	request := &controllerapi.DeleteParticipantRequest{
-		ChannelId:     "deleteParticipantChannel",
-		ParticipantId: "participantToDelete",
+		ChannelName:   "deleteParticipantChannel",
+		ParticipantId: "org/ns/participantToDelete/0",
 	}
 	nodeEntry := &controlplaneApi.NodeEntry{Id: "node123"}
 	resp, err := svc.DeleteParticipant(ctx, request, nodeEntry)
@@ -264,14 +282,14 @@ func TestDeleteParticipant_Success(t *testing.T) {
 	assert.True(t, resp.Success)
 }
 
-// TestDeleteParticipant_EmptyChannelID verifies error when channel ID is empty.
-func TestDeleteParticipant_EmptyChannelID(t *testing.T) {
+// TestDeleteParticipant_EmptyChannelName verifies error when channel ID is empty.
+func TestDeleteParticipant_EmptyChannelName(t *testing.T) {
 	db := &mockDB{}
 	cmdHandler := &mockNodeCommandHandler{}
 	svc := NewGroupService(db, cmdHandler)
 	ctx := context.Background()
 	request := &controllerapi.DeleteParticipantRequest{
-		ChannelId:     "",
+		ChannelName:   "",
 		ParticipantId: "participant123",
 	}
 	nodeEntry := &controlplaneApi.NodeEntry{Id: "node123"}
@@ -287,7 +305,7 @@ func TestDeleteParticipant_EmptyParticipantID(t *testing.T) {
 	svc := NewGroupService(db, cmdHandler)
 	ctx := context.Background()
 	request := &controllerapi.DeleteParticipantRequest{
-		ChannelId:     "channel123",
+		ChannelName:   "channel123",
 		ParticipantId: "",
 	}
 	nodeEntry := &controlplaneApi.NodeEntry{Id: "node123"}
@@ -306,7 +324,7 @@ func TestListChannels_Success(t *testing.T) {
 	resp, err := svc.ListChannels(ctx, request)
 	assert.NoError(t, err)
 	assert.NotNil(t, resp)
-	assert.NotNil(t, resp.ChannelId)
+	assert.NotNil(t, resp.ChannelName)
 }
 
 // TestGetChannelDetails_Success verifies successful channel details retrieval.
@@ -327,7 +345,7 @@ func TestListParticipants_Success(t *testing.T) {
 	svc := NewGroupService(db, cmdHandler)
 	ctx := context.Background()
 	request := &controllerapi.ListParticipantsRequest{
-		ChannelId: "validParticipantList",
+		ChannelName: "validParticipantList",
 	}
 	resp, err := svc.ListParticipants(ctx, request)
 	assert.NoError(t, err)
@@ -335,14 +353,14 @@ func TestListParticipants_Success(t *testing.T) {
 	assert.NotNil(t, resp.ParticipantId)
 }
 
-// TestListParticipants_EmptyChannelID verifies error when channel ID is empty.
-func TestListParticipants_EmptyChannelID(t *testing.T) {
+// TestListParticipants_EmptyChannelName verifies error when channel ID is empty.
+func TestListParticipants_EmptyChannelName(t *testing.T) {
 	db := &mockDB{}
 	cmdHandler := &mockNodeCommandHandler{}
 	svc := NewGroupService(db, cmdHandler)
 	ctx := context.Background()
 	request := &controllerapi.ListParticipantsRequest{
-		ChannelId: "",
+		ChannelName: "",
 	}
 	_, err := svc.ListParticipants(ctx, request)
 	assert.Error(t, err)
