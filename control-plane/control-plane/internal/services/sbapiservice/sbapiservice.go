@@ -307,7 +307,7 @@ func (s *sbAPIService) handleNodeMessages(ctx context.Context,
 				zlog.Error().Msgf("Error sending CreateChannelResponse: %v", err)
 				return err
 			}
-			zlog.Info().Msgf("Channel created successfully: %s", resp.ChannelId)
+			zlog.Info().Msgf("Channel created successfully: %s", resp.ChannelName)
 
 		case *controllerapi.ControlMessage_DeleteChannelRequest:
 			zlog.Debug().Msgf(

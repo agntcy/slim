@@ -171,39 +171,43 @@ pub struct DeregisterNodeResponse {
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct CreateChannelRequest {
-    /// list of moderators for the channel (e.g. spiffe SVID)
+    /// list of moderators for the channel
     #[prost(string, repeated, tag = "1")]
     pub moderators: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+    /// The channel name in the form organization/namespace/channel_name
     #[prost(string, tag = "2")]
-    pub channel_id: ::prost::alloc::string::String,
+    pub channel_name: ::prost::alloc::string::String,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct DeleteChannelRequest {
-    /// ID of the channel
+    /// The channel name in the form organization/namespace/channel_name
     #[prost(string, tag = "1")]
-    pub channel_id: ::prost::alloc::string::String,
+    pub channel_name: ::prost::alloc::string::String,
+    /// list of moderators for the channel
     #[prost(string, repeated, tag = "2")]
     pub moderators: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct AddParticipantRequest {
-    /// ID of the channel
+    /// The channel name in the form organization/namespace/channel_name
     #[prost(string, tag = "1")]
-    pub channel_id: ::prost::alloc::string::String,
-    /// ID of participant (e.g. spiffe SVID)
+    pub channel_name: ::prost::alloc::string::String,
+    /// ID of participant
     #[prost(string, tag = "2")]
     pub participant_id: ::prost::alloc::string::String,
+    /// list of moderators for the channel
     #[prost(string, repeated, tag = "3")]
     pub moderators: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct DeleteParticipantRequest {
-    /// ID of the channel
+    /// The channel name in the form organization/namespace/channel_name
     #[prost(string, tag = "1")]
-    pub channel_id: ::prost::alloc::string::String,
-    /// ID of participant (e.g. spiffe SVID)
+    pub channel_name: ::prost::alloc::string::String,
+    /// ID of participant
     #[prost(string, tag = "2")]
     pub participant_id: ::prost::alloc::string::String,
+    /// list of moderators for the channel
     #[prost(string, repeated, tag = "3")]
     pub moderators: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
 }
@@ -213,13 +217,13 @@ pub struct ListChannelsRequest {}
 pub struct ListChannelsResponse {
     /// IDs of the channels available in the control plane
     #[prost(string, repeated, tag = "1")]
-    pub channel_id: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+    pub channel_name: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ListParticipantsRequest {
-    /// ID of the channel
+    /// name of the channel
     #[prost(string, tag = "1")]
-    pub channel_id: ::prost::alloc::string::String,
+    pub channel_name: ::prost::alloc::string::String,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ListParticipantsResponse {

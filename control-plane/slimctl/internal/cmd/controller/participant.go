@@ -64,7 +64,7 @@ func newDeleteParticipantCmd(opts *options.CommonOptions) *cobra.Command {
 
 			deleteParticipantResponse, err := cpCLient.DeleteParticipant(ctx, &grpcapi.DeleteParticipantRequest{
 				ParticipantId: participantID,
-				ChannelId:     channelID,
+				ChannelName:   channelID,
 			})
 			if err != nil {
 				return fmt.Errorf("failed to delete participant: %w", err)
@@ -107,7 +107,7 @@ func newAddParticipantCmd(opts *options.CommonOptions) *cobra.Command {
 
 			addParticipantResponse, err := cpCLient.AddParticipant(ctx, &grpcapi.AddParticipantRequest{
 				ParticipantId: participantID,
-				ChannelId:     channelID,
+				ChannelName:   channelID,
 			})
 			if err != nil {
 				return fmt.Errorf("failed to add participants: %w", err)
@@ -128,11 +128,11 @@ func newListParticipantsCmd(opts *options.CommonOptions) *cobra.Command {
 		Short: "List participants",
 		Long:  `List participants`,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			channelID, _ := cmd.Flags().GetString(channelIDFlag)
-			if channelID == "" {
+			channelName, _ := cmd.Flags().GetString(channelIDFlag)
+			if channelName == "" {
 				return fmt.Errorf("channel ID is required")
 			}
-			fmt.Printf("Listing participants for channel ID: %s\n", channelID)
+			fmt.Printf("Listing participants for channel ID: %s\n", channelName)
 
 			ctx, cancel := context.WithTimeout(cmd.Context(), opts.Timeout)
 			defer cancel()
@@ -143,13 +143,13 @@ func newListParticipantsCmd(opts *options.CommonOptions) *cobra.Command {
 			}
 
 			listParticipantsResponse, err := cpCLient.ListParticipants(ctx, &grpcapi.ListParticipantsRequest{
-				ChannelId: channelID,
+				ChannelName: channelName,
 			})
 			if err != nil {
 				return fmt.Errorf("failed to list participants: %w", err)
 			}
 			participantIDs := listParticipantsResponse.GetParticipantId()
-			fmt.Printf("Following participants found for channel ID %s: %v\n", channelID, participantIDs)
+			fmt.Printf("Following participants found for channel ID %s: %v\n", channelName, participantIDs)
 			return nil
 		},
 	}

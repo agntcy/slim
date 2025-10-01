@@ -875,6 +875,17 @@ impl ControllerService {
                     Payload::CreateChannelRequest(req) => {
                         info!("received a create channel request");
 
+                        let channel_name = req.channel_name.clone();
+
+                        // Split the channel name into components
+                        let components = channel_name.split('/').collect::<Vec<&str>>();
+                        if components.len() < 3 || components.len() > 4 {
+                            return Err(ControllerError::ConfigError(format!(
+                                "invalid channel name format: {}",
+                                channel_name
+                            )));
+                        }
+
                         // Get the first moderator from the list, as we support only one for now
                         if let Some(first_moderator) = req.moderators.first() {
                             let moderator_name = get_name_from_string(first_moderator)?;
@@ -888,7 +899,32 @@ impl ControllerService {
 
                             let source_name = CONTROLLER_SOURCE_NAME.clone();
 
+<<<<<<< HEAD
                             let creation_msg = create_new_channel_message(
+=======
+                            // Create the moderator message
+                            // with a new UUID and current timestamp
+                            let moderator_request = ModeratorMessage {
+                                message_id: Uuid::new_v4().to_string(),
+                                timestamp: std::time::SystemTime::now()
+                                    .duration_since(std::time::UNIX_EPOCH)
+                                    .unwrap_or_default()
+                                    .as_secs() as i64,
+                                payload: Some(crate::api::proto::moderator::v1::moderator_message::Payload::CreateChannel(
+                                    CreateChannelRequest {
+                                        channel_id: channel_name.clone(),
+                                        moderators: vec![],
+                                        metadata: std::collections::HashMap::new(),
+                                    }
+                                )),
+                            };
+
+                            // Serialize the moderator request to a byte vector
+                            let message_content = moderator_request.encode_to_vec();
+
+                            // Build the SLIM header
+                            let slim_header = Some(SlimHeader::new(
+>>>>>>> d7ffe5ac (fix: channel name)
                                 &source_name,
                                 &moderator_name,
                                 &channel_name,

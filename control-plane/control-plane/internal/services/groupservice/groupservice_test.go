@@ -119,13 +119,15 @@ func TestCreateChannel_Success(t *testing.T) {
 	cmdHandler := &mockNodeCommandHandler{}
 	svc := NewGroupService(db, cmdHandler)
 	ctx := context.Background()
+
+	// create a valid request
 	request := &controlplaneApi.CreateChannelRequest{
-		Moderators: []string{"mod1"},
+		Moderators: []string{"org/ns/mod/0"},
 	}
-	nodeEntry := &controlplaneApi.NodeEntry{Id: "node123"}
-	resp, err := svc.CreateChannel(ctx, request, nodeEntry)
+	resp, err := svc.CreateChannel(ctx, request, nil)
 	assert.NoError(t, err)
-	assert.NotEmpty(t, resp.ChannelId)
+	assert.NotEmpty(t, resp.ChannelName)
+	assert.Contains(t, resp.ChannelName, "org/ns/")
 }
 
 // TestCreateChannel_SaveChannelError verifies that an error from SaveChannel is propagated.

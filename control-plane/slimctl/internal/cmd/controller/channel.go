@@ -14,6 +14,7 @@ import (
 	"github.com/agntcy/slim/control-plane/common/options"
 	grpcapi "github.com/agntcy/slim/control-plane/common/proto/controller/v1"
 	controlplaneApi "github.com/agntcy/slim/control-plane/common/proto/controlplane/v1"
+	"github.com/agntcy/slim/control-plane/common/util"
 )
 
 func NewChannelCmd(opts *options.CommonOptions) *cobra.Command {
@@ -57,9 +58,9 @@ func newCreateChannelCmd(opts *options.CommonOptions) *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("failed to create channel: %w", err)
 			}
-			channelID := createChannelResponse.GetChannelId()
+			channelName := createChannelResponse.GetChannelName()
 
-			fmt.Printf("Received response: %v\n", channelID)
+			fmt.Printf("Received response: %v\n", channelName)
 			return nil
 		},
 	}
@@ -72,9 +73,11 @@ func newDeleteChannelCmd(opts *options.CommonOptions) *cobra.Command {
 		Long:  "Delete a channel",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			channelID := args[0]
-			if channelID == "" {
-				return fmt.Errorf("channelID cannot be empty")
+			channelName := args[0]
+
+			// validate channel name format
+			if _, err := util.ValidateName(channelName, 3); err != nil {
+				return err
 			}
 
 			ctx, cancel := context.WithTimeout(cmd.Context(), opts.Timeout)
@@ -86,7 +89,7 @@ func newDeleteChannelCmd(opts *options.CommonOptions) *cobra.Command {
 			}
 
 			deleteChannelResponse, err := cpCLient.DeleteChannel(ctx, &grpcapi.DeleteChannelRequest{
-				ChannelId: channelID,
+				ChannelName: channelName,
 			})
 			if err != nil {
 				return fmt.Errorf("failed to delete channel: %w", err)
@@ -94,7 +97,7 @@ func newDeleteChannelCmd(opts *options.CommonOptions) *cobra.Command {
 			if !deleteChannelResponse.Success {
 				return fmt.Errorf("failed to delete channel")
 			}
-			fmt.Printf("Channel deleted successfully with ID: %v\n", channelID)
+			fmt.Printf("Channel deleted successfully with ID: %v\n", channelName)
 			return nil
 		},
 	}
@@ -106,7 +109,6 @@ func newListChannelsCmd(opts *options.CommonOptions) *cobra.Command {
 		Short: "List channels",
 		Long:  "List channels",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-
 			ctx, cancel := context.WithTimeout(cmd.Context(), opts.Timeout)
 			defer cancel()
 
@@ -120,7 +122,7 @@ func newListChannelsCmd(opts *options.CommonOptions) *cobra.Command {
 				return fmt.Errorf("failed to list channels: %w", err)
 			}
 
-			channelIDs := listChannelsResponse.GetChannelId()
+			channelIDs := listChannelsResponse.GetChannelName()
 			fmt.Printf("Following channels found: %v\n", channelIDs)
 			return nil
 		},
@@ -140,5 +142,13 @@ func getModerators(param string) ([]string, error) {
 	if len(moderators) == 0 {
 		return nil, fmt.Errorf("no moderators specified")
 	}
+
+	// Validate moderator names
+	for _, mod := range moderators {
+		if _, err := util.ValidateName(mod, 4); err != nil {
+			return nil, fmt.Errorf("invalid moderator name '%s': %w", mod, err)
+		}
+	}
+
 	return moderators, nil
 }

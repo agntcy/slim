@@ -229,7 +229,7 @@ func (s *nbAPIService) CreateChannel(
 func (s *nbAPIService) DeleteChannel(
 	ctx context.Context, deleteChannelRequest *controllerapi.DeleteChannelRequest) (
 	*controllerapi.Ack, error) {
-	storedChannel, err := s.groupService.GetChannelDetails(ctx, deleteChannelRequest.ChannelId)
+	storedChannel, err := s.groupService.GetChannelDetails(ctx, deleteChannelRequest.ChannelName)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get channel: %w", err)
 	}
@@ -243,7 +243,7 @@ func (s *nbAPIService) DeleteChannel(
 func (s *nbAPIService) AddParticipant(
 	ctx context.Context, addParticipantRequest *controllerapi.AddParticipantRequest) (
 	*controllerapi.Ack, error) {
-	storedChannel, err := s.groupService.GetChannelDetails(ctx, addParticipantRequest.ChannelId)
+	storedChannel, err := s.groupService.GetChannelDetails(ctx, addParticipantRequest.ChannelName)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get channel: %w", err)
 	}
@@ -257,7 +257,7 @@ func (s *nbAPIService) AddParticipant(
 func (s *nbAPIService) DeleteParticipant(
 	ctx context.Context, deleteParticipantRequest *controllerapi.DeleteParticipantRequest) (
 	*controllerapi.Ack, error) {
-	storedChannel, err := s.groupService.GetChannelDetails(ctx, deleteParticipantRequest.ChannelId)
+	storedChannel, err := s.groupService.GetChannelDetails(ctx, deleteParticipantRequest.ChannelName)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get channel: %w", err)
 	}

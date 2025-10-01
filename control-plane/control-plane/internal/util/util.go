@@ -14,7 +14,7 @@ func GetRandomID(length int) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("failed to generate random ID: %w", err)
 	}
-	for i := 0; i < length; i++ {
+	for i := range length {
 		b[i] = chars[int(b[i])%ll]
 	}
 	return string(b), nil

@@ -126,34 +126,40 @@ message DeregisterNodeResponse {
 }
 
 message CreateChannelRequest {
-  // list of moderators for the channel (e.g. spiffe SVID)
+  // list of moderators for the channel
   repeated string moderators = 1;
-  string channel_id = 2;
+
+  // The channel name in the form organization/namespace/channel_name
+  string channel_name = 2;
 }
 
 message DeleteChannelRequest {
-  // ID of the channel
-  string channel_id = 1;
+  // The channel name in the form organization/namespace/channel_name
+  string channel_name = 1;
+
+  // list of moderators for the channel
   repeated string moderators = 2;
 }
 
 message AddParticipantRequest {
-  // ID of the channel
-  string channel_id = 1;
+  // The channel name in the form organization/namespace/channel_name
+  string channel_name = 1;
 
-  // ID of participant (e.g. spiffe SVID)
+  // ID of participant
   string participant_id = 2;
 
+  // list of moderators for the channel
   repeated string moderators = 3;
 }
 
 message DeleteParticipantRequest {
-  // ID of the channel
-  string channel_id = 1;
+  // The channel name in the form organization/namespace/channel_name
+  string channel_name = 1;
 
-  // ID of participant (e.g. spiffe SVID)
+  // ID of participant
   string participant_id = 2;
 
+  // list of moderators for the channel
   repeated string moderators = 3;
 }
 
@@ -161,12 +167,12 @@ message ListChannelsRequest {}
 
 message ListChannelsResponse {
   // IDs of the channels available in the control plane
-  repeated string channel_id = 1;
+  repeated string channel_name = 1;
 }
 
 message ListParticipantsRequest {
-  // ID of the channel
-  string channel_id = 1;
+  // name of the channel
+  string channel_name = 1;
 }
 
 message ListParticipantsResponse {

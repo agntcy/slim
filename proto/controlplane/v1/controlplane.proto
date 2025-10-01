@@ -74,11 +74,11 @@ message DeleteRouteResponse {
 }
 
 message CreateChannelRequest {
-  // list of moderators for the channel (e.g. spiffe SVID)
+  // list of moderators for the channel
   repeated string moderators = 1;
 }
 
 message CreateChannelResponse {
-  // ID of the channel, to which clients will subscribe (e.g. spiffe SVID)
-  string channel_id = 1;
+  // ID of the channel, to which clients will subscribe
+  string channel_name = 1;
 }

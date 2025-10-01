@@ -2,6 +2,7 @@ package util
 
 import (
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -42,4 +43,23 @@ func ParseRoute(route string) (
 	}
 
 	return
+}
+
+// ValidateName validates that a channel name has the expected number of
+// '/' separated components (expectedComponents) and that none of them are empty.
+func ValidateName(name string, expectedComponents int) ([]string, error) {
+	if name == "" {
+		return nil, fmt.Errorf("channel name cannot be empty")
+	}
+
+	parts := strings.Split(name, "/")
+	if len(parts) != expectedComponents {
+		return nil, fmt.Errorf("invalid channel name format, expected %d components separated by '/'", expectedComponents)
+	}
+
+	if slices.Contains(parts, "") {
+		return nil, fmt.Errorf("invalid channel name format, none of the %d components can be empty", expectedComponents)
+	}
+
+	return parts, nil
 }

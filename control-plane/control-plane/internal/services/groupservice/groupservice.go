@@ -4,19 +4,21 @@ import (
 	"context"
 	"fmt"
 	"reflect"
+	"slices"
 
 	"github.com/google/uuid"
 	"github.com/rs/zerolog"
 
 	controllerapi "github.com/agntcy/slim/control-plane/common/proto/controller/v1"
 	controlplaneApi "github.com/agntcy/slim/control-plane/common/proto/controlplane/v1"
+	commonutil "github.com/agntcy/slim/control-plane/common/util"
 	"github.com/agntcy/slim/control-plane/control-plane/internal/db"
 	"github.com/agntcy/slim/control-plane/control-plane/internal/services/nodecontrol"
 	util "github.com/agntcy/slim/control-plane/control-plane/internal/util"
 )
 
 // moderator_id-random_string
-const ChannelIDFormat = "%s-%s"
+const ChannelNameFormat = "%s/%s/%s"
 
 type GroupService struct {
 	dbService  db.DataAccess
@@ -37,15 +39,29 @@ func (s *GroupService) CreateChannel(
 ) (*controlplaneApi.CreateChannelResponse, error) {
 	zlog := zerolog.Ctx(ctx)
 
+	zlog.Error().Msgf("Received CreateChannelRequest: %+v", createChannelRequest)
+
 	if len(createChannelRequest.Moderators) == 0 {
 		return nil, fmt.Errorf("at least one moderator is required to create a channel")
+	}
+
+	// For now we will just use the first moderator to determine the channel name
+	// TODO: enhance this logic to support multiple moderators
+	moderatorName := createChannelRequest.Moderators[0]
+
+	// make sure the moderator name is well-formed
+	parts, err := commonutil.ValidateName(moderatorName, 4)
+	if err != nil {
+		return nil, fmt.Errorf("invalid moderator name: %w", err)
 	}
 
 	randID, err := util.GetRandomID(18)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate random ID: %w", err)
 	}
-	channelID := fmt.Sprintf(ChannelIDFormat, createChannelRequest.Moderators[0], randID)
+	channelName := fmt.Sprintf(ChannelNameFormat, parts[0], parts[1], randID)
+
+	zlog.Debug().Msgf("Generated channel name: %s", channelName)
 
 	// Sending control message
 	messageID := uuid.NewString()
@@ -53,12 +69,12 @@ func (s *GroupService) CreateChannel(
 		MessageId: messageID,
 		Payload: &controllerapi.ControlMessage_CreateChannelRequest{
 			CreateChannelRequest: &controllerapi.CreateChannelRequest{
-				ChannelId:  channelID,
-				Moderators: createChannelRequest.Moderators,
+				ChannelName: channelName,
+				Moderators:  createChannelRequest.Moderators,
 			},
 		},
 	}
-	zlog.Debug().Msgf("Sending CreateChannelRequest for channel %s to node: %s", channelID, nodeEntry.Id)
+	zlog.Debug().Msgf("Sending CreateChannelRequest for channel %s to node: %s", channelName, nodeEntry.Id)
 	if sendErr := s.cmdHandler.SendMessage(ctx, nodeEntry.Id, msg); sendErr != nil {
 		return nil, fmt.Errorf("failed to send message: %w", sendErr)
 	}
@@ -78,18 +94,18 @@ func (s *GroupService) CreateChannel(
 			return nil, fmt.Errorf("failed to create channel: %s", ack.Messages)
 		}
 		logAckMessage(ctx, ack)
-		zlog.Debug().Msgf("Channel created successfully: %s", channelID)
+		zlog.Debug().Msgf("Channel created successfully: %s", channelName)
 	}
 
 	// Saving channel to DB
-	err = s.dbService.SaveChannel(channelID, createChannelRequest.Moderators)
+	err = s.dbService.SaveChannel(channelName, createChannelRequest.Moderators)
 	if err != nil {
 		return nil, fmt.Errorf("failed to save channel: %w", err)
 	}
 	zlog.Debug().Msg("Channel saved successfully.")
 
 	return &controlplaneApi.CreateChannelResponse{
-		ChannelId: channelID,
+		ChannelName: channelName,
 	}, nil
 }
 
@@ -100,12 +116,13 @@ func (s *GroupService) DeleteChannel(
 ) (*controllerapi.Ack, error) {
 	zlog := zerolog.Ctx(ctx)
 
-	if deleteChannelRequest.ChannelId == "" {
-		return nil, fmt.Errorf("channel ID cannot be empty")
+	_, err := commonutil.ValidateName(deleteChannelRequest.ChannelName, 3)
+	if err != nil {
+		return nil, fmt.Errorf("invalid channel name: %w", err)
 	}
 
 	// Check if channel exist
-	channel, err := s.dbService.GetChannel(deleteChannelRequest.ChannelId)
+	channel, err := s.dbService.GetChannel(deleteChannelRequest.ChannelName)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get channel from DB: %w", err)
 	}
@@ -122,7 +139,7 @@ func (s *GroupService) DeleteChannel(
 	}
 
 	zlog.Debug().Msgf("Sending DeleteChannelRequest for channel %s to node: %s",
-		deleteChannelRequest.ChannelId, nodeEntry.Id)
+		deleteChannelRequest.ChannelName, nodeEntry.Id)
 	if handlerError := s.cmdHandler.SendMessage(ctx, nodeEntry.Id, msg); handlerError != nil {
 		return nil, fmt.Errorf("failed to send message: %w", handlerError)
 	}
@@ -146,7 +163,7 @@ func (s *GroupService) DeleteChannel(
 		zlog.Debug().Msg("Ack message received, channel deleted successfully.")
 	}
 
-	err = s.dbService.DeleteChannel(deleteChannelRequest.ChannelId)
+	err = s.dbService.DeleteChannel(deleteChannelRequest.ChannelName)
 	if err != nil {
 		return nil, fmt.Errorf("failed to delete channel: %w", err)
 	}
@@ -164,15 +181,18 @@ func (s *GroupService) AddParticipant(
 ) (*controllerapi.Ack, error) {
 	zlog := zerolog.Ctx(ctx)
 
-	if addParticipantRequest.ChannelId == "" {
-		return nil, fmt.Errorf("channel ID cannot be empty")
+	_, err := commonutil.ValidateName(addParticipantRequest.ParticipantId, 4)
+	if err != nil {
+		return nil, fmt.Errorf("invalid participant name: %w", err)
 	}
-	if addParticipantRequest.ParticipantId == "" {
-		return nil, fmt.Errorf("participant ID cannot be empty")
+
+	_, err = commonutil.ValidateName(addParticipantRequest.ChannelName, 3)
+	if err != nil {
+		return nil, fmt.Errorf("invalid channel name: %w", err)
 	}
 
 	// Control plane side DB operations
-	channel, err := s.dbService.GetChannel(addParticipantRequest.ChannelId)
+	channel, err := s.dbService.GetChannel(addParticipantRequest.ChannelName)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get channel from DB: %w", err)
 	}
@@ -189,7 +209,7 @@ func (s *GroupService) AddParticipant(
 	}
 
 	zlog.Debug().Msgf("Sending AddParticipantRequest for channel %s to node: %s",
-		addParticipantRequest.ChannelId, nodeEntry.Id)
+		addParticipantRequest.ChannelName, nodeEntry.Id)
 	if err = s.cmdHandler.SendMessage(ctx, nodeEntry.Id, msg); err != nil {
 		return nil, fmt.Errorf("failed to send message: %w", err)
 	}
@@ -213,11 +233,9 @@ func (s *GroupService) AddParticipant(
 		zlog.Debug().Msg("Ack message received, participant added successfully.")
 	}
 
-	for _, participant := range channel.Participants {
-		if participant == addParticipantRequest.ParticipantId {
-			return nil, fmt.Errorf("participant %s already exists in channel %s",
-				addParticipantRequest.ParticipantId, addParticipantRequest.ChannelId)
-		}
+	if slices.Contains(channel.Participants, addParticipantRequest.ParticipantId) {
+		return nil, fmt.Errorf("participant %s already exists in channel %s",
+			addParticipantRequest.ParticipantId, addParticipantRequest.ChannelName)
 	}
 
 	channel.Participants = append(channel.Participants, addParticipantRequest.ParticipantId)
@@ -238,13 +256,13 @@ func (s *GroupService) DeleteParticipant(
 	nodeEntry *controlplaneApi.NodeEntry,
 ) (*controllerapi.Ack, error) {
 	zlog := zerolog.Ctx(ctx)
-	if deleteParticipantRequest.ChannelId == "" {
+	if deleteParticipantRequest.ChannelName == "" {
 		return nil, fmt.Errorf("channel ID cannot be empty")
 	}
 	if deleteParticipantRequest.ParticipantId == "" {
 		return nil, fmt.Errorf("participant ID cannot be empty")
 	}
-	channel, err := s.dbService.GetChannel(deleteParticipantRequest.ChannelId)
+	channel, err := s.dbService.GetChannel(deleteParticipantRequest.ChannelName)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get channel: %w", err)
 	}
@@ -258,7 +276,7 @@ func (s *GroupService) DeleteParticipant(
 
 	if foundIdx == -1 {
 		return nil, fmt.Errorf("participant %s not found in channel %s",
-			deleteParticipantRequest.ParticipantId, deleteParticipantRequest.ChannelId)
+			deleteParticipantRequest.ParticipantId, deleteParticipantRequest.ChannelName)
 	}
 
 	deleteParticipantRequest.Moderators = channel.Moderators
@@ -273,7 +291,7 @@ func (s *GroupService) DeleteParticipant(
 	}
 
 	zlog.Debug().Msgf("Sending DeleteParticipantRequest for channel %s to node: %s",
-		deleteParticipantRequest.ChannelId, nodeEntry.Id)
+		deleteParticipantRequest.ChannelName, nodeEntry.Id)
 	if handlerError := s.cmdHandler.SendMessage(ctx, nodeEntry.Id, msg); handlerError != nil {
 		return nil, fmt.Errorf("failed to send message: %w", handlerError)
 	}
@@ -320,14 +338,14 @@ func (s *GroupService) ListChannels(
 		return nil, fmt.Errorf("failed to list channels: %w", err)
 	}
 
-	channelIDs := make([]string, 0, len(channels))
+	channelNames := make([]string, 0, len(channels))
 	for _, channel := range channels {
-		channelIDs = append(channelIDs, channel.ID)
+		channelNames = append(channelNames, channel.ID)
 	}
 	zlog.Debug().Msg("Channels listed successfully.")
 
 	return &controllerapi.ListChannelsResponse{
-		ChannelId: channelIDs,
+		ChannelName: channelNames,
 	}, nil
 }
 
@@ -352,11 +370,11 @@ func (s *GroupService) ListParticipants(
 	*controllerapi.ListParticipantsResponse, error) {
 	zlog := zerolog.Ctx(ctx)
 
-	if listParticipantsRequest.ChannelId == "" {
+	if listParticipantsRequest.ChannelName == "" {
 		return nil, fmt.Errorf("channel ID cannot be empty")
 	}
 
-	channel, err := s.dbService.GetChannel(listParticipantsRequest.ChannelId)
+	channel, err := s.dbService.GetChannel(listParticipantsRequest.ChannelName)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get channel: %w", err)
 	}
