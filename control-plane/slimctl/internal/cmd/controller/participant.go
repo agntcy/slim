@@ -24,7 +24,6 @@ func NewParticipantCmd(opts *options.CommonOptions) *cobra.Command {
 	}
 
 	cmd.PersistentFlags().StringP(channelIDFlag, "c", "", "ID of the channel to manage participants for")
-
 	err := cmd.MarkPersistentFlagRequired(channelIDFlag)
 	if err != nil {
 		fmt.Printf("Error marking persistent flag required: %v\n", err)
@@ -57,12 +56,12 @@ func newDeleteParticipantCmd(opts *options.CommonOptions) *cobra.Command {
 			ctx, cancel := context.WithTimeout(cmd.Context(), opts.Timeout)
 			defer cancel()
 
-			cpCLient, err := cpApi.GetClient(opts)
+			cpClient, ctx, err := cpApi.GetClient(ctx, opts)
 			if err != nil {
 				return fmt.Errorf("failed to get control plane client: %w", err)
 			}
 
-			deleteParticipantResponse, err := cpCLient.DeleteParticipant(ctx, &grpcapi.DeleteParticipantRequest{
+			deleteParticipantResponse, err := cpClient.DeleteParticipant(ctx, &grpcapi.DeleteParticipantRequest{
 				ParticipantId: participantID,
 				ChannelId:     channelID,
 			})
@@ -100,12 +99,12 @@ func newAddParticipantCmd(opts *options.CommonOptions) *cobra.Command {
 			ctx, cancel := context.WithTimeout(cmd.Context(), opts.Timeout)
 			defer cancel()
 
-			cpCLient, err := cpApi.GetClient(opts)
+			cpClient, ctx, err := cpApi.GetClient(ctx, opts)
 			if err != nil {
 				return fmt.Errorf("failed to get control plane client: %w", err)
 			}
 
-			addParticipantResponse, err := cpCLient.AddParticipant(ctx, &grpcapi.AddParticipantRequest{
+			addParticipantResponse, err := cpClient.AddParticipant(ctx, &grpcapi.AddParticipantRequest{
 				ParticipantId: participantID,
 				ChannelId:     channelID,
 			})
@@ -133,16 +132,15 @@ func newListParticipantsCmd(opts *options.CommonOptions) *cobra.Command {
 				return fmt.Errorf("channel ID is required")
 			}
 			fmt.Printf("Listing participants for channel ID: %s\n", channelID)
-
 			ctx, cancel := context.WithTimeout(cmd.Context(), opts.Timeout)
 			defer cancel()
 
-			cpCLient, err := cpApi.GetClient(opts)
+			cpClient, ctx, err := cpApi.GetClient(ctx, opts)
 			if err != nil {
 				return fmt.Errorf("failed to get control plane client: %w", err)
 			}
 
-			listParticipantsResponse, err := cpCLient.ListParticipants(ctx, &grpcapi.ListParticipantsRequest{
+			listParticipantsResponse, err := cpClient.ListParticipants(ctx, &grpcapi.ListParticipantsRequest{
 				ChannelId: channelID,
 			})
 			if err != nil {

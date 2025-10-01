@@ -45,12 +45,12 @@ func newCreateChannelCmd(opts *options.CommonOptions) *cobra.Command {
 			ctx, cancel := context.WithTimeout(cmd.Context(), opts.Timeout)
 			defer cancel()
 
-			cpCLient, err := cpApi.GetClient(opts)
+			cpClient, ctx, err := cpApi.GetClient(ctx, opts)
 			if err != nil {
 				return fmt.Errorf("failed to get control plane client: %w", err)
 			}
 
-			createChannelResponse, err := cpCLient.CreateChannel(ctx, &grpcapi.CreateChannelRequest{
+			createChannelResponse, err := cpClient.CreateChannel(ctx, &grpcapi.CreateChannelRequest{
 				Moderators: moderators,
 			})
 			if err != nil {
@@ -79,12 +79,12 @@ func newDeleteChannelCmd(opts *options.CommonOptions) *cobra.Command {
 			ctx, cancel := context.WithTimeout(cmd.Context(), opts.Timeout)
 			defer cancel()
 
-			cpCLient, err := cpApi.GetClient(opts)
+			cpClient, ctx, err := cpApi.GetClient(ctx, opts)
 			if err != nil {
 				return fmt.Errorf("failed to get control plane client: %w", err)
 			}
 
-			deleteChannelResponse, err := cpCLient.DeleteChannel(ctx, &grpcapi.DeleteChannelRequest{
+			deleteChannelResponse, err := cpClient.DeleteChannel(ctx, &grpcapi.DeleteChannelRequest{
 				ChannelId: channelID,
 			})
 			if err != nil {
@@ -105,16 +105,15 @@ func newListChannelsCmd(opts *options.CommonOptions) *cobra.Command {
 		Short: "List channels",
 		Long:  "List channels",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-
 			ctx, cancel := context.WithTimeout(cmd.Context(), opts.Timeout)
 			defer cancel()
 
-			cpCLient, err := cpApi.GetClient(opts)
+			cpClient, ctx, err := cpApi.GetClient(ctx, opts)
 			if err != nil {
 				return fmt.Errorf("failed to get control plane client: %w", err)
 			}
 
-			listChannelsResponse, err := cpCLient.ListChannels(ctx, &grpcapi.ListChannelsRequest{})
+			listChannelsResponse, err := cpClient.ListChannels(ctx, &grpcapi.ListChannelsRequest{})
 			if err != nil {
 				return fmt.Errorf("failed to list channels: %w", err)
 			}

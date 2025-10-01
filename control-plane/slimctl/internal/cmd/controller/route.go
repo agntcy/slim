@@ -29,7 +29,6 @@ func NewRouteCmd(opts *options.CommonOptions) *cobra.Command {
 	}
 
 	cmd.PersistentFlags().StringP(nodeIDFlag, "n", "", "ID of the node to manage routes for")
-
 	err := cmd.MarkPersistentFlagRequired(nodeIDFlag)
 	if err != nil {
 		fmt.Printf("Error marking persistent flag required: %v\n", err)
@@ -50,16 +49,15 @@ func newListCmd(opts *options.CommonOptions) *cobra.Command {
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			nodeID, _ := cmd.Flags().GetString(nodeIDFlag)
 			fmt.Printf("Listing routes for node ID: %s\n", nodeID)
-
 			ctx, cancel := context.WithTimeout(cmd.Context(), opts.Timeout)
 			defer cancel()
 
-			cpCLient, err := cpApi.GetClient(opts)
+			cpClient, ctx, err := cpApi.GetClient(ctx, opts)
 			if err != nil {
 				return fmt.Errorf("failed to get control plane client: %w", err)
 			}
 
-			subscriptionListResponse, err := cpCLient.ListRoutes(ctx, &controlplaneApi.Node{
+			subscriptionListResponse, err := cpClient.ListRoutes(ctx, &controlplaneApi.Node{
 				Id: nodeID,
 			})
 			if err != nil {
@@ -131,7 +129,7 @@ func newAddCmd(opts *options.CommonOptions) *cobra.Command {
 			ctx, cancel := context.WithTimeout(cmd.Context(), opts.Timeout)
 			defer cancel()
 
-			cpClient, err := cpApi.GetClient(opts)
+			cpClient, ctx, err := cpApi.GetClient(ctx, opts)
 			if err != nil {
 				return fmt.Errorf("failed to get control plane client: %w", err)
 			}
@@ -221,12 +219,12 @@ func newDelCmd(opts *options.CommonOptions) *cobra.Command {
 			ctx, cancel := context.WithTimeout(cmd.Context(), opts.Timeout)
 			defer cancel()
 
-			cpCLient, err := cpApi.GetClient(opts)
+			cpClient, ctx, err := cpApi.GetClient(ctx, opts)
 			if err != nil {
 				return fmt.Errorf("failed to get control plane client: %w", err)
 			}
 
-			returnedMessage, err := cpCLient.DeleteRoute(ctx, deleteRouteRequest)
+			returnedMessage, err := cpClient.DeleteRoute(ctx, deleteRouteRequest)
 			if err != nil {
 				return fmt.Errorf("failed to delete route: %w", err)
 			}
