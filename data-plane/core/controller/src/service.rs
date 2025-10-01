@@ -480,33 +480,46 @@ fn get_name_from_string(string_name: &String) -> Result<Name, ControllerError> {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn create_channel_message(
     source: &Name,
     destination: &Name,
+    channel: Option<&Name>, // TODO(micpapal): this needs to be removed
+    // use the protobuf file to define the payload
+    // of the packets
     request_type: ProtoSessionMessageType,
     session_id: u32,
     message_id: u32,
-    metadata: Option<HashMap<String, String>>,
+    mut metadata: HashMap<String, String>,
     payload: Vec<u8>,
 ) -> DataPlaneMessage {
     let slim_header = Some(SlimHeader::new(source, destination, None));
+    let dest = channel.unwrap_or(destination);
 
-    // no need to specify the source and the destination here. these messages
-    // will never be seen by the application
     let session_header = Some(SessionHeader::new(
         ProtoSessionType::SessionMulticast.into(),
         request_type.into(),
         session_id,
         message_id,
         &None,
-        &Some(destination.clone()),
+        &Some(dest.clone()),
     ));
 
+    // TODO: fix the identity of the controller
+    let controller_identity = SharedSecret::new("controller", "group");
+    let identity_token = controller_identity
+        .get_token()
+        .map_err(|e| {
+            error!("failed to generate identity token: {}", e);
+            ControllerError::DatapathError(e.to_string())
+        })
+        .unwrap();
+
+    metadata.insert(SLIM_IDENTITY.to_string(), identity_token);
     let mut msg =
         DataPlaneMessage::new_publish_with_headers(slim_header, session_header, "", payload);
-    if let Some(map) = metadata {
-        msg.set_metadata_map(map);
-    }
+
+    msg.set_metadata_map(metadata);
 
     msg
 }
@@ -520,6 +533,7 @@ fn create_new_channel_message(
 
     // Local copy of JoinMessagePayload (original defined in channel endpoint module for data plane service).
     // Duplicated here because controller does not depend on the service module.
+    // TODO(micpapal): handle this using the protobuf
     #[derive(Debug, Clone, bincode::Encode, bincode::Decode)]
     struct JoinMessagePayloadLocal {
         channel_name: Name,
@@ -533,17 +547,22 @@ fn create_new_channel_message(
         .expect("unable to encode channel join payload");
 
     let mut metadata = HashMap::new();
+
     metadata.insert("IS_MODERATOR".to_string(), "true".to_string());
 
-    // TODO add MLS in the metadata if mls is enabled
+    // by default MLS is always on
+    // TODO(micpapal): define all this metadata constants somewhere
+    // that is accessible everywhere
+    metadata.insert("MLS_ENABLED".to_string(), "true".to_string());
 
     create_channel_message(
         controller,
         moderator,
+        Some(channel),
         ProtoSessionMessageType::ChannelJoinRequest,
         session_id,
         rand::random::<u32>(),
-        Some(metadata),
+        metadata,
         invite_payload,
     )
 }
@@ -556,6 +575,7 @@ fn invite_participant_message(
 ) -> DataPlaneMessage {
     let session_id = generate_session_id(moderator, channel_name);
     let mut metadata = HashMap::new();
+
     let encoded_participant: Vec<u8> =
         bincode::encode_to_vec(participant, bincode::config::standard())
             .expect("unable to encode channel join payload");
@@ -567,10 +587,11 @@ fn invite_participant_message(
     create_channel_message(
         controller,
         moderator,
+        None,
         ProtoSessionMessageType::ChannelDiscoveryRequest,
         session_id,
         rand::random::<u32>(),
-        Some(metadata),
+        metadata,
         vec![],
     )
 }
@@ -593,10 +614,11 @@ fn remove_participant_message(
     create_channel_message(
         controller,
         moderator,
+        None,
         ProtoSessionMessageType::ChannelLeaveRequest,
         session_id,
         rand::random::<u32>(),
-        Some(metadata),
+        metadata,
         vec![],
     )
 }
@@ -893,6 +915,7 @@ impl ControllerService {
                                 &channel_name,
                             );
 
+                            debug!("Send session creation message: {:?}", creation_msg);
                             if let Err(e) = self.send_control_message(creation_msg).await {
                                 error!("failed to send channel creation: {}", e);
                             }
@@ -1028,8 +1051,6 @@ impl ControllerService {
                             let channel_name = get_name_from_string(&req.channel_name)?;
                             let participant_name = get_name_from_string(&req.participant_id)?;
                             let source_name = CONTROLLER_SOURCE_NAME.clone();
-                            Name::from_strings(["controller", "controller", "controller"])
-                                .with_id(0);
 
                             let invite_msg = invite_participant_message(
                                 &source_name,
@@ -1037,6 +1058,8 @@ impl ControllerService {
                                 &participant_name,
                                 &channel_name,
                             );
+
+                            debug!("Send invite participant: {:?}", invite_msg);
 
                             if let Err(e) = self.send_control_message(invite_msg).await {
                                 error!("failed to send channel creation: {}", e);

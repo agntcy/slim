@@ -37,6 +37,13 @@ impl SessionConfig {
             SessionConfig::Multicast(c) => Some(c.channel_name.clone()),
         }
     }
+
+    pub fn initiator(&self) -> bool {
+        match self {
+            SessionConfig::PointToPoint(c) => c.initiator,
+            SessionConfig::Multicast(c) => c.initiator,
+        }
+    }
 }
 
 #[cfg(test)]

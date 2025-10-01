@@ -8,6 +8,7 @@ use std::sync::Arc;
 // Third-party crates
 use parking_lot::RwLock as SyncRwLock;
 use rand::Rng;
+use slim_datapath::messages::utils::SLIM_IDENTITY;
 use tokio::sync::RwLock as AsyncRwLock;
 use tokio::sync::mpsc::Sender;
 use tracing::{debug, warn};
@@ -305,27 +306,40 @@ where
             (id, session_type, session_message_type)
         };
 
-        match self
-            .handle_message_from_slim_without_session(
-                &message,
-                session_type,
-                session_message_type,
-                id,
-            )
-            .await
-        {
-            Ok(done) => {
-                if done {
-                    // message process concluded
-                    return Ok(());
+        if session_message_type == ProtoSessionMessageType::ChannelDiscoveryRequest {
+            // recvied a discovery message
+            if let Some(session) = self.pool.read().await.get(&id)
+                && session.session_config().initiator()
+            {
+                // if the message is for a session that already exists and the local app
+                // is the initiator of the session this message is coming from the controller
+                // that wants to add new participant to the session
+                return session.on_message(message, MessageDirection::North).await;
+            } else {
+                // in this case we handle the message without creating a new local session
+                match self
+                    .handle_message_from_slim_without_session(
+                        &message,
+                        session_type,
+                        session_message_type,
+                        id,
+                    )
+                    .await
+                {
+                    Ok(done) => {
+                        if done {
+                            // message process concluded
+                            return Ok(());
+                        }
+                    }
+                    Err(e) => {
+                        // return an error
+                        return Err(SessionError::SlimReception(format!(
+                            "error processing packets from slim {}",
+                            e
+                        )));
+                    }
                 }
-            }
-            Err(e) => {
-                // return an error
-                return Err(SessionError::SlimReception(format!(
-                    "error processing packets from slim {}",
-                    e
-                )));
             }
         }
 
@@ -399,8 +413,15 @@ where
                     ProtoSessionType::SessionMulticast => {
                         let mut conf = self.default_multicast_conf.read().clone();
                         conf.mls_enabled = message.contains_metadata(METADATA_MLS_ENABLED);
-                        conf.initiator = message.contains_metadata("IS_MODERATOR");
+
+                        // the metadata of the first received message are copied in the metadata of the session
+                        // and then added to the messages sent by this session. so we need to erase the entries
+                        // the we want to keep local: IS_MODERATOR and SLIM_IDENTITY
+                        conf.initiator = message.remove_metadata("IS_MODERATOR").is_some();
+                        message.remove_metadata(SLIM_IDENTITY);
+
                         conf.metadata = message.get_metadata_map();
+
                         conf.channel_name = message
                             .get_session_header()
                             .get_destination()

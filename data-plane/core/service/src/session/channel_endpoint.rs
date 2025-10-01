@@ -1198,6 +1198,11 @@ where
 
     async fn forward(&mut self, msg: Message) -> Result<(), SessionError> {
         let to_forward = if let Some(string_name) = msg.get_metadata("PARTICIPANT_NAME") {
+            debug!("received invite participant from controller: {:?}", msg);
+
+            // set the local connection
+            self.endpoint.conn = Some(msg.get_incoming_conn());
+
             let dst_vec = base64::engine::general_purpose::STANDARD
                 .decode(string_name)
                 .map_err(|e| SessionError::ParseProposalMessage(e.to_string()))?;
@@ -1205,6 +1210,8 @@ where
             let dst: Name = bincode::decode_from_slice(&dst_vec, bincode::config::standard())
                 .map_err(|e| SessionError::ParseProposalMessage(e.to_string()))?
                 .0;
+
+            self.endpoint.set_route(&dst).await?;
 
             let new_slim_header = SlimHeader::new(&self.endpoint.name, &dst, None);
 
@@ -1214,7 +1221,7 @@ where
                 self.endpoint.session_id,
                 msg.get_id(),
                 &None,
-                &Some(self.endpoint.channel_name.clone()),
+                &None,
             );
 
             let blob = match msg.get_payload() {
@@ -1902,7 +1909,6 @@ where
                     Some(ModeratorTask::AddParticipant(AddParticipant::default()))
                 };
 
-                debug!("Invite new participant to the channel, send discovery message");
                 let msg_id = msg.get_id();
                 // discovery message coming from the application
                 self.forward(msg).await?;
@@ -1960,6 +1966,14 @@ where
                 // this is part of a remove, process the packet
                 debug!("Received leave reply message");
                 self.on_leave_reply(msg).await
+            }
+            ProtoSessionMessageType::ChannelJoinRequest => {
+                // packet coming from the controller
+                // this message created a new multicast session on the local app
+                // setting the application as moderator
+                // all the necessary is already set we can simply drop the packet
+                debug!("Received channel join request from the controller.");
+                Ok(())
             }
             _ => Err(SessionError::Processing(format!(
                 "received unexpected packet type: {:?}",
