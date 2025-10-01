@@ -1414,20 +1414,20 @@ mod tests {
     }
 
     #[test]
-    fn test_get_session_id_deterministic_and_unique() {
+    fn test_generate_session_id() {
         let moderator_a = Name::from_strings(["Org", "Ns", "Moderator"]).with_id(42);
         let moderator_b = Name::from_strings(["Org", "Ns", "Moderator"]).with_id(43); // different id
         let channel_x = Name::from_strings(["Org", "Ns", "ChannelX"]).with_id(7);
         let channel_y = Name::from_strings(["Org", "Ns", "ChannelY"]).with_id(7); // different last component
 
-        let id1 = get_session_id(&moderator_a, &channel_x);
-        let id2 = get_session_id(&moderator_a, &channel_x);
+        let id1 = generate_session_id(&moderator_a, &channel_x);
+        let id2 = generate_session_id(&moderator_a, &channel_x);
         assert_eq!(id1, id2, "hash must be deterministic for same inputs");
 
-        let id3 = get_session_id(&moderator_b, &channel_x);
+        let id3 = generate_session_id(&moderator_b, &channel_x);
         assert_ne!(id1, id3, "changing moderator id should change session id");
 
-        let id4 = get_session_id(&moderator_a, &channel_y);
+        let id4 = generate_session_id(&moderator_a, &channel_y);
         assert_ne!(id1, id4, "changing channel name should change session id");
 
         // Ensure moderate spread (not strictly required, but sanity check that values aren't zero)
