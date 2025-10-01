@@ -2,11 +2,13 @@ package sbapiservice
 
 import (
 	"context"
+	"fmt"
 	"net"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/rs/zerolog"
+	"github.com/spiffe/go-spiffe/v2/spiffegrpc/grpccredentials"
 	"google.golang.org/grpc/peer"
 
 	controllerapi "github.com/agntcy/slim/control-plane/common/proto/controller/v1"
@@ -181,6 +183,14 @@ func getPeerHost(stream controllerapi.ControllerService_OpenControlChannelServer
 			if splitErr == nil {
 				host = hostStr
 			}
+		}
+		sid, ok := grpccredentials.PeerIDFromPeer(peerInfo)
+		if ok {
+			trustDomain := sid.TrustDomain().String()
+			fmt.Println("---------------------------------- Trust Domain: ", trustDomain)
+			fmt.Println("---------------------------------- SpiffeID: ", sid.String())
+		} else {
+			fmt.Println("no SPIFFE ID found")
 		}
 	}
 	return host
