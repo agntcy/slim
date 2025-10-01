@@ -14,10 +14,12 @@ agntcy-slim-config = { workspace = true }
 agntcy-slim-datapath = { workspace = true }
 agntcy-slim-signal = { workspace = true }
 agntcy-slim-tracing = { workspace = true }
+bincode = { workspace = true }
 drain = { workspace = true }
 h2 = { workspace = true }
 parking_lot = { workspace = true }
 prost = { workspace = true }
+rand = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 thiserror = { workspace = true }

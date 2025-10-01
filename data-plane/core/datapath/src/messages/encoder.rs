@@ -106,6 +106,10 @@ impl Name {
         self.components[3]
     }
 
+    pub fn has_id(&self) -> bool {
+        self.components[3] != Self::NULL_COMPONENT
+    }
+
     pub fn set_id(&mut self, id: u64) {
         self.components[3] = id;
     }

@@ -3,13 +3,14 @@
 
 use std::collections::HashMap;
 use std::pin::Pin;
+use std::string;
 use std::sync::Arc;
 
 use uuid::Uuid;
 
 use slim_config::component::id::ID;
 use slim_config::grpc::server::ServerConfig;
-use slim_config::metadata::MetadataValue;
+use slim_config::metadata::{self, MetadataValue};
 use tokio::sync::mpsc;
 use tokio_stream::{Stream, StreamExt, wrappers::ReceiverStream};
 use tokio_util::sync::CancellationToken;
@@ -34,6 +35,7 @@ use slim_datapath::api::ProtoMessage as DataPlaneMessage;
 use slim_datapath::api::{ProtoSessionMessageType, ProtoSessionType, SessionHeader, SlimHeader};
 use slim_datapath::message_processing::MessageProcessor;
 use slim_datapath::messages::Name;
+use slim_datapath::messages::encoder::calculate_hash;
 use slim_datapath::messages::utils::{SLIM_IDENTITY, SlimHeaderFlags};
 use slim_datapath::tables::SubscriptionTable;
 
@@ -449,6 +451,146 @@ impl ControlPlane {
     }
 }
 
+fn generate_session_id(moderator: &Name, channel: &Name) -> u32 {
+    // get all the components of the two names
+    // and hash them together to get the session id
+    let mut all: [u64; 8] = [0; 8];
+    let m = moderator.components();
+    let c = channel.components();
+    all[..4].copy_from_slice(m);
+    all[4..].copy_from_slice(c);
+
+    let hash = calculate_hash(&all);
+    (hash ^ (hash >> 32)) as u32
+}
+
+fn get_name_from_string(string_name: &String) -> Result<Name, ControllerError> {
+    let parts: Vec<&str> = string_name.split('/').collect();
+    if parts.len() < 3 {
+        return Err(ControllerError::ConfigError(format!(
+            "invalid name format: {}",
+            string_name
+        )));
+    }
+
+    if parts.len() == 4 {
+        let id = parts[3].parse::<u64>().map_err(|_| {
+            ControllerError::ConfigError(format!("invalid moderator ID: {}", parts[3]))
+        })?;
+        Ok(Name::from_strings([parts[0], parts[1], parts[2]]).with_id(id))
+    } else {
+        Ok(Name::from_strings([parts[0], parts[1], parts[2]]))
+    }
+}
+
+fn create_channel_message(
+    source: &Name,
+    destination: &Name,
+    request_type: ProtoSessionMessageType,
+    session_id: u32,
+    message_id: u32,
+    metadata: Option<HashMap<String, String>>,
+    payload: Vec<u8>,
+) -> DataPlaneMessage {
+    let slim_header = Some(SlimHeader::new(source, destination, None));
+
+    // no need to specify the source and the destination here. these messages
+    // will never be seen by the application
+    let session_header = Some(SessionHeader::new(
+        ProtoSessionType::SessionMulticast.into(),
+        request_type.into(),
+        session_id,
+        message_id,
+        &None,
+        &Some(destination.clone()),
+    ));
+
+    let mut msg =
+        DataPlaneMessage::new_publish_with_headers(slim_header, session_header, "", payload);
+    if let Some(map) = metadata {
+        msg.set_metadata_map(map);
+    }
+
+    msg
+}
+
+fn create_new_channel_message(
+    controller: &Name,
+    moderator: &Name,
+    channel: &Name,
+) -> DataPlaneMessage {
+    let session_id = generate_session_id(moderator, channel);
+
+    // Local copy of JoinMessagePayload (original defined in channel endpoint module for data plane service).
+    // Duplicated here because controller does not depend on the service module.
+    #[derive(Debug, Clone, bincode::Encode, bincode::Decode)]
+    struct JoinMessagePayloadLocal {
+        channel_name: Name,
+        moderator_name: Name,
+    }
+    let p = JoinMessagePayloadLocal {
+        channel_name: channel.clone(),
+        moderator_name: moderator.clone(),
+    };
+    let invite_payload: Vec<u8> = bincode::encode_to_vec(p, bincode::config::standard())
+        .expect("unable to encode channel join payload");
+
+    let mut metadata = HashMap::new();
+    metadata.insert("IS_MODERATOR".to_string(), "true".to_string());
+
+    create_channel_message(
+        &controller,
+        moderator,
+        ProtoSessionMessageType::ChannelJoinRequest,
+        session_id,
+        rand::random::<u32>(),
+        Some(metadata),
+        invite_payload,
+    )
+}
+
+fn invite_participant_message(
+    controller: &Name,
+    moderator: &Name,
+    participant: &Name,
+    channel_name: &Name,
+) -> DataPlaneMessage {
+    let session_id = generate_session_id(moderator, channel_name);
+    let mut metadata = HashMap::new();
+    metadata.insert("PARTICIPANT_NAME".to_string(), participant.to_string());
+
+    create_channel_message(
+        &controller,
+        moderator,
+        ProtoSessionMessageType::ChannelDiscoveryRequest,
+        session_id,
+        rand::random::<u32>(),
+        Some(metadata),
+        vec![],
+    )
+}
+
+fn remove_participant_message(
+    controller: &Name,
+    moderator: &Name,
+    participant: &Name,
+    channel_name: &Name,
+) -> DataPlaneMessage {
+    let session_id = generate_session_id(moderator, channel_name);
+    let mut metadata = HashMap::new();
+    metadata.insert("PARTICIPANT_NAME".to_string(), participant.to_string());
+
+    create_channel_message(
+        &controller,
+        moderator,
+        ProtoSessionMessageType::ChannelLeaveRequest,
+        session_id,
+        rand::random::<u32>(),
+        Some(metadata),
+        vec![],
+    )
+}
+
 impl ControllerService {
     const MAX_RETRIES: i32 = 10;
 
@@ -723,94 +865,33 @@ impl ControllerService {
                     Payload::CreateChannelRequest(req) => {
                         info!("received a create channel request");
 
-                        let channel_id = req.channel_id.clone();
-
                         // Get the first moderator from the list, as we support only one for now
                         if let Some(first_moderator) = req.moderators.first() {
-                            let parts: Vec<&str> = first_moderator.split('/').collect();
-                            if parts.len() != 4 {
+                            let moderator_name = get_name_from_string(first_moderator)?;
+                            if !moderator_name.has_id() {
                                 return Err(ControllerError::ConfigError(format!(
-                                    "invalid moderator name format: {}",
-                                    first_moderator
+                                    "invalid moderator ID"
                                 )));
                             }
 
-                            // We expect the ID to be a number
-                            let id = parts[3].parse::<u64>().map_err(|_| {
-                                ControllerError::ConfigError(format!(
-                                    "invalid moderator ID: {}",
-                                    parts[3]
-                                ))
-                            })?;
+                            let channel_name = get_name_from_string(&req.channel_id)?;
 
-                            // Build the moderator name
-                            let moderator_name =
-                                Name::from_strings([parts[0], parts[1], parts[2]]).with_id(id);
-
-                            // Build the source name. The communication is local, so we can use a fixed name
                             let source_name = CONTROLLER_SOURCE_NAME.clone();
 
-                            // Create the moderator message
-                            // with a new UUID and current timestamp
-                            let moderator_request = ModeratorMessage {
-                                message_id: Uuid::new_v4().to_string(),
-                                timestamp: std::time::SystemTime::now()
-                                    .duration_since(std::time::UNIX_EPOCH)
-                                    .unwrap_or_default()
-                                    .as_secs() as i64,
-                                payload: Some(crate::api::proto::moderator::v1::moderator_message::Payload::CreateChannel(
-                                    CreateChannelRequest {
-                                        channel_id: channel_id.clone(),
-                                        moderators: vec![],
-                                        metadata: std::collections::HashMap::new(),
-                                    }
-                                )),
-                            };
-
-                            // Serialize the moderator request to a byte vector
-                            let message_content = moderator_request.encode_to_vec();
-
-                            // Build the SLIM header
-                            let slim_header = Some(SlimHeader::new(
+                            let creation_msg = create_new_channel_message(
                                 &source_name,
                                 &moderator_name,
-                                Some(SlimHeaderFlags::default()),
-                            ));
-
-                            // Build the session header
-                            let session_header = Some(SessionHeader::new(
-                                ProtoSessionType::SessionPointToPoint.into(),
-                                ProtoSessionMessageType::P2PMsg.into(),
-                                0,
-                                Uuid::new_v4().as_u128() as u32,
-                                &None,
-                                &None,
-                            ));
-
-                            // Create the publish message with headers and content
-                            let mut publish_msg = DataPlaneMessage::new_publish_with_headers(
-                                slim_header,
-                                session_header,
-                                "application/x-moderator-protobuf",
-                                message_content,
+                                &channel_name,
                             );
 
-                            let controller_identity = SharedSecret::new("controller", "group");
-                            let identity_token = controller_identity.get_token().map_err(|e| {
-                                error!("failed to generate identity token: {}", e);
-                                ControllerError::DatapathError(e.to_string())
-                            })?;
-                            publish_msg.insert_metadata(SLIM_IDENTITY.to_string(), identity_token);
-
-                            if let Err(e) = self.send_control_message(publish_msg).await {
-                                error!(
-                                    "failed to send message to moderator {}: {}",
-                                    first_moderator, e
-                                );
-                            } else {
-                                info!("successfully sent message to moderator {}", first_moderator);
+                            if let Err(e) = self.send_control_message(creation_msg).await {
+                                error!("failed to sedn channel creation: {}", e);
                             }
-                        }
+                        } else {
+                            return Err(ControllerError::ConfigError(
+                                "no moderators specified in add participant request".to_string(),
+                            ));
+                        };
 
                         let ack = Ack {
                             original_message_id: msg.message_id.clone(),
@@ -927,84 +1008,35 @@ impl ControllerService {
                             req.channel_id, req.participant_id
                         );
 
-                        let channel_id = req.channel_id.clone();
-                        let participant_id = req.participant_id.clone();
-
-                        let moderator_name = if let Some(first_moderator) = req.moderators.first() {
-                            let parts: Vec<&str> = first_moderator.split('/').collect();
-                            if parts.len() != 4 {
+                        if let Some(first_moderator) = req.moderators.first() {
+                            let moderator_name = get_name_from_string(first_moderator)?;
+                            if !moderator_name.has_id() {
                                 return Err(ControllerError::ConfigError(format!(
-                                    "invalid moderator name format: {}",
-                                    first_moderator
+                                    "invalid moderator ID"
                                 )));
                             }
-                            let id = parts[3].parse::<u64>().map_err(|_| {
-                                ControllerError::ConfigError(format!(
-                                    "invalid moderator ID: {}",
-                                    parts[3]
-                                ))
-                            })?;
-                            Name::from_strings([parts[0], parts[1], parts[2]]).with_id(id)
+
+                            let channel_name = get_name_from_string(&req.channel_id)?;
+                            let participant_name = get_name_from_string(&req.participant_id)?;
+                            let source_name = CONTROLLER_SOURCE_NAME.clone();
+                                Name::from_strings(["controller", "controller", "controller"])
+                                    .with_id(0);
+
+                            let invite_msg = invite_participant_message(
+                                &source_name,
+                                &moderator_name,
+                                &participant_name,
+                                &channel_name,
+                            );
+
+                            if let Err(e) = self.send_control_message(invite_msg).await {
+                                error!("failed to sedn channel creation: {}", e);
+                            }
                         } else {
                             return Err(ControllerError::ConfigError(
                                 "no moderators specified in add participant request".to_string(),
                             ));
                         };
-                        let source_name = CONTROLLER_SOURCE_NAME.clone();
-                        let moderator_request = ModeratorMessage {
-                            message_id: Uuid::new_v4().to_string(),
-                            timestamp: std::time::SystemTime::now()
-                                .duration_since(std::time::UNIX_EPOCH)
-                                .unwrap_or_default()
-                                .as_secs() as i64,
-                            payload: Some(crate::api::proto::moderator::v1::moderator_message::Payload::AddParticipant(
-                                AddParticipantRequest {
-                                    channel_id: channel_id.clone(),
-                                    participant_id: participant_id.clone(),
-                                    metadata: std::collections::HashMap::new(),
-                                }
-                            )),
-                        };
-
-                        let message_content = moderator_request.encode_to_vec();
-
-                        let slim_header = Some(SlimHeader::new(
-                            &source_name,
-                            &moderator_name,
-                            Some(SlimHeaderFlags::default()),
-                        ));
-                        let session_header = Some(SessionHeader::new(
-                            ProtoSessionType::SessionPointToPoint.into(),
-                            ProtoSessionMessageType::P2PMsg.into(),
-                            0,
-                            Uuid::new_v4().as_u128() as u32,
-                            &None,
-                            &None,
-                        ));
-
-                        let mut publish_msg = DataPlaneMessage::new_publish_with_headers(
-                            slim_header,
-                            session_header,
-                            "application/x-moderator-protobuf",
-                            message_content,
-                        );
-
-                        let controller_identity = SharedSecret::new("controller", "group");
-                        let identity_token = controller_identity.get_token().map_err(|e| {
-                            error!("failed to generate identity token: {}", e);
-                            ControllerError::DatapathError(e.to_string())
-                        })?;
-                        publish_msg.insert_metadata(SLIM_IDENTITY.to_string(), identity_token);
-
-                        if let Err(e) = self.send_control_message(publish_msg).await {
-                            error!(
-                                "failed to send message to moderator {}: {}",
-                                req.moderators.first().unwrap_or(&"unknown".to_string()),
-                                e
-                            );
-                        } else {
-                            info!("successfully sent add_participant message to moderator");
-                        }
 
                         let ack = Ack {
                             original_message_id: msg.message_id.clone(),
@@ -1024,84 +1056,34 @@ impl ControllerService {
                     Payload::DeleteParticipantRequest(req) => {
                         info!("received a participant delete request");
 
-                        let channel_id = req.channel_id.clone();
-                        let participant_id = req.participant_id.clone();
-
-                        let moderator_name = if let Some(first_moderator) = req.moderators.first() {
-                            let parts: Vec<&str> = first_moderator.split('/').collect();
-                            if parts.len() != 4 {
+                        if let Some(first_moderator) = req.moderators.first() {
+                            let moderator_name = get_name_from_string(first_moderator)?;
+                            if !moderator_name.has_id() {
                                 return Err(ControllerError::ConfigError(format!(
-                                    "invalid moderator name format: {}",
-                                    first_moderator
+                                    "invalid moderator ID"
                                 )));
                             }
-                            let id = parts[3].parse::<u64>().map_err(|_| {
-                                ControllerError::ConfigError(format!(
-                                    "invalid moderator ID: {}",
-                                    parts[3]
-                                ))
-                            })?;
-                            Name::from_strings([parts[0], parts[1], parts[2]]).with_id(id)
+
+                            let channel_name = get_name_from_string(&req.channel_id)?;
+                            let participant_name = get_name_from_string(&req.participant_id)?;
+                            let source_name = CONTROLLER_SOURCE_NAME.clone();
+
+                            let remove_msg = remove_participant_message(
+                                &source_name,
+                                &moderator_name,
+                                &participant_name,
+                                &channel_name,
+                            );
+
+                            if let Err(e) = self.send_control_message(remove_msg).await {
+                                error!("failed to sedn channel creation: {}", e);
+                            }
                         } else {
                             return Err(ControllerError::ConfigError(
-                                "no moderators specified in delete participant request".to_string(),
+                                "no moderators specified in add participant request".to_string(),
                             ));
                         };
-                        let source_name = CONTROLLER_SOURCE_NAME.clone();
 
-                        let moderator_request = ModeratorMessage {
-                            message_id: Uuid::new_v4().to_string(),
-                            timestamp: std::time::SystemTime::now()
-                                .duration_since(std::time::UNIX_EPOCH)
-                                .unwrap_or_default()
-                                .as_secs() as i64,
-                            payload: Some(crate::api::proto::moderator::v1::moderator_message::Payload::RemoveParticipant(
-                                RemoveParticipantRequest {
-                                    channel_id: channel_id.clone(),
-                                    participant_id: participant_id.clone(),
-                                }
-                            )),
-                        };
-
-                        let message_content = moderator_request.encode_to_vec();
-
-                        let slim_header = Some(SlimHeader::new(
-                            &source_name,
-                            &moderator_name,
-                            Some(SlimHeaderFlags::default()),
-                        ));
-                        let session_header = Some(SessionHeader::new(
-                            ProtoSessionType::SessionPointToPoint.into(),
-                            ProtoSessionMessageType::P2PMsg.into(),
-                            0,
-                            Uuid::new_v4().as_u128() as u32,
-                            &None,
-                            &None,
-                        ));
-
-                        let mut publish_msg = DataPlaneMessage::new_publish_with_headers(
-                            slim_header,
-                            session_header,
-                            "application/x-moderator-protobuf",
-                            message_content,
-                        );
-
-                        let controller_identity = SharedSecret::new("controller", "group");
-                        let identity_token = controller_identity.get_token().map_err(|e| {
-                            error!("Failed to generate identity token: {}", e);
-                            ControllerError::DatapathError(e.to_string())
-                        })?;
-                        publish_msg.insert_metadata(SLIM_IDENTITY.to_string(), identity_token);
-
-                        if let Err(e) = self.send_control_message(publish_msg).await {
-                            error!(
-                                "failed to send message to moderator {}: {}",
-                                req.moderators.first().unwrap_or(&"unknown".to_string()),
-                                e
-                            );
-                        } else {
-                            info!("successfully sent remove_participant message to moderator");
-                        }
                         let ack = Ack {
                             original_message_id: msg.message_id.clone(),
                             success: true,
@@ -1429,5 +1411,29 @@ mod tests {
         // Make sure there is nothing left to drain (this should not block)
         signal_server.drain().await;
         signal_client.drain().await;
+    }
+
+    #[test]
+    fn test_get_session_id_deterministic_and_unique() {
+        let moderator_a = Name::from_strings(["Org", "Ns", "Moderator"]).with_id(42);
+        let moderator_b = Name::from_strings(["Org", "Ns", "Moderator"]).with_id(43); // different id
+        let channel_x = Name::from_strings(["Org", "Ns", "ChannelX"]).with_id(7);
+        let channel_y = Name::from_strings(["Org", "Ns", "ChannelY"]).with_id(7); // different last component
+
+        let id1 = get_session_id(&moderator_a, &channel_x);
+        let id2 = get_session_id(&moderator_a, &channel_x);
+        assert_eq!(id1, id2, "hash must be deterministic for same inputs");
+
+        let id3 = get_session_id(&moderator_b, &channel_x);
+        assert_ne!(id1, id3, "changing moderator id should change session id");
+
+        let id4 = get_session_id(&moderator_a, &channel_y);
+        assert_ne!(id1, id4, "changing channel name should change session id");
+
+        // Ensure moderate spread (not strictly required, but sanity check that values aren't zero)
+        assert!(
+            id1 != 0 && id3 != 0 && id4 != 0,
+            "session ids should not be zero"
+        );
     }
 }
