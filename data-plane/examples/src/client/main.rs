@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use clap::Parser;
+use prost::Message;
 use tokio::time;
 use tracing::{error, info};
 
@@ -15,10 +16,17 @@ mod args;
 fn spawn_session_receiver(
     session_ctx: slim_service::session::context::SessionContext<SharedSecret, SharedSecret>,
     local_name: Name,
+    message: &Option<String>,
 ) -> std::sync::Arc<slim_service::session::Session<SharedSecret, SharedSecret>> {
+    let message_clone = message.clone();
     session_ctx
         .spawn_receiver(|mut rx, session| async move {
             info!("Session handler task started");
+
+            if message_clone.is_some() {
+                let s = session.upgrade().unwrap();
+                s.publish(&s.dst().unwrap(), message_clone.unwrap().encode_to_vec(), None, None).await.unwrap();
+            }
 
             loop {
                 tokio::select! {
@@ -46,7 +54,7 @@ fn spawn_session_receiver(
                                             info!("received message: {}", text);
                                             let response = format!("hello from the {}", local_name);
                                             info!("CLIENT: sending response: {}", response);
-                                            let _ = session.upgrade().expect("failed to get session reference").publish(&dst, response.into(), None, None).await;
+                                            //let _ = session.upgrade().expect("failed to get session reference").publish(&dst, response.into(), None, None).await;
                                         },
                                         Err(e) => {
                                             info!("received encrypted/binary message: {} bytes, error: {}", blob.len(), e);
@@ -76,6 +84,7 @@ async fn main() {
 
     let config_file = args.config();
     let local_name = args.local_name();
+    let message = args.message();
 
     // Load configuration
     let mut config = config::load_config(config_file).expect("failed to load configuration");
@@ -91,7 +100,8 @@ async fn main() {
         .expect("missing service slim/0 in configuration");
 
     // Build Names
-    let local_name = Name::from_strings(["org", "default", local_name]).with_id(0);
+    let comp = local_name.split("/").collect::<Vec<&str>>();
+    let local_name = Name::from_strings([comp[0], comp[1], comp[2]]).with_id(0);
 
     // Create app
     let (app, mut app_rx) = svc
@@ -147,7 +157,7 @@ async fn main() {
                 match notification {
                     Notification::NewSession(ctx) => {
                         // New remotely-initiated session. Spawn a task to handle it.
-                        sessions.push(spawn_session_receiver(ctx, local_name.clone()));
+                        sessions.push(spawn_session_receiver(ctx, local_name.clone(), message));
                     }
                     Notification::NewMessage(_msg) => {
                         // Application-level publish without an associated session.

@@ -13,6 +13,10 @@ pub struct Args {
     #[clap(long, env, required = true)]
     #[arg(short, long, value_name = "LOCAL_NAME")]
     local_name: String,
+
+    #[clap(long, env, required = false)]
+    #[arg(short, long, value_name = "MESSAGE")]
+    message: Option<String>,
 }
 
 impl Args {
@@ -23,4 +27,8 @@ impl Args {
     pub fn local_name(&self) -> &str {
         &self.local_name
     }
-}
+
+    pub fn message(&self) -> &Option<String> {
+        &self.message
+    }
+ }
