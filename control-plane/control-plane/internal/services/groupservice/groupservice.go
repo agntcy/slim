@@ -39,7 +39,7 @@ func (s *GroupService) CreateChannel(
 ) (*controlplaneApi.CreateChannelResponse, error) {
 	zlog := zerolog.Ctx(ctx)
 
-	zlog.Error().Msgf("Received CreateChannelRequest: %+v", createChannelRequest)
+	zlog.Debug().Msgf("Received CreateChannelRequest: %+v", createChannelRequest)
 
 	if len(createChannelRequest.Moderators) == 0 {
 		return nil, fmt.Errorf("at least one moderator is required to create a channel")
@@ -186,7 +186,7 @@ func (s *GroupService) AddParticipant(
 		return nil, fmt.Errorf("invalid channel name: %w", err)
 	}
 
-	_, err = commonutil.ValidateName(addParticipantRequest.ParticipantId, 4)
+	_, err = commonutil.ValidateName(addParticipantRequest.ParticipantId, 3)
 	if err != nil {
 		return nil, fmt.Errorf("invalid participant name: %w", err)
 	}

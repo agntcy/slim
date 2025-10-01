@@ -884,7 +884,7 @@ impl ControllerService {
                                 ));
                             }
 
-                            let channel_name = get_name_from_string(&req.channel_id)?;
+                            let channel_name = get_name_from_string(&req.channel_name)?;
 
                             let source_name = CONTROLLER_SOURCE_NAME.clone();
                             let creation_msg = create_new_channel_message(
@@ -894,7 +894,7 @@ impl ControllerService {
                             );
 
                             if let Err(e) = self.send_control_message(creation_msg).await {
-                                error!("failed to sedn channel creation: {}", e);
+                                error!("failed to send channel creation: {}", e);
                             }
                         } else {
                             return Err(ControllerError::ConfigError(
@@ -920,7 +920,7 @@ impl ControllerService {
                     Payload::DeleteChannelRequest(req) => {
                         info!("received a channel delete request");
 
-                        let channel_id = req.channel_id.clone();
+                        let channel_id = req.channel_name.clone();
 
                         let moderator_name = if let Some(first_moderator) = req.moderators.first() {
                             let parts: Vec<&str> = first_moderator.split('/').collect();
@@ -1014,7 +1014,7 @@ impl ControllerService {
                     Payload::AddParticipantRequest(req) => {
                         info!(
                             "received a participant add request for channel: {}, participant: {}",
-                            req.channel_id, req.participant_id
+                            req.channel_name, req.participant_id
                         );
 
                         if let Some(first_moderator) = req.moderators.first() {
@@ -1025,7 +1025,7 @@ impl ControllerService {
                                 ));
                             }
 
-                            let channel_name = get_name_from_string(&req.channel_id)?;
+                            let channel_name = get_name_from_string(&req.channel_name)?;
                             let participant_name = get_name_from_string(&req.participant_id)?;
                             let source_name = CONTROLLER_SOURCE_NAME.clone();
                             Name::from_strings(["controller", "controller", "controller"])
@@ -1039,7 +1039,7 @@ impl ControllerService {
                             );
 
                             if let Err(e) = self.send_control_message(invite_msg).await {
-                                error!("failed to sedn channel creation: {}", e);
+                                error!("failed to send channel creation: {}", e);
                             }
                         } else {
                             return Err(ControllerError::ConfigError(
@@ -1073,7 +1073,7 @@ impl ControllerService {
                                 ));
                             }
 
-                            let channel_name = get_name_from_string(&req.channel_id)?;
+                            let channel_name = get_name_from_string(&req.channel_name)?;
                             let participant_name = get_name_from_string(&req.participant_id)?;
                             let source_name = CONTROLLER_SOURCE_NAME.clone();
 
@@ -1085,7 +1085,7 @@ impl ControllerService {
                             );
 
                             if let Err(e) = self.send_control_message(remove_msg).await {
-                                error!("failed to sedn channel creation: {}", e);
+                                error!("failed to send channel creation: {}", e);
                             }
                         } else {
                             return Err(ControllerError::ConfigError(

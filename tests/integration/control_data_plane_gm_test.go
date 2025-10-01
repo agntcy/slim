@@ -46,7 +46,7 @@ var _ = Describe("Group management through control plane", func() {
 		// start moderator
 		var errModerator error
 		moderatorSession, errModerator = gexec.Start(
-			exec.Command(moderatorPath, "--config", "./testdata/moderator-config.yaml", "--name", "moderator1"),
+			exec.Command(clientPath, "--config", "./testdata/moderator-config.yaml", "--local-name", "org/default/moderator1"),
 			GinkgoWriter, GinkgoWriter,
 		)
 		Expect(errModerator).NotTo(HaveOccurred())
@@ -59,9 +59,7 @@ var _ = Describe("Group management through control plane", func() {
 		clientASession, errClientA = gexec.Start(
 			exec.Command(clientPath,
 				"--config", "./testdata/client-a-config.yaml",
-				"--local-name", "a",
-				"--remote-name", "c",
-				"--message", "hey",
+				"--local-name", "org/default/a",
 			),
 			GinkgoWriter, GinkgoWriter,
 		)
@@ -70,8 +68,7 @@ var _ = Describe("Group management through control plane", func() {
 		clientCSession, errClientC = gexec.Start(
 			exec.Command(clientPath,
 				"--config", "./testdata/client-c-config.yaml",
-				"--local-name", "c",
-				"--remote-name", "a",
+				"--local-name", "org/default/c",
 				"--message", "hey",
 			),
 			GinkgoWriter, GinkgoWriter,

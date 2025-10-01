@@ -15,7 +15,6 @@ mod args;
 
 fn spawn_session_receiver(
     session_ctx: slim_service::session::context::SessionContext<SharedSecret, SharedSecret>,
-    local_name: Name,
     message: &Option<String>,
 ) -> std::sync::Arc<slim_service::session::Session<SharedSecret, SharedSecret>> {
     let message_clone = message.clone();
@@ -23,9 +22,9 @@ fn spawn_session_receiver(
         .spawn_receiver(|mut rx, session| async move {
             info!("Session handler task started");
 
-            if message_clone.is_some() {
+            if let Some(m) = message_clone {
                 let s = session.upgrade().unwrap();
-                s.publish(&s.dst().unwrap(), message_clone.unwrap().encode_to_vec(), None, None).await.unwrap();
+                s.publish(&s.dst().unwrap(), m.encode_to_vec(), None, None).await.unwrap();
             }
 
             loop {
@@ -41,7 +40,6 @@ fn spawn_session_receiver(
                                 info!("CLIENT: message details: {:?}", msg);
 
                                 let publisher = msg.get_slim_header().get_source();
-                                let dst = msg.get_slim_header().get_dst();
                                 let msg_id = msg.get_id();
                                 info!("CLIENT: message from {:?}, id: {}", publisher, msg_id);
 
@@ -52,16 +50,13 @@ fn spawn_session_receiver(
                                     match String::from_utf8(blob.to_vec()) {
                                         Ok(text) => {
                                             info!("received message: {}", text);
-                                            let response = format!("hello from the {}", local_name);
-                                            info!("CLIENT: sending response: {}", response);
-                                            //let _ = session.upgrade().expect("failed to get session reference").publish(&dst, response.into(), None, None).await;
                                         },
                                         Err(e) => {
                                             info!("received encrypted/binary message: {} bytes, error: {}", blob.len(), e);
                                         }
                                     }
                                 } else {
-                                    info!("received message without payload (possibly invitation)");
+                                    info!("received message without payload.");
                                 }
                             },
                             Some(Err(e)) => {
@@ -157,7 +152,7 @@ async fn main() {
                 match notification {
                     Notification::NewSession(ctx) => {
                         // New remotely-initiated session. Spawn a task to handle it.
-                        sessions.push(spawn_session_receiver(ctx, local_name.clone(), message));
+                        sessions.push(spawn_session_receiver(ctx, message));
                     }
                     Notification::NewMessage(_msg) => {
                         // Application-level publish without an associated session.

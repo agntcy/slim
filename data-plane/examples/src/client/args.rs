@@ -31,4 +31,4 @@ impl Args {
     pub fn message(&self) -> &Option<String> {
         &self.message
     }
- }
+}

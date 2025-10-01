@@ -23,7 +23,6 @@ var (
 	slimPath         string
 	sdkMockPath      string
 	clientPath       string
-	moderatorPath    string
 	slimctlPath      string
 	controlPlanePath string
 
@@ -38,8 +37,8 @@ var _ = BeforeSuite(func() {
 	Expect(err).NotTo(HaveOccurred())
 
 	for _, line := range strings.Split(string(out), "\n") {
-		if strings.HasPrefix(line, "host: ") {
-			target = strings.TrimSpace(strings.TrimPrefix(line, "host: "))
+		if after, ok := strings.CutPrefix(line, "host: "); ok {
+			target = strings.TrimSpace(after)
 			break
 		}
 	}
@@ -49,7 +48,6 @@ var _ = BeforeSuite(func() {
 	slimPath = filepath.Join("..", "..", "data-plane", "target", target, "debug", "slim")
 	sdkMockPath = filepath.Join("..", "..", "data-plane", "target", target, "debug", "sdk-mock")
 	clientPath = filepath.Join("..", "..", "data-plane", "target", target, "debug", "client")
-	moderatorPath = filepath.Join("..", "..", "data-plane", "target", target, "debug", "moderator")
 	slimctlPath = filepath.Join("..", "..", ".dist", "bin", "slimctl")
 	controlPlanePath = filepath.Join("..", "..", ".dist", "bin", "control-plane")
 })
