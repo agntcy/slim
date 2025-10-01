@@ -32,8 +32,6 @@ func LoadCertificates(ctx context.Context, apiConfig config.APIConfig) (credenti
 			return nil, fmt.Errorf("failed to create X.509 bundle source using SPIRE Workload API: %w", err)
 		}
 		tlsConfig = tlsconfig.MTLSServerConfig(source, bundleSource, tlsconfig.AuthorizeAny())
-		//tlsConfig.ClientAuth = tls.RequireAndVerifyClientCert
-
 	} else {
 		cert, err := tls.LoadX509KeyPair(cfg.CertFile, cfg.KeyFile)
 		if err != nil {
