@@ -55,8 +55,8 @@ application instance. Main parameters:
     authentication. Required if JWT, bundle and audience are not provided.
 - `jwt` (str | None, default: `None`): JWT token for identity. Used with
     `spire_trust_bundle` and `audience` for JWT-based authentication.
-- `spire_trust_bundle` (str | None, default: `None`): JWT trust bundle (CA certificates or
-    JWKS). It is expected in JSON format such as
+- `spire_trust_bundle` (str | None, default: `None`): JWT trust bundle (list 
+    of JWKs, one for each trust domain). It is expected in JSON format such as
     ```json
     {
         "trust-domain-1.org": "base-64-encoded-jwks",
@@ -86,20 +86,27 @@ multicast session and it can invite participants.
 
 ```python
 chat_topic = split_id(remote)  # e.g. agntcy/ns/chat
-session = await local_app.create_session(
-    slim_bindings.PySessionConfiguration.Multicast(
-        channel_namec=chat_topic,
-        max_retries=5,                             # max retransmissions for lost messages
-        timeout=datetime.timedelta(seconds=5),     # interval between retries
-        mls_enabled=enable_mls,                    # enable MLS secure group messaging
+created_session = await local_app.create_session(
+    slim_bindings.PySessionConfiguration.Multicast(  # type: ignore  # Build multicast session configuration
+        channel_name=chat_channel,  # Logical multicast channel (PyName) all participants join; acts as group/topic identifier.
+        max_retries=5,  # Max per-message resend attempts upon missing ack before reporting a delivery failure.
+        timeout=datetime.timedelta(
+            seconds=5
+        ),  # Ack / delivery wait window; after this duration a retry is triggered (until max_retries).
+        mls_enabled=enable_mls,  # Enable Messaging Layer Security for end-to-end encrypted & authenticated group communication.
     )
 )
 
-await asyncio.sleep(1)  # small slack before inviting
+# Small delay so underlying routing / session creation stabilizes.
+await asyncio.sleep(1)
+
+# Invite each provided participant. Route is set before inviting to ensure
+# outbound control messages can reach them. For more info see
+# https://github.com/agntcy/slim/blob/main/data-plane/python/bindings/SESSION.md#invite-a-new-participant
 for invite in invites:
     invite_name = split_id(invite)
-    await local_app.set_route(invite_name)  # ensure routing info is set
-    await session.invite(invite_name)
+    await local_app.set_route(invite_name)
+    await created_session.invite(invite_name)
     print(f"{local} -> add {invite_name} to the group")
 ```
 
