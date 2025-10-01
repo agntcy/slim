@@ -3,14 +3,14 @@
 
 use std::collections::HashMap;
 use std::pin::Pin;
-use std::string;
 use std::sync::Arc;
 
+use base64::Engine;
 use uuid::Uuid;
 
 use slim_config::component::id::ID;
 use slim_config::grpc::server::ServerConfig;
-use slim_config::metadata::{self, MetadataValue};
+use slim_config::metadata::MetadataValue;
 use tokio::sync::mpsc;
 use tokio_stream::{Stream, StreamExt, wrappers::ReceiverStream};
 use tokio_util::sync::CancellationToken;
@@ -39,10 +39,7 @@ use slim_datapath::messages::encoder::calculate_hash;
 use slim_datapath::messages::utils::{SLIM_IDENTITY, SlimHeaderFlags};
 use slim_datapath::tables::SubscriptionTable;
 
-use crate::api::proto::moderator::v1::{
-    AddParticipantRequest, CreateChannelRequest, DeleteChannelRequest, ModeratorMessage,
-    RemoveParticipantRequest,
-};
+use crate::api::proto::moderator::v1::{DeleteChannelRequest, ModeratorMessage};
 use prost::Message;
 
 type TxChannel = mpsc::Sender<Result<ControlMessage, Status>>;
@@ -538,8 +535,10 @@ fn create_new_channel_message(
     let mut metadata = HashMap::new();
     metadata.insert("IS_MODERATOR".to_string(), "true".to_string());
 
+    // TODO add MLS in the metadata if mls is enabled
+
     create_channel_message(
-        &controller,
+        controller,
         moderator,
         ProtoSessionMessageType::ChannelJoinRequest,
         session_id,
@@ -557,10 +556,16 @@ fn invite_participant_message(
 ) -> DataPlaneMessage {
     let session_id = generate_session_id(moderator, channel_name);
     let mut metadata = HashMap::new();
-    metadata.insert("PARTICIPANT_NAME".to_string(), participant.to_string());
+    let encoded_participant: Vec<u8> =
+        bincode::encode_to_vec(participant, bincode::config::standard())
+            .expect("unable to encode channel join payload");
+    let encoded_participant_str =
+        base64::engine::general_purpose::STANDARD.encode(&encoded_participant);
+
+    metadata.insert("PARTICIPANT_NAME".to_string(), encoded_participant_str);
 
     create_channel_message(
-        &controller,
+        controller,
         moderator,
         ProtoSessionMessageType::ChannelDiscoveryRequest,
         session_id,
@@ -578,10 +583,15 @@ fn remove_participant_message(
 ) -> DataPlaneMessage {
     let session_id = generate_session_id(moderator, channel_name);
     let mut metadata = HashMap::new();
-    metadata.insert("PARTICIPANT_NAME".to_string(), participant.to_string());
+    let encoded_participant: Vec<u8> =
+        bincode::encode_to_vec(participant, bincode::config::standard())
+            .expect("unable to encode channel join payload");
+    let encoded_participant_str =
+        base64::engine::general_purpose::STANDARD.encode(&encoded_participant);
+    metadata.insert("PARTICIPANT_NAME".to_string(), encoded_participant_str);
 
     create_channel_message(
-        &controller,
+        controller,
         moderator,
         ProtoSessionMessageType::ChannelLeaveRequest,
         session_id,
@@ -869,9 +879,9 @@ impl ControllerService {
                         if let Some(first_moderator) = req.moderators.first() {
                             let moderator_name = get_name_from_string(first_moderator)?;
                             if !moderator_name.has_id() {
-                                return Err(ControllerError::ConfigError(format!(
-                                    "invalid moderator ID"
-                                )));
+                                return Err(ControllerError::ConfigError(
+                                    "invalid moderator ID".to_owned(),
+                                ));
                             }
 
                             let channel_name = get_name_from_string(&req.channel_id)?;
@@ -1011,16 +1021,16 @@ impl ControllerService {
                         if let Some(first_moderator) = req.moderators.first() {
                             let moderator_name = get_name_from_string(first_moderator)?;
                             if !moderator_name.has_id() {
-                                return Err(ControllerError::ConfigError(format!(
-                                    "invalid moderator ID"
-                                )));
+                                return Err(ControllerError::ConfigError(
+                                    "invalid moderator ID".to_string(),
+                                ));
                             }
 
                             let channel_name = get_name_from_string(&req.channel_id)?;
                             let participant_name = get_name_from_string(&req.participant_id)?;
                             let source_name = CONTROLLER_SOURCE_NAME.clone();
-                                Name::from_strings(["controller", "controller", "controller"])
-                                    .with_id(0);
+                            Name::from_strings(["controller", "controller", "controller"])
+                                .with_id(0);
 
                             let invite_msg = invite_participant_message(
                                 &source_name,
@@ -1059,9 +1069,9 @@ impl ControllerService {
                         if let Some(first_moderator) = req.moderators.first() {
                             let moderator_name = get_name_from_string(first_moderator)?;
                             if !moderator_name.has_id() {
-                                return Err(ControllerError::ConfigError(format!(
-                                    "invalid moderator ID"
-                                )));
+                                return Err(ControllerError::ConfigError(
+                                    "invalid moderator ID".to_string(),
+                                ));
                             }
 
                             let channel_name = get_name_from_string(&req.channel_id)?;

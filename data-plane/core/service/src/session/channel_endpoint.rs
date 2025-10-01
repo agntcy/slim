@@ -10,6 +10,7 @@ use std::{
 
 // Third-party crates
 use async_trait::async_trait;
+use base64::Engine;
 use bincode::{Decode, Encode};
 use parking_lot::Mutex;
 use tracing::{debug, error, trace};
@@ -1196,11 +1197,46 @@ where
     }
 
     async fn forward(&mut self, msg: Message) -> Result<(), SessionError> {
+        let to_forward = if let Some(string_name) = msg.get_metadata("PARTICIPANT_NAME") {
+            let dst_vec = base64::engine::general_purpose::STANDARD
+                .decode(string_name)
+                .map_err(|e| SessionError::ParseProposalMessage(e.to_string()))?;
+
+            let dst: Name = bincode::decode_from_slice(&dst_vec, bincode::config::standard())
+                .map_err(|e| SessionError::ParseProposalMessage(e.to_string()))?
+                .0;
+
+            let new_slim_header = SlimHeader::new(&self.endpoint.name, &dst, None);
+
+            let new_session_header = SessionHeader::new(
+                ProtoSessionType::SessionMulticast.into(),
+                msg.get_session_header().session_message_type().into(),
+                self.endpoint.session_id,
+                msg.get_id(),
+                &None,
+                &Some(self.endpoint.channel_name.clone()),
+            );
+
+            let blob = match msg.get_payload() {
+                Some(c) => c.blob.clone(),
+                None => vec![],
+            };
+
+            Message::new_publish_with_headers(
+                Some(new_slim_header),
+                Some(new_session_header),
+                "",
+                blob,
+            )
+        } else {
+            msg
+        };
+
         // forward message received from the app and set a timer
-        let msg_id = msg.get_id();
-        self.endpoint.send(msg.clone()).await?;
+        let msg_id = to_forward.get_id();
+        self.endpoint.send(to_forward.clone()).await?;
         // create a timer for this request
-        self.create_timer(msg_id, 1, msg, None);
+        self.create_timer(msg_id, 1, to_forward, None);
 
         Ok(())
     }
