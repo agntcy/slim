@@ -21,17 +21,10 @@ tasks:
     cmds:
       - task -l
 
-  tests:mocks:build:
-    desc: "Build sdk-mock example"
-    dir: "../data-plane"
-    cmds:
-      - task data-plane:build BUILD_ARGS="--bin sdk-mock --bin client"
-
   tests:integration:
     desc: "Run integration tests"
     deps:
       - data-plane:build
       - control-plane:build
-      - tests:mocks:build
     cmds:
       - go -C ./integration test -v -failfast -test.v -test.paniconexit0 -ginkgo.timeout 5m -timeout 5m -ginkgo.v .

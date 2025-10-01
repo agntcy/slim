@@ -1376,9 +1376,9 @@ mod tests {
     async fn test_end_to_end() {
         // Create an ID for slim instance
         let id_server =
-            ID::new_with_name(Kind::new("slim").unwrap(), "test_server_instance").unwrap();
+            ID::new_with_name(Kind::new("slim").unwrap(), "test-server-instance").unwrap();
         let id_client =
-            ID::new_with_name(Kind::new("slim").unwrap(), "test_client_instance").unwrap();
+            ID::new_with_name(Kind::new("slim").unwrap(), "test-client-instance").unwrap();
 
         // Create a server configuration
         let server_config = ServerConfig::with_endpoint("127.0.0.1:50051")
@@ -1431,9 +1431,7 @@ mod tests {
         tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
 
         // Check if the server received the connection
-        assert!(logs_contain(
-            "received a register node request, this should not happen"
-        ));
+        assert!(logs_contain("received a register node request"));
 
         // drop the server and the client. This should also cancel the running listeners
         // and close the connections gracefully.
