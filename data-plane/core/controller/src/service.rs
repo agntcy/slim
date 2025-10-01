@@ -46,6 +46,13 @@ use prost::Message;
 type TxChannel = mpsc::Sender<Result<ControlMessage, Status>>;
 type TxChannels = HashMap<String, TxChannel>;
 
+/// The name used as the source for controller-originated messages.
+pub static CONTROLLER_SOURCE_NAME: once_cell::sync::Lazy<slim_datapath::messages::Name> =
+    once_cell::sync::Lazy::new(|| {
+        slim_datapath::messages::Name::from_strings(["controller", "controller", "controller"])
+            .with_id(0)
+    });
+
 /// Inner structure for the controller service
 /// This structure holds the internal state of the controller service,
 /// including the ID, message processor, connections, and channels.
@@ -252,6 +259,15 @@ impl ControlPlane {
 
         let clients = self.clients.clone();
         let inner = self.controller.inner.clone();
+
+        // Send subscription to data-plane to receive messages for the controller source name
+        let subscribe_msg =
+            DataPlaneMessage::new_subscribe(&CONTROLLER_SOURCE_NAME, &CONTROLLER_SOURCE_NAME, None);
+
+        // Send the subscribe message to the data plane
+        if let Err(e) = inner.tx_slim.send(Ok(subscribe_msg)).await {
+            error!("failed to send subscribe message to data plane: {}", e);
+        }
 
         tokio::spawn(async move {
             loop {
@@ -709,6 +725,7 @@ impl ControllerService {
 
                         let channel_id = req.channel_id.clone();
 
+                        // Get the first moderator from the list, as we support only one for now
                         if let Some(first_moderator) = req.moderators.first() {
                             let parts: Vec<&str> = first_moderator.split('/').collect();
                             if parts.len() != 4 {
@@ -717,17 +734,24 @@ impl ControllerService {
                                     first_moderator
                                 )));
                             }
+
+                            // We expect the ID to be a number
                             let id = parts[3].parse::<u64>().map_err(|_| {
                                 ControllerError::ConfigError(format!(
                                     "invalid moderator ID: {}",
                                     parts[3]
                                 ))
                             })?;
+
+                            // Build the moderator name
                             let moderator_name =
                                 Name::from_strings([parts[0], parts[1], parts[2]]).with_id(id);
-                            let source_name =
-                                Name::from_strings(["controller", "controller", "controller"])
-                                    .with_id(0);
+
+                            // Build the source name. The communication is local, so we can use a fixed name
+                            let source_name = CONTROLLER_SOURCE_NAME.clone();
+
+                            // Create the moderator message
+                            // with a new UUID and current timestamp
                             let moderator_request = ModeratorMessage {
                                 message_id: Uuid::new_v4().to_string(),
                                 timestamp: std::time::SystemTime::now()
@@ -743,13 +767,17 @@ impl ControllerService {
                                 )),
                             };
 
+                            // Serialize the moderator request to a byte vector
                             let message_content = moderator_request.encode_to_vec();
 
+                            // Build the SLIM header
                             let slim_header = Some(SlimHeader::new(
                                 &source_name,
                                 &moderator_name,
                                 Some(SlimHeaderFlags::default()),
                             ));
+
+                            // Build the session header
                             let session_header = Some(SessionHeader::new(
                                 ProtoSessionType::SessionPointToPoint.into(),
                                 ProtoSessionMessageType::P2PMsg.into(),
@@ -759,6 +787,7 @@ impl ControllerService {
                                 &None,
                             ));
 
+                            // Create the publish message with headers and content
                             let mut publish_msg = DataPlaneMessage::new_publish_with_headers(
                                 slim_header,
                                 session_header,
@@ -823,9 +852,7 @@ impl ControllerService {
                                 "no moderators specified in delete channel request".to_string(),
                             ));
                         };
-                        let source_name =
-                            Name::from_strings(["controller", "controller", "controller"])
-                                .with_id(0);
+                        let source_name = CONTROLLER_SOURCE_NAME.clone();
 
                         let moderator_request = ModeratorMessage {
                             message_id: Uuid::new_v4().to_string(),
@@ -923,9 +950,7 @@ impl ControllerService {
                                 "no moderators specified in add participant request".to_string(),
                             ));
                         };
-                        let source_name =
-                            Name::from_strings(["controller", "controller", "controller"])
-                                .with_id(0);
+                        let source_name = CONTROLLER_SOURCE_NAME.clone();
                         let moderator_request = ModeratorMessage {
                             message_id: Uuid::new_v4().to_string(),
                             timestamp: std::time::SystemTime::now()
@@ -1022,9 +1047,7 @@ impl ControllerService {
                                 "no moderators specified in delete participant request".to_string(),
                             ));
                         };
-                        let source_name =
-                            Name::from_strings(["controller", "controller", "controller"])
-                                .with_id(0);
+                        let source_name = CONTROLLER_SOURCE_NAME.clone();
 
                         let moderator_request = ModeratorMessage {
                             message_id: Uuid::new_v4().to_string(),
