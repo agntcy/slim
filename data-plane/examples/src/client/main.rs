@@ -78,7 +78,7 @@ async fn main() {
     let local_name = args.local_name();
 
     // Load configuration
-    let mut config = config::load_config(&config_file).expect("failed to load configuration");
+    let mut config = config::load_config(config_file).expect("failed to load configuration");
     let _guard = config.tracing.setup_tracing_subscriber();
 
     info!(%config_file, local=%local_name, "starting client example");

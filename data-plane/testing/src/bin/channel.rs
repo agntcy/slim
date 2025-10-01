@@ -42,8 +42,8 @@ pub struct Args {
     )]
     mls_disabled: bool,
 
-    // List of paticipants types to add to the channel in the form org/ns/type. used only in moderator mode
-    #[clap(short, long, value_name = "PARITICIPANTS", num_args = 1.., value_delimiter = ' ', required = false)]
+    // List of participants types to add to the channel in the form org/ns/type. used only in moderator mode
+    #[clap(short, long, value_name = "PARTICIPANTS", num_args = 1.., value_delimiter = ' ', required = false)]
     participants: Vec<String>,
 
     // Moderator name in the for org/ns/type/id. used only in participant mode

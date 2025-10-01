@@ -47,8 +47,8 @@ type TxChannel = mpsc::Sender<Result<ControlMessage, Status>>;
 type TxChannels = HashMap<String, TxChannel>;
 
 /// The name used as the source for controller-originated messages.
-pub static CONTROLLER_SOURCE_NAME: once_cell::sync::Lazy<slim_datapath::messages::Name> =
-    once_cell::sync::Lazy::new(|| {
+pub static CONTROLLER_SOURCE_NAME: std::sync::LazyLock<slim_datapath::messages::Name> =
+    std::sync::LazyLock::new(|| {
         slim_datapath::messages::Name::from_strings(["controller", "controller", "controller"])
             .with_id(0)
     });
@@ -285,11 +285,11 @@ impl ControlPlane {
                                         let dst = msg.get_dst();
                                         let components = dst.components_strings().unwrap();
                                         let cmd = v1::Subscription {
-                                                    component_0: components[0].to_string(),
-                                                    component_1: components[1].to_string(),
-                                                    component_2: components[2].to_string(),
-                                                    id: Some(dst.id()),
-                                                    connection_id: "n/a".to_string(),
+                                            component_0: components[0].to_string(),
+                                            component_1: components[1].to_string(),
+                                            component_2: components[2].to_string(),
+                                            id: Some(dst.id()),
+                                            connection_id: "n/a".to_string(),
                                         };
                                         match msg.get_type() {
                                             slim_datapath::api::MessageType::Subscribe(_) => {
