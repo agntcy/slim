@@ -5,6 +5,7 @@ package controlplane
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
 
 	"google.golang.org/grpc"
@@ -31,9 +32,10 @@ func GetClient(
 		creds = c
 	}
 
-	if opts.BasicAuthKey != "" {
+	if opts.BasicAuthCredentials != "" {
+		encodedAuth := base64.StdEncoding.EncodeToString([]byte(opts.BasicAuthCredentials))
 		md := metadata.New(map[string]string{
-			"authorization": "Basic " + opts.BasicAuthKey,
+			"authorization": "Basic " + encodedAuth,
 		})
 		ctx = metadata.NewOutgoingContext(ctx, md)
 	}

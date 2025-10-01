@@ -11,8 +11,8 @@ import (
 
 // CommonOptions provides the common flags, options, for all the commands.
 type CommonOptions struct {
-	// Basic auth key - encoded pair of username:password in base64
-	BasicAuthKey string
+	// Basic auth credentials - username:password format
+	BasicAuthCredentials string
 
 	// SLIM control API endpoint
 	Server string
