@@ -253,6 +253,7 @@ where
 #[cfg(test)]
 mod tests {
     use crate::testutils::tower_service::{Body, HeaderCheckService};
+    use crate::tls::provider::initialize_crypto_provider;
     use http::Response;
     use serde_json;
     use slim_auth::jwt::Algorithm;
@@ -422,6 +423,8 @@ mod tests {
 
     #[test]
     fn test_get_verifier_ok_with_autoresolve() {
+        // init crypto provider first
+        initialize_crypto_provider();
         let cfg = Config::new(
             Claims::default(),
             Duration::from_secs(60),
