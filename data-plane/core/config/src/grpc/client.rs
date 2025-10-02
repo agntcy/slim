@@ -63,8 +63,8 @@ use super::errors::ConfigError;
 use super::headers_middleware::SetRequestHeaderLayer;
 use crate::auth::ClientAuthenticator;
 use crate::auth::basic::Config as BasicAuthenticationConfig;
-use crate::auth::bearer::Config as BearerAuthenticationConfig;
 use crate::auth::jwt::Config as JwtAuthenticationConfig;
+use crate::auth::static_jwt::Config as BearerAuthenticationConfig;
 use crate::component::configuration::{Configuration, ConfigurationError};
 use crate::grpc::proxy::ProxyConfig;
 use crate::metadata::MetadataMap;
@@ -141,7 +141,7 @@ pub enum AuthenticationConfig {
     /// Basic authentication configuration.
     Basic(BasicAuthenticationConfig),
     /// Bearer authentication configuration.
-    Bearer(BearerAuthenticationConfig),
+    StaticJwt(BearerAuthenticationConfig),
     /// JWT authentication configuration.
     Jwt(JwtAuthenticationConfig),
     /// None
@@ -657,8 +657,8 @@ impl ClientConfig {
             AuthenticationConfig::Basic(basic) => {
                 create_auth_service!(self, basic, header_map, channel)
             }
-            AuthenticationConfig::Bearer(bearer) => {
-                create_auth_service!(self, bearer, header_map, channel)
+            AuthenticationConfig::StaticJwt(jwt) => {
+                create_auth_service!(self, jwt, header_map, channel)
             }
             AuthenticationConfig::Jwt(jwt) => {
                 create_auth_service!(self, jwt, header_map, channel)
