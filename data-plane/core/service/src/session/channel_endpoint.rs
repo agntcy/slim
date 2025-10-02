@@ -1558,7 +1558,7 @@ where
         let len = self.mls_state.as_ref().unwrap().participants.len();
 
         if len == 1 {
-            debug!("Only one partcipant in the group. send the commit");
+            debug!("Only one participant in the group. send the commit");
             // we have a single participant in the group. apply the proposal and send the commit
             let content: MlsProposalMessagePayload =
                 bincode::decode_from_slice(payload, bincode::config::standard())
