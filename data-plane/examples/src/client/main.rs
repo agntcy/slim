@@ -16,7 +16,7 @@ mod args;
 fn spawn_session_receiver(
     session_ctx: slim_service::session::context::SessionContext<SharedSecret, SharedSecret>,
     message: &Option<String>,
-) -> std::sync::Arc<slim_service::session::Session<SharedSecret, SharedSecret>> {
+) {
     let message_clone = message.clone();
     session_ctx
         .spawn_receiver(|mut rx, session| async move {
@@ -67,9 +67,7 @@ fn spawn_session_receiver(
                     }
                 }
             }
-        })
-        .upgrade()
-        .expect("failed to upgrade session Arc")
+        });
 }
 
 #[tokio::main]
@@ -127,7 +125,6 @@ async fn main() {
 
     info!("CLIENT: Entering message receive loop");
 
-    let mut sessions = Vec::new();
     loop {
         tokio::select! {
             _ = slim_signal::shutdown() => {
@@ -152,7 +149,7 @@ async fn main() {
                 match notification {
                     Notification::NewSession(ctx) => {
                         // New remotely-initiated session. Spawn a task to handle it.
-                        sessions.push(spawn_session_receiver(ctx, message));
+                        spawn_session_receiver(ctx, message);
                     }
                     Notification::NewMessage(_msg) => {
                         // Application-level publish without an associated session.
@@ -165,15 +162,6 @@ async fn main() {
     }
 
     info!("client shutting down");
-
-    // delete all sessions
-    for session in sessions.into_iter() {
-        let session_id = session.id();
-        info!(%session_id, "deleting session");
-        if let Err(e) = app.delete_session(&session).await {
-            error!(%session_id, "failed to delete session: {}", e);
-        }
-    }
 
     let signal = svc.signal();
     match time::timeout(config.runtime.drain_timeout(), signal.drain()).await {

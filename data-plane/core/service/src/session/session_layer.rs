@@ -5,6 +5,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use base64::Engine;
 // Third-party crates
 use parking_lot::RwLock as SyncRwLock;
 use rand::Rng;
@@ -344,8 +345,34 @@ where
         }
 
         if session_message_type == ProtoSessionMessageType::ChannelLeaveRequest {
+            let mut drop_session = true;
             // send message to the session and delete it after
             if let Some(session) = self.pool.read().await.get(&id) {
+                if message.get_session_type() == ProtoSessionType::SessionMulticast
+                    && let Some(string_name) = message.get_metadata("PARTICIPANT_NAME")
+                {
+                    // if the participant name is our name then drop, otherwise no
+                    let participant_vec = base64::engine::general_purpose::STANDARD
+                        .decode(string_name)
+                        .map_err(|e| SessionError::ParseProposalMessage(e.to_string()))?;
+
+                    let participant: Name =
+                        bincode::decode_from_slice(&participant_vec, bincode::config::standard())
+                            .map_err(|e| SessionError::ParseProposalMessage(e.to_string()))?
+                            .0;
+
+                    let mut local_name = session.source().clone();
+                    local_name.reset_id();
+
+                    if participant == local_name {
+                        // the controller want to delete the
+                        // session on the moderator, simply close it
+                        self.remove_session(id).await;
+                        return Ok(());
+                    } else {
+                        drop_session = false;
+                    }
+                }
                 session.on_message(message, MessageDirection::North).await?;
             } else {
                 warn!(
@@ -355,8 +382,11 @@ where
                     session_type.as_str_name().to_string(),
                 ));
             }
-            // remove the session
-            self.remove_session(id).await;
+
+            if drop_session {
+                // remove the session
+                self.remove_session(id).await;
+            }
             return Ok(());
         }
 
@@ -454,7 +484,10 @@ where
             | ProtoSessionMessageType::RtxReply
             | ProtoSessionMessageType::MulticastMsg
             | ProtoSessionMessageType::BeaconMulticast => {
-                debug!("received channel message with unknown session id");
+                debug!(
+                    "received channel message with unknown session id {:?} ",
+                    message
+                );
                 // We can ignore these messages
                 return Ok(());
             }

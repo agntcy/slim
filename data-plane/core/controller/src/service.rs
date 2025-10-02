@@ -484,9 +484,10 @@ fn get_name_from_string(string_name: &String) -> Result<Name, ControllerError> {
 fn create_channel_message(
     source: &Name,
     destination: &Name,
-    channel: Option<&Name>, // TODO(micpapal): this needs to be removed
+    // TODO(micpapal): this needs to be removed
     // use the protobuf file to define the payload
     // of the packets
+    channel: Option<&Name>,
     request_type: ProtoSessionMessageType,
     session_id: u32,
     message_id: u32,
@@ -551,7 +552,7 @@ fn create_new_channel_message(
     metadata.insert("IS_MODERATOR".to_string(), "true".to_string());
 
     // by default MLS is always on
-    // TODO(micpapal): define all this metadata constants somewhere
+    // TODO(micpapal): define all these metadata constants somewhere
     // that is accessible everywhere
     metadata.insert("MLS_ENABLED".to_string(), "true".to_string());
 
@@ -603,6 +604,7 @@ fn remove_participant_message(
     channel_name: &Name,
 ) -> DataPlaneMessage {
     let session_id = generate_session_id(moderator, channel_name);
+
     let mut metadata = HashMap::new();
     let encoded_participant: Vec<u8> =
         bincode::encode_to_vec(participant, bincode::config::standard())
