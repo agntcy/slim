@@ -364,7 +364,7 @@ func (s *sbAPIService) handleNodeMessages(ctx context.Context,
 				return err
 			}
 			zlog.Info().Msgf(
-				"Participant added successfully: %s", payload.AddParticipantRequest.ParticipantId)
+				"Participant added successfully: %s", payload.AddParticipantRequest.ParticipantName)
 
 		case *controllerapi.ControlMessage_DeleteParticipantRequest:
 			zlog.Debug().Msgf(
@@ -394,7 +394,7 @@ func (s *sbAPIService) handleNodeMessages(ctx context.Context,
 			}
 			zlog.Info().Msgf(
 				"Participant deleted successfully: %s",
-				payload.DeleteParticipantRequest.ParticipantId,
+				payload.DeleteParticipantRequest.ParticipantName,
 			)
 
 		case *controllerapi.ControlMessage_ListChannelRequest:

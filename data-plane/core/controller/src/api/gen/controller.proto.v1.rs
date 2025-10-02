@@ -192,9 +192,9 @@ pub struct AddParticipantRequest {
     /// The channel name in the form organization/namespace/channel_name
     #[prost(string, tag = "1")]
     pub channel_name: ::prost::alloc::string::String,
-    /// ID of participant
+    /// Name of the participant
     #[prost(string, tag = "2")]
-    pub participant_id: ::prost::alloc::string::String,
+    pub participant_name: ::prost::alloc::string::String,
     /// list of moderators for the channel
     #[prost(string, repeated, tag = "3")]
     pub moderators: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
@@ -206,7 +206,7 @@ pub struct DeleteParticipantRequest {
     pub channel_name: ::prost::alloc::string::String,
     /// ID of participant
     #[prost(string, tag = "2")]
-    pub participant_id: ::prost::alloc::string::String,
+    pub participant_name: ::prost::alloc::string::String,
     /// list of moderators for the channel
     #[prost(string, repeated, tag = "3")]
     pub moderators: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
@@ -229,7 +229,7 @@ pub struct ListParticipantsRequest {
 pub struct ListParticipantsResponse {
     /// list of participants in the channel
     #[prost(string, repeated, tag = "1")]
-    pub participant_id: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+    pub participant_name: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]

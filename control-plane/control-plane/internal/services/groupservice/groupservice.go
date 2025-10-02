@@ -186,7 +186,7 @@ func (s *GroupService) AddParticipant(
 		return nil, fmt.Errorf("invalid channel name: %w", err)
 	}
 
-	_, err = commonutil.ValidateName(addParticipantRequest.ParticipantId, 3)
+	_, err = commonutil.ValidateName(addParticipantRequest.ParticipantName, 3)
 	if err != nil {
 		return nil, fmt.Errorf("invalid participant name: %w", err)
 	}
@@ -233,12 +233,12 @@ func (s *GroupService) AddParticipant(
 		zlog.Debug().Msg("Ack message received, participant added successfully.")
 	}
 
-	if slices.Contains(channel.Participants, addParticipantRequest.ParticipantId) {
+	if slices.Contains(channel.Participants, addParticipantRequest.ParticipantName) {
 		return nil, fmt.Errorf("participant %s already exists in channel %s",
-			addParticipantRequest.ParticipantId, addParticipantRequest.ChannelName)
+			addParticipantRequest.ParticipantName, addParticipantRequest.ChannelName)
 	}
 
-	channel.Participants = append(channel.Participants, addParticipantRequest.ParticipantId)
+	channel.Participants = append(channel.Participants, addParticipantRequest.ParticipantName)
 	err = s.dbService.UpdateChannel(channel)
 	if err != nil {
 		return nil, fmt.Errorf("failed to update channel: %w", err)
@@ -259,7 +259,7 @@ func (s *GroupService) DeleteParticipant(
 	if deleteParticipantRequest.ChannelName == "" {
 		return nil, fmt.Errorf("channel ID cannot be empty")
 	}
-	if deleteParticipantRequest.ParticipantId == "" {
+	if deleteParticipantRequest.ParticipantName == "" {
 		return nil, fmt.Errorf("participant ID cannot be empty")
 	}
 	channel, err := s.dbService.GetChannel(deleteParticipantRequest.ChannelName)
@@ -268,7 +268,7 @@ func (s *GroupService) DeleteParticipant(
 	}
 	foundIdx := -1
 	for idx, participant := range channel.Participants {
-		if participant == deleteParticipantRequest.ParticipantId {
+		if participant == deleteParticipantRequest.ParticipantName {
 			foundIdx = idx
 			break
 		}
@@ -276,7 +276,7 @@ func (s *GroupService) DeleteParticipant(
 
 	if foundIdx == -1 {
 		return nil, fmt.Errorf("participant %s not found in channel %s",
-			deleteParticipantRequest.ParticipantId, deleteParticipantRequest.ChannelName)
+			deleteParticipantRequest.ParticipantName, deleteParticipantRequest.ChannelName)
 	}
 
 	deleteParticipantRequest.Moderators = channel.Moderators
@@ -381,7 +381,7 @@ func (s *GroupService) ListParticipants(
 	zlog.Debug().Msg("Participants listed successfully.")
 
 	return &controllerapi.ListParticipantsResponse{
-		ParticipantId: channel.Participants,
+		ParticipantName: channel.Participants,
 	}, nil
 }
 

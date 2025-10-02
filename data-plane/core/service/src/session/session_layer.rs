@@ -307,7 +307,7 @@ where
         };
 
         if session_message_type == ProtoSessionMessageType::ChannelDiscoveryRequest {
-            // recvied a discovery message
+            // received a discovery message
             if let Some(session) = self.pool.read().await.get(&id)
                 && session.session_config().initiator()
             {

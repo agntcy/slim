@@ -145,8 +145,8 @@ message AddParticipantRequest {
   // The channel name in the form organization/namespace/channel_name
   string channel_name = 1;
 
-  // ID of participant
-  string participant_id = 2;
+  // Name of the participant
+  string participant_name = 2;
 
   // list of moderators for the channel
   repeated string moderators = 3;
@@ -157,7 +157,7 @@ message DeleteParticipantRequest {
   string channel_name = 1;
 
   // ID of participant
-  string participant_id = 2;
+  string participant_name = 2;
 
   // list of moderators for the channel
   repeated string moderators = 3;
@@ -177,5 +177,5 @@ message ListParticipantsRequest {
 
 message ListParticipantsResponse {
   // list of participants in the channel
-  repeated string participant_id = 1;
+  repeated string participant_name = 1;
 }

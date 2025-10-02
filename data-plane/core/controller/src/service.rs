@@ -1037,7 +1037,7 @@ impl ControllerService {
                     Payload::AddParticipantRequest(req) => {
                         info!(
                             "received a participant add request for channel: {}, participant: {}",
-                            req.channel_name, req.participant_id
+                            req.channel_name, req.participant_name
                         );
 
                         if let Some(first_moderator) = req.moderators.first() {
@@ -1049,7 +1049,7 @@ impl ControllerService {
                             }
 
                             let channel_name = get_name_from_string(&req.channel_name)?;
-                            let participant_name = get_name_from_string(&req.participant_id)?;
+                            let participant_name = get_name_from_string(&req.participant_name)?;
                             let source_name = CONTROLLER_SOURCE_NAME.clone();
 
                             let invite_msg = invite_participant_message(
@@ -1097,7 +1097,7 @@ impl ControllerService {
                             }
 
                             let channel_name = get_name_from_string(&req.channel_name)?;
-                            let participant_name = get_name_from_string(&req.participant_id)?;
+                            let participant_name = get_name_from_string(&req.participant_name)?;
                             let source_name = CONTROLLER_SOURCE_NAME.clone();
 
                             let remove_msg = remove_participant_message(
