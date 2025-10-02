@@ -40,9 +40,8 @@ config:
 
 spire:
   enabled: true
-  trustDomain: cluster-a.org
-  federation:    
-  - trustDomain: {{ .CLUSTER_B_TRUST_DOMAIN }}
+  trustedDomains:
+  - spiffe://cluster-b.example
 
 service:
   type: LoadBalancer

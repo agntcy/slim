@@ -26,11 +26,15 @@ Setup cluster-a and cluster-b on Kind and start Kind LoadBalancer Provider.
 
 sudo task multi-cluster:up
 
-Deploy Spire federated on cluster-a & cluster-b:
+Deploy Spire (federated mode enabled) on cluster-a & cluster-b:
 
-task spire:federation:deploy
+task spire:deploy
 
 Add spire.cluster-a.org & spire.cluster-b.org to /etc/hosts.
+
+Create cluster federation resources on both clusters:
+
+task spire:federation:deploy
 
 Deploy controller on cluster-a:
 
