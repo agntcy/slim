@@ -301,31 +301,31 @@ impl Config {
     }
 
     fn add_custom_ca_cert(&self, root_store: &mut RootCertStore) -> Result<(), ConfigError> {
-        let ca_cert = self.load_ca_certificate()?;
+        let ca_certs = self.load_ca_certificates()?;
 
-        if let Some(cert) = ca_cert {
+        for cert in ca_certs {
             root_store.add(cert).map_err(ConfigError::RootStore)?;
         }
 
         Ok(())
     }
 
-    fn load_ca_certificate(&self) -> Result<Option<CertificateDer<'static>>, ConfigError> {
+    fn load_ca_certificates(&self) -> Result<Vec<CertificateDer<'static>>, ConfigError> {
         match (self.has_ca_file(), self.has_ca_pem()) {
             (true, true) => Err(ConfigError::CannotUseBoth("ca".to_string())),
             (true, false) => {
                 let cert_path = Path::new(self.ca_file.as_ref().unwrap());
-                let cert =
-                    CertificateDer::from_pem_file(cert_path).map_err(ConfigError::InvalidPem)?;
-                Ok(Some(cert))
+                let certs: Result<Vec<_>, _> = CertificateDer::pem_file_iter(cert_path)
+                    .map_err(ConfigError::InvalidPem)?
+                    .collect();
+                certs.map_err(ConfigError::InvalidPem)
             }
             (false, true) => {
                 let cert_bytes = self.ca_pem.as_ref().unwrap().as_bytes();
-                let cert =
-                    CertificateDer::from_pem_slice(cert_bytes).map_err(ConfigError::InvalidPem)?;
-                Ok(Some(cert))
+                let certs: Result<Vec<_>, _> = CertificateDer::pem_slice_iter(cert_bytes).collect();
+                certs.map_err(ConfigError::InvalidPem)
             }
-            (false, false) => Ok(None),
+            (false, false) => Ok(Vec::new()),
         }
     }
 
@@ -709,42 +709,45 @@ MSAvYjGrRzM6XpGEYasfwy0Zoc3loi9nzP5uE4tv8vE72nyMf+OhaPG+Rn+mdBv4
     }
 
     #[test]
-    fn test_load_ca_certificate_no_ca() {
+    fn test_load_ca_certificates_no_ca() {
         let config = Config::default();
-        let result = config.load_ca_certificate();
+        let result = config.load_ca_certificates();
         assert!(result.is_ok());
-        assert!(result.unwrap().is_none());
+        let certs = result.unwrap();
+        assert!(certs.is_empty());
     }
 
     #[test]
-    fn test_load_ca_certificate_from_pem() {
+    fn test_load_ca_certificates_from_pem() {
         let config = Config::default().with_ca_pem(TEST_CA_CERT_PEM);
-        let result = config.load_ca_certificate();
+        let result = config.load_ca_certificates();
         assert!(result.is_ok());
-        assert!(result.unwrap().is_some());
+        let certs = result.unwrap();
+        assert_eq!(certs.len(), 1);
     }
 
     #[test]
-    fn test_load_ca_certificate_from_file() {
+    fn test_load_ca_certificates_from_file() {
         let ca_file_path = create_temp_file_simple(TEST_CA_CERT_PEM, rand::random::<u32>());
         let config = Config::default().with_ca_file(&ca_file_path);
-        let result = config.load_ca_certificate();
+        let result = config.load_ca_certificates();
         println!("res = {:?}", result);
         assert!(result.is_ok());
-        assert!(result.unwrap().is_some());
+        let certs = result.unwrap();
+        assert_eq!(certs.len(), 1);
 
         // Clean up
         let _ = fs::remove_file(ca_file_path);
     }
 
     #[test]
-    fn test_load_ca_certificate_both_file_and_pem() {
+    fn test_load_ca_certificates_both_file_and_pem() {
         let ca_file_path = create_temp_file_simple(TEST_CA_CERT_PEM, rand::random::<u32>());
         let config = Config::default()
             .with_ca_file(&ca_file_path)
             .with_ca_pem(TEST_CA_CERT_PEM);
 
-        let result = config.load_ca_certificate();
+        let result = config.load_ca_certificates();
         assert!(result.is_err());
         match result.unwrap_err() {
             ConfigError::CannotUseBoth(msg) => assert_eq!(msg, "ca"),
@@ -753,6 +756,43 @@ MSAvYjGrRzM6XpGEYasfwy0Zoc3loi9nzP5uE4tv8vE72nyMf+OhaPG+Rn+mdBv4
 
         // Clean up
         let _ = fs::remove_file(ca_file_path);
+    }
+
+    #[test]
+    fn test_load_ca_certificates_multiple_from_pem() {
+        let multiple_certs = format!("{}\n{}", TEST_CA_CERT_PEM, TEST_CLIENT_CERT_PEM);
+        let config = Config::default().with_ca_pem(&multiple_certs);
+        let result = config.load_ca_certificates();
+        assert!(result.is_ok());
+        let certs = result.unwrap();
+        assert_eq!(certs.len(), 2); // Should load both certificates
+    }
+
+    #[test]
+    fn test_load_ca_certificates_multiple_from_file() {
+        let multiple_certs = format!("{}\n{}", TEST_CA_CERT_PEM, TEST_CLIENT_CERT_PEM);
+        let ca_file_path = create_temp_file_simple(&multiple_certs, rand::random::<u32>());
+        let config = Config::default().with_ca_file(&ca_file_path);
+        let result = config.load_ca_certificates();
+        assert!(result.is_ok());
+        let certs = result.unwrap();
+        assert_eq!(certs.len(), 2); // Should load both certificates
+
+        // Clean up
+        let _ = fs::remove_file(ca_file_path);
+    }
+
+    #[test]
+    fn test_load_ca_certificates_multiple() {
+        let multiple_certs = format!("{}\n{}", TEST_CA_CERT_PEM, TEST_CLIENT_CERT_PEM);
+        let config = Config::default()
+            .with_include_system_ca_certs_pool(false)
+            .with_ca_pem(&multiple_certs);
+
+        let result = config.load_ca_cert_pool();
+        assert!(result.is_ok());
+        let root_store = result.unwrap();
+        assert_eq!(root_store.len(), 2); // Should now load both certificates
     }
 
     #[test]
