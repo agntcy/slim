@@ -88,6 +88,7 @@ async fn main() -> Result<()> {
     let config_file = args.config();
     let local_name = args.local_name();
     let message = args.message();
+    let secret = args.secret();
 
     // Load configuration
     let mut config = config::load_config(config_file)
@@ -118,8 +119,8 @@ async fn main() -> Result<()> {
     let (app, mut app_rx) = svc
         .create_app(
             &local_name,
-            SharedSecret::new(&local_name.to_string(), "group"),
-            SharedSecret::new(&local_name.to_string(), "group"),
+            SharedSecret::new(&local_name.to_string(), secret),
+            SharedSecret::new(&local_name.to_string(), secret),
         )
         .await
         .with_context(|| format!("Failed to create app for name {}", local_name))?;

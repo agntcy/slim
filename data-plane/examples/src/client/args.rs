@@ -17,6 +17,10 @@ pub struct Args {
     #[clap(long, env, required = false)]
     #[arg(short, long, value_name = "MESSAGE")]
     message: Option<String>,
+
+    #[clap(long, env, required = false, default_value = "secret")]
+    #[arg(short, long, value_name = "SECRET")]
+    secret: String,
 }
 
 impl Args {
@@ -30,5 +34,9 @@ impl Args {
 
     pub fn message(&self) -> &Option<String> {
         &self.message
+    }
+
+    pub fn secret(&self) -> &str {
+        &self.secret
     }
 }
