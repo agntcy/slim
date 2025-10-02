@@ -78,7 +78,7 @@ Options:
 ```
 
 ## How to run the test using the Taskfile
-The Taskfile contains several commands that can be used to run a simple test with one SLIM instance, 10 subscribers, and 1 publisher. 
+The Taskfile contains several commands that can be used to run a simple test with one SLIM instance, 10 subscribers, and 1 publisher.
 All options can be modified within the Taskfile. The topology of the test is as follows:
 
 ```mermaid
@@ -95,7 +95,7 @@ Follow these steps to run the test:
 ```
 task run:workload-gen
 ```
-This will create the workload file 
+This will create the workload file
 
 2. run SLIM:
 ```
@@ -130,13 +130,10 @@ Options:
   -n, --name <ENDOPOINT>           Local endpoint name in the form org/ns/type/id
   -i, --is-moderator               Runs the endpoint in moderator mode
   -m, --mls-disabled               Runs the endpoint with MLS disabled
-  -p, --participants <PARITICIPANTS>... List of participant types to add to the channel (moderator mode only)
+  -p, --participants <PARTICIPANTS>... List of participant types to add to the channel (moderator mode only)
   -o, --moderator-name <MODERATOR_NAME> Moderator name (participant mode only)
   -f, --frequency <FREQUENCY>      Time between publications in milliseconds [default: 1000]
       --max-packets <MAX_PACKETS>  Maximum number of packets to send (moderator only)
   -h, --help                       Print help
   -V, --version                    Print version
 ```
-
-
-

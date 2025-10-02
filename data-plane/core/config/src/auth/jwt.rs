@@ -166,19 +166,10 @@ impl Config {
 
         claims
     }
-}
 
-// Using the JWT middleware from jwt_middleware.rs
-
-impl ClientAuthenticator for Config {
-    // Associated types
-    type ClientLayer = AddJwtLayer<SignerJwt>;
-
-    fn get_client_layer(&self) -> Result<Self::ClientLayer, AuthError> {
-        // Use the builder pattern to construct the JWT
+    /// Internal helper to build a base JwtBuilder with configured standard claims.
+    fn jwt_builder(&self) -> JwtBuilder {
         let mut builder = JwtBuilder::new();
-
-        // Set optional fields
         if let Some(issuer) = &self.claims().issuer {
             builder = builder.issuer(issuer);
         }
@@ -188,36 +179,58 @@ impl ClientAuthenticator for Config {
         if let Some(subject) = &self.claims().subject {
             builder = builder.subject(subject);
         }
+        builder
+    }
 
-        let signer = match self.key() {
+    /// Build and return a SignerJwt from this configuration.
+    /// Returns an error if the configuration does not contain an encoding key.
+    pub fn get_provider(&self) -> Result<SignerJwt, AuthError> {
+        match self.key() {
             JwtKey::Encoding(key) => {
-                let custom_claims = match &self.claims().custom_claims {
-                    Some(claims) => {
-                        // Convert yaml values to json values
-                        claims
-                            .iter()
-                            .map(|(k, v)| (k.clone(), serde_json::to_value(v).unwrap()))
-                            .collect()
-                    }
-                    None => HashMap::new(),
-                };
-
-                builder
+                let custom_claims = self.custom_claims();
+                self.jwt_builder()
                     .private_key(key)
                     .custom_claims(custom_claims)
                     .build()
-                    .map_err(|e| AuthError::ConfigError(e.to_string()))?
+                    .map_err(|e| AuthError::ConfigError(e.to_string()))
             }
-            _ => {
-                return Err(AuthError::ConfigError(
-                    "Encoding key is required for client authentication".to_string(),
-                ));
-            }
-        };
+            _ => Err(AuthError::ConfigError(
+                "Encoding key is required for client authentication".to_string(),
+            )),
+        }
+    }
 
-        // Create token duration in seconds
+    /// Build and return a VerifierJwt from this configuration.
+    /// Returns an error if neither a decoding key nor autoresolve=true are configured.
+    pub fn get_verifier(&self) -> Result<VerifierJwt, AuthError> {
+        match self.key() {
+            JwtKey::Decoding(key) => self
+                .jwt_builder()
+                .public_key(key)
+                .build()
+                .map_err(|e| AuthError::ConfigError(e.to_string())),
+            JwtKey::Autoresolve(true) => self
+                .jwt_builder()
+                .auto_resolve_keys(true)
+                .build()
+                .map_err(|e| AuthError::ConfigError(e.to_string())),
+            _ => Err(AuthError::ConfigError(
+                "Decoding key or autoresolve = true is required for server authentication"
+                    .to_string(),
+            )),
+        }
+    }
+}
+
+// Using the JWT middleware from jwt_middleware.rs
+
+impl ClientAuthenticator for Config {
+    // Associated types
+    type ClientLayer = AddJwtLayer<SignerJwt>;
+
+    fn get_client_layer(&self) -> Result<Self::ClientLayer, AuthError> {
+        let signer = self.get_provider()?;
         let duration = self.duration.as_secs();
-
         Ok(AddJwtLayer::new(signer, duration))
     }
 }
@@ -230,40 +243,8 @@ where
     type ServerLayer = ValidateJwtLayer<HashMap<String, serde_json::Value>, VerifierJwt>;
 
     fn get_server_layer(&self) -> Result<Self::ServerLayer, AuthError> {
-        // Use the builder pattern to construct the JWT
-        let mut builder = JwtBuilder::new();
-
-        // Set optional fields
-        if let Some(issuer) = &self.claims().issuer {
-            builder = builder.issuer(issuer);
-        }
-        if let Some(audience) = &self.claims().audience {
-            builder = builder.audience(audience);
-        }
-        if let Some(subject) = &self.claims().subject {
-            builder = builder.subject(subject);
-        }
-
-        let verifier = match self.key() {
-            JwtKey::Decoding(key) => builder
-                .public_key(key)
-                .build()
-                .map_err(|e| AuthError::ConfigError(e.to_string()))?,
-            JwtKey::Autoresolve(true) => builder
-                .auto_resolve_keys(true)
-                .build()
-                .map_err(|e| AuthError::ConfigError(e.to_string()))?,
-            _ => {
-                return Err(AuthError::ConfigError(
-                    "Decoding key or autoresolve = true is required for server authentication"
-                        .to_string(),
-                ));
-            }
-        };
-
-        // Create standard claims for verification
+        let verifier = self.get_verifier()?;
         let custom_claims = self.custom_claims();
-
         Ok(ValidateJwtLayer::new(verifier, custom_claims))
     }
 }
@@ -272,6 +253,7 @@ where
 #[cfg(test)]
 mod tests {
     use crate::testutils::tower_service::{Body, HeaderCheckService};
+    use crate::tls::provider::initialize_crypto_provider;
     use http::Response;
     use serde_json;
     use slim_auth::jwt::Algorithm;
@@ -381,5 +363,97 @@ mod tests {
         let ser = serde_json::to_string(&cfg).expect("serialize");
         let de: Config = serde_json::from_str(&ser).expect("deserialize");
         assert_eq!(de.duration, Duration::from_secs(125));
+    }
+
+    #[test]
+    fn test_get_signer_ok() {
+        let cfg = Config::new(
+            Claims::default(),
+            Duration::from_secs(60),
+            JwtKey::Encoding(Key {
+                algorithm: Algorithm::HS256,
+                format: KeyFormat::Pem,
+                key: KeyData::Str("secret-signing-key".to_string()),
+            }),
+        );
+        let signer = cfg.get_provider();
+        assert!(
+            signer.is_ok(),
+            "expected signer to be created: {:?}",
+            signer.err()
+        );
+    }
+
+    #[test]
+    fn test_get_signer_err_with_decoding_key() {
+        let cfg = Config::new(
+            Claims::default(),
+            Duration::from_secs(60),
+            JwtKey::Decoding(Key {
+                algorithm: Algorithm::HS256,
+                format: KeyFormat::Pem,
+                key: KeyData::Str("verification-key".to_string()),
+            }),
+        );
+        let signer = cfg.get_provider();
+        assert!(
+            signer.is_err(),
+            "expected error when using decoding key for signer"
+        );
+    }
+
+    #[test]
+    fn test_get_verifier_ok_with_decoding_key() {
+        let cfg = Config::new(
+            Claims::default(),
+            Duration::from_secs(60),
+            JwtKey::Decoding(Key {
+                algorithm: Algorithm::HS256,
+                format: KeyFormat::Pem,
+                key: KeyData::Str("verification-key".to_string()),
+            }),
+        );
+        let verifier = cfg.get_verifier();
+        assert!(
+            verifier.is_ok(),
+            "expected verifier to be created: {:?}",
+            verifier.err()
+        );
+    }
+
+    #[test]
+    fn test_get_verifier_ok_with_autoresolve() {
+        // init crypto provider first
+        initialize_crypto_provider();
+
+        let cfg = Config::new(
+            Claims::default(),
+            Duration::from_secs(60),
+            JwtKey::Autoresolve(true),
+        );
+        let verifier = cfg.get_verifier();
+        assert!(
+            verifier.is_ok(),
+            "expected verifier with autoresolve: {:?}",
+            verifier.err()
+        );
+    }
+
+    #[test]
+    fn test_get_verifier_err_with_encoding_key() {
+        let cfg = Config::new(
+            Claims::default(),
+            Duration::from_secs(60),
+            JwtKey::Encoding(Key {
+                algorithm: Algorithm::HS256,
+                format: KeyFormat::Pem,
+                key: KeyData::Str("secret-signing-key".to_string()),
+            }),
+        );
+        let verifier = cfg.get_verifier();
+        assert!(
+            verifier.is_err(),
+            "expected error when using encoding key for verifier"
+        );
     }
 }

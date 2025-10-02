@@ -310,7 +310,7 @@ async fn main() {
     // stop the receiving loop
     token.cancel();
 
-    // wait few seconds for the recever thread to stop
+    // wait few seconds for the receiver thread to stop
     tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
 
     // check the test results

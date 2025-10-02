@@ -68,9 +68,9 @@ mod tests {
     use slim_auth::jwt::Algorithm;
     use slim_auth::jwt::KeyFormat;
     use slim_config::auth::basic::Config as BasicAuthConfig;
-    use slim_config::auth::bearer::Config as BearerAuthConfig;
     use slim_config::auth::jwt::Config as JwtAuthConfig;
     use slim_config::auth::jwt::JwtKey;
+    use slim_config::auth::static_jwt::Config as BearerAuthConfig;
     use slim_config::grpc::client::AuthenticationConfig as ClientAuthenticationConfig;
     use slim_config::grpc::server::AuthenticationConfig as ServerAuthenticationConfig;
     use slim_config::tls::client::TlsClientConfig;
@@ -83,6 +83,7 @@ mod tests {
     // use slim_config_grpc::headers_middleware::SetRequestHeader;
     use slim_auth::jwt::{Key, KeyData};
     use slim_auth::testutils::setup_test_jwt_resolver;
+    use slim_auth::traits::Signer;
     use slim_config::grpc::{client::ClientConfig, server::ServerConfig};
     use slim_config::testutils::helloworld::HelloRequest;
     use slim_config::testutils::helloworld::greeter_client::GreeterClient;
@@ -267,19 +268,77 @@ mod tests {
 
     #[tokio::test]
     #[traced_test]
-    async fn test_tls_bearer_auth_grpc_configuration() {
-        // create a client configuration and derive a channel from it
-        let client_config = ClientAuthenticationConfig::Bearer(BearerAuthConfig::new("test-token"));
+    async fn test_tls_static_jwt_grpc_configuration() {
+        // Create temporary token files
+        let token_path = std::env::temp_dir().join("test_token.jwt");
+        let wrong_token_path = std::env::temp_dir().join("wrong_test_token.jwt");
 
-        // create server config
-        let server_config = ServerAuthenticationConfig::Bearer(BearerAuthConfig::new("test-token"));
+        // Create JWT claims for both signing and verification
+        let claims = slim_config::auth::jwt::Claims::default()
+            .with_issuer("test-issuer")
+            .with_subject("test-subject")
+            .with_audience(&["test-audience"]);
+
+        // Create a signer to generate the JWT tokens
+        let signer = slim_auth::builder::JwtBuilder::new()
+            .issuer("test-issuer")
+            .subject("test-subject")
+            .audience(&["test-audience"])
+            .private_key(&Key {
+                algorithm: Algorithm::HS256,
+                format: KeyFormat::Pem,
+                key: KeyData::Str("shared-secret".to_string()),
+            })
+            .build()
+            .unwrap();
+
+        // Create another signer with wrong key for invalid token
+        let wrong_signer = slim_auth::builder::JwtBuilder::new()
+            .issuer("test-issuer")
+            .subject("test-subject")
+            .audience(&["test-audience"])
+            .private_key(&Key {
+                algorithm: Algorithm::HS256,
+                format: KeyFormat::Pem,
+                key: KeyData::Str("wrong-secret".to_string()),
+            })
+            .build()
+            .unwrap();
+
+        // Generate JWT tokens and write to files
+        let valid_token = signer.sign_standard_claims().unwrap();
+        let invalid_token = wrong_signer.sign_standard_claims().unwrap();
+
+        std::fs::write(&token_path, valid_token).unwrap();
+        std::fs::write(&wrong_token_path, invalid_token).unwrap();
+
+        // create a client configuration with StaticJwt (file-based)
+        let client_config = ClientAuthenticationConfig::StaticJwt(BearerAuthConfig::with_file(
+            token_path.to_string_lossy().as_ref(),
+        ));
+
+        // create server config with JWT verification using the same secret as the signer
+        let server_config = ServerAuthenticationConfig::Jwt(JwtAuthConfig::new(
+            claims.clone(),
+            Duration::from_secs(3600),
+            JwtKey::Decoding(Key {
+                algorithm: Algorithm::HS256,
+                format: KeyFormat::Pem,
+                key: KeyData::Str("shared-secret".to_string()),
+            }),
+        ));
 
         // create wrong client config
-        let wrong_client_config =
-            ClientAuthenticationConfig::Bearer(BearerAuthConfig::new("wrong-token"));
+        let wrong_client_config = ClientAuthenticationConfig::StaticJwt(
+            BearerAuthConfig::with_file(wrong_token_path.to_string_lossy().as_ref()),
+        );
 
         // run grpc server and client
         test_grpc_auth(client_config, server_config, wrong_client_config, 50055).await;
+
+        // Clean up temporary files
+        let _ = std::fs::remove_file(token_path);
+        let _ = std::fs::remove_file(wrong_token_path);
     }
 
     async fn test_tls_jwt_grpc_configuration(
