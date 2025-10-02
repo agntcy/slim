@@ -682,9 +682,12 @@ MSAvYjGrRzM6XpGEYasfwy0Zoc3loi9nzP5uE4tv8vE72nyMf+OhaPG+Rn+mdBv4
 
     #[test]
     fn test_load_ca_cert_pool_invalid_pem() {
+        let mixed_pem = r#"-----BEGIN CERTIFICATE-----
+        INVALID_BASE64_DATA_THAT_WILL_FAIL_PARSING!!!
+        -----END CERTIFICATE-----"#;
         let config = Config::default()
             .with_include_system_ca_certs_pool(false)
-            .with_ca_pem("invalid_pem_content");
+            .with_ca_pem(mixed_pem);
 
         let result = config.load_ca_cert_pool();
         assert!(result.is_err());
