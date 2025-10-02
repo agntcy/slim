@@ -1,6 +1,7 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
+use anyhow::{Context, Result};
 use clap::Parser;
 use prost::Message;
 use tokio::time;
@@ -23,8 +24,17 @@ fn spawn_session_receiver(
             info!("Session handler task started");
 
             if let Some(m) = message_clone {
-                let s = session.upgrade().unwrap();
-                s.publish(&s.dst().unwrap(), m.encode_to_vec(), None, None).await.unwrap();
+                if let Some(s) = session.upgrade() {
+                    if let Some(dst) = s.dst() {
+                        if let Err(e) = s.publish(&dst, m.encode_to_vec(), None, None).await {
+                            error!("Failed to publish message to session: {:?}", e);
+                        }
+                    } else {
+                        error!("Failed to get session destination");
+                    }
+                } else {
+                    error!("Failed to upgrade session weak reference");
+                }
             }
 
             loop {
@@ -60,7 +70,7 @@ fn spawn_session_receiver(
                                 }
                             },
                             Some(Err(e)) => {
-                                error!("error receiving session message: {}", e);
+                                error!("error receiving session message: {:?}", e);
                                 continue;
                             }
                         };
@@ -71,7 +81,7 @@ fn spawn_session_receiver(
 }
 
 #[tokio::main]
-async fn main() {
+async fn main() -> Result<()> {
     // Parse CLI
     let args = args::Args::parse();
 
@@ -80,20 +90,28 @@ async fn main() {
     let message = args.message();
 
     // Load configuration
-    let mut config = config::load_config(config_file).expect("failed to load configuration");
+    let mut config = config::load_config(config_file)
+        .with_context(|| format!("Failed to load configuration from {}", config_file))?;
     let _guard = config.tracing.setup_tracing_subscriber();
 
     info!(%config_file, local=%local_name, "starting client example");
 
     // Obtain service (assumes service id slim/0 is present)
-    let service_id = slim_config::component::id::ID::new_with_str("slim/0").unwrap();
+    let service_id = slim_config::component::id::ID::new_with_str("slim/0")
+        .context("Failed to create service ID 'slim/0'")?;
     let mut svc = config
         .services
         .remove(&service_id)
-        .expect("missing service slim/0 in configuration");
+        .context("Missing service 'slim/0' in configuration")?;
 
     // Build Names
     let comp = local_name.split("/").collect::<Vec<&str>>();
+    if comp.len() < 3 {
+        anyhow::bail!(
+            "Local name '{}' must have at least 3 components separated by '/'",
+            local_name
+        );
+    }
     let local_name = Name::from_strings([comp[0], comp[1], comp[2]]).with_id(0);
 
     // Create app
@@ -104,21 +122,26 @@ async fn main() {
             SharedSecret::new(&local_name.to_string(), "group"),
         )
         .await
-        .expect("failed to create app");
+        .with_context(|| format!("Failed to create app for name {}", local_name))?;
 
     // Start service (establish client connections)
-    svc.run().await.expect("service run failed");
+    svc.run().await.context("Service run failed")?;
 
     // Connection id of first configured client
+    let clients = svc.config().clients();
+    if clients.is_empty() {
+        anyhow::bail!("No clients configured in service");
+    }
+
     let conn_id = svc
-        .get_connection_id(&svc.config().clients()[0].endpoint)
-        .expect("missing connection id");
+        .get_connection_id(&clients[0].endpoint)
+        .with_context(|| format!("Missing connection id for endpoint {}", clients[0].endpoint))?;
     info!(%conn_id, "connection established");
 
     // Subscribe to our own name for potential direct control or discovery messages
     app.subscribe(&local_name, Some(conn_id))
         .await
-        .expect("failed to subscribe local name");
+        .with_context(|| format!("Failed to subscribe to local name {}", local_name))?;
 
     // Allow a brief delay for subscription/route propagation
     tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
@@ -140,7 +163,7 @@ async fn main() {
                     Some(res) => match res {
                         Ok(n) => n,
                         Err(e) => {
-                            error!("error receiving app notification: {}", e);
+                            error!("error receiving app notification: {:?}", e);
                             continue;
                         }
                     }
@@ -166,6 +189,11 @@ async fn main() {
     let signal = svc.signal();
     match time::timeout(config.runtime.drain_timeout(), signal.drain()).await {
         Ok(()) => info!("service drained"),
-        Err(_) => error!("timeout waiting for service drain"),
+        Err(_) => error!(
+            "timeout waiting for service drain after {:?}",
+            config.runtime.drain_timeout()
+        ),
     }
+
+    Ok(())
 }

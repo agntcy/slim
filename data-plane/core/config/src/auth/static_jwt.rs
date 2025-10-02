@@ -74,7 +74,7 @@ impl Config {
     }
 
     /// Build StaticTokenProvider using jwt.rs types.
-    fn build_static_token_provider(&self) -> Result<StaticTokenProvider, AuthError> {
+    pub fn build_static_token_provider(&self) -> Result<StaticTokenProvider, AuthError> {
         // Use JwtBuilder to leverage file watching for auto-reload.
         JwtBuilder::new()
             .token_file(self.source.file.clone())

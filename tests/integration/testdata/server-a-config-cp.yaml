@@ -25,4 +25,5 @@ services:
         - endpoint: "http://127.0.0.1:50052"
           tls:
             insecure: true
-
+      token_provider:
+        shared_secret: "group"

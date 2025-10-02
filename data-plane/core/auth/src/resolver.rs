@@ -16,7 +16,7 @@ use url::Url;
 use crate::errors::AuthError;
 
 /// Cache entry for a JWKS.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 struct JwksCache {
     jwks: JwkSet,
     fetched_at: Instant,
@@ -43,6 +43,7 @@ struct JwksCache {
 ///     .key_resolver(resolver)
 ///     .build()?;
 /// ```
+#[derive(Debug)]
 pub struct KeyResolver {
     client: ReqwestClient,
     jwks_cache: RwLock<HashMap<String, JwksCache>>,

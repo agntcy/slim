@@ -28,6 +28,7 @@ use crate::api::proto::api::v1::{
     controller_service_server::ControllerService as GrpcControllerService,
 };
 use crate::errors::ControllerError;
+use slim_auth::auth_provider::{AuthProvider, AuthVerifier};
 use slim_auth::shared_secret::SharedSecret;
 use slim_auth::traits::TokenProvider;
 use slim_config::grpc::client::ClientConfig;
@@ -52,11 +53,33 @@ pub static CONTROLLER_SOURCE_NAME: std::sync::LazyLock<slim_datapath::messages::
             .with_id(0)
     });
 
+/// Settings struct for creating a ControlPlane instance
+#[derive(Clone)]
+pub struct ControlPlaneSettings {
+    /// ID of this SLIM instance
+    pub id: ID,
+    /// Optional group name
+    pub group_name: Option<String>,
+    /// Server configurations
+    pub servers: Vec<ServerConfig>,
+    /// Client configurations
+    pub clients: Vec<ClientConfig>,
+    /// Drain receiver for graceful shutdown
+    pub drain_rx: drain::Watch,
+    /// Message processor instance
+    pub message_processor: Arc<MessageProcessor>,
+    /// Pub/sub server configurations
+    pub pubsub_servers: Vec<ServerConfig>,
+    /// Optional authentication provider
+    pub auth_provider: Option<AuthProvider>,
+    /// Optional authentication verifier
+    pub auth_verifier: Option<AuthVerifier>,
+}
+
 /// Inner structure for the controller service
 /// This structure holds the internal state of the controller service,
 /// including the ID, message processor, connections, and channels.
 /// It is normally wrapped in an Arc to allow shared ownership across multiple threads.
-#[derive(Debug)]
 struct ControllerServiceInternal {
     /// ID of this SLIM instance
     id: ID,
@@ -84,16 +107,21 @@ struct ControllerServiceInternal {
 
     /// array of connection details
     connection_details: Vec<ConnectionDetails>,
+
+    /// authentication provider for adding authentication to outgoing messages to clients
+    auth_provider: Option<AuthProvider>,
+
+    /// authentication verifier for verifying incoming messages from clients
+    _auth_verifier: Option<AuthVerifier>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 struct ControllerService {
     /// internal service state
     inner: Arc<ControllerServiceInternal>,
 }
 
 /// The ControlPlane service is the main entry point for the controller service.
-#[derive(Debug)]
 pub struct ControlPlane {
     /// servers
     servers: Vec<ServerConfig>,
@@ -165,36 +193,35 @@ impl ControlPlane {
     /// * `clients` - A vector of client configurations.
     /// * `drain_rx` - A drain watch channel for graceful shutdown.
     /// * `message_processor` - An Arc to the message processor instance.
+    /// * `pubsub_servers` - A slice of server configurations for pub/sub connections.
     /// # Returns
     /// A new instance of ControlPlane.
-    pub fn new(
-        id: ID,
-        group_name: Option<String>,
-        servers: Vec<ServerConfig>,
-        clients: Vec<ClientConfig>,
-        drain_rx: drain::Watch,
-        message_processor: Arc<MessageProcessor>,
-        pubsub_servers: &[ServerConfig],
-    ) -> Self {
+    pub fn new(config: ControlPlaneSettings) -> Self {
         // create local connection with the message processor
-        let (_, tx_slim, rx_slim) = message_processor.register_local_connection(true);
+        let (_, tx_slim, rx_slim) = config.message_processor.register_local_connection(true);
 
-        let connection_details = pubsub_servers.iter().map(from_server_config).collect();
+        let connection_details = config
+            .pubsub_servers
+            .iter()
+            .map(from_server_config)
+            .collect();
 
         ControlPlane {
-            servers,
-            clients,
+            servers: config.servers,
+            clients: config.clients,
             controller: ControllerService {
                 inner: Arc::new(ControllerServiceInternal {
-                    id,
-                    group_name,
-                    message_processor,
+                    id: config.id,
+                    group_name: config.group_name,
+                    message_processor: config.message_processor,
                     connections: Arc::new(parking_lot::RwLock::new(HashMap::new())),
                     tx_slim,
                     tx_channels: parking_lot::RwLock::new(HashMap::new()),
                     cancellation_tokens: parking_lot::RwLock::new(HashMap::new()),
-                    drain_rx,
+                    drain_rx: config.drain_rx,
                     connection_details,
+                    auth_provider: config.auth_provider,
+                    _auth_verifier: config.auth_verifier,
                 }),
             },
             rx_slim_option: Some(rx_slim),
@@ -493,6 +520,7 @@ fn create_channel_message(
     message_id: u32,
     mut metadata: HashMap<String, String>,
     payload: Vec<u8>,
+    auth_provider: &Option<AuthProvider>,
 ) -> DataPlaneMessage {
     let slim_header = Some(SlimHeader::new(source, destination, None));
     let dest = channel.unwrap_or(destination);
@@ -506,17 +534,17 @@ fn create_channel_message(
         &Some(dest.clone()),
     ));
 
-    // TODO: fix the identity of the controller
-    let controller_identity = SharedSecret::new("controller", "group");
-    let identity_token = controller_identity
-        .get_token()
-        .map_err(|e| {
-            error!("failed to generate identity token: {}", e);
-            ControllerError::DatapathError(e.to_string())
-        })
-        .unwrap();
+    if let Some(auth) = auth_provider {
+        let identity_token = auth
+            .get_token()
+            .map_err(|e| {
+                error!("failed to generate identity token: {}", e);
+                ControllerError::DatapathError(e.to_string())
+            })
+            .unwrap();
 
-    metadata.insert(SLIM_IDENTITY.to_string(), identity_token);
+        metadata.insert(SLIM_IDENTITY.to_string(), identity_token);
+    }
     let mut msg =
         DataPlaneMessage::new_publish_with_headers(slim_header, session_header, "", payload);
 
@@ -529,6 +557,7 @@ fn create_new_channel_message(
     controller: &Name,
     moderator: &Name,
     channel: &Name,
+    auth_provider: &Option<AuthProvider>,
 ) -> DataPlaneMessage {
     let session_id = generate_session_id(moderator, channel);
 
@@ -565,6 +594,7 @@ fn create_new_channel_message(
         rand::random::<u32>(),
         metadata,
         invite_payload,
+        auth_provider,
     )
 }
 
@@ -573,6 +603,7 @@ fn invite_participant_message(
     moderator: &Name,
     participant: &Name,
     channel_name: &Name,
+    auth_provider: &Option<AuthProvider>,
 ) -> DataPlaneMessage {
     let session_id = generate_session_id(moderator, channel_name);
     let mut metadata = HashMap::new();
@@ -594,6 +625,7 @@ fn invite_participant_message(
         rand::random::<u32>(),
         metadata,
         vec![],
+        auth_provider,
     )
 }
 
@@ -602,6 +634,7 @@ fn remove_participant_message(
     moderator: &Name,
     participant: &Name,
     channel_name: &Name,
+    auth_provider: &Option<AuthProvider>,
 ) -> DataPlaneMessage {
     let session_id = generate_session_id(moderator, channel_name);
 
@@ -622,6 +655,7 @@ fn remove_participant_message(
         rand::random::<u32>(),
         metadata,
         vec![],
+        auth_provider,
     )
 }
 
@@ -915,6 +949,7 @@ impl ControllerService {
                                 &source_name,
                                 &moderator_name,
                                 &channel_name,
+                                &self.inner.auth_provider,
                             );
 
                             debug!("Send session creation message: {:?}", creation_msg);
@@ -1059,6 +1094,7 @@ impl ControllerService {
                                 &moderator_name,
                                 &participant_name,
                                 &channel_name,
+                                &self.inner.auth_provider,
                             );
 
                             debug!("Send invite participant: {:?}", invite_msg);
@@ -1107,6 +1143,7 @@ impl ControllerService {
                                 &moderator_name,
                                 &participant_name,
                                 &channel_name,
+                                &self.inner.auth_provider,
                             );
 
                             if let Err(e) = self.send_control_message(remove_msg).await {
@@ -1400,25 +1437,29 @@ mod tests {
 
         // Create a control plane instance for server
         let pubsub_servers = [server_config.clone()];
-        let mut control_plane_server = ControlPlane::new(
-            id_server,
-            None,
-            vec![server_config],
-            vec![],
-            watch_server,
-            Arc::new(message_processor_server),
-            &pubsub_servers,
-        );
+        let mut control_plane_server = ControlPlane::new(ControlPlaneSettings {
+            id: id_server,
+            group_name: None,
+            servers: vec![server_config],
+            clients: vec![],
+            drain_rx: watch_server,
+            message_processor: Arc::new(message_processor_server),
+            pubsub_servers: pubsub_servers.to_vec(),
+            auth_provider: None,
+            auth_verifier: None,
+        });
 
-        let mut control_plane_client = ControlPlane::new(
-            id_client,
-            None,
-            vec![],
-            vec![client_config],
-            watch_client,
-            Arc::new(message_processor_client),
-            &pubsub_servers,
-        );
+        let mut control_plane_client = ControlPlane::new(ControlPlaneSettings {
+            id: id_client,
+            group_name: None,
+            servers: vec![],
+            clients: vec![client_config],
+            drain_rx: watch_client,
+            message_processor: Arc::new(message_processor_client),
+            pubsub_servers: pubsub_servers.to_vec(),
+            auth_provider: None,
+            auth_verifier: None,
+        });
 
         // Start the server
         control_plane_server.run().await.unwrap();

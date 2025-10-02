@@ -9,10 +9,12 @@ includes:
     taskfile: ../control-plane/Taskfile.yaml
     flatten: true
     dir: ../control-plane
+    internal: true
   data-plane:
     taskfile: ../data-plane/Taskfile.yaml
     flatten: true
     dir: ../data-plane
+    internal: true
 
 silent: true
 
