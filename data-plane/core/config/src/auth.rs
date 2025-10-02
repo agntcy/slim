@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 pub mod basic;
-pub mod bearer;
 pub mod jwt;
+pub mod static_jwt;
 
 use thiserror::Error;
 

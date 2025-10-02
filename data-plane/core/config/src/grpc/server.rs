@@ -17,8 +17,8 @@ use tracing::{debug, info};
 use super::errors::ConfigError;
 use crate::auth::ServerAuthenticator;
 use crate::auth::basic::Config as BasicAuthenticationConfig;
-use crate::auth::bearer::Config as BearerAuthenticationConfig;
 use crate::auth::jwt::Config as JwtAuthenticationConfig;
+
 use crate::component::configuration::{Configuration, ConfigurationError};
 use crate::metadata::MetadataMap;
 use crate::tls::{common::RustlsConfigLoader, server::TlsServerConfig as TLSSetting};
@@ -52,8 +52,6 @@ pub struct KeepaliveServerParameters {
 pub enum AuthenticationConfig {
     /// Basic authentication configuration.
     Basic(BasicAuthenticationConfig),
-    /// Bearer authentication configuration.
-    Bearer(BearerAuthenticationConfig),
     /// JWT authentication configuration.
     Jwt(JwtAuthenticationConfig),
     /// None
@@ -358,28 +356,6 @@ impl ServerConfig {
         match &self.auth {
             AuthenticationConfig::Basic(basic) => {
                 let auth_layer = basic
-                    .get_server_layer()
-                    .map_err(|e| ConfigError::AuthConfigError(e.to_string()))?;
-
-                let mut builder = builder.layer(auth_layer);
-
-                let mut router = builder.add_service(svc[0].clone());
-                for s in svc.iter().skip(1) {
-                    router = builder.add_service(s.clone());
-                }
-
-                if let Some(tls_config) = tls_config {
-                    let incoming = tonic_tls::rustls::incoming(incoming, Arc::new(tls_config))
-                        .map_err(|e| ConfigError::TcpIncomingError(e.to_string()));
-
-                    // Return the server future with the TLS configuration
-                    return Ok(router.serve_with_incoming(incoming).boxed());
-                };
-
-                Ok(router.serve_with_incoming(incoming).boxed())
-            }
-            AuthenticationConfig::Bearer(bearer) => {
-                let auth_layer = bearer
                     .get_server_layer()
                     .map_err(|e| ConfigError::AuthConfigError(e.to_string()))?;
 
