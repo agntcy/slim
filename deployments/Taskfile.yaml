@@ -140,10 +140,14 @@ tasks:
 
   slim:check:prerequisites:
     desc: Check availability of docker, kubectl, and kind on the host
+
     cmds:
+      - |
+        task --version >/dev/null 2>&1 && echo "task: available" || echo "task: not found"
       - |
         docker >/dev/null 2>&1 && echo "docker: available" || echo "docker: not found"
       - |
         kubectl >/dev/null 2>&1 && echo "kubectl: available" || echo "kubectl: not found"
       - |
         kind >/dev/null 2>&1 && echo "kind: available" || echo "kind: not found"
+
