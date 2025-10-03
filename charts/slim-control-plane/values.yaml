@@ -43,8 +43,10 @@ config:
 
 spire:
   enabled: false
-  trustDomain: example.org
-  federation: []
+  # Slim Controller SVIDs will be federated with these trust domains
+  trustedDomains: []
+    # - cluster-a.example.org
+    # - cluster-b.example.org  
 
 env:
   - name: NB_API_HTTP_HOST
