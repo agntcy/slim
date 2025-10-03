@@ -252,24 +252,29 @@ impl TlsServerConfig {
         };
 
         // Check whether to enable client auth or not
-        let client_ca = match (&self.client_ca_file, &self.client_ca_pem) {
+        let client_ca_certs = match (&self.client_ca_file, &self.client_ca_pem) {
             (Some(_), Some(_)) => return Err(ConfigError::CannotUseBoth("client_ca".to_string())),
-            (Some(_), None) => Option::Some(
-                CertificateDer::from_pem_file(Path::new(self.client_ca_file.as_ref().unwrap()))
-                    .map_err(ConfigError::InvalidPem)?,
-            ),
-            (None, Some(_)) => Option::Some(
-                CertificateDer::from_pem_slice(self.client_ca_pem.as_ref().unwrap().as_bytes())
-                    .map_err(ConfigError::InvalidPem)?,
-            ),
-            (None, None) => Option::None,
+            (Some(file_path), None) => {
+                let certs: Result<Vec<_>, _> = CertificateDer::pem_file_iter(Path::new(file_path))
+                    .map_err(ConfigError::InvalidPem)?
+                    .collect();
+                Some(certs.map_err(ConfigError::InvalidPem)?)
+            }
+            (None, Some(pem_data)) => {
+                let certs: Result<Vec<_>, _> =
+                    CertificateDer::pem_slice_iter(pem_data.as_bytes()).collect();
+                Some(certs.map_err(ConfigError::InvalidPem)?)
+            }
+            (None, None) => None,
         };
 
-        // create root store if client_ca is set
-        let server_config = match client_ca {
-            Some(client_ca) => {
+        // create root store if client_ca_certs is set
+        let server_config = match client_ca_certs {
+            Some(client_ca_certs) => {
                 let mut root_store = RootCertStore::empty();
-                root_store.add(client_ca).map_err(ConfigError::RootStore)?;
+                for cert in client_ca_certs {
+                    root_store.add(cert).map_err(ConfigError::RootStore)?;
+                }
                 let verifier = WebPkiClientVerifier::builder(root_store.into())
                     .build()
                     .map_err(ConfigError::VerifierBuilder)?;
