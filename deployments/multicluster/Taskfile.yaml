@@ -207,13 +207,19 @@ tasks:
   multi-cluster:lb:up:
     desc: Start cloud provider for LoadBalancer support
     cmds:
-    - bash -c "go run sigs.k8s.io/cloud-provider-kind@latest >/dev/null 2>&1 &"
+      - |
+        echo "Starting Kind cloud provider for LoadBalancer support..."
+        bash -c "go run sigs.k8s.io/cloud-provider-kind@latest >/dev/null 2>&1 &"
 
   multi-cluster:lb:down:
     desc: Stop cloud provider for LoadBalancer support
 
     status:
-      - ps aux | grep '[c]loud-provider-kind'; x=$?; [[ $x -eq 1 ]]
+    # Only kill the processes if they are running
+      - test -z $(ps aux | grep '[c]loud-provider-kind') >/dev/null;
 
     cmds:
-      - kill -9 $(ps aux | grep [c]loud-provider-kind | awk '{print $2}')
+      - |
+        echo "Stopping Kind cloud provider for LoadBalancer support..."
+        kill -9 $(ps aux | grep [c]loud-provider-kind | awk '{print $2}')
+
