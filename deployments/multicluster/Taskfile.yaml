@@ -37,7 +37,7 @@ tasks:
       - kind delete cluster --name {{ .CLUSTER_A_TRUST_DOMAIN }}
       - kind delete cluster --name {{ .CLUSTER_B_TRUST_DOMAIN }}
 
-  spire:controller:deploy:
+  spire:server:deploy:
     desc: Deploy SPIRE server
     vars:
       TRUST_DOMAIN: '{{ .TRUST_DOMAIN | default "" }}'
@@ -75,7 +75,7 @@ tasks:
     desc: Set up federation between two SPIRE servers      
     cmds:
       - kubectl config use-context kind-{{ .CLUSTER_A_TRUST_DOMAIN }}    
-      - task: spire:controller:deploy
+      - task: spire:server:deploy
         vars:
           TRUST_DOMAIN: '{{ .CLUSTER_A_TRUST_DOMAIN }}'
           BUNDLE_PATH: ./{{ .CLUSTER_A_TRUST_DOMAIN }}.spiffe
@@ -84,7 +84,7 @@ tasks:
       - task slim:wait-for-lb LB_HOSTNAME=spire.{{ .CLUSTER_A_TRUST_DOMAIN }} SVC_NAME=spire-server NAMESPACE='{{ .SPIRE_NAMESPACE }}'
 
       - kubectl config use-context kind-{{ .CLUSTER_B_TRUST_DOMAIN }}
-      - task: spire:controller:deploy
+      - task: spire:server:deploy
         vars:
           TRUST_DOMAIN: '{{ .CLUSTER_B_TRUST_DOMAIN }}'
           BUNDLE_PATH: ./{{ .CLUSTER_B_TRUST_DOMAIN }}.spiffe
@@ -206,6 +206,10 @@ tasks:
 
   multi-cluster:lb:up:
     desc: Start cloud provider for LoadBalancer support
+    status:
+    # Only start the processes if they are not running
+      - ps aux | grep '[c]loud-provider-kind' >/dev/null;
+
     cmds:
       - |
         echo "Starting Kind cloud provider for LoadBalancer support..."
@@ -213,7 +217,6 @@ tasks:
 
   multi-cluster:lb:down:
     desc: Stop cloud provider for LoadBalancer support
-
     status:
     # Only kill the processes if they are running
       - test -z $(ps aux | grep '[c]loud-provider-kind') >/dev/null;
