@@ -9,12 +9,12 @@ data:
     svid_file_name = "tls.crt"
     svid_key_file_name = "tls.key"
     svid_bundle_file_name = "svid_bundle.pem"
-    jwt_bundle_file_name = "cert.jwt"
+    jwt_bundle_file_name = "key.jwt"
     cert_file_mode = 0644
     key_file_mode = 0644
     jwt_svid_file_mode = 0644
     jwt_bundle_file_mode = 0644
-    jwt_svids = [{jwt_audience="test", jwt_svid_file_name="jwt_svid.token"}]
+    jwt_svids = [{jwt_audience="slim", jwt_svid_file_name="jwt_svid.token"}]
     daemon_mode = false
 kind: ConfigMap
 metadata:
