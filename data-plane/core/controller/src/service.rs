@@ -952,38 +952,37 @@ impl ControllerService {
                     Payload::CreateChannelRequest(req) => {
                         info!("received a create channel request");
 
+                        let mut success = true;
                         // Get the first moderator from the list, as we support only one for now
                         if let Some(first_moderator) = req.moderators.first() {
                             let moderator_name = get_name_from_string(first_moderator)?;
                             if !moderator_name.has_id() {
-                                return Err(ControllerError::ConfigError(
-                                    "invalid moderator ID".to_owned(),
-                                ));
-                            }
+                                error!("invalid moderator ID");
+                                success = false;
+                            } else {
+                                let channel_name = get_name_from_string(&req.channel_name)?;
 
-                            let channel_name = get_name_from_string(&req.channel_name)?;
+                                let creation_msg = new_channel_message(
+                                    &CONTROLLER_SOURCE_NAME,
+                                    &moderator_name,
+                                    &channel_name,
+                                    &self.inner.auth_provider,
+                                );
 
-                            let source_name = CONTROLLER_SOURCE_NAME.clone();
-                            let creation_msg = new_channel_message(
-                                &source_name,
-                                &moderator_name,
-                                &channel_name,
-                                &self.inner.auth_provider,
-                            );
-
-                            debug!("Send session creation message: {:?}", creation_msg);
-                            if let Err(e) = self.send_control_message(creation_msg).await {
-                                error!("failed to send channel creation: {}", e);
+                                debug!("Send session creation message: {:?}", creation_msg);
+                                if let Err(e) = self.send_control_message(creation_msg).await {
+                                    error!("failed to send channel creation: {}", e);
+                                    success = false;
+                                }
                             }
                         } else {
-                            return Err(ControllerError::ConfigError(
-                                "no moderators specified in add participant request".to_string(),
-                            ));
+                            error!("no moderators specified create channel request");
+                            success = false;
                         };
 
                         let ack = Ack {
                             original_message_id: msg.message_id.clone(),
-                            success: true,
+                            success,
                             messages: vec![msg.message_id.clone()],
                         };
 
@@ -998,39 +997,38 @@ impl ControllerService {
                     }
                     Payload::DeleteChannelRequest(req) => {
                         info!("received a channel delete request");
+                        let mut success = true;
 
                         // Get the first moderator from the list, as we support only one for now
                         if let Some(first_moderator) = req.moderators.first() {
                             let moderator_name = get_name_from_string(first_moderator)?;
                             if !moderator_name.has_id() {
-                                return Err(ControllerError::ConfigError(
-                                    "invalid moderator ID".to_owned(),
-                                ));
-                            }
+                                error!("invalid moderator ID");
+                                success = false;
+                            } else {
+                                let channel_name = get_name_from_string(&req.channel_name)?;
 
-                            let channel_name = get_name_from_string(&req.channel_name)?;
+                                let delete_msg = delete_channel_message(
+                                    &CONTROLLER_SOURCE_NAME,
+                                    &moderator_name,
+                                    &channel_name,
+                                    &self.inner.auth_provider,
+                                );
 
-                            let source_name = CONTROLLER_SOURCE_NAME.clone();
-                            let delete_msg = delete_channel_message(
-                                &source_name,
-                                &moderator_name,
-                                &channel_name,
-                                &self.inner.auth_provider,
-                            );
-
-                            debug!("Send delete session message: {:?}", delete_msg);
-                            if let Err(e) = self.send_control_message(delete_msg).await {
-                                error!("failed to send delete channel: {}", e);
+                                debug!("Send delete session message: {:?}", delete_msg);
+                                if let Err(e) = self.send_control_message(delete_msg).await {
+                                    error!("failed to send delete channel: {}", e);
+                                    success = false;
+                                }
                             }
                         } else {
-                            return Err(ControllerError::ConfigError(
-                                "no moderators specified in delete channel request".to_string(),
-                            ));
+                            error!("no moderators specified in delete channel request");
+                            success = false;
                         };
 
                         let ack = Ack {
                             original_message_id: msg.message_id.clone(),
-                            success: true,
+                            success,
                             messages: vec![msg.message_id.clone()],
                         };
 
@@ -1049,40 +1047,39 @@ impl ControllerService {
                             req.channel_name, req.participant_name
                         );
 
+                        let mut success = true;
+
                         if let Some(first_moderator) = req.moderators.first() {
                             let moderator_name = get_name_from_string(first_moderator)?;
                             if !moderator_name.has_id() {
-                                return Err(ControllerError::ConfigError(
-                                    "invalid moderator ID".to_string(),
-                                ));
-                            }
+                                error!("invalid moderator ID");
+                                success = false;
+                            } else {
+                                let channel_name = get_name_from_string(&req.channel_name)?;
+                                let participant_name = get_name_from_string(&req.participant_name)?;
 
-                            let channel_name = get_name_from_string(&req.channel_name)?;
-                            let participant_name = get_name_from_string(&req.participant_name)?;
-                            let source_name = CONTROLLER_SOURCE_NAME.clone();
+                                let invite_msg = invite_participant_message(
+                                    &CONTROLLER_SOURCE_NAME,
+                                    &moderator_name,
+                                    &participant_name,
+                                    &channel_name,
+                                    &self.inner.auth_provider,
+                                );
 
-                            let invite_msg = invite_participant_message(
-                                &source_name,
-                                &moderator_name,
-                                &participant_name,
-                                &channel_name,
-                                &self.inner.auth_provider,
-                            );
+                                debug!("Send invite participant: {:?}", invite_msg);
 
-                            debug!("Send invite participant: {:?}", invite_msg);
-
-                            if let Err(e) = self.send_control_message(invite_msg).await {
-                                error!("failed to send channel creation: {}", e);
+                                if let Err(e) = self.send_control_message(invite_msg).await {
+                                    error!("failed to send channel creation: {}", e);
+                                    success = false;
+                                }
                             }
                         } else {
-                            return Err(ControllerError::ConfigError(
-                                "no moderators specified in add participant request".to_string(),
-                            ));
+                            error!("no moderators specified in add participant request");
                         };
 
                         let ack = Ack {
                             original_message_id: msg.message_id.clone(),
-                            success: true,
+                            success,
                             messages: vec![msg.message_id.clone()],
                         };
 
@@ -1098,38 +1095,38 @@ impl ControllerService {
                     Payload::DeleteParticipantRequest(req) => {
                         info!("received a participant delete request");
 
+                        let mut success = true;
+
                         if let Some(first_moderator) = req.moderators.first() {
                             let moderator_name = get_name_from_string(first_moderator)?;
                             if !moderator_name.has_id() {
-                                return Err(ControllerError::ConfigError(
-                                    "invalid moderator ID".to_string(),
-                                ));
-                            }
+                                error!("invalid moderator ID");
+                                success = false;
+                            } else {
+                                let channel_name = get_name_from_string(&req.channel_name)?;
+                                let participant_name = get_name_from_string(&req.participant_name)?;
 
-                            let channel_name = get_name_from_string(&req.channel_name)?;
-                            let participant_name = get_name_from_string(&req.participant_name)?;
-                            let source_name = CONTROLLER_SOURCE_NAME.clone();
+                                let remove_msg = remove_participant_message(
+                                    &CONTROLLER_SOURCE_NAME,
+                                    &moderator_name,
+                                    &participant_name,
+                                    &channel_name,
+                                    &self.inner.auth_provider,
+                                );
 
-                            let remove_msg = remove_participant_message(
-                                &source_name,
-                                &moderator_name,
-                                &participant_name,
-                                &channel_name,
-                                &self.inner.auth_provider,
-                            );
-
-                            if let Err(e) = self.send_control_message(remove_msg).await {
-                                error!("failed to send channel creation: {}", e);
+                                if let Err(e) = self.send_control_message(remove_msg).await {
+                                    error!("failed to send channel creation: {}", e);
+                                    success = false;
+                                }
                             }
                         } else {
-                            return Err(ControllerError::ConfigError(
-                                "no moderators specified in add participant request".to_string(),
-                            ));
+                            error!("no moderators specified in remove participant request");
+                            success = false;
                         };
 
                         let ack = Ack {
                             original_message_id: msg.message_id.clone(),
-                            success: true,
+                            success,
                             messages: vec![msg.message_id.clone()],
                         };
 
