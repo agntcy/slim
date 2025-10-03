@@ -400,7 +400,7 @@ where
                         debug!(
                             "received a Leave Request message on multicast session with PARTICIPANT_NAME"
                         );
-                        // if the participant name is our name then drop, otherwise no
+
                         let participant_vec = base64::engine::general_purpose::STANDARD
                             .decode(string_name)
                             .map_err(|e| SessionError::ParseProposalMessage(e.to_string()))?;
@@ -412,17 +412,18 @@ where
                         .map_err(|e| SessionError::ParseProposalMessage(e.to_string()))?
                         .0;
 
-                        let mut local_name = session.source().clone();
-                        local_name.reset_id();
+                        if &participant == session.source() {
+                            // the controller want to delete the session on the moderator.
+                            // this is equivalent to delete the full group.
+                            // TODO (micpapal/msardara): move the moderator role
+                            // to another participant and keep the group alive
+                            message.remove_metadata("PARTICIPANT_NAME");
+                            message.insert_metadata("DELETE_GROUP".to_string(), "true".to_string());
 
-                        if participant == local_name {
-                            // the controller want to delete the
-                            // session on the moderator, simply close it
-                            self.remove_session(id).await;
-                            return Ok(());
-                        } else {
-                            drop_session = false;
+                            debug!("try to remove the moderator, close the session");
                         }
+
+                        drop_session = false;
                     } else if message.contains_metadata("DELETE_GROUP") {
                         debug!(
                             "received a Leave Request message on multicast session with DELETE GROUP"
