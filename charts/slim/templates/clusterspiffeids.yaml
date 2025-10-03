@@ -10,9 +10,7 @@ kind: ClusterSPIFFEID
 metadata:
   name: {{ include "slim.fullname" . }}
 spec:
-  className: spire-server-spire
-  fallback: false
-  hint: default
+  className: spire-spire
   podSelector:
     matchExpressions:
     - key: app.kubernetes.io/name
@@ -23,5 +21,14 @@ spec:
     - k8s:pod-image:{{ .Values.slim.image.repository }}:{{ .Values.slim.image.tag | default .Chart.AppVersion }}
     - k8s:sa:{{ include "slim.serviceAccountName" . }}
   spiffeIDTemplate: {{ "spiffe://{{ .TrustDomain }}/ns/{{ .PodMeta.Namespace }}/sa/slim" }}
+  dnsNameTemplates:
+    - {{ "slim.{{ .TrustDomain }}" }}
   autoPopulateDNSNames: true
+  {{- if .Values.spire.trustedDomains }}
+  federatesWith:
+  {{ range .Values.spire.trustedDomains }}
+    - {{ . }}
+  {{ end }}
+  {{- end }}
+
 {{ end }}

@@ -1,0 +1,31 @@
+
+# Copyright AGNTCY Contributors (https://github.com/agntcy)
+# SPDX-License-Identifier: Apache-2.0
+
+version: "3"
+
+# This Taskfile includes specific tasks for the naive deployment strategy.
+
+includes:
+    templates: 
+      taskfile: ../Taskfile.yaml
+      dir: ../
+
+
+tasks:
+  slim:deploy:
+    desc: Deploy Slim using the StatefulSet deployment strategy
+
+    requires:
+      vars: [SLIM_IMAGE_TAG]
+
+    deps: 
+      # - templates:cluster:use-context
+
+    cmds:
+      - | 
+        helm upgrade --install slim ../../charts/slim \
+          --namespace {{ .SLIM_NAMESPACE }} \
+          --create-namespace \
+          --set slim.image.tag="{{ .SLIM_IMAGE_TAG }}" \
+          --values statefulset-values.yaml

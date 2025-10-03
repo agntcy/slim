@@ -1,0 +1,16 @@
+graph TB
+    subgraph "Kubernetes Cluster"
+        subgraph "slim namespace"
+            SLIM[SLIM Pod]
+            SVC[SLIM Service - ClusterIP]
+            SVC --> SLIM
+        end
+
+        subgraph "default namespace"
+            BOB[Bob Sender]
+            ALICE[Alice Receiver]
+        end
+    end
+
+    BOB --> SVC
+    ALICE --> SVC
