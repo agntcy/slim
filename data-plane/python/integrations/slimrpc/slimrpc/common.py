@@ -4,6 +4,7 @@
 import base64
 import json
 import logging
+from dataclasses import dataclass
 from typing import Tuple, TypeVar
 
 import slim_bindings
@@ -164,18 +165,24 @@ def jwt_identity(
     return provider, verifier
 
 
-async def create_local_app(
-    local_name: slim_bindings.PyName,
-    slim: dict,
-    enable_opentelemetry: bool = False,
-    shared_secret: str = "",
-) -> slim_bindings.Slim:
+@dataclass
+class SLIMAppConfig:
+    identity: str
+    slim_client_config: dict
+    enable_opentelemetry: bool = False
+    shared_secret: str = ""
+
+    def identity_pyname(self) -> slim_bindings.PyName:
+        return split_id(self.identity)
+
+
+async def create_local_app(config: SLIMAppConfig) -> slim_bindings.Slim:
     # init tracing
     slim_bindings.init_tracing(
         {
             "log_level": "info",
             "opentelemetry": {
-                "enabled": enable_opentelemetry,
+                "enabled": config.enable_opentelemetry,
                 "grpc": {
                     "endpoint": "http://localhost:4317",
                 },
@@ -183,18 +190,22 @@ async def create_local_app(
         }
     )
 
+    split_identity = config.identity_pyname()
+
     provider, verifier = shared_secret_identity(
-        identity=str(local_name),
-        secret=shared_secret,
+        identity=str(split_identity),
+        secret=config.shared_secret,
     )
 
-    local_app = await slim_bindings.Slim.new(local_name, provider, verifier)
+    local_app = await slim_bindings.Slim.new(split_identity, provider, verifier)
 
     logger.info(f"{local_app.get_id()} Created app")
 
     # Connect to slim server
-    _ = await local_app.connect(slim)
+    _ = await local_app.connect(config.slim_client_config)
 
-    logger.info(f"{local_app.get_id()} Connected to {slim['endpoint']}")
+    logger.info(
+        f"{local_app.get_id()} Connected to {config.slim_client_config['endpoint']}"
+    )
 
     return local_app
