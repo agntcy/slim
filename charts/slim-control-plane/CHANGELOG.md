@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.1.5](https://github.com/agntcy/slim/compare/helm-slim-control-plane-v0.1.4...helm-slim-control-plane-v0.1.5) (2025-10-03)
+
+
+### Features
+
+* add basic auth to ingress ([#722](https://github.com/agntcy/slim/issues/722)) ([bfe81b6](https://github.com/agntcy/slim/commit/bfe81b66ec4bacba5b637a7bfd406c53f3babe17))
+* handle updates from SLIM nodes ([#708](https://github.com/agntcy/slim/issues/708)) ([ccc5183](https://github.com/agntcy/slim/commit/ccc518386d0ece16237647511118e7d032e033c6))
+
 ## [0.1.4](https://github.com/agntcy/slim/compare/helm-slim-control-plane-v0.1.3...helm-slim-control-plane-v0.1.4) (2025-09-18)
 
 
