@@ -95,7 +95,7 @@ tasks:
       - helm delete spire -n {{ .SPIRE_NAMESPACE }}
       - helm delete spire-crds -n {{ .SPIRE_NAMESPACE }}
 
-  slim:contoller:deploy:
+  slim:controller:deploy:
     desc: Deploy Slim Controller
     cmds:
       - |
@@ -105,22 +105,27 @@ tasks:
           --set image.tag="{{ .SLIM_CONTROLLER_IMAGE_TAG }}" \
           --values controller-values.yaml            
 
-  slim:client-apps.deploy:
+  slim:client-apps:deploy:
     desc: Deploy sample client applications
     deps:
       - slim:client-apps:down
     cmds:
       - kubectl apply -f client_apps
 
-  slim:deploy:client-apps-with-spire:
-    desc: Deploy sample client applications with SPIRE integration
-    cmds:
-      - kubectl apply -f client_apps/with-spire
-  
   slim:client-apps:down:
     desc: Cleanup sample client applications
     cmds:
       - kubectl delete -f client_apps --ignore-not-found
+
+  slim:client-apps-with-spire:deploy:
+    desc: Deploy sample client applications with SPIRE integration
+    cmds:
+      - kubectl apply -f client_apps/with_spire
+
+  slim:client-apps-with-spire:down:
+    desc: Cleanup sample client applications with SPIRE integration
+    cmds:
+      - kubectl delete -f client_apps/with_spire --ignore-not-found
 
   slim:client-apps:logs:
     desc: Tail logs from sample client applications

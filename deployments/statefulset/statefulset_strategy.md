@@ -41,6 +41,11 @@ task templates:cluster:up
 task templates:cluster:use-context
 ```
 
+### 2. Deploy Spire
+```bash
+task templates:spire:deploy
+```
+
 ### 2. Deploy SLIM controller
 ```bash
 task templates:slim:controller:deploy
