@@ -6,9 +6,3 @@ pub mod api {
         include!("gen/controller.proto.v1.rs");
     }
 }
-
-pub mod moderator {
-    pub mod v1 {
-        include!("gen/moderator.proto.v1.rs");
-    }
-}
