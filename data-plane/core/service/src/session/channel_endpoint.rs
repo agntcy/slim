@@ -10,6 +10,7 @@ use std::{
 
 // Third-party crates
 use async_trait::async_trait;
+use base64::Engine;
 use bincode::{Decode, Encode};
 use parking_lot::Mutex;
 use tracing::{debug, error, trace};
@@ -31,6 +32,7 @@ use crate::session::{
         AddParticipant, AddParticipantMls, ModeratorTask, RemoveParticipant, RemoveParticipantMls,
         TaskUpdate, UpdateParticipantMls,
     },
+    session_layer::SessionLayerMessage,
 };
 use slim_mls::mls::{CommitMsg, KeyPackageMsg, Mls, MlsIdentity, ProposalMsg, WelcomeMsg};
 
@@ -371,7 +373,7 @@ where
     /// mls state in common between moderator and
     common: MlsState<P, V>,
 
-    /// map of the participants with package keys
+    /// map of the participants (with real ids) with package keys
     /// used to remove participants from the channel
     participants: HashMap<Name, MlsIdentity>,
 
@@ -601,6 +603,12 @@ where
             None
         };
 
+        let dest = if request_type == ProtoSessionMessageType::ChannelJoinRequest {
+            Some(self.channel_name.clone())
+        } else {
+            None
+        };
+
         let slim_header = Some(SlimHeader::new(&self.name, destination, flags));
 
         // no need to specify the source and the destination here. these messages
@@ -611,7 +619,7 @@ where
             self.session_id,
             message_id,
             &None,
-            &Some(self.channel_name.clone()),
+            &dest,
         ));
 
         Message::new_publish_with_headers(slim_header, session_header, "", payload)
@@ -919,6 +927,10 @@ where
             }
         };
 
+        if let Some(t) = &mut self.timer {
+            t.stop();
+        }
+
         Ok(())
     }
 
@@ -1135,6 +1147,20 @@ where
 
     /// mls state
     mls_state: Option<MlsModeratorState<P, V>>,
+
+    /// map of the participant in the channel
+    /// map from name to u64. The name is the
+    /// generic name provided by the app/controller on
+    /// invite/remove participant. The val contains the
+    /// id of the actual participant found after the
+    /// discovery
+    group_list: HashMap<Name, u64>,
+
+    /// channel to send delete message to the session layer
+    tx_session: Option<tokio::sync::mpsc::Sender<Result<SessionLayerMessage, SessionError>>>,
+
+    /// set to true on delete_all
+    closing: bool,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1153,6 +1179,7 @@ where
         retries_interval: Duration,
         mls: Option<MlsState<P, V>>,
         tx: T,
+        tx_session: Option<tokio::sync::mpsc::Sender<Result<SessionLayerMessage, SessionError>>>,
         session_metadata: HashMap<String, String>,
     ) -> Self {
         let p = JoinMessagePayload::new(channel_name.clone(), name.clone());
@@ -1178,6 +1205,9 @@ where
             pending_requests: HashMap::new(),
             invite_payload,
             mls_state,
+            group_list: HashMap::new(),
+            tx_session,
+            closing: false,
         }
     }
 
@@ -1196,11 +1226,53 @@ where
     }
 
     async fn forward(&mut self, msg: Message) -> Result<(), SessionError> {
+        let to_forward = if let Some(string_name) = msg.get_metadata("PARTICIPANT_NAME") {
+            debug!("received invite participant from controller: {:?}", msg);
+
+            // set the local connection
+            self.endpoint.conn = Some(msg.get_incoming_conn());
+
+            let dst_vec = base64::engine::general_purpose::STANDARD
+                .decode(string_name)
+                .map_err(|e| SessionError::ParseProposalMessage(e.to_string()))?;
+
+            let dst: Name = bincode::decode_from_slice(&dst_vec, bincode::config::standard())
+                .map_err(|e| SessionError::ParseProposalMessage(e.to_string()))?
+                .0;
+
+            self.endpoint.set_route(&dst).await?;
+
+            let new_slim_header = SlimHeader::new(&self.endpoint.name, &dst, None);
+
+            let new_session_header = SessionHeader::new(
+                ProtoSessionType::SessionMulticast.into(),
+                msg.get_session_header().session_message_type().into(),
+                self.endpoint.session_id,
+                msg.get_id(),
+                &None,
+                &None,
+            );
+
+            let blob = match msg.get_payload() {
+                Some(c) => c.blob.clone(),
+                None => vec![],
+            };
+
+            Message::new_publish_with_headers(
+                Some(new_slim_header),
+                Some(new_session_header),
+                "",
+                blob,
+            )
+        } else {
+            msg
+        };
+
         // forward message received from the app and set a timer
-        let msg_id = msg.get_id();
-        self.endpoint.send(msg.clone()).await?;
+        let msg_id = to_forward.get_id();
+        self.endpoint.send(to_forward.clone()).await?;
         // create a timer for this request
-        self.create_timer(msg_id, 1, msg, None);
+        self.create_timer(msg_id, 1, to_forward, None);
 
         Ok(())
     }
@@ -1407,6 +1479,15 @@ where
         // evolve the current task state
         // the join phase is completed
         self.current_task.as_mut().unwrap().join_complete(msg_id)?;
+
+        // at this point the participant is part of the group so we can add it to
+        // the list, if msl is on the interaction will continue and the participant
+        // will be added to the MLS group as well later on
+        let mut new_participant_name = src.clone();
+        let new_participant_id = new_participant_name.id();
+        new_participant_name.reset_id();
+        self.group_list
+            .insert(new_participant_name, new_participant_id);
 
         // send MLS messages if needed
         if self.mls_state.is_some() {
@@ -1628,13 +1709,115 @@ where
         Ok(())
     }
 
-    async fn on_leave_request(&mut self, msg: Message) -> Result<(), SessionError> {
+    async fn delete_all(&mut self, _msg: Message) -> Result<(), SessionError> {
+        debug!("receive a close channel message, send signals to all participants");
+        // create tasks to remove each participant from the group
+        // even if mls is enable we just send the leave message
+        // in any case the group will be deleted so there is no need to
+        // update the mls state, this will speed up the process
+        self.closing = true;
+        // remove mls state
+        self.mls_state = None;
+        // clear all pending tasks
+        self.tasks_todo.clear();
+
+        for (p, _id) in self.group_list.iter() {
+            let leave = self.endpoint.create_channel_message(
+                p,
+                false,
+                ProtoSessionMessageType::ChannelLeaveRequest,
+                rand::random::<u32>(),
+                vec![],
+            );
+            // append the task to the list
+            self.tasks_todo.push_back(leave);
+        }
+
+        // try to pickup a task
+        match self.tasks_todo.pop_front() {
+            Some(m) => {
+                self.current_task = Some(ModeratorTask::RemoveParticipant(
+                    RemoveParticipant::default(),
+                ));
+                return self.on_leave_request(m).await;
+            }
+            None => {
+                // we can notify the session layer and close the channel
+                if let Some(tx_session) = &self.tx_session {
+                    debug!("Signal session layer to close the session, all tasks are done");
+                    tx_session
+                        .send(Ok(SessionLayerMessage::DeleteSession {
+                            session_id: self.endpoint.session_id,
+                        }))
+                        .await
+                        .map_err(|e| {
+                            SessionError::Processing(format!("failed to send delete session: {e}"))
+                        })?;
+                }
+                Ok(())
+            }
+        }
+    }
+
+    async fn on_leave_request(&mut self, mut msg: Message) -> Result<(), SessionError> {
+        // we need to adjust the message
+        // if coming from the controller we need to modify source and destination
+        // if coming from the app we need to add the participant id to the destination
+        let leave_message = if let Some(string_name) = msg.get_metadata("PARTICIPANT_NAME") {
+            let dst_vec = base64::engine::general_purpose::STANDARD
+                .decode(string_name)
+                .map_err(|e| SessionError::ParseProposalMessage(e.to_string()))?;
+
+            let dst: Name = bincode::decode_from_slice(&dst_vec, bincode::config::standard())
+                .map_err(|e| SessionError::ParseProposalMessage(e.to_string()))?
+                .0;
+
+            let id = *self
+                .group_list
+                .get(&dst)
+                .ok_or(SessionError::RemoveParticipant(
+                    "participant not found".to_string(),
+                ))?;
+
+            let dst = dst.with_id(id);
+
+            let new_slim_header = SlimHeader::new(&self.endpoint.name, &dst, None);
+
+            let new_session_header = SessionHeader::new(
+                ProtoSessionType::SessionMulticast.into(),
+                ProtoSessionMessageType::ChannelLeaveRequest.into(),
+                self.endpoint.session_id,
+                msg.get_id(),
+                &None,
+                &None,
+            );
+
+            Message::new_publish_with_headers(
+                Some(new_slim_header),
+                Some(new_session_header),
+                "",
+                vec![],
+            )
+        } else {
+            let dst = msg.get_dst();
+            let id = *self
+                .group_list
+                .get(&dst)
+                .ok_or(SessionError::RemoveParticipant(
+                    "participant not found".to_string(),
+                ))?;
+
+            msg.get_slim_header_mut().set_destination(&dst.with_id(id));
+
+            msg
+        };
+
         // If MLS is on, send the MLS commit and wait for all the
         // acks before send the leave request. If MLS is off forward
         // the message
         match self.mls_state.as_mut() {
             Some(state) => {
-                let commit_payload = state.remove_participant(&msg)?;
+                let commit_payload = state.remove_participant(&leave_message)?;
 
                 let commit_id = self.mls_state.as_mut().unwrap().get_next_mls_mgs_id();
 
@@ -1655,7 +1838,12 @@ where
                 let len = self.mls_state.as_ref().unwrap().participants.len() + 1;
 
                 // the leave request will be forwarded after all acks are received
-                self.create_timer(commit_id, (len).try_into().unwrap(), commit, Some(msg));
+                self.create_timer(
+                    commit_id,
+                    (len).try_into().unwrap(),
+                    commit,
+                    Some(leave_message),
+                );
                 self.current_task
                     .as_mut()
                     .unwrap()
@@ -1665,8 +1853,8 @@ where
             }
             None => {
                 // just send the leave request
-                let msg_id = msg.get_id();
-                self.forward(msg).await?;
+                let msg_id = leave_message.get_id();
+                self.forward(leave_message).await?;
                 self.current_task.as_mut().unwrap().leave_start(msg_id)
             }
         }
@@ -1674,6 +1862,11 @@ where
 
     async fn on_leave_reply(&mut self, msg: Message) -> Result<(), SessionError> {
         let msg_id = msg.get_id();
+
+        // remove the participant from the group list
+        let mut src = msg.get_source();
+        src.reset_id();
+        self.group_list.remove(&src);
 
         // cancel timer
         if self.delete_timer(msg_id).await? {
@@ -1698,12 +1891,36 @@ where
         // here the moderator is not busy anymore
         self.current_task = None;
 
+        self.pop_task().await
+    }
+
+    async fn pop_task(&mut self) -> Result<(), SessionError> {
+        if self.current_task.is_some() {
+            // moderator is busy, nothing to do
+            return Ok(());
+        }
+
         // check if there is a pending task to process
         let msg = match self.tasks_todo.pop_front() {
             Some(m) => m,
             None => {
                 // nothing else to do
                 debug!("No tasks left to perform");
+
+                // check if we need to close the session
+                if self.closing
+                    && let Some(tx_session) = &self.tx_session
+                {
+                    debug!("Signal session layer to close the session, all tasks are done");
+                    tx_session
+                        .send(Ok(SessionLayerMessage::DeleteSession {
+                            session_id: self.endpoint.session_id,
+                        }))
+                        .await
+                        .map_err(|e| {
+                            SessionError::Processing(format!("failed to send delete session: {e}"))
+                        })?;
+                }
                 return Ok(());
             }
         };
@@ -1735,6 +1952,12 @@ where
                 self.update_mls_keys().await
             }
             ProtoSessionMessageType::ChannelLeaveRequest => {
+                // if the metadata contains the key "DELETE_GROUP" remove all the participants
+                // and close the session when all task are completed
+                if msg.contains_metadata("DELETE_GROUP") {
+                    return self.delete_all(msg).await;
+                }
+
                 debug!("Start a new channel leave task");
                 // now the moderator is busy
                 self.current_task = if self.mls_state.is_some() {
@@ -1866,7 +2089,6 @@ where
                     Some(ModeratorTask::AddParticipant(AddParticipant::default()))
                 };
 
-                debug!("Invite new participant to the channel, send discovery message");
                 let msg_id = msg.get_id();
                 // discovery message coming from the application
                 self.forward(msg).await?;
@@ -1894,7 +2116,8 @@ where
                 self.on_mls_proposal(msg).await
             }
             ProtoSessionMessageType::ChannelLeaveRequest => {
-                // leave message coming from the application
+                debug!("received leave request message");
+                // leave message coming from the app or the controller
                 // this message starts a new participant removal.
                 // process the request only if not busy
                 if self.current_task.is_some() {
@@ -1904,6 +2127,12 @@ where
                     );
                     self.tasks_todo.push_back(msg);
                     return Ok(());
+                }
+
+                // if the metadata contains the key "DELETE_GROUP" remove all the participants
+                // and close the session when all task are completed
+                if msg.contains_metadata("DELETE_GROUP") {
+                    return self.delete_all(msg).await;
                 }
 
                 // now the moderator is busy
@@ -1917,13 +2146,21 @@ where
                     ))
                 };
 
-                debug!("Received leave request message");
+                debug!("Received leave request message on moderator");
                 self.on_leave_request(msg).await
             }
             ProtoSessionMessageType::ChannelLeaveReply => {
                 // this is part of a remove, process the packet
-                debug!("Received leave reply message");
+                debug!("Received leave reply message on moderator");
                 self.on_leave_reply(msg).await
+            }
+            ProtoSessionMessageType::ChannelJoinRequest => {
+                // packet coming from the controller
+                // this message created a new multicast session on the local app
+                // setting the application as moderator
+                // all the necessary is already set we can simply drop the packet
+                debug!("Received channel join request from the controller.");
+                Ok(())
             }
             _ => Err(SessionError::Processing(format!(
                 "received unexpected packet type: {:?}",
@@ -1985,6 +2222,7 @@ mod tests {
             Duration::from_millis(100),
             Some(moderator_mls),
             moderator_tx,
+            None,
             HashMap::new(),
         );
         let mut cp = ChannelParticipant::new(

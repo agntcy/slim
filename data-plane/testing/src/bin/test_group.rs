@@ -231,10 +231,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut participants = vec![];
 
     for i in 0..tot_participants {
-        let p = Name::from_strings(["org", "ns", &format!("t{}", i)]).with_id(1);
+        let p = Name::from_strings(["org", "ns", &format!("t{}", i)]);
         participants.push(p.clone());
         tokio::spawn(async move {
-            let _ = run_participant_task(p).await;
+            let _ = run_participant_task(p.with_id(1)).await;
         });
     }
 

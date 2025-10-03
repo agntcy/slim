@@ -10,6 +10,7 @@ import (
 	"google.golang.org/grpc/peer"
 
 	controllerapi "github.com/agntcy/slim/control-plane/common/proto/controller/v1"
+	controlplaneApi "github.com/agntcy/slim/control-plane/common/proto/controlplane/v1"
 	"github.com/agntcy/slim/control-plane/control-plane/internal/config"
 	"github.com/agntcy/slim/control-plane/control-plane/internal/db"
 	"github.com/agntcy/slim/control-plane/control-plane/internal/services/groupservice"
@@ -283,23 +284,30 @@ func (s *sbAPIService) handleNodeMessages(ctx context.Context,
 			)
 			resp, err := s.groupservice.CreateChannel(
 				ctx,
-				payload.CreateChannelRequest,
+				&controlplaneApi.CreateChannelRequest{
+					Moderators: payload.CreateChannelRequest.Moderators,
+				},
+				&controlplaneApi.NodeEntry{},
 			)
 			if err != nil {
 				zlog.Error().Msgf("Error creating channel: %v", err)
 				return err
 			}
+
 			ackMsg := &controllerapi.ControlMessage{
 				MessageId: uuid.NewString(),
-				Payload: &controllerapi.ControlMessage_CreateChannelResponse{
-					CreateChannelResponse: resp,
+				Payload: &controllerapi.ControlMessage_Ack{
+					Ack: &controllerapi.Ack{
+						Success:           true,
+						OriginalMessageId: msg.MessageId,
+					},
 				},
 			}
 			if err := s.nodeCommandHandler.SendMessage(ctx, registeredNodeID, ackMsg); err != nil {
 				zlog.Error().Msgf("Error sending CreateChannelResponse: %v", err)
 				return err
 			}
-			zlog.Info().Msgf("Channel created successfully: %s", resp.ChannelId)
+			zlog.Info().Msgf("Channel created successfully: %s", resp.ChannelName)
 
 		case *controllerapi.ControlMessage_DeleteChannelRequest:
 			zlog.Debug().Msgf(
@@ -308,6 +316,7 @@ func (s *sbAPIService) handleNodeMessages(ctx context.Context,
 			resp, err := s.groupservice.DeleteChannel(
 				ctx,
 				payload.DeleteChannelRequest,
+				&controlplaneApi.NodeEntry{},
 			)
 			if err != nil {
 				zlog.Error().Msgf("Error deleting channel: %v", err)
@@ -335,6 +344,7 @@ func (s *sbAPIService) handleNodeMessages(ctx context.Context,
 			resp, err := s.groupservice.AddParticipant(
 				ctx,
 				payload.AddParticipantRequest,
+				&controlplaneApi.NodeEntry{},
 			)
 			if err != nil {
 				zlog.Error().Msgf("Error adding participant: %v", err)
@@ -354,7 +364,7 @@ func (s *sbAPIService) handleNodeMessages(ctx context.Context,
 				return err
 			}
 			zlog.Info().Msgf(
-				"Participant added successfully: %s", payload.AddParticipantRequest.ParticipantId)
+				"Participant added successfully: %s", payload.AddParticipantRequest.ParticipantName)
 
 		case *controllerapi.ControlMessage_DeleteParticipantRequest:
 			zlog.Debug().Msgf(
@@ -363,6 +373,7 @@ func (s *sbAPIService) handleNodeMessages(ctx context.Context,
 			resp, err := s.groupservice.DeleteParticipant(
 				ctx,
 				payload.DeleteParticipantRequest,
+				&controlplaneApi.NodeEntry{},
 			)
 			if err != nil {
 				zlog.Error().Msgf("Error deleting participant: %v", err)
@@ -383,7 +394,7 @@ func (s *sbAPIService) handleNodeMessages(ctx context.Context,
 			}
 			zlog.Info().Msgf(
 				"Participant deleted successfully: %s",
-				payload.DeleteParticipantRequest.ParticipantId,
+				payload.DeleteParticipantRequest.ParticipantName,
 			)
 
 		case *controllerapi.ControlMessage_ListChannelRequest:

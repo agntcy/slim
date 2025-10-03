@@ -7,6 +7,7 @@ import (
 
 	controllerapi "github.com/agntcy/slim/control-plane/common/proto/controller/v1"
 	controlplaneApi "github.com/agntcy/slim/control-plane/common/proto/controlplane/v1"
+	commonUtil "github.com/agntcy/slim/control-plane/common/util"
 	"github.com/agntcy/slim/control-plane/control-plane/internal/config"
 	"github.com/agntcy/slim/control-plane/control-plane/internal/services/groupservice"
 	"github.com/agntcy/slim/control-plane/control-plane/internal/services/routes"
@@ -17,20 +18,42 @@ type NorthboundAPIServer interface {
 	controlplaneApi.ControlPlaneServiceServer
 }
 
+type NodeManager interface {
+	ListNodes(
+		context.Context, *controlplaneApi.NodeListRequest,
+	) (*controlplaneApi.NodeListResponse, error)
+	GetNodeByID(nodeID string) (*controlplaneApi.NodeEntry, error)
+}
+
+type RouteManager interface {
+	ListSubscriptions(
+		_ context.Context,
+		nodeEntry *controlplaneApi.NodeEntry,
+	) (*controllerapi.SubscriptionListResponse, error)
+	ListConnections(
+		_ context.Context,
+		nodeEntry *controlplaneApi.NodeEntry,
+	) (*controllerapi.ConnectionListResponse, error)
+
+	AddRoute(ctx context.Context, route routes.Route) (string, error)
+	DeleteRoute(ctx context.Context, route routes.Route) error
+}
+
 type nbAPIService struct {
 	controlplaneApi.UnimplementedControlPlaneServiceServer
-	config       config.APIConfig
+	config config.APIConfig
+
 	logConfig    config.LogConfig
-	nodeService  *NodeService
-	routeService *routes.RouteService
+	nodeService  NodeManager
+	routeService RouteManager
 	groupService *groupservice.GroupService
 }
 
 func NewNorthboundAPIServer(
 	config config.APIConfig,
 	logConfig config.LogConfig,
-	nodeService *NodeService,
-	routeService *routes.RouteService,
+	nodeService NodeManager,
+	routeService RouteManager,
 	groupService *groupservice.GroupService,
 ) NorthboundAPIServer {
 	cpServer := &nbAPIService{
@@ -194,27 +217,55 @@ func (s *nbAPIService) DeleteRoute(
 }
 
 func (s *nbAPIService) CreateChannel(
-	ctx context.Context, createChannelRequest *controllerapi.CreateChannelRequest) (
-	*controllerapi.CreateChannelResponse, error) {
-	return s.groupService.CreateChannel(ctx, createChannelRequest)
+	ctx context.Context, createChannelRequest *controlplaneApi.CreateChannelRequest) (
+	*controlplaneApi.CreateChannelResponse, error) {
+	node, err := s.getModeratorNode(ctx, createChannelRequest.Moderators)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get available node for channel creation: %w", err)
+	}
+	return s.groupService.CreateChannel(ctx, createChannelRequest, node)
 }
 
 func (s *nbAPIService) DeleteChannel(
 	ctx context.Context, deleteChannelRequest *controllerapi.DeleteChannelRequest) (
 	*controllerapi.Ack, error) {
-	return s.groupService.DeleteChannel(ctx, deleteChannelRequest)
+	storedChannel, err := s.groupService.GetChannelDetails(ctx, deleteChannelRequest.ChannelName)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get channel: %w", err)
+	}
+	node, err := s.getModeratorNode(ctx, storedChannel.Moderators)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get available node for channel deletion: %w", err)
+	}
+	return s.groupService.DeleteChannel(ctx, deleteChannelRequest, node)
 }
 
 func (s *nbAPIService) AddParticipant(
 	ctx context.Context, addParticipantRequest *controllerapi.AddParticipantRequest) (
 	*controllerapi.Ack, error) {
-	return s.groupService.AddParticipant(ctx, addParticipantRequest)
+	storedChannel, err := s.groupService.GetChannelDetails(ctx, addParticipantRequest.ChannelName)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get channel: %w", err)
+	}
+	node, err := s.getModeratorNode(ctx, storedChannel.Moderators)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get available node for adding participant: %w", err)
+	}
+	return s.groupService.AddParticipant(ctx, addParticipantRequest, node)
 }
 
 func (s *nbAPIService) DeleteParticipant(
 	ctx context.Context, deleteParticipantRequest *controllerapi.DeleteParticipantRequest) (
 	*controllerapi.Ack, error) {
-	return s.groupService.DeleteParticipant(ctx, deleteParticipantRequest)
+	storedChannel, err := s.groupService.GetChannelDetails(ctx, deleteParticipantRequest.ChannelName)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get channel: %w", err)
+	}
+	node, err := s.getModeratorNode(ctx, storedChannel.Moderators)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get available node for deleting participant: %w", err)
+	}
+	return s.groupService.DeleteParticipant(ctx, deleteParticipantRequest, node)
 }
 
 func (s *nbAPIService) ListChannels(
@@ -227,4 +278,46 @@ func (s *nbAPIService) ListParticipants(
 	ctx context.Context, listParticipantsRequest *controllerapi.ListParticipantsRequest) (
 	*controllerapi.ListParticipantsResponse, error) {
 	return s.groupService.ListParticipants(ctx, listParticipantsRequest)
+}
+
+func (s *nbAPIService) getModeratorNode(ctx context.Context, moderators []string) (
+	*controlplaneApi.NodeEntry, error) {
+	moderatorToFind := moderators[0]
+	organization, namespace, agentType, _, err := commonUtil.ParseRoute(moderatorToFind)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse moderator route: %w", err)
+	}
+	nodeListResponse, err := s.ListNodes(ctx, &controlplaneApi.NodeListRequest{})
+	if err != nil {
+		return nil, fmt.Errorf("failed to list nodes: %w", err)
+	}
+	if nodeListResponse.GetEntries() == nil || len(nodeListResponse.GetEntries()) == 0 {
+		return nil, fmt.Errorf("no nodes available")
+	}
+
+	nodes := nodeListResponse.GetEntries()
+
+	for _, node := range nodes {
+		subscriptionList, err := s.routeService.ListSubscriptions(ctx, node)
+		if err != nil {
+			continue
+		}
+		subscriptionEntries := subscriptionList.GetEntries()
+		for _, subscriptionEntry := range subscriptionEntries {
+			if isSubscriptionSameAsModerator(subscriptionEntry, organization, namespace, agentType) {
+				return node, nil
+			}
+		}
+	}
+
+	return nodes[0], nil
+}
+
+func isSubscriptionSameAsModerator(
+	subscription *controllerapi.SubscriptionEntry,
+	organization, namespace, agentType string,
+) bool {
+	return subscription.Component_0 == organization &&
+		subscription.Component_1 == namespace &&
+		subscription.Component_2 == agentType
 }

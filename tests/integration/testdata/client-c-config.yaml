@@ -12,18 +12,9 @@ runtime:
   drain_timeout: 10s
 
 services:
-  slim/a:
+  slim/0:
     dataplane:
-      servers:
-        - endpoint: "0.0.0.0:46357"
-          tls:
-            insecure: true
-
-      clients: []
-    controller:
       clients:
-        - endpoint: "http://127.0.0.1:50052"
+        - endpoint: "http://localhost:46357"
           tls:
             insecure: true
-      token_provider:
-        shared_secret: "group"

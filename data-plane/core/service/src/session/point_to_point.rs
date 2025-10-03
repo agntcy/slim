@@ -1109,6 +1109,7 @@ where
                     Duration::from_secs(1),
                     mls,
                     tx_slim_app.clone(),
+                    None,
                     session_config.metadata.clone(),
                 );
                 ChannelEndpoint::ChannelModerator(cm)

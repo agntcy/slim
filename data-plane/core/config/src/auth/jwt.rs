@@ -425,7 +425,6 @@ mod tests {
     fn test_get_verifier_ok_with_autoresolve() {
         // init crypto provider first
         initialize_crypto_provider();
-
         let cfg = Config::new(
             Claims::default(),
             Duration::from_secs(60),

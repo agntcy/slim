@@ -613,8 +613,8 @@ impl ProtoMessage {
     }
 
     // remove metadata key from the map
-    pub fn remove_metadata(&mut self, key: &str) {
-        self.metadata.remove(key);
+    pub fn remove_metadata(&mut self, key: &str) -> Option<String> {
+        self.metadata.remove(key)
     }
 
     pub fn contains_metadata(&self, key: &str) -> bool {

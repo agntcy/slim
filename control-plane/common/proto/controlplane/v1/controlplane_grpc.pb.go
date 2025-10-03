@@ -46,7 +46,7 @@ type ControlPlaneServiceClient interface {
 	ListConnections(ctx context.Context, in *Node, opts ...grpc.CallOption) (*v1.ConnectionListResponse, error)
 	ListNodes(ctx context.Context, in *NodeListRequest, opts ...grpc.CallOption) (*NodeListResponse, error)
 	// MLS group management
-	CreateChannel(ctx context.Context, in *v1.CreateChannelRequest, opts ...grpc.CallOption) (*v1.CreateChannelResponse, error)
+	CreateChannel(ctx context.Context, in *CreateChannelRequest, opts ...grpc.CallOption) (*CreateChannelResponse, error)
 	DeleteChannel(ctx context.Context, in *v1.DeleteChannelRequest, opts ...grpc.CallOption) (*v1.Ack, error)
 	AddParticipant(ctx context.Context, in *v1.AddParticipantRequest, opts ...grpc.CallOption) (*v1.Ack, error)
 	DeleteParticipant(ctx context.Context, in *v1.DeleteParticipantRequest, opts ...grpc.CallOption) (*v1.Ack, error)
@@ -112,9 +112,9 @@ func (c *controlPlaneServiceClient) ListNodes(ctx context.Context, in *NodeListR
 	return out, nil
 }
 
-func (c *controlPlaneServiceClient) CreateChannel(ctx context.Context, in *v1.CreateChannelRequest, opts ...grpc.CallOption) (*v1.CreateChannelResponse, error) {
+func (c *controlPlaneServiceClient) CreateChannel(ctx context.Context, in *CreateChannelRequest, opts ...grpc.CallOption) (*CreateChannelResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(v1.CreateChannelResponse)
+	out := new(CreateChannelResponse)
 	err := c.cc.Invoke(ctx, ControlPlaneService_CreateChannel_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
@@ -182,7 +182,7 @@ type ControlPlaneServiceServer interface {
 	ListConnections(context.Context, *Node) (*v1.ConnectionListResponse, error)
 	ListNodes(context.Context, *NodeListRequest) (*NodeListResponse, error)
 	// MLS group management
-	CreateChannel(context.Context, *v1.CreateChannelRequest) (*v1.CreateChannelResponse, error)
+	CreateChannel(context.Context, *CreateChannelRequest) (*CreateChannelResponse, error)
 	DeleteChannel(context.Context, *v1.DeleteChannelRequest) (*v1.Ack, error)
 	AddParticipant(context.Context, *v1.AddParticipantRequest) (*v1.Ack, error)
 	DeleteParticipant(context.Context, *v1.DeleteParticipantRequest) (*v1.Ack, error)
@@ -210,7 +210,7 @@ func (UnimplementedControlPlaneServiceServer) ListConnections(context.Context, *
 func (UnimplementedControlPlaneServiceServer) ListNodes(context.Context, *NodeListRequest) (*NodeListResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ListNodes not implemented")
 }
-func (UnimplementedControlPlaneServiceServer) CreateChannel(context.Context, *v1.CreateChannelRequest) (*v1.CreateChannelResponse, error) {
+func (UnimplementedControlPlaneServiceServer) CreateChannel(context.Context, *CreateChannelRequest) (*CreateChannelResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method CreateChannel not implemented")
 }
 func (UnimplementedControlPlaneServiceServer) DeleteChannel(context.Context, *v1.DeleteChannelRequest) (*v1.Ack, error) {
@@ -332,7 +332,7 @@ func _ControlPlaneService_ListNodes_Handler(srv interface{}, ctx context.Context
 }
 
 func _ControlPlaneService_CreateChannel_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(v1.CreateChannelRequest)
+	in := new(CreateChannelRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
@@ -344,7 +344,7 @@ func _ControlPlaneService_CreateChannel_Handler(srv interface{}, ctx context.Con
 		FullMethod: ControlPlaneService_CreateChannel_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(ControlPlaneServiceServer).CreateChannel(ctx, req.(*v1.CreateChannelRequest))
+		return srv.(ControlPlaneServiceServer).CreateChannel(ctx, req.(*CreateChannelRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }

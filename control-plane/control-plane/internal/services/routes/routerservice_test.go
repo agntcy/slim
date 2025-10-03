@@ -69,6 +69,7 @@ func (m *CommandHandlerMock) Reset() {
 	defer m.mu.Unlock()
 	m.sendCalls = make([]sendCall, 0)
 }
+
 func TestRouteService_AddRoutes(t *testing.T) {
 	rConfig := config.ReconcilerConfig{
 		Threads: 1,

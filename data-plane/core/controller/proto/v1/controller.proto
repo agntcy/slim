@@ -28,14 +28,13 @@ message ControlMessage {
     DeregisterNodeResponse deregister_node_response = 11;
 
     CreateChannelRequest create_channel_request = 12;
-    CreateChannelResponse create_channel_response = 13;
-    DeleteChannelRequest delete_channel_request = 14;
-    AddParticipantRequest add_participant_request = 15;
-    DeleteParticipantRequest delete_participant_request = 16;
-    ListChannelsRequest list_channel_request = 17;
-    ListChannelsResponse list_channel_response = 18;
-    ListParticipantsRequest list_participants_request = 19;
-    ListParticipantsResponse list_participants_response = 20;
+    DeleteChannelRequest delete_channel_request = 13;
+    AddParticipantRequest add_participant_request = 14;
+    DeleteParticipantRequest delete_participant_request = 15;
+    ListChannelsRequest list_channel_request = 16;
+    ListChannelsResponse list_channel_response = 17;
+    ListParticipantsRequest list_participants_request = 18;
+    ListParticipantsResponse list_participants_response = 19;
   }
 }
 
@@ -127,49 +126,56 @@ message DeregisterNodeResponse {
 }
 
 message CreateChannelRequest {
-  // list of moderators for the channel (e.g. spiffe SVID)
+  // list of moderators for the channel
   repeated string moderators = 1;
-}
 
-message CreateChannelResponse {
-  // ID of the channel, to which clients will subscribe (e.g. spiffe SVID)
-  string channel_id = 1;
+  // The channel name in the form organization/namespace/channel_name
+  string channel_name = 2;
 }
 
 message DeleteChannelRequest {
-  // ID of the channel
-  string channel_id = 1;
+  // The channel name in the form organization/namespace/channel_name
+  string channel_name = 1;
+
+  // list of moderators for the channel
+  repeated string moderators = 2;
 }
 
 message AddParticipantRequest {
-  // ID of the channel
-  string channel_id = 1;
+  // The channel name in the form organization/namespace/channel_name
+  string channel_name = 1;
 
-  // ID of participant (e.g. spiffe SVID)
-  string participant_id = 2;
+  // Name of the participant
+  string participant_name = 2;
+
+  // list of moderators for the channel
+  repeated string moderators = 3;
 }
 
 message DeleteParticipantRequest {
-  // ID of the channel
-  string channel_id = 1;
+  // The channel name in the form organization/namespace/channel_name
+  string channel_name = 1;
 
-  // ID of participant (e.g. spiffe SVID)
-  string participant_id = 2;
+  // ID of participant
+  string participant_name = 2;
+
+  // list of moderators for the channel
+  repeated string moderators = 3;
 }
 
 message ListChannelsRequest {}
 
 message ListChannelsResponse {
   // IDs of the channels available in the control plane
-  repeated string channel_id = 1;
+  repeated string channel_name = 1;
 }
 
 message ListParticipantsRequest {
-  // ID of the channel
-  string channel_id = 1;
+  // name of the channel
+  string channel_name = 1;
 }
 
 message ListParticipantsResponse {
   // list of participants in the channel
-  repeated string participant_id = 1;
+  repeated string participant_name = 1;
 }

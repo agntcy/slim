@@ -100,7 +100,6 @@ impl Configuration for ServiceConfiguration {
     }
 }
 
-#[derive(Debug)]
 pub struct Service {
     /// id of the service
     id: ID,
