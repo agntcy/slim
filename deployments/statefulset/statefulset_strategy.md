@@ -46,12 +46,12 @@ task templates:cluster:use-context
 task templates:spire:deploy
 ```
 
-### 2. Deploy SLIM controller
+### 3. Deploy SLIM controller
 ```bash
 task templates:slim:controller:deploy
 ```
 
-### 3. Deploy SLIM as StatefulSet
+### 4. Deploy SLIM as StatefulSet
 ```bash
 task slim:deploy
 ```
