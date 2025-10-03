@@ -35,6 +35,11 @@ use super::{
 use super::{SessionError, channel_endpoint::handle_channel_discovery_message};
 use crate::session::interceptor::SessionInterceptorProvider; // needed for add_interceptor
 
+/// Message types to communicate from session to session layer
+pub enum SessionLayerMessage {
+    DeleteSession { session_id: u32 },
+}
+
 /// SessionLayer manages sessions and their lifecycle
 pub(crate) struct SessionLayer<P, V, T = AppTransmitter<P, V>>
 where
@@ -43,7 +48,7 @@ where
     T: Transmitter + Send + Sync + Clone + 'static,
 {
     /// Session pool
-    pool: AsyncRwLock<HashMap<Id, Arc<Session<P, V>>>>,
+    pool: Arc<AsyncRwLock<HashMap<Id, Arc<Session<P, V>>>>>,
 
     /// Name of the local app
     app_name: Name,
@@ -70,6 +75,9 @@ where
 
     /// Storage path for app data
     storage_path: std::path::PathBuf,
+
+    /// Channel to clone on session creation
+    tx_session: tokio::sync::mpsc::Sender<Result<SessionLayerMessage, SessionError>>,
 }
 
 impl<P, V, T> SessionLayer<P, V, T>
@@ -93,9 +101,10 @@ where
         // Create default configurations
         let default_p2p_conf = SyncRwLock::new(PointToPointConfiguration::default());
         let default_multicast_conf = SyncRwLock::new(MulticastConfiguration::default());
+        let (tx_session, rx_session) = tokio::sync::mpsc::channel(16);
 
-        Self {
-            pool: AsyncRwLock::new(HashMap::new()),
+        let sl = SessionLayer {
+            pool: Arc::new(AsyncRwLock::new(HashMap::new())),
             app_name,
             identity_provider,
             identity_verifier,
@@ -106,7 +115,12 @@ where
             default_p2p_conf,
             default_multicast_conf,
             storage_path,
-        }
+            tx_session,
+        };
+
+        sl.listen_from_sessions(rx_session);
+
+        sl
     }
 
     pub(crate) fn tx_slim(&self) -> SlimChannelSender {
@@ -203,6 +217,7 @@ where
                     self.identity_provider.clone(),
                     self.identity_verifier.clone(),
                     self.storage_path.clone(),
+                    self.tx_session.clone(),
                 )))
             }
         };
@@ -223,6 +238,38 @@ where
         // get the write lock
         let mut pool = self.pool.write().await;
         pool.remove(&id).is_some()
+    }
+
+    pub(crate) fn listen_from_sessions(
+        &self,
+        mut rx_session: tokio::sync::mpsc::Receiver<Result<SessionLayerMessage, SessionError>>,
+    ) {
+        let pool_clone = self.pool.clone();
+
+        tokio::spawn(async move {
+            loop {
+                tokio::select! {
+                    next = rx_session.recv() => {
+                        match next {
+                            Some(Ok(SessionLayerMessage::DeleteSession { session_id })) => {
+                                debug!("received closing signal from session {}, cancel it from the pool", session_id);
+                                let mut pool = pool_clone.write().await;
+                                if pool.remove(&session_id).is_none() {
+                                    warn!("requested to delete unknown session id {}", session_id);
+                                }
+                            }
+                            Some(Err(e)) => {
+                                warn!("error from session: {:?}", e);
+                            }
+                            None => {
+                                // All senders dropped; exit loop.
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+        });
     }
 
     #[cfg(test)]
@@ -348,28 +395,38 @@ where
             let mut drop_session = true;
             // send message to the session and delete it after
             if let Some(session) = self.pool.read().await.get(&id) {
-                if message.get_session_type() == ProtoSessionType::SessionMulticast
-                    && let Some(string_name) = message.get_metadata("PARTICIPANT_NAME")
-                {
-                    // if the participant name is our name then drop, otherwise no
-                    let participant_vec = base64::engine::general_purpose::STANDARD
-                        .decode(string_name)
-                        .map_err(|e| SessionError::ParseProposalMessage(e.to_string()))?;
+                if message.get_session_type() == ProtoSessionType::SessionMulticast {
+                    if let Some(string_name) = message.get_metadata("PARTICIPANT_NAME") {
+                        debug!(
+                            "received a Leave Request message on multicast session with PARTICIPANT_NAME"
+                        );
+                        // if the participant name is our name then drop, otherwise no
+                        let participant_vec = base64::engine::general_purpose::STANDARD
+                            .decode(string_name)
+                            .map_err(|e| SessionError::ParseProposalMessage(e.to_string()))?;
 
-                    let participant: Name =
-                        bincode::decode_from_slice(&participant_vec, bincode::config::standard())
-                            .map_err(|e| SessionError::ParseProposalMessage(e.to_string()))?
-                            .0;
+                        let participant: Name = bincode::decode_from_slice(
+                            &participant_vec,
+                            bincode::config::standard(),
+                        )
+                        .map_err(|e| SessionError::ParseProposalMessage(e.to_string()))?
+                        .0;
 
-                    let mut local_name = session.source().clone();
-                    local_name.reset_id();
+                        let mut local_name = session.source().clone();
+                        local_name.reset_id();
 
-                    if participant == local_name {
-                        // the controller want to delete the
-                        // session on the moderator, simply close it
-                        self.remove_session(id).await;
-                        return Ok(());
-                    } else {
+                        if participant == local_name {
+                            // the controller want to delete the
+                            // session on the moderator, simply close it
+                            self.remove_session(id).await;
+                            return Ok(());
+                        } else {
+                            drop_session = false;
+                        }
+                    } else if message.contains_metadata("DELETE_GROUP") {
+                        debug!(
+                            "received a Leave Request message on multicast session with DELETE GROUP"
+                        );
                         drop_session = false;
                     }
                 }

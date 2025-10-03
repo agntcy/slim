@@ -6,7 +6,6 @@ use std::pin::Pin;
 use std::sync::Arc;
 
 use base64::Engine;
-use uuid::Uuid;
 
 use slim_config::component::id::ID;
 use slim_config::grpc::server::ServerConfig;
@@ -29,7 +28,6 @@ use crate::api::proto::api::v1::{
 };
 use crate::errors::ControllerError;
 use slim_auth::auth_provider::{AuthProvider, AuthVerifier};
-use slim_auth::shared_secret::SharedSecret;
 use slim_auth::traits::TokenProvider;
 use slim_config::grpc::client::ClientConfig;
 use slim_datapath::api::ProtoMessage as DataPlaneMessage;
@@ -39,9 +37,6 @@ use slim_datapath::messages::Name;
 use slim_datapath::messages::encoder::calculate_hash;
 use slim_datapath::messages::utils::{SLIM_IDENTITY, SlimHeaderFlags};
 use slim_datapath::tables::SubscriptionTable;
-
-use crate::api::proto::moderator::v1::{DeleteChannelRequest, ModeratorMessage};
-use prost::Message;
 
 type TxChannel = mpsc::Sender<Result<ControlMessage, Status>>;
 type TxChannels = HashMap<String, TxChannel>;
@@ -553,7 +548,7 @@ fn create_channel_message(
     msg
 }
 
-fn create_new_channel_message(
+fn new_channel_message(
     controller: &Name,
     moderator: &Name,
     channel: &Name,
@@ -594,6 +589,30 @@ fn create_new_channel_message(
         rand::random::<u32>(),
         metadata,
         invite_payload,
+        auth_provider,
+    )
+}
+
+fn delete_channel_message(
+    controller: &Name,
+    moderator: &Name,
+    channel_name: &Name,
+    auth_provider: &Option<AuthProvider>,
+) -> DataPlaneMessage {
+    let session_id = generate_session_id(moderator, channel_name);
+
+    let mut metadata = HashMap::new();
+    metadata.insert("DELETE_GROUP".to_string(), "true".to_string());
+
+    create_channel_message(
+        controller,
+        moderator,
+        None,
+        ProtoSessionMessageType::ChannelLeaveRequest,
+        session_id,
+        rand::random::<u32>(),
+        metadata,
+        vec![],
         auth_provider,
     )
 }
@@ -945,7 +964,7 @@ impl ControllerService {
                             let channel_name = get_name_from_string(&req.channel_name)?;
 
                             let source_name = CONTROLLER_SOURCE_NAME.clone();
-                            let creation_msg = create_new_channel_message(
+                            let creation_msg = new_channel_message(
                                 &source_name,
                                 &moderator_name,
                                 &channel_name,
@@ -980,82 +999,35 @@ impl ControllerService {
                     Payload::DeleteChannelRequest(req) => {
                         info!("received a channel delete request");
 
-                        let channel_id = req.channel_name.clone();
-
-                        let moderator_name = if let Some(first_moderator) = req.moderators.first() {
-                            let parts: Vec<&str> = first_moderator.split('/').collect();
-                            if parts.len() != 4 {
-                                return Err(ControllerError::ConfigError(format!(
-                                    "invalid moderator name format: {}",
-                                    first_moderator
-                                )));
+                        // Get the first moderator from the list, as we support only one for now
+                        if let Some(first_moderator) = req.moderators.first() {
+                            let moderator_name = get_name_from_string(first_moderator)?;
+                            if !moderator_name.has_id() {
+                                return Err(ControllerError::ConfigError(
+                                    "invalid moderator ID".to_owned(),
+                                ));
                             }
-                            let id = parts[3].parse::<u64>().map_err(|_| {
-                                ControllerError::ConfigError(format!(
-                                    "invalid moderator ID: {}",
-                                    parts[3]
-                                ))
-                            })?;
-                            Name::from_strings([parts[0], parts[1], parts[2]]).with_id(id)
+
+                            let channel_name = get_name_from_string(&req.channel_name)?;
+
+                            let source_name = CONTROLLER_SOURCE_NAME.clone();
+                            let delete_msg = delete_channel_message(
+                                &source_name,
+                                &moderator_name,
+                                &channel_name,
+                                &self.inner.auth_provider,
+                            );
+
+                            debug!("Send delete session message: {:?}", delete_msg);
+                            if let Err(e) = self.send_control_message(delete_msg).await {
+                                error!("failed to send delete channel: {}", e);
+                            }
                         } else {
                             return Err(ControllerError::ConfigError(
                                 "no moderators specified in delete channel request".to_string(),
                             ));
                         };
-                        let source_name = CONTROLLER_SOURCE_NAME.clone();
 
-                        let moderator_request = ModeratorMessage {
-                            message_id: Uuid::new_v4().to_string(),
-                            timestamp: std::time::SystemTime::now()
-                                .duration_since(std::time::UNIX_EPOCH)
-                                .unwrap_or_default()
-                                .as_secs() as i64,
-                            payload: Some(crate::api::proto::moderator::v1::moderator_message::Payload::DeleteChannel(
-                                DeleteChannelRequest {
-                                    channel_id: channel_id.clone(),
-                                }
-                            )),
-                        };
-
-                        let message_content = moderator_request.encode_to_vec();
-
-                        let slim_header = Some(SlimHeader::new(
-                            &source_name,
-                            &moderator_name,
-                            Some(SlimHeaderFlags::default()),
-                        ));
-                        let session_header = Some(SessionHeader::new(
-                            ProtoSessionType::SessionPointToPoint.into(),
-                            ProtoSessionMessageType::P2PMsg.into(),
-                            0,
-                            Uuid::new_v4().as_u128() as u32,
-                            &None,
-                            &None,
-                        ));
-
-                        let mut publish_msg = DataPlaneMessage::new_publish_with_headers(
-                            slim_header,
-                            session_header,
-                            "application/x-moderator-protobuf",
-                            message_content,
-                        );
-
-                        let controller_identity = SharedSecret::new("controller", "group");
-                        let identity_token = controller_identity.get_token().map_err(|e| {
-                            error!("failed to generate identity token: {}", e);
-                            ControllerError::DatapathError(e.to_string())
-                        })?;
-                        publish_msg.insert_metadata(SLIM_IDENTITY.to_string(), identity_token);
-
-                        if let Err(e) = self.send_control_message(publish_msg).await {
-                            error!(
-                                "failed to send message to moderator {}: {}",
-                                req.moderators.first().unwrap_or(&"unknown".to_string()),
-                                e
-                            );
-                        } else {
-                            info!("successfully sent delete_channel message to moderator");
-                        }
                         let ack = Ack {
                             original_message_id: msg.message_id.clone(),
                             success: true,

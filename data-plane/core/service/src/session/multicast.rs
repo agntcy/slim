@@ -31,7 +31,9 @@ use crate::session::{
         ChannelEndpoint, ChannelModerator, ChannelParticipant, MlsEndpoint, MlsState,
     },
     errors::SessionError,
-    producer_buffer, receiver_buffer, timer,
+    producer_buffer, receiver_buffer,
+    session_layer::SessionLayerMessage,
+    timer,
 };
 use producer_buffer::ProducerBuffer;
 use receiver_buffer::ReceiverBuffer;
@@ -245,6 +247,7 @@ where
         identity_provider: P,
         identity_verifier: V,
         storage_path: std::path::PathBuf,
+        tx_session: tokio::sync::mpsc::Sender<Result<SessionLayerMessage, SessionError>>,
     ) -> Self {
         let (tx, rx) = mpsc::channel(128);
 
@@ -262,11 +265,15 @@ where
         common.set_dst(session_config.channel_name);
 
         let session = Multicast { common, tx };
-        session.process_message(rx);
+        session.process_message(rx, tx_session);
         session
     }
 
-    fn process_message(&self, mut rx: mpsc::Receiver<Result<(Message, MessageDirection), Status>>) {
+    fn process_message(
+        &self,
+        mut rx: mpsc::Receiver<Result<(Message, MessageDirection), Status>>,
+        tx_session: tokio::sync::mpsc::Sender<Result<SessionLayerMessage, SessionError>>,
+    ) {
         let session_id = self.common.id();
 
         let (max_retries, timeout) = match self.common.session_config() {
@@ -346,6 +353,7 @@ where
                         Duration::from_secs(1),
                         mls,
                         tx.clone(),
+                        Some(tx_session),
                         session_config.metadata.clone(),
                     );
                     ChannelEndpoint::ChannelModerator(cm)
@@ -1070,6 +1078,8 @@ mod tests {
             HashMap::new(),
         );
 
+        let (tx_session, _rx_session) = tokio::sync::mpsc::channel(16);
+
         let session = Multicast::new(
             0,
             session_config.clone(),
@@ -1078,6 +1088,7 @@ mod tests {
             SharedSecret::new("a", "group"),
             SharedSecret::new("a", "group"),
             std::path::PathBuf::from("/tmp/test_session"),
+            tx_session.clone(),
         );
 
         assert_eq!(session.id(), 0);
@@ -1104,6 +1115,7 @@ mod tests {
             SharedSecret::new("a", "group"),
             SharedSecret::new("a", "group"),
             std::path::PathBuf::from("/tmp/test_session"),
+            tx_session.clone(),
         );
 
         assert_eq!(session.id(), 1);
@@ -1155,6 +1167,8 @@ mod tests {
             HashMap::new(),
         );
 
+        let (tx_session, _rx_session) = tokio::sync::mpsc::channel(16);
+
         let sender = Multicast::new(
             0,
             session_config_sender,
@@ -1163,6 +1177,7 @@ mod tests {
             SharedSecret::new("a", "group"),
             SharedSecret::new("a", "group"),
             std::path::PathBuf::from("/tmp/test_session_sender"),
+            tx_session.clone(),
         );
         let receiver = Multicast::new(
             0,
@@ -1172,6 +1187,7 @@ mod tests {
             SharedSecret::new("a", "group"),
             SharedSecret::new("a", "group"),
             std::path::PathBuf::from("/tmp/test_session_receiver"),
+            tx_session.clone(),
         );
 
         let mut message = Message::new_publish(
@@ -1236,6 +1252,8 @@ mod tests {
             HashMap::new(),
         );
 
+        let (tx_session, _rx_session) = tokio::sync::mpsc::channel(16);
+
         let session = Multicast::new(
             0,
             session_config,
@@ -1244,6 +1262,7 @@ mod tests {
             SharedSecret::new("a", "group"),
             SharedSecret::new("a", "group"),
             std::path::PathBuf::from("/tmp/test_session"),
+            tx_session.clone(),
         );
 
         let mut message = Message::new_publish(
@@ -1321,6 +1340,8 @@ mod tests {
             HashMap::new(),
         );
 
+        let (tx_session, _rx_session) = tokio::sync::mpsc::channel(16);
+
         let session = Multicast::new(
             120,
             session_config,
@@ -1329,6 +1350,7 @@ mod tests {
             SharedSecret::new("a", "group"),
             SharedSecret::new("a", "group"),
             std::path::PathBuf::from("/tmp/test_session"),
+            tx_session.clone(),
         );
 
         let mut message =
@@ -1440,6 +1462,8 @@ mod tests {
             HashMap::new(),
         );
 
+        let (tx_session, _rx_session) = tokio::sync::mpsc::channel(16);
+
         let sender = Multicast::new(
             0,
             session_config_sender,
@@ -1448,6 +1472,7 @@ mod tests {
             SharedSecret::new("a", "group"),
             SharedSecret::new("a", "group"),
             std::path::PathBuf::from("/tmp/test_session_sender"),
+            tx_session.clone(),
         );
         let receiver = Multicast::new(
             0,
@@ -1457,6 +1482,7 @@ mod tests {
             SharedSecret::new("a", "group"),
             SharedSecret::new("a", "group"),
             std::path::PathBuf::from("/tmp/test_session_receiver"),
+            tx_session.clone(),
         );
 
         let mut message = Message::new_publish(
@@ -1649,6 +1675,8 @@ mod tests {
             HashMap::new(),
         );
 
+        let (tx_session, _rx_session) = tokio::sync::mpsc::channel(16);
+
         {
             let _session = Multicast::new(
                 0,
@@ -1658,6 +1686,7 @@ mod tests {
                 SharedSecret::new("a", "group"),
                 SharedSecret::new("a", "group"),
                 std::path::PathBuf::from("/tmp/test_session"),
+                tx_session.clone(),
             );
         }
 

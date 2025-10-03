@@ -32,6 +32,7 @@ use crate::session::{
         AddParticipant, AddParticipantMls, ModeratorTask, RemoveParticipant, RemoveParticipantMls,
         TaskUpdate, UpdateParticipantMls,
     },
+    session_layer::SessionLayerMessage,
 };
 use slim_mls::mls::{CommitMsg, KeyPackageMsg, Mls, MlsIdentity, ProposalMsg, WelcomeMsg};
 
@@ -1154,6 +1155,12 @@ where
     /// id of the actual participant found after the
     /// discovery
     group_list: HashMap<Name, u64>,
+
+    /// channel to send delete message to the session layer
+    tx_session: Option<tokio::sync::mpsc::Sender<Result<SessionLayerMessage, SessionError>>>,
+
+    /// set to true on delete_all
+    closing: bool,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1172,6 +1179,7 @@ where
         retries_interval: Duration,
         mls: Option<MlsState<P, V>>,
         tx: T,
+        tx_session: Option<tokio::sync::mpsc::Sender<Result<SessionLayerMessage, SessionError>>>,
         session_metadata: HashMap<String, String>,
     ) -> Self {
         let p = JoinMessagePayload::new(channel_name.clone(), name.clone());
@@ -1198,6 +1206,8 @@ where
             invite_payload,
             mls_state,
             group_list: HashMap::new(),
+            tx_session,
+            closing: false,
         }
     }
 
@@ -1699,6 +1709,56 @@ where
         Ok(())
     }
 
+    async fn delete_all(&mut self, _msg: Message) -> Result<(), SessionError> {
+        debug!("receive a close channel message, send signals to all participants");
+        // create tasks to remove each participant from the group
+        // even if mls is enable we just send the leave message
+        // in any case the group will be deleted so there is no need to
+        // update the mls state, this will speed up the process
+        self.closing = true;
+        // remove mls state
+        self.mls_state = None;
+        // clear all pending tasks
+        self.tasks_todo.clear();
+
+        for (p, _id) in self.group_list.iter() {
+            let leave = self.endpoint.create_channel_message(
+                p,
+                false,
+                ProtoSessionMessageType::ChannelLeaveRequest,
+                rand::random::<u32>(),
+                vec![],
+            );
+            // append the task to the list
+            self.tasks_todo.push_back(leave);
+        }
+
+        // try to pickup a task
+        match self.tasks_todo.pop_front() {
+            Some(m) => {
+                self.current_task = Some(ModeratorTask::RemoveParticipant(
+                    RemoveParticipant::default(),
+                ));
+                return self.on_leave_request(m).await;
+            }
+            None => {
+                // we can notify the session layer and close the channel
+                if let Some(tx_session) = &self.tx_session {
+                    debug!("Signal session layer to close the session, all tasks are done");
+                    tx_session
+                        .send(Ok(SessionLayerMessage::DeleteSession {
+                            session_id: self.endpoint.session_id,
+                        }))
+                        .await
+                        .map_err(|e| {
+                            SessionError::Processing(format!("failed to send delete session: {e}"))
+                        })?;
+                }
+                Ok(())
+            }
+        }
+    }
+
     async fn on_leave_request(&mut self, mut msg: Message) -> Result<(), SessionError> {
         // we need to adjust the message
         // if coming from the controller we need to modify source and destination
@@ -1831,12 +1891,36 @@ where
         // here the moderator is not busy anymore
         self.current_task = None;
 
+        self.pop_task().await
+    }
+
+    async fn pop_task(&mut self) -> Result<(), SessionError> {
+        if self.current_task.is_some() {
+            // moderator is busy, nothing to do
+            return Ok(());
+        }
+
         // check if there is a pending task to process
         let msg = match self.tasks_todo.pop_front() {
             Some(m) => m,
             None => {
                 // nothing else to do
                 debug!("No tasks left to perform");
+
+                // check if we need to close the session
+                if self.closing
+                    && let Some(tx_session) = &self.tx_session
+                {
+                    debug!("Signal session layer to close the session, all tasks are done");
+                    tx_session
+                        .send(Ok(SessionLayerMessage::DeleteSession {
+                            session_id: self.endpoint.session_id,
+                        }))
+                        .await
+                        .map_err(|e| {
+                            SessionError::Processing(format!("failed to send delete session: {e}"))
+                        })?;
+                }
                 return Ok(());
             }
         };
@@ -1868,6 +1952,12 @@ where
                 self.update_mls_keys().await
             }
             ProtoSessionMessageType::ChannelLeaveRequest => {
+                // if the metadata contains the key "DELETE_GROUP" remove all the participants
+                // and close the session when all task are completed
+                if msg.contains_metadata("DELETE_GROUP") {
+                    return self.delete_all(msg).await;
+                }
+
                 debug!("Start a new channel leave task");
                 // now the moderator is busy
                 self.current_task = if self.mls_state.is_some() {
@@ -2026,6 +2116,7 @@ where
                 self.on_mls_proposal(msg).await
             }
             ProtoSessionMessageType::ChannelLeaveRequest => {
+                debug!("received leave request message");
                 // leave message coming from the app or the controller
                 // this message starts a new participant removal.
                 // process the request only if not busy
@@ -2036,6 +2127,12 @@ where
                     );
                     self.tasks_todo.push_back(msg);
                     return Ok(());
+                }
+
+                // if the metadata contains the key "DELETE_GROUP" remove all the participants
+                // and close the session when all task are completed
+                if msg.contains_metadata("DELETE_GROUP") {
+                    return self.delete_all(msg).await;
                 }
 
                 // now the moderator is busy
@@ -2125,6 +2222,7 @@ mod tests {
             Duration::from_millis(100),
             Some(moderator_mls),
             moderator_tx,
+            None,
             HashMap::new(),
         );
         let mut cp = ChannelParticipant::new(

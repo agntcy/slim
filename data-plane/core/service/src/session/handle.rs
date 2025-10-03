@@ -812,6 +812,7 @@ mod tests {
         Name,
     ) {
         use crate::session::multicast::{Multicast, MulticastConfiguration};
+        let (tx_session, _rx_session) = tokio::sync::mpsc::channel(16);
         let tx = MockTransmitter::default();
         let store = tx.slim_msgs.clone();
         let channel = make_name(["agntcy", "chan", "mc"]);
@@ -831,6 +832,7 @@ mod tests {
             DummyTokenProvider,
             DummyVerifier,
             std::env::temp_dir(),
+            tx_session.clone(),
         );
         (Session::from_multicast(mc), store, channel)
     }
