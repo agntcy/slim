@@ -76,5 +76,7 @@ slim:
           - path: /
             pathType: ImplementationSpecific
 
+# SPIRE configuration
 spire:
+# This enables or disables SPIRE integration
   enabled: true

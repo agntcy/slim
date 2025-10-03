@@ -15,6 +15,9 @@ vars:
   CLUSTER_A_TRUST_DOMAIN: '{{ .CLUSTER_A_TRUST_DOMAIN | default "cluster-a.example" }}'
   CLUSTER_B_TRUST_DOMAIN: '{{ .CLUSTER_B_TRUST_DOMAIN | default "cluster-b.example" }}'
 
+#  Suppress task name and command output by default
+silent: true
+
 tasks:
   multi-cluster:up:
     desc: Start a local Kubernetes cluster using Kind
@@ -185,6 +188,7 @@ tasks:
     cmds:
       - |
         echo "Waiting for LoadBalancer IP to be assigned (timeout: {{.TIMEOUT}}s)..."
+
         COUNTER=0
         while [ $COUNTER -lt {{.TIMEOUT}} ]; do
           LB_IP=$(kubectl get service -n {{.NAMESPACE}} {{.SVC_NAME}} -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo "")
@@ -213,6 +217,3 @@ tasks:
 
     cmds:
       - kill -9 $(ps aux | grep [c]loud-provider-kind | awk '{print $2}')
-      # - echo xxx
-
-      - task slim:wait-for-lb LB_HOSTNAME=slim.cluster-b.org
