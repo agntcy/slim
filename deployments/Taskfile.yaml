@@ -137,3 +137,13 @@ tasks:
     cmds:
       - kubectl logs alice
       - kubectl logs bob
+
+  slim:check:prerequisites:
+    desc: Check availability of docker, kubectl, and kind on the host
+    cmds:
+      - |
+        docker >/dev/null 2>&1 && echo "docker: available" || echo "docker: not found"
+      - |
+        kubectl >/dev/null 2>&1 && echo "kubectl: available" || echo "kubectl: not found"
+      - |
+        kind >/dev/null 2>&1 && echo "kind: available" || echo "kind: not found"
