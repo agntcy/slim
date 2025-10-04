@@ -10,9 +10,7 @@ kind: ClusterSPIFFEID
 metadata:
   name: {{ include "control-plane.fullname" . }}
 spec:
-  className: spire-server-spire
-  fallback: false
-  hint: default
+  className: spire-spire
   podSelector:
     matchExpressions:
     - key: app.kubernetes.io/name
@@ -22,5 +20,14 @@ spec:
   workloadSelectorTemplates:    
     - k8s:sa:{{ include "control-plane.serviceAccountName" . }}
   spiffeIDTemplate: {{ "spiffe://{{ .TrustDomain }}/ns/{{ .PodMeta.Namespace }}/sa/slim-control" }}
+  dnsNameTemplates:
+    - {{ "slim-control.{{ .TrustDomain }}" }}
   autoPopulateDNSNames: true
+  {{- if .Values.spire.trustedDomains }}
+  federatesWith:
+  {{ range .Values.spire.trustedDomains }}
+    - {{ . }}
+  {{ end }}
+  {{- end }}
+
 {{ end }}

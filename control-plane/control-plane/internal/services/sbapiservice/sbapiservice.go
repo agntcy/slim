@@ -2,11 +2,13 @@ package sbapiservice
 
 import (
 	"context"
+	"fmt"
 	"net"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/rs/zerolog"
+	"github.com/spiffe/go-spiffe/v2/spiffegrpc/grpccredentials"
 	"google.golang.org/grpc/peer"
 
 	controllerapi "github.com/agntcy/slim/control-plane/common/proto/controller/v1"
@@ -102,6 +104,9 @@ func (s *sbAPIService) OpenControlChannel(stream controllerapi.ControllerService
 	// Check for ControlMessage_RegisterNodeRequest
 	if regReq, ok := msg.Payload.(*controllerapi.ControlMessage_RegisterNodeRequest); ok {
 		registeredNodeID = regReq.RegisterNodeRequest.NodeId
+		if regReq.RegisterNodeRequest.GroupName != nil && *regReq.RegisterNodeRequest.GroupName != "" {
+			registeredNodeID = *regReq.RegisterNodeRequest.GroupName + "/" + registeredNodeID
+		}
 		zlog.Info().Msgf("Registering node with ID: %v", registeredNodeID)
 
 		connDetails := make([]db.ConnectionDetails, 0, len(regReq.RegisterNodeRequest.ConnectionDetails))
@@ -148,19 +153,20 @@ func (s *sbAPIService) OpenControlChannel(stream controllerapi.ControllerService
 }
 
 func getConnDetails(host string, detail *controllerapi.ConnectionDetails) db.ConnectionDetails {
-	// use local endpoint if provided, otherwise use peer host with port from endpoint
+	// use local endpoint if provided, otherwise use peer host
 	endPoint := host
 	if detail.LocalEndpoint != nil {
 		endPoint = *detail.LocalEndpoint
-	} else {
-		_, port, splitErr := net.SplitHostPort(detail.Endpoint)
-		if splitErr == nil {
-			endPoint = host + ":" + port
-		}
 	}
+	// append port if provided in endpoint
+	_, port, splitErr := net.SplitHostPort(detail.Endpoint)
+	if splitErr == nil {
+		endPoint = endPoint + ":" + port
+	}
+
 	connDetails := db.ConnectionDetails{
 		Endpoint:         endPoint,
-		MTLSRequired:     false,
+		MTLSRequired:     detail.MtlsRequired,
 		GroupName:        detail.GroupName,
 		ExternalEndpoint: detail.ExternalEndpoint,
 	}
@@ -178,6 +184,14 @@ func getPeerHost(stream controllerapi.ControllerService_OpenControlChannelServer
 			if splitErr == nil {
 				host = hostStr
 			}
+		}
+		sid, ok := grpccredentials.PeerIDFromPeer(peerInfo)
+		if ok {
+			trustDomain := sid.TrustDomain().String()
+			fmt.Println("---------------------------------- Trust Domain: ", trustDomain)
+			fmt.Println("---------------------------------- SpiffeID: ", sid.String())
+		} else {
+			fmt.Println("no SPIFFE ID found")
 		}
 	}
 	return host

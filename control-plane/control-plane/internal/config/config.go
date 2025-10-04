@@ -35,7 +35,8 @@ func (l LogConfig) Validate() error {
 }
 
 type ReconcilerConfig struct {
-	Threads int `yaml:"threads"` // Number of concurrent threads for reconciliation
+	Threads     int `yaml:"threads"`
+	MaxRequeues int `yaml:"maxRequeues"`
 }
 
 type APIConfig struct {
@@ -110,7 +111,8 @@ func DefaultConfig() *ControlPlaneConfig {
 			Level: "debug", // Default log level
 		},
 		ReconcilerConfig{
-			Threads: 3,
+			Threads:     3,
+			MaxRequeues: 15,
 		}, // Default to 3 threads
 	}
 }
