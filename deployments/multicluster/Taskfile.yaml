@@ -16,9 +16,10 @@ includes:
     dir: ../client_apps
 
 vars:
+  CLUSTER_ADMIN_TRUST_DOMAIN: '{{ .CLUSTER_ADMIN_TRUST_DOMAIN | default "admin.example" }}'
   CLUSTER_A_TRUST_DOMAIN: '{{ .CLUSTER_A_TRUST_DOMAIN | default "cluster-a.example" }}'
   CLUSTER_B_TRUST_DOMAIN: '{{ .CLUSTER_B_TRUST_DOMAIN | default "cluster-b.example" }}'
-
+  
 #  Suppress task name and command output by default
 silent: true
 
@@ -33,16 +34,19 @@ tasks:
       # Start cloud provider for LoadBalancer support
       - task: multi-cluster:lb:up
 
+      - kind create cluster --name {{ .CLUSTER_ADMIN_TRUST_DOMAIN }}
       - kind create cluster --name {{ .CLUSTER_A_TRUST_DOMAIN }}
       - kind create cluster --name {{ .CLUSTER_B_TRUST_DOMAIN }}
 
   multi-cluster:down:
     desc: Delete the local Kubernetes cluster
     cmds: 
+      - kind delete cluster --name {{ .CLUSTER_ADMIN_TRUST_DOMAIN }}    
       - kind delete cluster --name {{ .CLUSTER_A_TRUST_DOMAIN }}
       - kind delete cluster --name {{ .CLUSTER_B_TRUST_DOMAIN }}
 
   spire:server:deploy:
+    internal: true
     desc: Deploy SPIRE server
     vars:
       TRUST_DOMAIN: '{{ .TRUST_DOMAIN | default "" }}'
@@ -77,15 +81,22 @@ tasks:
         kubectl get configmap -n {{ .SPIRE_NAMESPACE }} spire-bundle -o json | jq '.data."bundle.spiffe"' -r > {{ .BUNDLE_PATH }}      
 
   spire:deploy:
-    desc: Set up federation between two SPIRE servers      
+    desc: Set up federation between SPIRE servers
     cmds:
+      - kubectl config use-context kind-{{ .CLUSTER_ADMIN_TRUST_DOMAIN }}    
+      - task: spire:server:deploy
+        vars:
+          TRUST_DOMAIN: '{{ .CLUSTER_ADMIN_TRUST_DOMAIN }}'
+          BUNDLE_PATH: ./{{ .CLUSTER_ADMIN_TRUST_DOMAIN }}.spiffe
+          SPIRE_NAMESPACE: '{{ .SPIRE_NAMESPACE }}'
+      - task slim:wait-for-lb LB_HOSTNAME=spire.{{ .CLUSTER_ADMIN_TRUST_DOMAIN }} SVC_NAME=spire-server NAMESPACE='{{ .SPIRE_NAMESPACE }}'
+
       - kubectl config use-context kind-{{ .CLUSTER_A_TRUST_DOMAIN }}    
       - task: spire:server:deploy
         vars:
           TRUST_DOMAIN: '{{ .CLUSTER_A_TRUST_DOMAIN }}'
           BUNDLE_PATH: ./{{ .CLUSTER_A_TRUST_DOMAIN }}.spiffe
           SPIRE_NAMESPACE: '{{ .SPIRE_NAMESPACE }}'
-
       - task slim:wait-for-lb LB_HOSTNAME=spire.{{ .CLUSTER_A_TRUST_DOMAIN }} SVC_NAME=spire-server NAMESPACE='{{ .SPIRE_NAMESPACE }}'
 
       - kubectl config use-context kind-{{ .CLUSTER_B_TRUST_DOMAIN }}
@@ -93,56 +104,72 @@ tasks:
         vars:
           TRUST_DOMAIN: '{{ .CLUSTER_B_TRUST_DOMAIN }}'
           BUNDLE_PATH: ./{{ .CLUSTER_B_TRUST_DOMAIN }}.spiffe
-
       - task slim:wait-for-lb LB_HOSTNAME=spire.{{ .CLUSTER_B_TRUST_DOMAIN }} SVC_NAME=spire-server NAMESPACE='{{ .SPIRE_NAMESPACE }}'
 
-  spire:federation:deploy:
-    desc: Set up federation between two SPIRE servers      
+  spire:federation:gen-resource:
+    internal: true
+    desc: Generate federation resource for a target trust domain
+    vars:
+      TARGET_DOMAIN: '{{ .TARGET_DOMAIN }}'
     cmds:
-      - kubectl config use-context kind-{{ .CLUSTER_A_TRUST_DOMAIN }}
       - |
-        echo "Creating federation config on {{ .CLUSTER_A_TRUST_DOMAIN }} for {{ .CLUSTER_B_TRUST_DOMAIN }} ..."
-        cat > {{ .CLUSTER_A_TRUST_DOMAIN }}.yaml << EOF
+        cat > {{ .TARGET_DOMAIN }}.yaml << EOF
               apiVersion: spire.spiffe.io/v1alpha1
               kind: ClusterFederatedTrustDomain
               metadata:
-                name: {{ .CLUSTER_B_TRUST_DOMAIN }}
+                name: {{ .TARGET_DOMAIN }}
               spec:
                 className: spire-spire
-                trustDomain: spiffe://{{ .CLUSTER_B_TRUST_DOMAIN }}
-                bundleEndpointURL: https://spire.{{ .CLUSTER_B_TRUST_DOMAIN }}:8443
+                trustDomain: spiffe://{{ .TARGET_DOMAIN }}
+                bundleEndpointURL: https://spire.{{ .TARGET_DOMAIN }}:8443
                 bundleEndpointProfile:
                   type: https_spiffe
-                  endpointSPIFFEID: spiffe://{{ .CLUSTER_B_TRUST_DOMAIN }}/spire/server
+                  endpointSPIFFEID: spiffe://{{ .TARGET_DOMAIN }}/spire/server
                 trustDomainBundle: |-
-                  $(cat ./{{ .CLUSTER_B_TRUST_DOMAIN }}.spiffe)
+                  $(cat ./{{ .TARGET_DOMAIN }}.spiffe)
         EOF
-        kubectl apply -f ./{{ .CLUSTER_A_TRUST_DOMAIN }}.yaml -n {{ .SPIRE_NAMESPACE }}
+
+  spire:federation:deploy:
+    desc: Set up federation between clusters      
+    cmds:
+      - task: spire:federation:gen-resource
+        vars:
+          TARGET_DOMAIN: '{{ .CLUSTER_ADMIN_TRUST_DOMAIN }}'
+      - task: spire:federation:gen-resource
+        vars:
+          TARGET_DOMAIN: '{{ .CLUSTER_A_TRUST_DOMAIN }}'
+      - task: spire:federation:gen-resource
+        vars:
+          TARGET_DOMAIN: '{{ .CLUSTER_B_TRUST_DOMAIN }}'
+
+      - kubectl config use-context kind-{{ .CLUSTER_ADMIN_TRUST_DOMAIN }}
+      - echo "Creating federation config on {{ .CLUSTER_ADMIN_TRUST_DOMAIN }} for {{ .CLUSTER_A_TRUST_DOMAIN }} ..."
+      - kubectl apply -f ./{{ .CLUSTER_A_TRUST_DOMAIN }}.yaml -n {{ .SPIRE_NAMESPACE }}
+
+      - kubectl config use-context kind-{{ .CLUSTER_ADMIN_TRUST_DOMAIN }}
+      - echo "Creating federation config on {{ .CLUSTER_ADMIN_TRUST_DOMAIN }} for {{ .CLUSTER_B_TRUST_DOMAIN }} ..."
+      - kubectl apply -f ./{{ .CLUSTER_B_TRUST_DOMAIN }}.yaml -n {{ .SPIRE_NAMESPACE }}
+
+      - kubectl config use-context kind-{{ .CLUSTER_A_TRUST_DOMAIN }}
+      - echo "Creating federation config on {{ .CLUSTER_A_TRUST_DOMAIN }} for {{ .CLUSTER_ADMIN_TRUST_DOMAIN }} ..."
+      - kubectl apply -f ./{{ .CLUSTER_ADMIN_TRUST_DOMAIN }}.yaml -n {{ .SPIRE_NAMESPACE }}
+
+      - kubectl config use-context kind-{{ .CLUSTER_A_TRUST_DOMAIN }}
+      - echo "Creating federation config on {{ .CLUSTER_A_TRUST_DOMAIN }} for {{ .CLUSTER_B_TRUST_DOMAIN }} ..."
+      - kubectl apply -f ./{{ .CLUSTER_B_TRUST_DOMAIN }}.yaml -n {{ .SPIRE_NAMESPACE }}
  
       - kubectl config use-context kind-{{ .CLUSTER_B_TRUST_DOMAIN }}
-      - |
-        echo "Creating federation config on {{ .CLUSTER_B_TRUST_DOMAIN }} for {{ .CLUSTER_A_TRUST_DOMAIN }}..."
-        cat > {{ .CLUSTER_B_TRUST_DOMAIN }}.yaml << EOF
-              apiVersion: spire.spiffe.io/v1alpha1
-              kind: ClusterFederatedTrustDomain
-              metadata:
-                name: {{ .CLUSTER_A_TRUST_DOMAIN }}
-              spec:
-                className: spire-spire
-                trustDomain: spiffe://{{ .CLUSTER_A_TRUST_DOMAIN }}
-                bundleEndpointURL: https://spire.{{ .CLUSTER_A_TRUST_DOMAIN }}:8443
-                bundleEndpointProfile:
-                  type: https_spiffe
-                  endpointSPIFFEID: spiffe://{{ .CLUSTER_A_TRUST_DOMAIN }}/spire/server
-                trustDomainBundle: |-
-                  $(cat ./{{ .CLUSTER_A_TRUST_DOMAIN }}.spiffe)
-        EOF
-        kubectl apply -f ./{{ .CLUSTER_B_TRUST_DOMAIN }}.yaml -n {{ .SPIRE_NAMESPACE }}       
+      - echo "Creating federation config on {{ .CLUSTER_B_TRUST_DOMAIN }} for {{ .CLUSTER_ADMIN_TRUST_DOMAIN }} ..."
+      - kubectl apply -f ./{{ .CLUSTER_ADMIN_TRUST_DOMAIN }}.yaml -n {{ .SPIRE_NAMESPACE }}
+
+      - kubectl config use-context kind-{{ .CLUSTER_B_TRUST_DOMAIN }}
+      - echo "Creating federation config on {{ .CLUSTER_B_TRUST_DOMAIN }} for {{ .CLUSTER_A_TRUST_DOMAIN }} ..."
+      - kubectl apply -f ./{{ .CLUSTER_A_TRUST_DOMAIN }}.yaml -n {{ .SPIRE_NAMESPACE }}
 
   slim:contoller:deploy:
     desc: Deploy Slim Controller
     cmds:
-      - kubectl config use-context kind-{{ .CLUSTER_A_TRUST_DOMAIN }}
+      - kubectl config use-context kind-{{ .CLUSTER_ADMIN_TRUST_DOMAIN }}
       - |
         helm upgrade --install slim-control ../../charts/slim-control-plane \
           --namespace slim \
@@ -150,7 +177,7 @@ tasks:
           --set image.tag="{{ .SLIM_CONTROLLER_IMAGE_TAG }}" \
           --values controller-values.yaml   
 
-      - task slim:wait-for-lb LB_HOSTNAME=slim-control.{{ .CLUSTER_A_TRUST_DOMAIN }} SVC_NAME=slim-control   
+      - task slim:wait-for-lb LB_HOSTNAME=slim-control.{{ .CLUSTER_ADMIN_TRUST_DOMAIN }} SVC_NAME=slim-control   
 
   slim:deploy:
     desc: Deploy Slim using the StatefulSet deployment strategy

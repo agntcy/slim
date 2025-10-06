@@ -48,7 +48,7 @@ slim:
           clients: []
         controller:
           clients:
-            - endpoint: "https://slim-control:50052"
+            - endpoint: "https://slim-control.admin.example:50052"
               tls:
                 insecure_skip_verify: false
                 cert_file: "/svids/tls.crt"
@@ -91,4 +91,5 @@ spire:
     # Overrides the image tag whose default is the chart appVersion.
     tag: "0.10.0"
   trustedDomains:
+  - spiffe://admin.example
   - spiffe://cluster-b.example

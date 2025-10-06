@@ -40,7 +40,8 @@ config:
 
 spire:
   enabled: true
-  trustedDomains:
+  trustedDomains:  
+  - spiffe://cluster-a.example
   - spiffe://cluster-b.example
 
 service:
