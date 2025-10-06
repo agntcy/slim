@@ -40,7 +40,7 @@ tasks:
     cmds:
       - cmd: |
           echo "Deploying sender client application with SPIRE"
-          kubectl apply -f with_spire/sender.yaml
+          kubectl apply -f with_spire/sender_statefulset.yaml
 
   spire:sender:delete:
     desc: Delete sender application with SPIRE
@@ -54,7 +54,7 @@ tasks:
     cmds:
       - cmd: |
           echo "Deploying receiver client application with SPIRE"
-          kubectl apply -f with_spire/receiver.yaml
+          kubectl apply -f with_spire/receiver_statefulset.yaml
   
   spire:receiver:delete:
     desc: Delete receiver application with SPIRE

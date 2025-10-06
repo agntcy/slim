@@ -7,20 +7,27 @@ version: "3"
 # This Taskfile includes specific tasks for the naive deployment strategy.
 
 includes:
-    templates: 
-      taskfile: ../Taskfile.yaml
-      dir: ../
+  templates: 
+    taskfile: ../Taskfile.yaml
+    dir: ../
+
+  apps: 
+    taskfile: ../client_apps/Taskfile.yaml
+    dir: ../client_apps
+
+silent: true
 
 
 tasks:
+  default:
+    - task templates:slim:check:prerequisites
+    - task --list
+
   slim:deploy:
     desc: Deploy Slim using the StatefulSet deployment strategy
 
     requires:
       vars: [SLIM_IMAGE_TAG]
-
-    deps: 
-      # - templates:cluster:use-context
 
     cmds:
       - | 

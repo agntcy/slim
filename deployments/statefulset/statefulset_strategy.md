@@ -40,7 +40,6 @@ Follow these steps to deploy SLIM using the statefulset deployment strategy:
 ### 1. Set up the Kubernetes cluster
 ```bash
 task templates:cluster:up
-task templates:cluster:use-context
 ```
 
 ### 2. Deploy Spire
@@ -71,7 +70,12 @@ task slim:show-logs
 
 ### 6. (Optional) Deploy sample client applications for testing
 ```bash
-task templates:slim:client-apps.deploy
+task apps:spire:receiver:deploy
+```
+
+### 6. (Optional) Deploy sample client applications for testing
+```bash
+task apps:spire:sender:deploy
 ```
 
 ### 7. Clean up when done
