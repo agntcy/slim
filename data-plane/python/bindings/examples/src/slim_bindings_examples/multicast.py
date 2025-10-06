@@ -237,9 +237,23 @@ async def run_client(
         )
     )
 
-    # Wait for all spawned tasks.
+    # Wait for any task to finish, then cancel the others.
     try:
-        await asyncio.gather(*tasks)
+        done, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+
+        for task in pending:
+            task.cancel()
+
+        # We can await the pending tasks to allow them to clean up.
+        if pending:
+            await asyncio.wait(pending)
+
+        # Raise exceptions from completed tasks, if any
+        for task in done:
+            exc = task.exception()
+            if exc:
+                raise exc
+
     except KeyboardInterrupt:
         # Cancel all tasks on KeyboardInterrupt
         for task in tasks:
