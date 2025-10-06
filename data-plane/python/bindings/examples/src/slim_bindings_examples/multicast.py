@@ -67,7 +67,7 @@ async def receive_loop(
       * Loop forever until cancellation or an error occurs.
     """
     if created_session is None:
-        print_formatted_text("-> Waiting for session...", style=custom_style)
+        print_formatted_text("Waiting for session...", style=custom_style)
         session = await local_app.listen_for_session()
     else:
         session = created_session
