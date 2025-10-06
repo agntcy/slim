@@ -31,6 +31,8 @@ This approach deploys SLIM as a StatefulSet, which provides guarantees around or
 - Predictable pod management
 - Enhanced SLIM configuration options
 
+![SLIM StatefulSet Deployment Diagram](img/slim_statefulset.svg)
+
 ## Usage
 
 Follow these steps to deploy SLIM using the statefulset deployment strategy:

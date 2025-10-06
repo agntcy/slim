@@ -8,26 +8,46 @@ version: "3"
 tasks:
 
   sender:deploy:
-    desc: Deploy client applications
+    desc: Deploy sender client application
     cmds:
       - cmd: |
           echo "Deploying sender client application"
           kubectl apply -f ./sender-pod.yaml
 
+  sender:delete:
+    desc: Delete sender client application
+    cmds:
+      - cmd: |
+          echo "Deleting sender client application"
+          kubectl delete -f ./sender-pod.yaml
+
   receiver:deploy:
-    desc: Deploy client applications
+    desc: Deploy receiver client application
     cmds:
       - cmd: |
           echo "Deploying receiver client application"
-          kubectl apply -f receiver-pod.yaml
+          kubectl apply -f ./receiver-pod.yaml
+
+  receiver:delete:
+    desc: Delete receiver client application
+    cmds:
+      - cmd: |
+          echo "Deleting receiver client application"
+          kubectl delete -f ./receiver-pod.yaml
 
   spire:sender:deploy:
-    desc: Deploy sender applications with SPIRE
+    desc: Deploy sender application with SPIRE
     cmds:
       - cmd: |
           echo "Deploying sender client application with SPIRE"
           kubectl apply -f with_spire/sender.yaml
 
+  spire:sender:delete:
+    desc: Delete sender application with SPIRE
+    cmds:
+      - cmd: |
+          echo "Deleting sender client application with SPIRE"
+          kubectl delete -f with_spire/sender.yaml
 
   spire:receiver:deploy:
     desc: Deploy receiver applications with SPIRE
@@ -35,3 +55,10 @@ tasks:
       - cmd: |
           echo "Deploying receiver client application with SPIRE"
           kubectl apply -f with_spire/receiver.yaml
+  
+  spire:receiver:delete:
+    desc: Delete receiver application with SPIRE
+    cmds:
+      - cmd: |
+          echo "Deleting receiver client application with SPIRE"
+          kubectl delete -f with_spire/receiver.yaml

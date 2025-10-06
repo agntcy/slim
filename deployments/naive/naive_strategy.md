@@ -33,7 +33,7 @@ Follow these steps to deploy SLIM using the naive deployment strategy:
 ### 1. Set up the Kubernetes cluster
 ```bash
 task templates:cluster:up
-task templates:cluster:use-context
+
 ```
 
 ### 2. Deploy SLIM using the naive strategy
@@ -51,10 +51,16 @@ kubectl get pods -n slim
 task slim:show-logs
 ```
 
-### 5. (Optional) Deploy sample client applications for testing
+### Start the receiver application pod
 ```bash
-task templates:slim:client-apps.deploy
-```
+task apps:receiver:deploy
+``` 
+
+### Start the sender application pod
+```bash
+task apps:sender:deploy
+``` 
+
 
 ### 6. Clean up when done
 ```bash

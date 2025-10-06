@@ -15,8 +15,14 @@ includes:
     taskfile: ../client_apps/Taskfile.yaml
     dir: ../client_apps
 
+silent: true
+
 
 tasks:
+  default:
+    - task templates:slim:check:prerequisites
+    - task --list
+
   log:strategy:name:
     desc: Display the name of the deployment strategy
     cmds:

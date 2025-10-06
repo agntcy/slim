@@ -110,33 +110,6 @@ tasks:
           --set image.tag="{{ .SLIM_CONTROLLER_IMAGE_TAG }}" \
           --values controller-values.yaml            
 
-  slim:client-apps:deploy:
-    desc: Deploy sample client applications
-    deps:
-      - slim:client-apps:down
-    cmds:
-      - kubectl apply -f client_apps
-
-  slim:client-apps:down:
-    desc: Cleanup sample client applications
-    cmds:
-      - kubectl delete -f client_apps --ignore-not-found
-
-  slim:client-apps-with-spire:deploy:
-    desc: Deploy sample client applications with SPIRE integration
-    cmds:
-      - kubectl apply -f client_apps/with_spire
-
-  slim:client-apps-with-spire:down:
-    desc: Cleanup sample client applications with SPIRE integration
-    cmds:
-      - kubectl delete -f client_apps/with_spire --ignore-not-found
-
-  slim:client-apps:logs:
-    desc: Tail logs from sample client applications
-    cmds:
-      - kubectl logs alice
-      - kubectl logs bob
 
   slim:check:prerequisites:
     desc: Check availability of docker, kubectl, and kind on the host
@@ -150,4 +123,5 @@ tasks:
         kubectl >/dev/null 2>&1 && echo "kubectl: available" || echo "kubectl: not found"
       - |
         kind >/dev/null 2>&1 && echo "kind: available" || echo "kind: not found"
+    
 
