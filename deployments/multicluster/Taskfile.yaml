@@ -23,10 +23,7 @@ tasks:
     desc: Start a local Kubernetes cluster using Kind
     cmds: 
       # Start cloud provider for LoadBalancer support
-      - |
-        echo "Starting Kind cloud provider for LoadBalancer support..."
-        go run sigs.k8s.io/cloud-provider-kind@latest &
-        echo "Cloud provider started in background"
+      - task: multi-cluster:lb:up
 
       - kind create cluster --name {{ .CLUSTER_A_TRUST_DOMAIN }}
       - kind create cluster --name {{ .CLUSTER_B_TRUST_DOMAIN }}
