@@ -25,14 +25,16 @@ type RouteReconcileRequest struct {
 type RouteReconciler struct {
 	dbService          db.DataAccess
 	nodeCommandHandler nodecontrol.NodeCommandHandler
-	queue              *workqueue.Typed[RouteReconcileRequest]
+	queue              workqueue.TypedRateLimitingInterface[RouteReconcileRequest]
 	threadName         string
+	maxRequeues        int
 }
 
 // NewRouteReconciler creates a new instance of RouteReconciler
 func NewRouteReconciler(
 	threadName string,
-	queue *workqueue.Typed[RouteReconcileRequest],
+	maxRequeues int,
+	queue workqueue.TypedRateLimitingInterface[RouteReconcileRequest],
 	dbService db.DataAccess,
 	nodeCommandHandler nodecontrol.NodeCommandHandler,
 ) *RouteReconciler {
@@ -41,6 +43,7 @@ func NewRouteReconciler(
 		nodeCommandHandler: nodeCommandHandler,
 		queue:              queue,
 		threadName:         threadName,
+		maxRequeues:        maxRequeues,
 	}
 }
 
@@ -58,7 +61,12 @@ func (s *RouteReconciler) Run(ctx context.Context) {
 			if err := s.handleRequest(ctx, req); err != nil {
 				zlog.Error().Err(err).Msg("Failed to process route reconciliation request")
 				// Optionally requeue the request for retry
-				s.queue.Add(req)
+				if s.queue.NumRequeues(req) < s.maxRequeues {
+					s.queue.AddRateLimited(req)
+				} else {
+					zlog.Warn().Msgf("Max retries reached for request: %v, dropping from queue", req)
+					s.queue.Forget(req)
+				}
 			}
 		}()
 	}
@@ -79,7 +87,7 @@ func (s *RouteReconciler) getConnectionDetails(route db.Route) (controllerapi.Co
 	if len(destNode.ConnDetails) == 0 {
 		return controllerapi.Connection{}, fmt.Errorf("no connections found for destination node %s", destNode.ID)
 	}
-	srcNode, err2 := s.dbService.GetNode(route.DestNodeID)
+	srcNode, err2 := s.dbService.GetNode(route.SourceNodeID)
 	if err2 != nil {
 		return controllerapi.Connection{}, fmt.Errorf("failed to fetch destination node %s: %w", route.DestNodeID, err2)
 	}
@@ -241,6 +249,7 @@ func (s *RouteReconciler) handleRequest(ctx context.Context, req RouteReconcileR
 func generateConfigData(detail db.ConnectionDetails, localConnection bool) (string, string, error) {
 	truev := true
 	falsev := false
+	skipVerify := false
 	config := ConnectionConfig{
 		Endpoint: detail.Endpoint,
 	}
@@ -249,6 +258,8 @@ func generateConfigData(detail db.ConnectionDetails, localConnection bool) (stri
 			return "", "", fmt.Errorf("no external endpoint defined for connection %v", detail)
 		}
 		config.Endpoint = *detail.ExternalEndpoint
+	} else {
+		skipVerify = true // skip verification for local connections
 	}
 	if !detail.MTLSRequired {
 		config.Endpoint = "http://" + config.Endpoint
@@ -256,10 +267,11 @@ func generateConfigData(detail db.ConnectionDetails, localConnection bool) (stri
 	} else {
 		config.Endpoint = "https://" + config.Endpoint
 		config.TLS = &TLS{
-			Insecure: &falsev,
-			CERTFile: stringPtr("/svids/tls.crt"),
-			KeyFile:  stringPtr("/svids/tls.key"),
-			CAFile:   stringPtr("/svids/svid_bundle.pem"),
+			Insecure:           &falsev,
+			InsecureSkipVerify: &skipVerify,
+			CERTFile:           stringPtr("/svids/tls.crt"),
+			KeyFile:            stringPtr("/svids/tls.key"),
+			CAFile:             stringPtr("/svids/svid_bundle.pem"),
 		}
 	}
 	var bufferSize int64 = 1024

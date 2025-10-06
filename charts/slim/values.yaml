@@ -31,13 +31,31 @@ slim:
 
     services:
       slim/0:
-        nodeId: ${env:SLIM_SVC_ID}
+        # Required when running multiple replicas connected to the same Controller.
+        # Should be unique for each SLIM instance.
+        node_id: ${env:SLIM_SVC_ID}
+        # Required in case of multi-cluster setup or when SLIM nodes are behind a NAT or Load Balancer.
+        # Used by the Controller to identify which group a SLIM node belongs to.
+        # Controller sets up connections between nodes using group names.
+        # SLIM nodes in the same group are connected directly, via local_endpoint:{{ .Values.slim.service.data.port }}.
+        # SLIM nodes in different groups are connected via external_endpoint. See 'metadata' below.
+        # group_name: "cluster-a"
         dataplane:
           servers:
             - endpoint: "0.0.0.0:{{ .Values.slim.service.data.port }}"
               tls:
                 insecure: true
-
+                # Uncomment below to connect to control plane with MTLS by Spire
+                # cert_file: "/svids/tls.crt"
+                # key_file: "/svids/tls.key"
+                # ca_file: "/svids/svid_bundle.pem"
+              # Required in case of multi-cluster setup or when SLIM nodes are behind a NAT or Load Balancer.
+              # metadata:
+              #   # IP or DNS resolvable hostname that other SLIM nodes in the network (cluster)
+              #   # can use to connect to this node.
+              #   local_endpoint: ${env:MY_POD_IP}
+              #   # external_endpoint is required to be set when SLIM nodes are behind a NAT or Load Balancer
+              #   external_endpoint: "slim.example.com:{{ .Values.slim.service.data.port }}"
           clients: []
         controller:
           servers:
@@ -170,7 +188,11 @@ spire:
     # This sets the pull policy for images.
     pullPolicy: IfNotPresent
     # Overrides the image tag whose default is the chart appVersion.
-    tag: "0.10.0"
+    tag: "0.10.1"
+  # Slim SVIDs will be federated with these trust domains
+  trustedDomains: []
+    # - cluster-a.example.org
+    # - cluster-b.example.org
 
 
 # This is for the secretes for pulling an image from a private repository more information can be found here: https://kubernetes.io/docs/tasks/configure-pod-container/pull-image-private-registry/
