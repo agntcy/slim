@@ -11,7 +11,7 @@ use tokio::{
     sync::mpsc,
     time::{self, Instant},
 };
-use tracing::{debug, error, info, trace, warn};
+use tracing::{debug, error, trace, warn};
 
 use slim_auth::traits::{TokenProvider, Verifier};
 use slim_datapath::{
@@ -512,7 +512,7 @@ where
                 }
             }
 
-            info!(
+            debug!(
                 "stopping message processing on multicast session {} for {}",
                 session_id, source
             );

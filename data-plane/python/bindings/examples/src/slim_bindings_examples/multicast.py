@@ -95,7 +95,7 @@ async def receive_loop(
             break
 
 
-async def keyboard_loop(session_ready, shared_session_container):
+async def keyboard_loop(session_ready, shared_session_container, local_app):
     """
     Interactive loop allowing participants to publish messages.
 
@@ -121,6 +121,8 @@ async def keyboard_loop(session_ready, shared_session_container):
             )
 
             if user_input.lower() in ("exit", "quit"):
+                # Also terminate the receive loop.
+                await local_app.delete_session(shared_session_container[0])
                 break
 
             try:
@@ -230,7 +232,9 @@ async def run_client(
     )
 
     tasks.append(
-        asyncio.create_task(keyboard_loop(session_ready, shared_session_container))
+        asyncio.create_task(
+            keyboard_loop(session_ready, shared_session_container, local_app)
+        )
     )
 
     # Wait for all spawned tasks.
