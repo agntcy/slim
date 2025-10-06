@@ -115,9 +115,9 @@ def jwt_identity(
     Process:
       1. Read a JSON structure containing (base64-encoded) JWKS data (a SPIRE
          bundle with a JWKs for each trust domain).
-      2. For simplicity, take the FIRST item in the bundle and base64‑decode its
-         value to obtain a JWKS JSON string (in real production code you would
-         iterate / select by key id).
+      2. Take all items from the bundle and base64‑decode its
+         value to obtain a JWKS JSON string and create a new JWKS JSON containing all keys
+         from all trust domains.
       3. Create a StaticJwt identity provider pointing at a local JWT file.
       4. Wrap the JWKS JSON as PyKey with RS256 & JWKS format.
       5. Build a Jwt verifier using the JWKS-derived public key.
@@ -125,8 +125,7 @@ def jwt_identity(
     Args:
         jwt_path: Path to a file containing a (static) JWT token.
         spire_bundle_path: Path (relative or absolute) to a SPIRE (or similar) bundle JSON
-                  whose first entry’s value is a base64-encoded JWKS. For simplicity we
-                  take only the first item (production code should select the correct trust domain).
+                  whose first entry’s value is a base64-encoded JWKS.
         iss: Optional issuer claim to enforce.
         sub: Optional subject claim to enforce.
         aud: Optional audience list.
@@ -143,10 +142,30 @@ def jwt_identity(
     # Parse as JSON (expects a dict-like structure).
     spire_bundle = json.loads(spire_bundle_string)
 
-    # Extract the first value & base64 decode it to yield JWKS JSON.
-    for _, v in spire_bundle.items():
-        spire_jwks = base64.b64decode(v)
-        break
+    # Extract all values, base64 decode them, and combine all keys into one JWKS.
+    all_keys = []
+    for trust_domain, v in spire_bundle.items():
+        print(f"Processing trust domain: {trust_domain}")
+        try:
+            decoded_jwks = base64.b64decode(v)
+            jwks_json = json.loads(decoded_jwks)
+
+            # Extract keys from this trust domain's JWKS and add to our combined list
+            if "keys" in jwks_json:
+                all_keys.extend(jwks_json["keys"])
+                print(f"  Added {len(jwks_json['keys'])} keys from {trust_domain}")
+            else:
+                print(f"  Warning: No 'keys' found in JWKS for {trust_domain}")
+        except (json.JSONDecodeError, UnicodeDecodeError, ValueError) as e:
+            raise RuntimeError(
+                f"Failed to process trust domain {trust_domain}: {e}"
+            ) from e
+
+    # Create combined JWKS with all keys from all trust domains
+    spire_jwks = json.dumps({"keys": all_keys})
+    print(
+        f"Combined JWKS contains {len(all_keys)} total keys from {len(spire_bundle)} trust domains"
+    )
 
     # Static provider returns the same token each request (demo usage).
     provider = slim_bindings.PyIdentityProvider.StaticJwt(  # type: ignore
@@ -157,7 +176,7 @@ def jwt_identity(
     pykey = slim_bindings.PyKey(
         algorithm=slim_bindings.PyAlgorithm.RS256,  # Hard-coded for example clarity.
         format=slim_bindings.PyKeyFormat.Jwks,
-        key=slim_bindings.PyKeyData.Content(content=spire_jwks.decode("utf-8")),  # type: ignore
+        key=slim_bindings.PyKeyData.Content(content=spire_jwks),  # type: ignore
     )
 
     # Build verifier. We nest audience list in list to preserve shape.
