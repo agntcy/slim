@@ -9,7 +9,7 @@ Purpose:
     * Optionally create a multicast session (becoming its moderator)
     * Invite other participants (by their IDs) into the multicast group
     * Receive and display messages
-    * Interactively publish messages (moderator only)
+    * Interactively publish messages
 
 Key concepts:
   - Multicast sessions are created with PySessionConfiguration.Multicast and
@@ -220,7 +220,7 @@ async def run_client(
             await created_session.invite(invite_name)
             print(f"{local} -> add {invite_name} to the group")
 
-    # Launch the receiver immediately (moderator or participant).
+    # Launch the receiver immediately.
     tasks.append(
         asyncio.create_task(
             receive_loop(
