@@ -50,11 +50,12 @@ Add slim.cluster-a.org & slim.cluster-b.org to /etc/hosts.
 
 Deploy Alice (receiver) from with_spire on cluster-a then Bob (sender) on cluster-b.
 
-k apply -f ../client_apps/with_spire/helper-config.yaml
 k apply -f ../client_apps/with_spire/alice-pod.yaml
 k apply -f ../client_apps/with_spire/bob-pod.yaml
 
 ### Commands to check the deployment
+
+
 
 
 
