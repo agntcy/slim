@@ -10,6 +10,11 @@ includes:
   templates: 
     taskfile: ../Taskfile.yaml
     dir: ../.
+  
+  apps: 
+    taskfile: ../client_apps/Taskfile.yaml
+    dir: ../client_apps
+
 
 tasks:
   log:strategy:name:

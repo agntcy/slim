@@ -1,0 +1,37 @@
+
+# Copyright AGNTCY Contributors (https://github.com/agntcy)
+# SPDX-License-Identifier: Apache-2.0
+
+version: "3"
+
+# taks file for the client applications deployment
+tasks:
+
+  sender:deploy:
+    desc: Deploy client applications
+    cmds:
+      - cmd: |
+          echo "Deploying sender client application"
+          kubectl apply -f ./sender-pod.yaml
+
+  receiver:deploy:
+    desc: Deploy client applications
+    cmds:
+      - cmd: |
+          echo "Deploying receiver client application"
+          kubectl apply -f receiver-pod.yaml
+
+  spire:sender:deploy:
+    desc: Deploy sender applications with SPIRE
+    cmds:
+      - cmd: |
+          echo "Deploying sender client application with SPIRE"
+          kubectl apply -f with_spire/sender.yaml
+
+
+  spire:receiver:deploy:
+    desc: Deploy receiver applications with SPIRE
+    cmds:
+      - cmd: |
+          echo "Deploying receiver client application with SPIRE"
+          kubectl apply -f with_spire/receiver.yaml
