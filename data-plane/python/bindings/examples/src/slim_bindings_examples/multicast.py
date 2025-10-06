@@ -33,6 +33,9 @@ Notes:
 import asyncio
 import datetime
 
+from prompt_toolkit.shortcuts import PromptSession, print_formatted_text
+from prompt_toolkit.styles import Style
+
 import slim_bindings
 
 from .common import (
@@ -41,6 +44,98 @@ from .common import (
     format_message_print,
     split_id,
 )
+
+# Prompt style
+custom_style = Style.from_dict(
+    {
+        "system": "ansibrightblue",
+        "friend": "ansiyellow",
+        "user": "ansigreen",
+    }
+)
+
+
+async def receive_loop(
+    local_app, created_session, session_ready, shared_session_container
+):
+    """
+    Receive messages for the bound session.
+
+    Behavior:
+      * If not moderator: wait for a new multicast session (listen_for_session()).
+      * If moderator: reuse the created_session reference.
+      * Loop forever until cancellation or an error occurs.
+    """
+    if created_session is None:
+        print_formatted_text("-> Waiting for session...", style=custom_style)
+        session = await local_app.listen_for_session()
+    else:
+        session = created_session
+
+    # Make session available to other tasks
+    shared_session_container[0] = session
+    session_ready.set()
+
+    while True:
+        try:
+            # Await next inbound message from the multicast session.
+            # The returned parameters are a message context and the raw payload bytes.
+            # Check session.py for details on PyMessageContext contents.
+            ctx, payload = await session.get_message()
+            print_formatted_text(
+                f"{ctx.source_name} > {payload.decode()}",
+                style=custom_style,
+            )
+        except asyncio.CancelledError:
+            # Graceful shutdown path (ctrl-c or program exit).
+            break
+        except Exception as e:
+            # Non-cancellation error; surface and exit the loop.
+            print_formatted_text(f"-> Error receiving message: {e}")
+            break
+
+
+async def keyboard_loop(session_ready, shared_session_container):
+    """
+    Interactive loop allowing participants to publish messages.
+
+    Typing 'exit' or 'quit' (case-insensitive) terminates the loop.
+    Each line is published to the multicast topic as UTF-8 bytes.
+    """
+    try:
+        # 1. Initialize an async session
+        prompt_session = PromptSession(style=custom_style)
+
+        # Wait for the session to be established
+        await session_ready.wait()
+
+        print_formatted_text(
+            "Welcome! Send a message to the group, or type 'exit' or 'quit' to quit.",
+            style=custom_style,
+        )
+
+        while True:
+            # Run blocking input() in a worker thread so we do not block the event loop.
+            user_input = await prompt_session.prompt_async(
+                f"{shared_session_container[0].src} > "
+            )
+
+            if user_input.lower() in ("exit", "quit"):
+                break
+
+            try:
+                # Send message to the channel_name specified when creating the session.
+                # As the session is multicast, all participants will receive it.
+                # calling publish_with_destination on a multicast session will raise an error.
+                await shared_session_container[0].publish(user_input.encode())
+            except KeyboardInterrupt:
+                # Handle Ctrl+C gracefully
+                break
+            except Exception as e:
+                print_formatted_text(f"-> Error sending message: {e}")
+    except asyncio.CancelledError:
+        # Handle task cancellation gracefully
+        pass
 
 
 async def run_client(
@@ -91,6 +186,10 @@ async def run_client(
     # Track background tasks (receiver loop + optional keyboard loop).
     tasks: list[asyncio.Task] = []
 
+    # Session sharing between tasks
+    session_ready = asyncio.Event()
+    shared_session_container = [None]  # Use list to make it mutable across functions
+
     # Session object only exists immediately if we are moderator.
     created_session = None
     if chat_channel and invites:
@@ -121,69 +220,26 @@ async def run_client(
             await created_session.invite(invite_name)
             print(f"{local} -> add {invite_name} to the group")
 
-    async def receive_loop():
-        """
-        Receive messages for the bound session.
-
-        Behavior:
-          * If not moderator: wait for a new multicast session (listen_for_session()).
-          * If moderator: reuse the created_session reference.
-          * Loop forever until cancellation or an error occurs.
-        """
-        if created_session is None:
-            format_message_print(local, "-> Waiting for session...")
-            session = await local_app.listen_for_session()
-        else:
-            session = created_session
-
-        while True:
-            try:
-                # Await next inbound message from the multicast session.
-                # The returned parameters are a message context and the raw payload bytes.
-                # Check session.py for details on PyMessageContext contents.
-                ctx, payload = await session.get_message()
-                format_message_print(
-                    local,
-                    f"-> Received message from {ctx.source_name}: {payload.decode()}",
-                )
-            except asyncio.CancelledError:
-                # Graceful shutdown path (ctrl-c or program exit).
-                break
-            except Exception as e:
-                # Non-cancellation error; surface and exit the loop.
-                format_message_print(local, f"-> Error receiving message: {e}")
-                break
-
     # Launch the receiver immediately (moderator or participant).
-    tasks.append(asyncio.create_task(receive_loop()))
+    tasks.append(
+        asyncio.create_task(
+            receive_loop(
+                local_app, created_session, session_ready, shared_session_container
+            )
+        )
+    )
 
-    # Only moderators with a known chat_topic get an interactive publishing loop.
-    if created_session and chat_channel:
-
-        async def keyboard_loop():
-            """
-            Interactive loop allowing moderator to publish messages.
-
-            Typing 'exit' or 'quit' (case-insensitive) terminates the loop.
-            Each line is published to the multicast topic as UTF-8 bytes.
-            """
-            while True:
-                # Run blocking input() in a worker thread so we do not block the event loop.
-                user_input = await asyncio.to_thread(input, "\033[1mmessage>\033[0m ")
-                if user_input.strip().lower() in ("exit", "quit"):
-                    break
-                try:
-                    # Send message to the channel_name specified when creating the session.
-                    # As the session is multicast, all participants will receive it.
-                    # calling publish_with_destination on a multicast session will raise an error.
-                    await created_session.publish(user_input.encode())
-                except Exception as e:
-                    format_message_print(local, f"-> Error sending message: {e}")
-
-        tasks.append(asyncio.create_task(keyboard_loop()))
+    tasks.append(
+        asyncio.create_task(keyboard_loop(session_ready, shared_session_container))
+    )
 
     # Wait for all spawned tasks. In moderator mode, this includes keyboard loop.
-    await asyncio.gather(*tasks)
+    try:
+        await asyncio.gather(*tasks)
+    except KeyboardInterrupt:
+        # Cancel all tasks on KeyboardInterrupt
+        for task in tasks:
+            task.cancel()
 
 
 @common_options
