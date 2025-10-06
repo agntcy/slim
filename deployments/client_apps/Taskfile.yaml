@@ -34,6 +34,20 @@ tasks:
       - cmd: |
           echo "Deleting receiver client application"
           kubectl delete -f ./receiver-pod.yaml
+  
+  receiver:daemonset:deploy:
+    desc: Deploy receiver applications with SPIRE
+    cmds:
+      - cmd: |
+          echo "Deploying receiver client application"
+          kubectl apply -f receiver-daemonset.yaml
+  
+  receiver:daemonset:delete:
+    desc: Delete receiver applications with SPIRE
+    cmds:
+      - cmd: |
+          echo "Deleting receiver client application"
+          kubectl delete -f receiver-daemonset.yaml
 
   spire:sender:deploy:
     desc: Deploy sender application with SPIRE
@@ -62,3 +76,4 @@ tasks:
       - cmd: |
           echo "Deleting receiver client application with SPIRE"
           kubectl delete -f with_spire/receiver.yaml
+  

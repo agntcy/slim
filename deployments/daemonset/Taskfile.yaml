@@ -11,18 +11,24 @@ includes:
     taskfile: ../Taskfile.yaml
     dir: ../
   
+  apps: 
+    taskfile: ../client_apps/Taskfile.yaml
+    dir: ../client_apps
+
+silent: true
+
 
 tasks:
+  default:
+    - task templates:slim:check:prerequisites
+    - task --list
+  
 
   slim:deploy:
     desc: Deploy Slim using the DaemonSet deployment strategy
 
     requires:
       vars: [SLIM_IMAGE_TAG]
-
-    
-    deps: 
-      #  - templates:cluster:use-context
 
     cmds:
       - |
@@ -31,3 +37,15 @@ tasks:
           --create-namespace \
           --set slim.image.tag="{{ .SLIM_IMAGE_TAG }}" \
           --values daemonset-values.yaml
+  
+  controller:deploy:
+    desc: Deploy Slim Controller
+    cmds:
+      - |
+        helm upgrade --install slim-control ../../charts/slim-control-plane \
+          --namespace {{ .SLIM_NAMESPACE }} \
+          --create-namespace \
+          --set image.tag="{{ .SLIM_CONTROLLER_IMAGE_TAG }}" \
+          --set spire.enabled=false \
+          --values ../controller-values.yaml            
+
