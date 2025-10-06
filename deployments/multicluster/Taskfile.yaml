@@ -7,9 +7,13 @@ version: "3"
 # This Taskfile includes specific tasks for the naive deployment strategy.
 
 includes:
-    templates: 
-      taskfile: ../Taskfile.yaml
-      dir: ../
+  templates: 
+    taskfile: ../Taskfile.yaml
+    dir: ../
+
+  apps: 
+    taskfile: ../client_apps/Taskfile.yaml
+    dir: ../client_apps
 
 vars:
   CLUSTER_A_TRUST_DOMAIN: '{{ .CLUSTER_A_TRUST_DOMAIN | default "cluster-a.example" }}'
@@ -19,6 +23,10 @@ vars:
 silent: true
 
 tasks:
+  default:
+    - task templates:slim:check:prerequisites
+    - task --list
+
   multi-cluster:up:
     desc: Start a local Kubernetes cluster using Kind
     cmds: 
