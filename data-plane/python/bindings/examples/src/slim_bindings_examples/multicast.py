@@ -233,7 +233,7 @@ async def run_client(
         asyncio.create_task(keyboard_loop(session_ready, shared_session_container))
     )
 
-    # Wait for all spawned tasks. In moderator mode, this includes keyboard loop.
+    # Wait for all spawned tasks.
     try:
         await asyncio.gather(*tasks)
     except KeyboardInterrupt:
