@@ -149,7 +149,7 @@ def jwt_identity(
         try:
             decoded_jwks = base64.b64decode(v)
             jwks_json = json.loads(decoded_jwks)
-            
+
             # Extract keys from this trust domain's JWKS and add to our combined list
             if "keys" in jwks_json:
                 all_keys.extend(jwks_json["keys"])
@@ -157,11 +157,15 @@ def jwt_identity(
             else:
                 print(f"  Warning: No 'keys' found in JWKS for {trust_domain}")
         except (json.JSONDecodeError, UnicodeDecodeError, ValueError) as e:
-            raise RuntimeError(f"Failed to process trust domain {trust_domain}: {e}") from e 
+            raise RuntimeError(
+                f"Failed to process trust domain {trust_domain}: {e}"
+            ) from e
 
     # Create combined JWKS with all keys from all trust domains
     spire_jwks = json.dumps({"keys": all_keys})
-    print(f"Combined JWKS contains {len(all_keys)} total keys from {len(spire_bundle)} trust domains")
+    print(
+        f"Combined JWKS contains {len(all_keys)} total keys from {len(spire_bundle)} trust domains"
+    )
 
     # Static provider returns the same token each request (demo usage).
     provider = slim_bindings.PyIdentityProvider.StaticJwt(  # type: ignore
