@@ -7,7 +7,7 @@ version = "0.1.1"
 description = "Example apps using SLIM Rust bindings for Python"
 requires-python = ">=3.9"
 license = "Apache-2.0"
-dependencies = ["slim-bindings>=0.5.0", "pyjwt>=2.10.1", "click>=8.1.8"]
+dependencies = ["slim-bindings>=0.5.0", "pyjwt>=2.10.1", "click>=8.1.8", "prompt-toolkit>=3.0.52"]
 
 [tool.uv.sources]
 slim-bindings = { workspace = true }
