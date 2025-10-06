@@ -110,7 +110,7 @@ async def keyboard_loop(session_ready, shared_session_container):
         await session_ready.wait()
 
         print_formatted_text(
-            "Welcome! Send a message to the group, or type 'exit' or 'quit' to quit.",
+            f"Welcome to the group {shared_session_container[0].dst}!\nSend a message to the group, or type 'exit' or 'quit' to quit.",
             style=custom_style,
         )
 
