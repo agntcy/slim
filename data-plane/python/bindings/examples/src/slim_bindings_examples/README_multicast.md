@@ -12,13 +12,13 @@ control signals.
 - Invite multiple participants to join dynamically
 - Receive messages (with sender context) from the multicast channel
 - Optionally enable Messaging Layer Security (MLS) for end‑to‑end secure group messaging
-- Interactive publishing from the moderator terminal
 
 ## How It Works
 
 ### 1. Create the local application
 
-The script first initializes a local SLIM application instance using several configuration options:
+The script first initializes a local SLIM application instance using the
+following configuration options:
 
 ```python
 local_app = await create_local_app(
@@ -70,8 +70,8 @@ application instance. Main parameters:
 If `jwt`, `spire-trust-bundle` and `audience` are not provided, `shared_secret` must be set (only
 recommended for local testing / examples, not production).
 
-The part that actually creates the local application and connects it to the
-remote SLIM node is:
+The code that creates the local application and connects it to the remote
+SLIM node is:
 ```python
 local_app = await slim_bindings.Slim.new(local_name, provider, verifier)
 format_message_print(f"{local_app.id}", "Created app")
@@ -80,12 +80,12 @@ format_message_print(f"{local_app.id}", f"Connected to {slim['endpoint']}")
 ```
 ### 2. Create the session and invite participants
 
-If the application is started with both a `--remote` (multicast channel name) and
-at least one `--invites` flag, it becomes the creator of a new
-multicast session and it can invite participants.
+If the application is started with both a `--remote` (multicast channel name)
+and at least one `--invites` flag, it becomes the creator of a new multicast
+session and can invite participants.
 
 ```python
-chat_topic = split_id(remote)  # e.g. agntcy/ns/chat
+chat_channel = split_id(remote)  # e.g. agntcy/ns/chat
 created_session = await local_app.create_session(
     slim_bindings.PySessionConfiguration.Multicast(  # type: ignore  # Build multicast session configuration
         channel_name=chat_channel,  # Logical multicast channel (PyName) all participants join; acts as group/topic identifier.
@@ -110,17 +110,18 @@ for invite in invites:
     print(f"{local} -> add {invite_name} to the group")
 ```
 
-The `session.invite(...)` is executed asynchronously; the background protocol exchanges
-(and MLS key schedule if enabled) may take a short time before the participant
-fully joins. See [SESSION.md](../../../SESSION.md) for deeper protocol details.
+The `session.invite(...)` is executed asynchronously. The background protocol
+exchanges (and MLS key schedule if enabled) may take a short time before the
+participant fully joins. See [SESSION.md](../../../SESSION.md) for deeper
+protocol details.
 
 ### 3. Receiving messages (all participants)
 
-Non‑moderator participants (clients) start without a session and wait to be
+Non-moderator participants (clients) start without a session and wait to be
 invited:
 
 ```python
-format_message_print(local, "-> Waiting for session...")
+print_formatted_text("Waiting for session...", style=custom_style)
 session = await local_app.listen_for_session()
 ```
 
@@ -128,33 +129,46 @@ Once a session is available (from creation or invite), messages are received in 
 
 ```python
 while True:
-    ctx, payload = await session.get_message()
-    format_message_print(
-        local,
-        f"-> Received message from {ctx.source_name}: {payload.decode()}",
-    )
+    try:
+        # Await next inbound message from the multicast session.
+        # The returned parameters are a message context and the raw payload bytes.
+        # Check session.py for details on PyMessageContext contents.
+        ctx, payload = await session.get_message()
+        print_formatted_text(
+            f"{ctx.source_name} > {payload.decode()}",
+            style=custom_style,
+        )
 ```
+The message is received with `session.get_message()`. `ctx` is a `PyMessageContext`
+with information about the received message. `ctx.source_name` is the `PyName` of
+the sender, and `payload` is a `bytes` object carrying the published message.
 
-`ctx.source_name` is the `PyName` of the sender; `payload` is a `bytes` object
-carrying the published message.
+### 4. Publishing messages
 
-### 4. Publishing messages (moderator / any publisher)
-
-The moderator example also provides an interactive input loop so you can type
+Every participant also runs an interactive input loop that allows typing
 messages which are immediately published to the multicast group:
 
 ```python
 while True:
-    user_input = input("message> ")
-    if user_input.strip().lower() in ("exit", "quit"):
+    # Run blocking input() in a worker thread so we do not block the event loop.
+    user_input = await prompt_session.prompt_async(
+        f"{shared_session_container[0].src} > "
+    )
+
+    if user_input.lower() in ("exit", "quit"):
+        # Also terminate the receive loop.
+        await local_app.delete_session(shared_session_container[0])
         break
-    await session.publish(user_input.encode())
+
+    try:
+        # Send message to the channel_name specified when creating the session.
+        # As the session is multicast, all participants will receive it.
+        # calling publish_with_destination on a multicast session will raise an error.
+        await shared_session_container[0].publish(user_input.encode())
 ```
 
-Any participant can call `session.publish` in a
-similar fashion (the provided example only wires the loop for the creating
-process for clarity).
-
+The message is published using `shared_session_container[0].publish(user_input.encode())` 
+and delivered to all the participants connected to the group.
 
 ## Usage
 
@@ -185,9 +199,9 @@ task python:example:multicast:client-2
 ```
 
 
-Each client waits to be invited, then prints any received messages.
+Each client waits to be invited.
 
-### 3. Start the moderator (creator + interactive publisher)
+### 3. Start the moderator
 
 In a third terminal run:
 
@@ -196,6 +210,6 @@ task python:example:multicast:moderator
 ```
 
 
-This creates the channel (`agntcy/ns/chat`), invites the two clients, and then
-lets you type messages. Type `exit` or `quit` to stop the moderator. Clients
-will continue printing messages until you terminate them (Ctrl+C).
+This creates the channel (`agntcy/ns/chat`) and invites the two clients. 
+After the invite, you can start to send messages by typing on any one of the
+terminals. The messages will arrive to all the participants in the group.
