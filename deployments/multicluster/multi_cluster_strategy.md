@@ -324,7 +324,18 @@ kubectl config use-context kind-admin.example
 kubectl logs -n slim deployment/slim-control | grep "Registering node with ID"
 ```
 
-### 7. Deploy sample client applications for cross-cluster testing
+### 7. Deploy sample client applications for cross-cluster communication testing
+
+The sample applications demonstrate cross-cluster communication with centralized control:
+  
+  - **Alice (Receiver)** on cluster-a subscribes to messages and replies to received messages.
+  - **Bob (Sender)** on cluster-b creates a new MLS session publishes messages and waits for reply.
+  - Messages flow: Bob → SLIM(cluster-b) → SLIM(cluster-a) → Alice
+  
+Each client uses SPIRE Federation for authentication, running spiffe-helper as a side-car.
+  
+The centralized Controller automatically creates routes when Alice subscribes, enabling Bob's messages to reach Alice across clusters through the admin cluster coordination. 
+  
 ```
 # Deploy receiver (Alice) on cluster-a
 kubectl config use-context kind-cluster-a.example
@@ -339,33 +350,66 @@ Checkout client logs:
 
 ```
 kubectl config use-context kind-cluster-a.example
-kubectl logs alice
+kubectl logs alice client
 
 kubectl config use-context kind-cluster-b.example
-kubectl logs bob
+kubectl logs bob client
 ```
+
+You should see 10 messages sent and received.
 
 <details>
-  <summary>More Details on Cross-Cluster Client Testing</summary>
-  
-  The sample applications demonstrate cross-cluster communication with centralized control:
-  
-  - **Alice (Receiver)** on cluster-a subscribes to messages
-  - **Bob (Sender)** on cluster-b publishes messages
-  - Messages flow: Bob → SLIM(cluster-b) → SLIM(cluster-a) → Alice
-  
-  Each client uses SPIRE Federation for authentication, running spiffe-helper as a side-car.
-  
-  The centralized Controller automatically creates routes when Alice subscribes, enabling Bob's messages to reach Alice across clusters through the admin cluster coordination.
+  <summary>Troubleshooting tips</summary>
+
+    Checkout SLIM node logs on each cluster:
+
+    ```
+    kubectl logs -n slim slim-0 slim
+    kubectl logs -n slim slim-1 slim
+    ```
+
+    In case of connection problems check:
+
+    1. List registration entries on each cluster:
+
+    ```
+    kubectl exec -n spire spire-server-0 -- /opt/spire/bin/spire-server entry show
+    ```
+
+    There should be an entry for Controller on admin.example cluster, one entry for each SLIM node on worker clusters,
+    one entry for Bob on cluster-b and one entry for Alice on cluster-a.
+
+    2. Check federation status on each cluster
+
+    ```
+    # Check federation status on each cluster
+    kubectl exec -n spire spire-server-0 -- /opt/spire/bin/spire-server federation list
+
+    Found 2 federation relationships
+
+    Trust domain              : admin.example
+    Bundle endpoint URL       : https://spire.admin.example:8443
+    Bundle endpoint profile   : https_spiffe
+    Endpoint SPIFFE ID        : spiffe://admin.example/spire/server
+
+    Trust domain              : cluster-a.example
+    Bundle endpoint URL       : https://spire.cluster-a.example:8443
+    Bundle endpoint profile   : https_spiffe
+    Endpoint SPIFFE ID        : spiffe://cluster-a.example/spire/server
+    ```
+
+    There should be 2 relationships on each cluster.
+
+    3. Check `spiffe-helper` side-car logs in SLIM nodes and client apps:
+
+    ```
+    kubectl logs -n slim slim-0 spiffe-helper
+    kubectl logs -n slim slim-1 spiffe-helper
+    kubectl logs alice spiffe-helper
+    kubectl logs bob spiffe-helper
+    ```
+
 </details>
-
-### 8. Troubleshooting
-
-```
-# Check federation status on admin cluster
-kubectl config use-context kind-admin.example
-kubectl exec -n spire spire-server-0 -- /opt/spire/bin/spire-server federation show
-```
 
 ### 9. Clean up
 ```

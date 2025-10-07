@@ -173,28 +173,64 @@ At this point you can check that all nodes are connected, in Controller logs:
 kubectl logs -n slim deployment/slim-control | grep "Registering node with ID"
 ```
 
-### 5. Verify the deployment
-```bash
-kubectl get statefulsets -n slim
-kubectl get pods -n slim
-```
+### 5. Deploy sample client applications for testing
 
-### 6. View SLIM logs
-```bash
-task slim:show-logs
+  The sample applications demonstrate in-cluster communication with centralized control:
+  
+  - **Alice (Receiver)** subscribes to messages and replies to received messages.
+  - **Bob (Sender)** creates a new MLS session publishes messages and waits for reply.
+  
+Each client uses SPIRE Federation for authentication, running spiffe-helper as a side-car.
+  
+The centralized Controller automatically creates routes when Alice subscribes, enabling Bob's messages to reach Alice across clusters through the admin cluster coordination. 
+  
 ```
-
-### 7. Deploy sample receiver (alice) application
-```bash
+# Deploy receiver (Alice)
 task apps:spire:receiver:deploy
-```
-
-### 8. Deploy sample sender (bob) application
-```bash
 task apps:spire:sender:deploy
 ```
 
-### 9. Clean up when done
+Checkout client logs:
+
+```
+kubectl logs alice client
+kubectl logs bob client
+```
+
+You should see 10 messages sent and received.
+
+<details>
+  <summary>Troubleshooting tips</summary>
+
+    Checkout SLIM node logs on each cluster:
+
+    ```
+    kubectl logs -n slim slim-0 slim
+    kubectl logs -n slim slim-1 slim
+    ```
+
+    In case of connection problems check:
+
+    1. List registration entries on each cluster:
+
+    ```
+    kubectl exec -n spire spire-server-0 -- /opt/spire/bin/spire-server entry show
+    ```
+
+    There should be an entry for Controller, one entry for each SLIM node.
+
+    2. Check `spiffe-helper` side-car logs in SLIM nodes and client apps:
+
+    ```
+    kubectl logs -n slim slim-0 spiffe-helper
+    kubectl logs -n slim slim-1 spiffe-helper
+    kubectl logs alice spiffe-helper
+    kubectl logs bob spiffe-helper
+    ```
+
+</details>
+
+### 6. Clean up when done
 ```bash
 task slim:delete
 task templates:cluster:down
