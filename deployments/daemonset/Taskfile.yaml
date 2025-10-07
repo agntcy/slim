@@ -14,15 +14,20 @@ includes:
   apps: 
     taskfile: ../client_apps/Taskfile.yaml
     dir: ../client_apps
+    internal: true
 
 silent: true
 
-
 tasks:
   default:
-    - task templates:slim:check:prerequisites
+    desc: Check prerequisites and display available tasks
+    cmds:
+    - task: templates:slim:check:prerequisites
     - task --list
-  
+
+  cluster:up:
+    desc: Start a local Kubernetes cluster using Kind
+    cmd: kind create cluster --name slim-cluster --config ../slim-cluster.yaml --wait 60s || true
 
   slim:deploy:
     desc: Deploy Slim using the DaemonSet deployment strategy
@@ -47,5 +52,28 @@ tasks:
           --create-namespace \
           --set image.tag="{{ .SLIM_CONTROLLER_IMAGE_TAG }}" \
           --set spire.enabled=false \
-          --values ../controller-values.yaml            
+          --values ../controller-values.yaml
+
+  test.sender:deploy:
+    desc: Deploy sender application
+    vars:
+      TEMPLATE: '{{ .TEMPLATE | default "./sender-pod.yaml" }}'  
+      NAMESPACE: '{{ .NAMESPACE | default "default" }}'
+    cmds:
+      - task: apps:k8s:apply
+        vars:
+          TEMPLATE: '{{ .TEMPLATE }}'
+          NAMESPACE: '{{ .NAMESPACE }}'
+
+  test.receiver:deploy:
+    desc: Deploy receiver application
+    vars:
+      TEMPLATE: '{{ .TEMPLATE | default "./receiver-daemonset.yaml" }}'  
+      NAMESPACE: '{{ .NAMESPACE | default "default" }}'
+    cmds:
+      - task: apps:k8s:apply
+        vars:
+          TEMPLATE: '{{ .TEMPLATE }}'
+          NAMESPACE: '{{ .NAMESPACE }}'
+            
 

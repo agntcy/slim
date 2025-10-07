@@ -61,12 +61,12 @@ kubectl get pods -n slim -o wide
 
 ### 5. Deploy sample receiver application (daemonset)
 ```bash
-task apps:receiver:daemonset:deploy
+task test:receiver:deploy
 ```
 
 ### 6. Deploy sample sender application
 ```bash
-task apps:sender:deploy
+task test:sender:deploy
 ```
 
 ### 7. Clean up when done
