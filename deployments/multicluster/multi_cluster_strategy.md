@@ -94,7 +94,7 @@ flowchart TB
 Follow these steps to deploy SLIM using the multi-cluster deployment strategy:
 
 ### 1. Set up the Kubernetes clusters
-```
+```bash
 sudo task multi-cluster:up
 ```
 
@@ -114,7 +114,7 @@ sudo task multi-cluster:up
 </details>
 
 ### 2. Deploy Spire (federated mode enabled) on all three clusters
-```
+```bash
 task spire:deploy
 ```
 
@@ -130,7 +130,7 @@ task spire:deploy
   - JWT-SVIDs can be verified across all trust domains
   
   The federation enables:
-  ```
+  ```yaml
   spire:
     enabled: true
     trustedDomains:
@@ -153,7 +153,7 @@ task spire:deploy
 
 During deployment LoadBalancer IP's will be displayed for each cluster, please add these to your `/etc/hosts` file.
 
-```
+```bash
 ...
 Add to your /etc/hosts: 172.18.0.5    spire.admin.example
 ...
@@ -166,16 +166,16 @@ Add to your /etc/hosts: 172.18.0.7    spire.cluster-b.example
 <details>
   <summary>More Details</summary>
   
-  Since Kind clusters use LoadBalancer services, you need to add the assigned IP addresses to your local `/etc/hosts` file for proper DNS resolution. The wait-for-lb task will:
-  - Wait for LoadBalancer IP assignment
-  - Display the IP address for manual addition to `/etc/hosts`
-  
-  Example `/etc/hosts` entries:
-  ```
-  172.18.255.200   spire.admin.example
-  172.18.255.201   spire.cluster-a.example
-  172.18.255.202   spire.cluster-b.example
-  ```
+Since Kind clusters use LoadBalancer services, you need to add the assigned IP addresses to your local `/etc/hosts` file for proper DNS resolution. The wait-for-lb task will:
+- Wait for LoadBalancer IP assignment
+- Display the IP address for manual addition to `/etc/hosts`
+
+Example `/etc/hosts` entries:
+```bash
+172.18.255.200   spire.admin.example
+172.18.255.201   spire.cluster-a.example
+172.18.255.202   spire.cluster-b.example
+```
 </details>
 
 ### 3. Create cluster federation resources on all three clusters
@@ -208,7 +208,7 @@ task spire:federation:deploy
   ```
 </details>
 
-### 4. Deploy controller on admin cluster
+### 4. Deploy controller chart on admin cluster
 ```
 task slim:contoller:deploy
 ```
@@ -218,7 +218,7 @@ task slim:contoller:deploy
   
   The Controller is deployed only on the dedicated admin.example cluster but configured to accept connections from both workload clusters. Key multi-cluster configurations:
   
-  ```
+  ```yaml
   config:
     southbound:
       httpHost: 0.0.0.0
@@ -246,23 +246,25 @@ task slim:contoller:deploy
 
 During deployment Controller's LoadBalancer IP will be displayed for each cluster, please add these to your `/etc/hosts` file.
 
-```
+```bash
 ...
 Add to your /etc/hosts: 172.18.0.8    spire-control.admin.example
 ```
 
-### 5. Deploy SLIM on workload clusters (cluster-a & cluster-b)
-```
+ See [Controller Helm chart values](controller-values.yaml).
+
+### 5. Deploy SLIM chart on workload clusters (cluster-a & cluster-b)
+```bash
 task slim:deploy
 ```
 
 <details>
   <summary>More Details on Multi-Cluster SLIM Deployment</summary>
   
-  SLIM is deployed on both workload clusters with specific multi-cluster configurations. Key differences from single-cluster deployment:
+  SLIM is deployed on both workload clusters with specific multi-cluster configurations. Key differences from single-cluster deployment is setting local and external endpoints:
   
   **External Endpoint Configuration:**
-  ```
+  ```yaml
   dataplane:
     servers:
       - endpoint: "0.0.0.0:46357"
@@ -277,7 +279,7 @@ task slim:deploy
   ```
   
   **Cross-Cluster Controller Connection (to Admin Cluster):**
-  ```
+  ```yaml
   controller:
     clients:
       - endpoint: "https://slim-control.admin.example:50052"  # Admin cluster endpoint
@@ -289,7 +291,7 @@ task slim:deploy
   ```
   
   **Group Name for Cluster Identification:**
-  ```
+  ```yaml
   services:
     slim/0:
       node_id: ${env:SLIM_SVC_ID}
@@ -297,7 +299,7 @@ task slim:deploy
   ```
   
   **Federated Trust Configuration:**
-  ```
+  ```yaml
   spire:
     enabled: true
     trustedDomains:
@@ -306,9 +308,11 @@ task slim:deploy
   ```
 </details>
 
+ See [SLIM Helm chart values for cluster-a](cluster-a-values.yaml), [SLIM Helm chart values for cluster-b](cluster-b-values.yaml).
+
 During deployment SLIM LoadBalancer IP will be displayed for each cluster, please add these to your `/etc/hosts` file.
 
-```
+```bash
 ...
 Add to your /etc/hosts: 172.18.0.9    slim.cluster-a.example
 ...
@@ -319,7 +323,7 @@ Add to your /etc/hosts: 172.18.0.10   slim.cluster-b.example
 
 At this point you can check that all nodes are connected, in Controller logs:
 
-```
+```bash
 kubectl config use-context kind-admin.example
 kubectl logs -n slim deployment/slim-control | grep "Registering node with ID"
 ```
@@ -336,7 +340,7 @@ Each client uses SPIRE Federation for authentication, running spiffe-helper as a
   
 The centralized Controller automatically creates routes when Alice subscribes, enabling Bob's messages to reach Alice across clusters through the admin cluster coordination. 
   
-```
+```bash
 # Deploy receiver (Alice) on cluster-a
 kubectl config use-context kind-cluster-a.example
 task test:receiver:deploy
@@ -348,7 +352,7 @@ task test:sender:deploy
 
 Checkout client logs:
 
-```
+```bash
 kubectl config use-context kind-cluster-a.example
 kubectl logs alice client
 
@@ -361,63 +365,63 @@ You should see 10 messages sent and received.
 <details>
   <summary>Troubleshooting tips</summary>
   
-    Checkout SLIM node logs on each cluster:
+Checkout SLIM node logs on each cluster:
 
-    ```
-    kubectl logs -n slim slim-0 slim
-    kubectl logs -n slim slim-1 slim
-    ```
+```bash
+kubectl logs -n slim slim-0 slim
+kubectl logs -n slim slim-1 slim
+```
 
-    In case of connection problems check:
+In case of connection problems check:
 
-    1. List registration entries on each cluster:
+1. List registration entries on each cluster:
 
-    ```
-    kubectl exec -n spire spire-server-0 -- /opt/spire/bin/spire-server entry show
-    ```
+```bash
+kubectl exec -n spire spire-server-0 -- /opt/spire/bin/spire-server entry show
+```
 
-    There should be an entry for Controller on admin.example cluster, one entry for each SLIM node on worker clusters,
-    one entry for Bob on cluster-b and one entry for Alice on cluster-a.
+There should be an entry for Controller on admin.example cluster, one entry for each SLIM node on worker clusters,
+one entry for Bob on cluster-b and one entry for Alice on cluster-a.
 
-    2. Check federation status on each cluster
+2. Check federation status on each cluster
 
-    ```
-    # Check federation status on each cluster
-    kubectl exec -n spire spire-server-0 -- /opt/spire/bin/spire-server federation list
+```bash
+# Check federation status on each cluster
+kubectl exec -n spire spire-server-0 -- /opt/spire/bin/spire-server federation list
 
-    Found 2 federation relationships
+Found 2 federation relationships
 
-    Trust domain              : admin.example
-    Bundle endpoint URL       : https://spire.admin.example:8443
-    Bundle endpoint profile   : https_spiffe
-    Endpoint SPIFFE ID        : spiffe://admin.example/spire/server
+Trust domain              : admin.example
+Bundle endpoint URL       : https://spire.admin.example:8443
+Bundle endpoint profile   : https_spiffe
+Endpoint SPIFFE ID        : spiffe://admin.example/spire/server
 
-    Trust domain              : cluster-a.example
-    Bundle endpoint URL       : https://spire.cluster-a.example:8443
-    Bundle endpoint profile   : https_spiffe
-    Endpoint SPIFFE ID        : spiffe://cluster-a.example/spire/server
-    ```
+Trust domain              : cluster-a.example
+Bundle endpoint URL       : https://spire.cluster-a.example:8443
+Bundle endpoint profile   : https_spiffe
+Endpoint SPIFFE ID        : spiffe://cluster-a.example/spire/server
+```
 
-    There should be 2 relationships on each cluster.
+There should be 2 relationships on each cluster.
 
-    3. Check `spiffe-helper` side-car logs in SLIM nodes and client apps:
+3. Check `spiffe-helper` side-car logs in SLIM nodes and client apps:
 
-    ```
-    kubectl logs -n slim slim-0 spiffe-helper
-    kubectl logs -n slim slim-1 spiffe-helper
-    kubectl logs alice spiffe-helper
-    kubectl logs bob spiffe-helper
-    ```
+```bash
+kubectl logs -n slim slim-0 spiffe-helper
+kubectl logs -n slim slim-1 spiffe-helper
+kubectl logs alice spiffe-helper
+kubectl logs bob spiffe-helper
+```
 
 </details>
 
 ### 9. Clean up
-```
+```bash
 # Delete all clusters
 task multi-cluster:down
 ```
 
-```
+```bash
 # Stop Kind LoadBalancer process
 task multi-cluster:lb:down
 ```

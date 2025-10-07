@@ -43,15 +43,27 @@ Follow these steps to deploy SLIM using the daemonset deployment strategy:
 task cluster:up
 ```
 
-### 2. Deploy SLIM controller
+### 2. Deploy SLIM controller chart
 ```bash
 task controller:deploy
 ```
 
-### 3. Deploy SLIM as DaemonSet
+See [SLIM Controller Helm chart values](controller-values.yaml).
+
+### 3. Deploy SLIM nodes as DaemonSet
 ```bash
 task slim:deploy
 ```
+
+To deploy SLIM instances on each node:
+
+```yaml
+slim:
+  # Deploy as DaemonSet instead of StatefulSet
+  daemonset: true
+```
+
+See [SLIM Helm chart values](daemonset-values.yaml).
 
 ### 4. Verify the deployment
 ```bash
@@ -59,7 +71,7 @@ kubectl get daemonsets -n slim
 kubectl get pods -n slim -o wide
 ```
 
-### 5. Deploy sample receiver application (daemonset)
+### 5. Deploy sample receiver application as Daemonset
 ```bash
 task test:receiver:deploy
 ```
@@ -69,7 +81,16 @@ task test:receiver:deploy
 task test:sender:deploy
 ```
 
-### 7. Clean up when done
+### 7. Checkout client logs:
+
+```bash
+kubectl logs alice client
+kubectl logs bob client
+```
+
+You should see 10 messages sent and received.
+
+### 8. Clean up when done
 ```bash
 task slim:delete
 task templates:cluster:down

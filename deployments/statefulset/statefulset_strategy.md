@@ -91,7 +91,7 @@ task templates:spire:deploy
 
 </details>
 
-### 3. Deploy SLIM controller
+### 3. Deploy SLIM controller chart
 ```bash
 task templates:slim:controller:deploy
 ```
@@ -122,7 +122,7 @@ task templates:slim:controller:deploy
 </details>
 
 
-### 4. Deploy SLIM nodes
+### 4. Deploy SLIM nodes from helm chart
 ```bash
 task slim:deploy
 ```
@@ -169,7 +169,7 @@ task slim:deploy
 
 At this point you can check that all nodes are connected, in Controller logs:
 
-```
+```bash
 kubectl logs -n slim deployment/slim-control | grep "Registering node with ID"
 ```
 
@@ -184,7 +184,7 @@ Each client uses SPIRE Federation for authentication, running spiffe-helper as a
   
 The centralized Controller automatically creates routes when Alice subscribes, enabling Bob's messages to reach Alice across clusters through the admin cluster coordination. 
   
-```
+```bash
 # Deploy receiver (Alice)
 task apps:spire:receiver:deploy
 task apps:spire:sender:deploy
@@ -192,7 +192,7 @@ task apps:spire:sender:deploy
 
 Checkout client logs:
 
-```
+```bash
 kubectl logs alice client
 kubectl logs bob client
 ```
@@ -202,31 +202,31 @@ You should see 10 messages sent and received.
 <details>
   <summary>Troubleshooting tips</summary>
 
-    Checkout SLIM node logs on each cluster:
+Checkout SLIM node logs on each cluster:
 
-    ```
-    kubectl logs -n slim slim-0 slim
-    kubectl logs -n slim slim-1 slim
-    ```
+```bash
+kubectl logs -n slim slim-0 slim
+kubectl logs -n slim slim-1 slim
+```
 
-    In case of connection problems check:
+In case of connection problems check:
 
-    1. List registration entries on each cluster:
+1. List registration entries on each cluster:
 
-    ```
-    kubectl exec -n spire spire-server-0 -- /opt/spire/bin/spire-server entry show
-    ```
+```bash
+kubectl exec -n spire spire-server-0 -- /opt/spire/bin/spire-server entry show
+```
 
-    There should be an entry for Controller, one entry for each SLIM node.
+There should be an entry for Controller, one entry for each SLIM node.
 
-    2. Check `spiffe-helper` side-car logs in SLIM nodes and client apps:
+2. Check `spiffe-helper` side-car logs in SLIM nodes and client apps:
 
-    ```
-    kubectl logs -n slim slim-0 spiffe-helper
-    kubectl logs -n slim slim-1 spiffe-helper
-    kubectl logs alice spiffe-helper
-    kubectl logs bob spiffe-helper
-    ```
+```bash
+kubectl logs -n slim slim-0 spiffe-helper
+kubectl logs -n slim slim-1 spiffe-helper
+kubectl logs alice spiffe-helper
+kubectl logs bob spiffe-helper
+```
 
 </details>
 
