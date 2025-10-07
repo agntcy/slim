@@ -11,7 +11,7 @@
       "package-name": "slim-bindings",
       "release-type": "python",
       "prerelease": true,
-      "prerelease-type": "rc"
+      "prerelease-type": "beta"
     },
     "charts/slim": {
       "package-name": "helm-slim",
