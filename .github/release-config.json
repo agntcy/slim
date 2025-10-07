@@ -5,12 +5,14 @@
   "include-component-in-tag": true,
   "skip-github-release": false,
   "signoff": "Agntcy Build Bot <build@agntcy.io>",
+  "bump-minor-pre-major": true,
   "packages": {
     "data-plane/python/bindings": {
       "package-name": "slim-bindings",
       "release-type": "python",
       "prerelease": true,
-      "prerelease-type": "rc"
+      "prerelease-type": "rc",
+      "versioning": "prerelease"
     },
     "charts/slim": {
       "package-name": "helm-slim",
@@ -46,7 +48,10 @@
     },
     "data-plane/python/bindings/examples": {
       "package-name": "slim-bindings-examples",
-      "release-type": "python"
+      "release-type": "python",
+      "prerelease": true,
+      "prerelease-type": "rc",
+      "versioning": "prerelease"
     },
     "data-plane/python/integrations/slimrpc": {
       "package-name": "slimrpc",
