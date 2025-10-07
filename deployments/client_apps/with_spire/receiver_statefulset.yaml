@@ -58,18 +58,7 @@ metadata:
     app.kubernetes.io/name: slim-client
     app.kubernetes.io/component: alice 
 spec:  
-  containers:
-  - args:
-    - -c
-    - while true; do sleep 10000; done
-    command:
-    - sh
-    image: nicolaka/netshoot
-    imagePullPolicy: Always
-    name: test-network
-    volumeMounts:
-    - mountPath: /svids
-      name: svids-volume  
+  containers: 
   - args:
     - -config
     - config/helper.conf

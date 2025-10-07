@@ -62,17 +62,6 @@ metadata:
 spec:  
   containers:
   - args:
-    - -c
-    - while true; do sleep 10000; done
-    command:
-    - sh
-    image: nicolaka/netshoot
-    imagePullPolicy: Always
-    name: test-network
-    volumeMounts:
-    - mountPath: /svids
-      name: svids-volume  
-  - args:
     - -config
     - config/helper.conf
     image: ghcr.io/spiffe/spiffe-helper:0.10.0

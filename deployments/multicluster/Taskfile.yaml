@@ -226,7 +226,7 @@ tasks:
           LB_IP=$(kubectl get service -n {{.NAMESPACE}} {{.SVC_NAME}} -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo "")
           if [ -n "$LB_IP" ] && [ "$LB_IP" != "<pending>" ] && [ "$LB_IP" != "null" ]; then
             echo "LoadBalancer IP assigned: $LB_IP"
-            echo "Add to your /etc/hosts: $LB_IP    {{.LB_HOSTNAME}}"
+            echo -e "\e[32mAdd to your /etc/hosts: $LB_IP    {{.LB_HOSTNAME}}\e[0m"            
             exit 0
           fi
           echo "LoadBalancer IP not yet available, waiting... ($COUNTER/{{.TIMEOUT}})"

@@ -87,7 +87,7 @@ task templates:spire:deploy
   kubctl exec -n spire spire-server-0 -- /opt/spire/bin/spire-server entry
   ```
 
-  Find out more [here](https://spiffe.io/docs/latest/try/getting-started-k8s/).
+  Find out more on [Spire on K8s](https://spiffe.io/docs/latest/try/getting-started-k8s/) and [ClusterSPIFFEID](https://github.com/spiffe/spire-controller-manager/blob/main/docs/clusterspiffeid-crd.md) resource.
 
 </details>
 
@@ -97,7 +97,7 @@ task templates:slim:controller:deploy
 ```
 
 <details>
-  <summary>More Details</summary>
+  <summary>More Details on Controller configuration</summary>
   
   This step will deploy SLIM Controller Southbound API configured with MTLS.
   Controller support MTLS by Spire natively, just need to be enabled and `socketPath` has to be set:
@@ -128,7 +128,7 @@ task slim:deploy
 ```
 
 <details>
-  <summary>More Details</summary>
+  <summary>More Details on SLIM node configuration</summary>
   
   This step will deploy 3 replicas of SLIM servers and a `ClusterIP` service. 
   In each SLIM pod there's a `spire-helper` container running fetching generated X509 certificates, keys and certificate bundles to the configured path. SLIM nodes must be configured to use MTLS using the same path.
@@ -165,28 +165,36 @@ task slim:deploy
 
 </details>
 
-### 4. Verify the deployment
+### 4. Verify nodes are connected
+
+At this point you can check that all nodes are connected, in Controller logs:
+
+```
+kubectl logs -n slim deployment/slim-control | grep "Registering node with ID"
+```
+
+### 5. Verify the deployment
 ```bash
 kubectl get statefulsets -n slim
 kubectl get pods -n slim
 ```
 
-### 5. View SLIM logs
+### 6. View SLIM logs
 ```bash
 task slim:show-logs
 ```
 
-### 6. Deploy sample receiver (alice) application
+### 7. Deploy sample receiver (alice) application
 ```bash
 task apps:spire:receiver:deploy
 ```
 
-### 7. Deploy sample sender (bob) application
+### 8. Deploy sample sender (bob) application
 ```bash
 task apps:spire:sender:deploy
 ```
 
-### 8. Clean up when done
+### 9. Clean up when done
 ```bash
 task slim:delete
 task templates:cluster:down
