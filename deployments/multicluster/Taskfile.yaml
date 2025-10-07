@@ -269,3 +269,13 @@ tasks:
           TEMPLATE: '{{ .TEMPLATE }}'
           NAMESPACE: '{{ .NAMESPACE }}'
 
+  test.receiver:deploy:
+    desc: Deploy receiver application with SPIRE
+    vars:
+      TEMPLATE: '{{ .TEMPLATE | default "./with_spire/receiver.yaml" }}'  
+      NAMESPACE: '{{ .NAMESPACE | default "default" }}'
+    cmds:
+      - task: apps:k8s:apply
+        vars:
+          TEMPLATE: '{{ .TEMPLATE }}'
+          NAMESPACE: '{{ .NAMESPACE }}'
