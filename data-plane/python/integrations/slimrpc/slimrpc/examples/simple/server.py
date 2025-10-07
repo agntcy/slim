@@ -2,6 +2,7 @@ import asyncio
 import logging
 from collections.abc import AsyncIterable
 
+from slimrpc.common import SLIMAppConfig
 from slimrpc.context import Context
 from slimrpc.examples.simple.types.example_pb2 import ExampleRequest, ExampleResponse
 from slimrpc.examples.simple.types.example_pb2_slimrpc import (
@@ -50,36 +51,17 @@ class TestService(TestServicer):
         raise NotImplementedError("Method not implemented!")
 
 
-def create_server(
-    local: str,
-    slim: dict,
-    enable_opentelemetry: bool = False,
-    shared_secret: str = "",
-) -> Server:
-    """
-    Create a new SRPC server instance.
-    """
-    server = Server(
-        local=local,
-        slim=slim,
-        enable_opentelemetry=enable_opentelemetry,
-        shared_secret=shared_secret,
-    )
-
-    return server
-
-
 async def amain() -> None:
-    server = create_server(
-        local="agntcy/grpc/server",
-        slim={
-            "endpoint": "http://localhost:46357",
-            "tls": {
-                "insecure": True,
+    server = Server(
+        slim_app_config=SLIMAppConfig(
+            identity="agntcy/grpc/server",
+            slim_client_config={
+                "endpoint": "http://localhost:46357",
+                "tls": {"insecure": True},
             },
-        },
-        enable_opentelemetry=False,
-        shared_secret="my_shared_secret",
+            enable_opentelemetry=False,
+            shared_secret="my_shared_secret",
+        )
     )
 
     # Create RPCs
