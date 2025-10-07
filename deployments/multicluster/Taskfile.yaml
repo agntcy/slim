@@ -257,4 +257,15 @@ tasks:
       - |
         echo "Stopping Kind cloud provider for LoadBalancer support..."
         kill -9 $(ps aux | grep [c]loud-provider-kind | awk '{print $2}')
+  
+  test.sender:deploy:
+    desc: Deploy sender application with SPIRE
+    vars:
+      TEMPLATE: '{{ .TEMPLATE | default "./with_spire/sender.yaml" }}'  
+      NAMESPACE: '{{ .NAMESPACE | default "default" }}'
+    cmds:
+      - task: apps:k8s:apply
+        vars:
+          TEMPLATE: '{{ .TEMPLATE }}'
+          NAMESPACE: '{{ .NAMESPACE }}'
 

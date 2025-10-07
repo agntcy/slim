@@ -77,3 +77,16 @@ tasks:
           echo "Deleting receiver client application with SPIRE"
           kubectl delete -f with_spire/receiver.yaml
   
+  k8s:apply:
+    desc: Delete receiver application with SPIRE
+    require:
+      vars:
+        - TEMPLATE
+        - NAMESPACE
+    internal: true
+    cmds:
+      - cmd: |
+          echo "Applying k8s template '{{ .TEMPLATE }}' to namespace '{{ .NAMESPACE }}'"
+          kubectl apply -n {{ .NAMESPACE }} -f {{ .TEMPLATE }}
+
+
