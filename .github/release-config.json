@@ -48,14 +48,10 @@
     },
     "data-plane/python/bindings/examples": {
       "package-name": "slim-bindings-examples",
-<<<<<<< HEAD
       "release-type": "python",
       "prerelease": true,
       "prerelease-type": "rc",
       "versioning": "prerelease"
-=======
-      "release-type": "python"
->>>>>>> origin/main
     },
     "data-plane/python/integrations/slimrpc": {
       "package-name": "slimrpc",
