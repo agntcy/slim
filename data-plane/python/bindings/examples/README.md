@@ -2,11 +2,9 @@
 
 This directory contains runnable example programs that demonstrate how to use the SLIM Python bindings for different communication patterns:
 
-- Anycast: Send to one of many eligible receivers.
-           A different destination can be selected at each message (chosen pseudo-randomly / load-balanced)
-- Unicast: Selects one of many eligible receivers when the session is created,
-           and sends all the messages to the same specific peer
-- Multicast: Send to a group (moderator-driven membership)
+- Point2Point: Selects one of many eligible receivers when the session is created,
+               and sends all the messages to the same specific peer
+- Group: Send to a group (moderator-driven membership)
 - With or without MLS (Messaging Layer Security) for end-to-end encryption
 
 You can run these examples:
@@ -21,9 +19,8 @@ You can run these examples:
 - [Concepts at a Glance](#concepts-at-a-glance)
 - [Quick Start (Standalone)](#quick-start-standalone)
   - [Step 1: Start the SLIM node](#step-1-start-the-slim-node)
-  - [Step 2: Anycast Example](#step-2-anycast-example)
-  - [Step 3: Unicast Example (MLS and non-MLS)](#step-3-unicast-example-mls-and-non-mls)
-  - [Step 4: Multicast Example](#step-4-multicast-example)
+  - [Step 2: Point2Point Example (MLS and non-MLS)](#step-2-p2p-example-mls-and-non-mls)
+  - [Step 3: Group Example](#step-3-group-example)
 - [Interpreting the Output](#interpreting-the-output)
 - [Modifying the Examples](#modifying-the-examples)
 - [Running in Kubernetes (SPIRE / JWT)](#running-in-kubernetes-spire--jwt)
@@ -49,11 +46,10 @@ task -v python:example:server
 
 ## Concepts at a Glance
 
-| Pattern   | Delivery Semantics                                   | Typical Use Case                       | MLS Support |
-|-----------|-------------------------------------------------------|----------------------------------------|-------------|
-| Anycast   | Send to one of many eligible receivers. A different destination can be selected at each message (chosen pseudo-randomly / load-balanced)    | Stateless workers, load balancing      | Absent    |
-| Unicast   | Selects one of many eligible receivers when the session is created, and sends all the messages to the same specific peer                            | Direct messaging / RPC-like flows      | Present    |
-| Multicast | All members of a moderator-defined group             | Group coordination / pub-sub-like      | Present |
+| Pattern       | Delivery Semantics                                   | Typical Use Case                       | MLS Support |
+|---------------|-------------------------------------------------------|----------------------------------------|-------------|
+| Point2Point   | Selects one of many eligible receivers when the session is created, and sends all the messages to the same specific peer                            | Direct messaging / RPC-like flows      | Present    |
+| Group         | All members of a moderator-defined group             | Group coordination / pub-sub-like      | Present |
 
 MLS (Messaging Layer Security) provides end-to-end encryption and group state management. Non-MLS modes may still use channel protection in the links between SLIM nodes, but are not full E2E group cryptographic sessions.
 
@@ -71,7 +67,7 @@ task python:example:server
 
 Leave this running.
 
-### Step 2: Anycast Example
+### Step 2: P2P Example (MLS and non-MLS)
 
 Open two terminals and start two `alice` instances:
 
@@ -89,33 +85,11 @@ Agntcy/ns/alice/9429169046562807017          waiting for new session to be estab
 
 Run the same command again in a second terminal (the numeric ID will differ).
 
-Then start `bob` (the sender) in a third terminal:
-
-```bash
-task python:example:p2p:anycast:bob
-```
-
-The output will look like:
-
-```bash
-Agntcy/ns/bob/14478648478491643199           Created app
-Agntcy/ns/bob/14478648478491643199           Connected to http://localhost:46357
-Agntcy/ns/bob/14478648478491643199           Sent message hey there - 1/10:
-Agntcy/ns/bob/14478648478491643199           received (from session 2178188337): hey there from agntcy/ns/alice/9429169046562807017
-Agntcy/ns/bob/14478648478491643199           Sent message hey there - 2/10:
-Agntcy/ns/bob/14478648478491643199           received (from session 2178188337): hey there from agntcy/ns/alice/7694050331430527832
-...
-```
-
-You will see successive messages being received by both `alice` instances — distribution is effectively anycast.
-
-### Step 3: Unicast Example (MLS and non-MLS)
-
-In a new terminal, experiment with the unicast variants. Only one chosen `alice` receives each message.
+In a new terminal, experiment with the p2p variants. Only one chosen `alice` receives each message.
 
 ```bash
 # With MLS enabled
-task python:example:p2p:unicast:mls:bob
+task python:example:p2p:mls:bob
 Agntcy/ns/bob/1309096762860029159            Created app
 Agntcy/ns/bob/1309096762860029159            Connected to http://localhost:46357
 Agntcy/ns/bob/1309096762860029159            Sent message hey there - 1/10:
@@ -125,7 +99,7 @@ Agntcy/ns/bob/1309096762860029159            received (from session 2689354079):
 
 ```bash
 # Without MLS
-task python:example:p2p:unicast:no-mls:bob
+task python:example:p2p:no-mls:bob
 Agntcy/ns/bob/1309096762860029159            Created app
 Agntcy/ns/bob/1309096762860029159            Connected to http://localhost:46357
 Agntcy/ns/bob/1309096762860029159            Sent message hey there - 1/10:
@@ -133,16 +107,16 @@ Agntcy/ns/bob/1309096762860029159            received (from session 2689354079):
 ...
 ```
 
-Result: only one `alice` instance receives each message — this is deterministic selection vs anycast's pseudo-random distribution.
+Result: only one `alice` instance receives each message.
 For more info details the session protocols, see https://github.com/agntcy/slim/blob/main/data-plane/python/bindings/SESSION.md#slim-sessions
 
-### Step 4: Multicast Example
+### Step 3: Group Example
 
-Stop the prior `alice` and `bob` processes (to reduce noise). Start two multicast clients:
+Stop the prior `alice` and `bob` processes (to reduce noise). Start two group clients:
 
 ```bash
 # Client 1
-task python:example:multicast:client-1
+task python:example:group:client-1
 Agntcy/ns/client-1/7183465155134805761       Created app
 Agntcy/ns/client-1/7183465155134805761       Connected to http://localhost:46357
 Agntcy/ns/client-1                           -> Waiting for session...
@@ -150,7 +124,7 @@ Agntcy/ns/client-1                           -> Waiting for session...
 
 ```bash
 # Client 2
-task python:example:multicast:client-2
+task python:example:group:client-2
 Agntcy/ns/client-2/597424660555802635        Created app
 Agntcy/ns/client-2/597424660555802635        Connected to http://localhost:46357
 Agntcy/ns/client-2                           -> Waiting for session...
@@ -159,10 +133,10 @@ Agntcy/ns/client-2                           -> Waiting for session...
 In a third terminal, run the moderator (it creates the group and invites members):
 
 ```bash
-task python:example:multicast:moderator
+task python:example:group:moderator
 Agntcy/ns/moderator/1639897447396238611      Created app
 Agntcy/ns/moderator/1639897447396238611      Connected to http://localhost:46357
-Creating new multicast session (moderator)... 169ca82eb17d6bc2/eef9769a4c6990d1/fc9bbc406957794b/ffffffffffffffff (agntcy/ns/moderator/ffffffffffffffff)
+Creating new group session (moderator)... 169ca82eb17d6bc2/eef9769a4c6990d1/fc9bbc406957794b/ffffffffffffffff (agntcy/ns/moderator/ffffffffffffffff)
 agntcy/ns/moderator -> add 169ca82eb17d6bc2/eef9769a4c6990d1/58ec40d7c837e0b9/ffffffffffffffff (agntcy/ns/client-1/ffffffffffffffff) to the group
 agntcy/ns/moderator -> add 169ca82eb17d6bc2/eef9769a4c6990d1/b521a3788f1267a8/ffffffffffffffff (agntcy/ns/client-2/ffffffffffffffff) to the group
 message> hey guys
@@ -187,7 +161,7 @@ This section shows how to run the examples inside a Kubernetes cluster where wor
 3. Build and push SLIM images to the local registry.
 4. Deploy the SLIM node (control / rendezvous component).
 5. Deploy two distinct SLIM client workloads, each with its own ServiceAccount (and thus its own SPIFFE ID).
-6. Run the unicast example using JWT-based authentication derived from SPIRE.
+6. Run the p2p example using JWT-based authentication derived from SPIRE.
 
 If you already have a Kubernetes cluster or an existing SPIRE deployment, you can adapt only the relevant subsections.
 
@@ -457,7 +431,7 @@ POD_NAME=$(kubectl get pods -l app.kubernetes.io/component=client-a -o jsonpath=
 kubectl exec -c slim-client -it ${POD_NAME} -- ls -l /svids
 ```
 
-### Run the unicast example (inside the cluster)
+### Run the p2p example (inside the cluster)
 
 Enter the first client pod (receiver):
 
@@ -474,7 +448,7 @@ ls -l /svids
 Run the receiver:
 
 ```bash
-/app/bin/unicast --slim '{"endpoint": "http://slim.slim:46357", "tls": {"insecure": true}}' \
+/app/bin/p2p --slim '{"endpoint": "http://slim.slim:46357", "tls": {"insecure": true}}' \
   --jwt /svids/jwt_svid.token \
   --spire-trust-bundle /svids/key.jwt \
   --local agntcy/example/receiver \
@@ -490,7 +464,7 @@ kubectl exec -c slim-client -it $(kubectl get pods -l app.kubernetes.io/componen
 Run the sender:
 
 ```bash
-/app/bin/unicast --slim '{"endpoint": "http://slim.slim:46357", "tls": {"insecure": true}}' \
+/app/bin/p2p --slim '{"endpoint": "http://slim.slim:46357", "tls": {"insecure": true}}' \
   --jwt /svids/jwt_svid.token \
   --spire-trust-bundle /svids/key.jwt \
   --audience slim-demo \

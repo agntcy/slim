@@ -33,7 +33,7 @@ impl SessionConfig {
 
     pub fn destination_name(&self) -> Option<Name> {
         match self {
-            SessionConfig::PointToPoint(c) => c.unicast_name.as_ref().cloned(),
+            SessionConfig::PointToPoint(c) => c.peer_name.as_ref().cloned(),
             SessionConfig::Multicast(c) => Some(c.channel_name.clone()),
         }
     }

@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::collections::hash_map::DefaultHasher;
+use std::fmt::Display;
 use std::hash::Hash;
 use std::hash::Hasher;
 
@@ -19,7 +20,7 @@ use slim_datapath::messages::encoder::Name;
 
 /// name class
 #[gen_stub_pyclass]
-#[pyclass(eq)]
+#[pyclass(eq, str)]
 #[derive(Clone, PartialEq)]
 pub struct PyName {
     name: Name,
@@ -40,6 +41,12 @@ impl From<&PyName> for Name {
 impl From<Name> for PyName {
     fn from(name: Name) -> Self {
         PyName { name }
+    }
+}
+
+impl Display for PyName {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.name)
     }
 }
 
@@ -87,14 +94,6 @@ impl PyName {
         self.name.components()[0] == name.name.components()[0]
             && self.name.components()[1] == name.name.components()[1]
             && self.name.components()[2] == name.name.components()[2]
-    }
-
-    fn __repr__(&self) -> String {
-        self.name.to_string()
-    }
-
-    fn __str__(&self) -> String {
-        self.name.to_string()
     }
 
     fn __hash__(&self) -> u64 {

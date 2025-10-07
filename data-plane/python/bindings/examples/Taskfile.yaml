@@ -24,20 +24,20 @@ tasks:
     desc: "Point to Point example - Alice will listen for messages and echo them"
     cmds:
       - |
-        uv run --package slim-bindings-examples anycast                               \
+        uv run --package slim-bindings-examples p2p                                   \
           --local agntcy/ns/alice                                                     \
           --slim '{"endpoint": "http://localhost:46357", "tls": {"insecure": true}}'  \
           --shared-secret "secret" {{.EXTRA_ARGS}}
     vars:
       EXTRA_ARGS: '{{.EXTRA_ARGS | default ""}}'
 
-  python:example:p2p:anycast:bob:
-    desc: "Anycast Point to Point example - Bob will send unencrypted messages to Alice"
+  python:example:p2p:no-mls:bob:
+    desc: "Point to Point example - Bob will send unencrypted messages to Alice"
     env:
       SLIM_INSTANCE_ID: bob
     cmds:
       - |
-        uv run --package slim-bindings-examples anycast                               \
+        uv run --package slim-bindings-examples p2p                                   \
           --local agntcy/ns/bob                                                       \
           --slim '{"endpoint": "http://localhost:46357", "tls": {"insecure": true}}'  \
           --shared-secret "secret"                                                    \
@@ -46,28 +46,13 @@ tasks:
     vars:
       EXTRA_ARGS: '{{.EXTRA_ARGS | default ""}}'
 
-  python:example:p2p:unicast:no-mls:bob:
-    desc: "Unicast Point to Point example - Bob will send unencrypted messages to Alice"
+  python:example:p2p:mls:bob:
+    desc: "Point to Point example - Bob will send encrypted messages to Alice"
     env:
       SLIM_INSTANCE_ID: bob
     cmds:
       - |
-        uv run --package slim-bindings-examples unicast                               \
-          --local agntcy/ns/bob                                                       \
-          --slim '{"endpoint": "http://localhost:46357", "tls": {"insecure": true}}'  \
-          --shared-secret "secret"                                                    \
-          --remote agntcy/ns/alice                                                    \
-          --message "hey there"                                                       \
-    vars:
-      EXTRA_ARGS: '{{.EXTRA_ARGS | default ""}}'
-
-  python:example:p2p:unicast:mls:bob:
-    desc: "Unicast Point to Point example - Bob will send encrypted messages to Alice"
-    env:
-      SLIM_INSTANCE_ID: bob
-    cmds:
-      - |
-        uv run --package slim-bindings-examples unicast                               \
+        uv run --package slim-bindings-examples p2p                                   \
           --local agntcy/ns/bob                                                       \
           --slim '{"endpoint": "http://localhost:46357", "tls": {"insecure": true}}'  \
           --shared-secret "secret"                                                    \
@@ -77,11 +62,11 @@ tasks:
     vars:
       EXTRA_ARGS: '{{.EXTRA_ARGS | default ""}}'
 
-  python:example:multicast:moderator:
-    desc: "multicast moderator example - Creates a channel, invites participants, and sends encrypted messages"
+  python:example:group:moderator:
+    desc: "group moderator example - Creates a channel, invites participants, and sends encrypted messages"
     cmds:
       - |
-        uv run --package slim-bindings-examples multicast                             \
+        uv run --package slim-bindings-examples group                                 \
           --local agntcy/ns/moderator                                                 \
           --slim '{"endpoint": "http://localhost:46357", "tls": {"insecure": true}}'  \
           --shared-secret "secret"                                                    \
@@ -92,22 +77,22 @@ tasks:
     vars:
       EXTRA_ARGS: '{{.EXTRA_ARGS | default ""}}'
 
-  python:example:multicast:client-1:
-    desc: "Multicast client example - Waits to be invited to a channel and receives encrypted messages"
+  python:example:group:client-1:
+    desc: "Grous client example - Waits to be invited to a channel and receives encrypted messages"
     cmds:
       - |
-        uv run --package slim-bindings-examples multicast                             \
+        uv run --package slim-bindings-examples group                                 \
           --local agntcy/ns/client-1                                                  \
           --slim '{"endpoint": "http://localhost:46357", "tls": {"insecure": true}}'  \
           --shared-secret "secret" {{.EXTRA_ARGS}}
     vars:
       EXTRA_ARGS: '{{.EXTRA_ARGS | default ""}}'
 
-  python:example:multicast:client-2:
-    desc: "Multicast client example - Waits to be invited to a channel and receives encrypted messages"
+  python:example:group:client-2:
+    desc: "Group client example - Waits to be invited to a channel and receives encrypted messages"
     cmds:
       - |
-        uv run --package slim-bindings-examples multicast                             \
+        uv run --package slim-bindings-examples group                                 \
           --local agntcy/ns/client-2                                                  \
           --slim '{"endpoint": "http://localhost:46357", "tls": {"insecure": true}}'  \
           --shared-secret "secret" {{.EXTRA_ARGS}}

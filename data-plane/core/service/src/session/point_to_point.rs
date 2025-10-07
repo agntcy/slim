@@ -41,7 +41,7 @@ pub struct PointToPointConfiguration {
     pub timeout: Option<std::time::Duration>,
     pub max_retries: Option<u32>,
     pub mls_enabled: bool,
-    pub unicast_name: Option<Name>,
+    pub peer_name: Option<Name>,
     pub(crate) initiator: bool,
     pub metadata: HashMap<String, String>,
 }
@@ -52,7 +52,7 @@ impl Default for PointToPointConfiguration {
             timeout: None,
             max_retries: Some(5),
             mls_enabled: false,
-            unicast_name: None,
+            peer_name: None,
             initiator: true,
             metadata: HashMap::new(),
         }
@@ -76,14 +76,14 @@ impl PointToPointConfiguration {
             timeout,
             max_retries,
             mls_enabled,
-            unicast_name,
+            peer_name: unicast_name,
             initiator: true,
             metadata,
         }
     }
 
     pub fn with_unicast_name(mut self, name: Name) -> Self {
-        self.unicast_name = Some(name);
+        self.peer_name = Some(name);
         self
     }
 }
@@ -110,7 +110,7 @@ impl std::fmt::Display for PointToPointConfiguration {
             "PointToPointConfiguration: timeout: {} ms, max retries: {}, remote endpoint: {}",
             self.timeout.unwrap_or_default().as_millis(),
             self.max_retries.unwrap_or_default(),
-            self.unicast_name
+            self.peer_name
                 .as_ref()
                 .map(|n| n.to_string())
                 .unwrap_or_else(|| "<unset>".to_string()),
@@ -299,35 +299,8 @@ where
                 next = self.rx.recv() => {
                     match next {
                         Some(message) => match message {
-                            InternalMessage::OnMessage { message, direction } => {
-                                let result = match direction {
-                                    MessageDirection::North => self.handle_message_to_app(message).await,
-                                    MessageDirection::South => self.handle_message_to_slim(message).await,
-                                };
-
-                                if let Err(e) = result {
-                                    error!("error processing message: {}", e);
-                                }
-                            }
-                            InternalMessage::SetConfig { config } => {
-                                debug!("setting point and point session config: {}", config);
-                                self.state.config = config;
-                            }
-                            InternalMessage::TimerTimeout {
-                                message_id,
-                                timeouts,
-                                ack,
-                            } => {
-                                debug!("timer timeout for message id {}: {}", message_id, timeouts);
-                                self.handle_timer_timeout(message_id, ack).await;
-                            }
-                            InternalMessage::TimerFailure {
-                                message_id,
-                                timeouts,
-                                ack,
-                            } => {
-                                debug!("timer failure for message id {}: {}", message_id, timeouts);
-                                self.handle_timer_failure(message_id, ack).await;
+                            message => {
+                                self.handle_internal_message(message).await;
                             }
                         },
                         None => {
@@ -347,6 +320,11 @@ where
             }
         }
 
+        // Finish to process any remaining messages
+        while let Ok(message) = self.rx.try_recv() {
+            self.handle_internal_message(message).await;
+        }
+
         // Clean up any remaining timers
         for (_, (mut timer, _)) in self.state.sender_state.pending_acks.drain() {
             timer.stop();
@@ -356,6 +334,41 @@ where
         }
 
         debug!("PointToPointProcessor loop exited");
+    }
+
+    async fn handle_internal_message(&mut self, message: InternalMessage) {
+        match message {
+            InternalMessage::OnMessage { message, direction } => {
+                let result = match direction {
+                    MessageDirection::North => self.handle_message_to_app(message).await,
+                    MessageDirection::South => self.handle_message_to_slim(message).await,
+                };
+
+                if let Err(e) = result {
+                    error!("error processing message: {}", e);
+                }
+            }
+            InternalMessage::SetConfig { config } => {
+                debug!("setting point and point session config: {}", config);
+                self.state.config = config;
+            }
+            InternalMessage::TimerTimeout {
+                message_id,
+                timeouts,
+                ack,
+            } => {
+                debug!("timer timeout for message id {}: {}", message_id, timeouts);
+                self.handle_timer_timeout(message_id, ack).await;
+            }
+            InternalMessage::TimerFailure {
+                message_id,
+                timeouts,
+                ack,
+            } => {
+                debug!("timer failure for message id {}: {}", message_id, timeouts);
+                self.handle_timer_failure(message_id, ack).await;
+            }
+        }
     }
 
     async fn handle_timer_timeout(&mut self, message_id: u32, ack: bool) {
@@ -481,7 +494,7 @@ where
 
         // No error - this session is unicast
         *self.state.dst.write() = Some(source.clone());
-        self.state.config.unicast_name = Some(source);
+        self.state.config.peer_name = Some(source);
         self.state.unicast_connection = Some(incoming_conn);
         self.state.unicast_session_status = UnicastSessionStatus::Established;
 
@@ -509,7 +522,7 @@ where
 
                 // If we are still discovering, set the unicast name
                 *self.state.dst.write() = Some(source.clone());
-                self.state.config.unicast_name = Some(source);
+                self.state.config.peer_name = Some(source);
                 self.state.unicast_connection = Some(incoming_conn);
                 self.state.unicast_session_status = UnicastSessionStatus::Established;
 
@@ -530,7 +543,7 @@ where
                 debug!("unicast session discovery reply received, but already established");
 
                 // Check if the unicast name is already set, and if it's different from the source
-                if let Some(name) = &self.state.config.unicast_name {
+                if let Some(name) = &self.state.config.peer_name {
                     let message = if name != &source {
                         format!(
                             "unicast session already established with a different name: {}, received: {}",
@@ -571,7 +584,7 @@ where
 
         // If we have a unicast name, set the destination to use the ID in the unicast name
         // and force the message to be sent to the unicast connection
-        if let Some(ref name) = self.state.config.unicast_name {
+        if let Some(ref name) = self.state.config.peer_name {
             let mut new_name = message.get_dst();
             new_name.set_id(name.id());
             message.get_slim_header_mut().set_destination(&new_name);
@@ -627,7 +640,7 @@ where
         }
 
         // If session is unicast, decide what to do according to the session state
-        if self.state.config.unicast_name.is_some() {
+        if self.state.config.peer_name.is_some() {
             match self.state.unicast_session_status {
                 UnicastSessionStatus::Uninitialized => {
                     self.start_unicast_session_discovery(&message.get_slim_header().get_dst())
@@ -646,7 +659,7 @@ where
                 UnicastSessionStatus::Established => {
                     // the session state is established, send message
                     let mut new_name = message.get_dst();
-                    new_name.set_id(self.state.config.unicast_name.as_ref().unwrap().id());
+                    new_name.set_id(self.state.config.peer_name.as_ref().unwrap().id());
                     message.get_slim_header_mut().set_destination(&new_name);
                     message
                         .get_slim_header_mut()
@@ -672,7 +685,7 @@ where
         );
 
         // If session is unicast, check if the source matches the unicast name
-        if let Some(name) = &self.state.config.unicast_name
+        if let Some(name) = &self.state.config.peer_name
             && !(self.state.unicast_session_status == UnicastSessionStatus::Discovering
                 && (message.get_session_message_type()
                     == ProtoSessionMessageType::ChannelDiscoveryReply
@@ -799,7 +812,7 @@ where
                     &Some(
                         self.state
                             .config
-                            .unicast_name
+                            .peer_name
                             .as_ref()
                             .unwrap_or(&pkt_dst)
                             .clone(),
@@ -890,7 +903,7 @@ where
         // immediately without reordering. notice that an anycast reliable session is possible
         // and the packet are re-send by the sender if acks are not received
         if message.get_session_message_type() == ProtoSessionMessageType::P2PMsg
-            || (!self.state.config.mls_enabled && self.state.config.unicast_name.is_none())
+            || (!self.state.config.mls_enabled && self.state.config.peer_name.is_none())
         {
             // this is an anycast session so simply send the message to the app
             return self
@@ -955,7 +968,7 @@ where
         // send any packet to the application the receiver can also ask for retransmissions.
         // doing so if a packet is available in the sender buffer it will be receoverd.
 
-        let destination = match &self.state.config.unicast_name {
+        let destination = match &self.state.config.peer_name {
             Some(d) => d,
             None => {
                 warn!("cannot send rtx messages, destination name is missing");
@@ -1088,7 +1101,7 @@ where
             storage_path,
         );
 
-        if let Some(remote) = session_config.unicast_name.clone() {
+        if let Some(remote) = session_config.peer_name.clone() {
             common.set_dst(remote);
         }
 
@@ -1471,7 +1484,7 @@ mod tests {
                 timeout: Some(Duration::from_millis(500)),
                 max_retries: Some(5),
                 mls_enabled: false,
-                unicast_name: None,
+                peer_name: None,
                 initiator: true,
                 metadata: HashMap::new(),
             },
@@ -1539,7 +1552,7 @@ mod tests {
                 timeout: Some(Duration::from_millis(500)),
                 max_retries: Some(5),
                 mls_enabled: false,
-                unicast_name: None,
+                peer_name: None,
                 initiator: true,
                 metadata: HashMap::new(),
             },
@@ -1692,7 +1705,7 @@ mod tests {
                 timeout: Some(Duration::from_millis(500)),
                 max_retries: Some(5),
                 mls_enabled,
-                unicast_name: Some(remote.clone()),
+                peer_name: Some(remote.clone()),
                 initiator: true,
                 metadata: HashMap::new(),
             },
@@ -1709,7 +1722,7 @@ mod tests {
                 timeout: Some(Duration::from_millis(500)),
                 max_retries: Some(5),
                 mls_enabled,
-                unicast_name: None,
+                peer_name: None,
                 initiator: false,
                 metadata: HashMap::new(),
             },

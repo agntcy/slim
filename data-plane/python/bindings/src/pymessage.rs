@@ -20,7 +20,7 @@ use crate::utils::PyName;
 /// Fields:
 /// * `source_name`: Fully-qualified sender identity.
 /// * `destination_name`: Fully-qualified destination identity (may be an empty placeholder
-///   when not explicitly set, e.g. broadcast/multicast scenarios).
+///   when not explicitly set, e.g. broadcast/group scenarios).
 /// * `payload_type`: Logical/semantic type (defaults to "msg" if unspecified).
 /// * `metadata`: Arbitrary key/value pairs supplied by the sender (e.g. tracing IDs).
 /// * `input_connection`: Numeric identifier of the inbound connection carrying the message.

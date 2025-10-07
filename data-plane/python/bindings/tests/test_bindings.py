@@ -5,7 +5,7 @@
 Integration tests for the slim_bindings Python layer.
 
 These tests exercise:
-- End-to-end anycast session creation, message publish/reply, and cleanup.
+- End-to-end p2p session creation, message publish/reply, and cleanup.
 - Session configuration retrieval and default session configuration propagation.
 - Usage of the high-level Slim wrapper (PySession helper methods).
 - Automatic client reconnection after a server restart.
@@ -31,7 +31,7 @@ async def test_end_to_end(server):
     """Full round-trip:
     - Two services connect (Alice, Bob)
     - Subscribe & route setup
-    - Anycast session creation (Alice -> Bob)
+    - P2P session creation (Alice -> Bob)
     - Publish + receive + reply
     - Validate session IDs, payload integrity
     - Test error behavior after deleting session
@@ -70,7 +70,7 @@ async def test_end_to_end(server):
 
     # create point to point session
     session_context_alice = await slim_bindings.create_session(
-        svc_alice, slim_bindings.PySessionConfiguration.Anycast()
+        svc_alice, slim_bindings.PySessionConfiguration.P2P(peer_name=bob_name)
     )
 
     # send msg from Alice to Bob
@@ -131,7 +131,7 @@ async def test_end_to_end(server):
 @pytest.mark.parametrize("server", ["127.0.0.1:12344"], indirect=True)
 async def test_session_config(server):
     """Verify per-session configuration reflection and default override:
-    - Create initial Anycast session with custom timeout
+    - Create initial p2p session with custom timeout
     - Read back config via session_context.session_config
     - Set new default session configuration
     - Cause remote peer to create a session toward local service
@@ -143,12 +143,14 @@ async def test_session_config(server):
     # create svc
     svc = await create_svc(alice_name, "secret")
 
-    # create an anycast session with custom parameters
-    session_config = slim_bindings.PySessionConfiguration.Anycast(
+    # create a p2p session with custom parameters
+    session_config = slim_bindings.PySessionConfiguration.P2P(
+        peer_name=alice_name,
         timeout=datetime.timedelta(seconds=2),
     )
 
-    session_config2 = slim_bindings.PySessionConfiguration.Anycast(
+    session_config2 = slim_bindings.PySessionConfiguration.P2P(
+        peer_name=alice_name,
         timeout=datetime.timedelta(seconds=3),
     )
 
@@ -157,7 +159,7 @@ async def test_session_config(server):
     # get per-session configuration via new API (synchronous method)
     session_config_ret = session_context.session_config
 
-    assert isinstance(session_config_ret, slim_bindings.PySessionConfiguration.Anycast)
+    assert isinstance(session_config_ret, slim_bindings.PySessionConfiguration.P2P)
     assert session_config == session_config_ret, (
         f"session config mismatch: {session_config} vs {session_config_ret}"
     )
@@ -196,29 +198,36 @@ async def test_session_config(server):
     # Set route from peer -> local so peer can send directly
     await slim_bindings.set_route(peer_svc, conn_id_peer, local_name_with_id)
 
-    # Peer creates a session (using anycast; its config is irrelevant for local default assertion)
+    # Peer creates a session
     peer_session_ctx = await slim_bindings.create_session(
-        peer_svc, slim_bindings.PySessionConfiguration.Anycast()
+        peer_svc, slim_bindings.PySessionConfiguration.P2P(peer_name=local_name_with_id)
     )
 
     # Send a first message to trigger session creation on local service
     msg = [9, 9, 9]
     await slim_bindings.publish(
-        peer_svc, peer_session_ctx, 1, msg, name=local_name_with_id
+        peer_svc,
+        peer_session_ctx,
+        1,
+        msg,
     )
 
     # Local service should receive a new session notification
     received_session_ctx = await slim_bindings.listen_for_session(svc)
     received_config = received_session_ctx.session_config
 
-    # Assert that the received session uses the default we set (session_config2)
-    assert received_config == session_config2, (
-        f"received session config does not match default: {received_config} vs {session_config2}"
+    # Assert that the received session is correct
+    assert received_config.destination_name == peer_svc.name, (
+        f"received name does not match: {received_config.destination_name} vs {peer_svc.name}"
     )
 
     # Basic sanity: message should be retrievable
     _, payload = await slim_bindings.get_message(svc, received_session_ctx)
     assert payload == bytes(msg)
+
+    # Delete the sessions
+    await slim_bindings.delete_session(svc, received_session_ctx)
+    await slim_bindings.delete_session(peer_svc, peer_session_ctx)
 
     # Cleanup connections (session deletion is implicit on drop / test end)
     await slim_bindings.disconnect(peer_svc, conn_id_peer)
@@ -231,7 +240,7 @@ async def test_slim_wrapper(server):
     """Exercise high-level Slim + PySession convenience API:
     - Instantiate two Slim instances
     - Connect & establish routing
-    - Create Anycast session and publish
+    - Create p2p session and publish
     - Receive via listen_for_session + get_message
     - Validate src/dst/session_type invariants
     - Reply using publish_to helper
@@ -264,22 +273,21 @@ async def test_slim_wrapper(server):
 
     # create session
     session_context = await slim2.create_session(
-        slim_bindings.PySessionConfiguration.Anycast()
+        slim_bindings.PySessionConfiguration.P2P(
+            peer_name=name1,
+        )
     )
 
     # publish message
     msg = [1, 2, 3, 4, 5, 6, 7, 8, 9]
-    await session_context.publish_with_destination(msg, name1)
+    await session_context.publish(msg)
 
     # wait for a new session
     session_context_rec = await slim1.listen_for_session()
     msg_ctx, msg_rcv = await session_context_rec.get_message()
 
-    # make sure the received session is anycast as well
-    assert session_context_rec.session_type == slim_bindings.PySessionType.ANYCAST
-
-    # Make sure the dst of the session is None (anycast)
-    assert session_context_rec.dst is None
+    # make sure the received session is p2p as well
+    assert session_context_rec.session_type == slim_bindings.PySessionType.P2P
 
     # Make sure the source is correct
     assert session_context_rec.src == slim1.local_name
@@ -305,7 +313,7 @@ async def test_slim_wrapper(server):
 
     # try to send a message after deleting the session - this should raise an exception
     try:
-        await session_context.publish_with_destination(msg, name1)
+        await session_context.publish(msg)
     except Exception as e:
         assert "session closed" in str(e), f"Unexpected error message: {str(e)}"
 
@@ -353,9 +361,12 @@ async def test_auto_reconnect_after_server_restart(server):
     # set routing from Alice to Bob
     await slim_bindings.set_route(svc_alice, conn_id_alice, bob_name)
 
-    # create point to point session (Anycast)
+    # create point to point session
     session_context = await slim_bindings.create_session(
-        svc_alice, slim_bindings.PySessionConfiguration.Anycast()
+        svc_alice,
+        slim_bindings.PySessionConfiguration.P2P(
+            peer_name=bob_name,
+        ),
     )
 
     # send baseline message Alice -> Bob; Bob should first receive a new session then the message
@@ -386,6 +397,10 @@ async def test_auto_reconnect_after_server_restart(server):
     msg_ctx, received = await slim_bindings.get_message(svc_bob, bob_session_ctx)
     assert received == bytes(test_msg)
 
+    # delete sessions
+    await slim_bindings.delete_session(svc_alice, session_context)
+    await slim_bindings.delete_session(svc_bob, bob_session_ctx)
+
     # clean up
     await slim_bindings.disconnect(svc_alice, conn_id_alice)
     await slim_bindings.disconnect(svc_bob, conn_id_bob)
@@ -411,13 +426,16 @@ async def test_error_on_nonexistent_subscription(server):
     alice_class = slim_bindings.PyName("org", "default", "alice", id=svc_alice.id)
     await slim_bindings.subscribe(svc_alice, conn_id_alice, alice_class)
 
-    # create point to point session (Alice only)
-    session_context = await slim_bindings.create_session(
-        svc_alice, slim_bindings.PySessionConfiguration.Anycast()
-    )
-
     # create Bob's name, but do not instantiate or subscribe Bob
     bob_name = slim_bindings.PyName("org", "default", "bob")
+
+    # create point to point session (Alice only)
+    session_context = await slim_bindings.create_session(
+        svc_alice,
+        slim_bindings.PySessionConfiguration.P2P(
+            peer_name=bob_name,
+        ),
+    )
 
     # publish a message from Alice intended for Bob (who is not there)
     msg = [7, 8, 9]
@@ -435,6 +453,9 @@ async def test_error_on_nonexistent_subscription(server):
         assert "no matching found" in str(e), f"Unexpected error message: {str(e)}"
     else:
         pytest.fail(f"Expected an exception, but received message: {received}")
+
+    # delete session
+    await slim_bindings.delete_session(svc_alice, session_context)
 
     # clean up
     await slim_bindings.disconnect(svc_alice, conn_id_alice)

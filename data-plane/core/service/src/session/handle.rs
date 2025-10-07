@@ -714,14 +714,14 @@ mod tests {
             std::env::temp_dir(),
         );
         let new_conf = PointToPointConfiguration {
-            unicast_name: Some(dst.clone()),
+            peer_name: Some(dst.clone()),
             ..Default::default()
         };
         common
             .set_session_config(&SessionConfig::PointToPoint(new_conf.clone()))
             .unwrap();
         match common.session_config() {
-            SessionConfig::PointToPoint(c) => assert!(c.unicast_name.is_some()),
+            SessionConfig::PointToPoint(c) => assert!(c.peer_name.is_some()),
             _ => panic!("expected p2p"),
         }
     }
@@ -788,7 +788,7 @@ mod tests {
         let tx = MockTransmitter::default();
         let store = tx.slim_msgs.clone();
         let conf = PointToPointConfiguration {
-            unicast_name,
+            peer_name: unicast_name,
             ..Default::default()
         };
         let source = make_name(["agntcy", "src", "p2p"]);
