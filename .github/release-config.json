@@ -5,6 +5,7 @@
   "include-component-in-tag": true,
   "skip-github-release": false,
   "signoff": "Agntcy Build Bot <build@agntcy.io>",
+  "target-branch": "chore/python-bindings-pre-release",
   "packages": {
     "data-plane/python/bindings": {
       "package-name": "slim-bindings",
