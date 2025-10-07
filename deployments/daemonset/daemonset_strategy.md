@@ -40,7 +40,7 @@ Follow these steps to deploy SLIM using the daemonset deployment strategy:
 
 ### 1. Set up the Kubernetes cluster
 ```bash
-task templates:cluster:up
+task cluster:up
 ```
 
 ### 2. Deploy SLIM controller

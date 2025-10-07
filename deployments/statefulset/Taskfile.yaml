@@ -23,6 +23,16 @@ tasks:
     - task templates:slim:check:prerequisites
     - task --list
 
+  slim:controller:deploy:
+    desc: Deploy Slim Controller
+    cmds:
+      - |
+        helm upgrade --install slim-control ../charts/slim-control-plane \
+          --namespace {{ .SLIM_NAMESPACE }} \
+          --create-namespace \
+          --set image.tag="{{ .SLIM_CONTROLLER_IMAGE_TAG }}" \
+          --values controller-values.yaml  
+          
   slim:deploy:
     desc: Deploy Slim using the StatefulSet deployment strategy
 

@@ -52,7 +52,7 @@ tasks:
           --create-namespace \
           --set image.tag="{{ .SLIM_CONTROLLER_IMAGE_TAG }}" \
           --set spire.enabled=false \
-          --values ../controller-values.yaml
+          --values controller-values.yaml
 
   test.sender:deploy:
     desc: Deploy sender application

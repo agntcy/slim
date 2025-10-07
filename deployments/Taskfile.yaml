@@ -98,18 +98,7 @@ tasks:
     desc: Remove SPIRE server
     cmds:
       - helm delete spire -n {{ .SPIRE_NAMESPACE }}
-      - helm delete spire-crds -n {{ .SPIRE_NAMESPACE }}
-
-  slim:controller:deploy:
-    desc: Deploy Slim Controller
-    cmds:
-      - |
-        helm upgrade --install slim-control ../charts/slim-control-plane \
-          --namespace {{ .SLIM_NAMESPACE }} \
-          --create-namespace \
-          --set image.tag="{{ .SLIM_CONTROLLER_IMAGE_TAG }}" \
-          --values controller-values.yaml            
-
+      - helm delete spire-crds -n {{ .SPIRE_NAMESPACE }}          
 
   slim:check:prerequisites:
     desc: Check availability of docker, kubectl, and kind on the host
