@@ -339,11 +339,11 @@ The centralized Controller automatically creates routes when Alice subscribes, e
 ```
 # Deploy receiver (Alice) on cluster-a
 kubectl config use-context kind-cluster-a.example
-task apps:spire:receiver:deploy
+task test:receiver:deploy
 
 # Deploy sender (Bob) on cluster-b
 kubectl config use-context kind-cluster-b.example
-task apps:spire:sender:deploy
+task test:sender:deploy
 ```
 
 Checkout client logs:
