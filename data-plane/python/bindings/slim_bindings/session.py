@@ -86,7 +86,7 @@ class PySession:
         return self._ctx.src
 
     @property
-    def dst(self) -> PyName:
+    def dst(self) -> PyName | None:
         """Return the destination name"""
         return self._ctx.dst
 

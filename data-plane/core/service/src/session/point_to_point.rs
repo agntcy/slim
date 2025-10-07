@@ -298,11 +298,7 @@ where
             tokio::select! {
                 next = self.rx.recv() => {
                     match next {
-                        Some(message) => match message {
-                            message => {
-                                self.handle_internal_message(message).await;
-                            }
-                        },
+                        Some(message) => self.handle_internal_message(message).await,
                         None => {
                             debug!("ff session {} channel closed", self.state.session_id);
                             break;
