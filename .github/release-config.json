@@ -6,6 +6,7 @@
   "skip-github-release": false,
   "signoff": "Agntcy Build Bot <build@agntcy.io>",
   "target-branch": "chore/python-bindings-pre-release",
+  "bump-minor-pre-major": true,
   "packages": {
     "data-plane/python/bindings": {
       "package-name": "slim-bindings",
@@ -48,7 +49,10 @@
     },
     "data-plane/python/bindings/examples": {
       "package-name": "slim-bindings-examples",
-      "release-type": "python"
+      "release-type": "python",
+      "prerelease": true,
+      "prerelease-type": "rc",
+      "versioning": "prerelease"
     },
     "data-plane/python/integrations/slimrpc": {
       "package-name": "slimrpc",
