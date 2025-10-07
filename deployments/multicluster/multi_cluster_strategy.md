@@ -360,7 +360,7 @@ You should see 10 messages sent and received.
 
 <details>
   <summary>Troubleshooting tips</summary>
-
+  
     Checkout SLIM node logs on each cluster:
 
     ```
