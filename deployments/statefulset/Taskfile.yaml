@@ -9,11 +9,12 @@ version: "3"
 includes:
   templates: 
     taskfile: ../Taskfile.yaml
-    dir: ../
+    internal: true
 
   apps: 
     taskfile: ../client_apps/Taskfile.yaml
     dir: ../client_apps
+    internal: true
 
 silent: true
 
@@ -24,6 +25,22 @@ tasks:
   default:
     cmds:
       - task: templates:default
+  
+  cluster:up:
+    desc: Start a local Kubernetes cluster using Kind
+    cmds:
+      - task: templates:cluster:up
+  
+  cluster:down:
+    desc: Delete the local Kubernetes cluster
+    cmds:
+      - task: templates:cluster:down
+
+  spire:deploy:
+    desc: Deploy Spire server and agent
+    cmds:
+      - task: templates:spire:deploy
+
 
   slim:controller:deploy:
     desc: Deploy Slim Controller
@@ -37,10 +54,8 @@ tasks:
           
   slim:deploy:
     desc: Deploy Slim using the StatefulSet deployment strategy
-
     requires:
       vars: [SLIM_IMAGE_TAG]
-
     cmds:
       - | 
         helm upgrade --install slim ../../charts/slim \
@@ -48,3 +63,23 @@ tasks:
           --create-namespace \
           --set slim.image.tag="{{ .SLIM_IMAGE_TAG }}" \
           --values statefulset-values.yaml
+
+  test.sender:deploy:
+    desc: Deploy sender application
+    cmds:
+      - task: apps:k8s:apply
+        vars:
+          TEMPLATE: '{{ .TEMPLATE | default "./with_spire/sender_statefulset.yaml" }}'  
+          NAMESPACE: '{{ .NAMESPACE | default "default" }}'
+
+  test.receiver:deploy:
+    desc: Deploy receiver application
+    cmds:
+      - task: apps:k8s:apply
+        vars:
+          TEMPLATE: '{{ .TEMPLATE | default "./with_spire/receiver_statefulset.yaml" }}'  
+          NAMESPACE: '{{ .NAMESPACE | default "default" }}'
+
+
+
+

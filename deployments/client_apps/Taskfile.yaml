@@ -6,50 +6,7 @@ version: "3"
 
 # taks file for the client applications deployment
 tasks:
-
-  
-  receiver:daemonset:deploy:
-    desc: Deploy receiver applications with SPIRE
-    cmds:
-      - cmd: |
-          echo "Deploying receiver client application"
-          kubectl apply -f receiver-daemonset.yaml
-  
-  receiver:daemonset:delete:
-    desc: Delete receiver applications with SPIRE
-    cmds:
-      - cmd: |
-          echo "Deleting receiver client application"
-          kubectl delete -f receiver-daemonset.yaml
-
-  spire:sender:deploy:
-    desc: Deploy sender application with SPIRE
-    cmds:
-      - cmd: |
-          echo "Deploying sender client application with SPIRE"
-          kubectl apply -f with_spire/sender_statefulset.yaml
-
-  spire:sender:delete:
-    desc: Delete sender application with SPIRE
-    cmds:
-      - cmd: |
-          echo "Deleting sender client application with SPIRE"
-          kubectl delete -f with_spire/sender.yaml
-
-  spire:receiver:deploy:
-    desc: Deploy receiver applications with SPIRE
-    cmds:
-      - cmd: |
-          echo "Deploying receiver client application with SPIRE"
-          kubectl apply -f with_spire/receiver_statefulset.yaml
-  
-  spire:receiver:delete:
-    desc: Delete receiver application with SPIRE
-    cmds:
-      - cmd: |
-          echo "Deleting receiver client application with SPIRE"
-          kubectl delete -f with_spire/receiver.yaml
-  
+    
   k8s:apply:
     desc: Apply k8s template to namespace
     requires:
