@@ -3,6 +3,7 @@
 
 use pyo3::exceptions::PyException;
 use std::collections::HashMap;
+use std::fmt::Display;
 use std::sync::{Arc, Weak};
 use tokio::sync::RwLock;
 
@@ -54,13 +55,12 @@ pub(crate) struct PySessionCtxInternal {
 ///   current SessionConfig. A cloned map is returned so Python can mutate
 ///   without racing the underlying config.
 /// - session_type -> PySessionType: High-level transport classification
-///   (ANYCAST, UNICAST, MULTICAST), inferred from internal kind + destination.
+///   (PointToPoint, Group), inferred from internal kind + destination.
 /// - src -> PyName: Fully qualified source identity that originated / owns
 ///   the session.
-/// - dst -> Optional[PyName]: Destination name when applicable:
-///     * PyName of the peer for UNICAST
-///     * None for ANYCAST (no fixed peer)
-///     * PyName of the channel for MULTICAST
+/// - dst -> PyName: Destination name:
+///     * PyName of the peer for PointToPoint
+///     * PyName of the channel for Group
 /// - session_config -> PySessionConfiguration: Current effective configuration
 ///   converted to the Python-facing enum variant.
 #[gen_stub_pyclass]
@@ -118,15 +118,7 @@ impl PySessionContext {
     #[getter]
     pub fn session_type(&self) -> PyResult<PySessionType> {
         let session = strong_session(&self.internal.session)?;
-
-        let session_type = session.kind();
-        let dst = session.dst();
-
-        match (session_type, dst) {
-            (session::SessionType::PointToPoint, Some(_)) => Ok(PySessionType::Unicast),
-            (session::SessionType::PointToPoint, None) => Ok(PySessionType::Anycast),
-            (session::SessionType::Multicast, _) => Ok(PySessionType::Multicast),
-        }
+        Ok(session.kind().into())
     }
 
     #[getter]
@@ -159,22 +151,25 @@ impl PySessionContext {
 }
 
 /// High-level session classification presented to Python.
-///
-/// Variants map onto core `SessionType` plus additional inference
-/// (e.g. presence of a concrete destination for UNICAST).
 #[gen_stub_pyclass_enum]
 #[pyclass(eq, eq_int)]
 #[derive(PartialEq, Clone)]
 pub enum PySessionType {
-    /// Point-to-point without a fixed destination (best-available / load-balanced).
-    #[pyo3(name = "ANYCAST")]
-    Anycast = 0,
     /// Point-to-point with a single, explicit destination name.
-    #[pyo3(name = "UNICAST")]
-    Unicast = 1,
-    /// Many-to-many distribution via a multicast channel_name/channel.
-    #[pyo3(name = "MULTICAST")]
-    Multicast = 2,
+    #[pyo3(name = "PointToPoint")]
+    PointToPoint = 0,
+    /// Many-to-many distribution via a group channel_name.
+    #[pyo3(name = "Group")]
+    Group = 1,
+}
+
+impl From<session::SessionType> for PySessionType {
+    fn from(value: session::SessionType) -> Self {
+        match value {
+            session::SessionType::PointToPoint => PySessionType::PointToPoint,
+            session::SessionType::Multicast => PySessionType::Group,
+        }
+    }
 }
 
 /// User-facing configuration for establishing and tuning sessions.
@@ -183,14 +178,12 @@ pub enum PySessionType {
 /// Common fields (casual rundown):
 /// * `timeout`: How long we wait for an ack before trying again.
 /// * `max_retries`: Number of attempts to send a message. If we run out, an error is returned.
-/// * `mls_enabled`: Turn on MLS for end‑to‑end crypto (ignored for Anycast which doesn’t negotiate a session).
+/// * `mls_enabled`: Turn on MLS for end‑to‑end crypto.
 /// * `metadata`: One-shot string key/value tags sent at session start; the other side can read them for tracing, routing, auth, etc.
 ///
 /// Variant-specific notes:
-/// * `Anycast` / `Unicast`: Point-to-point; anycast will pick any available peer
-///                          for each message sent, while unicast targets a specific
-///                          peer for all messages.
-/// * `Multicast`: Uses a named channel and distributes to multiple subscribers.
+/// * `PointToPoint`: PointToPoint will target a specific peer for all messages.
+/// * `Group`: Uses a named channel and distributes to multiple subscribers.
 ///
 /// # Examples
 ///
@@ -198,28 +191,20 @@ pub enum PySessionType {
 /// ```python
 /// from slim_bindings import PySessionConfiguration, PyName
 ///
-/// # Anycast session (no fixed destination; service picks an available peer)
-/// # MLS is not available with Anycast sessions, and session metadata is not supported,
-/// # as there is no session establishment phase, only per-message routing.
-/// anycast_cfg = PySessionConfiguration.Anycast(
-///     timeout=datetime.timedelta(seconds=2), # wait 2 seconds for an ack
-///     max_retries=5, # retry up to 5 times
-/// )
-///
-/// # Unicast session. Wait up to 2 seconds for an ack for each message, retry up to 5 times,
+/// # PointToPoint session. Wait up to 2 seconds for an ack for each message, retry up to 5 times,
 /// # enable MLS, and attach some metadata.
-/// unicast_cfg = PySessionConfiguration.Unicast(
-///     unicast_name=PyName("org", "namespace", "service"), # target peer
+/// p2p_cfg = PySessionConfiguration.PointToPoint(
+///     peer_name=PyName("org", "namespace", "service"), # target peer
 ///     timeout=datetime.timedelta(seconds=2), # wait 2 seconds for an ack
 ///     max_retries=5, # retry up to 5 times
 ///     mls_enabled=True, # enable MLS
 ///     metadata={"trace_id": "1234abcd"} # arbitrary (string -> string) key/value pairs to send at session establishment
 /// )
 ///
-/// # Multicast session (channel-based)
+/// # Group session (channel-based)
 /// channel = PyName("org", "namespace", "channel")
-/// multicast_cfg = PySessionConfiguration.Multicast(
-///     channel_name=channel, # multicast channel_name
+/// group_cfg = PySessionConfiguration.Group(
+///     channel_name=channel, # group channel_name
 ///     max_retries=2, # retry up to 2 times
 ///     timeout=datetime.timedelta(seconds=2), # wait 2 seconds for an ack
 ///     mls_enabled=True, # enable MLS
@@ -230,7 +215,7 @@ pub enum PySessionType {
 /// ## Python: Using a config when creating a session
 /// ```python
 /// slim = await Slim.new(local_name, provider, verifier)
-/// session = await slim.create_session(unicast_cfg)
+/// session = await slim.create_session(p2p_cfg)
 /// print("Session ID:", session.id)
 /// print("Type:", session.session_type)
 /// print("Metadata:", session.metadata)
@@ -239,7 +224,8 @@ pub enum PySessionType {
 /// ## Python: Updating configuration after creation
 /// ```python
 /// # Adjust retries & metadata dynamically
-/// new_cfg = PySessionConfiguration.Unicast(
+/// new_cfg = PySessionConfiguration.PointToPoint(
+///     peer_name=PyName("org", "namespace", "service"),
 ///     timeout=None,
 ///     max_retries=10,
 ///     mls_enabled=True,
@@ -257,23 +243,12 @@ pub enum PySessionType {
 /// ```
 #[gen_stub_pyclass_enum]
 #[derive(Clone, PartialEq)]
-#[pyclass(eq)]
+#[pyclass(eq, str)]
 pub(crate) enum PySessionConfiguration {
-    /// Point-to-point configuration without a fixed destination; selection of
-    /// the actual peer is deferred/implicit (load-balancing behavior).
-    #[pyo3(constructor = (timeout=None, max_retries=None, mls_enabled=false))]
-    Anycast {
-        /// Optional overall timeout for operations.
-        timeout: Option<std::time::Duration>,
-        /// Optional maximum retry attempts.
-        max_retries: Option<u32>,
-        /// Enable (true) or disable (false) MLS features.
-        mls_enabled: bool,
-    },
-
-    #[pyo3(constructor = (unicast_name, timeout=None, max_retries=None, mls_enabled=false, metadata=HashMap::new()))]
-    Unicast {
-        unicast_name: PyName,
+    /// PointToPoint configuration with a fixed destination (peer_name).
+    #[pyo3(constructor = (peer_name, timeout=None, max_retries=None, mls_enabled=false, metadata=HashMap::new()))]
+    PointToPoint {
+        peer_name: PyName,
         timeout: Option<std::time::Duration>,
         /// Optional maximum retry attempts.
         max_retries: Option<u32>,
@@ -283,10 +258,10 @@ pub(crate) enum PySessionConfiguration {
         metadata: HashMap<String, String>,
     },
 
-    /// Multicast configuration: one-to-many distribution through a channel_name.
+    /// Group configuration: one-to-many distribution through a channel_name.
     #[pyo3(constructor = (channel_name, max_retries=0, timeout=std::time::Duration::from_millis(1000), mls_enabled=false, metadata=HashMap::new()))]
-    Multicast {
-        /// Multicast channel_name (channel) identifier.
+    Group {
+        /// Group channel_name (channel) identifier.
         channel_name: PyName,
         /// Maximum retry attempts for setup or message send.
         max_retries: u32,
@@ -299,27 +274,95 @@ pub(crate) enum PySessionConfiguration {
     },
 }
 
+// TODO(msardara): unify the configs as now they became identical
+#[pymethods]
+impl PySessionConfiguration {
+    /// Return the name of the destination (peer or channel).
+    #[getter]
+    pub fn destination_name(&self) -> PyName {
+        match self {
+            PySessionConfiguration::PointToPoint { peer_name, .. } => peer_name.clone(),
+            PySessionConfiguration::Group { channel_name, .. } => channel_name.clone(),
+        }
+    }
+
+    /// Return the metadata map (cloned).
+    #[getter]
+    pub fn metadata(&self) -> HashMap<String, String> {
+        match self {
+            PySessionConfiguration::PointToPoint { metadata, .. } => metadata.clone(),
+            PySessionConfiguration::Group { metadata, .. } => metadata.clone(),
+        }
+    }
+
+    /// Return whether MLS is enabled.
+    #[getter]
+    pub fn mls_enabled(&self) -> bool {
+        match self {
+            PySessionConfiguration::PointToPoint { mls_enabled, .. } => *mls_enabled,
+            PySessionConfiguration::Group { mls_enabled, .. } => *mls_enabled,
+        }
+    }
+
+    /// Return the timeout duration (if any).
+    #[getter]
+    pub fn timeout(&self) -> Option<std::time::Duration> {
+        match self {
+            PySessionConfiguration::PointToPoint { timeout, .. } => *timeout,
+            PySessionConfiguration::Group { timeout, .. } => Some(*timeout),
+        }
+    }
+
+    /// Return the maximum number of retries (if any).
+    #[getter]
+    pub fn max_retries(&self) -> Option<u32> {
+        match self {
+            PySessionConfiguration::PointToPoint { max_retries, .. } => *max_retries,
+            PySessionConfiguration::Group { max_retries, .. } => Some(*max_retries),
+        }
+    }
+}
+
+impl Display for PySessionConfiguration {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            PySessionConfiguration::PointToPoint {
+                peer_name,
+                timeout,
+                max_retries,
+                mls_enabled,
+                metadata,
+            } => write!(
+                f,
+                "PointToPoint(peer_name={}, timeout={:?}, max_retries={:?}, mls_enabled={}, metadata={:?})",
+                peer_name, timeout, max_retries, mls_enabled, metadata
+            ),
+            PySessionConfiguration::Group {
+                channel_name,
+                max_retries,
+                timeout,
+                mls_enabled,
+                metadata,
+            } => write!(
+                f,
+                "Group(channel_name={}, max_retries={}, timeout={:?}, mls_enabled={}, metadata={:?})",
+                channel_name, max_retries, timeout, mls_enabled, metadata
+            ),
+        }
+    }
+}
+
 impl From<session::SessionConfig> for PySessionConfiguration {
     fn from(session_config: session::SessionConfig) -> Self {
         match session_config {
-            session::SessionConfig::PointToPoint(config) => {
-                if config.unicast_name.is_some() {
-                    PySessionConfiguration::Unicast {
-                        unicast_name: config.unicast_name.unwrap().into(),
-                        timeout: config.timeout,
-                        max_retries: config.max_retries,
-                        mls_enabled: config.mls_enabled,
-                        metadata: config.metadata,
-                    }
-                } else {
-                    PySessionConfiguration::Anycast {
-                        timeout: config.timeout,
-                        max_retries: config.max_retries,
-                        mls_enabled: config.mls_enabled,
-                    }
-                }
-            }
-            session::SessionConfig::Multicast(config) => PySessionConfiguration::Multicast {
+            session::SessionConfig::PointToPoint(config) => PySessionConfiguration::PointToPoint {
+                peer_name: config.peer_name.expect("peer name not set").into(),
+                timeout: config.timeout,
+                max_retries: config.max_retries,
+                mls_enabled: config.mls_enabled,
+                metadata: config.metadata,
+            },
+            session::SessionConfig::Multicast(config) => PySessionConfiguration::Group {
                 channel_name: config.channel_name.into(),
                 max_retries: config.max_retries,
                 timeout: config.timeout,
@@ -333,19 +376,8 @@ impl From<session::SessionConfig> for PySessionConfiguration {
 impl From<PySessionConfiguration> for session::SessionConfig {
     fn from(value: PySessionConfiguration) -> Self {
         match value {
-            PySessionConfiguration::Anycast {
-                timeout,
-                max_retries,
-                mls_enabled,
-            } => session::SessionConfig::PointToPoint(PointToPointConfiguration::new(
-                timeout,
-                max_retries,
-                mls_enabled,
-                None,
-                HashMap::new(),
-            )),
-            PySessionConfiguration::Unicast {
-                unicast_name,
+            PySessionConfiguration::PointToPoint {
+                peer_name,
                 timeout,
                 max_retries,
                 mls_enabled,
@@ -354,10 +386,10 @@ impl From<PySessionConfiguration> for session::SessionConfig {
                 timeout,
                 max_retries,
                 mls_enabled,
-                Some(unicast_name.into()),
+                Some(peer_name.into()),
                 metadata,
             )),
-            PySessionConfiguration::Multicast {
+            PySessionConfiguration::Group {
                 channel_name,
                 max_retries,
                 timeout,

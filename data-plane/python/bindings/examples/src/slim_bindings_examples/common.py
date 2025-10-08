@@ -287,12 +287,12 @@ def common_options(function):
         help="Audience for the JWT.",
     )(function)
 
-    # Invite multiple participants to a multicast session.
+    # Invite multiple participants to a group session.
     function = click.option(
         "--invites",
         type=str,
         multiple=True,
-        help="Invite other participants to the multicast session. Can be specified multiple times.",
+        help="Invite other participants to the group session. Can be specified multiple times.",
     )(function)
 
     # Enable MLS (group security) on session creation.

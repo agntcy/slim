@@ -1,16 +1,16 @@
-# Multicast Example with SLIM Python Bindings
+# Group Example with SLIM Python Bindings
 
 This example shows how to use the SLIM Python bindings to create and manage a
-multicast (group) messaging session between distributed application instances.
-Multicast enables one-to-many and many-to-many communication: any message
+group messaging session between distributed application instances.
+Group sessions enable many-to-many communication: any message
 published to the channel is delivered to every current participant. This is
 useful for chat, collaborative tools, live telemetry, or coordinated
 control signals.
 
 ## Features
-- Create a multicast session (the creator implicitly acts as moderator)
+- Create a group session (the creator implicitly acts as moderator)
 - Invite multiple participants to join dynamically
-- Receive messages (with sender context) from the multicast channel
+- Receive messages (with sender context) from the group channel
 - Optionally enable Messaging Layer Security (MLS) for end‑to‑end secure group messaging
 
 ## How It Works
@@ -55,7 +55,7 @@ application instance. Main parameters:
     authentication. Required if JWT, bundle and audience are not provided.
 - `jwt` (str | None, default: `None`): JWT token for identity. Used with
     `spire_trust_bundle` and `audience` for JWT-based authentication.
-- `spire_trust_bundle` (str | None, default: `None`): JWT trust bundle (list 
+- `spire_trust_bundle` (str | None, default: `None`): JWT trust bundle (list
     of JWKs, one for each trust domain). It is expected in JSON format such as
     ```json
     {
@@ -66,7 +66,7 @@ application instance. Main parameters:
     ```
 - `audience` (list[str] | None, default: `None`): List of allowed audiences for
     JWT authentication.
-    
+
 If `jwt`, `spire-trust-bundle` and `audience` are not provided, `shared_secret` must be set (only
 recommended for local testing / examples, not production).
 
@@ -80,15 +80,15 @@ format_message_print(f"{local_app.id}", f"Connected to {slim['endpoint']}")
 ```
 ### 2. Create the session and invite participants
 
-If the application is started with both a `--remote` (multicast channel name)
-and at least one `--invites` flag, it becomes the creator of a new multicast
+If the application is started with both a `--remote` (group channel name)
+and at least one `--invites` flag, it becomes the creator of a new group
 session and can invite participants.
 
 ```python
 chat_channel = split_id(remote)  # e.g. agntcy/ns/chat
 created_session = await local_app.create_session(
-    slim_bindings.PySessionConfiguration.Multicast(  # type: ignore  # Build multicast session configuration
-        channel_name=chat_channel,  # Logical multicast channel (PyName) all participants join; acts as group/topic identifier.
+    slim_bindings.PySessionConfiguration.Group(  # type: ignore  # Build group session configuration
+        channel_name=chat_channel,  # Logical group channel (PyName) all participants join; acts as group/topic identifier.
         max_retries=5,  # Max per-message resend attempts upon missing ack before reporting a delivery failure.
         timeout=datetime.timedelta(
             seconds=5
@@ -130,7 +130,7 @@ Once a session is available (from creation or invite), messages are received in 
 ```python
 while True:
     try:
-        # Await next inbound message from the multicast session.
+        # Await next inbound message from the group session.
         # The returned parameters are a message context and the raw payload bytes.
         # Check session.py for details on PyMessageContext contents.
         ctx, payload = await session.get_message()
@@ -146,7 +146,7 @@ the sender, and `payload` is a `bytes` object carrying the published message.
 ### 4. Publishing messages
 
 Every participant also runs an interactive input loop that allows typing
-messages which are immediately published to the multicast group:
+messages which are immediately published to the group:
 
 ```python
 while True:
@@ -162,12 +162,11 @@ while True:
 
     try:
         # Send message to the channel_name specified when creating the session.
-        # As the session is multicast, all participants will receive it.
-        # calling publish_with_destination on a multicast session will raise an error.
+        # As the session is group, all participants will receive it.
         await shared_session_container[0].publish(user_input.encode())
 ```
 
-The message is published using `shared_session_container[0].publish(user_input.encode())` 
+The message is published using `shared_session_container[0].publish(user_input.encode())`
 and delivered to all the participants connected to the group.
 
 ## Usage
@@ -191,11 +190,11 @@ By default this listens on `127.0.0.1:46357`.
 Open two terminals and run:
 
 ```bash
-task python:example:multicast:client-1
+task python:example:group:client-1
 ```
 
 ```bash
-task python:example:multicast:client-2
+task python:example:group:client-2
 ```
 
 
@@ -206,10 +205,10 @@ Each client waits to be invited.
 In a third terminal run:
 
 ```bash
-task python:example:multicast:moderator
+task python:example:group:moderator
 ```
 
 
-This creates the channel (`agntcy/ns/chat`) and invites the two clients. 
+This creates the channel (`agntcy/ns/chat`) and invites the two clients.
 After the invite, you can start to send messages by typing on any one of the
 terminals. The messages will arrive to all the participants in the group.

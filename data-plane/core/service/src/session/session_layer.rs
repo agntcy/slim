@@ -491,7 +491,7 @@ where
                             conf.max_retries = Some(5);
                         }
 
-                        conf.unicast_name = Some(message.get_source());
+                        conf.peer_name = Some(message.get_source());
                         conf.mls_enabled = message.contains_metadata(METADATA_MLS_ENABLED);
                         conf.metadata = message.get_metadata_map();
 

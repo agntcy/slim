@@ -50,10 +50,10 @@ class PySession:
         id (int): Unique numeric session identifier.
         metadata (dict[str, str]): Free-form key/value metadata attached
             to the current session configuration.
-        session_type (PySessionType): ANYCAST / UNICAST / MULTICAST classification.
+        session_type (PySessionType): PointToPoint / Group classification.
         session_config (PySessionConfiguration): Current effective configuration.
         src (PyName): Source name (creator / initiator of the session).
-        dst (PyName | None): Destination name (unicast), Channel name (multicst) or None (anycast).
+        dst (PyName): Destination name (PointToPoint), Channel name (group)
     """
 
     def __init__(self, svc: PyService, ctx: PySessionContext):
@@ -72,7 +72,7 @@ class PySession:
 
     @property
     def session_type(self) -> PySessionType:
-        """Return the type of this session (ANYCAST / UNICAST / MULTICAST)."""
+        """Return the type of this session (PointToPoint / Group)."""
         return self._ctx.session_type
 
     @property
@@ -87,7 +87,7 @@ class PySession:
 
     @property
     def dst(self) -> PyName | None:
-        """Return the destination name if UNICAST/MULTICAST, otherwise None."""
+        """Return the destination name"""
         return self._ctx.dst
 
     def set_session_config(self, config: PySessionConfiguration) -> None:
@@ -121,9 +121,6 @@ class PySession:
             None
         """
 
-        if self._ctx.session_type == PySessionType.ANYCAST:
-            raise RuntimeError("unexpected session type: expected UNICAST or MULTICAST")
-
         await _publish(
             self._svc,
             self._ctx,
@@ -131,42 +128,6 @@ class PySession:
             msg,
             message_ctx=None,
             name=None,
-            payload_type=payload_type,
-            metadata=metadata,
-        )
-
-    async def publish_with_destination(
-        self,
-        msg: bytes,
-        dest: PyName,
-        payload_type: str | None = None,
-        metadata: dict | None = None,
-    ) -> None:
-        """
-        Publish a message with a destination name on an existing session.
-        This is possible only on Anycast sessions. The function returns an error
-        in other cases.
-
-        Args:
-            msg (bytes): The message payload to publish.
-            dest (PyName): The destination name for the message.
-            payload_type (str, optional): The type of the payload, if applicable.
-            metadata (dict, optional): Additional metadata to include with the
-                message.
-
-        Returns:
-            None
-        """
-        if self._ctx.session_type != PySessionType.ANYCAST:
-            raise RuntimeError("unexpected session type: expected ANYCAST")
-
-        await _publish(
-            self._svc,
-            self._ctx,
-            1,
-            msg,
-            message_ctx=None,
-            name=dest,
             payload_type=payload_type,
             metadata=metadata,
         )
@@ -208,7 +169,7 @@ class PySession:
         )
 
     async def invite(self, name: PyName) -> None:
-        """Invite (add) a participant to this session. Only works for MULTICAST.
+        """Invite (add) a participant to this session. Only works for Group.
 
         Args:
             name: PyName of the participant to invite.
@@ -219,7 +180,7 @@ class PySession:
         await _invite(self._svc, self._ctx, name)
 
     async def remove(self, name: PyName) -> None:
-        """Remove (eject) a participant from this session. Only works for MULTICAST.
+        """Remove (eject) a participant from this session. Only works for Group.
 
         Args:
             name: PyName of the participant to remove.

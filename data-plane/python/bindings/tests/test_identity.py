@@ -84,7 +84,7 @@ async def test_identity_verification(server, audience):
         1. Create sender & receiver Slim instances with distinct EC key pairs.
         2. Cross-wire each instance: each verifier trusts the other's public key.
         3. Establish route sender -> receiver.
-        4. Sender creates Anycast session and publishes a request.
+        4. Sender creates PointToPoint session and publishes a request.
         5. Receiver listens, validates payload, replies.
         6. Validate response only when audience matches; otherwise expect timeout.
 
@@ -145,10 +145,12 @@ async def test_identity_verification(server, audience):
     # set route
     await slim_sender.set_route(receiver_name)
 
-    # Create Anycast session (no fixed dst; per-message routing)
+    # Create PointToPoint session
     session_info = await slim_sender.create_session(
-        slim_bindings.PySessionConfiguration.Anycast(
-            timeout=datetime.timedelta(seconds=1), max_retries=3
+        slim_bindings.PySessionConfiguration.PointToPoint(
+            peer_name=receiver_name,
+            timeout=datetime.timedelta(seconds=1),
+            max_retries=3,
         )
     )
 
@@ -165,6 +167,8 @@ async def test_identity_verification(server, audience):
             - Receive request
             - Reply with response payload
             """
+
+            recv_session = None
             try:
                 recv_session = await slim_receiver.listen_for_session()
                 (
@@ -179,13 +183,16 @@ async def test_identity_verification(server, audience):
                 await recv_session.publish_to(_ctx, res_msg)
             except Exception as e:
                 print("Error receiving message on slim1:", e)
+            finally:
+                if recv_session is not None:
+                    await slim_receiver.delete_session(recv_session)
 
         t = asyncio.create_task(background_task())
 
         # send a request and expect a response in slim2
         if audience == test_audience:
             # As audience matches, we expect a successful request/reply
-            await session_info.publish_with_destination(pub_msg, receiver_name)
+            await session_info.publish(pub_msg)
             _ctx2, message = await session_info.get_message()
 
             # check if the message is correct
@@ -197,7 +204,7 @@ async def test_identity_verification(server, audience):
             # expect an exception due to audience mismatch
             with pytest.raises(asyncio.TimeoutError):
                 # As audience matches, we expect a successful request/reply
-                await session_info.publish_with_destination(pub_msg, receiver_name)
+                await session_info.publish(pub_msg)
                 await asyncio.wait_for(session_info.get_message(), timeout=3.0)
 
             # cancel the background task
@@ -205,4 +212,5 @@ async def test_identity_verification(server, audience):
             with contextlib.suppress(asyncio.CancelledError):
                 await t
     finally:
-        pass
+        # delete sessions
+        await slim_sender.delete_session(session_info)

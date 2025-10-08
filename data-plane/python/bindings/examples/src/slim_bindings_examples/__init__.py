@@ -3,18 +3,14 @@
 #
 # This module acts as the entry-point for the slim_bindings example CLI.
 # It exposes a single main() callable that dispatches to one of several
-# example subcommands (anycast, unicast, multicast, slim) based on the
+# example subcommands (p2p, group, slim) based on the
 # first command line argument. Each imported `main` function below
 # comes from a dedicated example module.
+# Import the group example's main function under an alias for dispatch.
+from .group import group_main
 
-# Import the multicast example's main function under an alias for dispatch.
-from .multicast import main as multicast_main
-
-# Import the point-to-point ANYCAST example's main function.
-from .point_to_point import main_anycast as anycast_main
-
-# Import the point-to-point UNICAST example's main function.
-from .point_to_point import main_unicast as unicast_main
+# Import the point-to-point example's main function.
+from .point_to_point import p2p_main
 
 # Import the generic slim server example's main function.
 from .slim import main as slim_main
@@ -24,13 +20,12 @@ from .slim import main as slim_main
 HELP = """
 This is the slim bindings examples package.
 Available commands:
-    - anycast: Demonstrates point-to-point anycast messaging.
-    - unicast: Demonstrates point-to-point unicast messaging.
-    - multicast: Demonstrates multicast messaging using a channels.
+    - p2p: Demonstrates point-to-point messaging.
+    - group: Demonstrates group messaging using a channels.
     - slim: Starts a SLIM instance.
 
 Use 'slim-bindings-examples <command>' to run a specific example.
-For example: 'slim-bindings-examples anycast'.
+For example: 'slim-bindings-examples p2p'.
 """
 
 
@@ -56,15 +51,12 @@ def main():
         sys.argv = sys.argv[1:]
 
         # Dispatch to the selected example.
-        if command == "anycast":
-            # Run the anycast point-to-point messaging example.
-            anycast_main()
-        elif command == "unicast":
-            # Run the unicast (sticky, fixed-destination) example.
-            unicast_main()
-        elif command == "multicast":
-            # Run the multicast (channel/topic) example.
-            multicast_main()
+        if command == "p2p":
+            # Run the p2p (sticky, fixed-destination) example.
+            p2p_main()
+        elif command == "group":
+            # Run the group (channel/topic) example.
+            group_main()
         elif command == "slim":
             # Run the slim server example (starts a server endpoint).
             slim_main()

@@ -6,8 +6,8 @@ They let you embed SLIM directly into your Python application to:
 - Instantiate a local SLIM service (`Slim.new`)
 - Run a server listener (start / stop a SLIM endpoint)
 - Establish outbound client connections (`connect` / `disconnect`)
-- Create, accept, configure, and delete sessions (Anycast / Unicast / Multicast)
-- Publish / receive messages (point‑to‑point or channel based)
+- Create, accept, configure, and delete sessions (Point2Point / Group)
+- Publish / receive messages (point‑to‑point or group (channel) based)
 - Manage routing and subscriptions (add / remove routes, subscribe / unsubscribe)
 - Configure identity & trust (shared secret, static JWT, dynamic signing JWT, JWKS auto‑resolve)
 - Integrate tracing / OpenTelemetry
@@ -16,13 +16,10 @@ They let you embed SLIM directly into your Python application to:
 
 ## Supported Session Types
 
-| Type      | Description                                                                              | Sticky Peer | Metadata | MLS (group security) |
-|-----------|------------------------------------------------------------------------------------------|-------------|----------|----------------------|
-| Anycast   | Point-to-point with late binding: first suitable / available peer                        | No          | Limited* | No (not negotiated)  |
-| Unicast   | Point-to-point with a fixed destination (affinity)                                       | Yes         | Yes      | Yes                  |
-| Multicast | One-to-many via channel/topic name (moderator can invite/remove participants)            | N/A         | Yes      | Yes                  |
-
-\* Anycast has no establishment phase, so only per‑message routing; session metadata is not negotiated.
+| Type        | Description                                                                              | Sticky Peer | Metadata | MLS (group security) |
+|-------------|------------------------------------------------------------------------------------------|-------------|----------|----------------------|
+| Point2Point | Point-to-point with a fixed destination                                                  | Yes         | Yes      | Yes                  |
+| Group       | Many-to-many via channel/topic name (channel moderator can invite/remove participants)   | N/A         | Yes      | Yes                  |
 
 ---
 
@@ -89,16 +86,17 @@ async def main():
 asyncio.run(main())
 ```
 
-### 3. Outbound Session (Unicast)
+### 3. Outbound Session (PointToPoint)
 
 ```python
+remote = slim_bindings.PyName("org", "namespace", "peer")
 session = await slim.create_session(
-    slim_bindings.PySessionConfiguration.Unicast(
+    slim_bindings.PySessionConfiguration.PointToPoint(
+        peer_name=remote,
         mls_enabled=True,
         metadata={"trace_id": "abc123"},
     )
 )
-remote = slim_bindings.PyName("org", "namespace", "peer")
 await slim.set_route(remote)
 await session.publish(b"hello")
 ctx, reply = await session.get_message()
@@ -179,16 +177,15 @@ slim-bindings = ">=0.5.0"
 
 ## Example Programs
 
-Complete runnable examples (anycast, unicast, multicast, server) live in the repository:
+Complete runnable examples (point2point, group, server) live in the repository:
 
 https://github.com/agntcy/slim/tree/slim-v0.5.0/data-plane/python/bindings/examples
 
 You can install and invoke them (after building) via:
 
 ```bash
-slim-bindings-examples anycast ...
-slim-bindings-examples unicast ...
-slim-bindings-examples multicast ...
+slim-bindings-examples point2point ...
+slim-bindings-examples group ...
 slim-bindings-examples slim ...
 ```
 
@@ -197,10 +194,9 @@ slim-bindings-examples slim ...
 ## When to Use Each Session Type
 
 | Use Case                          | Recommended Type |
-|----------------------------------|------------------|
-| Load-balanced request/reply      | Anycast          |
-| Stable peer workflow / stateful  | Unicast          |
-| Group chat / fan-out             | Multicast        |
+|----------------------------------|-------------------|
+| Stable peer workflow / stateful  | Point2Point       |
+| Group chat / fan-out             | Group             |
 
 ---
 

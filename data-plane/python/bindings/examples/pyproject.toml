@@ -15,9 +15,8 @@ slim-bindings = { workspace = true }
 [project.scripts]
 examples = "slim_bindings_examples:main"
 slim = "slim_bindings_examples:slim_main"
-anycast = "slim_bindings_examples:anycast_main"
-unicast = "slim_bindings_examples:unicast_main"
-multicast = "slim_bindings_examples:multicast_main"
+p2p = "slim_bindings_examples:p2p_main"
+group = "slim_bindings_examples:group_main"
 
 [build-system]
 requires = ["hatchling"]

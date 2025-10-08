@@ -2,12 +2,12 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """
-Multicast integration test for Slim bindings.
+Group integration test for Slim bindings.
 
 Scenario:
-  - A configurable number of participants (participants_count) join a multicast
+  - A configurable number of participants (participants_count) join a group
     "chat" identified by a shared topic (PyName).
-  - Participant 0 (the "moderator") creates the multicast session, invites
+  - Participant 0 (the "moderator") creates the group session, invites
     every other participant, and publishes the first message addressed to the
     next participant in a logical ring.
   - Each participant, upon receiving a message that ends with its own name,
@@ -15,7 +15,7 @@ Scenario:
   - Each participant exits after observing (participants_count - 1) messages.
 
 What is validated implicitly:
-  * Multicast session establishment (session_type == MULTICAST).
+  * Group session establishment (session_type == Group).
   * dst equals the channel/topic PyName for non-creator participants.
   * src matches the participant's own local identity when receiving.
   * Message propagation across all participants without loss.
@@ -39,11 +39,11 @@ import slim_bindings
 @pytest.mark.asyncio
 @pytest.mark.parametrize("server", ["127.0.0.1:12375"], indirect=True)
 @pytest.mark.parametrize("mls_enabled", [False, True])
-async def test_multicast(server, mls_enabled):  # noqa: C901
-    """Exercise multicast session behavior with N participants relaying a message in a ring.
+async def test_group(server, mls_enabled):  # noqa: C901
+    """Exercise group session behavior with N participants relaying a message in a ring.
 
     Steps:
-      1. Participant 0 creates multicast session (optionally with MLS enabled).
+      1. Participant 0 creates group session (optionally with MLS enabled).
       2. Participant 0 invites remaining participants after short delay.
       3. Participant 0 seeds first message naming participant-1.
       4. Each participant that is "called" republishes naming the next participant.
@@ -69,7 +69,7 @@ async def test_multicast(server, mls_enabled):  # noqa: C901
         """Participant coroutine.
 
         Responsibilities:
-          * Index 0: create multicast session, invite others, publish initial message.
+          * Index 0: create group session, invite others, publish initial message.
           * Others: wait for inbound session, validate session properties, relay when addressed.
         """
         part_name = f"participant-{index}"
@@ -87,11 +87,11 @@ async def test_multicast(server, mls_enabled):  # noqa: C901
         )
 
         if index == 0:
-            print(f"{part_name} -> Creating new multicast sessions...")
-            # create a multicast session. index 0 is the moderator of the session
+            print(f"{part_name} -> Creating new group sessions...")
+            # create a group session. index 0 is the moderator of the session
             # and it will invite all the other participants to the session
             session = await participant.create_session(
-                slim_bindings.PySessionConfiguration.Multicast(
+                slim_bindings.PySessionConfiguration.Group(
                     channel_name=chat_name,
                     max_retries=5,
                     timeout=datetime.timedelta(seconds=5),
@@ -140,10 +140,10 @@ async def test_multicast(server, mls_enabled):  # noqa: C901
                     if first_message:
                         recv_session = await participant.listen_for_session()
 
-                        # make sure the received session is unicast
+                        # make sure the received session is group
                         assert (
                             recv_session.session_type
-                            == slim_bindings.PySessionType.MULTICAST
+                            == slim_bindings.PySessionType.Group
                         )
 
                         # Make sure the dst of the session is the channel name

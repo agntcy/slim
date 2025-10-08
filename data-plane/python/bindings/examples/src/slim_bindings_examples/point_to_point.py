@@ -1,12 +1,12 @@
 # Copyright AGNTCY Contributors (https://github.com/agntcy)
 # SPDX-License-Identifier: Apache-2.0
 """
-Point-to-point messaging example (ANYCAST / UNICAST) for Slim bindings.
+Point-to-point messaging example for Slim bindings.
 
 This example can operate in two primary modes:
 
 1. Active sender (message mode):
-   - Creates a session (ANYCAST or UNICAST depending on flags).
+   - Creates a session.
    - Publishes a fixed or user-supplied message multiple times to a remote identity.
    - Receives replies for each sent message (request/reply pattern).
 
@@ -17,14 +17,12 @@ This example can operate in two primary modes:
 Key concepts demonstrated:
   - Slim.new() construction and connection.
   - Route establishment (set_route) prior to establishing a session.
-  - ANYCAST vs UNICAST session creation logic.
+  - PointToPoint session creation logic.
   - Publish / receive loop with per-message reply.
   - Simple flow control via iteration count and sleeps (demo-friendly).
 
 Notes:
-  * ANYCAST sessions route to any available peer instance (load-balanced).
-  * UNICAST sessions stick to one specific peer (sticky / affinity semantics).
-  * MLS flag forces UNICAST mode (since group security semantics differ).
+  * PointToPoint sessions stick to one specific peer (sticky / affinity semantics).
 
 The heavy inline comments are intentional to guide new users line-by-line.
 """
@@ -56,7 +54,6 @@ async def run_client(
     audience: list[str] | None = None,
     message: str | None = None,
     iterations: int = 1,
-    unicast: bool = False,
 ):
     """
     Core coroutine that performs either active send or passive listen logic.
@@ -66,14 +63,13 @@ async def run_client(
         slim: Connection configuration dict (endpoint, tls, etc.).
         remote: Remote identity target for routing / session initiation.
         enable_opentelemetry: Enable OpenTelemetry tracing if configured.
-        enable_mls: Enable MLS (forces UNICAST for point-to-point).
+        enable_mls: Enable MLS.
         shared_secret: Shared secret for symmetric auth (dev/demo).
         jwt: Path to static JWT token (if JWT auth path chosen).
         spire_trust_bundle: SPIRE trust bundle file path.
         audience: Audience claim(s) for JWT verification.
         message: If provided, run in active mode sending this payload.
         iterations: Number of request/reply cycles in active mode.
-        unicast: Explicitly request a UNICAST session (sticky) if True.
 
     Behavior:
         - Builds/Connects Slim app.
@@ -105,33 +101,19 @@ async def run_client(
         # Establish routing so outbound publishes know the remote destination.
         await local_app.set_route(remote_name)
 
-        # Decide whether to create UNICAST or ANYCAST session.
-        # MLS implies a need for stable, peer-specific communication (UNICAST).
-        if unicast or enable_mls:
-            session = await local_app.create_session(
-                slim_bindings.PySessionConfiguration.Unicast(  # type: ignore
-                    unicast_name=remote_name,
-                    max_retries=5,
-                    timeout=datetime.timedelta(seconds=5),
-                    mls_enabled=enable_mls,
-                ),
-            )
-        else:
-            session = await local_app.create_session(
-                slim_bindings.PySessionConfiguration.Anycast()  # type: ignore
-            )
+        session = await local_app.create_session(
+            slim_bindings.PySessionConfiguration.PointToPoint(  # type: ignore
+                peer_name=remote_name,
+                max_retries=5,
+                timeout=datetime.timedelta(seconds=5),
+                mls_enabled=enable_mls,
+            ),
+        )
 
         # Iterate send->receive cycles.
         for i in range(iterations):
             try:
-                if unicast or enable_mls:
-                    # UNICAST publish (no dest required, fixed peer, derived from session configuration).
-                    await session.publish(message.encode())
-                else:
-                    # ANYCAST publish (dest required, load-balanced to any available peer).
-                    await session.publish_with_destination(
-                        message.encode(), remote_name
-                    )
+                await session.publish(message.encode())
                 format_message_print(
                     f"{instance}",
                     f"Sent message {message} - {i + 1}/{iterations}:",
@@ -205,7 +187,7 @@ def p2p_options(function):
 
 @common_options
 @p2p_options
-def main_anycast(
+def p2p_main(
     local: str,
     slim: dict,
     remote: str | None = None,
@@ -220,64 +202,11 @@ def main_anycast(
     iterations: int = 1,
 ):
     """
-    CLI entry-point for ANYCAST (non-sticky) point-to-point example.
-
-    Behavior:
-        - Forces enable_mls=False (MLS not supported for ANYCAST here).
-        - Delegates execution to run_client with unicast flag False.
+    CLI entry-point for point-to-point example.
 
     Parameter notes:
-        invites: Accepted only for interface parity with multicast / unicast
-                 entry-points. It is ignored in ANYCAST mode (no group
-                 invitations are sent for point-to-point anycast sessions).
-    """
-    try:
-        asyncio.run(
-            run_client(
-                local=local,
-                slim=slim,
-                remote=remote,
-                enable_opentelemetry=enable_opentelemetry,
-                enable_mls=False,
-                shared_secret=shared_secret,
-                jwt=jwt,
-                spire_trust_bundle=spire_trust_bundle,
-                audience=audience,
-                message=message,
-                iterations=iterations,
-                unicast=False,
-            )
-        )
-    except KeyboardInterrupt:
-        print("Client interrupted by user.")
-
-
-@common_options
-@p2p_options
-def main_unicast(
-    local: str,
-    slim: dict,
-    remote: str | None = None,
-    enable_opentelemetry: bool = False,
-    enable_mls: bool = False,
-    shared_secret: str = "secret",
-    jwt: str | None = None,
-    spire_trust_bundle: str | None = None,
-    audience: list[str] | None = None,
-    invites: list[str] | None = None,
-    message: str | None = None,
-    iterations: int = 1,
-):
-    """
-    CLI entry-point for UNICAST (sticky) point-to-point example.
-
-    Behavior:
-        - Passes enable_mls through (MLS allowed in UNICAST mode).
-        - Delegates execution to run_client with unicast flag True.
-
-    Parameter notes:
-        invites: Present for signature symmetry with multicast examples; it is
-                 ignored here because UNICAST sessions do not invite additional
+        invites: Present for signature symmetry with group examples; it is
+                 ignored here because p2p sessions do not invite additional
                  participants (they are strictly 1:1).
     """
     try:
@@ -294,7 +223,6 @@ def main_unicast(
                 audience=audience,
                 message=message,
                 iterations=iterations,
-                unicast=True,
             )
         )
     except KeyboardInterrupt:

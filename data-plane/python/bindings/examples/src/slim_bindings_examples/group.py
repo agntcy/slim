@@ -1,18 +1,18 @@
 # Copyright AGNTCY Contributors (https://github.com/agntcy)
 # SPDX-License-Identifier: Apache-2.0
 """
-Multicast example (heavily commented).
+Group example (heavily commented).
 
 Purpose:
   Demonstrates how to:
     * Start / connect a local Slim app
-    * Optionally create a multicast session (becoming its moderator)
-    * Invite other participants (by their IDs) into the multicast group
+    * Optionally create a group session (becoming its moderator)
+    * Invite other participants (by their IDs) into the group
     * Receive and display messages
     * Interactively publish messages
 
 Key concepts:
-  - Multicast sessions are created with PySessionConfiguration.Multicast and
+  - Group sessions are created with PySessionConfiguration.Group and
     reference a 'topic' (channel) PyName.
   - Invites are explicit: the moderator invites each participant after
     creating the session.
@@ -20,7 +20,7 @@ Key concepts:
     listen_for_session() to yield their PySession.
 
 Usage:
-  slim-bindings-examples multicast \
+  slim-bindings-examples group \
       --local org/default/me \
       --remote org/default/chat-topic \
       --invites org/default/peer1 --invites org/default/peer2
@@ -62,7 +62,7 @@ async def receive_loop(
     Receive messages for the bound session.
 
     Behavior:
-      * If not moderator: wait for a new multicast session (listen_for_session()).
+      * If not moderator: wait for a new group session (listen_for_session()).
       * If moderator: reuse the created_session reference.
       * Loop forever until cancellation or an error occurs.
     """
@@ -78,7 +78,7 @@ async def receive_loop(
 
     while True:
         try:
-            # Await next inbound message from the multicast session.
+            # Await next inbound message from the group session.
             # The returned parameters are a message context and the raw payload bytes.
             # Check session.py for details on PyMessageContext contents.
             ctx, payload = await session.get_message()
@@ -100,7 +100,7 @@ async def keyboard_loop(session_ready, shared_session_container, local_app):
     Interactive loop allowing participants to publish messages.
 
     Typing 'exit' or 'quit' (case-insensitive) terminates the loop.
-    Each line is published to the multicast topic as UTF-8 bytes.
+    Each line is published to the group channel as UTF-8 bytes.
     """
     try:
         # 1. Initialize an async session
@@ -125,19 +125,17 @@ async def keyboard_loop(session_ready, shared_session_container, local_app):
                 await local_app.delete_session(shared_session_container[0])
                 break
 
-            try:
-                # Send message to the channel_name specified when creating the session.
-                # As the session is multicast, all participants will receive it.
-                # calling publish_with_destination on a multicast session will raise an error.
-                await shared_session_container[0].publish(user_input.encode())
-            except KeyboardInterrupt:
-                # Handle Ctrl+C gracefully
-                break
-            except Exception as e:
-                print_formatted_text(f"-> Error sending message: {e}")
+            # Send message to the channel_name specified when creating the session.
+            # As the session is group, all participants will receive it.
+            await shared_session_container[0].publish(user_input.encode())
+    except KeyboardInterrupt:
+        # Handle Ctrl+C gracefully
+        pass
     except asyncio.CancelledError:
         # Handle task cancellation gracefully
         pass
+    except Exception as e:
+        print_formatted_text(f"-> Error sending message: {e}")
 
 
 async def run_client(
@@ -153,11 +151,11 @@ async def run_client(
     invites: list[str] | None = None,
 ):
     """
-    Orchestrate one multicast-capable client instance.
+    Orchestrate one group-capable client instance.
 
     Modes:
       * Moderator (creator): remote (channel) + invites provided.
-      * Listener only: no remote; waits for inbound multicast sessions.
+      * Listener only: no remote; waits for inbound group sessions.
 
     Args:
         local: Local identity string (org/ns/app).
@@ -195,13 +193,13 @@ async def run_client(
     # Session object only exists immediately if we are moderator.
     created_session = None
     if chat_channel and invites:
-        # We are the moderator; create the multicast session now.
+        # We are the moderator; create the group session now.
         format_message_print(
-            f"Creating new multicast session (moderator)... {split_id(local)}"
+            f"Creating new group session (moderator)... {split_id(local)}"
         )
         created_session = await local_app.create_session(
-            slim_bindings.PySessionConfiguration.Multicast(  # type: ignore  # Build multicast session configuration
-                channel_name=chat_channel,  # Logical multicast channel (PyName) all participants join; acts as group/topic identifier.
+            slim_bindings.PySessionConfiguration.Group(  # type: ignore  # Build group session configuration
+                channel_name=chat_channel,  # Logical group channel (PyName) all participants join; acts as group/topic identifier.
                 max_retries=5,  # Max per-message resend attempts upon missing ack before reporting a delivery failure.
                 timeout=datetime.timedelta(
                     seconds=5
@@ -261,7 +259,7 @@ async def run_client(
 
 
 @common_options
-def main(
+def group_main(
     local: str,
     slim: dict,
     remote: str | None = None,
@@ -274,7 +272,7 @@ def main(
     invites: list[str] | None = None,
 ):
     """
-    Synchronous entry-point for the multicast example (wrapped by Click).
+    Synchronous entry-point for the group example (wrapped by Click).
 
     Converts CLI arguments into a run_client() invocation via asyncio.run().
     """
