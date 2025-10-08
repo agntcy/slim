@@ -50,10 +50,10 @@ class PySession:
         id (int): Unique numeric session identifier.
         metadata (dict[str, str]): Free-form key/value metadata attached
             to the current session configuration.
-        session_type (PySessionType): P2P / GROUP classification.
+        session_type (PySessionType): PointToPoint / GROUP classification.
         session_config (PySessionConfiguration): Current effective configuration.
         src (PyName): Source name (creator / initiator of the session).
-        dst (PyName): Destination name (p2p), Channel name (group)
+        dst (PyName): Destination name (PointToPoint), Channel name (group)
     """
 
     def __init__(self, svc: PyService, ctx: PySessionContext):
@@ -72,7 +72,7 @@ class PySession:
 
     @property
     def session_type(self) -> PySessionType:
-        """Return the type of this session (P2P / GROUP)."""
+        """Return the type of this session (PointToPoint / GROUP)."""
         return self._ctx.session_type
 
     @property

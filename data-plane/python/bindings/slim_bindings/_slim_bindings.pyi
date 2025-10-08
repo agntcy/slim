@@ -85,11 +85,11 @@ class PySessionContext:
       current SessionConfig. A cloned map is returned so Python can mutate
       without racing the underlying config.
     - session_type -> PySessionType: High-level transport classification
-      (P2P, GROUP), inferred from internal kind + destination.
+      (PointToPoint, GROUP), inferred from internal kind + destination.
     - src -> PyName: Fully qualified source identity that originated / owns
       the session.
     - dst -> PyName: Destination name:
-        * PyName of the peer for P2P
+        * PyName of the peer for PointToPoint
         * PyName of the channel for GROUP
     - session_config -> PySessionConfiguration: Current effective configuration
       converted to the Python-facing enum variant.
@@ -349,7 +349,7 @@ class PySessionConfiguration(Enum):
     * `metadata`: One-shot string key/value tags sent at session start; the other side can read them for tracing, routing, auth, etc.
 
     Variant-specific notes:
-    * `P2P`: P2P will target a specific peer for all messages.
+    * `PointToPoint`: PointToPoint will target a specific peer for all messages.
     * `Group`: Uses a named channel and distributes to multiple subscribers.
 
     # Examples
@@ -358,9 +358,9 @@ class PySessionConfiguration(Enum):
     ```python
     from slim_bindings import PySessionConfiguration, PyName
 
-    # P2P session. Wait up to 2 seconds for an ack for each message, retry up to 5 times,
+    # PointToPoint session. Wait up to 2 seconds for an ack for each message, retry up to 5 times,
     # enable MLS, and attach some metadata.
-    p2p_cfg = PySessionConfiguration.P2P(
+    p2p_cfg = PySessionConfiguration.PointToPoint(
         peer_name=PyName("org", "namespace", "service"), # target peer
         timeout=datetime.timedelta(seconds=2), # wait 2 seconds for an ack
         max_retries=5, # retry up to 5 times
@@ -391,7 +391,7 @@ class PySessionConfiguration(Enum):
     ## Python: Updating configuration after creation
     ```python
     # Adjust retries & metadata dynamically
-    new_cfg = PySessionConfiguration.P2P(
+    new_cfg = PySessionConfiguration.PointToPoint(
         timeout=None,
         max_retries=10,
         mls_enabled=True,
@@ -408,14 +408,14 @@ class PySessionConfiguration(Enum):
     assert_eq!(py_cfg, roundtrip);
     ```
     """
-    P2P = auto()
+   sPointToPoint = auto()
     Group = auto()
 
 class PySessionType(Enum):
     r"""
     High-level session classification presented to Python.
     """
-    P2P = auto()
+    PointToPoint = auto()
     GROUP = auto()
 
 def connect(svc:PyService, config:dict) -> typing.Any:

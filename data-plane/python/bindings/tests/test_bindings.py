@@ -5,7 +5,7 @@
 Integration tests for the slim_bindings Python layer.
 
 These tests exercise:
-- End-to-end p2p session creation, message publish/reply, and cleanup.
+- End-to-end PointToPoint session creation, message publish/reply, and cleanup.
 - Session configuration retrieval and default session configuration propagation.
 - Usage of the high-level Slim wrapper (PySession helper methods).
 - Automatic client reconnection after a server restart.
@@ -31,7 +31,7 @@ async def test_end_to_end(server):
     """Full round-trip:
     - Two services connect (Alice, Bob)
     - Subscribe & route setup
-    - P2P session creation (Alice -> Bob)
+    - PointToPoint session creation (Alice -> Bob)
     - Publish + receive + reply
     - Validate session IDs, payload integrity
     - Test error behavior after deleting session
@@ -70,7 +70,7 @@ async def test_end_to_end(server):
 
     # create point to point session
     session_context_alice = await slim_bindings.create_session(
-        svc_alice, slim_bindings.PySessionConfiguration.P2P(peer_name=bob_name)
+        svc_alice, slim_bindings.PySessionConfiguration.PointToPoint(peer_name=bob_name)
     )
 
     # send msg from Alice to Bob
@@ -131,7 +131,7 @@ async def test_end_to_end(server):
 @pytest.mark.parametrize("server", ["127.0.0.1:12344"], indirect=True)
 async def test_session_config(server):
     """Verify per-session configuration reflection and default override:
-    - Create initial p2p session with custom timeout
+    - Create initial PointToPoint session with custom timeout
     - Read back config via session_context.session_config
     - Set new default session configuration
     - Cause remote peer to create a session toward local service
@@ -143,13 +143,13 @@ async def test_session_config(server):
     # create svc
     svc = await create_svc(alice_name, "secret")
 
-    # create a p2p session with custom parameters
-    session_config = slim_bindings.PySessionConfiguration.P2P(
+    # create a PointToPoint session with custom parameters
+    session_config = slim_bindings.PySessionConfiguration.PointToPoint(
         peer_name=alice_name,
         timeout=datetime.timedelta(seconds=2),
     )
 
-    session_config2 = slim_bindings.PySessionConfiguration.P2P(
+    session_config2 = slim_bindings.PySessionConfiguration.PointToPoint(
         peer_name=alice_name,
         timeout=datetime.timedelta(seconds=3),
     )
@@ -159,7 +159,7 @@ async def test_session_config(server):
     # get per-session configuration via new API (synchronous method)
     session_config_ret = session_context.session_config
 
-    assert isinstance(session_config_ret, slim_bindings.PySessionConfiguration.P2P)
+    assert isinstance(session_config_ret, slim_bindings.PySessionConfiguration.PointToPoint)
     assert session_config == session_config_ret, (
         f"session config mismatch: {session_config} vs {session_config_ret}"
     )
@@ -200,7 +200,7 @@ async def test_session_config(server):
 
     # Peer creates a session
     peer_session_ctx = await slim_bindings.create_session(
-        peer_svc, slim_bindings.PySessionConfiguration.P2P(peer_name=local_name_with_id)
+        peer_svc, slim_bindings.PySessionConfiguration.PointToPoint(peer_name=local_name_with_id)
     )
 
     # Send a first message to trigger session creation on local service
@@ -240,7 +240,7 @@ async def test_slim_wrapper(server):
     """Exercise high-level Slim + PySession convenience API:
     - Instantiate two Slim instances
     - Connect & establish routing
-    - Create p2p session and publish
+    - Create PointToPoint session and publish
     - Receive via listen_for_session + get_message
     - Validate src/dst/session_type invariants
     - Reply using publish_to helper
@@ -273,7 +273,7 @@ async def test_slim_wrapper(server):
 
     # create session
     session_context = await slim2.create_session(
-        slim_bindings.PySessionConfiguration.P2P(
+        slim_bindings.PySessionConfiguration.PointToPoint(
             peer_name=name1,
         )
     )
@@ -286,8 +286,8 @@ async def test_slim_wrapper(server):
     session_context_rec = await slim1.listen_for_session()
     msg_ctx, msg_rcv = await session_context_rec.get_message()
 
-    # make sure the received session is p2p as well
-    assert session_context_rec.session_type == slim_bindings.PySessionType.P2P
+    # make sure the received session is PointToPoint as well
+    assert session_context_rec.session_type == slim_bindings.PySessionType.PointToPoint
 
     # Make sure the source is correct
     assert session_context_rec.src == slim1.local_name
@@ -364,7 +364,7 @@ async def test_auto_reconnect_after_server_restart(server):
     # create point to point session
     session_context = await slim_bindings.create_session(
         svc_alice,
-        slim_bindings.PySessionConfiguration.P2P(
+        slim_bindings.PySessionConfiguration.PointToPoint(
             peer_name=bob_name,
         ),
     )
@@ -432,7 +432,7 @@ async def test_error_on_nonexistent_subscription(server):
     # create point to point session (Alice only)
     session_context = await slim_bindings.create_session(
         svc_alice,
-        slim_bindings.PySessionConfiguration.P2P(
+        slim_bindings.PySessionConfiguration.PointToPoint(
             peer_name=bob_name,
         ),
     )

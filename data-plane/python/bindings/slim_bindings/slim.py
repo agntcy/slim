@@ -44,7 +44,7 @@ class Slim:
       - PyName: Fully-qualified name of the app (org / namespace / app-or-channel). Used for
         routing, subscriptions.
       - Session: Logical communication context. Types supported include:
-          * P2P  : Point-to-point with a fixed, stable destination (sticky).
+          * PointToPoint  : Point-to-point with a fixed, stable destination (sticky).
           * Group: Many-to-many via a named channel/topic.
       - Default Session Configuration: A fallback used when inbound sessions are created
         towards this service (set via set_default_session_config).
@@ -53,7 +53,7 @@ class Slim:
       1. slim = await Slim.new(local_name, identity_provider, identity_verifier)
       2. await slim.connect({"endpoint": "...", "tls": {"insecure": True}})
       3. await slim.set_route(remote_name)
-      4. session = await slim.create_session(PySessionConfiguration.P2P(peer_name=remote_name, ...))
+      4. session = await slim.create_session(PySessionConfiguration.PointToPoint(peer_name=remote_name, ...))
       5. await session.publish(b"payload")
       6. await slim.delete_session(session)
       7. await slim.disconnect("endpoint-string")

@@ -125,9 +125,9 @@ async def keyboard_loop(session_ready, shared_session_container, local_app):
                 await local_app.delete_session(shared_session_container[0])
                 break
 
-                # Send message to the channel_name specified when creating the session.
-                # As the session is group, all participants will receive it.
-                await shared_session_container[0].publish(user_input.encode())
+            # Send message to the channel_name specified when creating the session.
+            # As the session is group, all participants will receive it.
+            await shared_session_container[0].publish(user_input.encode())
     except KeyboardInterrupt:
         # Handle Ctrl+C gracefully
         pass

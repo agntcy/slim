@@ -5,12 +5,12 @@
 Test: session metadata propagation (round-trip).
 
 Purpose:
-  Validate that metadata attached to a p2p session configuration on the
+  Validate that metadata attached to a PointToPoint session configuration on the
   initiating side (sender) is visible with identical key/value pairs on the
   receiving side once the session is established.
 
 What is covered:
-  * Construction of a P2P PySessionConfiguration with custom metadata.
+  * Construction of a PointToPoint PySessionConfiguration with custom metadata.
   * Session creation by the sender and automatic session notification for receiver.
   * Verification that all metadata entries appear unchanged on the receiver's
     session context (session_receiver.metadata).
@@ -35,12 +35,12 @@ from slim_bindings import (
 @pytest.mark.asyncio
 @pytest.mark.parametrize("server", ["127.0.0.1:12975"], indirect=True)
 async def test_session_metadata_merge_roundtrip(server):
-    """Ensure session metadata provided at P2P session creation is preserved end-to-end.
+    """Ensure session metadata provided at PointToPoint session creation is preserved end-to-end.
 
     Flow:
       1. Create sender & receiver Slim instances.
       2. Sender connects, sets a route to receiver.
-      3. Sender creates a P2P session with metadata.
+      3. Sender creates a PointToPoint session with metadata.
       4. Sender publishes a message to trigger session establishment on receiver.
       5. Receiver listens for the new session and inspects metadata.
       6. Assert every original key/value is present and unchanged.
@@ -70,8 +70,8 @@ async def test_session_metadata_merge_roundtrip(server):
     # Metadata we want to propagate with the session creation
     metadata = {"a": "1", "k": "session"}
 
-    # Create p2p session
-    sess_cfg = PySessionConfiguration.P2P(receiver_name, metadata=metadata)
+    # Create PointToPoint session
+    sess_cfg = PySessionConfiguration.PointToPoint(receiver_name, metadata=metadata)
     session_sender = await sender.create_session(sess_cfg)
 
     await session_sender.publish(b"hello")

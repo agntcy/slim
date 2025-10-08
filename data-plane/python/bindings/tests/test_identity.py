@@ -84,7 +84,7 @@ async def test_identity_verification(server, audience):
         1. Create sender & receiver Slim instances with distinct EC key pairs.
         2. Cross-wire each instance: each verifier trusts the other's public key.
         3. Establish route sender -> receiver.
-        4. Sender creates p2p session and publishes a request.
+        4. Sender creates PointToPoint session and publishes a request.
         5. Receiver listens, validates payload, replies.
         6. Validate response only when audience matches; otherwise expect timeout.
 
@@ -145,9 +145,9 @@ async def test_identity_verification(server, audience):
     # set route
     await slim_sender.set_route(receiver_name)
 
-    # Create p2p session
+    # Create PointToPoint session
     session_info = await slim_sender.create_session(
-        slim_bindings.PySessionConfiguration.P2P(
+        slim_bindings.PySessionConfiguration.PointToPoint(
             peer_name=receiver_name,
             timeout=datetime.timedelta(seconds=1),
             max_retries=3,

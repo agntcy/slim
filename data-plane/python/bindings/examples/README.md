@@ -67,7 +67,7 @@ task python:example:server
 
 Leave this running.
 
-### Step 2: P2P Example (MLS and non-MLS)
+### Step 2: PointToPoint Example (MLS and non-MLS)
 
 Open two terminals and start two `alice` instances:
 
@@ -85,7 +85,7 @@ Agntcy/ns/alice/9429169046562807017          waiting for new session to be estab
 
 Run the same command again in a second terminal (the numeric ID will differ).
 
-In a new terminal, experiment with the p2p variants. Only one chosen `alice` receives each message.
+In a new terminal, experiment with the PointToPoint variants. Only one chosen `alice` receives each message.
 
 ```bash
 # With MLS enabled
@@ -161,7 +161,7 @@ This section shows how to run the examples inside a Kubernetes cluster where wor
 3. Build and push SLIM images to the local registry.
 4. Deploy the SLIM node (control / rendezvous component).
 5. Deploy two distinct SLIM client workloads, each with its own ServiceAccount (and thus its own SPIFFE ID).
-6. Run the p2p example using JWT-based authentication derived from SPIRE.
+6. Run the PointToPoint example using JWT-based authentication derived from SPIRE.
 
 If you already have a Kubernetes cluster or an existing SPIRE deployment, you can adapt only the relevant subsections.
 
@@ -431,7 +431,7 @@ POD_NAME=$(kubectl get pods -l app.kubernetes.io/component=client-a -o jsonpath=
 kubectl exec -c slim-client -it ${POD_NAME} -- ls -l /svids
 ```
 
-### Run the p2p example (inside the cluster)
+### Run the PointToPoint example (inside the cluster)
 
 Enter the first client pod (receiver):
 

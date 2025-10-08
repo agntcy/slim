@@ -38,7 +38,7 @@ If MLS is enabled, the Point2Point session establishes a two‑member MLS group 
 discovery: invite → key package reply → MLS Welcome. This mirrors the
 Group flow but with only two participants.
 
-The diagram below illustrates a p2p session from App-A to agntcy/ns/App-B.
+The diagram below illustrates a PointToPoint session from App-A to agntcy/ns/App-B.
 App-A first discovers an available instance (App-B/1), then performs the MLS
 setup, and finally sends multiple messages to that same instance, each followed
 by an Ack. If MLS is not enabled, the MLS setup is skipped:
@@ -62,7 +62,7 @@ sequenceDiagram
     Note over App-A,App-B/2: Invite
     App-A->>SLIM Node: Invite agntcy/ns/App-B/1
     SLIM Node->>App-B/1: Invite agntcy/ns/App-B/1
-    App-B/1->>App-B/1: Create new P2P Session
+    App-B/1->>App-B/1: Create new PointToPoint Session
     App-B/1->>SLIM Node: Invite Reply (MLS key package)
     SLIM Node->>App-A: Invite Reply (MLS key package)
     App-A->>App-A: Update MLS state
@@ -89,12 +89,12 @@ sequenceDiagram
 
 ### Create a Point2Point Session
 
-Using the SLIM Python bindings, you can create a P2P session as follows:
+Using the SLIM Python bindings, you can create a PointToPoint session as follows:
 
 ```python
 # Assume local_app is an initialized application instance
 session = await local_app.create_session(
-    slim_bindings.PySessionConfiguration.P2P(
+    slim_bindings.PySessionConfiguration.PointToPoint(
         peer_name=remote_name,
         max_retries=5,
         timeout=datetime.timedelta(seconds=5),

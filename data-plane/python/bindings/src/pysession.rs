@@ -55,11 +55,11 @@ pub(crate) struct PySessionCtxInternal {
 ///   current SessionConfig. A cloned map is returned so Python can mutate
 ///   without racing the underlying config.
 /// - session_type -> PySessionType: High-level transport classification
-///   (P2P, GROUP), inferred from internal kind + destination.
+///   (PointToPoint, GROUP), inferred from internal kind + destination.
 /// - src -> PyName: Fully qualified source identity that originated / owns
 ///   the session.
 /// - dst -> PyName: Destination name:
-///     * PyName of the peer for P2P
+///     * PyName of the peer for PointToPoint
 ///     * PyName of the channel for GROUP
 /// - session_config -> PySessionConfiguration: Current effective configuration
 ///   converted to the Python-facing enum variant.
@@ -156,17 +156,17 @@ impl PySessionContext {
 #[derive(PartialEq, Clone)]
 pub enum PySessionType {
     /// Point-to-point with a single, explicit destination name.
-    #[pyo3(name = "P2P")]
-    P2P = 0,
+    #[pyo3(name = "PointToPoint")]
+    PointToPoint = 0,
     /// Many-to-many distribution via a group channel_name.
-    #[pyo3(name = "GROUP")]
+    #[pyo3(name = "Group")]
     Group = 1,
 }
 
 impl From<session::SessionType> for PySessionType {
     fn from(value: session::SessionType) -> Self {
         match value {
-            session::SessionType::PointToPoint => PySessionType::P2P,
+            session::SessionType::PointToPoint => PySessionType::PointToPoint,
             session::SessionType::Multicast => PySessionType::Group,
         }
     }
@@ -182,7 +182,7 @@ impl From<session::SessionType> for PySessionType {
 /// * `metadata`: One-shot string key/value tags sent at session start; the other side can read them for tracing, routing, auth, etc.
 ///
 /// Variant-specific notes:
-/// * `P2P`: P2P will target a specific peer for all messages.
+/// * `PointToPoint`: PointToPoint will target a specific peer for all messages.
 /// * `Group`: Uses a named channel and distributes to multiple subscribers.
 ///
 /// # Examples
@@ -191,9 +191,9 @@ impl From<session::SessionType> for PySessionType {
 /// ```python
 /// from slim_bindings import PySessionConfiguration, PyName
 ///
-/// # P2P session. Wait up to 2 seconds for an ack for each message, retry up to 5 times,
+/// # PointToPoint session. Wait up to 2 seconds for an ack for each message, retry up to 5 times,
 /// # enable MLS, and attach some metadata.
-/// p2p_cfg = PySessionConfiguration.P2P(
+/// p2p_cfg = PySessionConfiguration.PointToPoint(
 ///     peer_name=PyName("org", "namespace", "service"), # target peer
 ///     timeout=datetime.timedelta(seconds=2), # wait 2 seconds for an ack
 ///     max_retries=5, # retry up to 5 times
@@ -224,7 +224,7 @@ impl From<session::SessionType> for PySessionType {
 /// ## Python: Updating configuration after creation
 /// ```python
 /// # Adjust retries & metadata dynamically
-/// new_cfg = PySessionConfiguration.P2P(
+/// new_cfg = PySessionConfiguration.PointToPoint(
 ///     peer_name=PyName("org", "namespace", "service"),
 ///     timeout=None,
 ///     max_retries=10,
@@ -245,9 +245,9 @@ impl From<session::SessionType> for PySessionType {
 #[derive(Clone, PartialEq)]
 #[pyclass(eq, str)]
 pub(crate) enum PySessionConfiguration {
-    /// P2P configuration with a fixed destination (peer_name).
+    /// PointToPoint configuration with a fixed destination (peer_name).
     #[pyo3(constructor = (peer_name, timeout=None, max_retries=None, mls_enabled=false, metadata=HashMap::new()))]
-    P2P {
+    PointToPoint {
         peer_name: PyName,
         timeout: Option<std::time::Duration>,
         /// Optional maximum retry attempts.
@@ -281,7 +281,7 @@ impl PySessionConfiguration {
     #[getter]
     pub fn destination_name(&self) -> PyName {
         match self {
-            PySessionConfiguration::P2P { peer_name, .. } => peer_name.clone(),
+            PySessionConfiguration::PointToPoint { peer_name, .. } => peer_name.clone(),
             PySessionConfiguration::Group { channel_name, .. } => channel_name.clone(),
         }
     }
@@ -290,7 +290,7 @@ impl PySessionConfiguration {
     #[getter]
     pub fn metadata(&self) -> HashMap<String, String> {
         match self {
-            PySessionConfiguration::P2P { metadata, .. } => metadata.clone(),
+            PySessionConfiguration::PointToPoint { metadata, .. } => metadata.clone(),
             PySessionConfiguration::Group { metadata, .. } => metadata.clone(),
         }
     }
@@ -299,7 +299,7 @@ impl PySessionConfiguration {
     #[getter]
     pub fn mls_enabled(&self) -> bool {
         match self {
-            PySessionConfiguration::P2P { mls_enabled, .. } => *mls_enabled,
+            PySessionConfiguration::PointToPoint { mls_enabled, .. } => *mls_enabled,
             PySessionConfiguration::Group { mls_enabled, .. } => *mls_enabled,
         }
     }
@@ -308,7 +308,7 @@ impl PySessionConfiguration {
     #[getter]
     pub fn timeout(&self) -> Option<std::time::Duration> {
         match self {
-            PySessionConfiguration::P2P { timeout, .. } => *timeout,
+            PySessionConfiguration::PointToPoint { timeout, .. } => *timeout,
             PySessionConfiguration::Group { timeout, .. } => Some(*timeout),
         }
     }
@@ -317,7 +317,7 @@ impl PySessionConfiguration {
     #[getter]
     pub fn max_retries(&self) -> Option<u32> {
         match self {
-            PySessionConfiguration::P2P { max_retries, .. } => *max_retries,
+            PySessionConfiguration::PointToPoint { max_retries, .. } => *max_retries,
             PySessionConfiguration::Group { max_retries, .. } => Some(*max_retries),
         }
     }
@@ -326,7 +326,7 @@ impl PySessionConfiguration {
 impl Display for PySessionConfiguration {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            PySessionConfiguration::P2P {
+            PySessionConfiguration::PointToPoint {
                 peer_name,
                 timeout,
                 max_retries,
@@ -334,7 +334,7 @@ impl Display for PySessionConfiguration {
                 metadata,
             } => write!(
                 f,
-                "P2P(peer_name={}, timeout={:?}, max_retries={:?}, mls_enabled={}, metadata={:?})",
+                "PointToPoint(peer_name={}, timeout={:?}, max_retries={:?}, mls_enabled={}, metadata={:?})",
                 peer_name, timeout, max_retries, mls_enabled, metadata
             ),
             PySessionConfiguration::Group {
@@ -355,7 +355,7 @@ impl Display for PySessionConfiguration {
 impl From<session::SessionConfig> for PySessionConfiguration {
     fn from(session_config: session::SessionConfig) -> Self {
         match session_config {
-            session::SessionConfig::PointToPoint(config) => PySessionConfiguration::P2P {
+            session::SessionConfig::PointToPoint(config) => PySessionConfiguration::PointToPoint {
                 peer_name: config.peer_name.expect("peer name not set").into(),
                 timeout: config.timeout,
                 max_retries: config.max_retries,
@@ -376,7 +376,7 @@ impl From<session::SessionConfig> for PySessionConfiguration {
 impl From<PySessionConfiguration> for session::SessionConfig {
     fn from(value: PySessionConfiguration) -> Self {
         match value {
-            PySessionConfiguration::P2P {
+            PySessionConfiguration::PointToPoint {
                 peer_name,
                 timeout,
                 max_retries,

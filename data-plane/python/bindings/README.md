@@ -86,12 +86,12 @@ async def main():
 asyncio.run(main())
 ```
 
-### 3. Outbound Session (P2P)
+### 3. Outbound Session (PointToPoint)
 
 ```python
 remote = slim_bindings.PyName("org", "namespace", "peer")
 session = await slim.create_session(
-    slim_bindings.PySessionConfiguration.P2P(
+    slim_bindings.PySessionConfiguration.PointToPoint(
         peer_name=remote,
         mls_enabled=True,
         metadata={"trace_id": "abc123"},

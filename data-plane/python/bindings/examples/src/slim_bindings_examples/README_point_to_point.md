@@ -9,9 +9,9 @@ Security (MLS).
 
 ## Features
 
-- P2P sessions (sticky peer selection after discovery)
+- PointToPoint sessions (sticky peer selection after discovery)
 - Automatic echo reply example from receiver
-- Optional secure p2p with MLS (`--enable-mls`)
+- Optional secure PointToPoint with MLS (`--enable-mls`)
 
 ## How It Works
 
@@ -77,16 +77,16 @@ Relevant options (see [Taskfile.yaml](../../Taskfile.yaml)):
 - `--enable-mls`: enable MLS
 - `--remote`: the target application name (required in sender mode)
 
-### P2P (Point2Point) session (with optional MLS)
+### PointToPoint session (with optional MLS)
 
-In a p2p session, a Discovery mechanism selects one target instance and
+In a PointToPoint session, a Discovery mechanism selects one target instance and
 all subsequent traffic is pinned to that peer for the session lifetime.
 
 ```python
 remote_name = split_id(remote)
 await local_app.set_route(remote_name)
 session = await local_app.create_session(
-    slim_bindings.PySessionConfiguration.P2P(  # type: ignore
+    slim_bindings.PySessionConfiguration.PointToPoint(  # type: ignore
         peer_name=remote_name,
         max_retries=5,
         timeout=datetime.timedelta(seconds=5),
@@ -166,13 +166,13 @@ Alice waits for sessions and echoes each received message with its own ID.
 
 In another terminal run one of:
 
-#### a) P2P (no MLS)
+#### a) PointToPoint (no MLS)
 
 ```bash
 task python:example:p2p:no-mls:bob
 ```
 
-#### b) P2P with MLS
+#### b) PointToPoint with MLS
 
 ```bash
 task python:example:p2p:mls:bob

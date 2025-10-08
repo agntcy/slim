@@ -17,12 +17,12 @@ This example can operate in two primary modes:
 Key concepts demonstrated:
   - Slim.new() construction and connection.
   - Route establishment (set_route) prior to establishing a session.
-  - P2P session creation logic.
+  - PointToPoint session creation logic.
   - Publish / receive loop with per-message reply.
   - Simple flow control via iteration count and sleeps (demo-friendly).
 
 Notes:
-  * P2P sessions stick to one specific peer (sticky / affinity semantics).
+  * PointToPoint sessions stick to one specific peer (sticky / affinity semantics).
 
 The heavy inline comments are intentional to guide new users line-by-line.
 """
@@ -102,7 +102,7 @@ async def run_client(
         await local_app.set_route(remote_name)
 
         session = await local_app.create_session(
-            slim_bindings.PySessionConfiguration.P2P(  # type: ignore
+            slim_bindings.PySessionConfiguration.PointToPoint(  # type: ignore
                 peer_name=remote_name,
                 max_retries=5,
                 timeout=datetime.timedelta(seconds=5),
