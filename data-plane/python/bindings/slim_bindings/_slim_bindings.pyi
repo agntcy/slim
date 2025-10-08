@@ -8,7 +8,7 @@ from enum import Enum, auto
 class PyKey:
     r"""
     Composite key description used for signing or verification.
-
+    
     Fields:
     * algorithm: `PyAlgorithm` to apply
     * format: `PyKeyFormat` describing encoding
@@ -22,10 +22,10 @@ class PyKey:
 class PyMessageContext:
     r"""
     Python-visible context accompanying every received message.
-
+    
     Provides routing and descriptive metadata needed for replying,
     auditing, and instrumentation.
-
+    
     Fields:
     * `source_name`: Fully-qualified sender identity.
     * `destination_name`: Fully-qualified destination identity (may be an empty placeholder
@@ -70,15 +70,15 @@ class PyService:
 class PySessionContext:
     r"""
     Python-exposed session context wrapper.
-
+    
     A thin, cloneable handle around the underlying Rust session state. All
     getters perform a safe upgrade of the weak internal session reference,
     returning a Python exception if the session has already been closed.
     The internal message receiver is intentionally not exposed at this level.
-
+    
     Higher-level Python code (see `session.py`) provides ergonomic async
     operations on top of this context.
-
+    
     Properties (getters exposed to Python):
     - id -> int: Unique numeric identifier of the session. Raises a Python
       exception if the session has been closed.
@@ -108,7 +108,7 @@ class PySessionContext:
 class PyAlgorithm(Enum):
     r"""
     JWT / signature algorithms exposed to Python.
-
+    
     Maps 1:1 to `slim_auth::jwt::Algorithm`.
     Provides stable integer values for stub generation / introspection.
     """
@@ -128,7 +128,7 @@ class PyAlgorithm(Enum):
 class PyIdentityProvider(Enum):
     r"""
     Python-facing identity provider definitions.
-
+    
     Variants:
     * StaticJwt { path }: Load a token from a file (cached, static).
     * Jwt { private_key, duration, issuer?, audience?, subject? }:
@@ -136,30 +136,30 @@ class PyIdentityProvider(Enum):
         standard JWT claims (iss, aud, sub) and a token validity duration.
     * SharedSecret { identity, shared_secret }:
         Symmetric token provider using a shared secret. Used mainly for testing.
-
+    
     Examples (Python):
-
+    
     Static (pre-issued) JWT token loaded from a file:
     ```python
     from slim_bindings import PyIdentityProvider
-
+    
     provider = PyIdentityProvider.StaticJwt(path="service.token")
     # 'provider.get_token()' (internally) will manage reloading of the file if it changes.
     ```
-
+    
     Dynamically signed JWT using a private key (claims + duration):
     ```python
     from slim_bindings import (
         PyIdentityProvider, PyKey, PyAlgorithm, PyKeyFormat, PyKeyData
     )
     import datetime
-
+    
     signing_key = PyKey(
         algorithm=PyAlgorithm.RS256,
         format=PyKeyFormat.Pem,
         key=PyKeyData.File("private_key.pem"),
     )
-
+    
     provider = PyIdentityProvider.Jwt(
         private_key=signing_key,
         duration=datetime.timedelta(minutes=30),
@@ -168,28 +168,28 @@ class PyIdentityProvider(Enum):
         subject="svc-a",
     )
     ```
-
+    
     Shared secret token provider for tests / local development:
     ```python
     from slim_bindings import PyIdentityProvider
-
+    
     provider = PyIdentityProvider.SharedSecret(
         identity="svc-a",
         shared_secret="not-for-production",
     )
     ```
-
+    
     End-to-end example pairing with a verifier:
     ```python
     # For a simple shared-secret flow:
     from slim_bindings import PyIdentityProvider, PyIdentityVerifier
-
+    
     provider = PyIdentityProvider.SharedSecret(identity="svc-a", shared_secret="dev-secret")
     verifier = PyIdentityVerifier.SharedSecret(identity="svc-a", shared_secret="dev-secret")
-
+    
     # Pass both into Slim.new(local_name, provider, verifier)
     ```
-
+    
     Jwt variant quick start (full):
     ```python
     import datetime
@@ -197,7 +197,7 @@ class PyIdentityProvider(Enum):
         PyIdentityProvider, PyIdentityVerifier,
         PyKey, PyAlgorithm, PyKeyFormat, PyKeyData
     )
-
+    
     key = PyKey(PyAlgorithm.RS256, PyKeyFormat.Pem, PyKeyData.File("private_key.pem"))
     provider = PyIdentityProvider.Jwt(
         private_key=key,
@@ -216,7 +216,7 @@ class PyIdentityProvider(Enum):
 class PyIdentityVerifier(Enum):
     r"""
     Python-facing identity verifier definitions.
-
+    
     Variants:
     * Jwt { public_key?, autoresolve, issuer?, audience?, subject?, require_* }:
         Verifies tokens using a public key or via JWKS auto-resolution.
@@ -225,16 +225,16 @@ class PyIdentityVerifier(Enum):
         (public_key must be omitted in that case).
     * SharedSecret { identity, shared_secret }:
         Verifies tokens generated with the same shared secret.
-
+    
     JWKS Auto-Resolve:
       When `autoresolve=True`, the verifier will attempt to resolve keys
       dynamically (e.g. from a JWKS endpoint) if supported by the underlying
       implementation.
-
+    
     Safety:
       A direct panic occurs if neither `public_key` nor `autoresolve=True`
       is provided for the Jwt variant (invalid configuration).
-
+    
     Autoresolve key selection (concise algorithm):
     1. If a static JWKS was injected, use it directly.
     2. Else if a cached JWKS for the issuer exists and is within TTL, use it.
@@ -246,9 +246,9 @@ class PyIdentityVerifier(Enum):
        first key whose algorithm matches the token header's alg.
     6. Convert JWK -> DecodingKey and verify signature; then enforce required
        claims (iss/aud/sub) per the require_* flags.
-
+    
     # Examples (Python)
-
+    
     Basic JWT verification with explicit public key:
     ```python
     pub_key = PyKey(
@@ -267,7 +267,7 @@ class PyIdentityVerifier(Enum):
         require_sub=True,
     )
     ```
-
+    
     Auto-resolving JWKS (no public key provided):
     ```python
     # The underlying implementation must know how / where to resolve JWKS.
@@ -282,7 +282,7 @@ class PyIdentityVerifier(Enum):
         require_sub=False,
     )
     ```
-
+    
     Shared secret verifier (symmetric):
     ```python
     verifier = PyIdentityVerifier.SharedSecret(
@@ -290,7 +290,7 @@ class PyIdentityVerifier(Enum):
         shared_secret="super-secret-value",
     )
     ```
-
+    
     Pairing with a provider when constructing Slim:
     ```python
     provider = PyIdentityProvider.SharedSecret(
@@ -299,7 +299,7 @@ class PyIdentityVerifier(Enum):
     )
     slim = await Slim.new(local_name, provider, verifier)
     ```
-
+    
     Enforcing strict claims (reject tokens missing aud/sub):
     ```python
     strict_verifier = PyIdentityVerifier.Jwt(
@@ -320,7 +320,7 @@ class PyIdentityVerifier(Enum):
 class PyKeyData(Enum):
     r"""
     Key material origin.
-
+    
     Either a path on disk (`File`) or inline string content (`Content`)
     containing the encoded key. The interpretation depends on the
     accompanying `PyKeyFormat`.
@@ -331,7 +331,7 @@ class PyKeyData(Enum):
 class PyKeyFormat(Enum):
     r"""
     Supported key encoding formats.
-
+    
     Used during parsing / loading of provided key material.
     """
     Pem = auto()
@@ -341,24 +341,24 @@ class PyKeyFormat(Enum):
 class PySessionConfiguration(Enum):
     r"""
     User-facing configuration for establishing and tuning sessions.
-
+    
     Each variant maps to a core `SessionConfig`.
     Common fields (casual rundown):
     * `timeout`: How long we wait for an ack before trying again.
     * `max_retries`: Number of attempts to send a message. If we run out, an error is returned.
     * `mls_enabled`: Turn on MLS for end‑to‑end crypto.
     * `metadata`: One-shot string key/value tags sent at session start; the other side can read them for tracing, routing, auth, etc.
-
+    
     Variant-specific notes:
     * `PointToPoint`: PointToPoint will target a specific peer for all messages.
     * `Group`: Uses a named channel and distributes to multiple subscribers.
-
+    
     # Examples
-
+    
     ## Python: Create different session configs
     ```python
     from slim_bindings import PySessionConfiguration, PyName
-
+    
     # PointToPoint session. Wait up to 2 seconds for an ack for each message, retry up to 5 times,
     # enable MLS, and attach some metadata.
     p2p_cfg = PySessionConfiguration.PointToPoint(
@@ -368,7 +368,7 @@ class PySessionConfiguration(Enum):
         mls_enabled=True, # enable MLS
         metadata={"trace_id": "1234abcd"} # arbitrary (string -> string) key/value pairs to send at session establishment
     )
-
+    
     # Group session (channel-based)
     channel = PyName("org", "namespace", "channel")
     group_cfg = PySessionConfiguration.Group(
@@ -379,7 +379,7 @@ class PySessionConfiguration(Enum):
         metadata={"role": "publisher"} # arbitrary (string -> string) key/value pairs to send at session establishment
     )
     ```
-
+    
     ## Python: Using a config when creating a session
     ```python
     slim = await Slim.new(local_name, provider, verifier)
@@ -388,7 +388,7 @@ class PySessionConfiguration(Enum):
     print("Type:", session.session_type)
     print("Metadata:", session.metadata)
     ```
-
+    
     ## Python: Updating configuration after creation
     ```python
     # Adjust retries & metadata dynamically
@@ -401,7 +401,7 @@ class PySessionConfiguration(Enum):
     )
     session.set_session_config(new_cfg)
     ```
-
+    
     ## Rust (internal conversion flow)
     The enum transparently converts to and from `session::SessionConfig`:
     ```rust
@@ -473,3 +473,4 @@ def subscribe(svc:PyService, conn:builtins.int, name:PyName) -> typing.Any:
 
 def unsubscribe(svc:PyService, conn:builtins.int, name:PyName) -> typing.Any:
     ...
+
