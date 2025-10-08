@@ -92,8 +92,7 @@ You should see 10 messages sent and received.
 
 ### 8. Clean up when done
 ```bash
-task slim:delete
-task templates:cluster:down
+task cluster:down
 ```
 
 **Note:** The daemonset strategy uses the `daemonset-values.yaml` file for Helm chart configuration. This values file contains specific settings for DaemonSet deployment, including node-selector configurations, resource limits optimized for node-local deployment, and SLIM-specific parameters tailored for distributed operations. Review and customize this file according to your node requirements and SLIM configuration needs.
