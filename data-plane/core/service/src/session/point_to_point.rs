@@ -64,25 +64,25 @@ impl PointToPointConfiguration {
         timeout: Option<Duration>,
         max_retries: Option<u32>,
         mls_enabled: bool,
-        unicast_name: Option<Name>,
+        peer_name: Option<Name>,
         metadata: HashMap<String, String>,
     ) -> Self {
-        // If mls is enabled the session must be unicast
-        if mls_enabled && unicast_name.is_none() {
-            panic!("MLS on no-unicast sessions is not supported.");
+        // If mls is enabled the session must be sticky
+        if mls_enabled && peer_name.is_none() {
+            panic!("MLS on not sticky sessions is not supported (must provide a peer name).");
         }
 
         PointToPointConfiguration {
             timeout,
             max_retries,
             mls_enabled,
-            peer_name: unicast_name,
+            peer_name,
             initiator: true,
             metadata,
         }
     }
 
-    pub fn with_unicast_name(mut self, name: Name) -> Self {
+    pub fn with_peer_name(mut self, name: Name) -> Self {
         self.peer_name = Some(name);
         self
     }
@@ -119,7 +119,7 @@ impl std::fmt::Display for PointToPointConfiguration {
 }
 
 #[derive(Debug, Clone, PartialEq, Default)]
-enum UnicastSessionStatus {
+enum P2PSessionStatus {
     #[default]
     Uninitialized,
     Discovering,
@@ -175,11 +175,11 @@ where
     tx: T,
     config: PointToPointConfiguration,
     dst: Arc<RwLock<Option<Name>>>,
-    unicast_connection: Option<u64>,
-    unicast_session_status: UnicastSessionStatus,
-    unicast_buffer: VecDeque<Message>,
+    peer_connection: Option<u64>,
+    p2p_session_status: P2PSessionStatus,
+    send_buffer: VecDeque<Message>,
     sender_state: SenderState,     // send packets with sequential ids
-    receiver_state: ReceiverState, // to be used only in case of unicast session
+    receiver_state: ReceiverState, // to be used only in case of sticky session
     channel_endpoint: ChannelEndpoint<P, V, T>,
 }
 
@@ -447,18 +447,18 @@ where
             .map_err(|e| SessionError::AppTransmission(e.to_string()));
     }
 
-    async fn start_unicast_session_discovery(&mut self, name: &Name) -> Result<(), SessionError> {
-        debug!("starting unicast session discovery");
+    async fn start_p2p_session_discovery(&mut self, name: &Name) -> Result<(), SessionError> {
+        debug!("starting p2p session discovery");
         // Set payload
         let payload = bincode::encode_to_vec(&self.state.source, bincode::config::standard())
             .map_err(|e| SessionError::Processing(e.to_string()))?;
 
-        // Create a probe message to discover the unicast session
+        // Create a probe message
         let mut probe_message = Message::new_publish(
             &self.state.source,
             name,
             None,
-            "unicast_session_discovery",
+            "p2p_session_discovery",
             payload,
         );
 
@@ -468,7 +468,7 @@ where
         session_header.set_session_id(self.state.session_id);
         session_header.set_message_id(rand::rng().random_range(0..u32::MAX));
 
-        self.state.unicast_session_status = UnicastSessionStatus::Discovering;
+        self.state.p2p_session_status = P2PSessionStatus::Discovering;
 
         self.state.channel_endpoint.on_message(probe_message).await
     }
@@ -488,23 +488,23 @@ where
         // pass the message to the channel endpoint
         self.state.channel_endpoint.on_message(message).await?;
 
-        // No error - this session is unicast
+        // No error - this session is now established
         *self.state.dst.write() = Some(source.clone());
         self.state.config.peer_name = Some(source);
-        self.state.unicast_connection = Some(incoming_conn);
-        self.state.unicast_session_status = UnicastSessionStatus::Established;
+        self.state.peer_connection = Some(incoming_conn);
+        self.state.p2p_session_status = P2PSessionStatus::Established;
 
         Ok(())
     }
 
     async fn handle_channel_join_reply(&mut self, message: Message) -> Result<(), SessionError> {
-        // Check if the unicast session is established
+        // Check if the session is established
         let source = message.get_source();
         let incoming_conn = message.get_incoming_conn();
-        let status = self.state.unicast_session_status.clone();
+        let status = self.state.p2p_session_status.clone();
 
         debug!(
-            "received unicast session discovery reply from {} and incoming conn {}",
+            "received session discovery reply from {} and incoming conn {}",
             source,
             message.get_incoming_conn()
         );
@@ -513,21 +513,21 @@ where
         self.state.channel_endpoint.on_message(message).await?;
 
         match status {
-            UnicastSessionStatus::Discovering => {
-                debug!("unicast session discovery established with {}", source);
+            P2PSessionStatus::Discovering => {
+                debug!("session discovery established with {}", source);
 
-                // If we are still discovering, set the unicast name
+                // If we are still discovering, set the peer name
                 *self.state.dst.write() = Some(source.clone());
                 self.state.config.peer_name = Some(source);
-                self.state.unicast_connection = Some(incoming_conn);
-                self.state.unicast_session_status = UnicastSessionStatus::Established;
+                self.state.peer_connection = Some(incoming_conn);
+                self.state.p2p_session_status = P2PSessionStatus::Established;
 
                 // If MLS is not enabled, send all buffered messages
                 if !self.state.config.mls_enabled {
                     // Collect messages first to avoid multiple mutable borrows
-                    let messages: Vec<Message> = self.state.unicast_buffer.drain(..).collect();
+                    let messages: Vec<Message> = self.state.send_buffer.drain(..).collect();
 
-                    // Send all buffered messages to the unicast name
+                    // Send all buffered messages to the peer name
                     for msg in messages {
                         self.send_message(msg, None).await?;
                     }
@@ -536,17 +536,17 @@ where
                 Ok(())
             }
             _ => {
-                debug!("unicast session discovery reply received, but already established");
+                debug!("session discovery reply received, but already established");
 
-                // Check if the unicast name is already set, and if it's different from the source
+                // Check if the peer name is already set, and if it's different from the source
                 if let Some(name) = &self.state.config.peer_name {
                     let message = if name != &source {
                         format!(
-                            "unicast session already established with a different name: {}, received: {}",
+                            "session already established with a different name: {}, received: {}",
                             name, source
                         )
                     } else {
-                        "unicast session already established".to_string()
+                        "session already established".to_string()
                     };
 
                     return Err(SessionError::AppTransmission(message));
@@ -578,8 +578,8 @@ where
         header.set_message_id(message_id);
         header.set_session_id(self.state.session_id);
 
-        // If we have a unicast name, set the destination to use the ID in the unicast name
-        // and force the message to be sent to the unicast connection
+        // If we have a peer name, set the destination to use the ID in the peer name
+        // and force the message to be sent to the peer connection
         if let Some(ref name) = self.state.config.peer_name {
             let mut new_name = message.get_dst();
             new_name.set_id(name.id());
@@ -587,7 +587,7 @@ where
 
             message
                 .get_slim_header_mut()
-                .set_forward_to(self.state.unicast_connection);
+                .set_forward_to(self.state.peer_connection);
         }
 
         // add the message to the sender buffer
@@ -635,31 +635,31 @@ where
             header.set_session_message_type(ProtoSessionMessageType::P2PMsg);
         }
 
-        // If session is unicast, decide what to do according to the session state
+        // If we have a peer nams, decide what to do according to the session state
         if self.state.config.peer_name.is_some() {
-            match self.state.unicast_session_status {
-                UnicastSessionStatus::Uninitialized => {
-                    self.start_unicast_session_discovery(&message.get_slim_header().get_dst())
+            match self.state.p2p_session_status {
+                P2PSessionStatus::Uninitialized => {
+                    self.start_p2p_session_discovery(&message.get_slim_header().get_dst())
                         .await?;
 
-                    self.state.unicast_buffer.push_back(message);
+                    self.state.send_buffer.push_back(message);
 
                     Ok(())
                 }
-                UnicastSessionStatus::Discovering => {
-                    // Still discovering the unicast session. Store message in a buffer and send it later
-                    // when the unicast session is established
-                    self.state.unicast_buffer.push_back(message);
+                P2PSessionStatus::Discovering => {
+                    // Still discovering the peer name. Store message in a buffer and send it later
+                    // when the session is established
+                    self.state.send_buffer.push_back(message);
                     Ok(())
                 }
-                UnicastSessionStatus::Established => {
+                P2PSessionStatus::Established => {
                     // the session state is established, send message
                     let mut new_name = message.get_dst();
                     new_name.set_id(self.state.config.peer_name.as_ref().unwrap().id());
                     message.get_slim_header_mut().set_destination(&new_name);
                     message
                         .get_slim_header_mut()
-                        .set_forward_to(self.state.unicast_connection);
+                        .set_forward_to(self.state.peer_connection);
 
                     self.send_message(message, None).await
                 }
@@ -680,9 +680,9 @@ where
             %source, %message_id, "received message from slim",
         );
 
-        // If session is unicast, check if the source matches the unicast name
+        // If we have a peer name, check if the source matches
         if let Some(name) = &self.state.config.peer_name
-            && !(self.state.unicast_session_status == UnicastSessionStatus::Discovering
+            && !(self.state.p2p_session_status == P2PSessionStatus::Discovering
                 && (message.get_session_message_type()
                     == ProtoSessionMessageType::ChannelDiscoveryReply
                     || message.get_session_message_type()
@@ -690,7 +690,7 @@ where
             && *name != source
         {
             return Err(SessionError::AppTransmission(format!(
-                "message source {} does not match unicast name {}",
+                "message source {} does not match peer name {}",
                 source, name
             )));
         }
@@ -720,15 +720,15 @@ where
                 self.stop_and_remove_timer(message_id, true)
             }
             ProtoSessionMessageType::ChannelDiscoveryReply => {
-                // Handle unicast session discovery
+                // Handle peer session discovery
                 self.handle_channel_discovery_reply(message).await
             }
             ProtoSessionMessageType::ChannelJoinRequest => {
-                // Handle unicast session discovery
+                // Handle peer session discovery
                 self.handle_channel_join_request(message).await
             }
             ProtoSessionMessageType::ChannelJoinReply => {
-                // Handle unicast session discovery reply
+                // Handle peer session discovery reply
                 self.handle_channel_join_reply(message).await
             }
             ProtoSessionMessageType::ChannelLeaveRequest
@@ -740,10 +740,10 @@ where
                 // Handle mls stuff
                 self.state.channel_endpoint.on_message(message).await?;
 
-                // Flush the unicast buffer if MLS is enabled
+                // Flush the send buffer if MLS is enabled
                 if self.state.channel_endpoint.is_mls_up()? {
                     // If MLS is up, send all buffered messages
-                    let messages: Vec<Message> = self.state.unicast_buffer.drain(..).collect();
+                    let messages: Vec<Message> = self.state.send_buffer.drain(..).collect();
 
                     for msg in messages {
                         self.send_message(msg, None).await?;
@@ -894,10 +894,10 @@ where
     /// Helper function to send a message to the application.
     /// This is used by both the P2p and F2pReliable message handlers.
     async fn send_message_to_app(&mut self, message: Message) -> Result<(), SessionError> {
-        // if the session is not reliable or is not unicast we can accept holes in the
+        // if the session is not reliable or we don't have a peer we can accept holes in the
         // sequence of the received messages and so we send this packets to the application
         // immediately without reordering. notice that an anycast reliable session is possible
-        // and the packet are re-send by the sender if acks are not received
+        // and the packet are re-sent by the sender if acks are not received
         if message.get_session_message_type() == ProtoSessionMessageType::P2PMsg
             || (!self.state.config.mls_enabled && self.state.config.peer_name.is_none())
         {
@@ -972,7 +972,7 @@ where
             }
         };
 
-        let connection = match self.state.unicast_connection {
+        let connection = match self.state.peer_connection {
             Some(c) => c,
             None => {
                 warn!("cannot send rtx messages, incoming connection is missing");
@@ -1106,7 +1106,7 @@ where
             .mls()
             .map(|mls| MlsState::new(mls).expect("failed to create MLS state"));
 
-        // Create channel endpoint to handle unicast sessions and encryption
+        // Create channel endpoint to handle session discovery and encryption
         let channel_endpoint = match session_config.initiator {
             true => {
                 let cm = ChannelModerator::new(
@@ -1146,9 +1146,9 @@ where
             tx: tx_slim_app.clone(),
             config: session_config,
             dst: common.dst_arc(),
-            unicast_connection: None,
-            unicast_session_status: UnicastSessionStatus::Uninitialized,
-            unicast_buffer: VecDeque::new(),
+            peer_connection: None,
+            p2p_session_status: P2PSessionStatus::Uninitialized,
+            send_buffer: VecDeque::new(),
             channel_endpoint,
             sender_state: SenderState {
                 buffer: ProducerBuffer::with_capacity(500),
@@ -1341,7 +1341,7 @@ mod tests {
         let source = Name::from_strings(["cisco", "default", "local"]).with_id(0);
         let remote = Name::from_strings(["cisco", "default", "remote"]).with_id(999);
 
-        let config = PointToPointConfiguration::default().with_unicast_name(remote.clone());
+        let config = PointToPointConfiguration::default().with_peer_name(remote.clone());
 
         let session = PointToPoint::new(
             0,
@@ -1673,7 +1673,7 @@ mod tests {
         tokio::time::sleep(Duration::from_millis(1000)).await;
     }
 
-    async fn template_test_point_to_point_unicast_session(mls_enabled: bool) {
+    async fn template_test_point_to_point_session(mls_enabled: bool) {
         let (sender_tx_slim, mut sender_rx_slim) = tokio::sync::mpsc::channel(1);
         let (sender_tx_app, _sender_rx_app) = tokio::sync::mpsc::channel(1);
 
@@ -1753,7 +1753,7 @@ mod tests {
             .await
             .expect("failed to send message");
 
-        // We should now get a unicast session discovery message
+        // We should now get a session discovery message
         let mut msg = sender_rx_slim
             .recv()
             .await
@@ -1975,13 +1975,13 @@ mod tests {
 
     #[tokio::test]
     #[traced_test]
-    async fn test_point_to_point_unicast_session_no_mls() {
-        template_test_point_to_point_unicast_session(false).await;
+    async fn test_point_to_point_session_no_mls() {
+        template_test_point_to_point_session(false).await;
     }
 
     #[tokio::test]
     #[traced_test]
-    async fn test_point_to_point_unicast_session_mls() {
-        template_test_point_to_point_unicast_session(true).await;
+    async fn test_point_to_point_session_mls() {
+        template_test_point_to_point_session(true).await;
     }
 }
