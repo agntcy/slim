@@ -55,12 +55,12 @@ pub(crate) struct PySessionCtxInternal {
 ///   current SessionConfig. A cloned map is returned so Python can mutate
 ///   without racing the underlying config.
 /// - session_type -> PySessionType: High-level transport classification
-///   (PointToPoint, GROUP), inferred from internal kind + destination.
+///   (PointToPoint, Group), inferred from internal kind + destination.
 /// - src -> PyName: Fully qualified source identity that originated / owns
 ///   the session.
 /// - dst -> PyName: Destination name:
 ///     * PyName of the peer for PointToPoint
-///     * PyName of the channel for GROUP
+///     * PyName of the channel for Group
 /// - session_config -> PySessionConfiguration: Current effective configuration
 ///   converted to the Python-facing enum variant.
 #[gen_stub_pyclass]

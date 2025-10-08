@@ -50,7 +50,7 @@ class PySession:
         id (int): Unique numeric session identifier.
         metadata (dict[str, str]): Free-form key/value metadata attached
             to the current session configuration.
-        session_type (PySessionType): PointToPoint / GROUP classification.
+        session_type (PySessionType): PointToPoint / Group classification.
         session_config (PySessionConfiguration): Current effective configuration.
         src (PyName): Source name (creator / initiator of the session).
         dst (PyName): Destination name (PointToPoint), Channel name (group)
@@ -72,7 +72,7 @@ class PySession:
 
     @property
     def session_type(self) -> PySessionType:
-        """Return the type of this session (PointToPoint / GROUP)."""
+        """Return the type of this session (PointToPoint / Group)."""
         return self._ctx.session_type
 
     @property
@@ -169,7 +169,7 @@ class PySession:
         )
 
     async def invite(self, name: PyName) -> None:
-        """Invite (add) a participant to this session. Only works for GROUP.
+        """Invite (add) a participant to this session. Only works for Group.
 
         Args:
             name: PyName of the participant to invite.
@@ -180,7 +180,7 @@ class PySession:
         await _invite(self._svc, self._ctx, name)
 
     async def remove(self, name: PyName) -> None:
-        """Remove (eject) a participant from this session. Only works for GROUP.
+        """Remove (eject) a participant from this session. Only works for Group.
 
         Args:
             name: PyName of the participant to remove.

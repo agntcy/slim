@@ -15,7 +15,7 @@ Scenario:
   - Each participant exits after observing (participants_count - 1) messages.
 
 What is validated implicitly:
-  * Group session establishment (session_type == GROUP).
+  * Group session establishment (session_type == Group).
   * dst equals the channel/topic PyName for non-creator participants.
   * src matches the participant's own local identity when receiving.
   * Message propagation across all participants without loss.
@@ -143,7 +143,7 @@ async def test_group(server, mls_enabled):  # noqa: C901
                         # make sure the received session is group
                         assert (
                             recv_session.session_type
-                            == slim_bindings.PySessionType.GROUP
+                            == slim_bindings.PySessionType.Group
                         )
 
                         # Make sure the dst of the session is the channel name
