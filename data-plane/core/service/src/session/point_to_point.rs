@@ -635,7 +635,7 @@ where
             header.set_session_message_type(ProtoSessionMessageType::P2PMsg);
         }
 
-        // If we have a peer nams, decide what to do according to the session state
+        // If we have a peer name, decide what to do according to the session state
         if self.state.config.peer_name.is_some() {
             match self.state.p2p_session_status {
                 P2PSessionStatus::Uninitialized => {

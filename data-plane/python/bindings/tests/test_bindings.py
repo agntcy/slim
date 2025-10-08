@@ -159,7 +159,9 @@ async def test_session_config(server):
     # get per-session configuration via new API (synchronous method)
     session_config_ret = session_context.session_config
 
-    assert isinstance(session_config_ret, slim_bindings.PySessionConfiguration.PointToPoint)
+    assert isinstance(
+        session_config_ret, slim_bindings.PySessionConfiguration.PointToPoint
+    )
     assert session_config == session_config_ret, (
         f"session config mismatch: {session_config} vs {session_config_ret}"
     )
@@ -200,7 +202,8 @@ async def test_session_config(server):
 
     # Peer creates a session
     peer_session_ctx = await slim_bindings.create_session(
-        peer_svc, slim_bindings.PySessionConfiguration.PointToPoint(peer_name=local_name_with_id)
+        peer_svc,
+        slim_bindings.PySessionConfiguration.PointToPoint(peer_name=local_name_with_id),
     )
 
     # Send a first message to trigger session creation on local service
