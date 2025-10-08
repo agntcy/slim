@@ -17,11 +17,13 @@ includes:
 
 silent: true
 
+vars:
+  STRATEGY: "statefulset"
 
 tasks:
   default:
-    - task templates:slim:check:prerequisites
-    - task --list
+    cmds:
+      - task: templates:default
 
   slim:controller:deploy:
     desc: Deploy Slim Controller

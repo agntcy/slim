@@ -22,6 +22,12 @@ silent: true
 
   
 tasks:
+  default:
+    desc: Check prerequisites and display available tasks
+    cmds:
+    - task: slim:check:prerequisites
+    - task: strategy:name
+    - task --list
 
   cluster:up:
     desc: Start a local Kubernetes cluster using Kind
@@ -105,6 +111,9 @@ tasks:
 
     cmds:
       - |
+        echo "Checking prerequisites..."
+        echo ""
+      - |
         task --version >/dev/null 2>&1 && echo "task: available" || echo "task: not found"
       - |
         docker >/dev/null 2>&1 && echo "docker: available" || echo "docker: not found"
@@ -113,4 +122,18 @@ tasks:
       - |
         kind >/dev/null 2>&1 && echo "kind: available" || echo "kind: not found"
     
-
+  strategy:name:
+    desc: Display the name of the deployment strategy
+    requires:
+      vars:
+        - name: STRATEGY
+          enum: 
+            - naive
+            - statefulset
+            - daemonset
+            - multi-cluster
+    cmds:
+      - |
+        echo ""
+        echo "Selected deployment strategy: '{{.STRATEGY}}'"
+        echo ""

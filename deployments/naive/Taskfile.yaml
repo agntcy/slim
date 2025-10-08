@@ -10,6 +10,7 @@ includes:
   templates: 
     taskfile: ../Taskfile.yaml
     dir: ../.
+    internal: true
   
   apps: 
     taskfile: ../client_apps/Taskfile.yaml
@@ -17,16 +18,13 @@ includes:
 
 silent: true
 
+vars:
+  STRATEGY: "naive"
 
 tasks:
   default:
-    - task templates:slim:check:prerequisites
-    - task --list
-
-  log:strategy:name:
-    desc: Display the name of the deployment strategy
     cmds:
-      - echo "Naive Deployment Strategy"
+    - task: templates:default
 
 
   slim:deploy:

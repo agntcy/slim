@@ -18,12 +18,13 @@ includes:
 
 silent: true
 
+vars:
+  STRATEGY: "daemonset"
+
 tasks:
   default:
-    desc: Check prerequisites and display available tasks
     cmds:
-    - task: templates:slim:check:prerequisites
-    - task --list
+      - task: templates:default
 
   cluster:up:
     desc: Start a local Kubernetes cluster using Kind
@@ -75,5 +76,6 @@ tasks:
         vars:
           TEMPLATE: '{{ .TEMPLATE }}'
           NAMESPACE: '{{ .NAMESPACE }}'
+          
             
 
