@@ -9,7 +9,6 @@ version: "3"
 includes:
   templates: 
     taskfile: ../Taskfile.yaml
-    dir: ../
     internal: true
 
   apps: 
@@ -18,6 +17,9 @@ includes:
     internal: true
 
 vars:
+
+  STRATEGY: "multi-cluster"
+
   CLUSTER_ADMIN_TRUST_DOMAIN: '{{ .CLUSTER_ADMIN_TRUST_DOMAIN | default "admin.example" }}'
   CLUSTER_A_TRUST_DOMAIN: '{{ .CLUSTER_A_TRUST_DOMAIN | default "cluster-a.example" }}'
   CLUSTER_B_TRUST_DOMAIN: '{{ .CLUSTER_B_TRUST_DOMAIN | default "cluster-b.example" }}'
@@ -27,12 +29,8 @@ silent: true
 
 tasks:
   default:
-    desc: Check prerequisites and display available tasks
     cmds:
-    - task: templates:slim:check:prerequisites
-    - |
-      echo ""
-      task --list
+      - task: templates:default
 
   multi-cluster:up:
     desc: Start a local Kubernetes cluster using Kind
@@ -285,3 +283,5 @@ tasks:
         vars:
           TEMPLATE: '{{ .TEMPLATE }}'
           NAMESPACE: '{{ .NAMESPACE }}'
+  
+

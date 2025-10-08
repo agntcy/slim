@@ -44,13 +44,13 @@ Follow these steps to deploy SLIM using the statefulset deployment strategy:
 ### 1. Set up the Kubernetes cluster
 
 ```bash
-task templates:cluster:up
+task cluster:up
 ```
 
 ### 2. Deploy Spire
 
 ```bash
-task templates:spire:deploy
+task spire:deploy
 ```
 
 <details>
@@ -97,7 +97,7 @@ Find out more on [Spire on Kubernetes](https://spiffe.io/docs/latest/try/getting
 ### 3. Deploy SLIM controller chart
 
 ```bash
-task templates:slim:controller:deploy
+task slim:controller:deploy
 ```
 
 <details>
@@ -191,8 +191,9 @@ The centralized Controller automatically creates routes when Alice subscribes, e
   
 ```bash
 # Deploy receiver (Alice)
-task apps:spire:receiver:deploy
-task apps:spire:sender:deploy
+task test:receiver:deploy
+# Deploy sender (Bob)
+task test:sender:deploy
 ```
 
 Check client logs:
@@ -238,8 +239,7 @@ In case of connection problems, check the following:
 ### 7. Clean up when done
 
 ```bash
-task slim:delete
-task templates:cluster:down
+task cluster:down
 ```
 
 > **Note:** The statefulset strategy uses the `statefulset-values.yaml` file for Helm chart configuration. This values file contains specific settings for StatefulSet deployment, including SLIM-specific parameters and enhanced resource definitions. Review and customize this file according to your SLIM requirements.

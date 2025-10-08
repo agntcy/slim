@@ -9,7 +9,7 @@ version: "3"
 includes:
   templates: 
     taskfile: ../Taskfile.yaml
-    dir: ../
+    internal: true
   
   apps: 
     taskfile: ../client_apps/Taskfile.yaml
@@ -18,23 +18,27 @@ includes:
 
 silent: true
 
+vars:
+  STRATEGY: "daemonset"
+
 tasks:
   default:
-    desc: Check prerequisites and display available tasks
     cmds:
-    - task: templates:slim:check:prerequisites
-    - task --list
+      - task: templates:default
 
   cluster:up:
     desc: Start a local Kubernetes cluster using Kind
     cmd: kind create cluster --name slim-cluster --config ../slim-cluster.yaml --wait 60s || true
 
+  cluster:down:
+    desc: Delete the local Kubernetes cluster
+    cmds:
+      - task: templates:cluster:down
+
   slim:deploy:
     desc: Deploy Slim using the DaemonSet deployment strategy
-
     requires:
       vars: [SLIM_IMAGE_TAG]
-
     cmds:
       - |
         helm upgrade --install slim ../../charts/slim \
@@ -56,24 +60,19 @@ tasks:
 
   test.sender:deploy:
     desc: Deploy sender application
-    vars:
-      TEMPLATE: '{{ .TEMPLATE | default "./sender-pod.yaml" }}'  
-      NAMESPACE: '{{ .NAMESPACE | default "default" }}'
     cmds:
       - task: apps:k8s:apply
         vars:
-          TEMPLATE: '{{ .TEMPLATE }}'
-          NAMESPACE: '{{ .NAMESPACE }}'
+          TEMPLATE: '{{ .TEMPLATE | default "./sender-pod.yaml" }}'  
+          NAMESPACE: '{{ .NAMESPACE | default "default" }}'
 
   test.receiver:deploy:
     desc: Deploy receiver application
-    vars:
-      TEMPLATE: '{{ .TEMPLATE | default "./receiver-daemonset.yaml" }}'  
-      NAMESPACE: '{{ .NAMESPACE | default "default" }}'
     cmds:
       - task: apps:k8s:apply
         vars:
-          TEMPLATE: '{{ .TEMPLATE }}'
-          NAMESPACE: '{{ .NAMESPACE }}'
+          TEMPLATE: '{{ .TEMPLATE | default "./receiver-daemonset.yaml" }}'  
+          NAMESPACE: '{{ .NAMESPACE | default "default" }}'
+          
             
 

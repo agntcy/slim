@@ -102,9 +102,8 @@ Follow these steps to deploy SLIM using the DaemonSet deployment strategy:
 
 1. Clean up when done
 
-    ```bash
-    task slim:delete
-    task templates:cluster:down
-    ```
+```bash
+task cluster:down
+```
 
 > **Note:** The DaemonSet strategy uses the `daemonset-values.yaml` file for Helm chart configuration. This values file contains specific settings for DaemonSet deployment, including node-selector configurations, resource limits optimized for node-local deployment, and SLIM-specific parameters tailored for distributed operations. Review and customize this file according to your node requirements and SLIM configuration needs.

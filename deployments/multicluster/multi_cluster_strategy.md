@@ -447,10 +447,10 @@ In case of connection problems check the following:
     task multi-cluster:down
     ```
 
-    ```bash
-    # Stop Kind LoadBalancer process
-    task multi-cluster:lb:down
-    ```
+```bash
+# Stop Kind LoadBalancer process
+task sudo multi-cluster:lb:down
+```
 
 ## Key Differences from Single-Cluster Deployment
 

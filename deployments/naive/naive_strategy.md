@@ -33,10 +33,11 @@ This approach prioritizes simplicity and quick startup time over production read
 
 Follow these steps to deploy SLIM using the naive deployment strategy:
 
+
 1. Set up the Kubernetes cluster.
 
     ```bash
-    task templates:cluster:up
+    task cluster:up
     ```
 
 1. Deploy SLIM using the naive strategy.
@@ -60,20 +61,19 @@ Follow these steps to deploy SLIM using the naive deployment strategy:
 1. Start the receiver application pod.
 
     ```bash
-    task apps:receiver:deploy
+    task test:receiver:deploy
     ```
 
 1. Start the sender application pod.
 
     ```bash
-    task apps:sender:deploy
+    task test:sender:deploy
     ```
-
 
 1. Clean up when done.
 
     ```bash
-    task templates:cluster:down
+    task cluster:down
     ```
 
 > **Note:** The naive strategy uses the `naive-values.yaml` file for Helm chart configuration. You can customize this file to adjust deployment parameters as needed.
