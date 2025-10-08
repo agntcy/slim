@@ -1,0 +1,78 @@
+
+# Copyright AGNTCY Contributors (https://github.com/agntcy)
+# SPDX-License-Identifier: Apache-2.0
+
+version: "3"
+
+# This Taskfile includes specific tasks for the naive deployment strategy.
+
+includes:
+  templates: 
+    taskfile: ../Taskfile.yaml
+    internal: true
+  
+  apps: 
+    taskfile: ../client_apps/Taskfile.yaml
+    dir: ../client_apps
+    internal: true
+
+silent: true
+
+vars:
+  STRATEGY: "daemonset"
+
+tasks:
+  default:
+    cmds:
+      - task: templates:default
+
+  cluster:up:
+    desc: Start a local Kubernetes cluster using Kind
+    cmd: kind create cluster --name slim-cluster --config ../slim-cluster.yaml --wait 60s || true
+
+  cluster:down:
+    desc: Delete the local Kubernetes cluster
+    cmds:
+      - task: templates:cluster:down
+
+  slim:deploy:
+    desc: Deploy Slim using the DaemonSet deployment strategy
+    requires:
+      vars: [SLIM_IMAGE_TAG]
+    cmds:
+      - |
+        helm upgrade --install slim ../../charts/slim \
+          --namespace slim \
+          --create-namespace \
+          --set slim.image.tag="{{ .SLIM_IMAGE_TAG }}" \
+          --values daemonset-values.yaml
+  
+  controller:deploy:
+    desc: Deploy Slim Controller
+    cmds:
+      - |
+        helm upgrade --install slim-control ../../charts/slim-control-plane \
+          --namespace {{ .SLIM_NAMESPACE }} \
+          --create-namespace \
+          --set image.tag="{{ .SLIM_CONTROLLER_IMAGE_TAG }}" \
+          --set spire.enabled=false \
+          --values controller-values.yaml
+
+  test.sender:deploy:
+    desc: Deploy sender application
+    cmds:
+      - task: apps:k8s:apply
+        vars:
+          TEMPLATE: '{{ .TEMPLATE | default "./sender-pod.yaml" }}'  
+          NAMESPACE: '{{ .NAMESPACE | default "default" }}'
+
+  test.receiver:deploy:
+    desc: Deploy receiver application
+    cmds:
+      - task: apps:k8s:apply
+        vars:
+          TEMPLATE: '{{ .TEMPLATE | default "./receiver-daemonset.yaml" }}'  
+          NAMESPACE: '{{ .NAMESPACE | default "default" }}'
+          
+            
+

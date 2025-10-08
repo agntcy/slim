@@ -1,0 +1,34 @@
+
+# Copyright AGNTCY Contributors (https://github.com/agntcy)
+# SPDX-License-Identifier: Apache-2.0
+
+version: "3"
+
+# taks file for the client applications deployment
+tasks:
+    
+  k8s:apply:
+    desc: Apply k8s template to namespace
+    requires:
+      vars:
+        - TEMPLATE
+        - NAMESPACE
+    internal: true
+    cmds:
+      - cmd: |
+          echo "Applying k8s template '{{ .TEMPLATE }}' to namespace '{{ .NAMESPACE }}'"
+          kubectl apply -n {{ .NAMESPACE }} -f {{ .TEMPLATE }}
+  
+  k8s:delete:
+    desc: Delete k8s template from namespace
+    requires:
+      vars:
+        - TEMPLATE
+        - NAMESPACE
+    internal: true
+    cmds:
+      - cmd: |
+          echo "Deleting k8s template '{{ .TEMPLATE }}' from namespace '{{ .NAMESPACE }}'"
+          kubectl delete -n {{ .NAMESPACE }} -f {{ .TEMPLATE }}
+
+

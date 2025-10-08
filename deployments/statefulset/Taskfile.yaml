@@ -1,0 +1,85 @@
+
+# Copyright AGNTCY Contributors (https://github.com/agntcy)
+# SPDX-License-Identifier: Apache-2.0
+
+version: "3"
+
+# This Taskfile includes specific tasks for the naive deployment strategy.
+
+includes:
+  templates: 
+    taskfile: ../Taskfile.yaml
+    internal: true
+
+  apps: 
+    taskfile: ../client_apps/Taskfile.yaml
+    dir: ../client_apps
+    internal: true
+
+silent: true
+
+vars:
+  STRATEGY: "statefulset"
+
+tasks:
+  default:
+    cmds:
+      - task: templates:default
+  
+  cluster:up:
+    desc: Start a local Kubernetes cluster using Kind
+    cmds:
+      - task: templates:cluster:up
+  
+  cluster:down:
+    desc: Delete the local Kubernetes cluster
+    cmds:
+      - task: templates:cluster:down
+
+  spire:deploy:
+    desc: Deploy Spire server and agent
+    cmds:
+      - task: templates:spire:deploy
+
+
+  slim:controller:deploy:
+    desc: Deploy Slim Controller
+    cmds:
+      - |
+        helm upgrade --install slim-control ../../charts/slim-control-plane \
+          --namespace {{ .SLIM_NAMESPACE }} \
+          --create-namespace \
+          --set image.tag="{{ .SLIM_CONTROLLER_IMAGE_TAG }}" \
+          --values controller-values.yaml  
+          
+  slim:deploy:
+    desc: Deploy Slim using the StatefulSet deployment strategy
+    requires:
+      vars: [SLIM_IMAGE_TAG]
+    cmds:
+      - | 
+        helm upgrade --install slim ../../charts/slim \
+          --namespace {{ .SLIM_NAMESPACE }} \
+          --create-namespace \
+          --set slim.image.tag="{{ .SLIM_IMAGE_TAG }}" \
+          --values statefulset-values.yaml
+
+  test.sender:deploy:
+    desc: Deploy sender application
+    cmds:
+      - task: apps:k8s:apply
+        vars:
+          TEMPLATE: '{{ .TEMPLATE | default "./with_spire/sender_statefulset.yaml" }}'  
+          NAMESPACE: '{{ .NAMESPACE | default "default" }}'
+
+  test.receiver:deploy:
+    desc: Deploy receiver application
+    cmds:
+      - task: apps:k8s:apply
+        vars:
+          TEMPLATE: '{{ .TEMPLATE | default "./with_spire/receiver_statefulset.yaml" }}'  
+          NAMESPACE: '{{ .NAMESPACE | default "default" }}'
+
+
+
+

@@ -1,0 +1,30 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: bob
+spec:
+  containers:
+  - args:
+    - anycast
+    - --message
+    - hello
+    - --iterations
+    - "10"
+    - --local
+    - org/ns/bob
+    - --remote
+    - org/ns/alice
+    - --shared-secret
+    - secret123
+    - --slim
+    - '{"endpoint":"http://slim.slim.svc.cluster.local:46357","tls":{"insecure":true}}'
+    env:
+    - name: PYTHONUNBUFFERED
+      value: "1"
+    image: ghcr.io/agntcy/slim/bindings-examples:0.6.0-dev.3
+    imagePullPolicy: Always
+    name: bob
+    resources: {}
+  serviceAccount: default
+  serviceAccountName: default
+  restartPolicy: OnFailure
