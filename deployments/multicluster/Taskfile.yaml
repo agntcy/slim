@@ -170,7 +170,7 @@ tasks:
       - echo "Creating federation config on {{ .CLUSTER_B_TRUST_DOMAIN }} for {{ .CLUSTER_A_TRUST_DOMAIN }} ..."
       - kubectl apply -f ./{{ .CLUSTER_A_TRUST_DOMAIN }}.yaml -n {{ .SPIRE_NAMESPACE }}
 
-  slim:contoller:deploy:
+  slim:controller:deploy:
     desc: Deploy Slim Controller
     cmds:
       - kubectl config use-context kind-{{ .CLUSTER_ADMIN_TRUST_DOMAIN }}
