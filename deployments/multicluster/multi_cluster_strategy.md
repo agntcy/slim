@@ -423,7 +423,7 @@ task multi-cluster:down
 
 ```bash
 # Stop Kind LoadBalancer process
-task multi-cluster:lb:down
+task sudo multi-cluster:lb:down
 ```
 
 ## Key Differences from Single-Cluster Deployment

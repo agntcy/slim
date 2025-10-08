@@ -9,7 +9,6 @@ version: "3"
 includes:
   templates: 
     taskfile: ../Taskfile.yaml
-    dir: ../
     internal: true
 
   apps: 
