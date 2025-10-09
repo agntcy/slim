@@ -34,6 +34,13 @@ pub trait Transmitter: SessionInterceptorProvider {
     ) -> impl Future<Output = Result<(), SessionError>> + Send + 'static;
 }
 
+/// Session components lifecycle trait
+/// it can be used when a session components change state
+/// implements only close at the moment
+pub trait SessionComponentLifecycle {
+    fn close(&mut self);
+}
+
 #[async_trait]
 pub(crate) trait CommonSession<P, V, T>
 where
