@@ -21,6 +21,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/agntcy/slim/control-plane/common/options"
+	configCmd "github.com/agntcy/slim/control-plane/slimctl/internal/cmd/config"
 	controllerCmd "github.com/agntcy/slim/control-plane/slimctl/internal/cmd/controller"
 	nodectrlCmd "github.com/agntcy/slim/control-plane/slimctl/internal/cmd/nodecontroller"
 	versionCmd "github.com/agntcy/slim/control-plane/slimctl/internal/cmd/version"
@@ -45,7 +46,7 @@ func initConfig(opts *options.CommonOptions, flagSet *pflag.FlagSet) error {
 
 	home, _ := os.UserHomeDir()
 	paths := []string{
-		filepath.Join(home, ".slimctl", "config.yaml"),
+		filepath.Join(home, ".config", "slimctl", "config.yaml"),
 		"config.yaml",
 	}
 	for _, p := range paths {
@@ -158,6 +159,8 @@ func main() {
 
 	rootCmd.AddCommand(nodectrlCmd.NewNodeCmd(opts))
 	rootCmd.AddCommand(versionCmd.NewVersionCmd(opts))
+
+	rootCmd.AddCommand(configCmd.NewConfigCmd(opts))
 
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Fprintf(os.Stderr, "CLI error: %v", err)
