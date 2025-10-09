@@ -35,10 +35,9 @@ use slim_config::grpc::server::ServerConfig as PyGrpcServerConfig;
 // Global static service instance
 static GLOBAL_SERVICE: OnceLock<Service> = OnceLock::new();
 
-#[allow(clippy::large_enum_variant)]
 enum ServiceRef {
     Global(&'static Service),
-    Local(Service),
+    Local(Box<Service>),
 }
 
 impl ServiceRef {
@@ -121,7 +120,7 @@ impl PyService {
         // Determine whether to use global or local service
         let service_ref = if local_service {
             // create local service
-            let svc = Service::new(svc_id);
+            let svc = Box::new(Service::new(svc_id));
             ServiceRef::Local(svc)
         } else {
             // Use global service, initialize if needed
