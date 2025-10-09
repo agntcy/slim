@@ -5,20 +5,22 @@ import (
 
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
+
+	"github.com/agntcy/slim/control-plane/slimctl/internal/cfg"
 )
 
-func newListConfigCmd() *cobra.Command {
+func newListConfigCmd(conf *cfg.ConfigData) *cobra.Command {
 	return &cobra.Command{
 		Use:     "list",
 		Aliases: []string{"ls"},
 		Short:   "List configuration values",
 		Long:    `List configuration values.`,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			conf, err := loadConfig()
+		RunE: func(_ *cobra.Command, _ []string) error {
+			appConf, err := cfg.LoadConfig(conf.Fs)
 			if err != nil {
 				return err
 			}
-			err = prettyPrintYAML(conf)
+			err = prettyPrintYAML(appConf)
 			if err != nil {
 				return err
 			}

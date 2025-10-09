@@ -1,46 +1,40 @@
 package utils
 
 import (
-	"errors"
 	"os"
 	"path/filepath"
+
+	"github.com/spf13/afero"
 )
 
-func FileExists(path string) bool {
-	if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
-		return false
+func remove(fs afero.Fs, path string) error {
+	var err error
+	var exists bool
+
+	if exists, err = afero.Exists(fs, path); exists {
+		err = fs.Remove(path)
 	}
-	return true
+
+	return err
 }
 
-func remove(path string) error {
+func SaveFile(fs afero.Fs, file string, data []byte) error {
 	var err error
-	if FileExists(path) {
-		err = os.Remove(path)
-		if err != nil {
-			return err
-		}
+	if err = remove(fs, file); err == nil {
+		err = WriteToFile(fs, file, data)
 	}
 	return err
 }
 
-func SaveFile(file string, data []byte) error {
-	var err error
-	if err = remove(file); err == nil {
-		err = WriteToFile(file, data)
-	}
-	return err
-}
+func WriteToFile(fs afero.Fs, file string, data []byte) error {
 
-func WriteToFile(file string, data []byte) error {
-
-	err := os.MkdirAll(filepath.Dir(file), 0755)
+	err := fs.MkdirAll(filepath.Dir(file), 0755)
 
 	if err != nil {
 		return err
 	}
 
-	f, err := os.OpenFile(file, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	f, err := fs.OpenFile(file, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 
 	if err != nil {
 		return err

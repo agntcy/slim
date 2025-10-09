@@ -12,7 +12,7 @@ import (
 // CommonOptions provides the common flags, options, for all the commands.
 type CommonOptions struct {
 	// Basic auth credentials - username:password format
-	BasicAuthCredentials string `yaml:"basic_auth_credentials,omitempty"`
+	BasicAuthCredentials string `yaml:"basic_auth_creds,omitempty"`
 
 	// SLIM control API endpoint
 	Server string `yaml:"server,omitempty"`
