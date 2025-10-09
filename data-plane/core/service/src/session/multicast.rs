@@ -512,6 +512,8 @@ where
                 }
             }
 
+            channel_endpoint.stop().await;
+
             debug!(
                 "stopping message processing on multicast session {} for {}",
                 session_id, source

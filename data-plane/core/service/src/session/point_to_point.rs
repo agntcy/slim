@@ -329,6 +329,8 @@ where
             timer.stop();
         }
 
+        self.state.channel_endpoint.stop().await;
+
         debug!("PointToPointProcessor loop exited");
     }
 

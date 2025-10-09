@@ -70,12 +70,16 @@ where
 
     async fn on_failure(&self, _timer_id: u32, _timeouts: u32) {
         error!(?self.message, "unable to send message, stop retrying");
-        self.tx
+        if self
+            .tx
             .send_to_app(Err(SessionError::Processing(
                 "timer failed on channel endpoint. Stop sending messages".to_string(),
             )))
             .await
-            .expect("error notifying app");
+            .is_err()
+        {
+            error!("Error notifying the application");
+        }
     }
 
     async fn on_stop(&self, timer_id: u32) {
@@ -86,6 +90,10 @@ where
 
 trait OnMessageReceived {
     async fn on_message(&mut self, msg: Message) -> Result<(), SessionError>;
+}
+
+trait Stop {
+    async fn stop(&mut self);
 }
 
 pub(crate) trait MlsEndpoint {
@@ -138,6 +146,13 @@ where
         match self {
             ChannelEndpoint::ChannelParticipant(cp) => cp.on_message(msg).await,
             ChannelEndpoint::ChannelModerator(cm) => cm.on_message(msg).await,
+        }
+    }
+
+    pub async fn stop(&mut self) {
+        match self {
+            ChannelEndpoint::ChannelParticipant(cp) => cp.stop().await,
+            ChannelEndpoint::ChannelModerator(cm) => cm.stop().await,
         }
     }
 }
@@ -1049,6 +1064,20 @@ where
             .as_ref()
             .ok_or(SessionError::NoMls)?
             .is_mls_up()
+    }
+}
+
+impl<P, V, T> Stop for ChannelParticipant<P, V, T>
+where
+    P: TokenProvider + Send + Sync + Clone + 'static,
+    V: Verifier + Send + Sync + Clone + 'static,
+    T: Transmitter + Send + Sync + Clone + 'static,
+{
+    async fn stop(&mut self) {
+        debug!("closing channel for session {}", self.endpoint.session_id);
+        if let Some(t) = &mut self.timer {
+            t.stop();
+        }
     }
 }
 
@@ -2055,6 +2084,22 @@ where
             .as_ref()
             .ok_or(SessionError::NoMls)?
             .is_mls_up()
+    }
+}
+
+impl<P, V, T> Stop for ChannelModerator<P, V, T>
+where
+    P: TokenProvider + Send + Sync + Clone + 'static,
+    V: Verifier + Send + Sync + Clone + 'static,
+    T: Transmitter + Send + Sync + Clone + 'static,
+{
+    async fn stop(&mut self) {
+        self.tasks_todo.clear();
+        self.current_task = None;
+
+        for (_, mut t) in self.pending_requests.drain() {
+            t.timer.stop()
+        }
     }
 }
 
