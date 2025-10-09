@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0](https://github.com/agntcy/slim/compare/slim-config-v0.3.0...slim-config-v0.4.0) - 2025-10-09
+
+### Added
+
+- implement control plane group management ([#554](https://github.com/agntcy/slim/pull/554))
+- remove bearer auth in favour of static jwt ([#774](https://github.com/agntcy/slim/pull/774))
+
+### Fixed
+
+- load all certificates for dataplane from ca ([#772](https://github.com/agntcy/slim/pull/772))
+
 ## [0.3.0](https://github.com/agntcy/slim/compare/slim-config-v0.2.0...slim-config-v0.3.0) - 2025-09-17
 
 ### Added
