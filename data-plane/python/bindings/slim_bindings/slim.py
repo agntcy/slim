@@ -126,7 +126,7 @@ class Slim:
             name (PyName): Fully qualified local application identity.
             provider (PyIdentityProvider): Provides local authentication material.
             verifier (PyIdentityVerifier): Verifies remote identities / signatures.
-            use_local_service (bool): If True, creates a local service instance
+            local_service (bool): If True, creates a local service instance
                 instead of using the global static service. Defaults to False (global).
 
         Returns:
