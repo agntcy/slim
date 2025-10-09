@@ -770,8 +770,16 @@ mod tests {
         for _ in 0..20 {
             let out = t.match_one(&name2_2, 100).unwrap();
             if out != 3 && out != 4 {
-                // the output must be 2 or 4
-                panic!("the output must be 2 or 4");
+                // the output must be 3 or 4
+                panic!("the output must be 3 or 4");
+            }
+        }
+
+        for _ in 0..20 {
+            let out = t.match_one(&name2_2, 4).unwrap();
+            if out != 3 {
+                // the output must be 3
+                panic!("the output must be 3");
             }
         }
 
