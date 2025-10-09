@@ -3,7 +3,6 @@
 
 pub mod errors;
 #[macro_use]
-pub mod session;
 pub mod service;
 
 pub mod app;
@@ -14,8 +13,3 @@ pub use slim_datapath::messages::utils::SlimHeaderFlags;
 // Local crate
 pub use errors::ServiceError;
 pub use service::{KIND, Service, ServiceBuilder, ServiceConfiguration};
-pub use session::timer::{Timer, TimerObserver, TimerType};
-pub use session::{
-    AppChannelReceiver, MulticastConfiguration, PointToPointConfiguration, SESSION_UNSPECIFIED,
-    SessionConfig, SessionError, SessionType,
-};

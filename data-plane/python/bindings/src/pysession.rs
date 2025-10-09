@@ -11,17 +11,16 @@ use pyo3::prelude::*;
 use pyo3_stub_gen::derive::gen_stub_pyclass;
 use pyo3_stub_gen::derive::gen_stub_pyclass_enum;
 use pyo3_stub_gen::derive::gen_stub_pymethods;
-use slim_service::{AppChannelReceiver, SessionError};
+use slim_session::{AppChannelReceiver, SessionConfig, SessionError, SessionType};
 // (Python-only session wrapper will provide higher-level methods; keep Rust minimal)
 
 use crate::pyidentity::{IdentityProvider, IdentityVerifier};
 use crate::utils::PyName;
-use slim_service::MulticastConfiguration;
-use slim_service::PointToPointConfiguration;
-use slim_service::session;
-pub use slim_service::session::SESSION_UNSPECIFIED;
-use slim_service::session::Session;
-use slim_service::session::context::SessionContext;
+use slim_session::MulticastConfiguration;
+use slim_session::PointToPointConfiguration;
+pub use slim_session::SESSION_UNSPECIFIED;
+use slim_session::Session;
+use slim_session::context::SessionContext;
 
 /// Internal shared session context state.
 ///
@@ -163,11 +162,11 @@ pub enum PySessionType {
     Group = 1,
 }
 
-impl From<session::SessionType> for PySessionType {
-    fn from(value: session::SessionType) -> Self {
+impl From<SessionType> for PySessionType {
+    fn from(value: SessionType) -> Self {
         match value {
-            session::SessionType::PointToPoint => PySessionType::PointToPoint,
-            session::SessionType::Multicast => PySessionType::Group,
+            SessionType::PointToPoint => PySessionType::PointToPoint,
+            SessionType::Multicast => PySessionType::Group,
         }
     }
 }
@@ -352,17 +351,17 @@ impl Display for PySessionConfiguration {
     }
 }
 
-impl From<session::SessionConfig> for PySessionConfiguration {
-    fn from(session_config: session::SessionConfig) -> Self {
+impl From<SessionConfig> for PySessionConfiguration {
+    fn from(session_config: SessionConfig) -> Self {
         match session_config {
-            session::SessionConfig::PointToPoint(config) => PySessionConfiguration::PointToPoint {
+            SessionConfig::PointToPoint(config) => PySessionConfiguration::PointToPoint {
                 peer_name: config.peer_name.expect("peer name not set").into(),
                 timeout: config.timeout,
                 max_retries: config.max_retries,
                 mls_enabled: config.mls_enabled,
                 metadata: config.metadata,
             },
-            session::SessionConfig::Multicast(config) => PySessionConfiguration::Group {
+            SessionConfig::Multicast(config) => PySessionConfiguration::Group {
                 channel_name: config.channel_name.into(),
                 max_retries: config.max_retries,
                 timeout: config.timeout,
@@ -373,7 +372,7 @@ impl From<session::SessionConfig> for PySessionConfiguration {
     }
 }
 
-impl From<PySessionConfiguration> for session::SessionConfig {
+impl From<PySessionConfiguration> for SessionConfig {
     fn from(value: PySessionConfiguration) -> Self {
         match value {
             PySessionConfiguration::PointToPoint {
@@ -382,7 +381,7 @@ impl From<PySessionConfiguration> for session::SessionConfig {
                 max_retries,
                 mls_enabled,
                 metadata,
-            } => session::SessionConfig::PointToPoint(PointToPointConfiguration::new(
+            } => SessionConfig::PointToPoint(PointToPointConfiguration::new(
                 timeout,
                 max_retries,
                 mls_enabled,
@@ -395,7 +394,7 @@ impl From<PySessionConfiguration> for session::SessionConfig {
                 timeout,
                 mls_enabled,
                 metadata,
-            } => session::SessionConfig::Multicast(MulticastConfiguration::new(
+            } => SessionConfig::Multicast(MulticastConfiguration::new(
                 channel_name.into(),
                 Some(max_retries),
                 Some(timeout),

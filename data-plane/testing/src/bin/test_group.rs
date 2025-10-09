@@ -15,8 +15,8 @@ use slim_config::grpc::server::ServerConfig as GrpcServerConfig;
 use slim_config::tls::client::TlsClientConfig;
 use slim_config::tls::server::TlsServerConfig;
 use slim_datapath::messages::Name;
-use slim_service::session::Notification;
-use slim_service::{MulticastConfiguration, ServiceConfiguration, SlimHeaderFlags};
+use slim_service::{ServiceConfiguration, SlimHeaderFlags};
+use slim_session::{MulticastConfiguration, Notification};
 use slim_tracing::TracingConfiguration;
 
 const DEFAULT_DATAPLANE_PORT: u16 = 46357;
@@ -280,7 +280,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let session_ctx = app
         .create_session(
-            slim_service::session::SessionConfig::Multicast(MulticastConfiguration::new(
+            slim_session::SessionConfig::Multicast(MulticastConfiguration::new(
                 channel_name.clone(),
                 Some(10),
                 Some(Duration::from_secs(1)),

@@ -5,8 +5,8 @@ use std::collections::HashMap;
 
 use slim_datapath::messages::Name;
 
-use crate::session::multicast::MulticastConfiguration;
-use crate::session::point_to_point::PointToPointConfiguration;
+use crate::multicast::MulticastConfiguration;
+use crate::point_to_point::PointToPointConfiguration;
 
 #[derive(Clone, PartialEq, Debug)]
 pub enum SessionConfig {

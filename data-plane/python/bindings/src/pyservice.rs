@@ -16,10 +16,9 @@ use slim_auth::traits::Verifier;
 use slim_datapath::messages::encoder::Name;
 use slim_datapath::messages::utils::SlimHeaderFlags;
 use slim_service::app::App;
-use slim_service::session;
-use slim_service::session::Notification;
-use slim_service::session::SessionError;
 use slim_service::{Service, ServiceError};
+use slim_session::Notification;
+use slim_session::{SessionConfig, SessionError};
 use tokio::sync::RwLock;
 
 use crate::pyidentity::IdentityProvider;
@@ -110,7 +109,7 @@ impl PyService {
 
     async fn create_session(
         &self,
-        session_config: session::SessionConfig,
+        session_config: SessionConfig,
     ) -> Result<PySessionContext, SessionError> {
         let ctx = self.sdk.app.create_session(session_config, None).await?;
         Ok(PySessionContext::from(ctx))
@@ -282,10 +281,7 @@ impl PyService {
             .map_err(|e| ServiceError::SessionError(e.to_string()))
     }
 
-    fn set_default_session_config(
-        &self,
-        config: session::SessionConfig,
-    ) -> Result<(), SessionError> {
+    fn set_default_session_config(&self, config: SessionConfig) -> Result<(), SessionError> {
         self.sdk.app.set_default_session_config(&config)
     }
 }

@@ -13,7 +13,7 @@ use slim_datapath::Status;
 use slim_datapath::api::ProtoMessage as Message;
 
 // Local crate
-use crate::session::{
+use crate::{
     SessionError, SlimChannelSender, Transmitter,
     common::AppChannelSender,
     interceptor::{SessionInterceptor, SessionInterceptorProvider},
@@ -103,19 +103,19 @@ impl Transmitter for SessionTransmitter {
 
 /// Transmitter used to intercept messages sent from sessions and apply interceptors on them
 #[derive(Clone)]
-pub(crate) struct AppTransmitter<P, V>
+pub struct AppTransmitter<P, V>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
 {
     /// SLIM tx
-    pub(crate) slim_tx: SlimChannelSender,
+    pub slim_tx: SlimChannelSender,
 
     /// App tx
-    pub(crate) app_tx: Sender<Result<Notification<P, V>, SessionError>>,
+    pub app_tx: Sender<Result<Notification<P, V>, SessionError>>,
 
     // Interceptors to be called on message reception/send
-    pub(crate) interceptors: Arc<RwLock<Vec<Arc<dyn SessionInterceptor + Send + Sync>>>>,
+    pub interceptors: Arc<RwLock<Vec<Arc<dyn SessionInterceptor + Send + Sync>>>>,
 }
 
 impl<P, V> SessionInterceptorProvider for AppTransmitter<P, V>
@@ -174,8 +174,8 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::session::interceptor::{SessionInterceptor, SessionInterceptorProvider};
-    use crate::session::{SessionError, notification::Notification};
+    use crate::interceptor::{SessionInterceptor, SessionInterceptorProvider};
+    use crate::{SessionError, notification::Notification};
     use async_trait::async_trait;
     use slim_auth::errors::AuthError;
     use slim_auth::traits::{TokenProvider, Verifier};

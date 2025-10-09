@@ -5,7 +5,7 @@
 use tracing::debug;
 
 // Local crate
-use crate::session::errors::SessionError;
+use crate::errors::SessionError;
 
 #[derive(Debug, Default)]
 pub(crate) struct State {

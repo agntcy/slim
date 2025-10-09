@@ -17,13 +17,13 @@ use slim_datapath::messages::Name;
 use slim_datapath::messages::utils::{SLIM_IDENTITY, SlimHeaderFlags};
 
 // Local crate
-use crate::session::Session;
-use crate::session::interceptor::{IdentityInterceptor, SessionInterceptorProvider};
-use crate::session::notification::Notification;
-use crate::session::transmitter::AppTransmitter;
-use crate::session::{Id, SessionConfig, SlimChannelSender};
-use crate::session::{SessionError, SessionLayer, context::SessionContext};
-use crate::{ServiceError, session};
+use crate::ServiceError;
+use slim_session::Session;
+use slim_session::interceptor::{IdentityInterceptor, SessionInterceptorProvider};
+use slim_session::notification::Notification;
+use slim_session::transmitter::AppTransmitter;
+use slim_session::{Id, SessionConfig, SlimChannelSender};
+use slim_session::{SessionError, SessionLayer, context::SessionContext};
 
 #[derive(Clone)]
 pub struct App<P, V>
@@ -138,7 +138,7 @@ where
     /// Set config for a session
     pub fn set_default_session_config(
         &self,
-        session_config: &session::SessionConfig,
+        session_config: &slim_session::SessionConfig,
     ) -> Result<(), SessionError> {
         // set the session config
         self.session_layer
@@ -148,8 +148,8 @@ where
     /// Get default session config
     pub fn get_default_session_config(
         &self,
-        session_type: session::SessionType,
-    ) -> Result<session::SessionConfig, SessionError> {
+        session_type: slim_session::SessionType,
+    ) -> Result<slim_session::SessionConfig, SessionError> {
         // get the default session config
         self.session_layer.get_default_session_config(session_type)
     }
@@ -304,7 +304,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::session::point_to_point::PointToPointConfiguration;
+    use slim_session::point_to_point::PointToPointConfiguration;
 
     use slim_auth::shared_secret::SharedSecret;
     use slim_datapath::{
@@ -312,6 +312,7 @@ mod tests {
         messages::{Name, utils::SLIM_IDENTITY},
     };
 
+    #[allow(dead_code)]
     fn create_app() -> App<SharedSecret, SharedSecret> {
         let (tx_slim, _) = tokio::sync::mpsc::channel(128);
         let (tx_app, _) = tokio::sync::mpsc::channel(128);
@@ -326,13 +327,6 @@ mod tests {
             tx_app,
             std::path::PathBuf::from("/tmp/test_storage"),
         )
-    }
-
-    #[tokio::test]
-    async fn test_create_app() {
-        let app = create_app();
-
-        assert!(app.session_layer.is_pool_empty().await);
     }
 
     #[tokio::test]

@@ -14,13 +14,13 @@ use slim_datapath::messages::encoder::Name;
 use slim_datapath::messages::utils::SlimHeaderFlags;
 use slim_mls::mls::Mls;
 
-use crate::session::interceptor_mls::MlsInterceptor;
-use crate::session::multicast::Multicast;
-use crate::session::point_to_point::PointToPoint;
-use crate::session::traits::MessageHandler;
-use crate::session::traits::SessionConfigTrait;
-use crate::session::traits::Transmitter;
-use crate::session::transmitter::SessionTransmitter;
+use crate::interceptor_mls::MlsInterceptor;
+use crate::multicast::Multicast;
+use crate::point_to_point::PointToPoint;
+use crate::traits::MessageHandler;
+use crate::traits::SessionConfigTrait;
+use crate::traits::Transmitter;
+use crate::transmitter::SessionTransmitter;
 
 use super::{CommonSession, MessageDirection, SessionConfig, SessionError, State};
 
@@ -533,8 +533,8 @@ mod tests {
     // This avoids having to stand up larger subsystems while still traversing most of the code paths
     // in the handle layer. A simple in‑memory MockTransmitter captures outbound messages for assertions.
     use super::*;
-    use crate::session::interceptor::SessionInterceptor;
-    use crate::session::interceptor::SessionInterceptorProvider; // bring trait into scope for get_interceptors()
+    use crate::interceptor::SessionInterceptor;
+    use crate::interceptor::SessionInterceptorProvider; // bring trait into scope for get_interceptors()
     use async_trait::async_trait;
     use parking_lot::RwLock;
     use slim_auth::errors::AuthError;
@@ -543,10 +543,10 @@ mod tests {
     use slim_datapath::api::ProtoMessage as Message;
     use slim_datapath::messages::Name;
 
-    use crate::session::multicast::MulticastConfiguration;
-    use crate::session::point_to_point::PointToPointConfiguration;
-    use crate::session::traits::Transmitter;
-    use crate::session::{CommonSession, SessionConfig, SessionError, SessionType};
+    use crate::multicast::MulticastConfiguration;
+    use crate::point_to_point::PointToPointConfiguration;
+    use crate::traits::Transmitter;
+    use crate::{CommonSession, SessionConfig, SessionError, SessionType};
 
     // ---- Test doubles ------------------------------------------------------------------------
     // Minimal TokenProvider returning a static token; sufficient because current tests do not
@@ -597,7 +597,7 @@ mod tests {
         app_msgs: Arc<RwLock<Vec<Result<Message, SessionError>>>>,
     }
 
-    impl crate::session::SessionInterceptorProvider for MockTransmitter {
+    impl crate::SessionInterceptorProvider for MockTransmitter {
         fn add_interceptor(
             &self,
             _interceptor: Arc<dyn SessionInterceptor + Send + Sync + 'static>,
@@ -640,7 +640,7 @@ mod tests {
         interceptors: Arc<RwLock<Vec<Arc<dyn SessionInterceptor + Send + Sync + 'static>>>>,
     }
 
-    impl crate::session::SessionInterceptorProvider for RecordingTransmitter {
+    impl crate::SessionInterceptorProvider for RecordingTransmitter {
         fn add_interceptor(
             &self,
             interceptor: Arc<dyn SessionInterceptor + Send + Sync + 'static>,
@@ -784,7 +784,7 @@ mod tests {
         Session<DummyTokenProvider, DummyVerifier, MockTransmitter>,
         Arc<RwLock<Vec<Result<Message, Status>>>>,
     ) {
-        use crate::session::point_to_point::PointToPoint;
+        use crate::point_to_point::PointToPoint;
         let tx = MockTransmitter::default();
         let store = tx.slim_msgs.clone();
         let conf = PointToPointConfiguration {
@@ -811,7 +811,7 @@ mod tests {
         Arc<RwLock<Vec<Result<Message, Status>>>>,
         Name,
     ) {
-        use crate::session::multicast::{Multicast, MulticastConfiguration};
+        use crate::multicast::{Multicast, MulticastConfiguration};
         let (tx_session, _rx_session) = tokio::sync::mpsc::channel(16);
         let tx = MockTransmitter::default();
         let store = tx.slim_msgs.clone();
@@ -917,7 +917,7 @@ mod tests {
     // is registered with the transmitter (indirect verification of MLS bootstrap path).
     #[test]
     fn mls_interceptor_added_point_to_point() {
-        use crate::session::point_to_point::PointToPointConfiguration;
+        use crate::point_to_point::PointToPointConfiguration;
         let tx = RecordingTransmitter::default();
         let source = make_name(["agntcy", "src", "p2p"]);
         let cfg = SessionConfig::PointToPoint(PointToPointConfiguration::default());
@@ -939,7 +939,7 @@ mod tests {
 
     #[test]
     fn mls_interceptor_added_multicast() {
-        use crate::session::multicast::MulticastConfiguration;
+        use crate::multicast::MulticastConfiguration;
         let tx = RecordingTransmitter::default();
         let source = make_name(["agntcy", "src", "mc"]);
         let cfg = SessionConfig::Multicast(MulticastConfiguration::default());
@@ -962,7 +962,7 @@ mod tests {
     // Negative tests: when MLS disabled we should not register an interceptor.
     #[test]
     fn mls_interceptor_absent_point_to_point() {
-        use crate::session::point_to_point::PointToPointConfiguration;
+        use crate::point_to_point::PointToPointConfiguration;
         let tx = RecordingTransmitter::default();
         let source = make_name(["agntcy", "src", "p2p"]);
         let cfg = SessionConfig::PointToPoint(PointToPointConfiguration::default());
@@ -985,7 +985,7 @@ mod tests {
 
     #[test]
     fn mls_interceptor_absent_multicast() {
-        use crate::session::multicast::MulticastConfiguration;
+        use crate::multicast::MulticastConfiguration;
         let tx = RecordingTransmitter::default();
         let source = make_name(["agntcy", "src", "mc"]);
         let cfg = SessionConfig::Multicast(MulticastConfiguration::default());
