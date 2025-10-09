@@ -38,7 +38,7 @@ import slim_bindings
 @pytest.mark.parametrize(
     "server",
     [
-        # "127.0.0.1:22345",  # local service
+        "127.0.0.1:22345",  # local service
         None,  # global service
     ],
     indirect=True,
