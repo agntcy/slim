@@ -66,11 +66,11 @@ def create_slim(
         require_aud=True,
     )
 
-    return slim_bindings.Slim.new(name, provider, verifier)
+    return slim_bindings.Slim.new(name, provider, verifier, local_service=False)
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("server", ["127.0.0.1:52345"], indirect=True)
+@pytest.mark.parametrize("server", [None], indirect=True)
 @pytest.mark.parametrize("audience", [test_audience, ["wrong.audience"]])
 async def test_identity_verification(server, audience):
     """End-to-end JWT identity verification test.
@@ -92,8 +92,8 @@ async def test_identity_verification(server, audience):
         - Payload integrity on both directions when audience matches.
         - Proper exception/timeout on audience mismatch.
     """
-    sender_name = slim_bindings.PyName("org", "default", "sender")
-    receiver_name = slim_bindings.PyName("org", "default", "receiver")
+    sender_name = slim_bindings.PyName("org", "default", "id_sender")
+    receiver_name = slim_bindings.PyName("org", "default", "id_receiver")
 
     # Keys used for signing JWTs of sender
     private_key_sender = f"{keys_folder}/ec256.pem"  # Sender's signing key (ES256)
@@ -121,11 +121,6 @@ async def test_identity_verification(server, audience):
         algorithm_receiver,
     )
 
-    # Connect to the service and subscribe for the local name
-    _ = await slim_sender.connect(
-        {"endpoint": "http://127.0.0.1:52345", "tls": {"insecure": True}}
-    )
-
     # create second local app. note that the receiver will use the public key of the sender
     # to verify the JWT of the request message
     slim_receiver = await create_slim(
@@ -136,14 +131,6 @@ async def test_identity_verification(server, audience):
         algorithm_sender,
         audience,
     )
-
-    # Connect to SLIM server
-    _ = await slim_receiver.connect(
-        {"endpoint": "http://127.0.0.1:52345", "tls": {"insecure": True}}
-    )
-
-    # set route
-    await slim_sender.set_route(receiver_name)
 
     # Create PointToPoint session
     session_info = await slim_sender.create_session(

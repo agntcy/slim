@@ -33,7 +33,7 @@ from slim_bindings import (
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("server", ["127.0.0.1:12975"], indirect=True)
+@pytest.mark.parametrize("server", [None], indirect=True)
 async def test_session_metadata_merge_roundtrip(server):
     """Ensure session metadata provided at PointToPoint session creation is preserved end-to-end.
 
@@ -49,23 +49,12 @@ async def test_session_metadata_merge_roundtrip(server):
       For each (k, v) in initial metadata: receiver.metadata[k] == v.
     """
     # Define identities
-    sender_name = PyName("org", "ns", "sender")
-    receiver_name = PyName("org", "ns", "receiver")
+    sender_name = PyName("org", "ns", "session_sender")
+    receiver_name = PyName("org", "ns", "session_receiver")
 
     # Instantiate Slim instances with shared-secret auth
-    sender = await create_slim(sender_name, "secret")
-    receiver = await create_slim(receiver_name, "secret")
-
-    # Connect both to the test server endpoint
-    _ = await sender.connect(
-        {"endpoint": "http://127.0.0.1:12975", "tls": {"insecure": True}}
-    )
-    _ = await receiver.connect(
-        {"endpoint": "http://127.0.0.1:12975", "tls": {"insecure": True}}
-    )
-
-    # Establish routing so sender can reach receiver by name
-    await sender.set_route(receiver_name)
+    sender = await create_slim(sender_name, "secret", local_service=False)
+    receiver = await create_slim(receiver_name, "secret", local_service=False)
 
     # Metadata we want to propagate with the session creation
     metadata = {"a": "1", "k": "session"}
