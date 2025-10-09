@@ -36,15 +36,15 @@ resolver = "2"
 
 [workspace.dependencies]
 # Local dependencies
-agntcy-slim = { path = "core/slim", version = "0.5.0" }
-agntcy-slim-auth = { path = "core/auth", version = "0.3.0" }
-agntcy-slim-config = { path = "core/config", version = "0.3.0" }
-agntcy-slim-controller = { path = "core/controller", version = "0.3.0" }
-agntcy-slim-datapath = { path = "core/datapath", version = "0.9.0" }
-agntcy-slim-mls = { path = "core/mls", version = "0.1.1" }
-agntcy-slim-service = { path = "core/service", version = "0.6.0" }
+agntcy-slim = { path = "core/slim", version = "0.5.1" }
+agntcy-slim-auth = { path = "core/auth", version = "0.3.1" }
+agntcy-slim-config = { path = "core/config", version = "0.4.0" }
+agntcy-slim-controller = { path = "core/controller", version = "0.4.0" }
+agntcy-slim-datapath = { path = "core/datapath", version = "0.10.0" }
+agntcy-slim-mls = { path = "core/mls", version = "0.1.2" }
+agntcy-slim-service = { path = "core/service", version = "0.7.0" }
 agntcy-slim-signal = { path = "core/signal", version = "0.1.3" }
-agntcy-slim-tracing = { path = "core/tracing", version = "0.2.3" }
+agntcy-slim-tracing = { path = "core/tracing", version = "0.2.4" }
 
 anyhow = "1.0.98"
 
