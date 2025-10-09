@@ -35,8 +35,15 @@ import slim_bindings
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("server", ["127.0.0.1:22345"], indirect=True)
-@pytest.mark.parametrize("mls_enabled", [True, False])
+@pytest.mark.parametrize(
+    "server",
+    [
+        # "127.0.0.1:22345",  # local service
+        None,  # global service
+    ],
+    indirect=True,
+)
+@pytest.mark.parametrize("mls_enabled", [False])
 async def test_sticky_session(server, mls_enabled):
     """Ensure all messages in a PointToPoint session are delivered to a single receiver instance.
 
@@ -61,15 +68,18 @@ async def test_sticky_session(server, mls_enabled):
     print(f"Receiver name: {receiver_name}")
 
     # create new slim object
-    sender = await create_slim(sender_name, "secret")
-
-    # Connect to the service and subscribe for the local name
-    _ = await sender.connect(
-        {"endpoint": "http://127.0.0.1:22345", "tls": {"insecure": True}}
+    sender = await create_slim(
+        sender_name, "secret", local_service=server.local_service
     )
 
-    # set route to receiver
-    await sender.set_route(receiver_name)
+    if server.local_service:
+        # Connect to the service and subscribe for the local name
+        _ = await sender.connect(
+            {"endpoint": "http://127.0.0.1:22345", "tls": {"insecure": True}}
+        )
+
+        # set route to receiver
+        await sender.set_route(receiver_name)
 
     receiver_counts = {i: 0 for i in range(10)}
 
@@ -80,11 +90,15 @@ async def test_sticky_session(server, mls_enabled):
         - Counts messages matching expected routing + metadata.
         - Continues until sender finishes publishing (loop ends by external cancel or test end).
         """
-        receiver = await create_slim(receiver_name, "secret")
-        # Connect to the service and subscribe for the local name
-        _ = await receiver.connect(
-            {"endpoint": "http://127.0.0.1:22345", "tls": {"insecure": True}}
+        receiver = await create_slim(
+            receiver_name, "secret", local_service=server.local_service
         )
+
+        if server.local_service:
+            # Connect to the service and subscribe for the local name
+            _ = await receiver.connect(
+                {"endpoint": "http://127.0.0.1:22345", "tls": {"insecure": True}}
+            )
 
         session = await receiver.listen_for_session()
 

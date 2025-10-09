@@ -66,7 +66,7 @@ def create_slim(
         require_aud=True,
     )
 
-    return slim_bindings.Slim.new(name, provider, verifier)
+    return slim_bindings.Slim.new(name, provider, verifier, local_service=True)
 
 
 @pytest.mark.asyncio

@@ -109,6 +109,8 @@ impl Connections {
     }
 
     fn get_one(&self, except_conn: u64) -> Option<u64> {
+        tracing::info!("siamo qui");
+
         if self.index.len() == 1 {
             if self.index.contains_key(&except_conn) {
                 debug!("the only available connection cannot be used");
@@ -126,6 +128,7 @@ impl Connections {
         let mut i = index;
         while !stop {
             let opt = self.pool.get(i);
+            tracing::info!("siamo qui 2 {:?} - except: {}", opt, except_conn);
             if let Some(opt) = opt
                 && opt.conn_id != except_conn
             {
@@ -136,7 +139,7 @@ impl Connections {
                 stop = true;
             }
         }
-        debug!("no output connection available");
+        tracing::warn!("no output connection available");
         None
     }
 
@@ -251,6 +254,7 @@ impl NameState {
         }
 
         if id == Name::NULL_COMPONENT {
+            tracing::info!("siamo qui 2");
             return self.connections[index].get_one(incoming_conn);
         }
 
@@ -264,10 +268,12 @@ impl NameState {
                 }
 
                 // We cannot return any connection for this name
-                debug!("cannot find out connection, name does not exists {:?}", id);
+                tracing::info!("cannot find out connection, name does not exists {:?}", id);
                 None
             }
             Some(vec) => {
+                tracing::info!("siamo qui 3 {:?}", vec);
+
                 if vec[index].is_empty() {
                     // no connections available
                     return None;
@@ -289,8 +295,8 @@ impl NameState {
                 let mut stop = false;
                 let mut i = pos;
                 while !stop {
-                    if vec[index][pos] != incoming_conn {
-                        return Some(vec[index][pos]);
+                    if vec[index][i] != incoming_conn {
+                        return Some(vec[index][i]);
                     }
                     i = (i + 1) % vec[index].len();
                     if i == pos {
@@ -624,10 +630,12 @@ impl SubscriptionTable for SubscriptionTableImpl {
                 // if no local connection exists or the message cannot
                 // be sent try on remote ones
                 let local_out = state.get_one_connection(name.id(), incoming_conn, true);
+                tracing::info!("siamo qui xxx {:?}", local_out);
                 if let Some(out) = local_out {
                     return Ok(out);
                 }
                 let remote_out = state.get_one_connection(name.id(), incoming_conn, false);
+                tracing::info!("siamo qui yyy {:?}", remote_out);
                 if let Some(out) = remote_out {
                     return Ok(out);
                 }

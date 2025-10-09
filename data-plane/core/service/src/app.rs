@@ -202,7 +202,7 @@ where
         self.send_message_without_context(msg).await
     }
 
-    /// Set a route towards another app
+    /// Set a route towards another (optionally remote) app
     pub async fn set_route(&self, name: &Name, conn: u64) -> Result<(), ServiceError> {
         debug!("set route: {} - {:?}", name, conn);
 
