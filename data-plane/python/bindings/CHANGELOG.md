@@ -1,5 +1,35 @@
 # Changelog
 
+## [0.6.0](https://github.com/agntcy/slim/compare/slim-bindings-v0.5.0...slim-bindings-v0.6.0) (2025-10-09)
+
+
+### ⚠ BREAKING CHANGES
+
+* session layer APIs updated.
+
+### Features
+
+* improve point to point session with sender/receiver buffer ([#735](https://github.com/agntcy/slim/issues/735)) ([e6f65bb](https://github.com/agntcy/slim/commit/e6f65bb9d6584994538027dd4db45429d74821ea))
+* **multicast:** remove moderator parameter from configuration ([#739](https://github.com/agntcy/slim/issues/739)) ([464d523](https://github.com/agntcy/slim/commit/464d523205a6f972e633eddd842c007929bb7974))
+* **pysession:** expose session type, src and dst names ([#737](https://github.com/agntcy/slim/issues/737)) ([1c16ccc](https://github.com/agntcy/slim/commit/1c16ccc74d4b0572a424369223320bf8a52269c2))
+* **python/bindings:** create a unique SLIM data-plane instance per process by default ([#819](https://github.com/agntcy/slim/issues/819)) ([728290c](https://github.com/agntcy/slim/commit/728290c809d2f378dd939905af565c3ed483ebcd))
+* **python/bindings:** improve documentation ([#748](https://github.com/agntcy/slim/issues/748)) ([88c43d8](https://github.com/agntcy/slim/commit/88c43d8a39acc8457fa9ed8344dac7ea85821887))
+* **python/bindings:** improve publish function ([#749](https://github.com/agntcy/slim/issues/749)) ([85fd2ca](https://github.com/agntcy/slim/commit/85fd2ca2e24794998203fd25b51964eabc10c04e))
+* **python/bindings:** remove request-reply API ([#677](https://github.com/agntcy/slim/issues/677)) ([65cec9d](https://github.com/agntcy/slim/commit/65cec9d9fc4439a696aadae2edad940792a52fa1))
+* **python/examples:** allow each participant to publish ([#778](https://github.com/agntcy/slim/issues/778)) ([0a28d9d](https://github.com/agntcy/slim/commit/0a28d9d0c02adb08065e56043491208a638e2661))
+* refactor session receive() API ([#731](https://github.com/agntcy/slim/issues/731)) ([787d111](https://github.com/agntcy/slim/commit/787d111d030de5768385b72ea7a794ced85d6652))
+* **session:** introduce session metadata ([#744](https://github.com/agntcy/slim/issues/744)) ([14528ee](https://github.com/agntcy/slim/commit/14528eec79e31e0729b3f305a8da5bc38ab0ac51))
+
+
+### Bug Fixes
+
+* **python-bindings:** remove destination_name property ([#751](https://github.com/agntcy/slim/issues/751)) ([ab651da](https://github.com/agntcy/slim/commit/ab651da1a1d830a857a6a370d9cc66e2f6d737d5))
+
+
+### Documentation
+
+* **python/bindings:** add documentantion for sessions and example ([#750](https://github.com/agntcy/slim/issues/750)) ([04f1d0f](https://github.com/agntcy/slim/commit/04f1d0f583698e94394b86f73445532c328a7796))
+
 ## [0.5.0](https://github.com/agntcy/slim/compare/slim-bindings-v0.4.1...slim-bindings-v0.5.0) (2025-09-18)
 
 
