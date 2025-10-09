@@ -29,7 +29,7 @@ dependencies = [
 
 [[package]]
 name = "agntcy-slim"
-version = "0.5.1"
+version = "0.6.0"
 dependencies = [
  "agntcy-slim-config",
  "agntcy-slim-service",
