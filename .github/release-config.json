@@ -9,10 +9,7 @@
   "packages": {
     "data-plane/python/bindings": {
       "package-name": "slim-bindings",
-      "release-type": "python",
-      "prerelease": true,
-      "prerelease-type": "rc",
-      "versioning": "prerelease"
+      "release-type": "python"
     },
     "charts/slim": {
       "package-name": "helm-slim",
@@ -48,10 +45,7 @@
     },
     "data-plane/python/bindings/examples": {
       "package-name": "slim-bindings-examples",
-      "release-type": "python",
-      "prerelease": true,
-      "prerelease-type": "rc",
-      "versioning": "prerelease"
+      "release-type": "python"
     },
     "data-plane/python/integrations/slimrpc": {
       "package-name": "slimrpc",
