@@ -512,7 +512,7 @@ where
                 }
             }
 
-            channel_endpoint.stop().await;
+            channel_endpoint.close();
 
             debug!(
                 "stopping message processing on multicast session {} for {}",

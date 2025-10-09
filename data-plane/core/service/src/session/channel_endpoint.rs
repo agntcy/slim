@@ -33,6 +33,7 @@ use crate::session::{
         TaskUpdate, UpdateParticipantMls,
     },
     session_layer::SessionLayerMessage,
+    traits::SessionComponentsLifecycle,
 };
 use slim_mls::mls::{CommitMsg, KeyPackageMsg, Mls, MlsIdentity, ProposalMsg, WelcomeMsg};
 
@@ -92,10 +93,6 @@ trait OnMessageReceived {
     async fn on_message(&mut self, msg: Message) -> Result<(), SessionError>;
 }
 
-trait Stop {
-    async fn stop(&mut self);
-}
-
 pub(crate) trait MlsEndpoint {
     /// check whether MLS is up
     fn is_mls_up(&self) -> Result<bool, SessionError>;
@@ -149,10 +146,10 @@ where
         }
     }
 
-    pub async fn stop(&mut self) {
+    pub fn close(&mut self) {
         match self {
-            ChannelEndpoint::ChannelParticipant(cp) => cp.stop().await,
-            ChannelEndpoint::ChannelModerator(cm) => cm.stop().await,
+            ChannelEndpoint::ChannelParticipant(cp) => cp.close(),
+            ChannelEndpoint::ChannelModerator(cm) => cm.close(),
         }
     }
 }
@@ -1067,13 +1064,13 @@ where
     }
 }
 
-impl<P, V, T> Stop for ChannelParticipant<P, V, T>
+impl<P, V, T> SessionComponentsLifecycle for ChannelParticipant<P, V, T>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
     T: Transmitter + Send + Sync + Clone + 'static,
 {
-    async fn stop(&mut self) {
+    fn close(&mut self) {
         debug!("closing channel for session {}", self.endpoint.session_id);
         if let Some(t) = &mut self.timer {
             t.stop();
@@ -2087,13 +2084,13 @@ where
     }
 }
 
-impl<P, V, T> Stop for ChannelModerator<P, V, T>
+impl<P, V, T> SessionComponentsLifecycle for ChannelModerator<P, V, T>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
     T: Transmitter + Send + Sync + Clone + 'static,
 {
-    async fn stop(&mut self) {
+    fn close(&mut self) {
         self.tasks_todo.clear();
         self.current_task = None;
 

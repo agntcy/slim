@@ -329,7 +329,7 @@ where
             timer.stop();
         }
 
-        self.state.channel_endpoint.stop().await;
+        self.state.channel_endpoint.close();
 
         debug!("PointToPointProcessor loop exited");
     }
