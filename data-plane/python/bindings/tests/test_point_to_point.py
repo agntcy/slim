@@ -61,8 +61,8 @@ async def test_sticky_session(server, mls_enabled):
     Expectation:
         Sticky routing pins all messages to the first receiver that accepted the session.
     """
-    sender_name = slim_bindings.PyName("org", "default", "sender")
-    receiver_name = slim_bindings.PyName("org", "default", "receiver")
+    sender_name = slim_bindings.PyName("org", "default", "p2p_sender")
+    receiver_name = slim_bindings.PyName("org", "default", "p2p_receiver")
 
     print(f"Sender name: {sender_name}")
     print(f"Receiver name: {receiver_name}")

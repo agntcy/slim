@@ -26,7 +26,7 @@ import slim_bindings
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("server", ["127.0.0.1:12344"], indirect=True)
+@pytest.mark.parametrize("server", ["127.0.0.1:12344", None], indirect=True)
 async def test_end_to_end(server):
     """Full round-trip:
     - Two services connect (Alice, Bob)
@@ -37,34 +37,40 @@ async def test_end_to_end(server):
     - Test error behavior after deleting session
     - Disconnect cleanup
     """
-    alice_name = slim_bindings.PyName("org", "default", "alice")
-    bob_name = slim_bindings.PyName("org", "default", "bob")
+    alice_name = slim_bindings.PyName("org", "default", "alice_e2e")
+    bob_name = slim_bindings.PyName("org", "default", "bob_e2e")
 
     # create 2 clients, Alice and Bob
-    svc_alice = await create_svc(alice_name, "secret")
-    svc_bob = await create_svc(bob_name, "secret")
+    svc_alice = await create_svc(
+        alice_name, "secret", local_service=server.local_service
+    )
+    svc_bob = await create_svc(bob_name, "secret", local_service=server.local_service)
 
     # connect to the service
-    conn_id_alice = await slim_bindings.connect(
-        svc_alice,
-        {"endpoint": "http://127.0.0.1:12344", "tls": {"insecure": True}},
-    )
-    conn_id_bob = await slim_bindings.connect(
-        svc_bob,
-        {"endpoint": "http://127.0.0.1:12344", "tls": {"insecure": True}},
-    )
+    if server.local_service:
+        conn_id_alice = await slim_bindings.connect(
+            svc_alice,
+            {"endpoint": "http://127.0.0.1:12344", "tls": {"insecure": True}},
+        )
+        conn_id_bob = await slim_bindings.connect(
+            svc_bob,
+            {"endpoint": "http://127.0.0.1:12344", "tls": {"insecure": True}},
+        )
 
-    # subscribe alice and bob
-    alice_name = slim_bindings.PyName("org", "default", "alice", id=svc_alice.id)
-    bob_name = slim_bindings.PyName("org", "default", "bob", id=svc_bob.id)
-    await slim_bindings.subscribe(svc_alice, conn_id_alice, alice_name)
-    await slim_bindings.subscribe(svc_bob, conn_id_bob, bob_name)
+        # subscribe alice and bob
+        alice_name = slim_bindings.PyName(
+            "org", "default", "alice_e2e", id=svc_alice.id
+        )
+        bob_name = slim_bindings.PyName("org", "default", "bob_e2e", id=svc_bob.id)
+        await slim_bindings.subscribe(svc_alice, alice_name, conn_id_alice)
+        await slim_bindings.subscribe(svc_bob, bob_name, conn_id_bob)
+
+        await asyncio.sleep(1)
+
+        # set routes
+        await slim_bindings.set_route(svc_alice, bob_name, conn_id_alice)
 
     await asyncio.sleep(1)
-
-    # set routes
-    await slim_bindings.set_route(svc_alice, conn_id_alice, bob_name)
-
     print(alice_name)
     print(bob_name)
 
@@ -114,11 +120,12 @@ async def test_end_to_end(server):
     except Exception as e:
         assert "session closed" in str(e), f"Unexpected error message: {str(e)}"
 
-    # disconnect alice
-    await slim_bindings.disconnect(svc_alice, conn_id_alice)
+    if server.local_service:
+        # disconnect alice
+        await slim_bindings.disconnect(svc_alice, conn_id_alice)
 
-    # disconnect bob
-    await slim_bindings.disconnect(svc_bob, conn_id_bob)
+        # disconnect bob
+        await slim_bindings.disconnect(svc_bob, conn_id_bob)
 
     # try to delete a random session, we should get an exception
     try:
@@ -138,7 +145,12 @@ async def test_session_config(server):
     - Assert received session adopts new default
     - Validate message delivery still works
     """
-    alice_name = slim_bindings.PyName("org", "default", "alice")
+
+    org = "org"
+    ns = "default"
+    alice_name_str = "alice_cfg"
+
+    alice_name = slim_bindings.PyName(org, ns, alice_name_str)
 
     # create svc
     svc = await create_svc(alice_name, "secret")
@@ -175,8 +187,8 @@ async def test_session_config(server):
     # ------------------------------------------------------------------
     # Validate that a session initiated towards this service adopts the new default
     # ------------------------------------------------------------------
-    peer_name = slim_bindings.PyName("org", "default", "peer")
-    peer_svc = await create_svc(peer_name, "secret")
+    peer_name = slim_bindings.PyName(org, ns, "peer_cfg")
+    peer_svc = await create_svc(peer_name, "secret", local_service=server.local_service)
 
     # Connect both services to the running server
     conn_id_local = await slim_bindings.connect(
@@ -189,16 +201,16 @@ async def test_session_config(server):
     )
 
     # Build fully qualified names (with instance IDs) and subscribe
-    local_name_with_id = slim_bindings.PyName("org", "default", "alice", id=svc.id)
-    peer_name_with_id = slim_bindings.PyName("org", "default", "peer", id=peer_svc.id)
-    await slim_bindings.subscribe(svc, conn_id_local, local_name_with_id)
-    await slim_bindings.subscribe(peer_svc, conn_id_peer, peer_name_with_id)
+    local_name_with_id = slim_bindings.PyName(org, ns, alice_name_str, id=svc.id)
+    peer_name_with_id = slim_bindings.PyName(org, ns, "peer_cfg", id=peer_svc.id)
+    await slim_bindings.subscribe(svc, local_name_with_id, conn_id_local)
+    await slim_bindings.subscribe(peer_svc, peer_name_with_id, conn_id_peer)
 
     # Allow propagation
     await asyncio.sleep(0.5)
 
     # Set route from peer -> local so peer can send directly
-    await slim_bindings.set_route(peer_svc, conn_id_peer, local_name_with_id)
+    await slim_bindings.set_route(peer_svc, local_name_with_id, conn_id_peer)
 
     # Peer creates a session
     peer_session_ctx = await slim_bindings.create_session(
@@ -253,26 +265,28 @@ async def test_slim_wrapper(server):
     name2 = slim_bindings.PyName("org", "default", "slim2")
 
     # create new slim object
-    slim1 = await create_slim(name1, "secret")
+    slim1 = await create_slim(name1, "secret", local_service=server.local_service)
 
-    # Connect to the service and subscribe for the local name
-    _ = await slim1.connect(
-        {"endpoint": "http://127.0.0.1:12345", "tls": {"insecure": True}}
-    )
+    if server.local_service:
+        # Connect to the service and subscribe for the local name
+        _ = await slim1.connect(
+            {"endpoint": "http://127.0.0.1:12345", "tls": {"insecure": True}}
+        )
 
     # create second local app
-    slim2 = await create_slim(name2, "secret")
+    slim2 = await create_slim(name2, "secret", local_service=server.local_service)
 
-    # Connect to SLIM server
-    _ = await slim2.connect(
-        {"endpoint": "http://127.0.0.1:12345", "tls": {"insecure": True}}
-    )
+    if server.local_service:
+        # Connect to SLIM server
+        _ = await slim2.connect(
+            {"endpoint": "http://127.0.0.1:12345", "tls": {"insecure": True}}
+        )
 
-    # Wait for routes to propagate
-    await asyncio.sleep(1)
+        # Wait for routes to propagate
+        await asyncio.sleep(1)
 
-    # set route
-    await slim2.set_route(name1)
+        # set route
+        await slim2.set_route(name1)
 
     # create session
     session_context = await slim2.create_session(
@@ -337,32 +351,37 @@ async def test_auto_reconnect_after_server_restart(server):
     - Wait for automatic reconnection
     - Publish again and confirm continuity using original session context
     """
-    alice_name = slim_bindings.PyName("org", "default", "alice")
-    bob_name = slim_bindings.PyName("org", "default", "bob")
+    alice_name = slim_bindings.PyName("org", "default", "alice_res")
+    bob_name = slim_bindings.PyName("org", "default", "bob_res")
 
-    svc_alice = await create_svc(alice_name, "secret")
-    svc_bob = await create_svc(bob_name, "secret")
-
-    # connect clients and subscribe for messages
-    conn_id_alice = await slim_bindings.connect(
-        svc_alice,
-        {"endpoint": "http://127.0.0.1:12346", "tls": {"insecure": True}},
+    svc_alice = await create_svc(
+        alice_name, "secret", local_service=server.local_service
     )
-    conn_id_bob = await slim_bindings.connect(
-        svc_bob,
-        {"endpoint": "http://127.0.0.1:12346", "tls": {"insecure": True}},
-    )
+    svc_bob = await create_svc(bob_name, "secret", local_service=server.local_service)
 
-    alice_name = slim_bindings.PyName("org", "default", "alice", id=svc_alice.id)
-    bob_name = slim_bindings.PyName("org", "default", "bob", id=svc_bob.id)
-    await slim_bindings.subscribe(svc_alice, conn_id_alice, alice_name)
-    await slim_bindings.subscribe(svc_bob, conn_id_bob, bob_name)
+    if server.local_service:
+        # connect clients and subscribe for messages
+        conn_id_alice = await slim_bindings.connect(
+            svc_alice,
+            {"endpoint": "http://127.0.0.1:12346", "tls": {"insecure": True}},
+        )
+        conn_id_bob = await slim_bindings.connect(
+            svc_bob,
+            {"endpoint": "http://127.0.0.1:12346", "tls": {"insecure": True}},
+        )
 
-    # Wait for routes to propagate
-    await asyncio.sleep(1)
+        alice_name = slim_bindings.PyName(
+            "org", "default", "alice_res", id=svc_alice.id
+        )
+        bob_name = slim_bindings.PyName("org", "default", "bob_res", id=svc_bob.id)
+        await slim_bindings.subscribe(svc_alice, alice_name, conn_id_alice)
+        await slim_bindings.subscribe(svc_bob, bob_name, conn_id_bob)
 
-    # set routing from Alice to Bob
-    await slim_bindings.set_route(svc_alice, conn_id_alice, bob_name)
+        # set routing from Alice to Bob
+        await slim_bindings.set_route(svc_alice, bob_name, conn_id_alice)
+
+        # Wait for routes to propagate
+        await asyncio.sleep(1)
 
     # create point to point session
     session_context = await slim_bindings.create_session(
@@ -386,10 +405,10 @@ async def test_auto_reconnect_after_server_restart(server):
     assert bob_session_ctx.id == session_context.id
 
     # restart the server
-    await slim_bindings.stop_server(server, "127.0.0.1:12346")
+    await slim_bindings.stop_server(server.service, "127.0.0.1:12346")
     await asyncio.sleep(3)  # allow time for the server to fully shut down
     await slim_bindings.run_server(
-        server, {"endpoint": "127.0.0.1:12346", "tls": {"insecure": True}}
+        server.service, {"endpoint": "127.0.0.1:12346", "tls": {"insecure": True}}
     )
     await asyncio.sleep(2)  # allow time for automatic reconnection
 
@@ -417,20 +436,23 @@ async def test_error_on_nonexistent_subscription(server):
     - Publish message addressed to Bob (not connected)
     - Expect an error surfaced (no matching subscription)
     """
-    name = slim_bindings.PyName("org", "default", "alice")
+    name = slim_bindings.PyName("org", "default", "alice_nonsub")
 
-    svc_alice = await create_svc(name, "secret")
+    svc_alice = await create_svc(name, "secret", local_service=server.local_service)
 
-    # connect client and subscribe for messages
-    conn_id_alice = await slim_bindings.connect(
-        svc_alice,
-        {"endpoint": "http://127.0.0.1:12347", "tls": {"insecure": True}},
-    )
-    alice_class = slim_bindings.PyName("org", "default", "alice", id=svc_alice.id)
-    await slim_bindings.subscribe(svc_alice, conn_id_alice, alice_class)
+    if server.local_service:
+        # connect client and subscribe for messages
+        conn_id_alice = await slim_bindings.connect(
+            svc_alice,
+            {"endpoint": "http://127.0.0.1:12347", "tls": {"insecure": True}},
+        )
+        alice_class = slim_bindings.PyName(
+            "org", "default", "alice_nonsub", id=svc_alice.id
+        )
+        await slim_bindings.subscribe(svc_alice, alice_class, conn_id_alice)
 
     # create Bob's name, but do not instantiate or subscribe Bob
-    bob_name = slim_bindings.PyName("org", "default", "bob")
+    bob_name = slim_bindings.PyName("org", "default", "bob_nonsub")
 
     # create point to point session (Alice only)
     session_context = await slim_bindings.create_session(

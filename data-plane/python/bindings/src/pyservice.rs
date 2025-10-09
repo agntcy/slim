@@ -35,6 +35,7 @@ use slim_config::grpc::server::ServerConfig as PyGrpcServerConfig;
 // Global static service instance
 static GLOBAL_SERVICE: OnceLock<Service> = OnceLock::new();
 
+#[allow(clippy::large_enum_variant)]
 enum ServiceRef {
     Global(&'static Service),
     Local(Service),
