@@ -37,7 +37,7 @@ pub trait Transmitter: SessionInterceptorProvider {
 /// Session components lifecycle trait
 /// it can be used when a session components change state
 /// implements only close at the moment
-pub trait SessionComponentsLifecycle {
+pub trait SessionComponentLifecycle {
     fn close(&mut self);
 }
 

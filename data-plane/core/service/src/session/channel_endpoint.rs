@@ -33,7 +33,7 @@ use crate::session::{
         TaskUpdate, UpdateParticipantMls,
     },
     session_layer::SessionLayerMessage,
-    traits::SessionComponentsLifecycle,
+    traits::SessionComponentLifecycle,
 };
 use slim_mls::mls::{CommitMsg, KeyPackageMsg, Mls, MlsIdentity, ProposalMsg, WelcomeMsg};
 
@@ -1064,7 +1064,7 @@ where
     }
 }
 
-impl<P, V, T> SessionComponentsLifecycle for ChannelParticipant<P, V, T>
+impl<P, V, T> SessionComponentLifecycle for ChannelParticipant<P, V, T>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
@@ -2084,7 +2084,7 @@ where
     }
 }
 
-impl<P, V, T> SessionComponentsLifecycle for ChannelModerator<P, V, T>
+impl<P, V, T> SessionComponentLifecycle for ChannelModerator<P, V, T>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
