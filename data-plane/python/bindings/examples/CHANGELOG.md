@@ -1,6 +1,6 @@
 # Changelog
 
-## [0.2.0](https://github.com/agntcy/slim/compare/slim-bindings-examples-v0.1.1...slim-bindings-examples-v0.2.0) (2025-10-09)
+## [0.6.0](https://github.com/agntcy/slim/compare/slim-bindings-examples-v0.1.1...slim-bindings-examples-v0.6.0) (2025-10-09)
 
 
 ### ⚠ BREAKING CHANGES
