@@ -289,8 +289,8 @@ impl NameState {
                 let mut stop = false;
                 let mut i = pos;
                 while !stop {
-                    if vec[index][pos] != incoming_conn {
-                        return Some(vec[index][pos]);
+                    if vec[index][i] != incoming_conn {
+                        return Some(vec[index][i]);
                     }
                     i = (i + 1) % vec[index].len();
                     if i == pos {
