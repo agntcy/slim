@@ -3,134 +3,15 @@ package nbapiservice
 import (
 	"context"
 	"errors"
-	"reflect"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 
-	controllerv1 "github.com/agntcy/slim/control-plane/common/proto/controller/v1"
 	controlplaneApi "github.com/agntcy/slim/control-plane/common/proto/controlplane/v1"
 	"github.com/agntcy/slim/control-plane/control-plane/internal/db"
 	"github.com/agntcy/slim/control-plane/control-plane/internal/services/nodecontrol"
 )
-
-type mockDataAccess struct {
-	mock.Mock
-}
-
-// AddRoute implements db.DataAccess.
-func (m *mockDataAccess) AddRoute(route db.Route) string {
-	panic("unimplemented")
-}
-
-// DeleteChannel implements db.DataAccess.
-func (m *mockDataAccess) DeleteChannel(channelID string) error {
-	panic("unimplemented")
-}
-
-// DeleteNode implements db.DataAccess.
-func (m *mockDataAccess) DeleteNode(id string) error {
-	panic("unimplemented")
-}
-
-// DeleteRoute implements db.DataAccess.
-func (m *mockDataAccess) DeleteRoute(routeID string) error {
-	panic("unimplemented")
-}
-
-// GetChannel implements db.DataAccess.
-func (m *mockDataAccess) GetChannel(channelID string) (db.Channel, error) {
-	panic("unimplemented")
-}
-
-// GetRouteByID implements db.DataAccess.
-func (m *mockDataAccess) GetRouteByID(routeID string) *db.Route {
-	panic("unimplemented")
-}
-
-// GetRoutesForNodeID implements db.DataAccess.
-func (m *mockDataAccess) GetRoutesForNodeID(nodeID string) []db.Route {
-	panic("unimplemented")
-}
-
-// ListChannels implements db.DataAccess.
-func (m *mockDataAccess) ListChannels() ([]db.Channel, error) {
-	panic("unimplemented")
-}
-
-// MarkRouteAsDeleted implements db.DataAccess.
-func (m *mockDataAccess) MarkRouteAsDeleted(routeID string) error {
-	panic("unimplemented")
-}
-
-// SaveChannel implements db.DataAccess.
-func (m *mockDataAccess) SaveChannel(channelID string, moderators []string) error {
-	panic("unimplemented")
-}
-
-// SaveNode implements db.DataAccess.
-func (m *mockDataAccess) SaveNode(node db.Node) (string, error) {
-	panic("unimplemented")
-}
-
-// UpdateChannel implements db.DataAccess.
-func (m *mockDataAccess) UpdateChannel(channel db.Channel) error {
-	panic("unimplemented")
-}
-
-func (m *mockDataAccess) GetNode(nodeID string) (*db.Node, error) {
-	args := m.Called(nodeID)
-	if args.Get(0) == nil {
-		return nil, args.Error(1)
-	}
-	return args.Get(0).(*db.Node), args.Error(1)
-}
-
-func (m *mockDataAccess) ListNodes() []db.Node {
-	args := m.Called()
-	return args.Get(0).([]db.Node)
-}
-
-type mockNodeCommandHandler struct {
-	mock.Mock
-}
-
-// AddStream implements nodecontrol.NodeCommandHandler.
-func (m *mockNodeCommandHandler) AddStream(ctx context.Context, nodeID string, stream controllerv1.ControllerService_OpenControlChannelServer) {
-	panic("unimplemented")
-}
-
-// GetConnectionStatus implements nodecontrol.NodeCommandHandler.
-func (m *mockNodeCommandHandler) GetConnectionStatus(ctx context.Context, nodeID string) (nodecontrol.NodeStatus, error) {
-	args := m.Called(ctx, nodeID)
-	return args.Get(0).(nodecontrol.NodeStatus), args.Error(1)
-}
-
-// RemoveStream implements nodecontrol.NodeCommandHandler.
-func (m *mockNodeCommandHandler) RemoveStream(ctx context.Context, nodeID string) error {
-	panic("unimplemented")
-}
-
-// ResponseReceived implements nodecontrol.NodeCommandHandler.
-func (m *mockNodeCommandHandler) ResponseReceived(ctx context.Context, nodeID string, command *controllerv1.ControlMessage) {
-	panic("unimplemented")
-}
-
-// SendMessage implements nodecontrol.NodeCommandHandler.
-func (m *mockNodeCommandHandler) SendMessage(ctx context.Context, nodeID string, configurationCommand *controllerv1.ControlMessage) error {
-	panic("unimplemented")
-}
-
-// UpdateConnectionStatus implements nodecontrol.NodeCommandHandler.
-func (m *mockNodeCommandHandler) UpdateConnectionStatus(nctx context.Context, odeID string, status nodecontrol.NodeStatus) {
-	panic("unimplemented")
-}
-
-// WaitForResponse implements nodecontrol.NodeCommandHandler.
-func (m *mockNodeCommandHandler) WaitForResponse(ctx context.Context, nodeID string, messageType reflect.Type, messageID string) (*controllerv1.ControlMessage, error) {
-	panic("unimplemented")
-}
 
 func TestNodeService_GetNodeByID_Success(t *testing.T) {
 	// Arrange
