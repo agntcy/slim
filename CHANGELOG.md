@@ -26,11 +26,11 @@ All notable changes to this project will be documented in this file.
 #### ⚠ Breaking Changes
 
 - Session API refactoring with new receive() API pattern
-- Removal of anycast session type, renaming to PointToPoint and Group sessions
+- Renaming sessions to PointToPoint and Group
 - Removal of request-reply API from Python bindings
 - Authentication method changes (bearer auth → static JWT)
 - Group configuration changes (removed moderator parameter)
-- Python bindings: removed destination_name property
+- Python bindings: removed destination_name property in publish API
 
 #### 🔧 Infrastructure & Tooling
 
@@ -108,7 +108,7 @@ The following matrix shows compatibility between different component versions:
 #### ⚠ Breaking Changes
 
 - Session API refactoring with new receive() pattern ([#731](https://github.com/agntcy/slim/pull/731))
-- Remove anycast session, rename other sessions into PointToPoint and Group ([#795](https://github.com/agntcy/slim/pull/795))
+- Rename sessions to PointToPoint and Group ([#795](https://github.com/agntcy/slim/pull/795))
 - Remove request-reply API from Python bindings ([#677](https://github.com/agntcy/slim/pull/677))
 - Remove bearer auth in favour of static JWT ([#774](https://github.com/agntcy/slim/pull/774))
 - Remove moderator parameter from Group configuration ([#739](https://github.com/agntcy/slim/pull/739))
