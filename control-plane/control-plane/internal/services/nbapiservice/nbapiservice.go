@@ -46,7 +46,7 @@ type nbAPIService struct {
 	logConfig    config.LogConfig
 	nodeService  NodeManager
 	routeService RouteManager
-	groupService *groupservice.GroupService
+	groupService groupservice.GroupManager
 }
 
 func NewNorthboundAPIServer(
@@ -54,7 +54,7 @@ func NewNorthboundAPIServer(
 	logConfig config.LogConfig,
 	nodeService NodeManager,
 	routeService RouteManager,
-	groupService *groupservice.GroupService,
+	groupService groupservice.GroupManager,
 ) NorthboundAPIServer {
 	cpServer := &nbAPIService{
 		config:       config,

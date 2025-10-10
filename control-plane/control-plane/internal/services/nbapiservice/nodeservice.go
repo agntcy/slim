@@ -47,19 +47,6 @@ func (s *NodeService) ListNodes(
 	return nodeListresponse, nil
 }
 
-func getNodeConnDetails(node db.Node) []*controllerapi.ConnectionDetails {
-	connDetails := make([]*controllerapi.ConnectionDetails, 0, len(node.ConnDetails))
-	for _, conn := range node.ConnDetails {
-		connDetails = append(connDetails, &controllerapi.ConnectionDetails{
-			Endpoint:         conn.Endpoint,
-			MtlsRequired:     conn.MTLSRequired,
-			ExternalEndpoint: conn.ExternalEndpoint,
-			GroupName:        conn.GroupName,
-		})
-	}
-	return connDetails
-}
-
 func (s *NodeService) GetNodeByID(nodeID string) (*controlplaneApi.NodeEntry, error) {
 	storedNode, err := s.dbService.GetNode(nodeID)
 	if err != nil {
@@ -71,4 +58,17 @@ func (s *NodeService) GetNodeByID(nodeID string) (*controlplaneApi.NodeEntry, er
 	// add connection details if available
 	nodeEntry.Connections = getNodeConnDetails(*storedNode)
 	return nodeEntry, nil
+}
+
+func getNodeConnDetails(node db.Node) []*controllerapi.ConnectionDetails {
+	connDetails := make([]*controllerapi.ConnectionDetails, 0, len(node.ConnDetails))
+	for _, conn := range node.ConnDetails {
+		connDetails = append(connDetails, &controllerapi.ConnectionDetails{
+			Endpoint:         conn.Endpoint,
+			MtlsRequired:     conn.MTLSRequired,
+			ExternalEndpoint: conn.ExternalEndpoint,
+			GroupName:        conn.GroupName,
+		})
+	}
+	return connDetails
 }

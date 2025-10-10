@@ -32,7 +32,7 @@ type sbAPIService struct {
 	dbService          db.DataAccess
 	nodeCommandHandler nodecontrol.NodeCommandHandler
 	routeService       *routes.RouteService
-	groupservice       *groupservice.GroupService
+	groupservice       groupservice.GroupManager
 }
 
 func NewSBAPIService(config config.APIConfig,
@@ -40,7 +40,7 @@ func NewSBAPIService(config config.APIConfig,
 	dbService db.DataAccess,
 	cmdHandler nodecontrol.NodeCommandHandler,
 	routeService *routes.RouteService,
-	groupservice *groupservice.GroupService) SouthboundAPIServer {
+	groupservice groupservice.GroupManager) SouthboundAPIServer {
 	return &sbAPIService{
 		config:             config,
 		logConfig:          logConfig,
