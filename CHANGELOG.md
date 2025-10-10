@@ -26,7 +26,7 @@ All notable changes to this project will be documented in this file.
 #### ⚠ Breaking Changes
 
 - Session API refactoring with new receive() API pattern
-- Removal of anycast session type, renaming to unicast and multicast sessions
+- Removal of anycast session type, renaming to PointToPoint and Group sessions
 - Removal of request-reply API from Python bindings
 - Authentication method changes (bearer auth → static JWT)
 - Multicast configuration changes (removed moderator parameter)
