@@ -4,6 +4,454 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## v0.6.0 (9 October 2025)
+
+### Key Highlights
+
+#### 🎯 Major Features Added
+
+- **Control Plane Group Management**: Complete implementation of group management functionality for organizing and controlling SLIM node groups
+- **Enhanced Authentication**: In the data-plane, replaced bearer authentication with static JWT tokens. IN control-plane, added basic authentication support for slimctl and k8s ingress in helm chart
+- **Session API Refactoring**: Major improvements to session handling including metadata support, enhanced point-to-point sessions with sender/receiver buffers, and removal of request-reply API
+- **Python Bindings Improvements**: Unique SLIM data-plane instance per process by default, improved publish function, better documentation, and session type exposure
+- **Node Management**: Enhanced node update handling and improved group ID integration in node identification
+
+#### 📜 Documentation
+
+- Enhanced Python bindings documentation with comprehensive session examples
+- Updated group example documentation and usage templates
+- Improved README files for Python bindings examples
+- Added deployment usage templates and Taskfile automation for various deployment patterns ([#753](https://github.com/agntcy/slim/pull/753))
+
+#### ⚠ Breaking Changes
+
+- Session API refactoring with new receive() API pattern
+- Removal of anycast session type, renaming to unicast and multicast sessions
+- Removal of request-reply API from Python bindings
+- Authentication method changes (bearer auth → static JWT)
+- Multicast configuration changes (removed moderator parameter)
+- Python bindings: removed destination_name property
+
+#### 🔧 Infrastructure & Tooling
+
+- Upgraded to Rust toolchain 1.90.0
+- Enhanced release process with signoff commits and pre-release support
+- Improved CI/CD with release-please integration
+- Better dependency management for Python packages
+
+#### 🛡 Security & Hardening
+
+- Improved certificate handling across trust domains
+- Enhanced JWKS file management for multiple trust domains
+- Basic authentication support for ingress and slimctl
+
+### Component Versions Summary
+
+| Component               | Latest Version | Release Date |
+| ----------------------- | -------------- | ------------ |
+| slim                    | v0.6.0         | 2025-10-09   |
+| slim-bindings           | v0.6.0         | 2025-10-09   |
+| control-plane           | v0.6.0         | 2025-10-09   |
+| slimctl                 | v0.6.0         | 2025-10-09   |
+| slim-bindings-examples  | v0.6.0         | 2025-10-09   |
+| slim-testutils          | v0.6.0         | 2025-10-09   |
+| agntcy-slim-mcp-proxy   | v0.2.0         | 2025-10-09   |
+
+### Release Artifacts
+
+- **Container Images**: Available on GitHub Container Registry
+  - `ghcr.io/agntcy/slim:v0.6.0`
+  - `ghcr.io/agntcy/slim-control-plane:v0.6.0`
+- **Python Packages**: Published to PyPI
+  - `slim-bindings==0.6.0`
+- **Helm Charts**: Available on Helm repository
+  - `helm-slim` (updated for v0.6.0 compatibility)
+  - `helm-slim-control-plane` (updated for control-plane v0.6.0)
+- **CLI Tools**:
+  - `slimctl` v0.6.0 with enhanced authentication support
+
+### Compatibility Matrix
+
+The following matrix shows compatibility between different component versions:
+
+| Core Component    | Version | Compatible With                                             |
+| ----------------- | ------- | ----------------------------------------------------------- |
+| **slim**          | v0.6.0  | slim-bindings v0.6.0, control-plane v0.6.0                 |
+| **slim-bindings** | v0.6.0  | slim v0.6.0                                                 |
+| **control-plane** | v0.6.0  | slim v0.6.0, slimctl v0.6.0                                |
+| **slimctl**       | v0.6.0  | control-plane v0.6.0, slim v0.6.0                          |
+
+#### Helm Chart Compatibility
+
+| Helm Chart                  | Version | Deploys Component     | Minimum Requirements |
+| --------------------------- | ------- | --------------------- | -------------------- |
+| **helm-slim**               | v0.6.0  | slim v0.6.0           | Kubernetes 1.20+     |
+| **helm-slim-control-plane** | v0.6.0  | control-plane v0.6.0  | Kubernetes 1.20+     |
+
+#### Development & Testing Tools
+
+| Tool                       | Version | Works With           | Purpose           |
+| -------------------------- | ------- | -------------------- | ----------------- |
+| **slim-testutils**         | v0.6.0  | All v0.6.0 components| Testing utilities |
+| **slim-bindings-examples** | v0.6.0  | slim-bindings v0.6.0 | Python examples   |
+
+#### Compatibility Notes
+
+- **slim v0.6.0** introduces breaking changes in session API that require **slim-bindings v0.6.0**
+- **Group management** requires **control-plane v0.6.0** and **slimctl v0.6.0**
+- **Enhanced authentication** is available across all v0.6.0 components
+- **Session metadata** and **improved session handling** require slim v0.6.0 and slim-bindings v0.6.0
+- Older versions of slim-bindings (< v0.6.0) are **not compatible** with slim v0.6.0 due to session API changes
+
+### v0.6.0 Release Summary (October 2025)
+
+#### ⚠ Breaking Changes
+
+- Session API refactoring with new receive() pattern ([#731](https://github.com/agntcy/slim/pull/731))
+- Remove anycast session, rename unicast and multicast sessions ([#795](https://github.com/agntcy/slim/pull/795))
+- Remove request-reply API from Python bindings ([#677](https://github.com/agntcy/slim/pull/677))
+- Remove bearer auth in favour of static JWT ([#774](https://github.com/agntcy/slim/pull/774))
+- Remove moderator parameter from multicast configuration ([#739](https://github.com/agntcy/slim/pull/739))
+- Remove destination_name property from Python bindings ([#751](https://github.com/agntcy/slim/pull/751))
+
+#### 🚀 Features
+
+- Implement control plane group management ([#554](https://github.com/agntcy/slim/pull/554))
+- Handle updates from SLIM nodes ([#708](https://github.com/agntcy/slim/pull/708))
+- Create unique SLIM data-plane instance per process by default ([#819](https://github.com/agntcy/slim/pull/819))
+- Introduce session metadata ([#744](https://github.com/agntcy/slim/pull/744))
+- Expose session type, src and dst names in Python sessions ([#737](https://github.com/agntcy/slim/pull/737))
+- Improve point to point session with sender/receiver buffer ([#735](https://github.com/agntcy/slim/pull/735))
+- Improve publish function in Python bindings ([#749](https://github.com/agntcy/slim/pull/749))
+- Add basic auth to slimctl ([#763](https://github.com/agntcy/slim/pull/763))
+- Add basic auth to ingress ([#722](https://github.com/agntcy/slim/pull/722))
+- Add string name on pub messages ([#693](https://github.com/agntcy/slim/pull/693))
+- Allow each participant to publish in Python examples ([#778](https://github.com/agntcy/slim/pull/778))
+- Improve Python bindings documentation ([#748](https://github.com/agntcy/slim/pull/748))
+- Add documentation for sessions and examples ([#750](https://github.com/agntcy/slim/pull/750))
+
+#### 🐛 Bug Fixes
+
+- Fix subscription-table wrong iterator when matching over multiple output connections ([#815](https://github.com/agntcy/slim/pull/815))
+- Avoid panic sending errors to the local application ([#814](https://github.com/agntcy/slim/pull/814))
+- Add group id to node id ([#746](https://github.com/agntcy/slim/pull/746))
+- Create new JWKS file containing all keys from all trust domains ([#776](https://github.com/agntcy/slim/pull/776))
+- Load all certificates for dataplane from ca ([#772](https://github.com/agntcy/slim/pull/772))
+- Correctly close multicast example ([#786](https://github.com/agntcy/slim/pull/786))
+- Fix readmes for python bindings examples ([#764](https://github.com/agntcy/slim/pull/764))
+
+#### 🔧 Infrastructure & Tooling
+
+- Upgrade to rust toolchain 1.90.0 ([#730](https://github.com/agntcy/slim/pull/730))
+- Signoff commits made by release please ([#723](https://github.com/agntcy/slim/pull/723))
+- Fix release please signoff ([#727](https://github.com/agntcy/slim/pull/727))
+- Fix python examples path in CI ([#719](https://github.com/agntcy/slim/pull/719))
+- Publish Python bindings as pre-release ([#787](https://github.com/agntcy/slim/pull/787), [#793](https://github.com/agntcy/slim/pull/793))
+
+#### 🛡 Security & Hardening
+
+- Enhanced certificate management across trust domains ([#776](https://github.com/agntcy/slim/pull/776))
+- Static JWT authentication implementation ([#774](https://github.com/agntcy/slim/pull/774))
+- Basic authentication for slimctl and ingress ([#763](https://github.com/agntcy/slim/pull/763), [#722](https://github.com/agntcy/slim/pull/722))
+
+#### 📦 Packaging & Release
+
+- Coordinated multi-component release (slim 0.6.0 & dependent packages)
+- Remove -rc suffix from python bindings ([#821](https://github.com/agntcy/slim/pull/821))
+- Update bindings dependencies across packages ([#713](https://github.com/agntcy/slim/pull/713))
+- Upgrade examples to use slim 0.5.0+ ([#717](https://github.com/agntcy/slim/pull/717))
+
+### v0.6.0 Session API migration guide
+
+The API has undergone a fundamental architectural shift from **app-centric messaging** to **session-centric messaging**:
+
+- **Old paradigm**: Messages sent through the `Slim` application instance with session IDs
+- **New paradigm**: Messages sent directly through `Session` objects
+
+---
+
+### 1. Dependency Updates
+
+#### Update your requirements
+```diff
+# pyproject.toml or requirements.txt
+- slim-bindings>=0.5.0
++ slim-bindings>=0.6.0
+```
+
+---
+
+### 2. Application Instance Management
+
+#### Instance ID Access
+```python
+# OLD: Method call
+app = await slim_bindings.Slim.new(name, provider, verifier)
+instance_id = app.get_id()
+
+# NEW: Property access
+app = await slim_bindings.Slim.new(name, provider, verifier)
+instance_id_str = app.id_str
+instance_id = app.id
+```
+
+#### Context Manager Usage
+```python
+# OLD: Required context manager
+async with app:
+    session = await app.create_session(config)
+    await app.publish(session, message, destination)
+
+# NEW: No context manager needed
+session = await app.create_session(config)
+await session.publish(message)
+```
+
+**Migration**: Remove `async with app:` context managers, replace `app.get_id()` with `app.id_str` or `app.id`.
+
+---
+
+### 3. Session Configuration (Major Changes)
+
+The session configuration system has been completely redesigned around communication patterns.
+
+#### Old Session Types → New Session Types
+
+##### Fire-and-Forget → PointToPoint
+
+```python
+# OLD: Fire-and-forget with sticky=True
+session = await app.create_session(
+    slim_bindings.PySessionConfiguration.FireAndForget(
+        max_retries=5,
+        timeout=datetime.timedelta(seconds=5),
+        sticky=True,  # Sticky = same peer
+        mls_enabled=enable_mls,
+    )
+)
+
+# NEW: Explicit PointToPoint
+session = await app.create_session(
+    slim_bindings.PySessionConfiguration.PointToPoint(
+        peer_name=remote_name,
+        # uncomment to enable reliable delivery and MLS
+        # max_retries=5,
+        # timeout=datetime.timedelta(seconds=5),
+        # mls_enabled=enable_mls,
+    )
+)
+```
+
+##### Streaming → Group
+
+```python
+# OLD: Bidirectional streaming with topic
+session = await app.create_session(
+    slim_bindings.PySessionConfiguration.Streaming(
+        slim_bindings.PySessionDirection.BIDIRECTIONAL,
+        topic=channel_name,
+        moderator=True,
+        max_retries=5,
+        timeout=datetime.timedelta(seconds=5),
+        mls_enabled=enable_mls,
+    )
+)
+
+# NEW: Group with channel
+session = await app.create_session(
+    slim_bindings.PySessionConfiguration.Group(
+        channel_name=channel_name,
+        # uncomment to enable reliable delivery and MLS
+        # max_retries=5,
+        # timeout=datetime.timedelta(seconds=5),
+        # mls_enabled=enable_mls,
+    )
+)
+```
+
+**Migration Mapping**:
+- `FireAndForget(sticky=True)` → `PointToPoint(peer_name=target)`
+- `Streaming(BIDIRECTIONAL, topic=X)` → `Group(channel_name=target_group)`
+
+---
+
+#### 5. Message Sending
+
+The message sending API has moved from app-level methods to session-level methods.
+
+##### Basic Message Publishing
+```python
+# OLD: App-level publishing with session reference
+await app.publish(session, message.encode(), destination_name)
+
+# NEW: Session-level publishing
+
+# For PointToPoint/Group (destination implicit)
+await session.publish(message.encode())
+```
+
+##### Reply to Received Messages
+```python
+# OLD: App-level reply
+await app.publish_to(session_info, reply.encode())
+
+# NEW: Session-level reply with message context
+await session.publish_to(msg_ctx, reply.encode())
+```
+
+---
+
+#### 6. Message Receiving
+
+Message receiving has changed from app-level session management to session-level message handling.
+
+##### Waiting for New Sessions
+```python
+# OLD: App-level receive for new sessions
+session_info, initial_message = await app.receive()
+session_id = session_info.id
+
+# NEW: Explicit session listening
+session = await app.listen_for_session()
+
+# Session also contains additional properties
+session_id = session.id
+session_metadata = session.metadata
+session_type = session.session_type
+session_config = session.session_config
+session_src = session.src
+session_dst = session.dst
+```
+
+##### Receiving Messages from Sessions
+```python
+# OLD: App-level receive with session ID
+session_info, message = await app.receive(session=session_id)
+
+# NEW: Session-level message receiving
+msg_ctx, message = await session.get_message()
+```
+
+##### Message Context Changes
+```python
+# OLD: Session info contained properties regarding the last message received
+source = session_info.destination_name:
+dst = session_info.source_name
+
+# NEW: Message context contains additional received message properties
+source_name = msg_ctx.source_name
+dst_name = msg_ctx.destination_name
+payload_type = msg_ctx.payload_type
+message_metadata = msg_ctx.metadata
+input_connection = msg_ctx.input_connection
+```
+
+---
+
+#### 7. Session Lifecycle Management
+
+##### Session Object Usage
+```python
+# OLD: Sessions referenced by ID, managed through app
+async def handle_session(app, session_id):
+    while True:
+        session_info, msg = await app.receive(session=session_id)
+        await app.publish_to(session_info, response.encode())
+
+# NEW: Sessions are first-class objects
+async def handle_session(session):
+    while True:
+        msg_ctx, msg = await session.get_message()
+        await session.publish_to(msg_ctx, response.encode())
+```
+
+##### Multiple Session Handling
+```python
+# OLD: Track sessions by ID
+active_sessions = {}
+session_info, _ = await app.receive()
+session_id = session_info.id
+active_sessions[session_id] = session_info
+
+# NEW: Work directly with session objects
+active_sessions = []
+session = await app.listen_for_session()
+active_sessions.append(session)
+```
+
+---
+
+#### 8. Group Management (Invitations)
+
+##### Inviting Participants
+```python
+# OLD: App-level invitation management
+await app.invite(session_info, participant_name)
+
+# NEW: Session-level invitation management
+
+# Add a participant
+await session.invite(participant_name)
+
+# Remove a participant
+await session.remove(participant_name)
+```
+
+---
+
+#### 9. Error Handling Changes
+
+##### Session-Related Errors
+```python
+# OLD: Errors handled at app level with session IDs
+try:
+    session_info, msg = await app.receive(session=session_id)
+except Exception as e:
+    # Handle session-specific errors
+
+# NEW: Errors handled at session level
+try:
+    msg_ctx, msg = await session.get_message()
+except Exception as e:
+    # Handle session-specific errors
+```
+
+---
+
+#### 10. Complete Migration Checklist
+
+##### Phase 1: Dependencies and Basic Setup
+- [ ] Update `slim-bindings` to `>=0.6.0`
+- [ ] Replace `app.get_id()` with `app.id_str`
+- [ ] Remove `async with app:` context managers
+
+##### Phase 2: Session Configuration
+- [ ] Map `FireAndForget(sticky=True)` → `PointToPoint(peer_name=target)`
+- [ ] Map `Streaming(BIDIRECTIONAL)` → `group(channel_name=topic)`
+- [ ] Update session configuration parameters
+
+##### Phase 3: Message Sending
+- [ ] Replace `app.publish()` with `session.publish()`
+- [ ] Replace `app.publish_to()` with `session.publish_to()`
+
+##### Phase 4: Message Receiving
+- [ ] Replace `app.receive()` with `app.listen_for_session()` for new sessions
+- [ ] Replace `app.receive(session=id)` with `session.get_message()`
+- [ ] Update message context handling (`msg_ctx.source_name` vs `session_info.destination_name`)
+
+##### Phase 5: Session Management
+- [ ] Update background task signatures to accept session objects instead of IDs
+- [ ] Replace `app.invite()` with `session.invite()`
+- [ ] Update session tracking to use objects instead of IDs
+
+##### Phase 6: Testing and Validation
+- [ ] Test all communication patterns (PointToPoint, Group)
+- [ ] Verify MLS functionality if used
+- [ ] Test error handling and edge cases
+- [ ] Validate performance characteristics
+
+---
+
 ## v0.5.0 (19 September 2025)
 
 ### Key Highlights
