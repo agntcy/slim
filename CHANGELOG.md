@@ -29,7 +29,7 @@ All notable changes to this project will be documented in this file.
 - Removal of anycast session type, renaming to PointToPoint and Group sessions
 - Removal of request-reply API from Python bindings
 - Authentication method changes (bearer auth → static JWT)
-- Multicast configuration changes (removed moderator parameter)
+- Group configuration changes (removed moderator parameter)
 - Python bindings: removed destination_name property
 
 #### 🔧 Infrastructure & Tooling
@@ -108,10 +108,10 @@ The following matrix shows compatibility between different component versions:
 #### ⚠ Breaking Changes
 
 - Session API refactoring with new receive() pattern ([#731](https://github.com/agntcy/slim/pull/731))
-- Remove anycast session, rename unicast and multicast sessions into PointToPoint and Group ([#795](https://github.com/agntcy/slim/pull/795))
+- Remove anycast session, rename other sessions into PointToPoint and Group ([#795](https://github.com/agntcy/slim/pull/795))
 - Remove request-reply API from Python bindings ([#677](https://github.com/agntcy/slim/pull/677))
 - Remove bearer auth in favour of static JWT ([#774](https://github.com/agntcy/slim/pull/774))
-- Remove moderator parameter from multicast configuration ([#739](https://github.com/agntcy/slim/pull/739))
+- Remove moderator parameter from Group configuration ([#739](https://github.com/agntcy/slim/pull/739))
 - Remove destination_name property from Python bindings ([#751](https://github.com/agntcy/slim/pull/751))
 
 #### 🚀 Features
@@ -137,7 +137,7 @@ The following matrix shows compatibility between different component versions:
 - Add group id to node id ([#746](https://github.com/agntcy/slim/pull/746))
 - Create new JWKS file containing all keys from all trust domains ([#776](https://github.com/agntcy/slim/pull/776))
 - Load all certificates for dataplane from ca ([#772](https://github.com/agntcy/slim/pull/772))
-- Correctly close multicast example ([#786](https://github.com/agntcy/slim/pull/786))
+- Correctly close group example ([#786](https://github.com/agntcy/slim/pull/786))
 - Fix readmes for python bindings examples ([#764](https://github.com/agntcy/slim/pull/764))
 
 #### 🔧 Infrastructure & Tooling
