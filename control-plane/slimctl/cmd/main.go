@@ -16,11 +16,13 @@ import (
 	"github.com/knadh/koanf/providers/env"
 	"github.com/knadh/koanf/providers/file"
 	"github.com/knadh/koanf/providers/posflag"
+	"github.com/spf13/afero"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 	"go.uber.org/zap"
 
-	"github.com/agntcy/slim/control-plane/common/options"
+	"github.com/agntcy/slim/control-plane/slimctl/internal/cfg"
+	configCmd "github.com/agntcy/slim/control-plane/slimctl/internal/cmd/config"
 	controllerCmd "github.com/agntcy/slim/control-plane/slimctl/internal/cmd/controller"
 	nodectrlCmd "github.com/agntcy/slim/control-plane/slimctl/internal/cmd/nodecontroller"
 	versionCmd "github.com/agntcy/slim/control-plane/slimctl/internal/cmd/version"
@@ -28,16 +30,16 @@ import (
 
 var k = koanf.New(".")
 
-func initConfig(opts *options.CommonOptions, flagSet *pflag.FlagSet) error {
+func initConfig(conf *cfg.ConfigData, flagSet *pflag.FlagSet) error {
 	// defaults
 	defaults := map[string]interface{}{
-		"basic_auth_creds": "",
-		"server":           "localhost:50051",
-		"timeout":          "15s",
-		"tls.insecure":     true,
-		"tls.ca_file":      "",
-		"tls.cert_file":    "",
-		"tls.key_file":     "",
+		"common_opts.basic_auth_creds": "",
+		"common_opts.server":           "localhost:50051",
+		"common_opts.timeout":          "15s",
+		"common_opts.tls_insecure":     true,
+		"common_opts.tls_ca_file":      "",
+		"common_opts.tls_cert_file":    "",
+		"common_opts.tls_key_file":     "",
 	}
 	if err := k.Load(confmap.Provider(defaults, "."), nil); err != nil {
 		return fmt.Errorf("error loading defaults: %w", err)
@@ -45,11 +47,11 @@ func initConfig(opts *options.CommonOptions, flagSet *pflag.FlagSet) error {
 
 	home, _ := os.UserHomeDir()
 	paths := []string{
-		filepath.Join(home, ".slimctl", "config.yaml"),
+		filepath.Join(home, ".config", "slimctl", "config.yaml"),
 		"config.yaml",
 	}
 	for _, p := range paths {
-		if _, err := os.Stat(p); err == nil {
+		if exists, _ := afero.Exists(conf.Fs, p); exists {
 			if err := k.Load(file.Provider(p), yaml.Parser()); err != nil {
 				return fmt.Errorf("error reading config %s: %w", p, err)
 			}
@@ -58,7 +60,7 @@ func initConfig(opts *options.CommonOptions, flagSet *pflag.FlagSet) error {
 	}
 
 	if flagSet != nil {
-		if err := k.Load(posflag.Provider(flagSet, ".", k), nil); err != nil {
+		if err := k.Load(posflag.ProviderWithValue(flagSet, ".", k, cfg.MapFlagToConfigFunc()), nil); err != nil {
 			return fmt.Errorf("error loading flags: %w", err)
 		}
 	}
@@ -74,34 +76,35 @@ func initConfig(opts *options.CommonOptions, flagSet *pflag.FlagSet) error {
 		return fmt.Errorf("error loading env: %w", err)
 	}
 
-	opts.BasicAuthCredentials = k.String("basic_auth_creds")
-	opts.Server = k.String("server")
-	opts.Timeout = k.Duration("timeout")
-	opts.TLSInsecure = k.Bool("tls.insecure")
-	opts.TLSCAFile = k.String("tls.ca_file")
-	opts.TLSCertFile = k.String("tls.cert_file")
-	opts.TLSKeyFile = k.String("tls.key_file")
+	conf.AppConfig.CommonOpts.BasicAuthCredentials = k.String("common_opts.basic_auth_creds")
+	conf.AppConfig.CommonOpts.Server = k.String("common_opts.server")
+	conf.AppConfig.CommonOpts.Timeout = k.Duration("common_opts.timeout")
+	conf.AppConfig.CommonOpts.TLSInsecure = k.Bool("common_opts.tls_insecure")
+	conf.AppConfig.CommonOpts.TLSCAFile = k.String("common_opts.tls_ca_file")
+	conf.AppConfig.CommonOpts.TLSCertFile = k.String("common_opts.tls_cert_file")
+	conf.AppConfig.CommonOpts.TLSKeyFile = k.String("common_opts.tls_key_file")
 
 	return nil
 }
 
 func main() {
-	opts := options.NewOptions()
+	var cmdFs = afero.NewOsFs()
+	conf := cfg.NewConfigData(cmdFs)
 
 	rootCmd := &cobra.Command{
 		Use:   "slimctl",
 		Short: "SLIM control CLI",
 		PersistentPreRunE: func(cmd *cobra.Command, _ []string) error {
-			if err := initConfig(opts, cmd.Root().PersistentFlags()); err != nil {
+			if err := initConfig(conf, cmd.Root().PersistentFlags()); err != nil {
 				return err
 			}
 			// Initialize a default logger if none is provided to avoid nil dereference in commands.
-			if opts.Logger == nil {
+			if conf.AppConfig.CommonOpts.Logger == nil {
 				l, err := zap.NewProduction()
 				if err != nil {
 					return fmt.Errorf("failed to initialize logger: %w", err)
 				}
-				opts.Logger = l
+				conf.AppConfig.CommonOpts.Logger = l
 			}
 			return nil
 		},
@@ -109,14 +112,14 @@ func main() {
 	rootCmd.PersistentFlags().StringP(
 		"basic_auth_creds",
 		"b",
-		k.String("basic_auth_creds"),
+		k.String("common_opts.basic_auth_creds"),
 		"Basic auth credentials for authentication in username:password format",
 	)
 
 	rootCmd.PersistentFlags().StringP(
 		"server",
 		"s",
-		k.String("server"),
+		k.String("common_opts.server"),
 		"SLIM gRPC control API endpoint (host:port)",
 	)
 
@@ -134,30 +137,32 @@ func main() {
 
 	rootCmd.PersistentFlags().String(
 		"tls.ca_file",
-		"",
+		k.String("common_opts.tls_ca_file"),
 		"path to TLS CA certificate",
 	)
 
 	rootCmd.PersistentFlags().String(
 		"tls.cert_file",
-		"",
+		k.String("common_opts.tls_cert_file"),
 		"path to client TLS certificate",
 	)
 
 	rootCmd.PersistentFlags().String(
 		"tls.key_file",
-		"",
+		k.String("common_opts.tls_key_file"),
 		"path to client TLS key",
 	)
 
-	rootCmd.AddCommand(controllerCmd.NewNodeCmd(opts))
-	rootCmd.AddCommand(controllerCmd.NewConnectionCmd(opts))
-	rootCmd.AddCommand(controllerCmd.NewRouteCmd(opts))
-	rootCmd.AddCommand(controllerCmd.NewChannelCmd(opts))
-	rootCmd.AddCommand(controllerCmd.NewParticipantCmd(opts))
+	rootCmd.AddCommand(controllerCmd.NewNodeCmd(conf.AppConfig.CommonOpts))
+	rootCmd.AddCommand(controllerCmd.NewConnectionCmd(conf.AppConfig.CommonOpts))
+	rootCmd.AddCommand(controllerCmd.NewRouteCmd(conf.AppConfig.CommonOpts))
+	rootCmd.AddCommand(controllerCmd.NewChannelCmd(conf.AppConfig.CommonOpts))
+	rootCmd.AddCommand(controllerCmd.NewParticipantCmd(conf.AppConfig.CommonOpts))
 
-	rootCmd.AddCommand(nodectrlCmd.NewNodeCmd(opts))
-	rootCmd.AddCommand(versionCmd.NewVersionCmd(opts))
+	rootCmd.AddCommand(nodectrlCmd.NewNodeCmd(conf.AppConfig.CommonOpts))
+	rootCmd.AddCommand(versionCmd.NewVersionCmd(conf.AppConfig.CommonOpts))
+
+	rootCmd.AddCommand(configCmd.NewConfigCmd(conf))
 
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Fprintf(os.Stderr, "CLI error: %v", err)
