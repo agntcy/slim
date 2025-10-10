@@ -108,7 +108,7 @@ The following matrix shows compatibility between different component versions:
 #### ⚠ Breaking Changes
 
 - Session API refactoring with new receive() pattern ([#731](https://github.com/agntcy/slim/pull/731))
-- Remove anycast session, rename unicast and multicast sessions ([#795](https://github.com/agntcy/slim/pull/795))
+- Remove anycast session, rename unicast and multicast sessions into PointToPoint and Group ([#795](https://github.com/agntcy/slim/pull/795))
 - Remove request-reply API from Python bindings ([#677](https://github.com/agntcy/slim/pull/677))
 - Remove bearer auth in favour of static JWT ([#774](https://github.com/agntcy/slim/pull/774))
 - Remove moderator parameter from multicast configuration ([#739](https://github.com/agntcy/slim/pull/739))
