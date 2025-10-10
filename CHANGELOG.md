@@ -11,7 +11,7 @@ All notable changes to this project will be documented in this file.
 #### 🎯 Major Features Added
 
 - **Control Plane Group Management**: Complete implementation of group management functionality for organizing and controlling SLIM node groups
-- **Enhanced Authentication**: In the data-plane, replaced bearer authentication with static JWT tokens. IN control-plane, added basic authentication support for slimctl and k8s ingress in helm chart
+- **Enhanced Authentication**: In the data-plane, replaced bearer authentication with static JWT tokens. In the control-plane, added basic authentication support for slimctl and k8s ingress in helm chart
 - **Session API Refactoring**: Major improvements to session handling including metadata support, enhanced point-to-point sessions with sender/receiver buffers, and removal of request-reply API
 - **Python Bindings Improvements**: Unique SLIM data-plane instance per process by default, improved publish function, better documentation, and session type exposure
 - **Node Management**: Enhanced node update handling and improved group ID integration in node identification
