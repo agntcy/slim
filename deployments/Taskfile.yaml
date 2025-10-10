@@ -13,8 +13,8 @@ version: "3"
 vars:
   SPIRE_NAMESPACE: '{{ .SPIRE_NAMESPACE | default "spire" }}'
   SLIM_NAMESPACE: '{{ .SLIM_NAMESPACE | default "slim" }}'
-  SLIM_IMAGE_TAG: '{{ .SLIM_IMAGE_TAG | default "0.6.0-dev.4" }}'
-  SLIM_CONTROLLER_IMAGE_TAG: '{{ .SLIM_CONTROLLER_IMAGE_TAG | default "0.2.0-dev.12" }}'
+  SLIM_IMAGE_TAG: '{{ .SLIM_IMAGE_TAG | default "0.6.0" }}'
+  SLIM_CONTROLLER_IMAGE_TAG: '{{ .SLIM_CONTROLLER_IMAGE_TAG | default "0.6.0" }}'
 
 
 # Suppress task name and command output by default
